@@ -154,9 +154,11 @@ struct InferenceServiceCard: View {
             }
 
             // Symmetric case: if the user is authenticated and the mode is
-            // still the default "your-own", switch to "managed" so signed-in
-            // users get managed inference out of the box.
-            if isLoggedIn && draftMode == "your-own" {
+            // still the default "your-own" and they have no BYO key saved,
+            // switch to "managed" so signed-in users get managed inference
+            // out of the box. Users who have explicitly configured a BYO key
+            // keep their preference.
+            if isLoggedIn && draftMode == "your-own" && !store.hasKeyForProvider(draftProvider) {
                 draftMode = "managed"
                 store.setInferenceMode("managed")
             }
@@ -177,15 +179,15 @@ struct InferenceServiceCard: View {
                 // attempt managed-proxy routing while unauthenticated.
                 draftMode = "your-own"
                 store.setInferenceMode("your-own")
-            } else if isAuthenticated {
-                // When auth becomes available, default to managed mode.
-                // This covers both restoring a persisted managed mode that
-                // onAppear may have temporarily overridden, and switching
-                // new sign-ins from the "your-own" default to managed.
+            } else if isAuthenticated && store.inferenceMode == "managed" {
+                // When auth becomes available (e.g. startup transition from
+                // loading to authenticated), restore the persisted managed
+                // mode that onAppear may have temporarily overridden.
                 draftMode = "managed"
-                if store.inferenceMode != "managed" {
-                    store.setInferenceMode("managed")
-                }
+            } else if isAuthenticated && store.inferenceMode == "your-own" && !store.hasKeyForProvider(draftProvider) {
+                // When a user signs in and has no BYO key, default to managed.
+                draftMode = "managed"
+                store.setInferenceMode("managed")
             }
         }
         .onChange(of: authManager.isLoading) { _, isLoading in
