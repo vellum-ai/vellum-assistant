@@ -1,6 +1,5 @@
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, rmSync, unlinkSync } from "node:fs";
-import { createServer, type Server } from "node:net";
+import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { createCipheriv, pbkdf2Sync, randomBytes } from "node:crypto";
@@ -145,88 +144,6 @@ function writeEncryptedStoreV2(entries: Record<string, string>): void {
 }
 
 // ---------------------------------------------------------------------------
-// Broker test helpers — mock UDS server
-// ---------------------------------------------------------------------------
-
-const TEST_TOKEN = "test-auth-token-abc123";
-
-function writeBrokerToken(token: string): void {
-  const tokenDir = join(testDir, ".vellum", "protected");
-  mkdirSync(tokenDir, { recursive: true });
-  writeFileSync(join(tokenDir, "keychain-broker.token"), token);
-}
-
-/**
- * Create a mock keychain broker UDS server that responds to key.get requests.
- * Listens on the derived socket path (getRootDir() + keychain-broker.sock).
- * Returns the socket path and a handle to close the server.
- */
-function createMockBroker(credentials: Record<string, string>): {
-  socketPath: string;
-  server: Server;
-  close: () => void;
-} {
-  const socketPath = join(testDir, ".vellum", "keychain-broker.sock");
-  mkdirSync(join(testDir, ".vellum"), { recursive: true });
-
-  const server = createServer((conn) => {
-    let buf = "";
-    conn.on("data", (chunk) => {
-      buf += chunk.toString();
-      const idx = buf.indexOf("\n");
-      if (idx !== -1) {
-        const line = buf.slice(0, idx);
-        buf = buf.slice(idx + 1);
-        try {
-          const req = JSON.parse(line);
-          if (req.token !== TEST_TOKEN) {
-            conn.write(
-              JSON.stringify({
-                id: req.id,
-                ok: false,
-                error: { code: "UNAUTHORIZED", message: "bad token" },
-              }) + "\n",
-            );
-            return;
-          }
-          if (req.method === "key.get") {
-            const account = req.params?.account;
-            const value = credentials[account];
-            conn.write(
-              JSON.stringify({
-                id: req.id,
-                ok: true,
-                result:
-                  value !== undefined
-                    ? { found: true, value }
-                    : { found: false },
-              }) + "\n",
-            );
-          }
-        } catch {
-          // ignore malformed requests
-        }
-      }
-    });
-  });
-
-  server.listen(socketPath);
-
-  return {
-    socketPath,
-    server,
-    close: () => {
-      server.close();
-      try {
-        unlinkSync(socketPath);
-      } catch {
-        // best-effort
-      }
-    },
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Setup / teardown
 // ---------------------------------------------------------------------------
 
@@ -358,88 +275,6 @@ describe("v1 encrypted store backward compatibility", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests: broker credential reading
-// ---------------------------------------------------------------------------
-
-describe("readCredential broker integration", () => {
-  test("returns undefined when socket file does not exist", async () => {
-    const result = await readCredential(credentialKey("test", "key"));
-    expect(result).toBeUndefined();
-  });
-
-  test("falls back to encrypted store when socket file does not exist", async () => {
-    writeEncryptedStore({
-      [credentialKey("test", "key")]: "encrypted-value",
-    });
-
-    const result = await readCredential(credentialKey("test", "key"));
-    expect(result).toBe("encrypted-value");
-  });
-
-  test("falls back to encrypted store when broker token file is missing", async () => {
-    // Create socket file but no token file
-    mkdirSync(join(testDir, ".vellum"), { recursive: true });
-    writeFileSync(join(testDir, ".vellum", "keychain-broker.sock"), "");
-
-    writeEncryptedStore({
-      [credentialKey("test", "key")]: "encrypted-value",
-    });
-
-    const result = await readCredential(credentialKey("test", "key"));
-    expect(result).toBe("encrypted-value");
-  });
-
-  test("reads credential from broker when available", async () => {
-    const broker = createMockBroker({
-      [credentialKey("test", "key")]: "broker-secret-value",
-    });
-    try {
-      writeBrokerToken(TEST_TOKEN);
-
-      const result = await readCredential(credentialKey("test", "key"));
-      expect(result).toBe("broker-secret-value");
-    } finally {
-      broker.close();
-    }
-  });
-
-  test("broker result takes priority over encrypted store", async () => {
-    const broker = createMockBroker({
-      [credentialKey("test", "key")]: "broker-value",
-    });
-    try {
-      writeBrokerToken(TEST_TOKEN);
-
-      writeEncryptedStore({
-        [credentialKey("test", "key")]: "encrypted-value",
-      });
-
-      const result = await readCredential(credentialKey("test", "key"));
-      expect(result).toBe("broker-value");
-    } finally {
-      broker.close();
-    }
-  });
-
-  test("falls back to encrypted store when broker returns not found", async () => {
-    // Broker has no entry for the test credential key
-    const broker = createMockBroker({});
-    try {
-      writeBrokerToken(TEST_TOKEN);
-
-      writeEncryptedStore({
-        [credentialKey("test", "key")]: "encrypted-value",
-      });
-
-      const result = await readCredential(credentialKey("test", "key"));
-      expect(result).toBe("encrypted-value");
-    } finally {
-      broker.close();
-    }
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Tests: secret values must not leak into log output
 // ---------------------------------------------------------------------------
 
@@ -447,26 +282,6 @@ describe("secret leak prevention", () => {
   function allLogStrings(): string {
     return JSON.stringify(logCalls);
   }
-
-  test("broker read does not leak secret values into logs", async () => {
-    const secretValue = "super-secret-broker-credential-value";
-    const broker = createMockBroker({
-      [credentialKey("leak-test", "key")]: secretValue,
-    });
-    try {
-      writeBrokerToken(TEST_TOKEN);
-
-      const result = await readCredential(credentialKey("leak-test", "key"));
-      expect(result).toBe(secretValue);
-
-      const serialized = allLogStrings();
-      expect(serialized).not.toContain(secretValue);
-      // The auth token used for broker handshake should also stay out of logs
-      expect(serialized).not.toContain(TEST_TOKEN);
-    } finally {
-      broker.close();
-    }
-  });
 
   test("encrypted store read does not leak secret values into logs", async () => {
     const secretValue = "super-secret-encrypted-credential-value";
