@@ -1,12 +1,11 @@
 ---
 name: telegram-setup
-description: Connect a Telegram bot to the Vellum Assistant gateway with automated webhook registration and credential storage
+description: Connect a Telegram bot with managed platform callback routing in containerized deployments and public ingress locally
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🤖"
   vellum:
     display-name: "Telegram Setup"
-    includes: ["public-ingress"]
 ---
 
 You are helping your user connect a Telegram bot to the Vellum Assistant gateway. Walk through each step below.
@@ -43,11 +42,27 @@ assistant config set telegram.botUsername "$BOT_USERNAME"
 
 If the `curl` call fails, the token is invalid - ask the user to re-enter (repeat Step 1).
 
-## Step 3: Set Up Public Ingress and Webhooks
+## Step 3: Set Up Webhook Routing
 
-### Verify Public Ingress is Set Up
+First check whether managed platform callback routes are available:
 
-Telegram needs a publicly reachable URL to send webhook events to. Load the `public-ingress` skill to determine whether a public ingress has been configured and walk the user through setting one up if not.
+```bash
+assistant platform status --json
+```
+
+If `containerized` is `true` and both `baseUrl` and `assistantId` are present:
+
+- Register the managed callback route:
+
+```bash
+assistant platform callback-routes register --path webhooks/telegram --type telegram --json
+```
+
+- In this mode, do **not** load `public-ingress` or mention ngrok. The managed platform callback route is the Telegram webhook URL.
+
+Otherwise:
+
+- Telegram needs a publicly reachable URL to send webhook events to. Load the `public-ingress` skill to determine whether a public ingress has been configured and walk the user through setting one up if not.
 
 ### Generate Webhook Secret
 
@@ -62,14 +77,6 @@ If not, generate and set one:
 ```bash
 assistant credentials set --service telegram --field webhook_secret "$(uuidgen)"
 ```
-
-### Register Platform Callback Route
-
-```bash
-assistant platform callback-routes register --path webhooks/telegram --type telegram --json
-```
-
-Only needed for containerized deployments. A "not available" error is expected locally - ignore it.
 
 ## Step 4: Register Bot Commands
 

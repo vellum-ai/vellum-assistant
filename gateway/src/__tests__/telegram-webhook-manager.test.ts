@@ -36,6 +36,9 @@ function makeCaches(
     botToken?: string | null;
     webhookSecret?: string | null;
     ingressUrl?: string | null;
+    platformBaseUrl?: string | null;
+    assistantApiKey?: string | null;
+    platformAssistantId?: string | null;
   } = {},
 ) {
   const botToken =
@@ -48,9 +51,24 @@ function makeCaches(
     "ingressUrl" in opts
       ? (opts.ingressUrl ?? undefined)
       : "https://example.ngrok.io";
+  const platformBaseUrl =
+    "platformBaseUrl" in opts
+      ? (opts.platformBaseUrl ?? undefined)
+      : undefined;
+  const assistantApiKey =
+    "assistantApiKey" in opts
+      ? (opts.assistantApiKey ?? undefined)
+      : undefined;
+  const platformAssistantId =
+    "platformAssistantId" in opts
+      ? (opts.platformAssistantId ?? undefined)
+      : undefined;
   const credentialMap: Record<string, string | undefined> = {
     [credentialKey("telegram", "bot_token")]: botToken,
     [credentialKey("telegram", "webhook_secret")]: webhookSecret,
+    [credentialKey("vellum", "platform_base_url")]: platformBaseUrl,
+    [credentialKey("vellum", "assistant_api_key")]: assistantApiKey,
+    [credentialKey("vellum", "platform_assistant_id")]: platformAssistantId,
   };
   const credentials = {
     get: async (key: string) => credentialMap[key],
@@ -207,6 +225,74 @@ describe("reconcileTelegramWebhook", () => {
     await reconcileTelegramWebhook(noIngressCaches);
 
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("registers a managed callback route when ingress URL is not configured", async () => {
+    const calls: { method: string; body: unknown }[] = [];
+    const caches = makeCaches({
+      ingressUrl: undefined,
+      platformBaseUrl: "https://platform.example.com",
+      assistantApiKey: "ast-managed-key",
+      platformAssistantId: "11111111-2222-4333-8444-555555555555",
+    });
+
+    fetchMock = mock(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url =
+          typeof input === "string"
+            ? input
+            : input instanceof URL
+              ? input.toString()
+              : input.url;
+        if (
+          url ===
+          "https://platform.example.com/v1/internal/gateway/callback-routes/register/"
+        ) {
+          const body = init?.body ? JSON.parse(init.body as string) : null;
+          calls.push({ method: "registerCallbackRoute", body });
+          return new Response(
+            JSON.stringify({
+              callback_url:
+                "https://platform.example.com/v1/gateway/callbacks/11111111-2222-4333-8444-555555555555/webhooks/telegram/",
+            }),
+            {
+              status: 201,
+              headers: { "content-type": "application/json" },
+            },
+          );
+        }
+        if (url.includes("/getWebhookInfo")) {
+          calls.push({ method: "getWebhookInfo", body: null });
+          return makeTelegramResponse({
+            url: "",
+            has_custom_certificate: false,
+            pending_update_count: 0,
+          });
+        }
+        if (url.includes("/setWebhook")) {
+          const body = init?.body ? JSON.parse(init.body as string) : null;
+          calls.push({ method: "setWebhook", body });
+          return makeTelegramResponse(true);
+        }
+        return new Response("Not found", { status: 404 });
+      },
+    );
+
+    await reconcileTelegramWebhook(caches);
+
+    expect(calls).toHaveLength(3);
+    expect(calls[0].method).toBe("registerCallbackRoute");
+    expect(calls[0].body).toEqual({
+      assistant_id: "11111111-2222-4333-8444-555555555555",
+      callback_path: "webhooks/telegram",
+      type: "telegram",
+    });
+    expect(calls[1].method).toBe("getWebhookInfo");
+    expect(calls[2].method).toBe("setWebhook");
+    expect((calls[2].body as any).url).toBe(
+      "https://platform.example.com/v1/gateway/callbacks/11111111-2222-4333-8444-555555555555/webhooks/telegram/",
+    );
+    expect((calls[2].body as any).secret_token).toBe("test-webhook-secret");
   });
 
   test("calls setWebhook when current URL is empty", async () => {

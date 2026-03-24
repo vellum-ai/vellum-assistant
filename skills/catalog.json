@@ -384,11 +384,18 @@
     {
       "id": "public-ingress",
       "name": "public-ingress",
-      "description": "Set up and manage ngrok-based public ingress for webhooks and OAuth callbacks via ingress.publicBaseUrl",
+      "description": "Set up and manage ngrok-based public ingress for local assistants; do not use this in managed mode when platform callback routing is available",
       "metadata": {
         "emoji": "🌍",
         "vellum": {
-          "display-name": "Public Ingress"
+          "display-name": "Public Ingress",
+          "activation-hints": [
+            "Local assistant needs a public webhook or OAuth callback URL",
+            "ngrok tunnel setup for a non-managed assistant"
+          ],
+          "avoid-when": [
+            "Running in a managed/containerized assistant with platform callback routing available"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
@@ -494,14 +501,11 @@
     {
       "id": "telegram-setup",
       "name": "telegram-setup",
-      "description": "Connect a Telegram bot to the Vellum Assistant gateway with automated webhook registration and credential storage",
+      "description": "Connect a Telegram bot with managed platform callback routing in containerized deployments and public ingress locally",
       "metadata": {
         "emoji": "🤖",
         "vellum": {
-          "display-name": "Telegram Setup",
-          "includes": [
-            "public-ingress"
-          ]
+          "display-name": "Telegram Setup"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
