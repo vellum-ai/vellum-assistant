@@ -28,17 +28,6 @@ extension EnvironmentValues {
 /// are never read during body evaluation for rendering purposes.
 /// Pattern mirrors `AnchorVisibilityTracker.lastMinY` (not @Published).
 @MainActor final class ScrollTrackingState {
-    /// Last reported ConversationTailAnchorYKey value.
-    /// Only used for the 2pt dead-zone check in the preference handler.
-    var lastTailAnchorY: CGFloat = .infinity
-    /// Pending avatar Y position awaiting smoothing delay.
-    var pendingAvatarY: CGFloat?
-    /// Timestamp of the last applied avatar display Y update.
-    var avatarLastAppliedAt: Date?
-    /// Non-reactive avatar anchor Y position. Only used for threshold
-    /// comparisons and visibility boundary detection — never read during
-    /// body evaluation for rendering, so mutations do not trigger re-renders.
-    var avatarTargetY: CGFloat = .infinity
     /// Debounced task for transcript snapshot updates, coalescing rapid scroll
     /// events into a single snapshot capture per 150ms window.
     var snapshotDebounceTask: Task<Void, Never>?
@@ -157,6 +146,9 @@ struct MessageListView: View {
     /// Measured width of the chat container, used to detect sidebar/split resizes
     /// and stabilize scroll position during layout width changes.
     var containerWidth: CGFloat = 0
+    /// Height of the composer section, measured in ChatView and passed down
+    /// so the viewport-pinned avatar overlay can offset above the composer.
+    var composerHeight: CGFloat = 0
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @State private var identity: IdentityInfo? = IdentityInfo.load()
@@ -191,9 +183,6 @@ struct MessageListView: View {
     @State private var resizeScrollTask: Task<Void, Never>?
     /// Task that clears the highlight flash after the animation duration.
     @State private var highlightDismissTask: Task<Void, Never>?
-    @State private var isAvatarVisible: Bool = false
-    @State private var avatarDisplayY: CGFloat = .infinity
-    @State private var avatarSmoothingTask: Task<Void, Never>?
     @State private var hasPlayedTailEntryAnimation = false
     /// Captures the `assistantActivityPhase` at the moment `isSending` goes false.
     /// Used to distinguish mid-turn tool-confirmation pauses (phase == "awaiting_confirmation")
@@ -474,164 +463,16 @@ struct MessageListView: View {
         return result
     }
 
-    private var lastRenderableMessage: ChatMessage? {
-        messages.last(where: {
-            if case .queued = $0.status { return false }
-            return true
-        })
-    }
-
-    private var isLastMessageStreaming: Bool {
-        lastRenderableMessage?.isStreaming == true
-    }
-
+    /// Whether the floating avatar should be visible. Derived from scroll
+    /// proximity to the bottom — the avatar appears when the user is near
+    /// the bottom of the conversation and disappears when scrolled up.
     private var shouldShowConversationTailAvatar: Bool {
-        // Intentionally show the avatar under the latest rendered conversation tail
-        // (user or assistant content), not only after the first assistant bubble.
         guard !visibleMessages.isEmpty else { return false }
-        return isAvatarVisible
+        return isNearBottom
     }
 
     private var shouldPlayTailEntryAnimation: Bool {
         !hasPlayedTailEntryAnimation && messages.count <= 2
-    }
-
-    private var shouldCoalesceAvatarUpdates: Bool {
-        ConversationAvatarFollower.shouldCoalesce(
-            isSending: isSending,
-            isThinking: isThinking,
-            isLastMessageStreaming: isLastMessageStreaming
-        )
-    }
-
-    private func applyAvatarDisplayY(forAnchorY anchorY: CGFloat) {
-        // Circuit breaker: suppress @State mutations when a scroll loop is detected.
-        let convIdString = conversationId?.uuidString ?? "unknown"
-        if scrollCoordinator.scrollLoopGuard.isTripped(conversationId: convIdString) { return }
-
-        let y = anchorY + ConversationAvatarFollower.verticalOffset
-        // Dead-zone: skip @State update when position hasn't moved meaningfully.
-        // Each avatarDisplayY change triggers a MessageListView body re-evaluation;
-        // sub-pixel jitter during scroll would otherwise cause continuous re-renders.
-        guard abs(avatarDisplayY - y) > 2 else { return }
-
-        // During streaming / sending / thinking, only allow the avatar to move
-        // downward (increasing Y).  Auto-scroll viewport adjustments can briefly
-        // report a smaller tail-anchor Y, which would yank the avatar back toward
-        // the top of the viewport.  Clamping to downward-only movement keeps the
-        // avatar tracking smoothly with the growing content.  When coalescing ends
-        // (streaming finishes), the onChange handler re-applies the true position.
-        if shouldCoalesceAvatarUpdates && avatarDisplayY.isFinite && y < avatarDisplayY {
-            return
-        }
-
-        recordScrollLoopEvent(.avatarDisplayYApplied)
-        scrollCoordinator.scrollTracking.avatarLastAppliedAt = Date()
-        // Set @State without withAnimation — the spring animation is applied via
-        // .animation() on the avatar view's .offset() modifier instead. This avoids
-        // wrapping the mutation in an animation transaction, which would cause SwiftUI
-        // to re-evaluate the body on each spring interpolation frame and feed layout
-        // shifts back into the tail anchor preference → avatar update cycle.
-        avatarDisplayY = y
-    }
-
-    private func updateAvatarFollower(anchorY: CGFloat) {
-        recordScrollLoopEvent(.avatarFollowerUpdate)
-        // Compute visibility once and update @State only on boundary crossings.
-        // During an active send, don't hide the avatar on transient non-finite
-        // anchors — the LazyVStack briefly deallocates the anchor view during
-        // re-layout (thinking indicator, rich UI expansion). Hiding would cause
-        // the avatar to flash off-screen via shouldShowConversationTailAvatar.
-        let nowVisible = anchorY.isFinite
-            && ConversationAvatarFollower.shouldShow(anchorY: anchorY, viewportHeight: scrollViewportHeight)
-        let convIdString = conversationId?.uuidString ?? "unknown"
-        let isTripped = scrollCoordinator.scrollLoopGuard.isTripped(conversationId: convIdString)
-        if isAvatarVisible != nowVisible {
-            // Circuit breaker: when tripped, only allow hiding (removing UI is safe).
-            // Showing (false→true) adds layout that could feed the loop — suppress it.
-            // Send guard: during send, don't hide on transient non-finite anchors.
-            if (!isTripped || !nowVisible) && (nowVisible || !isSending) {
-                isAvatarVisible = nowVisible
-            }
-        }
-
-        // Update non-reactive tracking position (no body re-evaluation).
-        if ConversationAvatarFollower.shouldUpdateTarget(
-            previousAnchorY: scrollCoordinator.scrollTracking.avatarTargetY,
-            newAnchorY: anchorY,
-            viewportHeight: scrollViewportHeight
-        ) {
-            scrollCoordinator.scrollTracking.avatarTargetY = anchorY
-        }
-
-        guard anchorY.isFinite else {
-            avatarSmoothingTask?.cancel()
-            avatarSmoothingTask = nil
-            scrollCoordinator.scrollTracking.pendingAvatarY = nil
-            scrollCoordinator.scrollTracking.avatarLastAppliedAt = nil
-            // During an active send, the LazyVStack may transiently deallocate
-            // the tail anchor view during re-layout (e.g. thinking indicator
-            // insertion, rich UI expansion), producing a non-finite preference.
-            // Keep the avatar at its last known position so it doesn't flash
-            // off-screen and back. Also suppress when circuit breaker is tripped
-            // to avoid @State mutations that feed the scroll loop.
-            if !isTripped && !isSending && avatarDisplayY != .infinity {
-                avatarDisplayY = .infinity
-            }
-            return
-        }
-
-        // Skip position tracking when the avatar is off-screen. The avatar
-        // overlay is hidden via shouldShowConversationTailAvatar, so updating
-        // avatarDisplayY for an invisible element just wastes layout passes.
-        guard nowVisible else {
-            avatarSmoothingTask?.cancel()
-            avatarSmoothingTask = nil
-            scrollCoordinator.scrollTracking.pendingAvatarY = nil
-            return
-        }
-
-        let now = Date()
-        let delay = ConversationAvatarFollower.smoothingDelay(
-            isSending: isSending,
-            isThinking: isThinking,
-            isLastMessageStreaming: isLastMessageStreaming,
-            lastAppliedAt: scrollCoordinator.scrollTracking.avatarLastAppliedAt,
-            now: now
-        )
-
-        if delay <= 0 {
-            avatarSmoothingTask?.cancel()
-            avatarSmoothingTask = nil
-            scrollCoordinator.scrollTracking.pendingAvatarY = nil
-            // Only apply @State avatar position when circuit breaker isn't tripped
-            if !isTripped {
-                applyAvatarDisplayY(forAnchorY: anchorY)
-            }
-            return
-        }
-
-        scrollCoordinator.scrollTracking.pendingAvatarY = anchorY
-        guard avatarSmoothingTask == nil else { return }
-
-        avatarSmoothingTask = Task { @MainActor in
-            do {
-                try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
-            guard let pending = scrollCoordinator.scrollTracking.pendingAvatarY else {
-                avatarSmoothingTask = nil
-                return
-            }
-            scrollCoordinator.scrollTracking.pendingAvatarY = nil
-            // Only apply @State avatar position when circuit breaker isn't tripped
-            if !scrollCoordinator.scrollLoopGuard.isTripped(conversationId: conversationId?.uuidString ?? "unknown") {
-                applyAvatarDisplayY(forAnchorY: pending)
-            }
-            avatarSmoothingTask = nil
-        }
     }
 
     @ViewBuilder
@@ -646,7 +487,6 @@ struct MessageListView: View {
                 .padding(.horizontal, VSpacing.xl)
                 .frame(maxWidth: VSpacing.chatColumnMaxWidth)
                 .frame(maxWidth: .infinity)
-                .offset(y: avatarDisplayY)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             } else if let body = appearance.characterBodyShape,
@@ -662,8 +502,6 @@ struct MessageListView: View {
                     .padding(.horizontal, VSpacing.xl)
                     .frame(maxWidth: VSpacing.chatColumnMaxWidth)
                     .frame(maxWidth: .infinity)
-                    .offset(y: avatarDisplayY)
-                    .animation(ConversationAvatarFollower.spring, value: avatarDisplayY)
                     .accessibilityHidden(true)
                     .onAppear {
                         if shouldPlayTailEntryAnimation {
@@ -679,8 +517,6 @@ struct MessageListView: View {
                 .padding(.horizontal, VSpacing.xl)
                 .frame(maxWidth: VSpacing.chatColumnMaxWidth)
                 .frame(maxWidth: .infinity)
-                .offset(y: avatarDisplayY)
-                .animation(ConversationAvatarFollower.spring, value: avatarDisplayY)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
             }
@@ -693,10 +529,7 @@ struct MessageListView: View {
             proxy: proxy,
             conversationId: conversationId,
             anchorMessageId: $anchorMessageId,
-            scrollViewportHeight: scrollViewportHeight,
-            avatarSmoothingTask: &avatarSmoothingTask,
-            isAvatarVisible: &isAvatarVisible,
-            avatarDisplayY: &avatarDisplayY
+            scrollViewportHeight: scrollViewportHeight
         )
     }
 
@@ -917,19 +750,6 @@ struct MessageListView: View {
                         compactingIndicatorRow()
                     }
 
-                    Color.clear
-                        .frame(height: 1)
-                        .id("conversation-tail-anchor")
-                        .background {
-                            GeometryReader { geo in
-                                Color.clear.preference(
-                                    key: ConversationTailAnchorYKey.self,
-                                    value: geo.frame(in: .named("chatScrollView")).maxY
-                                )
-                            }
-                        }
-                        .transaction { $0.disablesAnimations = true }
-
                     if !state.displayMessages.isEmpty && ConversationAvatarFollower.bottomInset > 0 {
                         Color.clear
                             .frame(height: ConversationAvatarFollower.bottomInset)
@@ -1011,15 +831,10 @@ struct MessageListView: View {
                 )
                 guard case .accept(let accepted) = decision else { return }
                 os_signpost(.begin, log: PerfSignposts.log, name: "viewportHeightChanged")
-                let viewportChanged = scrollCoordinator.updateAnchorViewport(
+                scrollCoordinator.updateAnchorViewport(
                     height: accepted,
                     storedViewportHeight: &scrollViewportHeight
                 )
-                if viewportChanged, scrollCoordinator.scrollTracking.lastTailAnchorY.isFinite {
-                    // Reconcile the avatar follower on resize so a hidden target
-                    // is refreshed before a later visibility transition reveals it.
-                    updateAvatarFollower(anchorY: scrollCoordinator.scrollTracking.lastTailAnchorY)
-                }
                 os_signpost(.end, log: PerfSignposts.log, name: "viewportHeightChanged")
             }
             .onScrollGeometryChange(for: CGFloat.self) { geo in
@@ -1056,27 +871,6 @@ struct MessageListView: View {
                     os_signpost(.end, log: PerfSignposts.log, name: "distanceFromBottomChanged")
                 }
             }
-            .onPreferenceChange(ConversationTailAnchorYKey.self) { anchorY in
-                // Filter non-finite tail anchor values and apply 2pt dead-zone
-                // to reduce layout invalidation cascades during rapid scroll.
-                let decision = PreferenceGeometryFilter.evaluate(
-                    newValue: anchorY,
-                    previous: scrollCoordinator.scrollTracking.lastTailAnchorY
-                )
-                guard case .accept(let accepted) = decision else { return }
-                recordScrollLoopEvent(.tailAnchorPreferenceChange)
-                scrollCoordinator.scrollTracking.lastTailAnchorY = accepted
-                // Defer to next run loop to prevent synchronous layout re-entry
-                // on macOS. This preference fires during placeSubviews; calling
-                // withAnimation (inside applyAvatarDisplayY) synchronously causes
-                // _PaddingLayout.sizeThatFits to be re-entered, creating an infinite
-                // layout cycle when avatar properties change concurrently with a
-                // ToolConfirmationBubble in the message list.
-                Task { @MainActor in
-                    updateAvatarFollower(anchorY: accepted)
-                }
-            }
-            .transaction { $0.disablesAnimations = true }
             .onPreferenceChange(PaginationSentinelMinYKey.self) { sentinelMinY in
                 scrollCoordinator.handlePaginationSentinel(
                     sentinelMinY: sentinelMinY,
@@ -1089,8 +883,9 @@ struct MessageListView: View {
                     loadPreviousMessagePage: loadPreviousMessagePage
                 )
             }
-            .overlay(alignment: .topLeading) {
+            .overlay(alignment: .bottom) {
                 conversationTailAvatar
+                    .padding(.bottom, composerHeight + ConversationAvatarFollower.verticalOffset)
             }
             .overlay(alignment: .bottom) {
                 if !isNearBottom && !scrollCoordinator.anchorIsVisible
@@ -1179,8 +974,6 @@ struct MessageListView: View {
                 anchorTimeoutTask = nil
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
-                avatarSmoothingTask?.cancel()
-                avatarSmoothingTask = nil
                 highlightDismissTask?.cancel()
                 highlightDismissTask = nil
                 highlightedMessageId = nil
@@ -1232,11 +1025,6 @@ struct MessageListView: View {
                     if !hasEverSentMessage && messages.contains(where: { $0.role == .user }) {
                         hasEverSentMessage = true
                     }
-                }
-            }
-            .onChange(of: shouldCoalesceAvatarUpdates) {
-                if !shouldCoalesceAvatarUpdates {
-                    updateAvatarFollower(anchorY: scrollCoordinator.scrollTracking.pendingAvatarY ?? scrollCoordinator.scrollTracking.avatarTargetY)
                 }
             }
             .onChange(of: messages.count) {
@@ -1310,8 +1098,6 @@ struct MessageListView: View {
                 // Reset view-local state that doesn't belong in the coordinator.
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
-                avatarSmoothingTask?.cancel()
-                avatarSmoothingTask = nil
                 scrollCoordinator.resetForConversationSwitch(
                     oldConversationId: oldConversationId,
                     newConversationId: conversationId,
