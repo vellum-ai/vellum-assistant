@@ -716,20 +716,6 @@ async function upgradePlatform(
     }
   }
 
-  // Record version transition start in workspace git history
-  await commitWorkspaceViaGateway(
-    entry.runtimeUrl,
-    entry.assistantId,
-    buildUpgradeCommitMessage({
-      action: "upgrade",
-      phase: "starting",
-      from: entry.serviceGroupVersion ?? "unknown",
-      to: version ?? "latest",
-      topology: "managed",
-      assistantId: entry.assistantId,
-    }),
-  );
-
   console.log(
     `🔄 Upgrading platform-hosted assistant '${entry.assistantId}'...\n`,
   );
@@ -752,15 +738,6 @@ async function upgradePlatform(
   if (version) {
     body.version = version;
   }
-
-  // Notify connected clients that an upgrade is about to begin.
-  const targetVersion = version ?? `v${cliPkg.version}`;
-  console.log("📢 Notifying connected clients...");
-  await broadcastUpgradeEvent(
-    entry.runtimeUrl,
-    entry.assistantId,
-    buildStartingEvent(targetVersion, 90),
-  );
 
   const response = await fetch(url, {
     method: "POST",
@@ -798,21 +775,6 @@ async function upgradePlatform(
   // completion signal will come from the client's health-check
   // version-change detection (DaemonConnection.swift) once the new
   // version actually appears after the platform restarts the service group.
-
-  // Record successful upgrade in workspace git history
-  await commitWorkspaceViaGateway(
-    entry.runtimeUrl,
-    entry.assistantId,
-    buildUpgradeCommitMessage({
-      action: "upgrade",
-      phase: "complete",
-      from: entry.serviceGroupVersion ?? "unknown",
-      to: version ?? "latest",
-      topology: "managed",
-      assistantId: entry.assistantId,
-      result: "success",
-    }),
-  );
 
   console.log(`✅ ${result.detail}`);
   if (result.version) {
