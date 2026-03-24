@@ -50,7 +50,6 @@ export function extractContentMarkers(body: string): string[] {
   const ids: string[] = [];
   const regex = /<!-- vellum-update-release:(.+?) -->/g;
   let match: RegExpExecArray | null;
-  // eslint-disable-next-line no-restricted-syntax -- RegExp.exec returns null
   while ((match = regex.exec(body)) !== null) {
     ids.push(match[1]);
   }
@@ -62,7 +61,6 @@ export function extractReleaseIds(content: string): string[] {
   const ids: string[] = [];
   MARKER_REGEX.lastIndex = 0;
   let match: RegExpExecArray | null;
-  // eslint-disable-next-line no-restricted-syntax -- RegExp.exec returns null
   while ((match = MARKER_REGEX.exec(content)) !== null) {
     ids.push(match[1]);
   }

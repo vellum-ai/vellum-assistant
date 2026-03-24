@@ -61,8 +61,8 @@ function buildFencedCodeRanges(body: string): Array<[number, number]> {
   const fenceRe = /^(`{3,}|~{3,})(.*)?$/gm;
   let openFence: { index: number; delimiter: string } | undefined;
 
-  let match: RegExpExecArray | undefined;
-  while ((match = fenceRe.exec(body) ?? undefined) !== undefined) {
+  let match: RegExpExecArray | null;
+  while ((match = fenceRe.exec(body)) !== null) {
     const delimiter = match[1];
     if (openFence === undefined) {
       // Opening fence
@@ -125,10 +125,10 @@ export function parseInlineCommandExpansions(
   // We use a non-greedy match to find the first closing backtick.
   const tokenRe = /!\`([^`]*)\`/g;
 
-  let match: RegExpExecArray | undefined;
+  let match: RegExpExecArray | null;
   let placeholderCounter = 0;
 
-  while ((match = tokenRe.exec(body) ?? undefined) !== undefined) {
+  while ((match = tokenRe.exec(body)) !== null) {
     const startOffset = match.index;
     const endOffset = startOffset + match[0].length;
     const rawCommand = match[1];
@@ -172,12 +172,12 @@ export function parseInlineCommandExpansions(
   const matchedStarts = new Set<number>();
   // Re-run the token regex to collect all matched positions
   tokenRe.lastIndex = 0;
-  while ((match = tokenRe.exec(body) ?? undefined) !== undefined) {
+  while ((match = tokenRe.exec(body)) !== null) {
     matchedStarts.add(match.index);
   }
 
-  let unmatchedMatch: RegExpExecArray | undefined;
-  while ((unmatchedMatch = unmatchedRe.exec(body) ?? undefined) !== undefined) {
+  let unmatchedMatch: RegExpExecArray | null;
+  while ((unmatchedMatch = unmatchedRe.exec(body)) !== null) {
     const offset = unmatchedMatch.index;
 
     // Skip if this was already matched as a complete token

@@ -85,8 +85,8 @@ export function extractAndSanitize(content: string): SanitizeResult {
   // Step 1: parse directives
   // Reset lastIndex for safety since the regex is global
   DIRECTIVE_RE.lastIndex = 0;
-  let match: RegExpExecArray | undefined;
-  while ((match = DIRECTIVE_RE.exec(content) ?? undefined) !== undefined) {
+  let match: RegExpExecArray | null;
+  while ((match = DIRECTIVE_RE.exec(content)) !== null) {
     const kind = match[1];
     const value = match[2];
 
