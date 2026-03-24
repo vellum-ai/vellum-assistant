@@ -159,15 +159,14 @@ export async function indexMessageNow(
         tx,
       );
     }
-  });
 
-  // Debounced outside the transaction — each new message pushes the summary
-  // job's runAfter forward so it only fires once the conversation is idle.
-  upsertDebouncedJob(
-    "build_conversation_summary",
-    { conversationId: input.conversationId },
-    Date.now() + SUMMARY_DEBOUNCE_MS,
-  );
+    upsertDebouncedJob(
+      "build_conversation_summary",
+      { conversationId: input.conversationId },
+      Date.now() + SUMMARY_DEBOUNCE_MS,
+      tx,
+    );
+  });
 
   if (skippedEmbedJobs > 0) {
     log.debug(
