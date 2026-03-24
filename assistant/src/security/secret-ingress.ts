@@ -188,14 +188,15 @@ function isPlaceholder(value: string): boolean {
  */
 export function checkIngressForSecrets(content: string): IngressCheckResult {
   const config = getConfig();
+  const secretDetection = config?.secretDetection;
 
-  // Bail if secret detection is entirely disabled
-  if (!config.secretDetection.enabled) {
+  // Bail if secret detection config is missing or entirely disabled
+  if (!secretDetection?.enabled) {
     return { blocked: false, detectedTypes: [] };
   }
 
   // Bail if ingress blocking is disabled
-  if (!config.secretDetection.blockIngress) {
+  if (!secretDetection.blockIngress) {
     return { blocked: false, detectedTypes: [] };
   }
 
