@@ -683,8 +683,14 @@ export async function runAgentLoopImpl(
     }
 
     // Read NOW.md scratchpad fresh each turn so mid-conversation edits are
-    // picked up without caching or conversation eviction.
-    const nowScratchpad = readNowScratchpad();
+    // picked up without caching or conversation eviction.  Only inject for
+    // guardian conversations — the scratchpad may contain private context
+    // (mood, relationship state, personal details) that should not be
+    // exposed to trusted contacts or unknown actors.
+    const nowScratchpad =
+      resolveTrustClass(ctx.trustContext) === "guardian"
+        ? readNowScratchpad()
+        : null;
 
     const isInteractiveResolved =
       options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
