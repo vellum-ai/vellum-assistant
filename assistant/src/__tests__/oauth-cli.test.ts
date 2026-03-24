@@ -147,6 +147,7 @@ mock.module("../oauth/oauth-store.js", () => ({
   listProviders: () => mockListProviders(),
   registerProvider: () => ({}),
   seedProviders: () => {},
+  getActiveConnection: () => undefined,
   createConnection: () => ({}),
   isProviderConnected: () => false,
   updateConnection: () => ({}),
@@ -167,7 +168,10 @@ mock.module("../security/secure-keys.js", () => ({
     }
     return "not-found" as const;
   },
-  listSecureKeysAsync: async () => ({ accounts: [...secureKeyStore.keys()], unreachable: false }),
+  listSecureKeysAsync: async () => ({
+    accounts: [...secureKeyStore.keys()],
+    unreachable: false,
+  }),
   _resetBackend: () => {},
 }));
 
@@ -204,6 +208,49 @@ mock.module("../oauth/provider-behaviors.js", () => ({
   resolveService: (service: string) => service,
   getProviderBehavior: (providerKey: string) =>
     mockGetProviderBehavior(providerKey),
+}));
+
+// ---------------------------------------------------------------------------
+// Mock connection-resolver (needed by request.ts)
+// ---------------------------------------------------------------------------
+
+mock.module("../oauth/connection-resolver.js", () => ({
+  resolveOAuthConnection: async () => {
+    throw new Error("resolveOAuthConnection not configured in test");
+  },
+}));
+
+// ---------------------------------------------------------------------------
+// Mock config/loader (needed by request.ts for managed mode check)
+// ---------------------------------------------------------------------------
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    services: {
+      inference: {
+        mode: "your-own",
+        provider: "anthropic",
+        model: "claude-opus-4-6",
+      },
+      "image-generation": {
+        mode: "your-own",
+        provider: "gemini",
+        model: "gemini-3.1-flash-image-preview",
+      },
+      "web-search": { mode: "your-own", provider: "inference-provider-native" },
+      "google-oauth": { mode: "your-own" },
+    },
+  }),
+}));
+
+// ---------------------------------------------------------------------------
+// Mock platform/client (needed by request.ts)
+// ---------------------------------------------------------------------------
+
+mock.module("../platform/client.js", () => ({
+  VellumPlatformClient: {
+    create: async () => null,
+  },
 }));
 
 mock.module("../util/logger.js", () => ({
