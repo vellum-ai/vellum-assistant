@@ -72,6 +72,7 @@ import type {
   RuntimeMessagePayload,
   SendMessageDeps,
 } from "../http-types.js";
+import { resolveLocalTrustContext } from "../local-actor-identity.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
   resolveTrustContext,
@@ -765,6 +766,11 @@ export async function handleSendMessage(
       }
     }
     conversation.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
+  } else if (authContext.principalType === "actor") {
+    // Dev bypass (HTTP auth disabled): resolve the full guardian context
+    // from the local guardian binding so downstream approval routing has
+    // guardianPrincipalId and guardianExternalUserId available.
+    conversation.setTrustContext(resolveLocalTrustContext(sourceChannel));
   } else {
     // Service principals (svc_gateway) or tokens without an actor ID
     // get a minimal guardian context so downstream code has something.
