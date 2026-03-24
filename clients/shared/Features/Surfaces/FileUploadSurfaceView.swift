@@ -10,6 +10,8 @@ public struct FileUploadSurfaceView: View {
     @State private var selectedFiles: [SelectedFile] = []
     @State private var isDragOver = false
     @State private var errorMessage: String?
+    @State private var isSubmitted = false
+    @State private var isSuccessExpanded = false
 
     public init(data: FileUploadSurfaceData, onSubmit: @escaping ([[String: Any]]) -> Void, onCancel: @escaping () -> Void) {
         self.data = data
@@ -19,47 +21,105 @@ public struct FileUploadSurfaceView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
-            // Prompt text
-            Text(data.prompt)
-                .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
-                .textSelection(.enabled)
+            if isSubmitted {
+                // Success state — expandable
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                    Button(action: { withAnimation(VAnimation.fast) { isSuccessExpanded.toggle() } }) {
+                        HStack(spacing: VSpacing.sm) {
+                            VIconView(.circleCheck, size: 16)
+                                .foregroundColor(VColor.systemPositiveStrong)
+                            Text("Uploaded \(selectedFiles.count) file\(selectedFiles.count == 1 ? "" : "s")")
+                                .font(VFont.bodyMediumLighter)
+                                .foregroundColor(VColor.contentSecondary)
+                            Spacer()
+                            VIconView(.chevronRight, size: 10)
+                                .foregroundColor(VColor.contentTertiary)
+                                .rotationEffect(.degrees(isSuccessExpanded ? 90 : 0))
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
 
-            // Drop zone
-            dropZone
-
-            // Error message
-            if let errorMessage = errorMessage {
-                Text(errorMessage)
-                    .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    if isSuccessExpanded {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            ForEach(selectedFiles) { file in
+                                HStack(spacing: VSpacing.sm) {
+                                    fileIcon(for: file)
+                                        .frame(width: 28, height: 28)
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(file.filename)
+                                            .font(VFont.labelDefault)
+                                            .foregroundColor(VColor.contentDefault)
+                                            .lineLimit(1)
+                                        Text(formatFileSize(file.size))
+                                            .font(VFont.labelSmall)
+                                            .foregroundColor(VColor.contentTertiary)
+                                    }
+                                    Spacer()
+                                }
+                                .padding(VSpacing.xs)
+                            }
+                        }
+                        .padding(.leading, VSpacing.lg + VSpacing.sm)
+                    }
+                }
+            } else {
+                // Prompt text
+                Text(data.prompt)
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundColor(VColor.contentSecondary)
                     .textSelection(.enabled)
-            }
 
-            // File previews
-            if !selectedFiles.isEmpty {
-                fileList
-            }
+                // Drop zone
+                dropZone
 
-            // Constraints hint
-            constraintsHint
-
-            // Action buttons
-            HStack(spacing: VSpacing.lg) {
-                Spacer()
-
-                VButton(label: "Cancel", style: .outlined) {
-                    onCancel()
+                // Error message
+                if let errorMessage = errorMessage {
+                    Text(errorMessage)
+                        .font(VFont.labelDefault)
+                        .foregroundColor(VColor.systemNegativeStrong)
+                        .textSelection(.enabled)
                 }
 
-                VButton(
-                    label: "Upload",
-                    style: .primary
-                ) {
-                    submitFiles()
+                // File previews
+                if !selectedFiles.isEmpty {
+                    fileList
                 }
-                .opacity(selectedFiles.isEmpty ? 0.5 : 1.0)
-                .allowsHitTesting(!selectedFiles.isEmpty)
+
+                // Constraints hint
+                constraintsHint
+
+                // Action buttons
+                HStack(spacing: VSpacing.lg) {
+                    Spacer()
+
+                    Button(action: { onCancel() }) {
+                        Text("Cancel")
+                            .font(VFont.labelDefault)
+                            .foregroundColor(VColor.contentSecondary)
+                            .padding(.horizontal, VSpacing.lg)
+                            .padding(.vertical, VSpacing.sm)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                    .stroke(VColor.borderBase, lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: { submitFiles() }) {
+                        Text("Upload")
+                            .font(VFont.labelDefault)
+                            .foregroundColor(selectedFiles.isEmpty ? VColor.contentTertiary : VColor.auxWhite)
+                            .padding(.horizontal, VSpacing.lg)
+                            .padding(.vertical, VSpacing.sm)
+                            .background(
+                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                    .fill(selectedFiles.isEmpty ? VColor.surfaceOverlay : VColor.primaryBase)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(selectedFiles.isEmpty)
+                }
             }
         }
     }
@@ -305,6 +365,7 @@ public struct FileUploadSurfaceView: View {
             return dict
         }
 
+        isSubmitted = true
         onSubmit(filesPayload)
     }
 
