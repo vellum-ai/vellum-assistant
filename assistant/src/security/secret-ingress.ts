@@ -10,7 +10,6 @@
  */
 
 import { getConfig } from "../config/loader.js";
-
 import { isAllowlisted } from "./secret-allowlist.js";
 
 // ---------------------------------------------------------------------------

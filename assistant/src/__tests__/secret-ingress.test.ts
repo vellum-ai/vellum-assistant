@@ -37,8 +37,8 @@ mock.module("../util/platform.js", () => ({
   getWorkspaceDir: () => "/tmp/vellum-test-ingress/workspace",
 }));
 
-import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { resetAllowlist } from "../security/secret-allowlist.js";
+import { checkIngressForSecrets } from "../security/secret-ingress.js";
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -227,8 +227,6 @@ describe("checkIngressForSecrets", () => {
   // ── Placeholder / test values ──────────────────────────────────────
 
   test("does not block placeholder test keys (sk-test-*)", () => {
-    const key = "sk-proj-" + "test-placeholder-value-for-testing-demo";
-    // sk-proj- prefix with test- content after
     const result = checkIngressForSecrets("sk-test-abc123");
     expect(result.blocked).toBe(false);
   });
