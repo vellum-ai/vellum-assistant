@@ -637,8 +637,46 @@ final class VellumCli {
                 stdoutHandle.readabilityHandler = nil
                 stderrHandle.readabilityHandler = nil
 
-                // Flush any remaining data in the line buffers as final lines.
+                // Drain any data that arrived after the last readabilityHandler
+                // callback but before we nil'd the handlers. Feed it through
+                // the line buffers so complete lines are emitted, then flush
+                // any remaining partial line.
+                let remainingStdout = stdoutHandle.availableData
+                let remainingStderr = stderrHandle.availableData
+
                 bufferQueue.sync {
+                    // Process remaining stdout through line buffer
+                    if !remainingStdout.isEmpty {
+                        stdoutBuffer.append(remainingStdout)
+                        while let newlineIndex = stdoutBuffer.firstIndex(of: newlineByte) {
+                            let lineData = stdoutBuffer[stdoutBuffer.startIndex..<newlineIndex]
+                            stdoutBuffer = Data(stdoutBuffer[(newlineIndex + 1)...])
+                            if let line = String(data: lineData, encoding: .utf8) {
+                                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !trimmed.isEmpty {
+                                    onOutput(trimmed)
+                                }
+                            }
+                        }
+                    }
+
+                    // Process remaining stderr through line buffer
+                    if !remainingStderr.isEmpty {
+                        stderrBuffer.append(remainingStderr)
+                        while let newlineIndex = stderrBuffer.firstIndex(of: newlineByte) {
+                            let lineData = stderrBuffer[stderrBuffer.startIndex..<newlineIndex]
+                            stderrBuffer = Data(stderrBuffer[(newlineIndex + 1)...])
+                            if let line = String(data: lineData, encoding: .utf8) {
+                                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !trimmed.isEmpty {
+                                    stderrAccumulator.append(trimmed)
+                                    onOutput(trimmed)
+                                }
+                            }
+                        }
+                    }
+
+                    // Flush any remaining partial lines in the buffers
                     if let line = String(data: stdoutBuffer, encoding: .utf8) {
                         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !trimmed.isEmpty {
@@ -775,8 +813,46 @@ final class VellumCli {
                 stdoutHandle.readabilityHandler = nil
                 stderrHandle.readabilityHandler = nil
 
-                // Flush any remaining data in the line buffers as final lines.
+                // Drain any data that arrived after the last readabilityHandler
+                // callback but before we nil'd the handlers. Feed it through
+                // the line buffers so complete lines are emitted, then flush
+                // any remaining partial line.
+                let remainingStdout = stdoutHandle.availableData
+                let remainingStderr = stderrHandle.availableData
+
                 bufferQueue.sync {
+                    // Process remaining stdout through line buffer
+                    if !remainingStdout.isEmpty {
+                        stdoutBuffer.append(remainingStdout)
+                        while let newlineIndex = stdoutBuffer.firstIndex(of: newlineByte) {
+                            let lineData = stdoutBuffer[stdoutBuffer.startIndex..<newlineIndex]
+                            stdoutBuffer = Data(stdoutBuffer[(newlineIndex + 1)...])
+                            if let line = String(data: lineData, encoding: .utf8) {
+                                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !trimmed.isEmpty {
+                                    onOutput(trimmed)
+                                }
+                            }
+                        }
+                    }
+
+                    // Process remaining stderr through line buffer
+                    if !remainingStderr.isEmpty {
+                        stderrBuffer.append(remainingStderr)
+                        while let newlineIndex = stderrBuffer.firstIndex(of: newlineByte) {
+                            let lineData = stderrBuffer[stderrBuffer.startIndex..<newlineIndex]
+                            stderrBuffer = Data(stderrBuffer[(newlineIndex + 1)...])
+                            if let line = String(data: lineData, encoding: .utf8) {
+                                let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !trimmed.isEmpty {
+                                    stderrAccumulator.append(trimmed)
+                                    onOutput(trimmed)
+                                }
+                            }
+                        }
+                    }
+
+                    // Flush any remaining partial lines in the buffers
                     if let line = String(data: stdoutBuffer, encoding: .utf8) {
                         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
                         if !trimmed.isEmpty {
