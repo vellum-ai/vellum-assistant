@@ -105,34 +105,44 @@ describe("buildJournalContext", () => {
   });
 
   test("returns null when maxEntries is 0", () => {
-    writeFileSync(join(journalDir, "entry.md"), "content");
-    expect(buildJournalContext(0)).toBeNull();
+    const userDir = join(journalDir, "testuser");
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, "entry.md"), "content");
+    expect(buildJournalContext(0, "testuser")).toBeNull();
   });
 
   test("returns null when maxEntries is negative", () => {
-    writeFileSync(join(journalDir, "entry.md"), "content");
-    expect(buildJournalContext(-1)).toBeNull();
+    const userDir = join(journalDir, "testuser");
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, "entry.md"), "content");
+    expect(buildJournalContext(-1, "testuser")).toBeNull();
   });
 
   test("returns null when journal directory does not exist", () => {
     rmSync(journalDir, { recursive: true, force: true });
-    expect(buildJournalContext(10)).toBeNull();
+    expect(buildJournalContext(10, "testuser")).toBeNull();
   });
 
   test("returns null when journal directory has no .md files", () => {
-    writeFileSync(join(journalDir, "notes.txt"), "not markdown");
-    expect(buildJournalContext(10)).toBeNull();
+    const userDir = join(journalDir, "testuser");
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, "notes.txt"), "not markdown");
+    expect(buildJournalContext(10, "testuser")).toBeNull();
   });
 
   test("excludes README.md (case-insensitive)", () => {
-    writeFileSync(join(journalDir, "README.md"), "readme content");
-    writeFileSync(join(journalDir, "readme.md"), "readme content lower");
-    expect(buildJournalContext(10)).toBeNull();
+    const userDir = join(journalDir, "testuser");
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, "README.md"), "readme content");
+    writeFileSync(join(userDir, "readme.md"), "readme content lower");
+    expect(buildJournalContext(10, "testuser")).toBeNull();
   });
 
   test("returns formatted journal context with single entry", () => {
-    writeFileSync(join(journalDir, "goals.md"), "My goals for this week.");
-    const result = buildJournalContext(10);
+    const userDir = join(journalDir, "testuser");
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, "goals.md"), "My goals for this week.");
+    const result = buildJournalContext(10, "testuser");
     expect(result).not.toBeNull();
     expect(result).toContain("# Journal");
     expect(result).toContain(
@@ -145,14 +155,16 @@ describe("buildJournalContext", () => {
   });
 
   test("sorts entries by creation time, newest first", async () => {
+    const userDir = join(journalDir, "testuser");
+    mkdirSync(userDir, { recursive: true });
     // Small delays between writes ensure distinct birthtimes.
-    writeFileSync(join(journalDir, "old.md"), "old entry");
+    writeFileSync(join(userDir, "old.md"), "old entry");
     await tick();
-    writeFileSync(join(journalDir, "mid.md"), "mid entry");
+    writeFileSync(join(userDir, "mid.md"), "mid entry");
     await tick();
-    writeFileSync(join(journalDir, "new.md"), "new entry");
+    writeFileSync(join(userDir, "new.md"), "new entry");
 
-    const result = buildJournalContext(10)!;
+    const result = buildJournalContext(10, "testuser")!;
     const newIdx = result.indexOf("new.md");
     const midIdx = result.indexOf("mid.md");
     const oldIdx = result.indexOf("old.md");
@@ -161,25 +173,29 @@ describe("buildJournalContext", () => {
   });
 
   test("marks most recent entry with MOST RECENT", async () => {
-    writeFileSync(join(journalDir, "older.md"), "older");
+    const userDir = join(journalDir, "testuser");
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, "older.md"), "older");
     await tick();
-    writeFileSync(join(journalDir, "newest.md"), "newest");
+    writeFileSync(join(userDir, "newest.md"), "newest");
 
-    const result = buildJournalContext(10)!;
+    const result = buildJournalContext(10, "testuser")!;
     expect(result).toContain("## newest.md — MOST RECENT");
     expect(result).not.toContain("## older.md — MOST RECENT");
   });
 
   test("marks oldest entry with LEAVING CONTEXT when window is full", async () => {
+    const userDir = join(journalDir, "testuser");
+    mkdirSync(userDir, { recursive: true });
     // Create in chronological order: c (oldest), b, a (newest)
-    writeFileSync(join(journalDir, "c.md"), "entry c");
+    writeFileSync(join(userDir, "c.md"), "entry c");
     await tick();
-    writeFileSync(join(journalDir, "b.md"), "entry b");
+    writeFileSync(join(userDir, "b.md"), "entry b");
     await tick();
-    writeFileSync(join(journalDir, "a.md"), "entry a");
+    writeFileSync(join(userDir, "a.md"), "entry a");
 
     // maxEntries = 3 matches the number of files, so window is full
-    const result = buildJournalContext(3)!;
+    const result = buildJournalContext(3, "testuser")!;
     expect(result).toContain("## a.md — MOST RECENT");
     expect(result).toContain("## c.md — LEAVING CONTEXT");
     expect(result).toContain(
@@ -191,24 +207,28 @@ describe("buildJournalContext", () => {
   });
 
   test("does NOT mark oldest entry with LEAVING CONTEXT when window is not full", async () => {
-    writeFileSync(join(journalDir, "b.md"), "entry b");
+    const userDir = join(journalDir, "testuser");
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, "b.md"), "entry b");
     await tick();
-    writeFileSync(join(journalDir, "a.md"), "entry a");
+    writeFileSync(join(userDir, "a.md"), "entry a");
 
     // maxEntries = 5, only 2 files — window is NOT full
-    const result = buildJournalContext(5)!;
+    const result = buildJournalContext(5, "testuser")!;
     expect(result).toContain("## a.md — MOST RECENT");
     expect(result).not.toContain("LEAVING CONTEXT");
   });
 
   test("limits entries to maxEntries", async () => {
+    const userDir = join(journalDir, "testuser");
+    mkdirSync(userDir, { recursive: true });
     // Create files 0-4 sequentially; file 4 is newest
     for (let i = 0; i < 5; i++) {
-      writeFileSync(join(journalDir, `entry-${i}.md`), `content ${i}`);
+      writeFileSync(join(userDir, `entry-${i}.md`), `content ${i}`);
       if (i < 4) await tick();
     }
 
-    const result = buildJournalContext(3)!;
+    const result = buildJournalContext(3, "testuser")!;
     // Should contain only 3 newest entries (entry-4, entry-3, entry-2)
     expect(result).toContain("entry-4.md");
     expect(result).toContain("entry-3.md");
@@ -218,37 +238,98 @@ describe("buildJournalContext", () => {
   });
 
   test("maxEntries=1 with exactly one entry marks it MOST RECENT, not LEAVING CONTEXT", () => {
-    writeFileSync(join(journalDir, "solo.md"), "only entry");
-    const result = buildJournalContext(1)!;
+    const userDir = join(journalDir, "testuser");
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, "solo.md"), "only entry");
+    const result = buildJournalContext(1, "testuser")!;
     expect(result).toContain("## solo.md — MOST RECENT");
     expect(result).not.toContain("LEAVING CONTEXT");
   });
 
   test("includes both absolute and relative timestamps in headers", () => {
-    writeFileSync(join(journalDir, "recent.md"), "recent content");
+    const userDir = join(journalDir, "testuser");
+    mkdirSync(userDir, { recursive: true });
+    writeFileSync(join(userDir, "recent.md"), "recent content");
 
-    const result = buildJournalContext(10)!;
+    const result = buildJournalContext(10, "testuser")!;
     // File was just created, so relative time should be "just now"
     expect(result).toContain("just now");
     // Absolute time should match the file's birthtime
-    const birthtime = statSync(join(journalDir, "recent.md")).birthtimeMs;
+    const birthtime = statSync(join(userDir, "recent.md")).birthtimeMs;
     const expected = formatJournalAbsoluteTime(birthtime);
     expect(result).toContain(expected);
   });
 
   test("middle entries have plain headers with timestamps", async () => {
+    const userDir = join(journalDir, "testuser");
+    mkdirSync(userDir, { recursive: true });
     // Create in chronological order: last (oldest), middle, first (newest)
-    writeFileSync(join(journalDir, "last.md"), "last");
+    writeFileSync(join(userDir, "last.md"), "last");
     await tick();
-    writeFileSync(join(journalDir, "middle.md"), "middle");
+    writeFileSync(join(userDir, "middle.md"), "middle");
     await tick();
-    writeFileSync(join(journalDir, "first.md"), "first");
+    writeFileSync(join(userDir, "first.md"), "first");
 
-    const result = buildJournalContext(3)!;
+    const result = buildJournalContext(3, "testuser")!;
     // Middle entry should have plain header format (no MOST RECENT, no LEAVING CONTEXT)
     // Format: ## middle.md (MM/DD/YY HH:MM, <relative time>)
     expect(result).toMatch(
       /## middle\.md \(\d{2}\/\d{2}\/\d{2} \d{2}:\d{2}, .+\)/,
     );
+  });
+
+  // --- Per-user scoping tests ---
+
+  test("reads from per-user directory when userSlug is provided", () => {
+    const aliceDir = join(journalDir, "alice");
+    mkdirSync(aliceDir, { recursive: true });
+    writeFileSync(join(aliceDir, "thoughts.md"), "Alice's thoughts");
+    writeFileSync(join(aliceDir, "plans.md"), "Alice's plans");
+
+    const result = buildJournalContext(10, "alice");
+    expect(result).not.toBeNull();
+    expect(result).toContain("Alice's thoughts");
+    expect(result).toContain("Alice's plans");
+  });
+
+  test("returns null when userSlug is provided but directory does not exist", () => {
+    // journal/bob/ does not exist
+    const result = buildJournalContext(10, "bob");
+    expect(result).toBeNull();
+  });
+
+  test("returns null when no userSlug is provided", () => {
+    // Even if root journal/ has entries, no slug means null
+    writeFileSync(join(journalDir, "orphan.md"), "orphan entry");
+    const result = buildJournalContext(10);
+    expect(result).toBeNull();
+  });
+
+  test("returns null when userSlug is null", () => {
+    writeFileSync(join(journalDir, "orphan.md"), "orphan entry");
+    const result = buildJournalContext(10, null);
+    expect(result).toBeNull();
+  });
+
+  test("includes write-path directive in header when userSlug is provided", () => {
+    const aliceDir = join(journalDir, "alice");
+    mkdirSync(aliceDir, { recursive: true });
+    writeFileSync(join(aliceDir, "entry.md"), "some content");
+
+    const result = buildJournalContext(10, "alice")!;
+    expect(result).toContain("**Write new entries to:** `journal/alice/`");
+  });
+
+  test("sanitizes path-traversal in userSlug", () => {
+    // basename("../etc") => "etc", so it should read from journal/etc/
+    const etcDir = join(journalDir, "etc");
+    mkdirSync(etcDir, { recursive: true });
+    writeFileSync(join(etcDir, "safe.md"), "safe content");
+
+    const result = buildJournalContext(10, "../etc");
+    expect(result).not.toBeNull();
+    expect(result).toContain("safe content");
+    // Should reference the sanitized path, not the traversal attempt
+    expect(result).toContain("`journal/etc/`");
   });
 });
