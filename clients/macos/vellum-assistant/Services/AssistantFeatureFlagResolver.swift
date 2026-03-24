@@ -30,6 +30,18 @@ enum AssistantFeatureFlagResolver {
         return "\(home)/.vellum/protected/feature-flags.json"
     }()
 
+    // MARK: - Remote feature-flags file path
+
+    /// Resolves the path to the remote feature-flags cache file, stored alongside
+    /// the local overrides file as `feature-flags-remote.json`.
+    static func resolvedRemoteFlagsPath() -> String {
+        let localPath = resolvedFeatureFlagsPath()
+        return URL(fileURLWithPath: localPath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("feature-flags-remote.json")
+            .path
+    }
+
     // MARK: - Protected file I/O
 
     /// Reads persisted feature-flag overrides from the protected file.
@@ -38,6 +50,29 @@ enum AssistantFeatureFlagResolver {
     /// malformed JSON, or lacks a `values` object.
     static func readPersistedFlags(from path: String? = nil) -> [String: Bool] {
         let filePath = path ?? resolvedFeatureFlagsPath()
+
+        guard FileManager.default.fileExists(atPath: filePath),
+              let data = FileManager.default.contents(atPath: filePath),
+              !data.isEmpty else {
+            return [:]
+        }
+
+        guard let json = try? JSONSerialization.jsonObject(with: data, options: []),
+              let dict = json as? [String: Any],
+              dict["version"] as? Int == 1,
+              let values = dict["values"] as? [String: Bool] else {
+            return [:]
+        }
+
+        return values
+    }
+
+    /// Reads remote feature-flag values from the cached remote file.
+    ///
+    /// Returns an empty dictionary when the file is missing, empty, contains
+    /// malformed JSON, or lacks a `values` object.
+    static func readRemoteFlags(from path: String? = nil) -> [String: Bool] {
+        let filePath = path ?? resolvedRemoteFlagsPath()
 
         guard FileManager.default.fileExists(atPath: filePath),
               let data = FileManager.default.contents(atPath: filePath),
@@ -75,8 +110,12 @@ enum AssistantFeatureFlagResolver {
     static func resolvedFlags(
         registryDefaults: [String: Bool]
     ) -> [String: Bool] {
+        let remote = readRemoteFlags()
         let persistedFlags = readPersistedFlags()
-        return resolvedFlags(persistedFlags: persistedFlags, registryDefaults: registryDefaults)
+        // Priority: persisted > remote > defaults
+        return registryDefaults
+            .merging(remote) { _, remote in remote }
+            .merging(persistedFlags) { _, persisted in persisted }
     }
 
     static func resolvedFlags(
