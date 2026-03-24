@@ -176,6 +176,7 @@ describe("trusted_auto_approve", () => {
       const checker = new PermissionChecker(mockPrompter as any);
       const tool = makeTool({
         trustedAutoApprove: true,
+        ownerSkillBundled: true,
         defaultRiskLevel: RiskLevel.Low,
       });
       const context = makeToolContext({
@@ -203,6 +204,7 @@ describe("trusted_auto_approve", () => {
       const checker = new PermissionChecker(mockPrompter as any);
       const tool = makeTool({
         trustedAutoApprove: true,
+        ownerSkillBundled: true,
         defaultRiskLevel: RiskLevel.Low,
       });
       const context = makeToolContext({
@@ -390,12 +392,41 @@ describe("trusted_auto_approve", () => {
       const checker = new PermissionChecker(mockPrompter as any);
       const tool = makeTool({
         trustedAutoApprove: true,
+        ownerSkillBundled: true,
         defaultRiskLevel: RiskLevel.Low,
       });
       const context = makeToolContext({
         trustClass: "trusted_contact",
         isInteractive: false,
         requireFreshApproval: true,
+      });
+
+      const result = await checker.checkPermission(
+        "test_tool",
+        {},
+        tool,
+        context,
+        "host",
+        noopEmit,
+        noopSanitize,
+        Date.now(),
+        noopDiff,
+      );
+
+      expect(result.decision).not.toBe("trusted_auto_approve");
+      expect(result.allowed).toBe(false);
+    });
+
+    test("trustedAutoApprove: true + low risk + trusted_contact + non-bundled skill → denied (bundled-only guard)", async () => {
+      const checker = new PermissionChecker(mockPrompter as any);
+      const tool = makeTool({
+        trustedAutoApprove: true,
+        defaultRiskLevel: RiskLevel.Low,
+        ownerSkillBundled: false,
+      });
+      const context = makeToolContext({
+        trustClass: "trusted_contact",
+        isInteractive: false,
       });
 
       const result = await checker.checkPermission(
@@ -434,6 +465,7 @@ describe("trusted_auto_approve", () => {
       const checker = new FreshChecker(mockPrompter as any);
       const tool = makeTool({
         trustedAutoApprove: true,
+        ownerSkillBundled: true,
         defaultRiskLevel: RiskLevel.Low,
       });
       const context = makeToolContext({
@@ -486,10 +518,11 @@ describe("trusted_auto_approve", () => {
       }));
     }
 
-    test("trusted_contact + trustedAutoApprove + low risk → skips grant consumption", async () => {
+    test("trusted_contact + trustedAutoApprove + low risk + bundled → skips grant consumption", async () => {
       const tool = makeTool({
         name: "auto_like",
         trustedAutoApprove: true,
+        ownerSkillBundled: true,
         defaultRiskLevel: RiskLevel.Low,
       });
       setupToolRegistry([tool]);
@@ -546,6 +579,37 @@ describe("trusted_auto_approve", () => {
       );
 
       // Without a grant, should be denied
+      expect(result.allowed).toBe(false);
+    });
+
+    test("trusted_contact + trustedAutoApprove + low risk + non-bundled → requires grant (bundled-only guard)", async () => {
+      const tool = makeTool({
+        name: "auto_like",
+        trustedAutoApprove: true,
+        ownerSkillBundled: false,
+        defaultRiskLevel: RiskLevel.Low,
+      });
+      setupToolRegistry([tool]);
+
+      const { ToolApprovalHandler } =
+        await import("../tools/tool-approval-handler.js");
+      const handler = new ToolApprovalHandler();
+      const context = makeToolContext({
+        trustClass: "trusted_contact",
+        isInteractive: true,
+      });
+
+      const result = await handler.checkPreExecutionGates(
+        "auto_like",
+        {},
+        context,
+        "host",
+        "low",
+        Date.now(),
+        noopEmit,
+      );
+
+      // Non-bundled skill should NOT get the bypass — denied without grant
       expect(result.allowed).toBe(false);
     });
 

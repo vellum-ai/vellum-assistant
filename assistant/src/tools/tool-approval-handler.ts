@@ -276,6 +276,7 @@ export class ToolApprovalHandler {
       !(
         context.trustClass === "trusted_contact" &&
         toolForGrant?.trustedAutoApprove === true &&
+        toolForGrant?.ownerSkillBundled === true &&
         toolForGrant?.defaultRiskLevel === RiskLevel.Low
       )
     ) {
