@@ -30,29 +30,30 @@ enum VoiceServiceError: Error, LocalizedError {
 /// Voice service: SFSpeechRecognizer STT (on-device) + TTS (ElevenLabs REST API).
 /// Records audio, detects silence, transcribes via SFSpeechRecognizer, speaks via ElevenLabs.
 @MainActor
-final class OpenAIVoiceService: ObservableObject, VoiceServiceProtocol {
-    @Published var amplitude: Float = 0
-    @Published var speakingAmplitude: Float = 0
-    @Published var livePartialText: String = ""
+@Observable
+final class OpenAIVoiceService: VoiceServiceProtocol {
+    var amplitude: Float = 0
+    var speakingAmplitude: Float = 0
+    var livePartialText: String = ""
 
     // MARK: - Recording State
 
-    private let audioEngine = AVAudioEngine()
-    private var isRecording = false
+    @ObservationIgnored private let audioEngine = AVAudioEngine()
+    @ObservationIgnored private var isRecording = false
 
     /// Fires once when silence is detected after speech.
-    var onSilenceDetected: (() -> Void)?
+    @ObservationIgnored var onSilenceDetected: (() -> Void)?
     /// Callback fired when mic permission is granted after being requested.
-    var onMicrophoneAuthorized: (() -> Void)?
+    @ObservationIgnored var onMicrophoneAuthorized: (() -> Void)?
     /// Fires when speech is detected during TTS playback (barge-in).
-    var onBargeInDetected: (() -> Void)?
+    @ObservationIgnored var onBargeInDetected: (() -> Void)?
 
-    private var lastSpeechTime = Date()
-    private var recordingStartTime: Date?
-    private var silenceHandled = false
-    private var hasSpeechOccurred = false
-    private var enginePrewarmed = false
-    private var rmsLogCounter = 0
+    @ObservationIgnored private var lastSpeechTime = Date()
+    @ObservationIgnored private var recordingStartTime: Date?
+    @ObservationIgnored private var silenceHandled = false
+    @ObservationIgnored private var hasSpeechOccurred = false
+    @ObservationIgnored private var enginePrewarmed = false
+    @ObservationIgnored private var rmsLogCounter = 0
 
     private static let silenceThreshold: Float = 0.003
     private static let speechThreshold: Float = 0.003
@@ -61,22 +62,22 @@ final class OpenAIVoiceService: ObservableObject, VoiceServiceProtocol {
 
     // MARK: - SFSpeechRecognizer STT State
 
-    private var speechRecognizer: SFSpeechRecognizer?
-    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    private var recognitionTask: SFSpeechRecognitionTask?
+    @ObservationIgnored private var speechRecognizer: SFSpeechRecognizer?
+    @ObservationIgnored private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    @ObservationIgnored private var recognitionTask: SFSpeechRecognitionTask?
     /// The latest transcription text from the ongoing recognition task.
-    private var latestTranscription: String = ""
+    @ObservationIgnored private var latestTranscription: String = ""
     /// Continuation to deliver the final transcription when recording stops.
-    private var transcriptionContinuation: CheckedContinuation<String?, Never>?
+    @ObservationIgnored private var transcriptionContinuation: CheckedContinuation<String?, Never>?
 
     // MARK: - ElevenLabs TTS State
 
     /// Accumulated text from streaming deltas — sent to ElevenLabs when response completes.
-    private var ttsTextBuffer = ""
-    private var ttsOnComplete: (() -> Void)?
-    private var audioPlayer: AVAudioPlayer?
-    private var speakingTimer: Timer?
-    private var ttsTask: Task<Void, Never>?
+    @ObservationIgnored private var ttsTextBuffer = ""
+    @ObservationIgnored private var ttsOnComplete: (() -> Void)?
+    @ObservationIgnored private var audioPlayer: AVAudioPlayer?
+    @ObservationIgnored private var speakingTimer: Timer?
+    @ObservationIgnored private var ttsTask: Task<Void, Never>?
 
     /// Default ElevenLabs voice — "Amelia" (expressive, enthusiastic, British English).
     /// Mirrored from: assistant/src/config/elevenlabs-schema.ts (DEFAULT_ELEVENLABS_VOICE_ID)
@@ -446,7 +447,7 @@ final class OpenAIVoiceService: ObservableObject, VoiceServiceProtocol {
 
     // MARK: - Barge-in (interrupt TTS by speaking)
 
-    private var bargeInMonitorActive = false
+    @ObservationIgnored private var bargeInMonitorActive = false
 
     /// Start monitoring the mic for speech during TTS playback.
     /// Uses a higher threshold than normal to avoid picking up speaker output.
