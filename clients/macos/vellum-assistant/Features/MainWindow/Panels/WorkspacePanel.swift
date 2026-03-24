@@ -112,7 +112,6 @@ final class WorkspaceBrowserState {
 // MARK: - Workspace Panel
 
 struct WorkspacePanel: View {
-    let connectionManager: GatewayConnectionManager
     @State private var state = WorkspaceBrowserState()
     let workspaceClient = WorkspaceClient()
     @State private var sidebarWidth: CGFloat = 300
@@ -165,7 +164,7 @@ struct WorkspacePanel: View {
                         }
                 )
 
-            WorkspaceFileViewer(state: state, connectionManager: connectionManager, workspaceClient: workspaceClient)
+            WorkspaceFileViewer(state: state, workspaceClient: workspaceClient)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .coordinateSpace(name: dragCoordinateSpace)
@@ -712,7 +711,6 @@ private struct WorkspaceTreeRow: View {
 
 private struct WorkspaceFileViewer: View {
     @Bindable var state: WorkspaceBrowserState
-    let connectionManager: GatewayConnectionManager
     let workspaceClient: WorkspaceClient
 
     var body: some View {
@@ -870,29 +868,11 @@ private struct WorkspaceFileViewer: View {
     }
 
     private func imageViewer(_ detail: WorkspaceFileResponse) -> some View {
-        Group {
-            if let url = workspaceClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
-                AuthenticatedImageView(url: url, connectionManager: connectionManager)
-            } else {
-                Text("Unable to load image URL")
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentTertiary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
+        AuthenticatedImageView(filePath: detail.path, showHidden: state.showHiddenFiles, workspaceClient: workspaceClient)
     }
 
     private func videoViewer(_ detail: WorkspaceFileResponse) -> some View {
-        Group {
-            if let url = workspaceClient.workspaceFileContentURL(path: detail.path, showHidden: state.showHiddenFiles) {
-                WorkspaceVideoPlayer(url: url, connectionManager: connectionManager)
-            } else {
-                Text("Unable to load video URL")
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentTertiary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
+        WorkspaceVideoPlayer(filePath: detail.path, showHidden: state.showHiddenFiles, workspaceClient: workspaceClient)
     }
 
     private func binaryFallback(_ detail: WorkspaceFileResponse) -> some View {
@@ -929,8 +909,9 @@ private func isHiddenPath(_ path: String) -> Bool {
 // MARK: - Authenticated Image View
 
 private struct AuthenticatedImageView: View {
-    let url: URL
-    let connectionManager: GatewayConnectionManager
+    let filePath: String
+    let showHidden: Bool
+    let workspaceClient: WorkspaceClient
     @State private var image: NSImage?
     @State private var failed = false
 
@@ -956,12 +937,12 @@ private struct AuthenticatedImageView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task(id: url) {
+        .task(id: filePath) {
             image = nil
             failed = false
             do {
-                let loadedImage = try await fetchImage(url: url)
-                image = loadedImage
+                let data = try await workspaceClient.fetchWorkspaceFileContent(path: filePath, showHidden: showHidden)
+                image = NSImage(data: data)
                 if image == nil { failed = true }
             } catch {
                 if !Task.isCancelled {
@@ -970,45 +951,14 @@ private struct AuthenticatedImageView: View {
             }
         }
     }
-
-    private func fetchImage(url: URL) async throws -> NSImage? {
-        var request = URLRequest(url: url)
-        if let token = ActorTokenManager.getToken(), !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            return nil
-        }
-        // On 401, re-bootstrap actor token via daemon and retry once
-        if http.statusCode == 401 {
-            let success = await GuardianClient().bootstrapActorToken(
-                platform: "macos",
-                deviceId: HostIdComputer.computeHostId()
-            )
-            guard success else { return nil }
-            var retryRequest = URLRequest(url: url)
-            if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {
-                retryRequest.setValue("Bearer \(freshToken)", forHTTPHeaderField: "Authorization")
-            }
-            let (retryData, retryResponse) = try await URLSession.shared.data(for: retryRequest)
-            guard let retryHttp = retryResponse as? HTTPURLResponse, (200...299).contains(retryHttp.statusCode) else {
-                return nil
-            }
-            return NSImage(data: retryData)
-        }
-        guard (200...299).contains(http.statusCode) else {
-            return nil
-        }
-        return NSImage(data: data)
-    }
 }
 
 // MARK: - Video Player
 
 private struct WorkspaceVideoPlayer: View {
-    let url: URL
-    let connectionManager: GatewayConnectionManager
+    let filePath: String
+    let showHidden: Bool
+    let workspaceClient: WorkspaceClient
     @State private var player: AVPlayer?
     @State private var tempFileURL: URL?
     @State private var failed = false
@@ -1033,37 +983,25 @@ private struct WorkspaceVideoPlayer: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task(id: url) {
+        .task(id: filePath) {
             player?.pause()
             player = nil
             failed = false
-            if let tempFileURL {
-                try? FileManager.default.removeItem(at: tempFileURL)
-            }
-            tempFileURL = nil
+            cleanupTempFile()
             await loadVideo()
         }
         .onDisappear {
             player?.pause()
             player = nil
-            if let tempFileURL {
-                try? FileManager.default.removeItem(at: tempFileURL)
-            }
+            cleanupTempFile()
         }
     }
 
     private func loadVideo() async {
         do {
-            let result = try await downloadVideo(url: url)
+            let localURL = try await workspaceClient.downloadWorkspaceFileContent(path: filePath, showHidden: showHidden)
             guard !Task.isCancelled else {
-                // Clean up downloaded file if task was cancelled during download
-                if let localURL = result {
-                    try? FileManager.default.removeItem(at: localURL)
-                }
-                return
-            }
-            guard let localURL = result else {
-                failed = true
+                try? FileManager.default.removeItem(at: localURL)
                 return
             }
             tempFileURL = localURL
@@ -1075,45 +1013,10 @@ private struct WorkspaceVideoPlayer: View {
         }
     }
 
-    /// Downloads video to a temp file using streaming (avoids buffering entire file in memory).
-    /// Returns the local file URL on success, nil on non-success HTTP status.
-    /// On 401, re-bootstraps actor token via daemon and retries once.
-    private func downloadVideo(url: URL) async throws -> URL? {
-        var request = URLRequest(url: url)
-        if let token = ActorTokenManager.getToken(), !token.isEmpty {
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    private func cleanupTempFile() {
+        if let tempFileURL {
+            try? FileManager.default.removeItem(at: tempFileURL)
         }
-        let (downloadedURL, response) = try await URLSession.shared.download(for: request)
-        guard let http = response as? HTTPURLResponse else {
-            return nil
-        }
-        // On 401, re-bootstrap actor token via daemon and retry once
-        if http.statusCode == 401 {
-            try? FileManager.default.removeItem(at: downloadedURL)
-            let success = await GuardianClient().bootstrapActorToken(
-                platform: "macos",
-                deviceId: HostIdComputer.computeHostId()
-            )
-            guard success else { return nil }
-            var retryRequest = URLRequest(url: url)
-            if let freshToken = ActorTokenManager.getToken(), !freshToken.isEmpty {
-                retryRequest.setValue("Bearer \(freshToken)", forHTTPHeaderField: "Authorization")
-            }
-            let (retryURL, retryResponse) = try await URLSession.shared.download(for: retryRequest)
-            guard let retryHttp = retryResponse as? HTTPURLResponse, (200...299).contains(retryHttp.statusCode) else {
-                try? FileManager.default.removeItem(at: retryURL)
-                return nil
-            }
-            let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
-            try FileManager.default.moveItem(at: retryURL, to: dest)
-            return dest
-        }
-        guard (200...299).contains(http.statusCode) else {
-            try? FileManager.default.removeItem(at: downloadedURL)
-            return nil
-        }
-        let dest = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".mp4")
-        try FileManager.default.moveItem(at: downloadedURL, to: dest)
-        return dest
+        tempFileURL = nil
     }
 }

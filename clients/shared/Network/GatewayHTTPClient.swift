@@ -199,6 +199,51 @@ public enum GatewayHTTPClient {
         return try await delete(path: path, body: body, timeout: timeout)
     }
 
+    /// Result of an authenticated download-to-disk request.
+    public struct DownloadResponse {
+        /// Local temporary file URL where the response body was written.
+        public let fileURL: URL
+        public let statusCode: Int
+
+        public var isSuccess: Bool { (200..<300).contains(statusCode) }
+    }
+
+    /// Performs an authenticated GET request that streams the response directly
+    /// to a temporary file on disk, avoiding buffering the entire payload in memory.
+    ///
+    /// Use this instead of ``get(path:params:timeout:)`` for large binary payloads
+    /// (e.g. video files) where in-memory buffering would cause memory pressure.
+    ///
+    /// Includes automatic 401 retry for non-managed (bearer token) connections,
+    /// matching the behaviour of ``get(path:params:timeout:)``.
+    ///
+    /// - Parameters:
+    ///   - path: Path segment after `/v1/`.
+    ///   - params: Optional query parameters.
+    ///   - timeout: Request timeout in seconds. Defaults to 30.
+    /// - Returns: A ``DownloadResponse`` with the local file URL and HTTP status code.
+    /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
+    public static func download(path: String, params: [String: String]? = nil, timeout: TimeInterval = 30) async throws -> DownloadResponse {
+        let connection = try resolveConnection()
+        let request = try buildRequest(path: path, params: params, method: "GET", timeout: timeout, connection: connection)
+        let response = try await executeDownload(request)
+
+        guard response.statusCode == 401, !connection.isManaged else {
+            return response
+        }
+
+        guard await refreshBearerCredentials(connection: connection) else {
+            return response
+        }
+
+        // Clean up the 401 download only after confirming we will retry.
+        try? FileManager.default.removeItem(at: response.fileURL)
+
+        let freshConnection = try resolveConnection()
+        let retryRequest = try buildRequest(path: path, params: params, method: "GET", timeout: timeout, connection: freshConnection)
+        return try await executeDownload(retryRequest)
+    }
+
     /// Performs an authenticated streaming GET request against the gateway.
     ///
     /// Returns an async byte stream suitable for SSE or other streaming transports
@@ -520,6 +565,18 @@ public enum GatewayHTTPClient {
         }
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
         return Response(data: data, statusCode: statusCode)
+    }
+
+    /// Executes a `URLRequest` using `URLSession.download(for:)`, streaming the
+    /// response body directly to a temporary file on disk.
+    private static func executeDownload(_ request: URLRequest) async throws -> DownloadResponse {
+        logOutgoing(request)
+        let (tempURL, response) = try await URLSession.shared.download(for: request)
+        if let http = response as? HTTPURLResponse {
+            logResponse(request, http: http)
+        }
+        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+        return DownloadResponse(fileURL: tempURL, statusCode: statusCode)
     }
 
     // MARK: - Auth Retry

@@ -78,7 +78,7 @@ struct WorkspaceBrowserView: View {
             handleFileImport(result)
         }
         .sheet(item: $selectedFile) { file in
-            WorkspaceFileSheet(filePath: file.path, mimeType: file.mimeType, client: client, workspaceClient: workspaceClient)
+            WorkspaceFileSheet(filePath: file.path, mimeType: file.mimeType, workspaceClient: workspaceClient)
         }
         .task { await loadDirectory() }
         .alert("New File", isPresented: $showingNewFileAlert) {
