@@ -44,6 +44,7 @@ jobs:
 
   push-assistant-image:
     needs: [extract-version, ci-assistant]
+    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest-8-cores
     timeout-minutes: 30
     permissions:
@@ -116,9 +117,7 @@ jobs:
 
   push-assistant-manifest:
     needs: [extract-version, push-assistant-image]
-    # Run even when push-assistant-image fails so this job is marked as failed (not skipped),
-    # keeping the dependency graph simple while ensuring accurate Slack reporting.
-    if: always() && !cancelled()
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -227,6 +226,7 @@ jobs:
 
   push-gateway-image:
     needs: [extract-version, ci-gateway]
+    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -298,6 +298,7 @@ jobs:
 
   push-credential-executor-image:
     needs: [extract-version, ci-credential-executor]
+    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -367,9 +368,7 @@ jobs:
 
   push-gateway-manifest:
     needs: [extract-version, push-gateway-image]
-    # Run even when push-gateway-image fails so this job is marked as failed (not skipped),
-    # keeping the dependency graph simple while ensuring accurate Slack reporting.
-    if: always() && !cancelled()
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -478,9 +477,7 @@ jobs:
 
   push-credential-executor-manifest:
     needs: [extract-version, push-credential-executor-image]
-    # Run even when push-credential-executor-image fails so this job is marked as failed (not skipped),
-    # keeping the dependency graph simple while ensuring accurate Slack reporting.
-    if: always() && !cancelled()
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -2154,17 +2151,8 @@ jobs:
 
           # Determine release status
           RELEASE_FAILED="false"
-          if [ "$IS_STAGING" = "true" ]; then
-            # For staging, check that GCP image pushes succeeded (register-release is skipped for staging)
-            if [ "${{ needs.push-assistant-manifest.result }}" != "success" ] || \
-               [ "${{ needs.push-gateway-manifest.result }}" != "success" ] || \
-               [ "${{ needs.push-credential-executor-manifest.result }}" != "success" ]; then
-              RELEASE_FAILED="true"
-            fi
-          else
-            if [ "${{ needs.release.result }}" != "success" ]; then
-              RELEASE_FAILED="true"
-            fi
+          if [ "$IS_STAGING" != "true" ] && [ "${{ needs.release.result }}" != "success" ]; then
+            RELEASE_FAILED="true"
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
