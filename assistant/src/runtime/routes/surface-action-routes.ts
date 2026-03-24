@@ -10,6 +10,7 @@ import type { AuthContext } from "../auth/types.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
+import { resolveLocalTrustContext } from "../local-actor-identity.js";
 import {
   resolveTrustContext,
   withSourceChannel,
@@ -81,6 +82,11 @@ function applyTrustContext(
       }
     }
     conversation.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
+  } else if (authContext.principalType === "actor") {
+    // Dev bypass (HTTP auth disabled): resolve the full guardian context
+    // from the local guardian binding so downstream approval routing has
+    // guardianPrincipalId and guardianExternalUserId available.
+    conversation.setTrustContext(resolveLocalTrustContext(sourceChannel));
   } else {
     // Service principals or tokens without an actor ID get guardian context.
     conversation.setTrustContext({ trustClass: "guardian", sourceChannel });

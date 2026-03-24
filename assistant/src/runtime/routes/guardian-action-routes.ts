@@ -11,6 +11,7 @@
  * Guardian decisions additionally verify the actor is the bound guardian
  * via the AuthContext's actorPrincipalId.
  */
+import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import {
   type CanonicalGuardianRequest,
   listPendingRequestsByConversationScope,
@@ -91,14 +92,24 @@ export async function handleGuardianActionDecision(
     return httpError("BAD_REQUEST", "action is required", 400);
   }
 
+  // Resolve the actor's guardian principal ID. For JWT-verified actors this
+  // comes from the token claims. For dev bypass (HTTP auth disabled) the
+  // auth context has no actorPrincipalId, so fall back to the local guardian
+  // binding to avoid identity_mismatch failures.
+  let guardianPrincipalId = authContext.actorPrincipalId;
+  if (!guardianPrincipalId) {
+    const binding = findGuardianForChannel("vellum");
+    guardianPrincipalId = binding?.contact.principalId ?? undefined;
+  }
+
   const result = await processGuardianDecision({
     requestId,
     action,
     conversationId,
     channel: "vellum",
     actorContext: {
-      actorPrincipalId: authContext.actorPrincipalId ?? undefined,
-      guardianPrincipalId: authContext.actorPrincipalId ?? undefined,
+      actorPrincipalId: guardianPrincipalId,
+      guardianPrincipalId,
     },
   });
 
