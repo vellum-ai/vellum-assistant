@@ -36,6 +36,7 @@ public final class EventStreamClient {
     private var sseReconnectDelay: TimeInterval = 1.0
     private let maxReconnectDelay: TimeInterval = 30.0
     private var shouldReconnect = true
+    private var hasShownCreditsExhausted = false
 
     // MARK: - SSE Parse Time Tracking
 
@@ -214,6 +215,14 @@ public final class EventStreamClient {
                     userMessage: message,
                     retryable: false
                 )))
+            case .insufficientBalance(let detail, _):
+                self.broadcastMessage(.conversationError(ConversationErrorMessage(
+                    conversationId: conversationId,
+                    code: .providerBilling,
+                    userMessage: detail,
+                    retryable: false,
+                    errorCategory: "credits_exhausted"
+                )))
             case .error(_, let message, _):
                 self.broadcastMessage(.conversationError(ConversationErrorMessage(
                     conversationId: conversationId,
@@ -243,6 +252,16 @@ public final class EventStreamClient {
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                     log.error("SSE connection failed with status \(statusCode)")
+                    if statusCode == 402, !self.hasShownCreditsExhausted {
+                        self.hasShownCreditsExhausted = true
+                        self.broadcastMessage(.conversationError(ConversationErrorMessage(
+                            conversationId: "",
+                            code: .providerBilling,
+                            userMessage: "Your balance has run out. Add funds to continue using the assistant.",
+                            retryable: false,
+                            errorCategory: "credits_exhausted"
+                        )))
+                    }
                     if statusCode == 403 {
                         self.sseReconnectDelay = 1.0
                     }
@@ -250,6 +269,7 @@ public final class EventStreamClient {
                     return
                 }
 
+                self.hasShownCreditsExhausted = false
                 log.info("SSE stream connected")
 
                 for try await line in bytes.lines {
