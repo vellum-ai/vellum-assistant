@@ -181,9 +181,27 @@ describe("authenticateRequest", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.context.principalType).toBe("actor");
-      expect(result.context.actorPrincipalId).toBe("dev-bypass");
       expect(result.context.scopeProfile).toBe("actor_client_v1");
       expect(result.context.scopes.has("chat.read")).toBe(true);
+    }
+  });
+
+  test("dev bypass context omits actorPrincipalId so message path defaults to guardian trust", () => {
+    // Regression: buildDevBypassContext() used to set actorPrincipalId to
+    // "dev-bypass". In handleSendMessage, a truthy actorPrincipalId causes
+    // the trust resolution path to run, which fails to match any guardian
+    // binding and classifies the user as "unknown" instead of "guardian".
+    // The fix: omit actorPrincipalId so the fallback guardian path is used.
+    authDisabled = true;
+
+    const req = new Request("http://localhost/v1/messages", {
+      method: "POST",
+    });
+
+    const result = authenticateRequest(req);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.context.actorPrincipalId).toBeUndefined();
     }
   });
 
