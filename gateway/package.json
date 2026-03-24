@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/vellum-gateway",
-  "version": "0.5.7",
+  "version": "0.5.8",
   "license": "MIT",
   "type": "module",
   "exports": {
