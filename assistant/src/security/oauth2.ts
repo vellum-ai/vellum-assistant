@@ -289,6 +289,15 @@ function startLoopbackServerAndWaitForCode(
     let boundRedirectUri = "";
 
     const server: Server = createServer((req, res) => {
+      log.info(
+        {
+          method: req.method,
+          path: new URL(req.url ?? "/", "http://127.0.0.1").pathname,
+          settled,
+        },
+        "oauth2 loopback: received request",
+      );
+
       if (settled) {
         res.writeHead(400, { "Content-Type": "text/html" });
         res.end(renderLoopbackPage("Authorization already completed", false));
@@ -298,6 +307,10 @@ function startLoopbackServerAndWaitForCode(
       const url = new URL(req.url ?? "/", `http://127.0.0.1`);
 
       if (url.pathname !== LOOPBACK_CALLBACK_PATH) {
+        log.info(
+          { pathname: url.pathname },
+          "oauth2 loopback: non-callback path, returning 404",
+        );
         res.writeHead(404, { "Content-Type": "text/plain" });
         res.end("Not found");
         return;
@@ -308,6 +321,7 @@ function startLoopbackServerAndWaitForCode(
       const error = url.searchParams.get("error");
 
       if (callbackState !== state) {
+        log.warn("oauth2 loopback: state mismatch in callback");
         res.writeHead(400, { "Content-Type": "text/html" });
         res.end(renderLoopbackPage("Invalid state parameter", false));
         return;
@@ -317,6 +331,10 @@ function startLoopbackServerAndWaitForCode(
 
       if (error) {
         const errorDesc = url.searchParams.get("error_description") ?? error;
+        log.error(
+          { error, errorDesc },
+          "oauth2 loopback: authorization denied by user/provider",
+        );
         res.writeHead(200, { "Content-Type": "text/html" });
         res.end(
           renderLoopbackPage(`Authorization failed: ${errorDesc}`, false),
@@ -327,6 +345,7 @@ function startLoopbackServerAndWaitForCode(
       }
 
       if (!code) {
+        log.error("oauth2 loopback: callback missing authorization code");
         res.writeHead(400, { "Content-Type": "text/html" });
         res.end(renderLoopbackPage("Missing authorization code", false));
         cleanup();
@@ -334,6 +353,9 @@ function startLoopbackServerAndWaitForCode(
         return;
       }
 
+      log.info(
+        "oauth2 loopback: authorization code received, exchanging for tokens",
+      );
       res.writeHead(200, { "Content-Type": "text/html" });
       res.end(
         renderLoopbackPage(
@@ -347,6 +369,10 @@ function startLoopbackServerAndWaitForCode(
 
     const timeout = setTimeout(() => {
       if (!settled) {
+        log.warn(
+          { timeoutMs: LOOPBACK_TIMEOUT_MS, state },
+          "oauth2 loopback: callback timed out — no authorization code received",
+        );
         settled = true;
         cleanup();
         reject(new Error("OAuth2 loopback callback timed out"));
@@ -359,9 +385,19 @@ function startLoopbackServerAndWaitForCode(
       server.close();
     }
 
+    log.info(
+      { requestedPort: loopbackPort ?? "random" },
+      "oauth2 loopback: binding server",
+    );
+
     server.listen(loopbackPort ?? 0, "localhost", () => {
       const addr = server.address() as { port: number };
       boundRedirectUri = `http://localhost:${addr.port}${LOOPBACK_CALLBACK_PATH}`;
+
+      log.info(
+        { port: addr.port, redirectUri: boundRedirectUri },
+        "oauth2 loopback: server listening",
+      );
 
       const authParams = new URLSearchParams({
         ...config.extraParams,
@@ -375,10 +411,19 @@ function startLoopbackServerAndWaitForCode(
       });
 
       const authUrl = `${config.authUrl}?${authParams}`;
+      log.info(
+        { authUrlLength: authUrl.length, state },
+        "oauth2 loopback: built auth URL, calling openUrl callback",
+      );
       callbacks.openUrl(authUrl);
+      log.info("oauth2 loopback: openUrl callback returned");
     });
 
     server.on("error", (err) => {
+      log.error(
+        { err: err.message, loopbackPort },
+        "oauth2 loopback: server error",
+      );
       if (!settled) {
         settled = true;
         cleanup();
@@ -686,6 +731,16 @@ export async function startOAuth2Flow(
   // Determine transport: explicit option > auto-detect from config
   const transport =
     options?.callbackTransport ?? (hasPublicUrl ? "gateway" : "loopback");
+
+  log.info(
+    {
+      transport,
+      hasPublicUrl,
+      explicitTransport: options?.callbackTransport,
+      loopbackPort: options?.loopbackPort,
+    },
+    "startOAuth2Flow: resolved transport",
+  );
 
   if (transport === "gateway") {
     if (!hasPublicUrl) {
