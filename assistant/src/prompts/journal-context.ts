@@ -129,5 +129,8 @@ export function buildJournalContext(
     sections.push(header + "\n" + content);
   }
 
+  // If all readFileSync calls failed, sections only contains the header — return null
+  if (sections.length === 1) return null;
+
   return sections.join("\n\n");
 }
