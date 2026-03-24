@@ -34,14 +34,14 @@ struct InlineAppCreatedCard: View {
 
                 Text(preview.title)
                     .font(VFont.bodyMediumEmphasised)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .lineLimit(2)
             }
 
             if let description = preview.description, !description.isEmpty {
                 Text(description)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .lineLimit(3)
             }
 

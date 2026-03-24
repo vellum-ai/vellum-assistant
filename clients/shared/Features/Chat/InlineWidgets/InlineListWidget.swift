@@ -38,12 +38,12 @@ public struct InlineListWidget: View {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(item.title)
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 if let subtitle = item.subtitle {
                     Text(subtitle)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .lineLimit(1)
                 }
             }
@@ -52,7 +52,7 @@ public struct InlineListWidget: View {
 
             if data.selectionMode != .none {
                 VIconView(isSelected ? .circleCheck : .circle, size: 14)
-                    .foregroundColor(isSelected ? VColor.primaryBase : VColor.contentTertiary)
+                    .foregroundStyle(isSelected ? VColor.primaryBase : VColor.contentTertiary)
             }
         }
         .padding(.vertical, VSpacing.sm)

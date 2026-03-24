@@ -49,7 +49,7 @@ public struct CurrentStepIndicator: View {
                 // Spinner or checkmark
                 if let current = current, current.isComplete {
                     VIconView(.circleCheck, size: 14)
-                        .foregroundColor(VColor.primaryBase)
+                        .foregroundStyle(VColor.primaryBase)
                 } else {
                     ProgressView()
                         .scaleEffect(0.7)
@@ -63,20 +63,20 @@ public struct CurrentStepIndicator: View {
                         // Show tool name if available, otherwise show generic "Thinking..."
                         Text(current?.friendlyName ?? "Thinking...")
                             .font(VFont.bodyMediumDefault)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
 
                         // Progress counter inline with title
                         if totalCount > 1 {
                             Text("(\(completedCount)/\(totalCount))")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                         }
                     }
 
                     if isLoading {
                         Text("Working...")
                             .font(VFont.labelSmall)
-                            .foregroundColor(VColor.primaryBase)
+                            .foregroundStyle(VColor.primaryBase)
                             .opacity(pulseOpacity)
                     }
                 }
@@ -85,7 +85,7 @@ public struct CurrentStepIndicator: View {
 
                 // Chevron to indicate it's clickable
                 VIconView(.chevronRight, size: 10)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
             .padding(.horizontal, VSpacing.md)
             .padding(.vertical, VSpacing.sm)

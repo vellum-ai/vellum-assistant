@@ -96,11 +96,11 @@ public struct SubagentConversationView: View {
             // Label (clickable, turns blue on hover like Slack)
             Text(subagent.label)
                 .font(VFont.labelDefault)
-                .foregroundColor(isHovered ? VColor.primaryBase : VColor.contentDefault)
+                .foregroundStyle(isHovered ? VColor.primaryBase : VColor.contentDefault)
 
             // Status icon
             VIconView(statusIcon, size: 9)
-                .foregroundColor(statusColor)
+                .foregroundStyle(statusColor)
 
             // Animated dots while running
             if isRunning {
@@ -113,18 +113,18 @@ public struct SubagentConversationView: View {
             if replyCount > 0 {
                 Text("\(replyCount) repl\(replyCount == 1 ? "y" : "ies")")
                     .font(VFont.labelDefault)
-                    .foregroundColor(isHovered ? VColor.primaryBase : VColor.systemPositiveStrong)
+                    .foregroundStyle(isHovered ? VColor.primaryBase : VColor.systemPositiveStrong)
             } else if isRunning {
                 Text("Working...")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .italic()
             }
 
             // Abort button
             if isRunning, let onAbort {
                 VIconView(.x, size: 9)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .padding(VSpacing.xs)
                     .contentShape(Rectangle())
                     .highPriorityGesture(TapGesture().onEnded { onAbort() })
@@ -134,7 +134,7 @@ public struct SubagentConversationView: View {
 
             // View conversation arrow
             VIconView(.chevronRight, size: 9)
-                .foregroundColor(isHovered ? VColor.primaryBase : VColor.contentTertiary)
+                .foregroundStyle(isHovered ? VColor.primaryBase : VColor.contentTertiary)
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.sm)

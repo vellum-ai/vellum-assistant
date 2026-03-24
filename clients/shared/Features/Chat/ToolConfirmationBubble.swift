@@ -111,16 +111,16 @@ public struct ToolConfirmationBubble: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(.shield, size: 16)
-                    .foregroundColor(VColor.primaryBase)
+                    .foregroundStyle(VColor.primaryBase)
 
                 Text(confirmation.permissionFriendlyName)
                     .font(VFont.bodyMediumEmphasised)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
             }
 
             Text(confirmation.humanDescription)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             HStack(spacing: VSpacing.sm) {
                 VButton(label: "Open System Settings", style: .primary) {
@@ -174,17 +174,17 @@ public struct ToolConfirmationBubble: View {
     private var commandExplanationBanner: some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
             VIconView(.info, size: 14)
-                .foregroundColor(VColor.primaryBase)
+                .foregroundStyle(VColor.primaryBase)
                 .padding(.top, 1)
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("What is this?")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 Text("Sometimes your assistant needs to run commands on your computer to complete tasks \u{2014} like installing software, checking settings, or organizing files. You\u{2019}ll always be asked for permission first, and nothing runs without your approval.")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -229,12 +229,12 @@ public struct ToolConfirmationBubble: View {
                 } label: {
                     HStack(alignment: .firstTextBaseline, spacing: VSpacing.xxs) {
                         VIconView(.chevronRight, size: 9)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                             .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
                             .frame(width: 9, height: 9)
                         Text(showTechnicalDetails ? "Hide details" : "Show details")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                     }
                     .offset(x: -1)
                 }
@@ -315,7 +315,7 @@ public struct ToolConfirmationBubble: View {
         ScrollView {
             Text(content)
                 .font(VFont.bodySmallDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
@@ -334,7 +334,7 @@ public struct ToolConfirmationBubble: View {
     private var descriptionText: some View {
         Text(confirmation.humanDescription)
             .font(VFont.labelDefault)
-            .foregroundColor(VColor.contentTertiary)
+            .foregroundStyle(VColor.contentTertiary)
     }
 
     // MARK: - Diff Disclosure
@@ -350,9 +350,9 @@ public struct ToolConfirmationBubble: View {
                 HStack(spacing: 3) {
                     Text("View diff")
                         .font(.system(size: 10))
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                     VIconView(showDiff ? .chevronUp : .chevronDown, size: 8)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
                 .contentShape(Rectangle())
             }
@@ -364,7 +364,7 @@ public struct ToolConfirmationBubble: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(diffInfo.filePath)
                         .font(VFont.bodySmallDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
 
                     if computedDiff.isEmpty {
                         codePreviewBlock(diffInfo.newContent, maxHeight: 260)
@@ -455,7 +455,7 @@ public struct ToolConfirmationBubble: View {
     private var confirmationDescription: some View {
         Text(confirmation.humanDescription)
             .font(VFont.bodyMediumEmphasised)
-            .foregroundColor(VColor.contentDefault)
+            .foregroundStyle(VColor.contentDefault)
             .fixedSize(horizontal: false, vertical: true)
     }
 

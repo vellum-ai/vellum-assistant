@@ -73,14 +73,14 @@ public struct ConfirmationSurfaceView: View {
                     .foregroundStyle(data.destructive ? VColor.systemNegativeStrong : VColor.systemMidStrong)
                 Text(inlineMarkdown(data.message))
                     .font(VFont.bodySmallEmphasised)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
             }
 
             // Detail text
             if let detail = data.detail {
                 Text(inlineMarkdown(detail))
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
             }
 
             // Action buttons
@@ -112,16 +112,16 @@ public struct ConfirmationSurfaceView: View {
             switch action {
             case .confirmed:
                 VIconView(.circleCheck, size: 12)
-                    .foregroundColor(VColor.systemPositiveStrong)
+                    .foregroundStyle(VColor.systemPositiveStrong)
                 Text(data.confirmedLabel ?? "Done")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
             case .cancelled:
                 VIconView(.circleX, size: 12)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                 Text(data.cancelLabel ?? "Dismissed")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
             }
         }
         .padding(.horizontal, VSpacing.md)

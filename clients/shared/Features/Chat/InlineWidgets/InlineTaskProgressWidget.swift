@@ -80,7 +80,7 @@ public struct InlineTaskProgressWidget: View {
         HStack(alignment: .center, spacing: VSpacing.sm) {
             Text(data.title)
                 .font(VFont.bodySmallEmphasised)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Spacer()
 
@@ -97,7 +97,7 @@ public struct InlineTaskProgressWidget: View {
             Text(label)
                 .font(VFont.labelDefault)
         }
-        .foregroundColor(color)
+        .foregroundStyle(color)
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xxs)
         .background(
@@ -127,12 +127,12 @@ public struct InlineTaskProgressWidget: View {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(step.label)
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 if let detail = step.detail {
                     Text(detail)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
             }
 
@@ -148,20 +148,20 @@ public struct InlineTaskProgressWidget: View {
         switch status {
         case "completed":
             VIconView(.circleCheck, size: 14)
-                .foregroundColor(VColor.systemPositiveStrong)
+                .foregroundStyle(VColor.systemPositiveStrong)
         case "in_progress":
             ProgressView()
                 .controlSize(.small)
                 .tint(VColor.systemMidStrong)
         case "waiting":
             VIconView(.clock, size: 14)
-                .foregroundColor(VColor.systemMidStrong)
+                .foregroundStyle(VColor.systemMidStrong)
         case "failed":
             VIconView(.circleX, size: 14)
-                .foregroundColor(VColor.systemNegativeStrong)
+                .foregroundStyle(VColor.systemNegativeStrong)
         default:
             VIconView(.circle, size: 14)
-                .foregroundColor(VColor.contentDisabled)
+                .foregroundStyle(VColor.contentDisabled)
         }
     }
 

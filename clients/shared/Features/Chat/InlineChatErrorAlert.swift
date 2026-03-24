@@ -84,16 +84,16 @@ public struct InlineChatErrorAlert: View {
                 // Header: icon + category title
                 HStack(spacing: VSpacing.xs) {
                     VIconView(icon, size: 13)
-                        .foregroundColor(accentColor)
+                        .foregroundStyle(accentColor)
                     Text(categoryTitle)
                         .font(VFont.bodyMediumDefault)
-                        .foregroundColor(VColor.contentEmphasized)
+                        .foregroundStyle(VColor.contentEmphasized)
                 }
 
                 // Error message body
                 Text(message)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
 
@@ -101,7 +101,7 @@ public struct InlineChatErrorAlert: View {
                 if let suggestion = recoverySuggestion {
                     Text(suggestion)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -113,7 +113,7 @@ public struct InlineChatErrorAlert: View {
                             Text("Retry")
                         }
                         .font(VFont.labelDefault)
-                        .foregroundColor(accentColor)
+                        .foregroundStyle(accentColor)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
                         .background(accentColor.opacity(0.1))
