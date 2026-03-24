@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'release/v*'
+  workflow_dispatch:
 
 concurrency:
   group: release
@@ -23,23 +24,27 @@ jobs:
         id: extract
         run: |
           BRANCH="${GITHUB_REF_NAME}"
+          if [[ "$BRANCH" != release/v* ]]; then
+            echo "::error::Workflow must run on a release/v* branch, got '$BRANCH'"
+            exit 1
+          fi
           VERSION="${BRANCH#release/v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Detect staging release
         id: detect-staging
         run: |
-          COMMIT_MSG=$(git log -1 --format=%s)
-          if echo "$COMMIT_MSG" | grep -qF '[staging]'; then
-            echo "is_staging=true" >> "$GITHUB_OUTPUT"
-            echo "Staging release detected from commit message: $COMMIT_MSG"
-          else
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "is_staging=false" >> "$GITHUB_OUTPUT"
-            echo "Production release detected from commit message: $COMMIT_MSG"
+            echo "Manual dispatch — full production release"
+          else
+            echo "is_staging=true" >> "$GITHUB_OUTPUT"
+            echo "Commit-triggered release — staging only"
           fi
 
   push-assistant-image:
     needs: [extract-version, ci-assistant]
+    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest-8-cores
     timeout-minutes: 30
     permissions:
@@ -112,9 +117,7 @@ jobs:
 
   push-assistant-manifest:
     needs: [extract-version, push-assistant-image]
-    # Run even when push-assistant-image fails so this job is marked as failed (not skipped),
-    # keeping the dependency graph simple while ensuring accurate Slack reporting.
-    if: always() && !cancelled()
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -223,6 +226,7 @@ jobs:
 
   push-gateway-image:
     needs: [extract-version, ci-gateway]
+    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -294,6 +298,7 @@ jobs:
 
   push-credential-executor-image:
     needs: [extract-version, ci-credential-executor]
+    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -363,9 +368,7 @@ jobs:
 
   push-gateway-manifest:
     needs: [extract-version, push-gateway-image]
-    # Run even when push-gateway-image fails so this job is marked as failed (not skipped),
-    # keeping the dependency graph simple while ensuring accurate Slack reporting.
-    if: always() && !cancelled()
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -474,9 +477,7 @@ jobs:
 
   push-credential-executor-manifest:
     needs: [extract-version, push-credential-executor-image]
-    # Run even when push-credential-executor-image fails so this job is marked as failed (not skipped),
-    # keeping the dependency graph simple while ensuring accurate Slack reporting.
-    if: always() && !cancelled()
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -724,6 +725,7 @@ jobs:
 
   register-release:
     needs: [extract-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
+    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -2234,18 +2236,8 @@ jobs:
 
           # Determine release status
           RELEASE_FAILED="false"
-          if [ "$IS_STAGING" = "true" ]; then
-            # For staging, check that GCP image pushes and register-release succeeded
-            if [ "${{ needs.push-assistant-manifest.result }}" != "success" ] || \
-               [ "${{ needs.push-gateway-manifest.result }}" != "success" ] || \
-               [ "${{ needs.push-credential-executor-manifest.result }}" != "success" ] || \
-               [ "${{ needs.register-release.result }}" != "success" ]; then
-              RELEASE_FAILED="true"
-            fi
-          else
-            if [ "${{ needs.release.result }}" != "success" ]; then
-              RELEASE_FAILED="true"
-            fi
+          if [ "$IS_STAGING" != "true" ] && [ "${{ needs.release.result }}" != "success" ]; then
+            RELEASE_FAILED="true"
           fi
 
           if [ "$IS_STAGING" = "true" ]; then

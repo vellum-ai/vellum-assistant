@@ -126,6 +126,6 @@ jobs:
 
           git add -A
           if ! git diff --cached --quiet; then
-            git commit -m "[staging] Release v$VERSION"
+            git commit -m "Release v$VERSION"
           fi
           git push origin "$BRANCH"
