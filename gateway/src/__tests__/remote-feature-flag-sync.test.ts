@@ -99,6 +99,14 @@ describe("RemoteFeatureFlagSync", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  test("skips sync when assistantId is empty", async () => {
+    const sync = new RemoteFeatureFlagSync(makeConfig({ assistantId: "" }));
+    await sync.start();
+    sync.stop();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   test("fetches and caches flags on successful response", async () => {
     fetchMock = mock(async () =>
       Response.json({

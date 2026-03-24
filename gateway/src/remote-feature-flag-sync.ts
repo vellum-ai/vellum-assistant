@@ -48,9 +48,13 @@ export class RemoteFeatureFlagSync {
   }
 
   async start(): Promise<void> {
-    if (!this.config.platformUrl || !this.config.platformApiKey) {
+    if (
+      !this.config.platformUrl ||
+      !this.config.assistantId ||
+      !this.config.platformApiKey
+    ) {
       log.warn(
-        "Remote feature flag sync disabled: missing platform URL or API key",
+        "Remote feature flag sync disabled: missing platform URL, assistant ID, or API key",
       );
       return;
     }
