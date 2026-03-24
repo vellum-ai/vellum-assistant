@@ -12,28 +12,30 @@ struct MemoryItemRow: View {
 
     var body: some View {
         VCard(padding: VSpacing.lg, action: onSelect) {
-            VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                HStack(alignment: .center, spacing: VSpacing.sm) {
-                    Text(item.subject)
-                        .font(VFont.headline)
-                        .foregroundStyle(VColor.contentEmphasized)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+            VStack(alignment: .leading, spacing: VSpacing.sm) {
+                VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                    HStack(alignment: .center, spacing: VSpacing.sm) {
+                        Text(item.subject)
+                            .font(VFont.headline)
+                            .foregroundStyle(VColor.contentEmphasized)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
 
-                    VTag(
-                        memoryKind?.label ?? item.kind.capitalized,
-                        color: memoryKind?.color ?? VColor.contentTertiary
-                    )
+                        VTag(
+                            memoryKind?.label ?? item.kind.capitalized,
+                            color: memoryKind?.color ?? VColor.contentTertiary
+                        )
 
-                    Spacer()
+                        Spacer()
 
-                    VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerGhost, action: onDelete)
-                        .accessibilityLabel("Delete memory")
+                        VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerGhost, action: onDelete)
+                            .accessibilityLabel("Delete memory")
+                    }
+
+                    Text(item.relativeLastSeen)
+                        .font(VFont.caption)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
-
-                Text(item.relativeLastSeen)
-                    .font(VFont.caption)
-                    .foregroundStyle(VColor.contentTertiary)
 
                 Text(item.statement)
                     .font(VFont.bodySmall)
