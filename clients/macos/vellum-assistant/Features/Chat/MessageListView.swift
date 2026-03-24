@@ -174,8 +174,8 @@ struct MessageListView: View {
     /// Consolidates all scroll-related state: anchor tracking, scroll loop guard,
     /// bottom pin coordinator, suppression flags, and scroll-related tasks.
     @StateObject private var scrollCoordinator = MessageListScrollCoordinator()
-    /// The scroll view's viewport height, captured via preference key. Used by
-    /// the anchor GeometryReader to determine if the anchor is within bounds.
+    /// The scroll view's viewport height, captured via onScrollGeometryChange.
+    /// Used for anchor visibility checks and bottom-pin verification.
     @State private var scrollViewportHeight: CGFloat = .infinity
     /// Timestamp when anchorMessageId was set. Used together with pagination
     /// exhaustion to decide when a stale anchor should be cleared.
@@ -941,19 +941,11 @@ struct MessageListView: View {
                         .onAppear {
                             // Only auto-tether on initial load (before any scroll events).
                             // After the user has scrolled, rely on onScrollPhaseChange and
-                            // anchorTracker preference tracking to manage isNearBottom —
+                            // onScrollGeometryChange tracking to manage isNearBottom —
                             // LazyVStack fires onAppear in the prefetch zone (several screens
                             // ahead) which would prematurely re-tether during normal scrolling.
                             if !scrollCoordinator.hasReceivedScrollEvent {
                                 isNearBottom = true
-                            }
-                        }
-                        .background {
-                            GeometryReader { geo in
-                                Color.clear.preference(
-                                    key: AnchorMinYKey.self,
-                                    value: geo.frame(in: .named("chatScrollView")).minY
-                                )
                             }
                         }
                 }
@@ -977,11 +969,6 @@ struct MessageListView: View {
                     scrollViewportHeight: scrollViewportHeight
                 )
             })
-            .background {
-                GeometryReader { geo in
-                    Color.clear.preference(key: ScrollViewportHeightKey.self, value: geo.size.height)
-                }
-            }
             .onScrollPhaseChange { oldPhase, newPhase in
                 scrollPhase = newPhase
                 if newPhase == .idle && oldPhase != .idle && isNearBottom {
@@ -1010,18 +997,20 @@ struct MessageListView: View {
                 }
             }
             .scrollIndicators(.automatic)
-            .onPreferenceChange(ScrollViewportHeightKey.self) { height in
+            .onScrollGeometryChange(for: CGFloat.self) { geo in
+                geo.visibleRect.height
+            } action: { _, newHeight in
                 // Filter non-finite viewport heights and sub-pixel jitter.
                 // A 0.5pt dead-zone prevents floating-point rounding differences
                 // between render passes from triggering continuous @State mutations
                 // (scrollViewportHeight) which would create a runaway render loop.
                 let decision = PreferenceGeometryFilter.evaluate(
-                    newValue: height,
+                    newValue: newHeight,
                     previous: scrollViewportHeight,
                     deadZone: 0.5
                 )
                 guard case .accept(let accepted) = decision else { return }
-                os_signpost(.begin, log: PerfSignposts.log, name: "viewportHeightPreferenceChange")
+                os_signpost(.begin, log: PerfSignposts.log, name: "viewportHeightChanged")
                 let viewportChanged = scrollCoordinator.updateAnchorViewport(
                     height: accepted,
                     storedViewportHeight: &scrollViewportHeight
@@ -1031,14 +1020,18 @@ struct MessageListView: View {
                     // is refreshed before a later visibility transition reveals it.
                     updateAvatarFollower(anchorY: scrollCoordinator.scrollTracking.lastTailAnchorY)
                 }
-                os_signpost(.end, log: PerfSignposts.log, name: "viewportHeightPreferenceChange")
+                os_signpost(.end, log: PerfSignposts.log, name: "viewportHeightChanged")
             }
-            .transaction { $0.disablesAnimations = true }
-            .onPreferenceChange(AnchorMinYKey.self) { minY in
-                // Filter non-finite anchor values and apply 2pt dead-zone to
-                // reduce layout invalidation cascades during rapid scroll.
+            .onScrollGeometryChange(for: CGFloat.self) { geo in
+                // Distance from bottom: how far the visible rect's bottom edge
+                // is from the content bottom. Replaces the AnchorMinYKey preference
+                // + hidden anchor view + GeometryReader + coordinate space conversion.
+                geo.contentOffset.y + geo.contentSize.height - geo.visibleRect.height
+            } action: { _, distanceFromBottom in
+                // Filter non-finite values and apply 2pt dead-zone to reduce
+                // layout invalidation cascades during rapid scroll.
                 let decision = PreferenceGeometryFilter.evaluate(
-                    newValue: minY,
+                    newValue: distanceFromBottom,
                     previous: scrollCoordinator.anchorLastMinY
                 )
                 switch decision {
@@ -1048,7 +1041,7 @@ struct MessageListView: View {
                 case .rejectDeadZone:
                     return
                 case .accept(let accepted):
-                    os_signpost(.begin, log: PerfSignposts.log, name: "anchorMinYPreferenceChange")
+                    os_signpost(.begin, log: PerfSignposts.log, name: "distanceFromBottomChanged")
                     scrollCoordinator.handleAcceptedAnchorMinY(
                         accepted: accepted,
                         scrollViewportHeight: scrollViewportHeight,
@@ -1060,10 +1053,9 @@ struct MessageListView: View {
                         containerWidth: containerWidth,
                         highlightedMessageId: highlightedMessageId
                     )
-                    os_signpost(.end, log: PerfSignposts.log, name: "anchorMinYPreferenceChange")
+                    os_signpost(.end, log: PerfSignposts.log, name: "distanceFromBottomChanged")
                 }
             }
-            .transaction { $0.disablesAnimations = true }
             .onPreferenceChange(ConversationTailAnchorYKey.self) { anchorY in
                 // Filter non-finite tail anchor values and apply 2pt dead-zone
                 // to reduce layout invalidation cascades during rapid scroll.
@@ -1102,7 +1094,7 @@ struct MessageListView: View {
             }
             .overlay(alignment: .bottom) {
                 if !isNearBottom && !scrollCoordinator.anchorIsVisible
-                    && scrollCoordinator.anchorLastMinY > scrollViewportHeight + 20
+                    && scrollCoordinator.anchorLastMinY > 20
                 {
                     Button(action: {
                         os_signpost(.event, log: PerfSignposts.log, name: "scrollToLatestPressed")
@@ -1672,29 +1664,6 @@ private struct MessageCellView: View, Equatable {
     }
 }
 
-/// Preference key used to propagate the scroll view's viewport height from a
-/// background GeometryReader up to the MessageListView so the anchor-visibility
-/// check can compare the anchor's Y position against the viewport bounds.
-private struct ScrollViewportHeightKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        // Use max so sibling views in the same .background block (which report
-        // the default value of 0) don't overwrite the real viewport height.
-        value = max(value, nextValue())
-    }
-}
-
-/// Preference key that propagates the anchor's Y position (in the chatScrollView
-/// coordinate space) from the GeometryReader up to the MessageListView.
-private struct AnchorMinYKey: PreferenceKey {
-    static var defaultValue: CGFloat = .infinity
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        // Use min so sibling views in the LazyVStack (which report the default
-        // value of .infinity) don't overwrite the anchor's actual Y position.
-        value = min(value, nextValue())
-    }
-}
-
 /// Preference key that propagates the pagination sentinel's minY (in the
 /// `chatScrollView` coordinate space) so the geometry-based pagination
 /// trigger can evaluate whether the sentinel has entered the top band.
@@ -1723,8 +1692,12 @@ enum MessageListBottomAnchorPolicy {
 
     static let repinTolerance: CGFloat = 2
 
-    /// Evaluates the bottom-anchor position against the viewport and returns
+    /// Evaluates the distance-from-bottom against a tolerance and returns
     /// a structured outcome describing the result.
+    ///
+    /// `anchorMinY` now holds the distance-from-bottom (0 at the bottom,
+    /// positive when scrolled up). `viewportHeight` is still passed for
+    /// finite-geometry gating but is not used in the comparison.
     static func verify(
         anchorMinY: CGFloat,
         viewportHeight: CGFloat,
@@ -1733,7 +1706,7 @@ enum MessageListBottomAnchorPolicy {
         guard anchorMinY.isFinite, viewportHeight.isFinite else {
             return .geometryUnavailable
         }
-        if anchorMinY > viewportHeight + tolerance {
+        if anchorMinY > tolerance {
             return .needsRepin
         }
         return .anchored

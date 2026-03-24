@@ -45,8 +45,8 @@ enum PreferenceGeometryFilter {
     ///   - previous: The last accepted (stored) value. Pass `.infinity` when
     ///     no measurement has been recorded yet.
     ///   - deadZone: The minimum absolute change required for acceptance.
-    ///     Pass `0` to disable dead-zone suppression (used by keys where
-    ///     every finite change matters, such as `ScrollViewportHeightKey`).
+    ///     Pass `0` to disable dead-zone suppression (used by handlers where
+    ///     every finite change matters).
     /// - Returns: A `PreferenceFilterDecision` describing whether and how
     ///   the caller should act on the new value.
     static func evaluate(

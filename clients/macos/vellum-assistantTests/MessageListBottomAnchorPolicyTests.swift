@@ -5,25 +5,28 @@ final class MessageListBottomAnchorPolicyTests: XCTestCase {
 
     // MARK: - needsRepin (existing API — behavior preserved)
 
-    func testNeedsRepinWhenAnchorFallsBelowViewport() {
+    /// `anchorMinY` now represents distance-from-bottom (0 = at bottom,
+    /// positive = scrolled up). `needsRepin` returns true when the distance
+    /// exceeds the tolerance.
+    func testNeedsRepinWhenScrolledFarFromBottom() {
         XCTAssertTrue(
             MessageListBottomAnchorPolicy.needsRepin(
-                anchorMinY: 540,
+                anchorMinY: 40,
                 viewportHeight: 500
             )
         )
     }
 
-    func testDoesNotRepinWhenAnchorAlreadyWithinTolerance() {
+    func testDoesNotRepinWhenWithinTolerance() {
         XCTAssertFalse(
             MessageListBottomAnchorPolicy.needsRepin(
-                anchorMinY: 500.5,
+                anchorMinY: 0.5,
                 viewportHeight: 500
             )
         )
         XCTAssertFalse(
             MessageListBottomAnchorPolicy.needsRepin(
-                anchorMinY: 502,
+                anchorMinY: 2,
                 viewportHeight: 500
             )
         )
@@ -38,19 +41,19 @@ final class MessageListBottomAnchorPolicyTests: XCTestCase {
         )
         XCTAssertTrue(
             MessageListBottomAnchorPolicy.needsRepin(
-                anchorMinY: 500,
+                anchorMinY: 0,
                 viewportHeight: .infinity
             )
         )
     }
 
-    // MARK: - verify (new decision API)
+    // MARK: - verify (decision API)
 
     // -- Anchored outcomes --
 
-    func testVerifyAnchoredWhenExactlyAtViewportBottom() {
+    func testVerifyAnchoredWhenExactlyAtBottom() {
         let outcome = MessageListBottomAnchorPolicy.verify(
-            anchorMinY: 500,
+            anchorMinY: 0,
             viewportHeight: 500
         )
         XCTAssertEqual(outcome, .anchored)
@@ -58,15 +61,16 @@ final class MessageListBottomAnchorPolicyTests: XCTestCase {
 
     func testVerifyAnchoredWhenWithinTolerance() {
         let outcome = MessageListBottomAnchorPolicy.verify(
-            anchorMinY: 501.5,
+            anchorMinY: 1.5,
             viewportHeight: 500
         )
         XCTAssertEqual(outcome, .anchored)
     }
 
-    func testVerifyAnchoredWhenAnchorAboveViewportBottom() {
+    func testVerifyAnchoredWhenNegativeDistanceFromBottom() {
+        // Negative distance means content is shorter than viewport (overscroll).
         let outcome = MessageListBottomAnchorPolicy.verify(
-            anchorMinY: 400,
+            anchorMinY: -5,
             viewportHeight: 500
         )
         XCTAssertEqual(outcome, .anchored)
@@ -74,9 +78,9 @@ final class MessageListBottomAnchorPolicyTests: XCTestCase {
 
     // -- NeedsRepin outcomes --
 
-    func testVerifyNeedsRepinWhenAnchorBelowViewport() {
+    func testVerifyNeedsRepinWhenScrolledFarFromBottom() {
         let outcome = MessageListBottomAnchorPolicy.verify(
-            anchorMinY: 540,
+            anchorMinY: 40,
             viewportHeight: 500
         )
         XCTAssertEqual(outcome, .needsRepin)
@@ -84,7 +88,7 @@ final class MessageListBottomAnchorPolicyTests: XCTestCase {
 
     func testVerifyNeedsRepinJustOutsideTolerance() {
         let outcome = MessageListBottomAnchorPolicy.verify(
-            anchorMinY: 502.01,
+            anchorMinY: 2.01,
             viewportHeight: 500
         )
         XCTAssertEqual(outcome, .needsRepin)
@@ -102,7 +106,7 @@ final class MessageListBottomAnchorPolicyTests: XCTestCase {
 
     func testVerifyGeometryUnavailableWhenViewportIsInfinity() {
         let outcome = MessageListBottomAnchorPolicy.verify(
-            anchorMinY: 500,
+            anchorMinY: 0,
             viewportHeight: .infinity
         )
         XCTAssertEqual(outcome, .geometryUnavailable)
@@ -126,7 +130,7 @@ final class MessageListBottomAnchorPolicyTests: XCTestCase {
 
     func testVerifyGeometryUnavailableWhenViewportIsNaN() {
         let outcome = MessageListBottomAnchorPolicy.verify(
-            anchorMinY: 500,
+            anchorMinY: 0,
             viewportHeight: .nan
         )
         XCTAssertEqual(outcome, .geometryUnavailable)
@@ -144,11 +148,11 @@ final class MessageListBottomAnchorPolicyTests: XCTestCase {
 
     func testNeedsRepinAgreesWithVerifyForFiniteInputs() {
         let cases: [(CGFloat, CGFloat)] = [
-            (400, 500),
-            (500, 500),
-            (501, 500),
-            (502, 500),
-            (540, 500),
+            (-5, 500),    // negative distance (overscroll) — anchored
+            (0, 500),     // at bottom — anchored
+            (1, 500),     // within tolerance — anchored
+            (2, 500),     // at tolerance boundary — anchored
+            (40, 500),    // scrolled up — needsRepin
         ]
         for (anchor, viewport) in cases {
             let outcome = MessageListBottomAnchorPolicy.verify(

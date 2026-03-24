@@ -6,24 +6,28 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "MessageListScrollCoordinator")
 
-/// Holds the last-known anchor minY without triggering SwiftUI re-renders.
-/// Only `isVisible` is @Published so re-renders happen only when the
-/// visible/invisible boundary is crossed — not on every scroll tick.
+/// Holds the last-known distance-from-bottom without triggering SwiftUI
+/// re-renders. Only `isVisible` is @Published so re-renders happen only when
+/// the visible/invisible boundary is crossed — not on every scroll tick.
 ///
 /// Retained as a standalone type for testability. The coordinator delegates
 /// anchor tracking to this class internally but exposes `anchorIsVisible`
 /// and `anchorLastMinY` as top-level properties for convenience.
+///
+/// `lastMinY` stores the distance-from-bottom (0 at the bottom, positive when
+/// scrolled up). The anchor is considered "visible" when the distance is at
+/// most 20pt.
 @MainActor final class AnchorVisibilityTracker: ObservableObject {
     var lastMinY: CGFloat = .infinity  // NOT @Published — no re-render on scroll
     @Published var isVisible: Bool = true
 
-    /// Updates the tracked minY and recalculates visibility.
+    /// Updates the tracked distance-from-bottom and recalculates visibility.
     /// Only publishes `isVisible` when the boundary is actually crossed
     /// (visible ↔ invisible), not on every scroll tick — this prevents
     /// SwiftUI re-renders during continuous scrolling.
-    func update(minY: CGFloat, viewportHeight: CGFloat) {
-        lastMinY = minY
-        let newVisible = minY >= -20 && minY <= viewportHeight + 20
+    func update(distanceFromBottom: CGFloat, viewportHeight: CGFloat) {
+        lastMinY = distanceFromBottom
+        let newVisible = distanceFromBottom >= -20 && distanceFromBottom <= 20
         if isVisible != newVisible { isVisible = newVisible }
     }
 
@@ -33,12 +37,12 @@ private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "Me
     func updateViewport(height: CGFloat, storedViewportHeight: inout CGFloat) -> Bool {
         guard storedViewportHeight != height else { return false }
         storedViewportHeight = height
-        // Don't recompute visibility before the anchor position has been
-        // measured — lastMinY starts at .infinity, and .infinity <= height + 20
+        // Don't recompute visibility before the distance-from-bottom has been
+        // measured — lastMinY starts at .infinity, and .infinity <= 20
         // evaluates to false, incorrectly flipping isVisible to false and
         // flashing the "Scroll to latest" button on short conversations.
         guard lastMinY.isFinite else { return true }
-        let newVisible = lastMinY >= -20 && lastMinY <= height + 20
+        let newVisible = lastMinY >= -20 && lastMinY <= 20
         if isVisible != newVisible { isVisible = newVisible }
         return true
     }
@@ -164,8 +168,8 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// the current conversation loaded.
     var hasReceivedScrollEvent: Bool = false
 
-    /// Whether the AnchorMinYKey preference has fired since the last scroll
-    /// restore began.
+    /// Whether the distance-from-bottom scroll geometry has fired since the
+    /// last scroll restore began.
     var hasFreshAnchorMeasurement: Bool = false
 
     /// Tracks whether the pagination sentinel was previously inside the trigger band.
@@ -195,12 +199,17 @@ final class MessageListScrollCoordinator: ObservableObject {
 
     // MARK: - Anchor Visibility (mirrors AnchorVisibilityTracker)
 
-    /// Updates the tracked anchor minY and recalculates visibility.
+    /// Updates the tracked distance-from-bottom and recalculates visibility.
     /// Only publishes `anchorIsVisible` when the boundary is actually crossed
     /// (visible ↔ invisible), not on every scroll tick.
-    func updateAnchor(minY: CGFloat, viewportHeight: CGFloat) {
-        anchorLastMinY = minY
-        let newVisible = minY >= -20 && minY <= viewportHeight + 20
+    ///
+    /// `distanceFromBottom` is 0 when the scroll view is pinned to the bottom
+    /// and grows as the user scrolls up. The anchor is considered "visible"
+    /// (i.e. the bottom of the content is within the viewport) when the
+    /// distance is at most 20pt.
+    func updateAnchor(distanceFromBottom: CGFloat, viewportHeight: CGFloat) {
+        anchorLastMinY = distanceFromBottom
+        let newVisible = distanceFromBottom >= -20 && distanceFromBottom <= 20
         if anchorIsVisible != newVisible { anchorIsVisible = newVisible }
     }
 
@@ -210,12 +219,12 @@ final class MessageListScrollCoordinator: ObservableObject {
     func updateAnchorViewport(height: CGFloat, storedViewportHeight: inout CGFloat) -> Bool {
         guard storedViewportHeight != height else { return false }
         storedViewportHeight = height
-        // Don't recompute visibility before the anchor position has been
-        // measured — anchorLastMinY starts at .infinity, and .infinity <= height + 20
+        // Don't recompute visibility before the distance-from-bottom has been
+        // measured — anchorLastMinY starts at .infinity, and .infinity <= 20
         // evaluates to false, incorrectly flipping anchorIsVisible to false and
         // flashing the "Scroll to latest" button on short conversations.
         guard anchorLastMinY.isFinite else { return true }
-        let newVisible = anchorLastMinY >= -20 && anchorLastMinY <= height + 20
+        let newVisible = anchorLastMinY >= -20 && anchorLastMinY <= 20
         if anchorIsVisible != newVisible { anchorIsVisible = newVisible }
         return true
     }
@@ -666,8 +675,8 @@ final class MessageListScrollCoordinator: ObservableObject {
         }
     }
 
-    /// Handles the AnchorMinYKey preference change when the value is non-finite,
-    /// marking the anchor as off-screen.
+    /// Handles a non-finite distance-from-bottom value by marking the anchor
+    /// as off-screen.
     func handleNonFiniteAnchor() {
         if anchorIsVisible {
             anchorIsVisible = false
@@ -760,7 +769,7 @@ final class MessageListScrollCoordinator: ObservableObject {
         return true
     }
 
-    /// Handles the AnchorMinYKey preference change when the value is accepted (finite, past dead-zone).
+    /// Handles an accepted distance-from-bottom value (finite, past dead-zone).
     /// Returns true if a direct scroll-to-bottom was issued (first measurement after conversation switch).
     @discardableResult
     func handleAcceptedAnchorMinY(
@@ -775,7 +784,7 @@ final class MessageListScrollCoordinator: ObservableObject {
         highlightedMessageId: UUID?
     ) -> Bool {
         recordScrollLoopEvent(.anchorPreferenceChange, conversationId: conversationId, isNearBottom: isNearBottom, scrollViewportHeight: scrollViewportHeight)
-        updateAnchor(minY: accepted, viewportHeight: scrollViewportHeight)
+        updateAnchor(distanceFromBottom: accepted, viewportHeight: scrollViewportHeight)
         var didDirectScroll = false
         let convIdString = conversationId?.uuidString ?? "unknown"
         if !hasFreshAnchorMeasurement {
