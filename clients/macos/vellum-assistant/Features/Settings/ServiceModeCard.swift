@@ -41,9 +41,14 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             HStack {
-                Text(title)
-                    .font(VFont.titleSmall)
-                    .foregroundColor(VColor.contentEmphasized)
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text(title)
+                        .font(VFont.titleSmall)
+                        .foregroundColor(VColor.contentEmphasized)
+                    Text(subtitle)
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundColor(VColor.contentTertiary)
+                }
                 Spacer()
                 VSegmentedControl(
                     items: [
@@ -55,9 +60,6 @@ struct ServiceModeCard<ManagedContent: View, YourOwnContent: View>: View {
                 )
                 .frame(width: 220)
             }
-            Text(subtitle)
-                .font(VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentTertiary)
         }
     }
 }

@@ -19,7 +19,7 @@ struct SettingsCard<Content: View, Accessory: View>: View {
                         .foregroundColor(VColor.contentEmphasized)
                     if let subtitle {
                         Text(subtitle)
-                            .font(VFont.bodyMediumLighter)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
                 }
