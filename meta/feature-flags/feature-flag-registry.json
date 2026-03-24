@@ -336,6 +336,14 @@
       "label": "Show Background Conversations",
       "description": "Include background conversations (heartbeat, tasks) in the sidebar conversation list",
       "defaultEnabled": false
+    },
+    {
+      "id": "assistant-a2a",
+      "scope": "assistant",
+      "key": "feature_flags.assistant-a2a.enabled",
+      "label": "Assistant-to-Assistant Messaging",
+      "description": "Enable assistant-to-assistant (A2A) messaging, allowing paired assistants to exchange messages directly",
+      "defaultEnabled": false
     }
   ]
 }
