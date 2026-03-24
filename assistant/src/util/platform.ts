@@ -324,7 +324,7 @@ export function getSignalsDir(): string {
 /**
  * Returns the workspace root for user-facing state.
  *
- * When the WORKSPACE_DIR env var is set, returns that value (used in
+ * When the VELLUM_WORKSPACE_DIR env var is set, returns that value (used in
  * containerized deployments where the workspace is a separate volume).
  * Otherwise falls back to ~/.vellum/workspace.
  *
