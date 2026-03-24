@@ -82,6 +82,7 @@ import {
   createSlackSocketModeClient,
   type SlackSocketModeClient,
 } from "./slack/socket-mode.js";
+import { fetchThreadContext } from "./slack/thread-context.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
 import {
@@ -1182,25 +1183,56 @@ async function main() {
     );
     if (!botToken || !appToken) return;
 
+    const slackSocketConfig: {
+      appToken: string;
+      botToken: string;
+      gatewayConfig: typeof config;
+      botUserId?: string;
+    } = {
+      appToken,
+      botToken,
+      gatewayConfig: config,
+    };
+
     slackSocketClient = createSlackSocketModeClient(
-      {
-        appToken,
-        botToken,
-        gatewayConfig: config,
-      },
+      slackSocketConfig,
       (normalized) => {
         const { threadTs, channel } = normalized;
         const replyCallbackUrl = `${config.gatewayInternalBaseUrl}/deliver/slack?threadTs=${encodeURIComponent(threadTs)}&channel=${encodeURIComponent(channel)}`;
 
-        handleInbound(config, normalized.event, {
-          replyCallbackUrl,
-          routingOverride: normalized.routing,
-        }).catch((err) => {
-          log.error(
-            { err, channel, threadTs },
-            "Failed to forward Slack event to runtime",
-          );
-        });
+        // Check if this is a thread reply (threadTs differs from the message's own ts)
+        const messageTs = normalized.event.source.messageId;
+        const isThreadReply = messageTs !== undefined && threadTs !== messageTs;
+
+        const forward = (threadContextHint?: string) => {
+          const hints: string[] = [];
+          if (threadContextHint) hints.push(threadContextHint);
+
+          handleInbound(config, normalized.event, {
+            replyCallbackUrl,
+            routingOverride: normalized.routing,
+            ...(hints.length > 0 ? { transportMetadata: { hints } } : {}),
+          }).catch((err) => {
+            log.error(
+              { err, channel, threadTs },
+              "Failed to forward Slack event to runtime",
+            );
+          });
+        };
+
+        if (isThreadReply && botToken) {
+          fetchThreadContext(
+            channel,
+            threadTs,
+            messageTs,
+            botToken,
+            slackSocketConfig.botUserId,
+          )
+            .then((context) => forward(context ?? undefined))
+            .catch(() => forward());
+        } else {
+          forward();
+        }
       },
     );
 
