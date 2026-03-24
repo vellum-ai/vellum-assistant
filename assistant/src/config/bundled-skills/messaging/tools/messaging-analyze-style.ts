@@ -50,7 +50,7 @@ function upsertMemoryItem(opts: {
           Math.max(existing.importance ?? 0, opts.importance),
         ),
         lastSeenAt: now,
-        sourceType: "extraction",
+        sourceType: existing.sourceType === "tool" ? "tool" : "extraction",
       })
       .where(eq(memoryItems.id, existing.id))
       .run();
