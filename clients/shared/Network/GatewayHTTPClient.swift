@@ -232,12 +232,12 @@ public enum GatewayHTTPClient {
             return response
         }
 
-        // Clean up the failed download before retrying.
-        try? FileManager.default.removeItem(at: response.fileURL)
-
         guard await refreshBearerCredentials(connection: connection) else {
             return response
         }
+
+        // Clean up the 401 download only after confirming we will retry.
+        try? FileManager.default.removeItem(at: response.fileURL)
 
         let freshConnection = try resolveConnection()
         let retryRequest = try buildRequest(path: path, params: params, method: "GET", timeout: timeout, connection: freshConnection)
