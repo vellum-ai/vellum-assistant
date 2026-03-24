@@ -14,6 +14,7 @@ import { leaseGuardianToken } from "./guardian-token";
 import { getPlatformUrl } from "./platform-client";
 import { generateInstanceName } from "./random-name";
 import { exec, execOutput } from "./step-runner";
+import { emitProgress } from "./desktop-progress.js";
 
 export async function getActiveProject(): Promise<string> {
   const output = await execOutput("gcloud", ["config", "get-value", "project"]);
@@ -522,6 +523,7 @@ export async function hatchGcp(
       );
       process.exit(1);
     }
+    emitProgress(1, 5, "Preparing startup script...");
     const { script: startupScript, laptopBootstrapSecret } =
       await buildStartupScript(
         species,
@@ -534,6 +536,7 @@ export async function hatchGcp(
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);
 
+    emitProgress(2, 5, "Launching instance...");
     console.log("\ud83d\udd28 Creating instance with startup script...");
     try {
       const createArgs = [
@@ -595,6 +598,7 @@ export async function hatchGcp(
     const runtimeUrl = externalIp
       ? `http://${externalIp}:${GATEWAY_PORT}`
       : `http://${instanceName}:${GATEWAY_PORT}`;
+    emitProgress(3, 5, "Saving configuration...");
     const gcpEntry: AssistantEntry = {
       assistantId: instanceName,
       runtimeUrl,
@@ -624,6 +628,7 @@ export async function hatchGcp(
       console.log("   Press Ctrl+C to detach (instance will keep running)");
       console.log("");
 
+      emitProgress(4, 5, "Installing software...");
       const result = await watchHatching(
         () => pollInstance(instanceName, project, zone, account),
         instanceName,
@@ -662,6 +667,7 @@ export async function hatchGcp(
         }
       }
 
+      emitProgress(5, 5, "Finalizing...");
       try {
         await leaseGuardianToken(
           runtimeUrl,

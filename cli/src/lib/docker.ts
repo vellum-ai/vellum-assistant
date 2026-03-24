@@ -26,6 +26,7 @@ import {
   resetLogFile,
   writeToLogFile,
 } from "./xdg-log";
+import { emitProgress } from "./desktop-progress.js";
 
 export type ServiceName = "assistant" | "credential-executor" | "gateway";
 
@@ -1076,6 +1077,7 @@ export async function hatchDocker(
   };
 
   try {
+    emitProgress(1, 6, "Checking Docker...");
     await ensureDockerInstalled();
 
     const instanceName = generateInstanceName(species, name);
@@ -1089,6 +1091,7 @@ export async function hatchDocker(
 
     let repoRoot: string | undefined;
 
+    emitProgress(2, 6, "Pulling images...");
     if (watch) {
       repoRoot = findRepoRoot();
       const localTag = `local-${instanceName}`;
@@ -1136,6 +1139,7 @@ export async function hatchDocker(
 
     const res = dockerResourceNames(instanceName);
 
+    emitProgress(3, 6, "Creating volumes...");
     log("📁 Creating network and volumes...");
     await exec("docker", ["network", "create", res.network]);
     await exec("docker", ["volume", "create", res.socketVolume]);
@@ -1173,6 +1177,7 @@ export async function hatchDocker(
       ? `${preExisting},${ownSecret}`
       : ownSecret;
 
+    emitProgress(4, 6, "Starting containers...");
     await startContainers(
       {
         signingKey,
@@ -1208,9 +1213,11 @@ export async function hatchDocker(
         networkName: res.network,
       },
     };
+    emitProgress(5, 6, "Saving configuration...");
     saveAssistantEntry(dockerEntry);
     setActiveAssistant(instanceName);
 
+    emitProgress(6, 6, "Waiting for services...");
     const { ready } = await waitForGatewayAndLease({
       bootstrapSecret: ownSecret,
       containerName: res.assistantContainer,
