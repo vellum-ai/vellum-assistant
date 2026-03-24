@@ -14,6 +14,7 @@ import {
   deliverApprovalPrompt,
   deliverChannelReply,
 } from "../gateway-client.js";
+import { buildActionLegend } from "../guardian-decision-types.js";
 import type { ApprovalCopyGenerator } from "../http-types.js";
 import { requiredDecisionKeywords } from "./channel-route-shared.js";
 
@@ -60,11 +61,15 @@ export async function deliverGeneratedApprovalPrompt(
       approvalCopyGenerator,
     );
 
+    // Append a legend explaining what each button does
+    const legend = buildActionLegend(uiMetadata.actions);
+    const richTextWithLegend = legend ? `${richText}\n\n${legend}` : richText;
+
     try {
       await deliverApprovalPrompt(
         replyCallbackUrl,
         chatId,
-        richText,
+        richTextWithLegend,
         uiMetadata,
         assistantId,
         bearerToken,

@@ -38,6 +38,8 @@ export interface GuardianDecisionAction {
   action: string;
   /** Human-readable label for the action. */
   label: string;
+  /** Short explanation shown in rich-UI legends (Telegram, Slack). */
+  description?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -46,14 +48,27 @@ export interface GuardianDecisionAction {
 
 /** Canonical set of all guardian decision actions with their labels. */
 export const GUARDIAN_DECISION_ACTIONS = {
-  approve_once: { action: "approve_once", label: "Approve once" },
-  approve_10m: { action: "approve_10m", label: "Allow 10 min" },
+  approve_once: {
+    action: "approve_once",
+    label: "Approve once",
+    description: "This tool, this call only",
+  },
+  approve_10m: {
+    action: "approve_10m",
+    label: "Allow 10 min",
+    description: "All tools for 10 minutes",
+  },
   approve_conversation: {
     action: "approve_conversation",
     label: "Allow conversation",
+    description: "All tools for this conversation",
   },
-  approve_always: { action: "approve_always", label: "Approve always" },
-  reject: { action: "reject", label: "Reject" },
+  approve_always: {
+    action: "approve_always",
+    label: "Approve always",
+    description: "This tool, permanently",
+  },
+  reject: { action: "reject", label: "Reject", description: "Deny this call" },
 } as const satisfies Record<string, GuardianDecisionAction>;
 
 /**
@@ -87,6 +102,32 @@ export function buildDecisionActions(opts?: {
     ...(showAlways ? [GUARDIAN_DECISION_ACTIONS.approve_always] : []),
     GUARDIAN_DECISION_ACTIONS.reject,
   ];
+}
+
+/**
+ * Build a compact legend string explaining each action, for rich-UI channels
+ * (Telegram, Slack) where buttons are shown but their scope isn't obvious.
+ *
+ * Accepts either `GuardianDecisionAction[]` or action ID strings and looks up
+ * descriptions from the canonical constants.
+ */
+export function buildActionLegend(
+  actionIds: readonly (string | { action?: string; id?: string })[],
+): string {
+  const lookup = GUARDIAN_DECISION_ACTIONS as Record<
+    string,
+    GuardianDecisionAction | undefined
+  >;
+  const lines = actionIds
+    .map((a) => {
+      const id = typeof a === "string" ? a : (a.action ?? a.id ?? "");
+      const canonical = lookup[id];
+      return canonical?.description
+        ? `• *${canonical.label}* — ${canonical.description}`
+        : null;
+    })
+    .filter(Boolean);
+  return lines.length > 0 ? lines.join("\n") : "";
 }
 
 /**
