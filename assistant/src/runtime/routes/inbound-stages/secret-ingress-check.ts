@@ -9,6 +9,7 @@ import type { ChannelId } from "../../../channels/types.js";
 import type { TrustContext } from "../../../daemon/conversation-runtime-assembly.js";
 import { recordConversationSeenSignal } from "../../../memory/conversation-attention-store.js";
 import * as deliveryCrud from "../../../memory/delivery-crud.js";
+import { checkIngressForSecrets } from "../../../security/secret-ingress.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("runtime-http");
@@ -35,10 +36,21 @@ export interface SecretIngressCheckParams {
   canonicalAssistantId: string;
 }
 
+export interface SecretIngressCheckResult {
+  blocked: boolean;
+  detectedTypes?: string[];
+}
+
 /**
- * Persist the raw payload and record a Telegram seen signal.
+ * Persist the raw payload, scan for secrets, and record a Telegram seen signal.
+ *
+ * Returns `{ blocked: true, detectedTypes }` when the message contains
+ * known-format secrets — the caller should skip background dispatch and mark
+ * the event as processed (not failed/dead-lettered).
  */
-export function runSecretIngressCheck(params: SecretIngressCheckParams): void {
+export function runSecretIngressCheck(
+  params: SecretIngressCheckParams,
+): SecretIngressCheckResult {
   const {
     eventId,
     sourceChannel,
@@ -73,6 +85,20 @@ export function runSecretIngressCheck(params: SecretIngressCheckParams): void {
     assistantId: canonicalAssistantId,
   });
 
+  // ── Secret ingress scan ──
+  // Scan trimmedContent (post-transcription) so secrets introduced via
+  // transcribed audio are also caught.
+  const ingressResult = checkIngressForSecrets(trimmedContent);
+  if (ingressResult.blocked) {
+    // Clear stored payload to prevent secret-bearing content on disk.
+    deliveryCrud.clearPayload(eventId);
+    log.warn(
+      { eventId, detectedTypes: ingressResult.detectedTypes },
+      "Channel message blocked at ingress: secret detected",
+    );
+    return { blocked: true, detectedTypes: ingressResult.detectedTypes };
+  }
+
   // Record inferred seen signal for non-duplicate Telegram inbound messages
   if (sourceChannel === "telegram") {
     try {
@@ -99,4 +125,6 @@ export function runSecretIngressCheck(params: SecretIngressCheckParams): void {
       );
     }
   }
+
+  return { blocked: false };
 }
