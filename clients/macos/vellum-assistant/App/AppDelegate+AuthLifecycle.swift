@@ -63,6 +63,7 @@ extension AppDelegate {
             OnboardingState.clearPersistedState()
             let state = OnboardingState()
             state.shouldPersist = false
+            self.onboardingState = state
             authView = AnyView(OnboardingFlowView(
                 state: state,
                 connectionManager: connectionManager,

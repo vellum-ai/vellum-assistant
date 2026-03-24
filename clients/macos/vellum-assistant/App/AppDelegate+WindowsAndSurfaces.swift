@@ -434,6 +434,10 @@ extension AppDelegate {
             // Clear any stale panel state so the user lands on chat, not settings
             UserDefaults.standard.removeObject(forKey: "lastActivePanel")
 
+            // Retain the onboarding state so the first-launch bootstrap can
+            // read the randomly-generated avatar traits and sync them to the daemon.
+            self?.onboardingState = state
+
             // By this point the user has either entered an API key (steps 0→1→2)
             // or authenticated via Vellum Account (WorkOS). Proceed directly —
             // don't re-check auth, which would show the auth gate again.
@@ -441,6 +445,7 @@ extension AppDelegate {
         }
         onboarding.onDismiss = { [weak self] in
             self?.onboardingWindow = nil
+            self?.onboardingState = nil
         }
         onboarding.show()
         onboardingWindow = onboarding
