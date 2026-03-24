@@ -4,6 +4,7 @@ import { registerAppCommands } from "./apps.js";
 import { registerConnectionCommands } from "./connections.js";
 import { registerPlatformCommands } from "./platform.js";
 import { registerProviderCommands } from "./providers.js";
+import { registerRequestCommand } from "./request.js";
 
 export function registerOAuthCommand(program: Command): void {
   const oauth = program
@@ -56,4 +57,10 @@ Examples:
   // ---------------------------------------------------------------------------
 
   registerPlatformCommands(oauth);
+
+  // ---------------------------------------------------------------------------
+  // request — curl-like authenticated request command
+  // ---------------------------------------------------------------------------
+
+  registerRequestCommand(oauth);
 }
