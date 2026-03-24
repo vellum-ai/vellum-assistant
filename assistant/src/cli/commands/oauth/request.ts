@@ -457,7 +457,7 @@ Examples:
             } else {
               authHint =
                 `Hint: Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth connections list --provider-key ${providerKey}' to check connection status.\n` +
+                `Run 'assistant oauth connections list --provider ${providerKey}' to check connection status.\n` +
                 `To reconnect, run 'assistant oauth connections connect --help'.`;
             }
             writeInfo(authHint);
