@@ -448,22 +448,6 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "slack-digest-setup",
-      "name": "slack-digest-setup",
-      "description": "Set up recurring Slack channel digests with scanning schedules, channel configuration, and delivery - codifies best practices for high-quality automated summaries",
-      "metadata": {
-        "emoji": "📊",
-        "vellum": {
-          "display-name": "Slack Digest Setup",
-          "includes": [
-            "slack",
-            "schedule"
-          ]
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "spotify-oauth-setup",
       "name": "spotify-oauth-setup",
       "description": "Set up Spotify OAuth credentials using a collaborative guided flow",
