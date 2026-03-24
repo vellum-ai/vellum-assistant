@@ -365,7 +365,7 @@ struct MessageListView: View {
         )
         let orphanSubagents = activeSubagents.filter { $0.parentMessageId == nil }
         let showTimestamp = timestampIds(for: displayMessages)
-        let messageIndexById = Dictionary(displayMessages.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { _, last in last })
+        let messageIndexById = Dictionary(displayMessages.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
 
         var nextDecidedConfirmationByIndex: [Int: ToolConfirmationData] = [:]
         for i in displayMessages.indices {
