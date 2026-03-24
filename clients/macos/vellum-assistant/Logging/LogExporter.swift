@@ -43,31 +43,38 @@ enum LogExporter {
     /// (`POST /v1/feedback/`) for storage.
     /// Includes report metadata (reason, message) from the log report form.
     ///
-    /// Throws if the archive build or platform upload fails. The caller is
-    /// responsible for presenting success/error feedback (e.g. via a toast).
+    /// Throws if the archive build fails. The platform upload runs in a
+    /// detached background task so the caller can dismiss UI immediately
+    /// after the archive is built. Upload failures are logged but not surfaced.
     static func sendFeedback(formData: LogReportFormData) async throws {
         let fileManager = FileManager.default
         let archiveURL = fileManager.temporaryDirectory
             .appendingPathComponent("vellum-assistant-logs-\(UUID().uuidString).tar.gz")
 
-        defer {
-            try? fileManager.removeItem(at: archiveURL)
-        }
-
         do {
             try await buildArchive(destination: archiveURL, formData: formData)
         } catch {
             log.error("Failed to build log archive: \(error.localizedDescription)")
+            try? fileManager.removeItem(at: archiveURL)
             throw error
         }
 
         let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
-        try await uploadFeedbackToPlatform(
-            archiveURL: archiveURL,
-            formData: formData,
-            connectedAssistantId: connectedAssistantId
-        )
+        // Upload in the background so the caller can dismiss UI immediately.
+        // The archive temp file is cleaned up after the upload completes or fails.
+        Task.detached {
+            do {
+                try await uploadFeedbackToPlatform(
+                    archiveURL: archiveURL,
+                    formData: formData,
+                    connectedAssistantId: connectedAssistantId
+                )
+            } catch {
+                log.warning("Background feedback upload failed: \(error.localizedDescription)")
+            }
+            try? FileManager.default.removeItem(at: archiveURL)
+        }
     }
 
     // MARK: - Platform Feedback Upload
