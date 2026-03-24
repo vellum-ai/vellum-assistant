@@ -14,9 +14,6 @@
  * Required environment variables:
  *   GCP_REGISTRY_HOST              — e.g. us-docker.pkg.dev
  *   GCP_PROJECT_ID                 — e.g. my-gcp-project
- *   ASSISTANT_IMAGE_NAME           — e.g. assistant (required when publishing assistant)
- *   GATEWAY_IMAGE_NAME             — e.g. gateway (required when publishing gateway)
- *   (CREDENTIAL_EXECUTOR_IMAGE_NAME and TRUST_BROKER_IMAGE_NAME are hardcoded below)
  *
  * Usage:
  *   bun scripts/gcr-publish.ts --version <semver>
@@ -74,8 +71,7 @@ const ALL_SERVICES: Service[] = [
 ];
 
 interface ServiceConfig {
-  imageEnvVar?: string;
-  imageName?: string;
+  imageName: string;
   context: string;
   dockerfile: string;
   featureFlagSync?: { src: string; dest: string };
@@ -85,7 +81,7 @@ interface ServiceConfig {
 
 const SERVICE_CONFIG: Record<Service, ServiceConfig> = {
   assistant: {
-    imageEnvVar: "ASSISTANT_IMAGE_NAME",
+    imageName: "assistant",
     context: ".",
     dockerfile: "assistant/Dockerfile",
     featureFlagSync: {
@@ -94,7 +90,7 @@ const SERVICE_CONFIG: Record<Service, ServiceConfig> = {
     },
   },
   gateway: {
-    imageEnvVar: "GATEWAY_IMAGE_NAME",
+    imageName: "gateway",
     context: "gateway",
     dockerfile: "gateway/Dockerfile",
     featureFlagSync: {
@@ -146,19 +142,6 @@ const missing: string[] = [];
 if (!GCP_REGISTRY_HOST) missing.push("GCP_REGISTRY_HOST");
 if (!GCP_PROJECT_ID) missing.push("GCP_PROJECT_ID");
 
-for (const svc of selectedServices) {
-  const config = SERVICE_CONFIG[svc];
-  if (!config.imageName && config.imageEnvVar && !process.env[config.imageEnvVar]) {
-    missing.push(config.imageEnvVar);
-  }
-  if (config.retagFrom) {
-    const sourceConfig = SERVICE_CONFIG[config.retagFrom];
-    if (!sourceConfig.imageName && sourceConfig.imageEnvVar && !process.env[sourceConfig.imageEnvVar]) {
-      missing.push(sourceConfig.imageEnvVar);
-    }
-  }
-}
-
 if (missing.length > 0) {
   const unique = [...new Set(missing)];
   console.error(
@@ -191,9 +174,7 @@ function git(cmd: string): string {
 }
 
 function imageRef(svc: Service): string {
-  const config = SERVICE_CONFIG[svc];
-  const name = config.imageName ?? process.env[config.imageEnvVar!];
-  return `${GCP_REGISTRY_HOST}/${GCP_PROJECT_ID}/${name}`;
+  return `${GCP_REGISTRY_HOST}/${GCP_PROJECT_ID}/${SERVICE_CONFIG[svc].imageName}`;
 }
 
 // ---------------------------------------------------------------------------
