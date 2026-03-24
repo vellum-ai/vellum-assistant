@@ -238,7 +238,13 @@ public final class WebAuthPresentationContext: NSObject, ASWebAuthenticationPres
 
     public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
         #if os(macOS)
-        NSApp.keyWindow ?? NSApp.windows.first ?? ASPresentationAnchor()
+        if let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.isVisible }) ?? NSApp.windows.first {
+            return window
+        }
+        // Last resort: create a temporary window so the auth sheet has a valid anchor.
+        let fallback = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1, height: 1), styleMask: [], backing: .buffered, defer: true)
+        fallback.center()
+        return fallback
         #elseif os(iOS)
         UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
