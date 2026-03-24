@@ -11,7 +11,7 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
 
 @MainActor
-public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The canonical product name shown in menus and the About panel.
     /// Use this instead of hardcoding "Vellum" so the name is defined
     /// in one place.

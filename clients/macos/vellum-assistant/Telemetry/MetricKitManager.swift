@@ -3,7 +3,7 @@ import MetricKit
 import os
 @preconcurrency import Sentry
 
-@MainActor final class MetricKitManager: NSObject, ObservableObject {
+@MainActor final class MetricKitManager: NSObject {
     private let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
         category: "MetricKit"
