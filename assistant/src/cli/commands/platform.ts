@@ -45,8 +45,8 @@ running.
 
 Fields:
   containerized       Whether IS_CONTAINERIZED is set (boolean)
-  baseUrl             Platform base URL from env or stored managed credentials
-  assistantId         Assistant platform UUID from env or stored managed credentials
+  baseUrl             VELLUM_PLATFORM_URL — the platform gateway base URL
+  assistantId         PLATFORM_ASSISTANT_ID — this assistant's platform UUID
   hasInternalApiKey   Whether PLATFORM_INTERNAL_API_KEY is set (boolean,
                       value not disclosed)
   hasAssistantApiKey  Whether a stored assistant API key is available
