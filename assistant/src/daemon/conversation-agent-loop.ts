@@ -106,6 +106,7 @@ import {
   applyRuntimeInjections,
   inboundActorContextFromTrust,
   inboundActorContextFromTrustContext,
+  readNowScratchpad,
   stripInjectedContext,
 } from "./conversation-runtime-assembly.js";
 import type { SkillProjectionCache } from "./conversation-skill-tools.js";
@@ -681,6 +682,10 @@ export async function runAgentLoopImpl(
       }
     }
 
+    // Read NOW.md scratchpad fresh each turn so mid-conversation edits are
+    // picked up without caching or conversation eviction.
+    const nowScratchpad = readNowScratchpad();
+
     const isInteractiveResolved =
       options?.isInteractive ?? (!ctx.hasNoClient && !ctx.headlessLock);
 
@@ -694,6 +699,7 @@ export async function runAgentLoopImpl(
       interfaceTurnContext,
       inboundActorContext: resolvedInboundActorContext,
       temporalContext,
+      nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
       isNonInteractive: !isInteractiveResolved,
     } as const;
