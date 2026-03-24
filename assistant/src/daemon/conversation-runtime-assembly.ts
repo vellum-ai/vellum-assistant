@@ -5,7 +5,7 @@
  * before it is sent to the provider.  They are pure (no side effects).
  */
 
-import { statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -19,6 +19,7 @@ import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
 import type { Message } from "../providers/types.js";
 import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
+import { getWorkspacePromptPath } from "../util/platform.js";
 
 /**
  * Describes the capabilities of the channel through which the user is
@@ -461,6 +462,61 @@ export function injectVoiceCallControlContext(
 /** Strip `<voice_call_control>` blocks injected by `injectVoiceCallControlContext`. */
 export function stripVoiceCallControlContext(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, ["<voice_call_control>"]);
+}
+
+// ---------------------------------------------------------------------------
+// NOW.md scratchpad injection
+// ---------------------------------------------------------------------------
+
+/**
+ * Read the NOW.md scratchpad from the workspace prompt directory.
+ *
+ * Returns the trimmed content with `_`-prefixed comment lines stripped,
+ * or `null` if the file is missing, empty, or unreadable.
+ */
+export function readNowScratchpad(): string | null {
+  const path = getWorkspacePromptPath("NOW.md");
+  if (!existsSync(path)) return null;
+  try {
+    const raw = readFileSync(path, "utf-8");
+    const stripped = raw
+      .split("\n")
+      .filter((line) => {
+        const trimmed = line.trimStart();
+        return trimmed !== "_" && !trimmed.startsWith("_ ");
+      })
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    return stripped.length > 0 ? stripped : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Append NOW.md scratchpad content to the last user message so the model
+ * has access to the user's ephemeral scratchpad notes at the end of context.
+ */
+export function injectNowScratchpad(
+  message: Message,
+  content: string,
+): Message {
+  return {
+    ...message,
+    content: [
+      ...message.content,
+      {
+        type: "text",
+        text: `<now_scratchpad>\n${content}\n</now_scratchpad>`,
+      },
+    ],
+  };
+}
+
+/** Strip `<now_scratchpad>` blocks injected by `injectNowScratchpad`. */
+export function stripNowScratchpad(messages: Message[]): Message[] {
+  return stripUserTextBlocksByPrefix(messages, ["<now_scratchpad>"]);
 }
 
 /**
@@ -969,6 +1025,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<active_workspace>",
   "<active_dynamic_page>",
   "<non_interactive_context>",
+  "<now_scratchpad>",
 ];
 
 /**
@@ -1013,6 +1070,7 @@ export function applyRuntimeInjections(
     inboundActorContext?: InboundActorContext | null;
     temporalContext?: string | null;
     voiceCallControlPrompt?: string | null;
+    nowScratchpad?: string | null;
     isNonInteractive?: boolean;
     mode?: InjectionMode;
   },
@@ -1047,6 +1105,16 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectVoiceCallControlContext(userTail, options.voiceCallControlPrompt),
+      ];
+    }
+  }
+
+  if (mode === "full" && options.nowScratchpad) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === "user") {
+      result = [
+        ...result.slice(0, -1),
+        injectNowScratchpad(userTail, options.nowScratchpad),
       ];
     }
   }

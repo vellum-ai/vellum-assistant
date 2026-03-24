@@ -11,13 +11,16 @@ import {
   injectChannelCapabilityContext,
   injectChannelCommandContext,
   injectInboundActorContext,
+  injectNowScratchpad,
   injectTemporalContext,
   injectTurnContext,
   isGroupChatType,
   resolveChannelCapabilities,
   stripChannelCapabilityContext,
   stripChannelTurnContext,
+  stripInjectedContext,
   stripInboundActorContext,
+  stripNowScratchpad,
   stripTemporalContext,
 } from "../daemon/conversation-runtime-assembly.js";
 import type { Message } from "../providers/types.js";
@@ -1318,6 +1321,7 @@ describe("applyRuntimeInjections — injection mode", () => {
       canonicalActorIdentity: "user-1",
       trustClass: "guardian",
     } as InboundActorContext,
+    nowScratchpad: "Current focus: shipping PR 3",
     isNonInteractive: true,
   };
 
@@ -1337,6 +1341,7 @@ describe("applyRuntimeInjections — injection mode", () => {
     expect(allText).toContain("<turn_context>");
     expect(allText).toContain("<inbound_actor_context>");
     expect(allText).toContain("<non_interactive_context>");
+    expect(allText).toContain("<now_scratchpad>");
   });
 
   test("explicit mode: 'full' behaves the same as default", () => {
@@ -1353,6 +1358,7 @@ describe("applyRuntimeInjections — injection mode", () => {
     expect(allText).toContain("<temporal_context>");
     expect(allText).toContain("<channel_command_context>");
     expect(allText).toContain("<active_workspace>");
+    expect(allText).toContain("<now_scratchpad>");
   });
 
   test("minimal mode skips high-token optional blocks", () => {
@@ -1370,6 +1376,7 @@ describe("applyRuntimeInjections — injection mode", () => {
     expect(allText).not.toContain("<temporal_context>");
     expect(allText).not.toContain("<channel_command_context>");
     expect(allText).not.toContain("<active_workspace>");
+    expect(allText).not.toContain("<now_scratchpad>");
   });
 
   test("minimal mode preserves safety-critical blocks", () => {
@@ -1415,5 +1422,225 @@ describe("applyRuntimeInjections — injection mode", () => {
       .map((b) => b.text);
 
     expect(texts).toContain("Hello");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// injectNowScratchpad
+// ---------------------------------------------------------------------------
+
+describe("injectNowScratchpad", () => {
+  const baseUserMessage: Message = {
+    role: "user",
+    content: [{ type: "text", text: "What should I work on?" }],
+  };
+
+  test("appends now_scratchpad block to user message", () => {
+    const result = injectNowScratchpad(
+      baseUserMessage,
+      "Current focus: shipping PR 3",
+    );
+    expect(result.content.length).toBe(2);
+    // Original content comes first
+    expect((result.content[0] as { type: "text"; text: string }).text).toBe(
+      "What should I work on?",
+    );
+    // Scratchpad is appended (not prepended)
+    const injected = result.content[1];
+    expect(injected.type).toBe("text");
+    const text = (injected as { type: "text"; text: string }).text;
+    expect(text).toBe(
+      "<now_scratchpad>\nCurrent focus: shipping PR 3\n</now_scratchpad>",
+    );
+  });
+
+  test("preserves existing multi-block content and appends at end", () => {
+    const multiBlockMessage: Message = {
+      role: "user",
+      content: [
+        { type: "text", text: "First block" },
+        { type: "text", text: "Second block" },
+      ],
+    };
+
+    const result = injectNowScratchpad(multiBlockMessage, "scratchpad notes");
+    expect(result.content.length).toBe(3);
+    expect((result.content[0] as { type: "text"; text: string }).text).toBe(
+      "First block",
+    );
+    expect((result.content[1] as { type: "text"; text: string }).text).toBe(
+      "Second block",
+    );
+    expect(
+      (result.content[2] as { type: "text"; text: string }).text,
+    ).toContain("<now_scratchpad>");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stripNowScratchpad
+// ---------------------------------------------------------------------------
+
+describe("stripNowScratchpad", () => {
+  test("strips now_scratchpad blocks from user messages", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Hello" },
+          {
+            type: "text",
+            text: "<now_scratchpad>\nSome notes\n</now_scratchpad>",
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "Hi there" }],
+      },
+    ];
+
+    const result = stripNowScratchpad(messages);
+
+    expect(result.length).toBe(2);
+    expect(result[0].content.length).toBe(1);
+    expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
+      "Hello",
+    );
+    // Assistant message untouched
+    expect(result[1].content.length).toBe(1);
+  });
+
+  test("removes user messages that only contain now_scratchpad", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<now_scratchpad>\nSome notes\n</now_scratchpad>",
+          },
+        ],
+      },
+    ];
+
+    const result = stripNowScratchpad(messages);
+    expect(result.length).toBe(0);
+  });
+
+  test("leaves messages without now_scratchpad untouched", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "Normal message" }],
+      },
+    ];
+
+    const result = stripNowScratchpad(messages);
+    expect(result.length).toBe(1);
+    expect(result[0]).toBe(messages[0]); // Same reference — untouched
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stripInjectedContext removes now_scratchpad blocks
+// ---------------------------------------------------------------------------
+
+describe("stripInjectedContext with now_scratchpad", () => {
+  test("strips now_scratchpad blocks alongside other injections", () => {
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: "<channel_capabilities>\nchannel: telegram\n</channel_capabilities>",
+          },
+          { type: "text", text: "Hello" },
+          {
+            type: "text",
+            text: "<now_scratchpad>\nCurrent focus\n</now_scratchpad>",
+          },
+        ],
+      },
+    ];
+
+    const result = stripInjectedContext(messages);
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(1);
+    expect((result[0].content[0] as { type: "text"; text: string }).text).toBe(
+      "Hello",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyRuntimeInjections with nowScratchpad
+// ---------------------------------------------------------------------------
+
+describe("applyRuntimeInjections with nowScratchpad", () => {
+  const baseMessages: Message[] = [
+    {
+      role: "user",
+      content: [{ type: "text", text: "What should I do?" }],
+    },
+  ];
+
+  test("injects now_scratchpad block when provided", () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      nowScratchpad: "Current focus: fix the bug",
+    });
+
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(2);
+    const injected = result[0].content[1];
+    const text = (injected as { type: "text"; text: string }).text;
+    expect(text).toContain("<now_scratchpad>");
+    expect(text).toContain("Current focus: fix the bug");
+  });
+
+  test("appended block appears after user's original text content", () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      nowScratchpad: "scratchpad notes",
+    });
+
+    // Original text is first
+    expect(
+      (result[0].content[0] as { type: "text"; text: string }).text,
+    ).toBe("What should I do?");
+    // Scratchpad is appended after
+    expect(
+      (result[0].content[1] as { type: "text"; text: string }).text,
+    ).toContain("<now_scratchpad>");
+  });
+
+  test("does not inject when nowScratchpad is null", () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      nowScratchpad: null,
+    });
+
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(1);
+  });
+
+  test("does not inject when nowScratchpad is omitted", () => {
+    const result = applyRuntimeInjections(baseMessages, {});
+
+    expect(result.length).toBe(1);
+    expect(result[0].content.length).toBe(1);
+  });
+
+  test("skipped in minimal mode", () => {
+    const result = applyRuntimeInjections(baseMessages, {
+      nowScratchpad: "Current focus: fix the bug",
+      mode: "minimal",
+    });
+
+    const allText = result[0].content
+      .filter((b): b is { type: "text"; text: string } => b.type === "text")
+      .map((b) => b.text)
+      .join("\n");
+
+    expect(allText).not.toContain("<now_scratchpad>");
   });
 });
