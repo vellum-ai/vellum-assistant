@@ -575,7 +575,7 @@ public final class GatewayConnectionManager: ObservableObject {
     /// to reconnect without calling `connectImpl()` (which would interfere via
     /// `disconnectInternal()`). Cancelled on explicit `disconnect()` or `reconfigure()`.
     private func startReconnectionLoop() {
-        guard isLocal else { return }
+        guard isLocal, shouldReconnect else { return }
         reconnectionTask?.cancel()
         reconnectionGeneration += 1
         let generation = reconnectionGeneration
@@ -587,6 +587,11 @@ public final class GatewayConnectionManager: ObservableObject {
                 // If another path (e.g. autoWakeIfAssistantDied) connected us, exit
                 guard !self.isConnected else {
                     log.info("reconnect-loop: already connected, exiting")
+                    break
+                }
+                // Honor explicit disconnect/reconfigure
+                guard self.shouldReconnect else {
+                    log.info("reconnect-loop: shouldReconnect is false, exiting")
                     break
                 }
 
