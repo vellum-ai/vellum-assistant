@@ -5,7 +5,7 @@ import XCTest
 // MARK: - MessageListView Anchor & Rendering Performance Baselines
 //
 // These tests establish XCTest performance baselines for:
-//   1. AnchorVisibilityTracker hot-path stress (called on every scroll frame)
+//   1. MessageListScrollCoordinator anchor hot-path stress (called on every scroll frame)
 //   2. Large conversation markdown pipeline throughput (cold cache)
 //   3. Attributed string cache hit performance (hot cache)
 //
@@ -13,6 +13,7 @@ import XCTest
 //   swift test --filter MessageListAnchorPerformanceTests  (from clients/macos/)
 // or via Xcode's Test navigator.
 
+@MainActor
 final class MessageListAnchorPerformanceTests: XCTestCase {
 
     // MARK: - Sample Data
@@ -77,15 +78,14 @@ final class MessageListAnchorPerformanceTests: XCTestCase {
     ```
     """
 
-    // MARK: - 1. AnchorVisibilityTracker Rapid-Update Stress Test
+    // MARK: - 1. Coordinator Anchor Rapid-Update Stress Test
 
-    /// Benchmarks calling update(distanceFromBottom:viewportHeight:) and
-    /// updateViewport(height:storedViewportHeight:) 10,000 times each in a
+    /// Benchmarks calling updateAnchor(distanceFromBottom:viewportHeight:) and
+    /// updateAnchorViewport(height:storedViewportHeight:) 10,000 times each in a
     /// tight loop. While individually trivial (O(1)), they are called on EVERY
     /// scroll frame. This test detects if any future refactoring adds overhead.
-    @MainActor
     func testAnchorVisibilityTrackerRapidUpdateStress() {
-        let tracker = AnchorVisibilityTracker()
+        let coordinator = MessageListScrollCoordinator()
         let viewportHeight: CGFloat = 800.0
 
         measure(metrics: [XCTClockMetric(), XCTCPUMetric()]) {
@@ -94,12 +94,12 @@ final class MessageListAnchorPerformanceTests: XCTestCase {
                 // Simulate scrolling: distanceFromBottom varies, crossing
                 // the visibility boundary (20pt threshold) frequently.
                 let distanceFromBottom = CGFloat(i % 100) - 10.0
-                tracker.update(distanceFromBottom: distanceFromBottom, viewportHeight: viewportHeight)
+                coordinator.updateAnchor(distanceFromBottom: distanceFromBottom, viewportHeight: viewportHeight)
             }
             for i in 0..<10_000 {
                 // Simulate viewport resizes mixed with position changes.
                 let height = 600.0 + CGFloat(i % 400)
-                tracker.updateViewport(height: height, storedViewportHeight: &storedViewportHeight)
+                coordinator.updateAnchorViewport(height: height, storedViewportHeight: &storedViewportHeight)
             }
         }
     }

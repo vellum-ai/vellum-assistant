@@ -26,7 +26,7 @@ extension EnvironmentValues {
 /// evaluations but must NOT trigger SwiftUI re-renders when updated.
 /// These values serve as dead-zone guards and smoothing state — they
 /// are never read during body evaluation for rendering purposes.
-/// Pattern mirrors `AnchorVisibilityTracker.lastMinY` (not @Published).
+/// Pattern mirrors `anchorLastMinY` on the coordinator (not @Published).
 @MainActor final class ScrollTrackingState {
     /// Debounced task for transcript snapshot updates, coalescing rapid scroll
     /// events into a single snapshot capture per 150ms window.
@@ -978,6 +978,11 @@ struct MessageListView: View {
                     anchorMessageId: $anchorMessageId,
                     scrollViewportHeight: scrollViewportHeight
                 )
+            }
+            .onChange(of: currentPendingRequestId) {
+                #if os(macOS)
+                scrollCoordinator.handleConfirmationFocusIfNeeded(currentPendingRequestId: currentPendingRequestId)
+                #endif
             }
             // anchorMessageId changes are handled via task(id:) to avoid
             // counting as an onChange modifier while still reacting to
