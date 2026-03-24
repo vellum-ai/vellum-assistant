@@ -351,6 +351,8 @@ struct MessageListView: View {
         }
 
         let displayMessages = visibleMessages
+        let displayMessageIds = displayMessages.map(\.id)
+        let displayMessageById = Dictionary(uniqueKeysWithValues: displayMessages.map { ($0.id, $0) })
         let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
         let latestAssistantId = displayMessages.last(where: { $0.role == .assistant })?.id
         let anchoredThinkingIndex = resolvedThinkingAnchorIndex(for: displayMessages)
@@ -430,6 +432,8 @@ struct MessageListView: View {
 
         let result = PrecomputedMessageListState(
             displayMessages: displayMessages,
+            displayMessageIds: displayMessageIds,
+            displayMessageById: displayMessageById,
             messageIndexById: messageIndexById,
             activePendingRequestId: activePendingRequestId,
             latestAssistantId: latestAssistantId,
@@ -1094,51 +1098,53 @@ struct MessageListView: View {
                     let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
                     let state = precomputedState
                     let catalogHash = MessageCellView.hashCatalog(providerCatalog)
-                    ForEach(state.displayMessages) { message in
-                        let index = state.messageIndexById[message.id] ?? 0
-                        MessageCellView(
-                            message: message,
-                            index: index,
-                            showTimestamp: state.showTimestamp.contains(message.id),
-                            nextDecidedConfirmation: state.nextDecidedConfirmationByIndex[index],
-                            isConfirmationRenderedInline: state.isConfirmationRenderedInlineByIndex.contains(index),
-                            hasPrecedingAssistant: state.hasPrecedingAssistantByIndex.contains(index),
-                            hasUserMessage: state.hasUserMessage,
-                            activePendingRequestId: state.activePendingRequestId,
-                            latestAssistantId: state.latestAssistantId,
-                            anchoredThinkingIndex: state.anchoredThinkingIndex,
-                            subagentsByParent: state.subagentsByParent,
-                            canInlineProcessing: state.canInlineProcessing,
-                            shouldShowThinkingIndicator: state.shouldShowThinkingIndicator,
-                            assistantStatusText: state.effectiveStatusText,
-                            dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
-                            activeSurfaceId: activeSurfaceId,
-                            isHighlighted: highlightedMessageId == message.id,
-                            mediaEmbedSettings: mediaEmbedSettings,
-                            onConfirmationAllow: onConfirmationAllow,
-                            onConfirmationDeny: onConfirmationDeny,
-                            onAlwaysAllow: onAlwaysAllow,
-                            onTemporaryAllow: onTemporaryAllow,
-                            onGuardianAction: onGuardianAction,
-                            onSurfaceAction: onSurfaceAction,
-                            onDismissDocumentWidget: onDismissDocumentWidget,
-                            onForkFromMessage: forkFromMessageAction,
-                            showInspectButton: showInspectButton,
-                            isTTSEnabled: isTTSEnabled,
-                            onInspectMessage: onInspectMessage,
-                            onRehydrateMessage: onRehydrateMessage,
-                            onSurfaceRefetch: onSurfaceRefetch,
-                            onRetryFailedMessage: onRetryFailedMessage,
-                            onRetryConversationError: onRetryConversationError,
-                            onAbortSubagent: onAbortSubagent,
-                            onSubagentTap: onSubagentTap,
-                            subagentDetailStore: subagentDetailStore,
-                            selectedModel: selectedModel,
-                            configuredProviders: configuredProviders,
-                            providerCatalog: providerCatalog,
-                            providerCatalogHash: catalogHash
-                        )
-                        .equatable()
+                    ForEach(state.displayMessageIds, id: \.self) { messageId in
+                        if let message = state.displayMessageById[messageId] {
+                            let index = state.messageIndexById[messageId] ?? 0
+                            MessageCellView(
+                                message: message,
+                                index: index,
+                                showTimestamp: state.showTimestamp.contains(messageId),
+                                nextDecidedConfirmation: state.nextDecidedConfirmationByIndex[index],
+                                isConfirmationRenderedInline: state.isConfirmationRenderedInlineByIndex.contains(index),
+                                hasPrecedingAssistant: state.hasPrecedingAssistantByIndex.contains(index),
+                                hasUserMessage: state.hasUserMessage,
+                                activePendingRequestId: state.activePendingRequestId,
+                                latestAssistantId: state.latestAssistantId,
+                                anchoredThinkingIndex: state.anchoredThinkingIndex,
+                                subagentsByParent: state.subagentsByParent,
+                                canInlineProcessing: state.canInlineProcessing,
+                                shouldShowThinkingIndicator: state.shouldShowThinkingIndicator,
+                                assistantStatusText: state.effectiveStatusText,
+                                dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
+                                activeSurfaceId: activeSurfaceId,
+                                isHighlighted: highlightedMessageId == messageId,
+                                mediaEmbedSettings: mediaEmbedSettings,
+                                onConfirmationAllow: onConfirmationAllow,
+                                onConfirmationDeny: onConfirmationDeny,
+                                onAlwaysAllow: onAlwaysAllow,
+                                onTemporaryAllow: onTemporaryAllow,
+                                onGuardianAction: onGuardianAction,
+                                onSurfaceAction: onSurfaceAction,
+                                onDismissDocumentWidget: onDismissDocumentWidget,
+                                onForkFromMessage: forkFromMessageAction,
+                                showInspectButton: showInspectButton,
+                                isTTSEnabled: isTTSEnabled,
+                                onInspectMessage: onInspectMessage,
+                                onRehydrateMessage: onRehydrateMessage,
+                                onSurfaceRefetch: onSurfaceRefetch,
+                                onRetryFailedMessage: onRetryFailedMessage,
+                                onRetryConversationError: onRetryConversationError,
+                                onAbortSubagent: onAbortSubagent,
+                                onSubagentTap: onSubagentTap,
+                                subagentDetailStore: subagentDetailStore,
+                                selectedModel: selectedModel,
+                                configuredProviders: configuredProviders,
+                                providerCatalog: providerCatalog,
+                                providerCatalogHash: catalogHash
+                            )
+                            .equatable()
+                        }
                     }
 
                     ForEach(state.orphanSubagents) { subagent in
@@ -2373,6 +2379,8 @@ private struct AvatarGlowModifier: ViewModifier {
 /// current-turn detection) on every layout pass.
 struct PrecomputedMessageListState {
     let displayMessages: [ChatMessage]
+    let displayMessageIds: [UUID]
+    let displayMessageById: [UUID: ChatMessage]
     let messageIndexById: [UUID: Int]
     let activePendingRequestId: String?
     let latestAssistantId: UUID?
