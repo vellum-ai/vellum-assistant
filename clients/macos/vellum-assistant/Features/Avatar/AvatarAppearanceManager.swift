@@ -432,6 +432,35 @@ final class AvatarAppearanceManager {
         updateDockLabel()
     }
 
+    /// Posts character traits to the daemon via the gateway so the daemon
+    /// renders and persists the avatar in its workspace. Used after onboarding
+    /// to sync the randomly-generated avatar to the daemon (especially
+    /// important for managed/remote assistants where the filesystem is not shared).
+    /// Fires `reloadAvatar()` on success so cached state picks up the daemon's
+    /// rendered image.
+    func syncTraitsToDaemon(bodyShape: AvatarBodyShape, eyeStyle: AvatarEyeStyle, color: AvatarColor) async {
+        let json: [String: Any] = [
+            "bodyShape": bodyShape.rawValue,
+            "eyeStyle": eyeStyle.rawValue,
+            "color": color.rawValue,
+        ]
+        do {
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/avatar/render-from-traits",
+                json: json,
+                timeout: 15
+            )
+            if response.isSuccess {
+                log.info("Synced avatar traits to daemon: \(bodyShape.rawValue)/\(eyeStyle.rawValue)/\(color.rawValue)")
+                reloadAvatar()
+            } else {
+                log.warning("Failed to sync avatar traits to daemon: HTTP \(response.statusCode)")
+            }
+        } catch {
+            log.warning("Failed to sync avatar traits to daemon: \(error.localizedDescription)")
+        }
+    }
+
     /// Clears all cached avatar state and resets the dock icon to the default
     /// bundle icon without deleting any files on disk.
     /// Called during logout, retire, and switch-assistant flows.
