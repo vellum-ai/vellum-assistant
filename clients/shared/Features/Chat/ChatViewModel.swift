@@ -56,9 +56,25 @@ struct ConversationStarterClient: ConversationStarterClientProtocol {
     }
 }
 
+/// Raw surface content from the daemon, preserving the untyped data dict
+/// so callers can construct a `UiSurfaceShowMessage` without lossy roundtrips.
+public struct SurfaceContentResponse: Sendable {
+    public let surfaceType: String
+    public let title: String?
+    public let rawData: [String: Any]
+
+    // Sendable conformance — rawData is JSON-derived (all plist types).
+    nonisolated public init(surfaceType: String, title: String?, rawData: [String: Any]) {
+        self.surfaceType = surfaceType
+        self.title = title
+        self.rawData = rawData
+    }
+}
+
 @MainActor
 protocol SurfaceClientProtocol {
     func fetchSurfaceData(surfaceId: String, conversationId: String) async -> SurfaceData?
+    func fetchSurfaceContent(surfaceId: String, conversationId: String) async -> SurfaceContentResponse?
 }
 
 @MainActor
@@ -75,6 +91,25 @@ struct SurfaceClient: SurfaceClientProtocol {
         }
         guard let data = response?.data else { return nil }
         return Surface.parseSurfaceDataFromResponse(data)
+    }
+
+    /// Fetch surface content returning the raw response dict, suitable for
+    /// reconstructing a `UiSurfaceShowMessage` to re-open ephemeral surfaces.
+    func fetchSurfaceContent(surfaceId: String, conversationId: String) async -> SurfaceContentResponse? {
+        let response = try? await GatewayHTTPClient.get(
+            path: "assistants/{assistantId}/surfaces/\(surfaceId)", params: ["conversationId": conversationId], timeout: 10
+        )
+        if let statusCode = response?.statusCode, !(200..<300).contains(statusCode) {
+            log.error("Fetch surface content \(surfaceId) failed (HTTP \(statusCode))")
+            return nil
+        }
+        guard let data = response?.data,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        return SurfaceContentResponse(
+            surfaceType: json["surfaceType"] as? String ?? "",
+            title: json["title"] as? String,
+            rawData: json["data"] as? [String: Any] ?? [:]
+        )
     }
 }
 
