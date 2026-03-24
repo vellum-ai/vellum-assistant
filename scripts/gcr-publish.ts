@@ -298,17 +298,19 @@ for (const svc of selectedServices) {
     console.log(`    Tags:   ${tags.map((t) => t.split(":")[1]).join(", ")}`);
     console.log("");
 
-    // Verify source image exists
-    try {
-      run(
-        `docker buildx imagetools inspect "${sourceImage}:v${version}" --format "{{json .Manifest.Digest}}"`
-      );
-    } catch {
-      console.error(
-        `    ERROR: Source image not found at ${sourceImage}:v${version}`
-      );
-      failed.push(svc);
-      continue;
+    // Verify source image exists (skip in dry-run since the source may not be pushed yet)
+    if (!dryRun) {
+      try {
+        run(
+          `docker buildx imagetools inspect "${sourceImage}:v${version}" --format "{{json .Manifest.Digest}}"`
+        );
+      } catch {
+        console.error(
+          `    ERROR: Source image not found at ${sourceImage}:v${version}`
+        );
+        failed.push(svc);
+        continue;
+      }
     }
 
     const cmd = `docker buildx imagetools create ${tagArgs} "${sourceImage}:v${version}"`;
