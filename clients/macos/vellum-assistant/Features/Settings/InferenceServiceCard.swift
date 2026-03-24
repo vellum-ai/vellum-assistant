@@ -312,7 +312,7 @@ struct InferenceServiceCard: View {
                 selection: $draftProvider,
                 options: store.dynamicProviderIds.map { provider in
                     (label: store.dynamicProviderDisplayName(provider), value: provider)
-                },
+                }
             )
         }
     }
@@ -334,7 +334,7 @@ struct InferenceServiceCard: View {
             placeholder: placeholder,
             text: $apiKeyText,
             isSecure: true,
-            errorMessage: store.apiKeySaveError,
+            errorMessage: store.apiKeySaveError
         )
         .disabled(store.apiKeySaving)
     }
