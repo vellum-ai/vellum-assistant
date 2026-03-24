@@ -11,6 +11,7 @@ import type { Species } from "./constants";
 import { leaseGuardianToken } from "./guardian-token";
 import { generateInstanceName } from "./random-name";
 import { exec, execOutput } from "./step-runner";
+import { emitProgress } from "./desktop-progress.js";
 
 const KEY_PAIR_NAME = "vellum-assistant";
 const DEFAULT_SSH_USER = "admin";
@@ -443,6 +444,7 @@ export async function hatchAws(
     console.log("\u{1F50D} Finding latest Debian AMI...");
     const amiId = await getLatestDebianAmi(region);
 
+    emitProgress(1, 5, "Preparing startup script...");
     const { script: startupScript, laptopBootstrapSecret } =
       await buildStartupScript(
         species,
@@ -455,6 +457,7 @@ export async function hatchAws(
     const startupScriptPath = join(tmpdir(), `${instanceName}-startup.sh`);
     writeFileSync(startupScriptPath, startupScript);
 
+    emitProgress(2, 5, "Launching instance...");
     console.log("\u{1F528} Launching instance...");
     let instanceId: string;
     try {
@@ -491,6 +494,7 @@ export async function hatchAws(
     const runtimeUrl = externalIp
       ? `http://${externalIp}:${GATEWAY_PORT}`
       : `http://${instanceName}:${GATEWAY_PORT}`;
+    emitProgress(3, 5, "Saving configuration...");
     const awsEntry: AssistantEntry = {
       assistantId: instanceName,
       runtimeUrl,
@@ -522,6 +526,7 @@ export async function hatchAws(
 
       if (externalIp) {
         const ip = externalIp;
+        emitProgress(4, 5, "Installing software...");
         const result = await watchHatching(
           () => pollAwsInstance(ip, keyPath),
           instanceName,
@@ -539,6 +544,7 @@ export async function hatchAws(
           process.exit(1);
         }
 
+        emitProgress(5, 5, "Finalizing...");
         try {
           await leaseGuardianToken(
             runtimeUrl,
