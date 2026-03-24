@@ -34,11 +34,11 @@ When updating any client documentation (README, AGENTS.md, ARCHITECTURE.md), con
 
 ### Deprecated API Watchlist
 
-APIs that still compile without warning but are deprecated by Apple. Do not introduce new usages; migrate existing usages opportunistically.
+APIs that still compile without warning but are deprecated by Apple. Do not introduce new usages.
 
-| Deprecated | Replacement | Since | Why |
-|---|---|---|---|
-| `.foregroundColor()` | `.foregroundStyle()` | macOS 12 / iOS 15 | `.foregroundStyle()` accepts any `ShapeStyle` (gradients, materials, hierarchical styles), not just `Color`. Drop-in replacement for `Color` values. |
+| Deprecated | Replacement | Since | Status | Why |
+|---|---|---|---|---|
+| `.foregroundColor()` | `.foregroundStyle()` | macOS 12 / iOS 15 | **Fully migrated** — do not use `.foregroundColor()` anywhere | `.foregroundStyle()` accepts any `ShapeStyle` (gradients, materials, hierarchical styles), not just `Color`. Drop-in replacement for `Color` values. |
 
 ### State Management: @Observable vs ObservableObject
 
@@ -58,6 +58,70 @@ For new view models and state objects targeting macOS 15+ / iOS 17+, prefer the 
 </details>
 
 **Why:** `@Observable` provides property-level granularity — views only re-render when the specific properties they read change, not when any property on the object changes. This eliminates the need for `objectWillChange` forwarding patterns and reduces unnecessary view updates.
+
+**When to use `ObservableObject` vs `@Observable`:**
+
+| Use `@Observable` (default) | Keep `ObservableObject` |
+|---|---|
+| New view models and state objects | Deep Combine integration (`@Published` pipelines with `sink`, `combineLatest`, `debounce`, `removeDuplicates`) |
+| Classes with simple stored properties that drive UI | Classes that rely on `objectWillChange` forwarding from nested ObservableObjects |
+| Leaf-node view models observed by a single view | Hub objects that subscribe to many child `objectWillChange` publishers (e.g., ConversationManager) |
+| Per-entity state objects in dictionary stores | Classes conforming to protocols requiring `ObservableObject` (e.g., `SessionOverlayProviding`) |
+
+<details>
+<summary><strong>Classes migrated to @Observable</strong></summary>
+
+The following classes have been migrated from `ObservableObject` to `@Observable`:
+
+**macOS-only:** QuickInputTextModel, DevModeManager, RecordingHUDViewModel, NavigationHistory, AmbientAgent, DocumentManager, E2EStatusOverlayViewModel, WatchSession, SurfaceViewModel, SurfaceManager, AppListManager, TerminalSessionManager, MessageAudioPlayer, ContactsViewModel, OpenAIVoiceService, SkillsManager
+
+**Shared (macOS + iOS):** InlineVideoEmbedStateManager, ContactsStore, MemoryItemsStore, ChannelTrustStore, ChatErrorManager, TaskProgressOverlayManager
+
+</details>
+
+<details>
+<summary><strong>Classes intentionally remaining ObservableObject</strong></summary>
+
+These classes stay `ObservableObject` because they have deep Combine integration, complex `objectWillChange` forwarding, or protocol requirements that make migration impractical without broader refactoring:
+
+| Class | Rationale |
+|---|---|
+| `SettingsStore` | Heavy `UserDefaults.publisher` + Combine pipelines |
+| `MainWindowState` | Bridges `@Observable` NavigationHistory via `withObservationTracking`; uses `objectWillChange` forwarding |
+| `VoiceModeManager` | Complex Combine pipelines (audio streams, state machine transitions) |
+| `ConversationManager` | Hub object subscribing to many child `objectWillChange` publishers; complex lifecycle |
+| `ChatViewModel` | Extensive Combine pipelines (SSE streaming, message coalescing, debounce); bridges `@Observable` ChatErrorManager via `withObservationTracking` |
+| `ChatMessageManager` | Tightly coupled to ChatViewModel's Combine publish pipeline |
+| `GatewayConnectionManager` | Combine-based SSE event stream processing |
+| `RecordingManager` | Audio capture Combine pipelines |
+| `RecordingSourcePickerViewModel` | ScreenCaptureKit async sequences + Combine |
+| `HostCuSessionProxy` | Conforms to `SessionOverlayProviding` protocol requiring `ObservableObject` |
+| `ToolPermissionTesterModel` | Combine-based test execution pipeline |
+| `MessageListScrollCoordinator` | Intentional `@Published` / non-reactive split for scroll performance |
+
+</details>
+
+#### @Observable migration patterns
+
+**`@ObservationIgnored` for non-reactive bookkeeping.** Mark stored properties that should not trigger view updates with `@ObservationIgnored`. Use this for: Combine cancellables (`Set<AnyCancellable>`), background `Task` handles, delegate/callback closures, internal caches, and constants. Example: `@ObservationIgnored private var cancellables = Set<AnyCancellable>()`.
+
+**`withObservationTracking` bridge for `@Observable` → `ObservableObject`.** When an `@Observable` class is owned by an `ObservableObject` parent, bridge changes using a recursive `withObservationTracking` loop that calls `objectWillChange.send()` (or a coalesced publish) on change:
+```swift
+private func observeChild() {
+    withObservationTracking {
+        _ = child.prop1
+        _ = child.prop2
+    } onChange: { [weak self] in
+        Task { @MainActor [weak self] in
+            self?.objectWillChange.send()
+            self?.observeChild() // re-arm
+        }
+    }
+}
+```
+See `ChatViewModel.observeErrorManager()` and `MainWindowState.observeNavigationHistory()` for production examples.
+
+**Computed property forwarding.** When both source and target are `@Observable`, computed properties that read from an `@Observable` dependency automatically participate in observation tracking — no manual bridging needed.
 
 **Migration:** Existing `ObservableObject` types should be migrated opportunistically. Use Combine (`@Published`, `sink`, `onReceive`) only for reactive stream processing (SSE event streams, debounce pipelines, `UserDefaults.publisher`) — not for simple state management.
 
@@ -262,7 +326,7 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
 | Strong closure capture on window | Retain cycle if window outlives view | Use `[weak coordinator]` or clear in `dismantleNSView` |
 | `@Observable` dictionary as per-entity store | Any key mutation invalidates all views reading the dictionary | Use per-entity `@Observable` wrapper objects; mutate their properties instead of the dictionary |
 | GeometryReader on ScrollView `.background` measuring parent frame | Measures the ScrollView's proposed size (parent frame), not content intrinsic height — creates feedback loop where state derived from the measurement drives the frame that's being measured | Place GeometryReader on the *inner content* (inside the ScrollView), and reset all derived state (`contentHeight`, `isExpanded`) atomically when content clears |
-| `.foregroundColor(VColor.xxx)` | Deprecated since macOS 12 / iOS 15; compiles silently but doesn't support gradients or materials | Use `.foregroundStyle(VColor.xxx)` — drop-in replacement for `Color` values |
+| `.foregroundColor(VColor.xxx)` | Deprecated since macOS 12 / iOS 15; fully removed from the codebase — do not reintroduce | Use `.foregroundStyle(VColor.xxx)` — drop-in replacement for `Color` values |
 
 </details>
 
