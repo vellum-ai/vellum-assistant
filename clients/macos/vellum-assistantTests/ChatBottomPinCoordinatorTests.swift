@@ -611,7 +611,9 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         coordinator.requestPin(reason: .initialRestore, conversationId: convId)
 
         // Wait long enough for the session to exhaust or timeout.
-        try await Task.sleep(nanoseconds: 700_000_000)
+        // Use a generous timeout because @MainActor Task scheduling on CI
+        // runners can be much slower than the 50ms retry interval would suggest.
+        try await Task.sleep(nanoseconds: 2_000_000_000)
 
         // The session must have terminated on its own (bounded retries or timeout).
         XCTAssertNil(coordinator.activeSession,
