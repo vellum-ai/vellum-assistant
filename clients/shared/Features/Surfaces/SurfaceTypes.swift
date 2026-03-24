@@ -343,6 +343,18 @@ public struct DynamicPageSurfaceData: Sendable, Equatable {
         if let appId { dict["appId"] = appId }
         if let dirName { dict["dirName"] = dirName }
         if let appType { dict["appType"] = appType }
+        if let preview {
+            var previewDict: [String: Any] = ["title": preview.title]
+            if let subtitle = preview.subtitle { previewDict["subtitle"] = subtitle }
+            if let description = preview.description { previewDict["description"] = description }
+            if let icon = preview.icon { previewDict["icon"] = icon }
+            if let context = preview.context { previewDict["context"] = context }
+            if let previewImage = preview.previewImage { previewDict["previewImage"] = previewImage }
+            if let metrics = preview.metrics {
+                previewDict["metrics"] = metrics.map { ["label": $0.label, "value": $0.value] }
+            }
+            dict["preview"] = previewDict
+        }
         if let reloadGeneration { dict["reloadGeneration"] = reloadGeneration }
         if let status { dict["status"] = status }
         return dict
