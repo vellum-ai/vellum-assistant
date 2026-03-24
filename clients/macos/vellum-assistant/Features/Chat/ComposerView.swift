@@ -192,7 +192,7 @@ struct ComposerView: View {
                 .font(font)
                 .foregroundColor(VColor.contentSecondary.opacity(0.55)))
                 .lineSpacing(4)
-                .lineLimit(1...)
+                .lineLimit(2)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
@@ -264,7 +264,7 @@ struct ComposerView: View {
         }
         .scrollBounceBehavior(.basedOnSize)
         .defaultScrollAnchor(.bottom)
-        .frame(minHeight: composerActionButtonSize, maxHeight: inputText.isEmpty ? composerActionButtonSize : composerMaxHeight)
+        .frame(minHeight: composerActionButtonSize, maxHeight: inputText.isEmpty && ghostSuffix == nil ? composerActionButtonSize : composerMaxHeight)
         .accessibilityLabel("Message")
         .frame(maxWidth: .infinity)
         .background(
