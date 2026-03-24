@@ -492,17 +492,19 @@ Examples:
           }
 
           // -----------------------------------------------------------------
-          // Output: body
+          // Output: body (skip for null bodies — HEAD requests, 204, etc.)
           // -----------------------------------------------------------------
-          const bodyStr =
-            typeof response.body === "string"
-              ? response.body
-              : JSON.stringify(response.body, null, 2);
+          if (response.body != null) {
+            const bodyStr =
+              typeof response.body === "string"
+                ? response.body
+                : JSON.stringify(response.body, null, 2);
 
-          if (opts.output) {
-            writeFileSync(opts.output, bodyStr, "utf-8");
-          } else {
-            process.stdout.write(bodyStr + "\n");
+            if (opts.output) {
+              writeFileSync(opts.output, bodyStr, "utf-8");
+            } else {
+              process.stdout.write(bodyStr + "\n");
+            }
           }
         } catch (err) {
           // Error case 7: Generic/unexpected errors
