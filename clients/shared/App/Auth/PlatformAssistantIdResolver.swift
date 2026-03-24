@@ -12,7 +12,7 @@ public enum PlatformAssistantIdResolver {
 
     // MARK: - Key format
 
-    /// Keychain account name for the persisted platform assistant ID mapping.
+    /// Credential storage account name for the persisted platform assistant ID mapping.
     static func keychainAccount(
         runtimeAssistantId: String,
         organizationId: String,

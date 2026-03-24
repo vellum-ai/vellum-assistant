@@ -377,7 +377,7 @@ public final class SettingsStore: ObservableObject {
         self.verificationStatusPollInterval = max(0.05, verificationStatusPollInterval)
         self.verificationStatusPollWindow = max(self.verificationStatusPollInterval, verificationStatusPollWindow)
 
-        // Seed from UserDefaults / Keychain
+        // Seed from UserDefaults / credential storage
         let anthropicKey = APIKeyManager.getKey(for: "anthropic")
         self.hasKey = anthropicKey != nil
         self.maskedKey = Self.maskKey(anthropicKey)
@@ -453,7 +453,7 @@ public final class SettingsStore: ObservableObject {
         // the first daemon fetch completes.
         providerCatalog = ProviderCatalogEntry.defaultCatalog
 
-        // React to Keychain changes from other surfaces
+        // React to credential storage changes from other surfaces
         NotificationCenter.default.publisher(for: .apiKeyManagerDidChange)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in self?.refreshAPIKeyState() }
@@ -982,7 +982,7 @@ public final class SettingsStore: ObservableObject {
 
     func saveEmbeddingAPIKey(_ raw: String, provider: String) {
         embeddingKeySaveError = nil
-        // Delegate to saveInferenceAPIKey — same keychain store, same daemon validation
+        // Delegate to saveInferenceAPIKey — same credential store, same daemon validation
         saveInferenceAPIKey(raw, provider: provider, onSuccess: {
             self.refreshEmbeddingConfig()
         }, onError: { error in
@@ -1176,7 +1176,7 @@ public final class SettingsStore: ObservableObject {
     }
 
     /// Re-sync locally-known keys to daemon on reconnect.
-    /// Pushes keys present in the macOS keychain, and replays any pending
+    /// Pushes keys present in the credential store, and replays any pending
     /// deletion tombstones so user-initiated clears are eventually consistent.
     /// Waits for the JWT to become available before syncing, because reconnect
     /// can fire before async credential bootstrap completes.
@@ -2224,7 +2224,7 @@ public final class SettingsStore: ObservableObject {
             return resolved
         }
 
-        // For self-hosted assistants, the keychain mapping may not exist yet
+        // For self-hosted assistants, the credential storage mapping may not exist yet
         // (bootstrap is async and may not have completed). Trigger bootstrap
         // lazily and retry the resolve.
         guard !assistant.isManaged else {
@@ -2241,7 +2241,7 @@ public final class SettingsStore: ObservableObject {
                 assistantVersion: connectionManager?.assistantVersion
             )
         } catch {
-            // Bootstrap can persist the keychain mapping during ensure-registration
+            // Bootstrap can persist the credential storage mapping during ensure-registration
             // but then throw on daemon injection (e.g. gateway not reachable yet).
             // Always retry the resolve — the mapping may already be cached.
             log.warning("Lazy bootstrap threw (mapping may still be cached): \(error.localizedDescription)")

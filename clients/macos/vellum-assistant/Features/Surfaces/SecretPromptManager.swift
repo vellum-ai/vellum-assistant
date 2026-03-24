@@ -144,7 +144,7 @@ final class SecretPromptManager {
             // Cancel: dismiss immediately
             dismissPrompt(requestId: requestId)
         } else if success {
-            // Save: delay dismiss so "Saved to Keychain" confirmation is visible
+            // Save: delay dismiss so "Saved" confirmation is visible
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
                 self?.dismissPrompt(requestId: requestId)
             }

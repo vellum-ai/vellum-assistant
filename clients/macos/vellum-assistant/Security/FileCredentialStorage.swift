@@ -8,15 +8,10 @@ private let log = Logger(
     category: "FileCredentialStorage"
 )
 
-/// File-based CredentialStorage for DEBUG builds.
+/// File-based CredentialStorage implementation.
 ///
 /// Stores each credential as an individual file under
 /// `~/.vellum/protected/credentials/` with 0600 permissions.
-/// This avoids macOS Keychain authorization prompts that fire on
-/// every rebuild because the binary's cdhash changes.
-///
-/// Mirrors the approach used by `SigningIdentityManager` which stores
-/// the Ed25519 signing key on disk for the same reason.
 struct FileCredentialStorage: CredentialStorage {
 
     private static let credentialsDir: URL = {

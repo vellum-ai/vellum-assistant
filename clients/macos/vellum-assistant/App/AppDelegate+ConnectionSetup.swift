@@ -114,7 +114,7 @@ extension AppDelegate {
 
         Task {
             // Import guardian token from CLI file before connecting, so the
-            // health check has valid credentials in the Keychain.
+            // health check has valid credentials in the credential store.
             if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
                !ActorTokenManager.hasToken {
                 _ = GuardianTokenFileReader.importIfAvailable(assistantId: assistantId)

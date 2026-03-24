@@ -4,9 +4,9 @@ public extension Notification.Name {
     static let sessionTokenDidChange = Notification.Name("SessionTokenManager.didChange")
 }
 
-/// Cross-platform session token storage using Keychain via APIKeyManager.
+/// Cross-platform session token storage using credential storage via APIKeyManager.
 /// Replaces the macOS-only `/usr/bin/security` CLI approach.
-/// Uses provider "session-token" to match the old keychain account name
+/// Uses provider "session-token" to match the old credential storage account name
 /// so existing macOS users' stored sessions are preserved after upgrade.
 ///
 /// Also writes the token to `~/.config/vellum/platform-token` (XDG path)

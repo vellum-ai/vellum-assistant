@@ -287,7 +287,7 @@ public enum GatewayHTTPClient {
             ])
         }
 
-        // Rebuild with fresh credentials from the Keychain.
+        // Rebuild with fresh credentials from the credential store.
         let freshConnection = try resolveConnection()
         var retryRequest = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: freshConnection)
         retryRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
@@ -326,7 +326,7 @@ public enum GatewayHTTPClient {
     ///   (managed, remote, and local assistants).
     /// - iOS: Uses UserDefaults for managed assistants (`managed_assistant_id` +
     ///   `managed_platform_base_url`) and QR-paired assistants (`gateway_base_url`),
-    ///   with tokens from the Keychain via `SessionTokenManager` / `ActorTokenManager`.
+    ///   with tokens from credential storage via `SessionTokenManager` / `ActorTokenManager`.
     private static func resolveConnection() throws -> ConnectionInfo {
         #if os(macOS)
         guard let assistant = resolveConnectedAssistant() else {
@@ -547,7 +547,7 @@ public enum GatewayHTTPClient {
             return response
         }
 
-        // Rebuild with fresh credentials from the Keychain.
+        // Rebuild with fresh credentials from the credential store.
         let freshConnection = try resolveConnection()
         var retryRequest = try buildRequest(path: path, params: params, method: method, timeout: timeout, connection: freshConnection)
         configure?(&retryRequest)

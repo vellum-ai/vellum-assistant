@@ -1,7 +1,7 @@
 import Foundation
 
 /// Shared credential refresher. Calls POST /v1/guardian/refresh
-/// through the gateway via `GatewayHTTPClient`, updates Keychain via
+/// through the gateway via `GatewayHTTPClient`, updates credential storage via
 /// ActorTokenManager, and handles terminal errors that require re-pairing.
 public class ActorCredentialRefresher {
 

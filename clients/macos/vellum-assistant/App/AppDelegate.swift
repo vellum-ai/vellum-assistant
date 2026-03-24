@@ -392,7 +392,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         UserDefaults.standard.removeObject(forKey: "conversationTextZoomLevel")
 
         // Migrate API keys from plaintext UserDefaults to credential storage
-        // (Keychain in Release, file-based in DEBUG). Safe to call on every
+        // (file-based credential storage). Safe to call on every
         // launch — skips providers already present in credential storage.
         APIKeyManager.migrateFromUserDefaults()
 

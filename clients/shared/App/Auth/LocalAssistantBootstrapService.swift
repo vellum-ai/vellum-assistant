@@ -4,7 +4,7 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "LocalAssistantBootstrap")
 
 /// Platform-agnostic credential storage abstraction.
-/// On macOS, callers should supply a Keychain-backed implementation.
+/// On macOS, callers supply a file-based implementation (FileCredentialStorage).
 public protocol CredentialStorage: Sendable {
     func get(account: String) -> String?
     func set(account: String, value: String) -> Bool

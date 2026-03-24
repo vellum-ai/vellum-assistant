@@ -323,7 +323,7 @@ extension AppDelegate {
     /// Safe to call at any time — exits early if the assistant is managed/remote
     /// or the user isn't authenticated. Always calls through to
     /// `LocalAssistantBootstrapService.bootstrap()` so existing-key re-injection
-    /// and stale-key reprovisioning are handled (not just Keychain presence).
+    /// and stale-key reprovisioning are handled (not just credential storage presence).
     ///
     /// Waits up to 60s for the actor token to become available, retrying every
     /// 10s, so that assistant switches (which clear then re-bootstrap actor
