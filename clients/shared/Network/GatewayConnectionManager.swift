@@ -152,6 +152,10 @@ public final class GatewayConnectionManager: ObservableObject {
             isAuthenticated = true
             isConnecting = false
             log.info("connect: connected successfully")
+            #if os(macOS)
+            reconnectionTask?.cancel()
+            reconnectionTask = nil
+            #endif
 
             eventStreamClient.startSSE()
         } catch {
@@ -173,6 +177,8 @@ public final class GatewayConnectionManager: ObservableObject {
                         isAuthenticated = true
                         isConnecting = false
                         log.info("connect: retry after auto-wake succeeded")
+                        reconnectionTask?.cancel()
+                        reconnectionTask = nil
                         eventStreamClient.startSSE()
                         return
                     } catch {
@@ -570,11 +576,18 @@ public final class GatewayConnectionManager: ObservableObject {
     private func startReconnectionLoop() {
         guard isLocal else { return }
         reconnectionTask?.cancel()
-        reconnectionTask = Task { @MainActor [weak self] in
+        var task: Task<Void, Never>?
+        task = Task { @MainActor [weak self] in
             guard let self else { return }
             let delays: [UInt64] = [3, 5, 10, 15] // seconds
             var attempt = 0
             while !Task.isCancelled {
+                // If another path (e.g. autoWakeIfAssistantDied) connected us, exit
+                guard !self.isConnected else {
+                    log.info("reconnect-loop: already connected, exiting")
+                    break
+                }
+
                 let delaySec = delays[min(attempt, delays.count - 1)]
                 log.info("reconnect-loop: attempt \(attempt + 1), waiting \(delaySec)s")
                 try? await Task.sleep(nanoseconds: delaySec * 1_000_000_000)
@@ -589,6 +602,9 @@ public final class GatewayConnectionManager: ObservableObject {
                     if let wakeHandler = self.wakeHandler {
                         let reachable = await HealthCheckClient.isReachable()
                         if !reachable {
+                            // Cancel competing auto-wake triggered by performHealthCheck → setConnected(false)
+                            self.autoWakeTask?.cancel()
+                            self.autoWakeTask = nil
                             log.info("reconnect-loop: gateway unreachable — attempting wake")
                             do {
                                 try await wakeHandler()
@@ -615,12 +631,17 @@ public final class GatewayConnectionManager: ObservableObject {
                 self.isConnecting = false
                 log.info("reconnect-loop: connected successfully after \(attempt) attempt(s)")
                 self.eventStreamClient.startSSE()
-                self.reconnectionTask = nil
+                if self.reconnectionTask === task {
+                    self.reconnectionTask = nil
+                }
                 return
             }
             log.info("reconnect-loop: cancelled")
-            self.reconnectionTask = nil
+            if self.reconnectionTask === task {
+                self.reconnectionTask = nil
+            }
         }
+        reconnectionTask = task
     }
     #endif
 
