@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
 import {
-  _resetUserIdCache,
   extractAllTweetUrls,
   extractTweetId,
 } from "../config/bundled-skills/twitter/tools/shared.js";
@@ -89,28 +88,15 @@ describe("extractAllTweetUrls", () => {
 });
 
 describe("twitter_like_post response handling", () => {
-  test("success response returns liked message", async () => {
-    // This test validates the response handling logic inline
-    // since the actual tool requires OAuth connections
-    const mockResponse = {
-      status: 200,
-      body: { data: { liked: true } },
-    };
-    expect(mockResponse.status).toBe(200);
-    expect(
-      (mockResponse.body as { data?: { liked?: boolean } }).data?.liked,
-    ).toBe(true);
-  });
+  test.todo(
+    "success response returns liked message when run() is called with a valid tweet ID",
+    () => {},
+  );
 
-  test("already-liked response detected", () => {
-    const mockResponse = {
-      status: 200,
-      body: { data: { liked: false } },
-    };
-    expect(
-      (mockResponse.body as { data?: { liked?: boolean } }).data?.liked,
-    ).toBe(false);
-  });
+  test.todo(
+    "already-liked response is detected and reported when run() encounters a previously liked tweet",
+    () => {},
+  );
 
   test("TokenExpiredError is caught correctly", () => {
     // Verify the error class is constructable and has expected properties
@@ -119,63 +105,37 @@ describe("twitter_like_post response handling", () => {
     expect(error.name).toBe("TokenExpiredError");
   });
 
-  test("429 response returns rate limit error", () => {
-    const mockResponse = { status: 429, body: {} };
-    expect(mockResponse.status).toBe(429);
-  });
+  test.todo(
+    "429 response returns rate limit error when run() hits Twitter API rate limits",
+    () => {},
+  );
 
-  test("generic error status returns API error", () => {
-    const mockResponse = {
-      status: 403,
-      body: { detail: "Forbidden" },
-    };
-    expect(mockResponse.status).toBe(403);
-  });
+  test.todo(
+    "generic error status returns API error when run() receives a non-200 response",
+    () => {},
+  );
 });
 
 describe("getAuthenticatedUserId cache", () => {
-  test("composite key isolates different connections", () => {
-    // Verify the cache is keyed by connection ID + account info
-    _resetUserIdCache();
-    // The cache is internal, but we can verify the reset works without error
-    expect(true).toBe(true);
-  });
+  test.todo(
+    "composite key isolates different connections — cache returns distinct user IDs for different connection IDs",
+    () => {},
+  );
 });
 
 describe("twitter_auto_like_scan", () => {
-  test("extracts URLs and builds results summary shape", () => {
-    const text =
-      "Check https://x.com/user/status/111 and https://x.com/other/status/222";
-    const urls = extractAllTweetUrls(text);
-    expect(urls).toHaveLength(2);
+  test.todo(
+    "run() extracts tweet URLs from messages and likes each one via the Twitter API",
+    () => {},
+  );
 
-    // Verify the summary-building logic shape
-    const liked = ["111"];
-    const alreadyLiked = ["222"];
-    const failed: Array<{ tweetId: string; reason: string }> = [];
+  test.todo(
+    "run() returns a summary with liked, already-liked, and failed counts",
+    () => {},
+  );
 
-    const parts: string[] = [];
-    if (liked.length > 0) {
-      parts.push(`Liked ${liked.length} tweet(s): ${liked.join(", ")}`);
-    }
-    if (alreadyLiked.length > 0) {
-      parts.push(
-        `Already liked ${alreadyLiked.length} tweet(s): ${alreadyLiked.join(", ")}`,
-      );
-    }
-    if (failed.length > 0) {
-      parts.push(
-        `Failed ${failed.length} tweet(s): ${failed.map((f) => `${f.tweetId} (${f.reason})`).join(", ")}`,
-      );
-    }
-    const summary = parts.join(". ") + ".";
-
-    expect(summary).toContain("Liked 1 tweet(s)");
-    expect(summary).toContain("Already liked 1 tweet(s)");
-  });
-
-  test("handles no-URLs-found case", () => {
-    const urls = extractAllTweetUrls("Just a normal message with no links.");
-    expect(urls).toHaveLength(0);
-  });
+  test.todo(
+    "run() handles no-URLs-found case by returning an appropriate message",
+    () => {},
+  );
 });
