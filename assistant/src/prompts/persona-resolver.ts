@@ -20,6 +20,7 @@ const log = getLogger("persona-resolver");
 
 export interface PersonaContext {
   userPersona: string | null;
+  userSlug: string | null;
   channelPersona: string | null;
 }
 
@@ -97,6 +98,19 @@ function resolveUserFilename(
   return null;
 }
 
+/**
+ * Resolve a short slug identifying the current user, derived from
+ * their contact's userFile. Used to scope per-user workspace directories
+ * (e.g. journal/{slug}/). Returns null when no user is identified.
+ */
+export function resolveUserSlug(
+  trustContext: TrustContext | undefined,
+): string | null {
+  const filename = resolveUserFilename(trustContext);
+  if (!filename) return null;
+  return filename.endsWith(".md") ? filename.slice(0, -3) : filename;
+}
+
 // ── User persona ───────────────────────────────────────────────────
 
 /**
@@ -161,6 +175,7 @@ export function resolvePersonaContext(
 ): PersonaContext {
   return {
     userPersona: resolveUserPersona(trustContext),
+    userSlug: resolveUserSlug(trustContext),
     channelPersona: resolveChannelPersona(channelCapabilities),
   };
 }
