@@ -156,7 +156,7 @@ function parseToolEntry(raw: unknown, prefix: string): SkillToolEntry {
     input_schema,
     executor,
     execution_target,
-    ...(trusted_auto_approve ? { trusted_auto_approve } : {}),
+    ...(trusted_auto_approve !== undefined ? { trusted_auto_approve } : {}),
   };
 }
 
