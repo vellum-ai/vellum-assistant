@@ -95,6 +95,13 @@ final class OnboardingState {
     var hatchCompleted: Bool = false
     var hatchFailed: Bool = false
 
+    /// Progress bar state for the hatching flow.
+    var hatchProgressTarget: Double = 0.0    // 0..1, set by progress events
+    var hatchProgressDisplay: Double = 0.0   // 0..1, what the bar renders
+    var hatchStepLabel: String?              // nil = don't show bar yet
+    var hatchTotalSteps: Int = 1
+    var hatchCurrentStep: Int = 0
+
     /// Avatar traits generated during the hatching animation. Stored here
     /// (rather than as @State in HatchingStepView) so they survive view
     /// disappearance and are available to the post-hatch sync logic.
@@ -178,6 +185,11 @@ final class OnboardingState {
         hatchAvatarBodyShape = nil
         hatchAvatarEyeStyle = nil
         hatchAvatarColor = nil
+        hatchProgressTarget = 0.0
+        hatchProgressDisplay = 0.0
+        hatchStepLabel = nil
+        hatchTotalSteps = 1
+        hatchCurrentStep = 0
         hasHatched = false
         skippedAuth = false
         skippedAPIKeyEntry = false
