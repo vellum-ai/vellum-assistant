@@ -707,7 +707,7 @@ Examples:
               });
             } else {
               process.stdout.write(
-                `\n**Authorize with ${resolvedServiceKey}**\n\n[Click here to authorize](${result.authUrl})\n\nThe connection will complete automatically once you authorize.\n`,
+                `\nAuthorize with ${resolvedServiceKey}:\n\n${result.authUrl}\n\nThe connection will complete automatically once you authorize.\n`,
               );
             }
             return;

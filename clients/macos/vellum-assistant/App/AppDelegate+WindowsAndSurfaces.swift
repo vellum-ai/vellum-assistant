@@ -214,6 +214,15 @@ extension AppDelegate {
             return
         }
 
+        // Don't revert to .accessory while a computer use session is active —
+        // the session overlay needs to remain visible even when the app loses
+        // focus to another app (e.g. during wizard flows interacting with
+        // browser windows).
+        if currentSession?.state.isActiveSession == true
+            || activeHostCuProxy?.state.isActiveSession == true {
+            return
+        }
+
         let hasVisibleWindows = NSApp.windows.contains { win in
             win.isVisible
             && win !== closedWindow
