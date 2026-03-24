@@ -87,6 +87,8 @@ describe("/schema route", () => {
       body.paths["/v1/channel-verification-sessions/revoke"],
     ).toBeDefined();
     expect(body.paths["/deliver/telegram"]).toBeDefined();
+    expect(body.paths["/webhook/a2a"]).toBeDefined();
+    expect(body.paths["/deliver/a2a"]).toBeDefined();
     expect(body.paths["/{path}"]).toBeDefined();
   });
 
