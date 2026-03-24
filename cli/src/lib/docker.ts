@@ -217,7 +217,7 @@ function ensureLocalBinOnPath(): void {
  * Installs Colima and Docker via direct binary download if missing (no sudo
  * required), and starts Colima if the Docker daemon is not reachable.
  */
-async function ensureDockerInstalled(): Promise<void> {
+export async function ensureDockerInstalled(): Promise<void> {
   // Always add ~/.local/bin to PATH so previously installed binaries are found.
   ensureLocalBinOnPath();
 
@@ -831,10 +831,11 @@ export async function sleepContainers(
   }
 }
 
-/** Start existing stopped containers. */
+/** Start existing stopped containers, ensuring Docker is available first. */
 export async function wakeContainers(
   res: ReturnType<typeof dockerResourceNames>,
 ): Promise<void> {
+  await ensureDockerInstalled();
   for (const container of [
     res.assistantContainer,
     res.gatewayContainer,
