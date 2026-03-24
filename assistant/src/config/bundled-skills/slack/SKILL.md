@@ -63,28 +63,19 @@ When responding to messages from Slack channels, replies are automatically threa
 - Continuing a conversation stays in the same thread
 - Thread context expires after 24 hours of inactivity, starting a fresh thread
 
-## Proactive Delivery
+## Slack Web API
 
-When you need to **send** content to Slack proactively (e.g. a scheduled digest, a scan summary, or a report):
+For any Slack operations not covered by the bundled tools (sending messages, reading threads, searching, etc.), use the Slack Web API directly via `bash` with `network_mode: "proxied"` and `credential_ids: ["slack_channel/bot_token"]`. The proxy handles authentication automatically.
 
-- Use the Slack Web API directly via CLI. Post messages using `bash` with `network_mode: "proxied"` and `credential_ids: ["slack_channel:bot_token"]` to call `chat.postMessage` with the target channel ID. This preserves the full message content.
-- Do **NOT** use `send_notification` for rich content like digests - the notification router's decision engine rewrites content into short alerts, stripping the actual digest.
-- `send_notification` is appropriate for short alerts and status updates where you want the router to pick the best channel. Direct Slack API calls are appropriate when you have specific content to deliver to a specific Slack destination.
-- For scheduled tasks (cron/RRULE), always end with a Slack API call so the results actually reach the user. Without it, the output only lives in the conversation log.
-- Do **NOT** use `messaging_send` with `platform: "slack"` — the messaging skill does not handle Slack. Use the Slack Web API directly.
+Refer to the Slack Web API docs at https://api.slack.com/methods for available methods and parameters. The bot token scopes configured in the manifest determine what's accessible.
 
-## Slack Web API via CLI
+Do **NOT** use `messaging_send` or other messaging skill tools with `platform: "slack"` — Slack is not handled by the messaging skill.
 
-For reading and sending Slack messages, use `bash` with the Slack Web API directly. The bot token is available via `credential_ids: ["slack_channel:bot_token"]`.
+### Delivery notes
 
-Common API methods:
-- **Send message**: `curl -X POST https://slack.com/api/chat.postMessage -H "Authorization: Bearer $SLACK_CHANNEL_BOT_TOKEN" -H "Content-Type: application/json" -d '{"channel":"<channel_id>","text":"<message>"}'`
-- **Read thread**: `curl -s https://slack.com/api/conversations.replies -H "Authorization: Bearer $SLACK_CHANNEL_BOT_TOKEN" -G -d "channel=<channel_id>&ts=<thread_ts>"`
-- **Read channel history**: `curl -s https://slack.com/api/conversations.history -H "Authorization: Bearer $SLACK_CHANNEL_BOT_TOKEN" -G -d "channel=<channel_id>&limit=<n>"`
-- **Search messages**: `curl -s https://slack.com/api/search.messages -H "Authorization: Bearer $SLACK_CHANNEL_BOT_TOKEN" -G --data-urlencode "query=<query>"`
-- **List conversations**: `curl -s https://slack.com/api/conversations.list -H "Authorization: Bearer $SLACK_CHANNEL_BOT_TOKEN" -G -d "types=public_channel,private_channel,im"`
-
-This gives full access to the Slack API surface including thread context, message metadata, and all features not available through abstraction layers.
+- For rich content (digests, reports): use the Slack API directly. `send_notification` rewrites content into short alerts.
+- For short alerts: `send_notification` is fine — it lets the notification router pick the best channel.
+- For scheduled tasks: always include an explicit Slack API call to deliver results, otherwise output only lives in the conversation log.
 
 ## Connection
 

@@ -248,7 +248,7 @@
           },
           "query_filter": {
             "type": "string",
-            "description": "Optional search filter (e.g. 'to:alice@example.com' for Gmail, 'from:@me' for Slack)"
+            "description": "Optional search filter (e.g. 'to:alice@example.com' for Gmail)"
           },
           "activity": {
             "type": "string",
@@ -274,7 +274,7 @@
           },
           "platform": {
             "type": "string",
-            "description": "Platform (e.g. \"slack\", \"gmail\"). Required for create/list."
+            "description": "Platform (e.g. \"gmail\"). Required for create/list. Slack is not supported — use the Slack Web API directly."
           },
           "conversation_id": {
             "type": "string",
