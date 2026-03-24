@@ -38,6 +38,23 @@ export interface SlackChannelConfigResult {
   warning?: string;
 }
 
+// -- Helpers --
+
+/** Ensure the bot token credential has injection templates for the proxy. */
+function ensureBotTokenInjectionTemplates(): void {
+  upsertCredentialMetadata("slack_channel", "bot_token", {
+    allowedDomains: ["slack.com"],
+    injectionTemplates: [
+      {
+        hostPattern: "slack.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+  });
+}
+
 // -- Business logic --
 
 export async function getSlackChannelConfig(): Promise<SlackChannelConfigResult> {
@@ -56,6 +73,13 @@ export async function getSlackChannelConfig(): Promise<SlackChannelConfigResult>
   const conn = getConnectionByProvider("slack_channel");
   const connected =
     !!(conn && conn.status === "active") && hasBotToken && hasAppToken;
+
+  // Backfill injection templates for existing credentials that were stored
+  // before proxy support was added. Safe to call repeatedly (upsert merges).
+  if (hasBotToken) {
+    ensureBotTokenInjectionTemplates();
+  }
+
   return {
     success: true,
     hasBotToken,
@@ -168,7 +192,7 @@ export async function setSlackChannelConfig(
       };
     }
 
-    upsertCredentialMetadata("slack_channel", "bot_token", {});
+    ensureBotTokenInjectionTemplates();
 
     const raw = loadRawConfig();
     setNestedValue(raw, "slack.teamId", metadata.teamId ?? "");
@@ -255,6 +279,7 @@ export async function setSlackChannelConfig(
   // Sync oauth_connection record so getConnectionByProvider("slack_channel")
   // reflects the current credential state.
   if (hasBotToken && hasAppToken) {
+    ensureBotTokenInjectionTemplates();
     const accountInfo = metadata.teamName
       ? `${metadata.teamName}${metadata.botUsername ? ` (@${metadata.botUsername})` : ""}`
       : undefined;
