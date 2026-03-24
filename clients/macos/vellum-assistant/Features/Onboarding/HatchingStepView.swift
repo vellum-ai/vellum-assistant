@@ -69,6 +69,13 @@ struct HatchingStepView: View {
                 hatchStarted = true
                 startHatching()
             }
+
+            // In the managed path, hatchStepLabel is set before HatchingStepView
+            // appears, so .onChange(of: hatchStepLabel) never fires. Start the
+            // progress timer eagerly when the label is already present.
+            if state.hatchStepLabel != nil {
+                startProgressTimer()
+            }
         }
         .onDisappear {
             completionTask?.cancel()

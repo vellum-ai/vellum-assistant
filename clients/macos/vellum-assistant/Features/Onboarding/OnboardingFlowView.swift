@@ -200,6 +200,10 @@ struct OnboardingFlowView: View {
                 log.info("User signed out during managed onboarding — returning to welcome screen")
                 completionDelayTask?.cancel()
                 didCallComplete = false
+                state.isHatching = false
+                state.isManagedHatch = false
+                state.hatchCompleted = false
+                state.hatchFailed = false
                 isBootstrappingManaged = false
                 managedBootstrapError = nil
                 withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
