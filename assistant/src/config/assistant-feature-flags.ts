@@ -7,8 +7,11 @@
  * (in priority order):
  *   1. Override values from `~/.vellum/protected/feature-flags.json` (local)
  *      or via the gateway HTTP API (Docker/containerized)
- *   2. defaults registry `defaultEnabled`         (for declared keys)
- *   3. `true`                                     (for undeclared keys)
+ *   2. Remote values from `feature-flags-remote.json` (platform-pushed,
+ *      cached locally; only used in local mode — containerized mode gets
+ *      remote values via the gateway)
+ *   3. defaults registry `defaultEnabled`         (for declared keys)
+ *   4. `true`                                     (for undeclared keys)
  *
  * Key format:
  *   Canonical:  `feature_flags.<id>.enabled`
@@ -260,14 +263,68 @@ function loadOverrides(): Record<string, boolean> {
   return cachedOverrides;
 }
 
+// ---------------------------------------------------------------------------
+// Remote values — platform-pushed flags cached in a local JSON file
+// ---------------------------------------------------------------------------
+
 /**
- * Invalidate the cached override values so the next call to
+ * Module-level cache of remote feature flag values. Populated lazily on
+ * first access, invalidated by `clearFeatureFlagOverridesCache()`.
+ */
+let cachedRemoteValues: Record<string, boolean> | null = null;
+
+/**
+ * Load remote flag values from the `feature-flags-remote.json` file that
+ * lives alongside the local overrides file. Returns an empty record if the
+ * file doesn't exist or is malformed.
+ *
+ * In containerized mode, this file won't exist — the gateway already merges
+ * remote values into its response — so we'll harmlessly return `{}`.
+ */
+function loadRemoteValuesFromFile(): Record<string, boolean> {
+  const overridesPath = getFeatureFlagOverridesPath();
+  const remotePath = join(dirname(overridesPath), "feature-flags-remote.json");
+  if (!existsSync(remotePath)) return {};
+
+  try {
+    const raw = readFileSync(remotePath, "utf-8");
+    const data = JSON.parse(raw) as FeatureFlagFileData;
+    if (data.version !== 1) return {};
+    if (
+      data.values &&
+      typeof data.values === "object" &&
+      !Array.isArray(data.values)
+    ) {
+      const filtered: Record<string, boolean> = {};
+      for (const [k, v] of Object.entries(data.values)) {
+        if (typeof v === "boolean") filtered[k] = v;
+      }
+      return filtered;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Load remote values with module-level caching.
+ */
+function loadRemoteValues(): Record<string, boolean> {
+  if (cachedRemoteValues != null) return cachedRemoteValues;
+  cachedRemoteValues = loadRemoteValuesFromFile();
+  return cachedRemoteValues;
+}
+
+/**
+ * Invalidate the cached override and remote values so the next call to
  * `isAssistantFeatureFlagEnabled` re-reads from the source.
  *
  * Called by the config watcher when the feature-flags file changes.
  */
 export function clearFeatureFlagOverridesCache(): void {
   cachedOverrides = null;
+  cachedRemoteValues = null;
 }
 
 /**
@@ -294,8 +351,10 @@ export function _setOverridesForTesting(
  * Resolution order:
  *   1. Override from `~/.vellum/protected/feature-flags.json` (local) or
  *      gateway HTTP (Docker/containerized)
- *   2. defaults registry `defaultEnabled`         (for declared assistant-scope keys)
- *   3. `true`                                     (for undeclared keys with no override)
+ *   2. Remote value from `feature-flags-remote.json` (platform-pushed,
+ *      cached locally)
+ *   3. defaults registry `defaultEnabled`         (for declared assistant-scope keys)
+ *   4. `true`                                     (for undeclared keys with no override)
  */
 export function isAssistantFeatureFlagEnabled(
   key: string,
@@ -309,12 +368,15 @@ export function isAssistantFeatureFlagEnabled(
   const explicit = overrides[key];
   if (typeof explicit === "boolean") return explicit;
 
-  // 2. For declared keys, use the registry default
-  if (declared) {
-    return declared.defaultEnabled;
-  }
+  // 2. Check remote values (platform-pushed, cached locally)
+  const remote = loadRemoteValues();
+  const remoteValue = remote[key];
+  if (typeof remoteValue === "boolean") return remoteValue;
 
-  // 3. Undeclared keys with no persisted override default to enabled
+  // 3. For declared keys, use the registry default
+  if (declared) return declared.defaultEnabled;
+
+  // 4. Undeclared keys with no persisted override default to enabled
   return true;
 }
 
