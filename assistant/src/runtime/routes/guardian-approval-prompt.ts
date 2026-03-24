@@ -19,6 +19,53 @@ import { requiredDecisionKeywords } from "./channel-route-shared.js";
 
 const log = getLogger("runtime-http");
 
+// ---------------------------------------------------------------------------
+// Tool input summary for rich-UI approval prompts
+// ---------------------------------------------------------------------------
+
+/** Max characters for the tool input preview line. */
+const INPUT_PREVIEW_MAX_LENGTH = 200;
+
+/**
+ * Extract a concise, human-readable preview of the tool input so that
+ * sequential approval prompts for the same tool are distinguishable.
+ *
+ * Returns `null` when no meaningful preview can be produced.
+ */
+function formatToolInputPreview(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+): string | null {
+  // Pick the most relevant field based on tool type
+  const command = toolInput.command ?? toolInput.cmd;
+  if (typeof command === "string" && command.length > 0) {
+    return truncatePreview(`\`${command}\``);
+  }
+
+  const path = toolInput.path ?? toolInput.file_path ?? toolInput.filePath;
+  if (typeof path === "string" && path.length > 0) {
+    const verb =
+      toolName.includes("write") || toolName.includes("edit")
+        ? "writing to"
+        : toolName.includes("read")
+          ? "reading"
+          : "on";
+    return truncatePreview(`${verb} \`${path}\``);
+  }
+
+  const url = toolInput.url;
+  if (typeof url === "string" && url.length > 0) {
+    return truncatePreview(`fetching \`${url}\``);
+  }
+
+  return null;
+}
+
+function truncatePreview(text: string): string {
+  if (text.length <= INPUT_PREVIEW_MAX_LENGTH) return text;
+  return text.slice(0, INPUT_PREVIEW_MAX_LENGTH - 1) + "…";
+}
+
 export interface DeliverGeneratedApprovalPromptParams {
   replyCallbackUrl: string;
   chatId: string;
@@ -60,11 +107,23 @@ export async function deliverGeneratedApprovalPrompt(
       approvalCopyGenerator,
     );
 
+    // Append a tool input preview so sequential approvals are distinguishable
+    let enrichedText = richText;
+    if (uiMetadata.permissionDetails) {
+      const preview = formatToolInputPreview(
+        uiMetadata.permissionDetails.toolName,
+        uiMetadata.permissionDetails.toolInput,
+      );
+      if (preview) {
+        enrichedText = `${richText}\n\n${preview}`;
+      }
+    }
+
     try {
       await deliverApprovalPrompt(
         replyCallbackUrl,
         chatId,
-        richText,
+        enrichedText,
         uiMetadata,
         assistantId,
         bearerToken,
