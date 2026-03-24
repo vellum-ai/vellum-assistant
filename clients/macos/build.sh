@@ -768,6 +768,12 @@ if [ -n "${VELLUM_PLATFORM_URL:-}" ]; then
         <key>VELLUM_PLATFORM_URL</key>
         <string>$PLATFORM_URL_OVERRIDE</string>"
 fi
+if [ "$CONFIG" = "debug" ]; then
+    echo "Embedding VELLUM_FLAG_PLATFORM_HOSTED_ENABLED for debug build"
+    _LSE_ENTRIES+="
+        <key>VELLUM_FLAG_PLATFORM_HOSTED_ENABLED</key>
+        <string>1</string>"
+fi
 if [ -n "${SENTRY_DSN_MACOS:-}" ]; then
     echo "Embedding SENTRY_DSN_MACOS"
     _LSE_ENTRIES+="
