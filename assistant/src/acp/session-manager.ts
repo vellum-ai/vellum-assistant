@@ -212,8 +212,13 @@ export class AcpSessionManager {
     if (!entry) {
       throw new Error(`ACP session "${acpSessionId}" not found`);
     }
-    // Auto-deny pending ACP permission requests for THIS session only,
-    // so other sessions on the same parent conversation are unaffected.
+    this.teardownSession(acpSessionId, entry);
+  }
+
+  /**
+   * Denies pending ACP permissions, kills the process, and removes the session.
+   */
+  private teardownSession(acpSessionId: string, entry: SessionEntry): void {
     for (const requestId of entry.clientHandler.pendingRequestIds) {
       const interaction = pendingInteractions.resolve(requestId);
       if (interaction?.directResolve) {
@@ -283,10 +288,9 @@ export class AcpSessionManager {
             stopReason: response.stopReason,
           });
 
-          // Free the session slot so it doesn't count against the
-          // concurrency limit. Kill the agent process first.
-          current.process.kill();
-          this.sessions.delete(acpSessionId);
+          // Free the session slot, deny any pending permissions, and
+          // kill the agent process.
+          this.teardownSession(acpSessionId, current);
 
           // Notify parent session so the LLM sees the agent's output
           if (this.onAcpSessionFinished) {
@@ -327,9 +331,8 @@ export class AcpSessionManager {
             error: err.message,
           });
 
-          // Free the session slot.
-          current.process.kill();
-          this.sessions.delete(acpSessionId);
+          // Free the session slot and deny any pending permissions.
+          this.teardownSession(acpSessionId, current);
         }
       });
 
