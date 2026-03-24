@@ -255,7 +255,7 @@ struct ComposerView: View {
         let hasSlashHighlight = slashCommandRange != nil
 
         return ScrollView(.vertical, showsIndicators: false) {
-            ZStack(alignment: .leading) {
+            ZStack(alignment: .topLeading) {
                 composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
                 composerInputField(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
             }
