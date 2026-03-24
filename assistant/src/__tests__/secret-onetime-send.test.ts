@@ -47,7 +47,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Track keychain writes
+// Track credential store writes
 const storedKeys = new Map<string, string>();
 mock.module("../security/secure-keys.js", () => {
   const syncSet = (key: string, value: string) => {
@@ -112,7 +112,7 @@ describe("one-time send override", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("not enabled");
-    // Value must NOT be stored in keychain
+    // Value must NOT be stored in credential store
     expect(storedKeys.has(credentialKey("svc", "key"))).toBe(false);
   });
 
@@ -134,11 +134,11 @@ describe("one-time send override", () => {
     );
     expect(result.isError).toBe(false);
     expect(result.content).toContain("NOT saved");
-    // Value must NOT be stored in keychain
+    // Value must NOT be stored in credential store
     expect(storedKeys.has(credentialKey("svc", "key"))).toBe(false);
   });
 
-  test("store delivery always persists to keychain regardless of allowOneTimeSend", async () => {
+  test("store delivery always persists to credential store regardless of allowOneTimeSend", async () => {
     mockConfig.secretDetection.allowOneTimeSend = true;
     const context = {
       workingDir: "/tmp",

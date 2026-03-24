@@ -44,7 +44,7 @@ export interface SecretResponse {
   type: "secret_response";
   requestId: string;
   value?: string; // undefined = user cancelled
-  /** How the secret should be delivered: 'store' persists to keychain (default), 'transient_send' for one-time use without persisting. */
+  /** How the secret should be delivered: 'store' persists to credential store (default), 'transient_send' for one-time use without persisting. */
   delivery?: "store" | "transient_send";
 }
 

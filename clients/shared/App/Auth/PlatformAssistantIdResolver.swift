@@ -13,7 +13,7 @@ public enum PlatformAssistantIdResolver {
     // MARK: - Key format
 
     /// Credential storage account name for the persisted platform assistant ID mapping.
-    static func keychainAccount(
+    static func credentialStorageAccount(
         runtimeAssistantId: String,
         organizationId: String,
         userId: String
@@ -36,7 +36,7 @@ public enum PlatformAssistantIdResolver {
         userId: String,
         credentialStorage: CredentialStorage
     ) -> Bool {
-        let account = keychainAccount(
+        let account = credentialStorageAccount(
             runtimeAssistantId: runtimeAssistantId,
             organizationId: organizationId,
             userId: userId
@@ -66,7 +66,7 @@ public enum PlatformAssistantIdResolver {
             return nil
         }
 
-        let account = keychainAccount(
+        let account = credentialStorageAccount(
             runtimeAssistantId: lockfileAssistantId,
             organizationId: orgId,
             userId: uid
@@ -86,7 +86,7 @@ public enum PlatformAssistantIdResolver {
         userId: String,
         credentialStorage: CredentialStorage
     ) -> Bool {
-        let account = keychainAccount(
+        let account = credentialStorageAccount(
             runtimeAssistantId: runtimeAssistantId,
             organizationId: organizationId,
             userId: userId

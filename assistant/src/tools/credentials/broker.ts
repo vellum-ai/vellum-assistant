@@ -213,7 +213,7 @@ export class CredentialBroker {
     }
 
     const storageKey = credentialKey(request.service, request.field);
-    // Check transient values first (one-time send), then fall back to keychain.
+    // Check transient values first (one-time send), then fall back to credential store.
     // Deletion is deferred until after a successful fill so the value survives
     // transient failures (e.g. stale element, page navigation, Playwright timeout).
     const transient = this.transientValues.get(storageKey);

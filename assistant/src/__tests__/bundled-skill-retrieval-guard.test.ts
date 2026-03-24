@@ -112,11 +112,11 @@ const GATEWAY_RETRIEVAL_BANLIST: Array<{
   },
 ];
 
-const KEYCHAIN_ALLOWLIST = new Set<string>([
-  // Keep empty unless a keychain lookup instruction is intentionally required.
+const CREDENTIAL_LOOKUP_ALLOWLIST = new Set<string>([
+  // Keep empty unless a credential lookup instruction is intentionally required.
 ]);
 
-const KEYCHAIN_PATTERNS = [
+const CREDENTIAL_LOOKUP_PATTERNS = [
   "security find-generic-password",
   "secret-tool lookup service vellum-assistant account credential:",
   "secret-tool lookup service vellum-assistant account credential/",
@@ -134,7 +134,7 @@ const RETRIEVAL_MARKERS = [
 ];
 
 describe("bundled skill retrieval guard", () => {
-  test("migrated skills do not reintroduce direct gateway/keychain retrieval snippets", () => {
+  test("migrated skills do not reintroduce direct gateway/credential lookup retrieval snippets", () => {
     const violations: string[] = [];
 
     for (const rule of GATEWAY_RETRIEVAL_BANLIST) {
@@ -152,7 +152,7 @@ describe("bundled skill retrieval guard", () => {
     if (violations.length > 0) {
       const message = [
         "Skill retrieval contract regression detected.",
-        "Migrated skills must not reintroduce direct gateway/keychain retrieval snippets.",
+        "Migrated skills must not reintroduce direct gateway/credential lookup retrieval snippets.",
         "",
         "Violations:",
         ...violations.map((v) => `  - ${v}`),
@@ -162,14 +162,14 @@ describe("bundled skill retrieval guard", () => {
     }
   });
 
-  test("skills do not contain direct keychain lookup instructions", () => {
+  test("skills do not contain direct credential lookup instructions", () => {
     const violations: string[] = [];
 
     for (const skillFile of ALL_SKILL_FILES) {
       const rel = relative(REPO_ROOT, skillFile).replaceAll("\\", "/");
-      if (KEYCHAIN_ALLOWLIST.has(rel)) continue;
+      if (CREDENTIAL_LOOKUP_ALLOWLIST.has(rel)) continue;
       const content = readFileSync(skillFile, "utf-8");
-      for (const pattern of KEYCHAIN_PATTERNS) {
+      for (const pattern of CREDENTIAL_LOOKUP_PATTERNS) {
         if (content.includes(pattern)) {
           violations.push(`${rel}: contains "${pattern}"`);
         }
@@ -178,13 +178,13 @@ describe("bundled skill retrieval guard", () => {
 
     if (violations.length > 0) {
       const message = [
-        "Direct keychain lookup instructions were found in skills.",
+        "Direct credential lookup instructions were found in skills.",
         "Use credential_store and CLI/proxied flows instead.",
         "",
         "Violations:",
         ...violations.map((v) => `  - ${v}`),
         "",
-        "Add intentional exceptions to KEYCHAIN_ALLOWLIST only when required.",
+        "Add intentional exceptions to CREDENTIAL_LOOKUP_ALLOWLIST only when required.",
       ].join("\n");
 
       expect(violations, message).toEqual([]);

@@ -56,7 +56,7 @@ CES tools use the standard `class ... implements Tool` registration pattern. The
 
 ### 1. `host_bash` is outside the strong secrecy guarantee
 
-The existing `host_bash` tool executes commands on the host machine without any credential isolation. When an agent uses `host_bash`, it has full access to the host environment, including any credentials stored in environment variables, config files, or keychains accessible to the user. CES does not attempt to intercept or sandbox `host_bash` invocations.
+The existing `host_bash` tool executes commands on the host machine without any credential isolation. When an agent uses `host_bash`, it has full access to the host environment, including any credentials stored in environment variables, config files, or credential stores accessible to the user. CES does not attempt to intercept or sandbox `host_bash` invocations.
 
 **Implication**: `host_bash` represents a weaker security tier. Agents that require the strong secrecy guarantee must use `run_authenticated_command` instead. Trust rules and permission policies should reflect this distinction — managed deployments may deny `host_bash` entirely for untrusted agents while allowing `run_authenticated_command`.
 
@@ -325,7 +325,7 @@ Risks that are acknowledged and accepted for v1, documented here so they are exp
 
 ### 1. `host_bash` is a weaker security tier
 
-`host_bash` executes commands on the host machine with full access to the host environment. CES does not intercept or sandbox `host_bash` invocations. An untrusted agent with `host_bash` access can read credentials from environment variables, config files, or keychains.
+`host_bash` executes commands on the host machine with full access to the host environment. CES does not intercept or sandbox `host_bash` invocations. An untrusted agent with `host_bash` access can read credentials from environment variables, config files, or credential stores.
 
 **Mitigation**: Trust rules and permission policies should deny `host_bash` for untrusted agents in managed deployments. This is a policy enforcement, not a technical guarantee. The CES process-boundary isolation only protects operations routed through CES tools.
 

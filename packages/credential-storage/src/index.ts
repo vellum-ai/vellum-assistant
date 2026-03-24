@@ -73,8 +73,8 @@ export interface InjectionTemplate {
 export type SecureKeyDeleteResult = "deleted" | "not-found" | "error";
 
 /**
- * Abstraction over the underlying secure-key backend (e.g. macOS Keychain,
- * encrypted file store). Implementations handle platform-specific details.
+ * Abstraction over the underlying secure-key backend (e.g. encrypted file
+ * store). Implementations handle platform-specific details.
  */
 export interface SecureKeyBackend {
   /** Retrieve a secret value by key. Returns undefined if not found. */
