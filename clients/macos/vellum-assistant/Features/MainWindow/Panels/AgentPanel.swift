@@ -29,12 +29,20 @@ struct AgentPanelContent: View {
 
     private var hasActiveSearch: Bool { !normalizedSkillQuery.isEmpty }
 
+    private var isShowingDetail: Bool {
+        selectedInstalledSkillId != nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            filterBar
+            if !isShowingDetail {
+                filterBar
+            }
             HStack(alignment: .top, spacing: VSpacing.xxl) {
-                categorySidebar
-                    .frame(width: 220)
+                if !isShowingDetail {
+                    categorySidebar
+                        .frame(width: 220)
+                }
                 contentView
             }
             .padding(.top, VSpacing.lg)
