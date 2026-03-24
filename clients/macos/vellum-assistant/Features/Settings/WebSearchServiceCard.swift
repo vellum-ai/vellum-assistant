@@ -97,7 +97,7 @@ struct WebSearchServiceCard: View {
                 }
             },
             yourOwnContent: {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
                     if needsAPIKey {
                         providerPicker
                         apiKeySection
@@ -196,7 +196,6 @@ struct WebSearchServiceCard: View {
                 options: availableProviders.map { provider in
                     (label: SettingsStore.webSearchProviderDisplayNames[provider] ?? provider, value: provider)
                 },
-                maxWidth: 400
             )
         }
     }

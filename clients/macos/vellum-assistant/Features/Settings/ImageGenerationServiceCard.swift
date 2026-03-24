@@ -59,15 +59,14 @@ struct ImageGenerationServiceCard: View {
                 }
             },
             yourOwnContent: {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
                     // API Key field
                     VTextField(
                         "API Key",
                         placeholder: "Enter your API key",
                         text: $apiKeyText,
                         isSecure: true,
-                        errorMessage: store.imageGenKeySaveError,
-                        maxWidth: 400
+                        errorMessage: store.imageGenKeySaveError
                     )
 
                     // Model picker
@@ -133,8 +132,7 @@ struct ImageGenerationServiceCard: View {
                 selection: $draftModel,
                 options: SettingsStore.availableImageGenModels.map { model in
                     (label: SettingsStore.imageGenModelDisplayNames[model] ?? model, value: model)
-                },
-                maxWidth: 400
+                }
             )
         }
     }

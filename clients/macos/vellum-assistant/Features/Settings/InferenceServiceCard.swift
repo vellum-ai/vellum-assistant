@@ -108,7 +108,7 @@ struct InferenceServiceCard: View {
                 }
             },
             yourOwnContent: {
-                VStack(alignment: .leading, spacing: VSpacing.md) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
                     providerPicker
 
                     // Model picker
@@ -291,7 +291,6 @@ struct InferenceServiceCard: View {
                 options: store.dynamicProviderIds.map { provider in
                     (label: store.dynamicProviderDisplayName(provider), value: provider)
                 },
-                maxWidth: 400
             )
         }
     }
@@ -314,7 +313,6 @@ struct InferenceServiceCard: View {
             text: $apiKeyText,
             isSecure: true,
             errorMessage: store.apiKeySaveError,
-            maxWidth: 400
         )
         .disabled(store.apiKeySaving)
     }
@@ -338,8 +336,7 @@ struct InferenceServiceCard: View {
             selection: $draftModel,
             options: store.dynamicProviderModels(provider).map { model in
                 (label: model.displayName, value: model.id)
-            },
-            maxWidth: 400
+            }
         )
     }
 

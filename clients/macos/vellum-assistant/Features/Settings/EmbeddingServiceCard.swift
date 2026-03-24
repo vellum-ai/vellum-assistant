@@ -166,8 +166,7 @@ struct EmbeddingServiceCard: View {
                     }
                 ),
                 options: providerOptions,
-                maxWidth: 400
-            )
+                )
         }
     }
 
@@ -187,7 +186,6 @@ struct EmbeddingServiceCard: View {
             text: $apiKeyText,
             isSecure: true,
             errorMessage: store.embeddingKeySaveError,
-            maxWidth: 400
         )
         .id("embedding-api-key-\(draftProvider)-\(placeholder)")
     }
@@ -199,7 +197,6 @@ struct EmbeddingServiceCard: View {
             "Model",
             placeholder: defaultModelForProvider.isEmpty ? "Enter model name" : defaultModelForProvider,
             text: $draftModel,
-            maxWidth: 400
         )
     }
 
