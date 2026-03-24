@@ -155,7 +155,7 @@ Open: `https://console.cloud.google.com/auth/clients/create?project=PROJECT_ID`
 
 A modal should appear with the **Client ID** and **Client Secret**. Tell the user to keep it open.
 
-> **Heads up:** Google sometimes has a slight delay, so the modal may only show your Client ID without the Client Secret. If that happens, don't worry - click the **Download JSON** button (downward arrow icon) on the modal. Open the downloaded file and you'll find your `client_secret` in there. It's a little annoying, but it works every time.
+> **Heads up:** Google sometimes has a slight delay, so the modal may only show your Client ID without the Client Secret. If that happens, don't worry - close the modal and navigate to `https://console.cloud.google.com/auth/clients?project=PROJECT_ID`. Click on the client you just created (look for the name you used, e.g. "Vellum Assistant"). Under **Client secrets**, find the row with a copy button, click it, and paste the secret into the secure credential input when prompted.
 
 ---
 
