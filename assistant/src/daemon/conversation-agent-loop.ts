@@ -236,6 +236,10 @@ export interface AgentLoopConversationContext {
   workspaceTopLevelContext: string | null;
   workspaceTopLevelDirty: boolean;
   channelCapabilities?: ChannelCapabilities;
+  /** Per-turn snapshot of trustContext, frozen at message-processing start. */
+  currentTurnTrustContext?: TrustContext;
+  /** Per-turn snapshot of channelCapabilities, frozen at message-processing start. */
+  currentTurnChannelCapabilities?: ChannelCapabilities;
   commandIntent?: { type: string; payload?: string; languageCode?: string };
   trustContext?: TrustContext;
   assistantId?: string;
@@ -339,6 +343,16 @@ export async function runAgentLoopImpl(
   if (!ctx.abortController) {
     throw new Error("runAgentLoop called without prior persistUserMessage");
   }
+
+  // Initialize per-turn persona snapshots for callers (subagent manager,
+  // voice-session-bridge, regenerate, etc.) that invoke runAgentLoop directly
+  // without going through processMessage/drainQueue. This ensures the system
+  // prompt callback always reads a valid snapshot rather than undefined.
+  // processMessage/drainQueue set these fields before calling runAgentLoop;
+  // those existing assignments remain correct and are merely redundant here.
+  ctx.currentTurnTrustContext = ctx.trustContext;
+  ctx.currentTurnChannelCapabilities = ctx.channelCapabilities;
+
   const abortController = ctx.abortController;
   const reqId = ctx.currentRequestId ?? uuid();
   const rlog = log.child({
