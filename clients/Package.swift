@@ -6,7 +6,7 @@ let appVersion = "0.5.10"
 let package = Package(
     name: "vellum-assistant",
     platforms: [
-        .macOS(.v15),
+        .macOS("15.0"),
         .iOS(.v17)
     ],
     products: [
