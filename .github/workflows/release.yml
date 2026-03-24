@@ -670,6 +670,7 @@ jobs:
 
   register-release:
     needs: [extract-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
+    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -2154,11 +2155,10 @@ jobs:
           # Determine release status
           RELEASE_FAILED="false"
           if [ "$IS_STAGING" = "true" ]; then
-            # For staging, check that GCP image pushes and register-release succeeded
+            # For staging, check that GCP image pushes succeeded (register-release is skipped for staging)
             if [ "${{ needs.push-assistant-manifest.result }}" != "success" ] || \
                [ "${{ needs.push-gateway-manifest.result }}" != "success" ] || \
-               [ "${{ needs.push-credential-executor-manifest.result }}" != "success" ] || \
-               [ "${{ needs.register-release.result }}" != "success" ]; then
+               [ "${{ needs.push-credential-executor-manifest.result }}" != "success" ]; then
               RELEASE_FAILED="true"
             fi
           else
