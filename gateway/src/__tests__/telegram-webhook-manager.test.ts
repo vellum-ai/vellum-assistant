@@ -52,13 +52,9 @@ function makeCaches(
       ? (opts.ingressUrl ?? undefined)
       : "https://example.ngrok.io";
   const platformBaseUrl =
-    "platformBaseUrl" in opts
-      ? (opts.platformBaseUrl ?? undefined)
-      : undefined;
+    "platformBaseUrl" in opts ? (opts.platformBaseUrl ?? undefined) : undefined;
   const assistantApiKey =
-    "assistantApiKey" in opts
-      ? (opts.assistantApiKey ?? undefined)
-      : undefined;
+    "assistantApiKey" in opts ? (opts.assistantApiKey ?? undefined) : undefined;
   const platformAssistantId =
     "platformAssistantId" in opts
       ? (opts.platformAssistantId ?? undefined)
@@ -229,6 +225,7 @@ describe("reconcileTelegramWebhook", () => {
 
   test("registers a managed callback route when ingress URL is not configured", async () => {
     const calls: { method: string; body: unknown }[] = [];
+    process.env.IS_CONTAINERIZED = "true";
     const caches = makeCaches({
       ingressUrl: undefined,
       platformBaseUrl: "https://platform.example.com",
@@ -293,6 +290,7 @@ describe("reconcileTelegramWebhook", () => {
       "https://platform.example.com/v1/gateway/callbacks/11111111-2222-4333-8444-555555555555/webhooks/telegram/",
     );
     expect((calls[2].body as any).secret_token).toBe("test-webhook-secret");
+    delete process.env.IS_CONTAINERIZED;
   });
 
   test("calls setWebhook when current URL is empty", async () => {
