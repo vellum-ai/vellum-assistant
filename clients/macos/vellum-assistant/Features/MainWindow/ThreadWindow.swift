@@ -186,10 +186,26 @@ private struct ThreadWindowContentView: View {
         conversationManager.conversations.first(where: { $0.id == conversationLocalId })?.title ?? "Thread"
     }
 
+    @State private var showTitleActions = false
+
     var body: some View {
-        VStack(spacing: 0) {
-            threadTitleBar
-            chatContent
+        ZStack(alignment: .top) {
+            VStack(spacing: 0) {
+                threadTitleBar
+                chatContent
+                    .padding(.bottom, VSpacing.md)
+            }
+
+            // Actions drawer rendered above all content
+            if showTitleActions {
+                // Dismiss backdrop
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { withAnimation { showTitleActions = false } }
+
+                threadTitleActionsDrawer
+                    .offset(y: 48)
+            }
         }
         .frame(minWidth: 480, maxWidth: .infinity, minHeight: 400, maxHeight: .infinity)
         .background(VColor.surfaceBase)
@@ -200,16 +216,54 @@ private struct ThreadWindowContentView: View {
             // Left padding to avoid traffic light buttons
             Spacer().frame(width: 72)
             Spacer()
-            Text(title)
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(VColor.contentDefault)
-                .lineLimit(1)
+            VButton(
+                label: title,
+                rightIcon: VIcon.chevronDown.rawValue,
+                style: .ghost
+            ) {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                    showTitleActions.toggle()
+                }
+            }
+            .lineLimit(1)
             Spacer()
             // Right padding to balance
             Spacer().frame(width: 72)
         }
         .frame(height: 48)
         .background(VColor.surfaceBase)
+    }
+
+    private var conversation: ConversationModel? {
+        conversationManager.conversations.first(where: { $0.id == conversationLocalId })
+    }
+
+    private var threadTitleActionsDrawer: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SidebarPrimaryRow(
+                icon: (conversation?.isPinned ?? false) ? VIcon.pinOff.rawValue : VIcon.pin.rawValue,
+                label: (conversation?.isPinned ?? false) ? "Unpin" : "Pin",
+                action: {
+                    if conversation?.isPinned ?? false {
+                        conversationManager.unpinConversation(id: conversationLocalId)
+                    } else {
+                        conversationManager.pinConversation(id: conversationLocalId)
+                    }
+                    showTitleActions = false
+                }
+            )
+            SidebarPrimaryRow(icon: VIcon.archive.rawValue, label: "Archive", action: {
+                conversationManager.archiveConversation(id: conversationLocalId)
+                showTitleActions = false
+            })
+        }
+        .padding(VSpacing.sm)
+        .background(VColor.surfaceLift)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .shadow(color: VColor.auxBlack.opacity(0.1), radius: 1.5, x: 0, y: 1)
+        .shadow(color: VColor.auxBlack.opacity(0.1), radius: 6, x: 0, y: 4)
+        .frame(width: 200)
+        .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
     }
 
     private var chatContent: some View {
