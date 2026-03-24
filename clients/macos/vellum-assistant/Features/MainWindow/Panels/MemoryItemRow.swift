@@ -12,7 +12,7 @@ struct MemoryItemRow: View {
 
     var body: some View {
         VCard(padding: VSpacing.lg, action: onSelect) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
+            VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 HStack(alignment: .center, spacing: VSpacing.sm) {
                     Text(item.subject)
                         .font(VFont.headline)
