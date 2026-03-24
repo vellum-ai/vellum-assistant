@@ -203,7 +203,7 @@ Rules:
   // Try to extract user name from persona text
   let userName = "the user";
   if (userPersona) {
-    const nameMatch = userPersona.match(/\*\*Name:\*\*\s*(.+)/);
+    const nameMatch = userPersona.match(/Preferred name\/reference:\s*(.+)/);
     if (nameMatch) {
       userName = nameMatch[1].trim();
     }
