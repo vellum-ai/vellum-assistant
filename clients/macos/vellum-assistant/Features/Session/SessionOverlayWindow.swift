@@ -545,7 +545,7 @@ final class SessionOverlayWindow {
         hstack.translatesAutoresizingMaskIntoConstraints = false
 
         let field = NSTextField()
-        let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? "the assistant"
+        let assistantName = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "the assistant")
         field.placeholderString = "Steer \(assistantName)..."
         field.font = NSFont.systemFont(ofSize: 13)
         field.textColor = NSColor(VColor.contentDefault)
