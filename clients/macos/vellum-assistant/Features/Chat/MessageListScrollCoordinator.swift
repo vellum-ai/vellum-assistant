@@ -7,48 +7,6 @@ import VellumAssistantShared
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "MessageListScrollCoordinator")
 
-/// Holds the last-known distance-from-bottom without triggering SwiftUI
-/// re-renders. Only `isVisible` is @Published so re-renders happen only when
-/// the visible/invisible boundary is crossed — not on every scroll tick.
-///
-/// Retained as a standalone type for testability. The coordinator delegates
-/// anchor tracking to this class internally but exposes `anchorIsVisible`
-/// and `anchorLastMinY` as top-level properties for convenience.
-///
-/// `lastMinY` stores the distance-from-bottom (0 at the bottom, positive when
-/// scrolled up). The anchor is considered "visible" when the distance is at
-/// most 20pt.
-@MainActor final class AnchorVisibilityTracker: ObservableObject {
-    var lastMinY: CGFloat = .infinity  // NOT @Published — no re-render on scroll
-    @Published var isVisible: Bool = true
-
-    /// Updates the tracked distance-from-bottom and recalculates visibility.
-    /// Only publishes `isVisible` when the boundary is actually crossed
-    /// (visible ↔ invisible), not on every scroll tick — this prevents
-    /// SwiftUI re-renders during continuous scrolling.
-    func update(distanceFromBottom: CGFloat, viewportHeight: CGFloat) {
-        lastMinY = distanceFromBottom
-        let newVisible = distanceFromBottom >= -20 && distanceFromBottom <= 20
-        if isVisible != newVisible { isVisible = newVisible }
-    }
-
-    /// Returns `true` when the viewport height actually changed, so callers
-    /// can refresh any state tied to the visible geometry.
-    @discardableResult
-    func updateViewport(height: CGFloat, storedViewportHeight: inout CGFloat) -> Bool {
-        guard storedViewportHeight != height else { return false }
-        storedViewportHeight = height
-        // Don't recompute visibility before the distance-from-bottom has been
-        // measured — lastMinY starts at .infinity, and .infinity <= 20
-        // evaluates to false, incorrectly flipping isVisible to false and
-        // flashing the "Scroll to latest" button on short conversations.
-        guard lastMinY.isFinite else { return true }
-        let newVisible = lastMinY >= -20 && lastMinY <= 20
-        if isVisible != newVisible { isVisible = newVisible }
-        return true
-    }
-}
-
 /// Named reasons for suppressing bottom auto-scroll. Each reason has a defined
 /// timeout so callers don't need to manage independent timers.
 ///
@@ -226,7 +184,7 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// Fires a single deferred re-pin attempt after the cooldown drains.
     var loopGuardRecoveryTask: Task<Void, Never>?
 
-    // MARK: - Anchor Visibility (mirrors AnchorVisibilityTracker)
+    // MARK: - Anchor Visibility
 
     /// Updates the tracked distance-from-bottom and recalculates visibility.
     /// Only publishes `anchorIsVisible` when the boundary is actually crossed
