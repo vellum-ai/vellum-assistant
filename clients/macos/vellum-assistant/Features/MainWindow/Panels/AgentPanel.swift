@@ -263,7 +263,8 @@ struct SkillItemRow: View {
                     VSkillTypePill(source: skill.source)
 
                     Spacer()
-
+                }
+                .overlay(alignment: .trailing) {
                     if isRemovable {
                         VButton(
                             label: "Delete",

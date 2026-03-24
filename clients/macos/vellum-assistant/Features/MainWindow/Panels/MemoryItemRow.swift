@@ -12,7 +12,7 @@ struct MemoryItemRow: View {
 
     var body: some View {
         VCard(padding: VSpacing.lg, action: onSelect) {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
                 HStack(alignment: .center, spacing: VSpacing.sm) {
                     Text(item.subject)
                         .font(VFont.headline)
@@ -26,7 +26,8 @@ struct MemoryItemRow: View {
                     )
 
                     Spacer()
-
+                }
+                .overlay(alignment: .trailing) {
                     VButton(label: "Delete", iconOnly: VIcon.trash.rawValue, style: .dangerGhost, size: .compact, action: onDelete)
                         .accessibilityLabel("Delete memory")
                 }
