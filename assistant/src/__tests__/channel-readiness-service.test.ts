@@ -58,8 +58,8 @@ mock.module("../runtime/channel-invite-transports/whatsapp.js", () => ({
 import type { ChannelId } from "../channels/types.js";
 import {
   ChannelReadinessService,
-  REMOTE_TTL_MS,
   createReadinessService,
+  REMOTE_TTL_MS,
 } from "../runtime/channel-readiness-service.js";
 import type {
   ChannelProbe,
