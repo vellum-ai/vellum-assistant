@@ -143,7 +143,9 @@ async function collectRoutesFromModules(): Promise<RouteEntry[]> {
  * extract these into modules).
  *
  * Whenever buildRouteTable() gains or loses an inline route, this list
- * must be updated — the `--check` CI job will catch staleness.
+ * must be updated manually. Note: `--check` only compares the generated
+ * YAML against the committed YAML, so it will NOT catch a missing entry
+ * here if openapi.yaml is also stale. Plan items B2/C2 address this gap.
  */
 const INLINE_ROUTES: RouteEntry[] = [
   { endpoint: "browser-relay/status", method: "GET" },
