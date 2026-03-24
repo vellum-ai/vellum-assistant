@@ -265,7 +265,7 @@ function buildSpec(
     servers: [
       {
         url: "http://127.0.0.1:7821",
-        description: "Local daemon (default port)",
+        description: "Local assistant (default port)",
       },
     ],
     paths,
