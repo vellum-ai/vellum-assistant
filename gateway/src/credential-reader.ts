@@ -147,8 +147,7 @@ export function getRootDir(): string {
  * to ~/.vellum/workspace.
  */
 export function getWorkspaceDir(): string {
-  // WORKSPACE_DIR fallback: remove after vellum-assistant-platform switches to VELLUM_WORKSPACE_DIR
-  const override = (process.env.VELLUM_WORKSPACE_DIR ?? process.env.WORKSPACE_DIR)?.trim();
+  const override = process.env.VELLUM_WORKSPACE_DIR?.trim();
   if (override) return override;
   return join(getRootDir(), "workspace");
 }

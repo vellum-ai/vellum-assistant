@@ -56,12 +56,11 @@ export function getIsContainerized(): boolean {
 
 /**
  * VELLUM_WORKSPACE_DIR — string, default: undefined
- * Canonical env var that overrides the default workspace directory.
+ * Overrides the default workspace directory.
  * Used in containerized deployments where the workspace is a separate volume.
  */
 export function getWorkspaceDirOverride(): string | undefined {
-  // WORKSPACE_DIR fallback: remove after vellum-assistant-platform switches to VELLUM_WORKSPACE_DIR
-  return str("VELLUM_WORKSPACE_DIR") ?? str("WORKSPACE_DIR");
+  return str("VELLUM_WORKSPACE_DIR");
 }
 
 // ── Known env var names ──────────────────────────────────────────────────────
