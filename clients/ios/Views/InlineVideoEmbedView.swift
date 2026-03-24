@@ -12,7 +12,7 @@ struct InlineVideoEmbedView: View {
     let videoID: String
     let embedURL: URL
 
-    @StateObject private var stateManager = InlineVideoEmbedStateManager()
+    @State private var stateManager = InlineVideoEmbedStateManager()
 
     /// The embed URL enriched with autoplay/rel query parameters, built on
     /// first play request. Falls back to the raw `embedURL` if the provider

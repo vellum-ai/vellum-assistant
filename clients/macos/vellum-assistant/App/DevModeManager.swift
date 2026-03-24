@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 
 /// Lightweight manager for dev mode state, backed by UserDefaults.
@@ -7,10 +6,11 @@ import Foundation
 /// `installCLISymlinkIfNeeded`) can check dev mode without triggering
 /// the full `SettingsStore` lazy initialization and its network fetches.
 @MainActor
-public final class DevModeManager: ObservableObject {
+@Observable
+public final class DevModeManager {
     public static let shared = DevModeManager()
 
-    @Published public var isDevMode: Bool {
+    public var isDevMode: Bool {
         didSet { UserDefaults.standard.set(isDevMode, forKey: "devModeEnabled") }
     }
 
