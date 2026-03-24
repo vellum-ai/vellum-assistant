@@ -60,7 +60,8 @@ export function getIsContainerized(): boolean {
  * Used in containerized deployments where the workspace is a separate volume.
  */
 export function getWorkspaceDirOverride(): string | undefined {
-  return str("VELLUM_WORKSPACE_DIR");
+  // WORKSPACE_DIR fallback: remove after vellum-assistant-platform switches to VELLUM_WORKSPACE_DIR
+  return str("VELLUM_WORKSPACE_DIR") ?? str("WORKSPACE_DIR");
 }
 
 // ── Known env var names ──────────────────────────────────────────────────────
