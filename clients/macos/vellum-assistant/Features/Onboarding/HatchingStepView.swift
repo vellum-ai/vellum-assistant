@@ -391,7 +391,7 @@ struct HatchingStepView: View {
                         // Parse progress sentinel
                         if line.hasPrefix("HATCH_PROGRESS:") {
                             // Ignore late events after success
-                            guard !state.hatchCompleted && completionTask == nil else { return }
+                            guard !state.hatchCompleted else { return }
                             let json = String(line.dropFirst("HATCH_PROGRESS:".count))
                             if let data = json.data(using: .utf8),
                                let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
