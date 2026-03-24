@@ -463,6 +463,10 @@ enum LogExporter {
     /// Extracts the archive into `directory/daemon-exports/`.
     /// Returns `true` if the export succeeded, `false` if the assistant was unreachable.
     ///
+    /// On failure, writes an `export-error.log` into `directory` with the
+    /// status code and response body so the feedback bundle still contains
+    /// diagnostic context about the failed export.
+    ///
     /// Routes through ``GatewayHTTPClient`` so auth and connection resolution
     /// are handled consistently for both local and managed assistants.
     @discardableResult
@@ -482,6 +486,12 @@ enum LogExporter {
             let response = try await GatewayHTTPClient.post(path: "export", json: body, timeout: 30)
             guard response.isSuccess else {
                 log.warning("Export API failed with status \(response.statusCode)")
+                writeExportErrorLog(
+                    to: directory.appendingPathComponent("export-error.log"),
+                    source: "daemon-export",
+                    statusCode: response.statusCode,
+                    responseData: response.data
+                )
                 return false
             }
 
@@ -489,6 +499,11 @@ enum LogExporter {
             return true
         } catch {
             log.warning("Export API request failed: \(error.localizedDescription)")
+            writeExportErrorLog(
+                to: directory.appendingPathComponent("export-error.log"),
+                source: "daemon-export",
+                error: error
+            )
             return false
         }
     }
@@ -791,7 +806,10 @@ enum LogExporter {
 
     /// Fetches logs from the platform API for managed assistants, downloads
     /// the tar.gz response, extracts it into `directory/platform-logs/`.
-    /// Silently skips on any failure.
+    ///
+    /// On failure, writes a `platform-export-error.log` into `directory` with
+    /// the status code and response body so the feedback bundle still contains
+    /// diagnostic context about the failed export.
     private nonisolated static func fetchPlatformLogs(
         into directory: URL,
         assistantId: String,
@@ -799,6 +817,12 @@ enum LogExporter {
     ) async {
         guard let token = SessionTokenManager.getToken() else {
             log.warning("No session token available — skipping platform log export")
+            writeExportErrorLog(
+                to: directory.appendingPathComponent("platform-export-error.log"),
+                source: "platform-log-export",
+                error: nil,
+                note: "No session token available"
+            )
             return
         }
 
@@ -806,6 +830,12 @@ enum LogExporter {
 
         guard let url = URL(string: "\(baseURL)/v1/assistants/\(assistantId)/logs/export/") else {
             log.warning("Failed to construct platform log export URL")
+            writeExportErrorLog(
+                to: directory.appendingPathComponent("platform-export-error.log"),
+                source: "platform-log-export",
+                error: nil,
+                note: "Failed to construct URL: \(baseURL)/v1/assistants/\(assistantId)/logs/export/"
+            )
             return
         }
 
@@ -821,12 +851,23 @@ enum LogExporter {
                   (200...299).contains(http.statusCode) else {
                 let status = (response as? HTTPURLResponse)?.statusCode ?? -1
                 log.warning("Platform log export API failed with status \(status)")
+                writeExportErrorLog(
+                    to: directory.appendingPathComponent("platform-export-error.log"),
+                    source: "platform-log-export",
+                    statusCode: status,
+                    responseData: data
+                )
                 return
             }
 
             try await extractTarGzResponse(data: data, into: directory, subdirectory: "platform-logs")
         } catch {
             log.warning("Platform log export request failed: \(error.localizedDescription)")
+            writeExportErrorLog(
+                to: directory.appendingPathComponent("platform-export-error.log"),
+                source: "platform-log-export",
+                error: error
+            )
         }
     }
 
@@ -1176,6 +1217,52 @@ enum LogExporter {
             options: [.prettyPrinted, .sortedKeys]
         ) else { return }
         try? data.write(to: url)
+    }
+
+    /// Writes a human-readable error log file for a failed export API call.
+    ///
+    /// Supports two failure shapes:
+    /// - **HTTP error**: non-2xx `statusCode` with a `responseData` body.
+    /// - **Transport error**: a thrown Swift `Error` (timeout, DNS, etc.).
+    ///
+    /// An optional `note` can provide additional context (e.g. "No session token").
+    private nonisolated static func writeExportErrorLog(
+        to url: URL,
+        source: String,
+        statusCode: Int? = nil,
+        responseData: Data? = nil,
+        error: Error? = nil,
+        note: String? = nil
+    ) {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        var lines: [String] = [
+            "source: \(source)",
+            "timestamp: \(timestamp)",
+        ]
+
+        if let note {
+            lines.append("note: \(note)")
+        }
+
+        if let statusCode {
+            lines.append("status_code: \(statusCode)")
+        }
+
+        if let error {
+            lines.append("error_type: \(String(describing: type(of: error)))")
+            lines.append("error_description: \(error.localizedDescription)")
+        }
+
+        if let responseData {
+            let body = String(data: responseData, encoding: .utf8)
+                ?? "<\(responseData.count) bytes, non-UTF-8>"
+            lines.append("")
+            lines.append("--- response body ---")
+            lines.append(body)
+        }
+
+        let content = lines.joined(separator: "\n")
+        try? content.write(to: url, atomically: true, encoding: .utf8)
     }
 
     enum ExportError: LocalizedError {
