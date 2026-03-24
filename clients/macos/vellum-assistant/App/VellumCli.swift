@@ -723,20 +723,48 @@ final class VellumCli {
 
         let stderrAccumulator = StderrAccumulator()
 
+        // Line buffers: readabilityHandler delivers arbitrary Data chunks,
+        // not guaranteed line-delimited strings. We accumulate bytes and
+        // split on newline (0x0A) so onOutput always receives complete lines.
+        let newlineByte: UInt8 = 0x0A
+        var stdoutBuffer = Data()
+        var stderrBuffer = Data()
+        let bufferQueue = DispatchQueue(label: "com.vellum.cli.pair-line-buffer")
+
         stdoutHandle.readabilityHandler = { handle in
             let data = handle.availableData
-            guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { onOutput(trimmed) }
+            guard !data.isEmpty else { return }
+            bufferQueue.sync {
+                stdoutBuffer.append(data)
+                while let newlineIndex = stdoutBuffer.firstIndex(of: newlineByte) {
+                    let lineData = stdoutBuffer[stdoutBuffer.startIndex..<newlineIndex]
+                    stdoutBuffer = Data(stdoutBuffer[(newlineIndex + 1)...])
+                    if let line = String(data: lineData, encoding: .utf8) {
+                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            onOutput(trimmed)
+                        }
+                    }
+                }
+            }
         }
 
         stderrHandle.readabilityHandler = { handle in
             let data = handle.availableData
-            guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return }
-            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty {
-                stderrAccumulator.append(trimmed)
-                onOutput(trimmed)
+            guard !data.isEmpty else { return }
+            bufferQueue.sync {
+                stderrBuffer.append(data)
+                while let newlineIndex = stderrBuffer.firstIndex(of: newlineByte) {
+                    let lineData = stderrBuffer[stderrBuffer.startIndex..<newlineIndex]
+                    stderrBuffer = Data(stderrBuffer[(newlineIndex + 1)...])
+                    if let line = String(data: lineData, encoding: .utf8) {
+                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            stderrAccumulator.append(trimmed)
+                            onOutput(trimmed)
+                        }
+                    }
+                }
             }
         }
 
@@ -746,6 +774,27 @@ final class VellumCli {
             proc.terminationHandler = { finished in
                 stdoutHandle.readabilityHandler = nil
                 stderrHandle.readabilityHandler = nil
+
+                // Flush any remaining data in the line buffers as final lines.
+                bufferQueue.sync {
+                    if let line = String(data: stdoutBuffer, encoding: .utf8) {
+                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            onOutput(trimmed)
+                        }
+                    }
+                    stdoutBuffer = Data()
+
+                    if let line = String(data: stderrBuffer, encoding: .utf8) {
+                        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !trimmed.isEmpty {
+                            stderrAccumulator.append(trimmed)
+                            onOutput(trimmed)
+                        }
+                    }
+                    stderrBuffer = Data()
+                }
+
                 continuation.resume(returning: finished.terminationStatus)
             }
             do {
