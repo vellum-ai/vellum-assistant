@@ -541,10 +541,10 @@ struct ChatBubble: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Read aloud isn't set up yet")
                 .font(VFont.titleSmall)
-                .foregroundColor(VColor.contentEmphasized)
+                .foregroundStyle(VColor.contentEmphasized)
             Text("Connect a Fish Audio voice to hear messages spoken aloud.")
                 .font(VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
             HStack(spacing: VSpacing.md) {
                 VButton(label: "Set Up", style: .primary) {
                     showTTSSetupPopover = false
