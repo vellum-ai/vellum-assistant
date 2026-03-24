@@ -25,6 +25,7 @@ struct HatchingStepView: View {
         state.hatchAvatarColor ?? .allCases[0]
     }
     @State private var completionTask: Task<Void, Never>?
+    @State private var progressTimer: Timer?
 
     var body: some View {
         VStack(spacing: VSpacing.lg) {
@@ -34,6 +35,10 @@ struct HatchingStepView: View {
                 .padding(.bottom, VSpacing.xl)
 
             statusText
+
+            if showProgressBar {
+                progressSection
+            }
 
             if state.hatchFailed {
                 failureButtons
@@ -63,10 +68,12 @@ struct HatchingStepView: View {
             if !hatchStarted {
                 hatchStarted = true
                 startHatching()
+                startProgressTimer()
             }
         }
         .onDisappear {
             completionTask?.cancel()
+            stopProgressTimer()
         }
         .onChange(of: state.hatchCompleted) { _, completed in
             if completed {
@@ -163,6 +170,26 @@ struct HatchingStepView: View {
         .frame(maxWidth: 320)
     }
 
+    // MARK: - Progress Bar
+
+    private var showProgressBar: Bool {
+        !state.hatchFailed && !state.hatchCompleted && !isCustomHardware && state.hatchStepLabel != nil
+    }
+
+    private var progressSection: some View {
+        VStack(spacing: VSpacing.xs) {
+            ProgressView(value: state.hatchProgressDisplay)
+                .progressViewStyle(.linear)
+                .frame(maxWidth: 240)
+            if let label = state.hatchStepLabel {
+                Text(label)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundColor(VColor.contentTertiary)
+            }
+        }
+        .transition(.opacity.animation(.easeOut(duration: 0.3)))
+    }
+
     // MARK: - Failure Buttons
 
     private var failureButtons: some View {
@@ -236,9 +263,60 @@ struct HatchingStepView: View {
         // Brief delay so the user sees the waking animation before transition.
         // Stored as a cancellable Task so it's cleaned up if the view disappears.
         completionTask = Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(nanoseconds: 500_000_000)
             guard !Task.isCancelled else { return }
             state.hatchCompleted = true
+        }
+    }
+
+    // MARK: - Progress Timer
+
+    private func startProgressTimer() {
+        progressTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { _ in
+            Task { @MainActor in
+                updateProgressDisplay()
+            }
+        }
+    }
+
+    private func stopProgressTimer() {
+        progressTimer?.invalidate()
+        progressTimer = nil
+    }
+
+    private func updateProgressDisplay() {
+        guard state.hatchStepLabel != nil else { return }
+
+        let target = state.hatchProgressTarget
+        let current = state.hatchProgressDisplay
+
+        if state.hatchCompleted {
+            // Animate to 100%
+            let diff = 1.0 - current
+            if diff > 0.001 {
+                state.hatchProgressDisplay = current + diff * 0.15
+            } else {
+                state.hatchProgressDisplay = 1.0
+                stopProgressTimer()
+            }
+            return
+        }
+
+        if state.hatchFailed {
+            stopProgressTimer()
+            return
+        }
+
+        // Ceiling: don't creep past next step boundary, cap at 95%
+        let nextStepProgress = Double(state.hatchCurrentStep + 1) / Double(max(state.hatchTotalSteps, 1))
+        let ceiling = min(nextStepProgress - 0.02, 0.95)
+
+        if current < target {
+            // Lerp quickly toward target (catches up in ~200ms)
+            state.hatchProgressDisplay = current + (target - current) * 0.15
+        } else if current < ceiling {
+            // Slow creep (~1% per second at 60fps)
+            state.hatchProgressDisplay = min(current + 0.0003, ceiling)
         }
     }
 
@@ -298,6 +376,26 @@ struct HatchingStepView: View {
                 try await cliLauncher.runRemoteHatch(config: config) { line in
                     Task { @MainActor in
                         log.info("CLI hatch output: \(line, privacy: .public)")
+
+                        // Parse progress sentinel
+                        if line.hasPrefix("HATCH_PROGRESS:") {
+                            // Ignore late events after success
+                            guard !state.hatchCompleted && completionTask == nil else { return }
+                            let json = String(line.dropFirst("HATCH_PROGRESS:".count))
+                            if let data = json.data(using: .utf8),
+                               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                               let step = parsed["step"] as? Int,
+                               let total = parsed["total"] as? Int,
+                               let label = parsed["label"] as? String,
+                               total > 0, step >= 0, step <= total {
+                                state.hatchCurrentStep = step
+                                state.hatchTotalSteps = total
+                                state.hatchStepLabel = label
+                                state.hatchProgressTarget = Double(step) / Double(total)
+                            }
+                            return  // Don't append sentinel lines to hatchLogLines
+                        }
+
                         state.hatchLogLines.append(line)
 
                         // Detect the readiness sentinel from CLI output so we
