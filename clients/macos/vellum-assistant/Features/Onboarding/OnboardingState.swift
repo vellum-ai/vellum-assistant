@@ -95,6 +95,13 @@ final class OnboardingState {
     var hatchCompleted: Bool = false
     var hatchFailed: Bool = false
 
+    /// Avatar traits generated during the hatching animation. Stored here
+    /// (rather than as @State in HatchingStepView) so they survive view
+    /// disappearance and are available to the post-hatch sync logic.
+    var hatchAvatarBodyShape: AvatarBodyShape?
+    var hatchAvatarEyeStyle: AvatarEyeStyle?
+    var hatchAvatarColor: AvatarColor?
+
     /// Restore onboarding progress from a previous session (e.g. after macOS
     /// kills the app when toggling screen-recording permission).
     init() {
@@ -168,6 +175,9 @@ final class OnboardingState {
         hatchFailed = false
         hatchCompleted = false
         hatchLogLines = []
+        hatchAvatarBodyShape = nil
+        hatchAvatarEyeStyle = nil
+        hatchAvatarColor = nil
         hasHatched = false
         skippedAuth = false
         skippedAPIKeyEntry = false
