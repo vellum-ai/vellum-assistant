@@ -136,6 +136,10 @@ public final class GatewayConnectionManager: ObservableObject {
     }
 
     func connectImpl(cancelAutoWake: Bool) async throws {
+        #if os(macOS)
+        reconnectionTask?.cancel()
+        reconnectionTask = nil
+        #endif
         disconnectInternal(cancelAutoWake: cancelAutoWake)
 
         isConnecting = true
@@ -153,10 +157,6 @@ public final class GatewayConnectionManager: ObservableObject {
             isAuthenticated = true
             isConnecting = false
             log.info("connect: connected successfully")
-            #if os(macOS)
-            reconnectionTask?.cancel()
-            reconnectionTask = nil
-            #endif
 
             eventStreamClient.startSSE()
         } catch {
@@ -178,8 +178,6 @@ public final class GatewayConnectionManager: ObservableObject {
                         isAuthenticated = true
                         isConnecting = false
                         log.info("connect: retry after auto-wake succeeded")
-                        reconnectionTask?.cancel()
-                        reconnectionTask = nil
                         eventStreamClient.startSSE()
                         return
                     } catch {
