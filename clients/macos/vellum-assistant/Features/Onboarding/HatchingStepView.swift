@@ -195,6 +195,11 @@ struct HatchingStepView: View {
         state.hasExistingManagedAssistant = false
         state.hatchFailed = false
         state.hatchLogLines = []
+        state.hatchProgressTarget = 0.0
+        state.hatchProgressDisplay = 0.0
+        state.hatchStepLabel = nil
+        state.hatchTotalSteps = 1
+        state.hatchCurrentStep = 0
         hatchStarted = false
         failureReason = nil
     }
