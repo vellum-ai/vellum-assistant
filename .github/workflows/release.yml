@@ -20,6 +20,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Validate branch name
+        run: |
+          if [[ "${GITHUB_REF_NAME}" != release/v* ]]; then
+            echo "::error::Workflow must run on a release/v* branch, got '${GITHUB_REF_NAME}'"
+            exit 1
+          fi
+
       - name: Extract version from branch name
         id: extract
         run: |
