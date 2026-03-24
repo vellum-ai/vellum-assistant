@@ -322,8 +322,6 @@ extension ChatBubble {
             )
             .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
 
-            // Inline image previews from completed tool calls (e.g. image generation)
-            inlineToolCallImages(from: groupedToolCalls)
         }
     }
 
@@ -334,6 +332,34 @@ extension ChatBubble {
             guard case .toolCalls(let indices) = group else { return nil }
             return indices
         }.first
+
+        // Pre-compute which tool groups defer images to the following text group.
+        // When a tool group is immediately followed by a text group, images render
+        // after the text so descriptive text like "Here's the screenshot:" appears
+        // before the screenshot it introduces.
+        let deferredImageGroupIds: Set<String> = {
+            var ids = Set<String>()
+            for i in 0..<groups.count {
+                guard case .toolCalls = groups[i] else { continue }
+                if i + 1 < groups.count, case .texts = groups[i + 1] {
+                    ids.insert(groups[i].stableId)
+                }
+            }
+            return ids
+        }()
+
+        // Pre-compute which text groups should show deferred images from preceding tool group
+        let textGroupDeferredToolIndices: [String: [Int]] = {
+            var map: [String: [Int]] = [:]
+            for i in 0..<groups.count {
+                guard case .texts = groups[i] else { continue }
+                if i > 0, case .toolCalls(let tcIndices) = groups[i - 1],
+                   deferredImageGroupIds.contains(groups[i - 1].stableId) {
+                    map[groups[i].stableId] = tcIndices
+                }
+            }
+            return map
+        }()
 
         // Render all content groups in order: text, tool calls, and surfaces.
         // Uses \.stableId (based on the first index in each group) so SwiftUI
@@ -353,6 +379,16 @@ extension ChatBubble {
                 if !joined.isEmpty {
                     textBubble(for: joined)
                 }
+                // Render deferred tool call images from the preceding tool group,
+                // so descriptive text appears before the screenshot it introduces.
+                if shouldRenderToolProgressInline,
+                   let deferredIndices = textGroupDeferredToolIndices[group.stableId] {
+                    let deferredCalls: [ToolCallData] = deferredIndices.compactMap { tcIdx in
+                        guard tcIdx < message.toolCalls.count else { return nil }
+                        return message.toolCalls[tcIdx]
+                    }
+                    inlineToolCallImages(from: deferredCalls)
+                }
             case .toolCalls(let indices):
                 if shouldRenderToolProgressInline {
                     inlineToolProgress(
@@ -360,6 +396,15 @@ extension ChatBubble {
                         isLatestGroup: indices == latestToolGroup,
                         hasTrailingText: cachedToolGroupsWithTrailingText.contains(group.stableId)
                     )
+                    // Show images immediately when no text follows;
+                    // otherwise they are deferred to render after the next text group.
+                    if !deferredImageGroupIds.contains(group.stableId) {
+                        let toolCalls: [ToolCallData] = indices.compactMap { tcIdx in
+                            guard tcIdx < message.toolCalls.count else { return nil }
+                            return message.toolCalls[tcIdx]
+                        }
+                        inlineToolCallImages(from: toolCalls)
+                    }
                 } else {
                     // Tool calls are rendered by trailingStatus below the message
                     EmptyView()
