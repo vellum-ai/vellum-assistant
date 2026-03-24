@@ -19,14 +19,14 @@ struct ChatSearchBar: View {
 
             TextField("Find in conversation...", text: $searchText)
                 .textFieldStyle(.plain)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .focused($isFocused)
                 .onSubmit { onNext() }
 
             if !searchText.isEmpty {
                 Text(matchCount > 0 ? "\(currentMatchIndex + 1) of \(matchCount)" : "No results")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .fixedSize()
 

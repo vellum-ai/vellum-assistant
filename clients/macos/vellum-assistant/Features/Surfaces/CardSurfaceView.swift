@@ -7,17 +7,17 @@ struct CardSurfaceView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             Text(data.title)
-                .font(VFont.cardTitle)
+                .font(VFont.titleSmall)
                 .foregroundColor(VColor.contentDefault)
 
             if let subtitle = data.subtitle {
                 Text(subtitle)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
             }
 
             Text(.init(data.body))
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
 
             if let metadata = data.metadata, !metadata.isEmpty {
@@ -35,10 +35,10 @@ struct CardSurfaceView: View {
         ], alignment: .leading, spacing: VSpacing.md) {
             ForEach(Array(metadata.enumerated()), id: \.offset) { _, item in
                 Text(item.label)
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                 Text(item.value)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
             }
         }

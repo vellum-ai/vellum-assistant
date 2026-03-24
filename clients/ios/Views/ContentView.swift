@@ -130,7 +130,7 @@ struct ContentView: View {
             ProgressView()
                 .scaleEffect(1.5)
             Text("Connecting to your Assistant...")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -144,11 +144,11 @@ struct ContentView: View {
                 .foregroundColor(VColor.contentTertiary)
 
             Text("Unable to Connect")
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
 
             Text("Unable to reach your Assistant's gateway. This could mean your Assistant is offline, the tunnel is down, or the gateway is not active.")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
@@ -156,7 +156,7 @@ struct ContentView: View {
             if retryCount > 1 {
                 let delaySeconds = Int(min(pow(2.0, Double(retryCount - 1)) * 2.0, 30.0))
                 Text("Retrying in \(delaySeconds)s…")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             }
 

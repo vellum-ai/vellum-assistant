@@ -13,11 +13,11 @@ struct ConfirmationView: View {
                 VIconView(.triangleAlert, size: 20)
                     .foregroundStyle(VColor.systemNegativeHover)
                 Text("Action Requires Confirmation")
-                    .font(VFont.headline)
+                    .font(VFont.bodySmallEmphasised)
             }
 
             Text(reason)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundStyle(.secondary)
                 .textSelection(.enabled)
 

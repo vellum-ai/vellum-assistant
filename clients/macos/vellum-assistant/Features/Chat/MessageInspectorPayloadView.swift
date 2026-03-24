@@ -29,7 +29,7 @@ struct MessageInspectorPayloadView: View {
     private var header: some View {
         HStack(alignment: .center, spacing: VSpacing.sm) {
             Text(title)
-                .font(VFont.bodyMedium)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentDefault)
 
             Spacer(minLength: VSpacing.md)

@@ -125,10 +125,10 @@ struct ChatsDisconnectedView: View {
                     .foregroundColor(VColor.contentTertiary)
                     .accessibilityHidden(true)
                 Text("Chats Require Connection")
-                    .font(VFont.title)
+                    .font(VFont.titleMedium)
                     .foregroundColor(VColor.contentDefault)
                 Text("Connect to your Assistant to start a conversation.")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, VSpacing.xl)
@@ -275,7 +275,7 @@ struct ConversationListView: View {
         VStack(spacing: VSpacing.md) {
             ProgressView()
             Text("Loading chats\u{2026}")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -805,10 +805,10 @@ struct ConversationChatView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Forked from")
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .foregroundColor(VColor.contentSecondary)
                     Text(forkParent.title ?? "Parent conversation")
-                        .font(VFont.captionMedium)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
                 }

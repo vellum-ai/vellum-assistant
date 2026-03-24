@@ -20,12 +20,12 @@ struct ListSurfaceView: View {
 
                             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                                 Text(item.title)
-                                    .font(VFont.bodyMedium)
+                                    .font(VFont.bodyMediumDefault)
                                     .foregroundColor(VColor.contentDefault)
 
                                 if let subtitle = item.subtitle {
                                     Text(subtitle)
-                                        .font(VFont.caption)
+                                        .font(VFont.labelDefault)
                                         .foregroundColor(VColor.contentSecondary)
                                 }
                             }

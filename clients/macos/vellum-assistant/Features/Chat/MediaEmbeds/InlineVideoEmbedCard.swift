@@ -141,11 +141,11 @@ struct InlineVideoEmbedCard: View {
                 .foregroundStyle(VColor.contentSecondary)
 
             Text(provider.capitalized)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentSecondary)
 
             Text(embedURL.absoluteString)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundStyle(VColor.primaryBase)
                 .lineLimit(1)
                 .truncationMode(.middle)

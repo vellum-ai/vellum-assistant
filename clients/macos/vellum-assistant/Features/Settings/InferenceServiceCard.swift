@@ -264,7 +264,7 @@ struct InferenceServiceCard: View {
     private var managedLoginPrompt: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Log in to Vellum to use managed inference.")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
             VButton(
                 label: authManager.isSubmitting ? "Logging in..." : "Log In",
@@ -283,7 +283,7 @@ struct InferenceServiceCard: View {
     private var providerPicker: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Provider")
-                .font(VFont.inputLabel)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentSecondary)
             VDropdown(
                 placeholder: "Select a provider\u{2026}",
@@ -324,7 +324,7 @@ struct InferenceServiceCard: View {
     private var modelPicker: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Active Model")
-                .font(VFont.inputLabel)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentSecondary)
             providerModelPicker
         }

@@ -41,14 +41,14 @@ struct SettingsAppearanceTab: View {
                 VStack(spacing: 0) {
                     HStack {
                         Text("Closest city")
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentSecondary)
                         Spacer()
                         HStack(spacing: VSpacing.md) {
                             VIconView(.search, size: 13)
                                 .foregroundColor(VColor.contentTertiary)
                             TextField(selectedCityPlaceholder, text: $timezoneSearchText)
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.contentDefault)
                                 .textFieldStyle(.plain)
                                 .focused($isTimezoneSearchFocused)
@@ -111,11 +111,11 @@ struct SettingsAppearanceTab: View {
                                         } label: {
                                             HStack {
                                                 Text(entry.displayLabel)
-                                                    .font(VFont.body)
+                                                    .font(VFont.bodyMediumLighter)
                                                     .foregroundColor(VColor.contentDefault)
                                                 Spacer()
                                                 Text(entry.currentTime)
-                                                    .font(VFont.caption)
+                                                    .font(VFont.labelDefault)
                                                     .foregroundColor(VColor.contentTertiary)
                                             }
                                             .padding(.horizontal, VSpacing.md)
@@ -158,11 +158,11 @@ struct SettingsAppearanceTab: View {
 
                 HStack {
                     Text("Time zone")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                     Spacer()
                     Text(timezoneDisplayName)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentDefault)
                 }
             }
@@ -183,7 +183,7 @@ struct SettingsAppearanceTab: View {
                 // Open Vellum (configurable)
                 HStack {
                     Text("Open Vellum")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                     Spacer()
                     if isRecordingGlobalHotkey, let display = recordingDisplayString, !display.isEmpty {
@@ -213,7 +213,7 @@ struct SettingsAppearanceTab: View {
 
                 if let shortcutConflictWarning {
                     Text(shortcutConflictWarning)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.systemNegativeHover)
                         .padding(.bottom, VSpacing.xs)
                 }
@@ -223,7 +223,7 @@ struct SettingsAppearanceTab: View {
                 // Quick Input (configurable)
                 HStack {
                     Text("Quick Input")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                     Spacer()
                     if isRecordingQuickInputHotkey, let display = recordingDisplayString, !display.isEmpty {
@@ -256,7 +256,7 @@ struct SettingsAppearanceTab: View {
 
                 HStack {
                     Text("Start voice input")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                     Spacer()
                     // Read activationKey to establish SwiftUI dependency tracking
@@ -290,7 +290,7 @@ struct SettingsAppearanceTab: View {
                 // New chat (configurable)
                 HStack {
                     Text("New chat")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentSecondary)
                     Spacer()
                     if isRecordingNewChat, let display = recordingDisplayString, !display.isEmpty {
@@ -323,7 +323,7 @@ struct SettingsAppearanceTab: View {
                 // Current conversation (configurable)
                 HStack {
                     Text("Current conversation")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentSecondary)
                     Spacer()
                     if isRecordingCurrentConversation, let display = recordingDisplayString, !display.isEmpty {
@@ -356,7 +356,7 @@ struct SettingsAppearanceTab: View {
                 // Toggle sidebar (configurable)
                 HStack {
                     Text("Toggle sidebar")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentSecondary)
                     Spacer()
                     if isRecordingSidebarToggle, let display = recordingDisplayString, !display.isEmpty {
@@ -422,7 +422,7 @@ struct SettingsAppearanceTab: View {
                         VStack(alignment: .leading, spacing: VSpacing.sm) {
                             VStack(alignment: .leading, spacing: VSpacing.xs) {
                                 Text("Add Domain")
-                                    .font(VFont.caption)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentTertiary)
 
                                 HStack(spacing: VSpacing.sm) {
@@ -441,7 +441,7 @@ struct SettingsAppearanceTab: View {
                             ForEach(store.mediaEmbedVideoAllowlistDomains, id: \.self) { domain in
                                 HStack {
                                     Text(domain)
-                                        .font(VFont.body)
+                                        .font(VFont.bodyMediumLighter)
                                         .foregroundColor(VColor.contentDefault)
                                         .textSelection(.enabled)
                                     Spacer()

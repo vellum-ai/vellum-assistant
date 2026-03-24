@@ -219,7 +219,7 @@ public struct InlineWeatherWidget: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(data.location)
-                        .font(VFont.headline)
+                        .font(VFont.bodySmallEmphasised)
                         .foregroundColor(VColor.contentDefault)
                 }
                 Spacer()
@@ -252,19 +252,19 @@ public struct InlineWeatherWidget: View {
                                 .foregroundColor(iconColor(for: firstItem.icon))
                         }
                         Text(data.condition)
-                            .font(VFont.bodyMedium)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentDefault)
                     }
 
                     // Feels like
                     Text("Feels like \(data.feelsLike(useFahrenheit: useFahrenheit))°")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
 
                     // H/L
                     if let hl = todayHighLow {
                         Text("H:\(hl.high)°  L:\(hl.low)°")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
                     }
                 }
@@ -275,7 +275,7 @@ public struct InlineWeatherWidget: View {
             HStack(spacing: VSpacing.md) {
                 Label {
                     Text("\(data.windSpeed(useFahrenheit: useFahrenheit)) \(speedUnit) \(data.windDirection)")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                 } icon: {
                     VIconView(.wind, size: 12)
                 }
@@ -283,7 +283,7 @@ public struct InlineWeatherWidget: View {
 
                 Label {
                     Text("\(data.humidity)%")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                 } icon: {
                     VIconView(.droplets, size: 12)
                 }
@@ -302,7 +302,7 @@ public struct InlineWeatherWidget: View {
                 VIconView(.clock, size: 12)
                     .foregroundColor(VColor.contentTertiary)
                 Text("HOURLY FORECAST")
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                 Spacer()
             }
@@ -316,7 +316,7 @@ public struct InlineWeatherWidget: View {
                     ForEach(data.hourly) { item in
                         VStack(spacing: VSpacing.sm) {
                             Text(item.time)
-                                .font(item.time == "Now" ? VFont.bodyBold : VFont.caption)
+                                .font(item.time == "Now" ? VFont.bodyMediumEmphasised : VFont.labelDefault)
                                 .foregroundColor(VColor.contentDefault)
 
                             VIconView(SFSymbolMapping.icon(forSFSymbol: item.icon, fallback: .cloud), size: 18)
@@ -324,7 +324,7 @@ public struct InlineWeatherWidget: View {
                                 .frame(height: 22)
 
                             Text("\(item.temp(useFahrenheit: useFahrenheit))°")
-                                .font(VFont.bodyMedium)
+                                .font(VFont.bodyMediumDefault)
                                 .foregroundColor(VColor.contentDefault)
                         }
                         .frame(minWidth: 44)
@@ -342,7 +342,7 @@ public struct InlineWeatherWidget: View {
             VIconView(.calendar, size: 12)
                 .foregroundColor(VColor.contentTertiary)
             Text("\(data.forecast.count)-DAY FORECAST")
-                .font(VFont.captionMedium)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
             Spacer()
         }
@@ -358,7 +358,7 @@ public struct InlineWeatherWidget: View {
         return HStack(spacing: VSpacing.sm) {
             // Day name
             Text(item.day)
-                .font(item.day == "Today" ? VFont.bodyBold : VFont.bodyMedium)
+                .font(item.day == "Today" ? VFont.bodyMediumEmphasised : VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentDefault)
                 .frame(width: 46, alignment: .leading)
 
@@ -370,7 +370,7 @@ public struct InlineWeatherWidget: View {
 
                 if let precip = item.precip {
                     Text("\(precip)%")
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .foregroundColor(VColor.systemNegativeHover)
                 }
             }
@@ -378,7 +378,7 @@ public struct InlineWeatherWidget: View {
 
             // Low temp
             Text("\(low)°")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
                 .frame(width: 32, alignment: .trailing)
 
@@ -387,7 +387,7 @@ public struct InlineWeatherWidget: View {
 
             // High temp
             Text("\(high)°")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .frame(width: 32, alignment: .trailing)
         }

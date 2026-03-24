@@ -149,7 +149,7 @@ extension MainWindowView {
             VStack {
                 Spacer()
                 Text("Surface not available")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentTertiary)
                 Spacer()
             }
@@ -840,7 +840,7 @@ struct DynamicWorkspaceWrapper: View {
                 Spacer(minLength: 0)
 
                 Text(surface.title ?? data.preview?.title ?? "App")
-                    .font(VFont.bodyMedium)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentSecondary)
                     .lineLimit(1)
 
@@ -922,7 +922,7 @@ struct DynamicWorkspaceWrapper: View {
                 HStack {
                     Spacer()
                     Text(error)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.systemNegativeStrong)
                         .padding(.horizontal, VSpacing.md)
                         .padding(.vertical, VSpacing.xs)
@@ -1059,7 +1059,7 @@ private struct PublishedButton: View {
             VIconView(.check, size: 10)
                 .foregroundColor(VColor.systemPositiveStrong)
             Text("Published")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
             Divider()
                 .frame(height: 12)
             VIconView(copied ? .check : .copy, size: 10)
@@ -1140,7 +1140,7 @@ private struct ShareDrawerRow: View {
                     .foregroundColor(isHovered ? VColor.contentDefault : VColor.contentSecondary)
                     .frame(width: 18)
                 Text(label)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                 Spacer()
             }
@@ -1178,10 +1178,10 @@ private struct AppLoadingView: View {
                 VIconView(.triangleAlert, size: 28)
                     .foregroundColor(VColor.systemNegativeHover)
                 Text("Failed to load app")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                 Text("The app didn't respond in time. It may be unavailable or still starting up.")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 280)
@@ -1203,7 +1203,7 @@ private struct AppLoadingView: View {
                 ProgressView()
                     .controlSize(.regular)
                 Text("Loading app\u{2026}")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentTertiary)
             }
             Spacer()

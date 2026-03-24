@@ -95,7 +95,7 @@ public struct SubagentConversationView: View {
         HStack(spacing: VSpacing.sm) {
             // Label (clickable, turns blue on hover like Slack)
             Text(subagent.label)
-                .font(VFont.captionMedium)
+                .font(VFont.labelDefault)
                 .foregroundColor(isHovered ? VColor.primaryBase : VColor.contentDefault)
 
             // Status icon
@@ -112,11 +112,11 @@ public struct SubagentConversationView: View {
             // Reply count (like Slack's "3 replies")
             if replyCount > 0 {
                 Text("\(replyCount) repl\(replyCount == 1 ? "y" : "ies")")
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(isHovered ? VColor.primaryBase : VColor.systemPositiveStrong)
             } else if isRunning {
                 Text("Working...")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .italic()
             }

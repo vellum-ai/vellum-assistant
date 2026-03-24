@@ -93,17 +93,17 @@ struct DocumentsListView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(doc.title)
-                    .font(VFont.bodyBold)
+                    .font(VFont.bodyMediumEmphasised)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
 
                 HStack(spacing: VSpacing.sm) {
                     Text("\(doc.wordCount) words")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
 
                     Text(formattedDate(doc.updatedAt))
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                 }
             }
@@ -122,7 +122,7 @@ struct DocumentsListView: View {
         VStack(spacing: VSpacing.md) {
             ProgressView()
             Text("Loading documents...")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -134,7 +134,7 @@ struct DocumentsListView: View {
                 .foregroundColor(VColor.contentTertiary)
                 .accessibilityHidden(true)
             Text("No documents yet")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

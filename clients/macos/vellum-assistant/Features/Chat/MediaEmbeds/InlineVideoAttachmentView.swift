@@ -159,7 +159,7 @@ struct InlineVideoAttachmentView: View {
                     .shadow(radius: thumbnailImage != nil ? 4 : 0)
 
                 Text(attachment.filename)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundStyle(thumbnailImage != nil ? VColor.auxWhite : VColor.contentSecondary)
                     .shadow(radius: thumbnailImage != nil ? 2 : 0)
                     .lineLimit(1)
@@ -181,7 +181,7 @@ struct InlineVideoAttachmentView: View {
                 .controlSize(.regular)
 
             Text("Loading video...")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -198,20 +198,20 @@ struct InlineVideoAttachmentView: View {
             }
 
             Text(failure.userMessage)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentSecondary)
 
             if case .port_missing = failure {
                 Text("Tap to retry")
-                    .font(VFont.small)
+                    .font(VFont.labelSmall)
                     .foregroundStyle(VColor.contentTertiary)
             } else if case .invalid_media = failure {
                 Text("Tap to open externally")
-                    .font(VFont.small)
+                    .font(VFont.labelSmall)
                     .foregroundStyle(VColor.contentTertiary)
             } else {
                 Text(hasRetriedOnce ? "Tap to open externally" : "Tap to retry")
-                    .font(VFont.small)
+                    .font(VFont.labelSmall)
                     .foregroundStyle(VColor.contentTertiary)
             }
         }

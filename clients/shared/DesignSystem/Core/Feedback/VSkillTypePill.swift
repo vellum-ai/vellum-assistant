@@ -81,7 +81,7 @@ public struct VSkillTypePill: View {
         HStack(spacing: VSpacing.xs) {
             VIconView(type.vIcon, size: 10)
             Text(type.label)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
         }
         .foregroundColor(type.foregroundColor)
         .padding(.horizontal, VSpacing.md)

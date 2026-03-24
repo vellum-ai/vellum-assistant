@@ -114,12 +114,12 @@ public struct ToolConfirmationBubble: View {
                     .foregroundColor(VColor.primaryBase)
 
                 Text(confirmation.permissionFriendlyName)
-                    .font(VFont.bodyBold)
+                    .font(VFont.bodyMediumEmphasised)
                     .foregroundColor(VColor.contentDefault)
             }
 
             Text(confirmation.humanDescription)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
 
             HStack(spacing: VSpacing.sm) {
@@ -179,11 +179,11 @@ public struct ToolConfirmationBubble: View {
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("What is this?")
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentDefault)
 
                 Text("Sometimes your assistant needs to run commands on your computer to complete tasks \u{2014} like installing software, checking settings, or organizing files. You\u{2019}ll always be asked for permission first, and nothing runs without your approval.")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -233,7 +233,7 @@ public struct ToolConfirmationBubble: View {
                             .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
                             .frame(width: 9, height: 9)
                         Text(showTechnicalDetails ? "Hide details" : "Show details")
-                            .font(VFont.captionMedium)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentDefault)
                     }
                     .offset(x: -1)
@@ -314,7 +314,7 @@ public struct ToolConfirmationBubble: View {
     private func codePreviewBlock(_ content: String, maxHeight: CGFloat) -> some View {
         ScrollView {
             Text(content)
-                .font(VFont.monoSmall)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
@@ -333,7 +333,7 @@ public struct ToolConfirmationBubble: View {
     @ViewBuilder
     private var descriptionText: some View {
         Text(confirmation.humanDescription)
-            .font(VFont.caption)
+            .font(VFont.labelDefault)
             .foregroundColor(VColor.contentTertiary)
     }
 
@@ -363,7 +363,7 @@ public struct ToolConfirmationBubble: View {
                 let computedDiff = confirmation.unifiedDiffPreview ?? ""
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(diffInfo.filePath)
-                        .font(VFont.monoSmall)
+                        .font(VFont.bodySmallDefault)
                         .foregroundColor(VColor.contentTertiary)
 
                     if computedDiff.isEmpty {
@@ -454,7 +454,7 @@ public struct ToolConfirmationBubble: View {
 
     private var confirmationDescription: some View {
         Text(confirmation.humanDescription)
-            .font(VFont.bodyBold)
+            .font(VFont.bodyMediumEmphasised)
             .foregroundColor(VColor.contentDefault)
             .fixedSize(horizontal: false, vertical: true)
     }

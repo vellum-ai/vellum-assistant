@@ -33,7 +33,7 @@ extension ComposerView {
                 }
 
             Text("Processing…")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
         }
         .padding(VSpacing.xs)
@@ -64,13 +64,13 @@ extension ComposerView {
                 }
 
                 Text(attachment.filename)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
                 Text("· \(fileSize)")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             }
             .contentShape(Rectangle())

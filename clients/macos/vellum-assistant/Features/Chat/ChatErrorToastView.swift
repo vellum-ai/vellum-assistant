@@ -72,13 +72,13 @@ struct ChatConversationErrorToast: View {
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(message)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .lineLimit(nil)
                     .textSelection(.enabled)
 
                 if let subtitle {
                     Text(subtitle)
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .opacity(0.8)
                         .lineLimit(2)
                         .textSelection(.enabled)
@@ -92,7 +92,7 @@ struct ChatConversationErrorToast: View {
             if let actionLabel, let onAction {
                 Button(action: onAction) {
                     Text(actionLabel)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.auxWhite) // color-literal-ok
                         .padding(.horizontal, VSpacing.sm)
                         .frame(height: 24)
@@ -211,10 +211,10 @@ struct CreditsExhaustedBanner: View {
         HStack(spacing: VSpacing.xl) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("💰  Your balance has run out")
-                    .font(VFont.headline)
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundStyle(VColor.contentEmphasized)
                 Text("Add funds to pick up where you left off.")
-                    .font(VFont.bodyMedium)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -259,10 +259,10 @@ struct MissingApiKeyBanner: View {
 
             VStack(spacing: VSpacing.xs) {
                 Text("API key required")
-                    .font(VFont.headline)
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundStyle(VColor.contentEmphasized)
                 Text("Add an API key in Settings to start chatting.")
-                    .font(VFont.bodyMedium)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentSecondary)
             }
 

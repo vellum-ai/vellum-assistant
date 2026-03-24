@@ -65,7 +65,7 @@ struct SkillFileTreeView: View {
 
                         if !item.node.isDirectory {
                             Text(formatFileSize(item.node.size ?? 0))
-                                .font(VFont.small)
+                                .font(VFont.labelSmall)
                                 .foregroundColor(VColor.contentTertiary)
                                 .padding(.trailing, VSpacing.sm)
                         }

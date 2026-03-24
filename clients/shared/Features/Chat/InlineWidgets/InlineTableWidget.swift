@@ -52,7 +52,7 @@ public struct InlineTableWidget: View {
                 }
                 ForEach(data.columns) { column in
                     Text(column.label)
-                        .font(VFont.captionMedium)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                         .columnFrame(column.width)
                         .textSelection(.enabled)
@@ -70,7 +70,7 @@ public struct InlineTableWidget: View {
 
             if let caption = data.caption {
                 Text(caption)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .padding(.top, VSpacing.xs)
             }
@@ -129,7 +129,7 @@ public struct InlineTableWidget: View {
                     .foregroundColor(resolveIconColor(value?.iconColor))
             }
             Text(value?.text ?? "")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .lineLimit(2)
                 .textSelection(.enabled)

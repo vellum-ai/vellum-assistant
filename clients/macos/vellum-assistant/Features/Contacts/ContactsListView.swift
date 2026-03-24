@@ -90,10 +90,10 @@ struct ContactsListView: View {
                         if viewModel.filteredRegularContacts.isEmpty {
                             VStack(spacing: VSpacing.sm) {
                                 Text("No matching contacts")
-                                    .font(VFont.body)
+                                    .font(VFont.bodyMediumLighter)
                                     .foregroundColor(VColor.contentSecondary)
                                 Text("Try a different search term")
-                                    .font(VFont.caption)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentTertiary)
                             }
                             .frame(maxWidth: .infinity)
@@ -127,7 +127,7 @@ struct ContactsListView: View {
                 Image(systemName: "person.badge.plus")
                     .font(.system(size: 14))
                 Text("Add Contact")
-                    .font(VFont.bodyMedium)
+                    .font(VFont.bodyMediumDefault)
             }
             .foregroundColor(VColor.primaryBase)
             .frame(maxWidth: .infinity)
@@ -156,7 +156,7 @@ struct ContactsListView: View {
         Button(action: onTap) {
             HStack(spacing: VSpacing.xs) {
                 Text(name)
-                    .font(VFont.bodyMedium)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                     .lineLimit(1)
 

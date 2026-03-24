@@ -106,7 +106,7 @@ struct EmbeddingServiceCard: View {
             // Degraded warning
             if store.embeddingDegraded {
                 Text("Embedding service is degraded — semantic memory search may be unavailable.")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemNegativeStrong)
             }
 
@@ -138,10 +138,10 @@ struct EmbeddingServiceCard: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Memory Embeddings")
-                .font(VFont.sectionTitle)
+                .font(VFont.titleSmall)
                 .foregroundColor(VColor.contentDefault)
             Text("Configure which provider and model to use for semantic memory search")
-                .font(VFont.sectionDescription)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentTertiary)
         }
     }
@@ -151,7 +151,7 @@ struct EmbeddingServiceCard: View {
     private var providerPicker: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Provider")
-                .font(VFont.inputLabel)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentSecondary)
             VDropdown(
                 placeholder: "Select a provider\u{2026}",
@@ -210,7 +210,7 @@ struct EmbeddingServiceCard: View {
         let display = activeProviderDisplayName
         let detail = model.isEmpty ? display : "\(display) (\(model))"
         return Text("Currently using: \(detail)")
-            .font(VFont.caption)
+            .font(VFont.labelDefault)
             .foregroundColor(VColor.contentTertiary)
     }
 

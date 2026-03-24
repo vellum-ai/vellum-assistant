@@ -102,7 +102,7 @@ extension ChatBubble {
 
             Text(isApproved || isDenied ? "\(confirmation.toolCategory)" :
                  "Timed Out")
-                .font(VFont.captionMedium)
+                .font(VFont.labelDefault)
                 .foregroundColor(chipColor)
         }
         .padding(.horizontal, VSpacing.sm)

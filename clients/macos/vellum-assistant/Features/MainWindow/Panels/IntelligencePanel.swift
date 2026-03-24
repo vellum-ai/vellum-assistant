@@ -48,8 +48,8 @@ struct IntelligencePanel: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             HStack(alignment: .center) {
-                Text("About \(cachedAssistantName)")
-                    .font(VFont.panelTitle)
+                Text("Intelligence")
+                    .font(VFont.titleLarge)
                     .foregroundColor(VColor.contentEmphasized)
                 Spacer()
             }
@@ -137,7 +137,7 @@ struct IntelligencePanel: View {
         } label: {
             VStack(spacing: VSpacing.sm) {
                 Text(label)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(isActive ? VColor.primaryActive : VColor.contentSecondary)
                     .padding(.bottom, VSpacing.xs)
 

@@ -151,11 +151,11 @@ struct DebugPanelView: View {
                 VIconView(icon, size: 11)
                     .foregroundColor(color)
                 Text(value)
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentDefault)
             }
             Text(label)
-                .font(VFont.small)
+                .font(VFont.labelSmall)
                 .foregroundColor(VColor.contentTertiary)
         }
     }
@@ -169,10 +169,10 @@ struct DebugPanelView: View {
             VIconView(icon, size: 36)
                 .foregroundColor(VColor.contentTertiary)
             Text(title)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
             Text(subtitle)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
@@ -270,7 +270,7 @@ struct TraceTimelineIOSView: View {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.circleArrowDown, size: 11)
                             Text("Jump to bottom")
-                                .font(VFont.small)
+                                .font(VFont.labelSmall)
                         }
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
@@ -301,20 +301,20 @@ struct TraceTimelineIOSView: View {
                     .foregroundColor(groupStatusColor(groupStatus))
 
                 Text(requestId.isEmpty ? "System" : "Request \(requestId.prefix(8))")
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
 
                 if groupStatus == .cancelled {
                     Text("Cancelled")
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .foregroundColor(VColor.systemMidStrong)
                 } else if groupStatus == .handedOff {
                     Text("Handed off")
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .foregroundColor(VColor.systemPositiveWeak)
                 } else if groupStatus == .error {
                     Text("Error")
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .foregroundColor(VColor.systemNegativeStrong)
                 }
 
@@ -384,10 +384,10 @@ struct TraceTimelineIOSView: View {
                     ForEach(attrs.keys.sorted(), id: \.self) { key in
                         HStack(spacing: VSpacing.sm) {
                             Text(key)
-                                .font(VFont.small)
+                                .font(VFont.labelSmall)
                                 .foregroundColor(VColor.contentTertiary)
                             Text(stringValue(attrs[key]))
-                                .font(VFont.small)
+                                .font(VFont.labelSmall)
                                 .foregroundColor(VColor.contentSecondary)
                                 .lineLimit(3)
                         }
@@ -413,12 +413,12 @@ struct TraceTimelineIOSView: View {
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(event.summary)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(2)
 
                 Text(formattedTimestamp(event.timestampMs))
-                    .font(VFont.small)
+                    .font(VFont.labelSmall)
                     .foregroundColor(VColor.contentTertiary)
             }
 

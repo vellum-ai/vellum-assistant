@@ -21,7 +21,7 @@ public struct FileUploadSurfaceView: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             // Prompt text
             Text(data.prompt)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
                 .textSelection(.enabled)
 
@@ -31,7 +31,7 @@ public struct FileUploadSurfaceView: View {
             // Error message
             if let errorMessage = errorMessage {
                 Text(errorMessage)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemNegativeStrong)
                     .textSelection(.enabled)
             }
@@ -83,12 +83,12 @@ public struct FileUploadSurfaceView: View {
                     .foregroundColor(isDragOver ? VColor.primaryBase : VColor.contentTertiary)
 
                 Text("Drop files here")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
 
                 Button(action: { browseFiles() }) {
                     Text("Browse files")
-                        .font(VFont.captionMedium)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.primaryBase)
                 }
                 .buttonStyle(.plain)
@@ -113,13 +113,13 @@ public struct FileUploadSurfaceView: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(file.filename)
-                            .font(VFont.captionMedium)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
                             .textSelection(.enabled)
 
                         Text(formatFileSize(file.size))
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                             .textSelection(.enabled)
                     }
@@ -147,13 +147,13 @@ public struct FileUploadSurfaceView: View {
         HStack(spacing: VSpacing.sm) {
             if data.maxFiles > 1 {
                 Text("Max \(data.maxFiles) files")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .textSelection(.enabled)
             }
             if let types = data.acceptedTypes, !types.isEmpty {
                 Text(types.joined(separator: ", "))
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .textSelection(.enabled)
             }

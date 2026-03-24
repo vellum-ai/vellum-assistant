@@ -13,12 +13,12 @@ struct TraceRowView: View {
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(event.summary)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(2)
 
                 Text(formattedTimestamp)
-                    .font(VFont.small)
+                    .font(VFont.labelSmall)
                     .foregroundColor(VColor.contentTertiary)
             }
 

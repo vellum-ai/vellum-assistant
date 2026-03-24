@@ -156,7 +156,7 @@ struct RecordingHUDView: View {
                     .foregroundColor(VColor.systemNegativeStrong)
 
                 Text(failure)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemNegativeStrong)
                     .lineLimit(1)
             } else {
@@ -176,13 +176,13 @@ struct RecordingHUDView: View {
 
                 // Elapsed time (freezes when paused via timer pause)
                 Text(viewModel.formattedTime)
-                    .font(VFont.monoSmall)
+                    .font(VFont.bodySmallDefault)
                     .foregroundColor(viewModel.isPaused ? VColor.contentSecondary : VColor.contentDefault)
                     .monospacedDigit()
 
                 if viewModel.isPaused {
                     Text("Paused")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.systemNegativeHover)
                 }
 

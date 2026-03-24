@@ -29,7 +29,7 @@ struct AssistantTransferSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Transfer")
-                .font(VFont.sectionTitle)
+                .font(VFont.titleSmall)
                 .foregroundColor(VColor.contentDefault)
 
             if !assistant.isManaged && !assistant.isRemote {
@@ -45,14 +45,14 @@ struct AssistantTransferSection: View {
                     ProgressView()
                         .controlSize(.small)
                     Text(currentStep ?? "Transferring...")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                 }
             }
 
             if let error = errorMessage {
                 Text(error)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemNegativeStrong)
             }
         }
@@ -85,7 +85,7 @@ struct AssistantTransferSection: View {
     @ViewBuilder
     private var localToManagedContent: some View {
         Text("Move your assistant and all its data to the cloud.")
-            .font(VFont.caption)
+            .font(VFont.labelDefault)
             .foregroundColor(VColor.contentTertiary)
 
         VButton(
@@ -98,7 +98,7 @@ struct AssistantTransferSection: View {
 
         if SessionTokenManager.getToken() == nil {
             Text("Sign in to transfer your assistant to the cloud.")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
         }
     }
@@ -108,7 +108,7 @@ struct AssistantTransferSection: View {
     @ViewBuilder
     private var managedToLocalContent: some View {
         Text("Move your assistant and all its data to this Mac.")
-            .font(VFont.caption)
+            .font(VFont.labelDefault)
             .foregroundColor(VColor.contentTertiary)
 
         VButton(

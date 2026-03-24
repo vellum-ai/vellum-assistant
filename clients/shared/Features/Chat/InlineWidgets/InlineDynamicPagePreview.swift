@@ -44,13 +44,13 @@ public struct InlineDynamicPagePreview: View {
 
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text(preview.title)
-                            .font(VFont.bodyBold)
+                            .font(VFont.bodyMediumEmphasised)
                             .foregroundColor(VColor.contentDefault)
                             .lineLimit(2)
 
                         if let subtitle = preview.subtitle {
                             Text(subtitle)
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                                 .lineLimit(1)
                         }
@@ -59,7 +59,7 @@ public struct InlineDynamicPagePreview: View {
 
                 if let description = preview.description, !description.isEmpty {
                     Text(description)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                         .lineLimit(3)
                 }
@@ -83,10 +83,10 @@ public struct InlineDynamicPagePreview: View {
     private func metricPill(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
-                .font(VFont.small)
+                .font(VFont.labelSmall)
                 .foregroundColor(VColor.contentTertiary)
             Text(value)
-                .font(VFont.captionMedium)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
         }

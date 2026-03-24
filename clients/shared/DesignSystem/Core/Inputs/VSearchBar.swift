@@ -17,7 +17,7 @@ public struct VSearchBar: View {
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .focused($isFocused)
 

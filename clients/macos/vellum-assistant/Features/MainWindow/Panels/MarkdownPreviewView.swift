@@ -335,7 +335,7 @@ private func renderInlineMarkdown(_ text: String) -> Text {
             result = result + Text(content).italic()
         case .code(let content):
             result = result + Text(content)
-                .font(VFont.mono)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.systemPositiveStrong)
         case .link(let linkText, let linkUrl):
             if let url = URL(string: linkUrl) {
@@ -401,17 +401,17 @@ struct MarkdownPreviewView: View {
                         .font(VFont.cardEmoji)
                 }
                 Text(fm.displayName ?? fm.name ?? "")
-                    .font(VFont.largeTitle)
+                    .font(VFont.titleLarge)
                     .foregroundColor(VColor.contentEmphasized)
             }
             if let description = fm.description {
                 Text(description)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
             }
             if let compatibility = fm.compatibility {
                 Text(compatibility)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             }
         }
@@ -424,7 +424,7 @@ struct MarkdownPreviewView: View {
             headingView(level: level, text: text)
         case .paragraph(let text):
             renderInlineMarkdown(text)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
         case .codeBlock(_, let code):
             codeBlockView(code: code)
@@ -448,23 +448,23 @@ struct MarkdownPreviewView: View {
         switch level {
         case 1:
             renderInlineMarkdown(text)
-                .font(VFont.largeTitle)
+                .font(VFont.titleLarge)
                 .foregroundColor(VColor.contentEmphasized)
                 .padding(.bottom, VSpacing.xs)
         case 2:
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 renderInlineMarkdown(text)
-                    .font(VFont.title)
+                    .font(VFont.titleMedium)
                     .foregroundColor(VColor.contentEmphasized)
                 Divider()
             }
         case 3:
             renderInlineMarkdown(text)
-                .font(VFont.headline)
+                .font(VFont.bodySmallEmphasised)
                 .foregroundColor(VColor.contentEmphasized)
         default:
             renderInlineMarkdown(text)
-                .font(VFont.bodyMedium)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentEmphasized)
         }
     }
@@ -472,7 +472,7 @@ struct MarkdownPreviewView: View {
     private func codeBlockView(code: String) -> some View {
         ScrollView(.horizontal) {
             Text(code)
-                .font(VFont.mono)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentDefault)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: true, vertical: false)
@@ -493,7 +493,7 @@ struct MarkdownPreviewView: View {
                         .foregroundColor(VColor.contentTertiary)
                         .accessibilityHidden(true)
                     renderInlineMarkdown(item)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentDefault)
                 }
             }
@@ -508,7 +508,7 @@ struct MarkdownPreviewView: View {
                     Text("\(item.number).")
                         .foregroundColor(VColor.contentTertiary)
                     renderInlineMarkdown(item.text)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentDefault)
                 }
             }
@@ -523,7 +523,7 @@ struct MarkdownPreviewView: View {
                 .frame(width: 3)
                 .accessibilityHidden(true)
             renderInlineMarkdown(text)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
         }
         .padding(.leading, VSpacing.lg)

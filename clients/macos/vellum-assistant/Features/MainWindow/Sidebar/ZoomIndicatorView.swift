@@ -10,11 +10,11 @@ struct ZoomIndicatorView: View {
         HStack(spacing: VSpacing.xs) {
             if let label {
                 Text(label)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentSecondary)
             }
             Text("\(percentage)%")
-                .font(VFont.bodyMedium)
+                .font(VFont.bodyMediumDefault)
                 .foregroundStyle(VColor.contentDefault)
         }
         .padding(.horizontal, VSpacing.lg)

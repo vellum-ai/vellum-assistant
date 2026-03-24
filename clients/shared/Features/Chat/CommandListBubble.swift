@@ -43,7 +43,7 @@ public struct CommandListBubble: View {
         VStack(alignment: .leading, spacing: 0) {
             // Header
             Text("COMMANDS")
-                .font(VFont.small)
+                .font(VFont.labelSmall)
                 .foregroundColor(VColor.contentTertiary)
                 .tracking(0.5)
                 .padding(.horizontal, VSpacing.lg)
@@ -54,12 +54,12 @@ public struct CommandListBubble: View {
             ForEach(commands) { command in
                 HStack(spacing: VSpacing.sm) {
                     Text(command.id)
-                        .font(VFont.monoSmall)
+                        .font(VFont.bodySmallDefault)
                         .foregroundColor(VColor.primaryBase)
                         .frame(width: 100, alignment: .leading)
 
                     Text(command.description)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
 
                     Spacer()

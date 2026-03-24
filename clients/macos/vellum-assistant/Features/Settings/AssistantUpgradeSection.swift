@@ -154,10 +154,10 @@ struct AssistantUpgradeSection: View {
                     if let version = appVersion {
                         HStack(spacing: VSpacing.sm) {
                             Text("Version:")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                             Text(version)
-                                .font(VFont.mono)
+                                .font(VFont.bodyMediumDefault)
                                 .foregroundColor(VColor.contentDefault)
                         }
                     }
@@ -166,24 +166,24 @@ struct AssistantUpgradeSection: View {
                     if let version = appVersion {
                         HStack(spacing: VSpacing.sm) {
                             Text("App version:")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                             Text(version)
-                                .font(VFont.mono)
+                                .font(VFont.bodyMediumDefault)
                                 .foregroundColor(VColor.contentDefault)
                         }
                     }
                     HStack(spacing: VSpacing.sm) {
                         Text("Service group:")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         if let sgVersion = currentVersion, !sgVersion.isEmpty {
                             Text(sgVersion)
-                                .font(VFont.mono)
+                                .font(VFont.bodyMediumDefault)
                                 .foregroundColor(isVersionIncompatible ? VColor.systemNegativeStrong : VColor.contentDefault)
                         } else {
                             Text(healthzLoaded ? "Unavailable" : "Loading...")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                         }
                     }
@@ -213,10 +213,10 @@ struct AssistantUpgradeSection: View {
                     if effectiveAvailable, let updateVersion = effectiveVersion {
                         HStack(spacing: VSpacing.sm) {
                             Text("Update available:")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                             Text(updateVersion)
-                                .font(VFont.mono)
+                                .font(VFont.bodyMediumDefault)
                                 .foregroundColor(VColor.primaryBase)
                         }
                     } else if hasCheckedForUpdates && !effectiveAvailable {
@@ -224,7 +224,7 @@ struct AssistantUpgradeSection: View {
                             VIconView(.circleCheck, size: 12)
                                 .foregroundColor(VColor.systemPositiveStrong)
                             Text("You are on the latest version.")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.systemPositiveStrong)
                         }
                     }
@@ -234,7 +234,7 @@ struct AssistantUpgradeSection: View {
                             ProgressView()
                                 .controlSize(.small)
                             Text("Checking for updates...")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                         }
                     }
@@ -265,14 +265,14 @@ struct AssistantUpgradeSection: View {
                         Text(selectedVersion == nil
                              ? "You are on the latest version."
                              : "You are already on this version.")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.systemPositiveStrong)
                     }
                 }
 
                 if pickerReleases.isEmpty && !isLoadingReleases && errorMessage == nil && topology != .local {
                     Text("No releases available.")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                 }
             }
@@ -282,7 +282,7 @@ struct AssistantUpgradeSection: View {
                     VIconView(.triangleAlert, size: 12)
                         .foregroundColor(VColor.systemMidStrong)
                     Text("Automatic upgrades are not available for this deployment. Upgrade your infrastructure manually.")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                 }
             }
@@ -331,14 +331,14 @@ struct AssistantUpgradeSection: View {
                     ProgressView()
                         .controlSize(.small)
                     Text(isUpgrading ? (isRollback ? "Rolling back assistant..." : "Upgrading assistant...") : "Checking for updates...")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                 }
             }
 
             if let error = errorMessage {
                 Text(error)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemNegativeStrong)
             }
 
@@ -350,7 +350,7 @@ struct AssistantUpgradeSection: View {
 
             if let success = successMessage {
                 Text(success)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemPositiveStrong)
             }
 
@@ -361,7 +361,7 @@ struct AssistantUpgradeSection: View {
                     Text(isTakingLongerThanExpected
                         ? "Taking longer than expected. The assistant may still be upgrading..."
                         : (updateStatusMessage ?? "Assistant is upgrading..."))
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundStyle(isTakingLongerThanExpected ? VColor.systemMidStrong : VColor.contentTertiary)
                 }
             }

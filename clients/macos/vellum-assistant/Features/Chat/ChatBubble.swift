@@ -409,7 +409,7 @@ struct ChatBubble: View {
             VIconView(.triangleAlert, size: 12)
                 .foregroundColor(VColor.systemNegativeStrong)
             Text("Failed to send")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.systemNegativeStrong)
             VButton(label: "Retry", style: .ghost, size: .inline) {
                 onRetryFailedMessage?(message.id)
@@ -432,7 +432,7 @@ struct ChatBubble: View {
     private var overflowMenuButton: some View {
         HStack(spacing: 2) {
             Text(formattedTimestamp)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
                 .help(detailedTimestamp)
             if hasCopyableText {
@@ -555,7 +555,7 @@ struct ChatBubble: View {
                     .equatable()
                 } else if !message.attachments.isEmpty {
                     Text(attachmentSummary)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(isUser ? VColor.contentSecondary : VColor.contentSecondary)
                 }
 

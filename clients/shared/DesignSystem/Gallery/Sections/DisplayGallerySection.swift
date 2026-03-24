@@ -22,7 +22,7 @@ struct DisplayGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.xl) {
                         HStack {
                             Text("Padding: \(Int(cardPadding))pt")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentSecondary)
                             Slider(value: $cardPadding, in: 0...48, step: 4)
                                 .frame(maxWidth: 200)
@@ -32,7 +32,7 @@ struct DisplayGallerySection: View {
 
                         VCard(padding: cardPadding) {
                             Text("Card content with \(Int(cardPadding))pt padding")
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.contentDefault)
                         }
                     }
@@ -40,7 +40,7 @@ struct DisplayGallerySection: View {
 
                 // Padding variants
                 Text("Padding Variants")
-                    .font(VFont.headline)
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundColor(VColor.contentSecondary)
 
                 HStack(spacing: VSpacing.lg) {
@@ -54,10 +54,10 @@ struct DisplayGallerySection: View {
                         VCard(padding: padding) {
                             VStack(spacing: VSpacing.xs) {
                                 Text(name)
-                                    .font(VFont.captionMedium)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentDefault)
                                 Text("\(Int(padding))pt")
-                                    .font(VFont.caption)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentTertiary)
                             }
                         }
@@ -84,10 +84,10 @@ struct DisplayGallerySection: View {
                             .frame(width: 40, height: 40)
                         VStack(alignment: .leading, spacing: VSpacing.sm) {
                             Text("Skill Name")
-                                .font(VFont.bodyBold)
+                                .font(VFont.bodyMediumEmphasised)
                                 .foregroundStyle(VColor.contentDefault)
                             Text("Description of the skill that spans up to two lines of text.")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundStyle(VColor.contentSecondary)
                                 .lineLimit(2)
                         }
@@ -102,10 +102,10 @@ struct DisplayGallerySection: View {
                                 .frame(width: 40, height: 40)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Memory Item")
-                                    .font(VFont.bodyBold)
+                                    .font(VFont.bodyMediumEmphasised)
                                     .foregroundStyle(VColor.contentDefault)
                                 Text("A remembered fact about the user.")
-                                    .font(VFont.body)
+                                    .font(VFont.bodyMediumLighter)
                                     .foregroundStyle(VColor.contentTertiary)
                                     .lineLimit(1)
                             }
@@ -119,10 +119,10 @@ struct DisplayGallerySection: View {
                                 .frame(width: 40, height: 40)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Document")
-                                    .font(VFont.bodyBold)
+                                    .font(VFont.bodyMediumEmphasised)
                                     .foregroundStyle(VColor.contentDefault)
                                 Text("An uploaded reference document.")
-                                    .font(VFont.body)
+                                    .font(VFont.bodyMediumLighter)
                                     .foregroundStyle(VColor.contentTertiary)
                                     .lineLimit(1)
                             }
@@ -164,7 +164,7 @@ struct DisplayGallerySection: View {
                 }
 
                 Text("With Action Button")
-                    .font(VFont.headline)
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundColor(VColor.contentSecondary)
 
                 HStack(spacing: VSpacing.lg) {
@@ -208,7 +208,7 @@ struct DisplayGallerySection: View {
                     isExpanded: .constant(true)
                 ) {
                     Text("Expanded content is visible")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                 }
                 .padding(VSpacing.lg)
@@ -220,7 +220,7 @@ struct DisplayGallerySection: View {
                     isExpanded: .constant(false)
                 ) {
                     Text("This content is hidden")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                 }
                 .padding(VSpacing.lg)
@@ -245,7 +245,7 @@ struct DisplayGallerySection: View {
                                 VIconView(.fileText, size: 14)
                                     .foregroundColor(VColor.primaryBase)
                                 Text("Tappable row with icon")
-                                    .font(VFont.body)
+                                    .font(VFont.bodyMediumLighter)
                                     .foregroundColor(VColor.contentDefault)
                                 Spacer()
                                 VIconView(.chevronRight, size: 10)
@@ -260,7 +260,7 @@ struct DisplayGallerySection: View {
                                 VIconView(.folder, size: 14)
                                     .foregroundColor(VColor.systemNegativeHover)
                                 Text("Another tappable row")
-                                    .font(VFont.body)
+                                    .font(VFont.bodyMediumLighter)
                                     .foregroundColor(VColor.contentDefault)
                                 Spacer()
                                 VBadge(style: .count(3))
@@ -271,7 +271,7 @@ struct DisplayGallerySection: View {
 
                         VListRow {
                             Text("Static row (no tap action)")
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.contentSecondary)
                         }
                     }
@@ -302,7 +302,7 @@ struct DisplayGallerySection: View {
                                 size: size
                             )
                             Text(label)
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                         }
                     }
@@ -356,7 +356,7 @@ struct DisplayGallerySection: View {
                 }
 
                 Text("With maxHeight constraint")
-                    .font(VFont.headline)
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundColor(VColor.contentSecondary)
 
                 VCard {
@@ -381,7 +381,7 @@ struct DisplayGallerySection: View {
                         HStack(spacing: VSpacing.xl) {
                             VStack(spacing: VSpacing.sm) {
                                 Text("Conversation")
-                                    .font(VFont.captionMedium)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentSecondary)
                                 VStreamingWaveform(
                                     amplitude: waveformAmplitude,
@@ -393,7 +393,7 @@ struct DisplayGallerySection: View {
 
                             VStack(spacing: VSpacing.sm) {
                                 Text("Dictation")
-                                    .font(VFont.captionMedium)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentSecondary)
                                 VStreamingWaveform(
                                     amplitude: waveformAmplitude,
@@ -409,7 +409,7 @@ struct DisplayGallerySection: View {
 
                         HStack {
                             Text("Amplitude: \(String(format: "%.2f", waveformAmplitude))")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentSecondary)
                             Slider(value: Binding(
                                 get: { Double(waveformAmplitude) },
@@ -419,7 +419,7 @@ struct DisplayGallerySection: View {
                         }
 
                         Toggle("Active", isOn: $waveformActive)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentDefault)
                     }
                 }

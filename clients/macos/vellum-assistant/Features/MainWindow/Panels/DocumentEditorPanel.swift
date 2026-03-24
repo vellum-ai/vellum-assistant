@@ -11,14 +11,14 @@ struct DocumentEditorPanelView: View {
             // Header toolbar
             HStack {
                 Text(documentManager.title)
-                    .font(VFont.bodyMedium)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer()
                 if documentManager.wordCount > 0 {
                     Text("\(documentManager.wordCount) words")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                 }
                 if documentManager.isSaving {

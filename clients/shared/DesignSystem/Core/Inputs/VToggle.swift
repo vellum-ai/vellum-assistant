@@ -54,12 +54,12 @@ public struct VToggle: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     if let label {
                         Text(label)
-                            .font(VFont.bodyMedium)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(isEnabled ? VColor.contentDefault : VColor.contentDisabled)
                     }
                     if let helperText {
                         Text(helperText)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
                 }

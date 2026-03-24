@@ -246,7 +246,7 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+      font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
       background: var(--v-bg);
       color: var(--v-text);
       height: 100vh;
@@ -258,7 +258,7 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
     .header { display: none; }
 
     .title-input {
-      font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+      font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
       font-size: 20px;
       font-weight: 600;
       background: transparent;
@@ -300,13 +300,13 @@ private func generateEditorHTML(title: String, initialContent: String) -> String
     .toastui-editor-popup-body { background: var(--v-surface) !important; }
     .toastui-editor-md-container,
     .toastui-editor-ww-container { background: var(--v-bg) !important; color: var(--v-text) !important; }
-    .toastui-editor-contents { color: var(--v-text) !important; font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 14px !important; line-height: 1.7 !important; padding: 24px 32px !important; }
+    .toastui-editor-contents { color: var(--v-text) !important; font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 14px !important; line-height: 1.7 !important; padding: 24px 32px !important; }
     .toastui-editor-ww-content { padding: 24px 32px !important; }
     .ProseMirror { padding: 24px 32px !important; }
     .toastui-editor-md-container .toastui-editor { padding: 24px 32px !important; }
-    .toastui-editor-contents h1 { font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 28px !important; font-weight: 600 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 32px !important; margin-bottom: 12px !important; }
-    .toastui-editor-contents h2 { font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 22px !important; font-weight: 600 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 28px !important; margin-bottom: 10px !important; }
-    .toastui-editor-contents h3 { font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 18px !important; font-weight: 600 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 24px !important; margin-bottom: 8px !important; }
+    .toastui-editor-contents h1 { font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 28px !important; font-weight: 600 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 32px !important; margin-bottom: 12px !important; }
+    .toastui-editor-contents h2 { font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 22px !important; font-weight: 600 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 28px !important; margin-bottom: 10px !important; }
+    .toastui-editor-contents h3 { font-family: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif !important; font-size: 18px !important; font-weight: 600 !important; color: var(--v-text) !important; border-bottom: none !important; margin-top: 24px !important; margin-bottom: 8px !important; }
     .toastui-editor-contents p { margin-bottom: 12px !important; }
     .toastui-editor-contents pre { background: var(--v-surface) !important; border-radius: 8px !important; padding: 12px 16px !important; }
     .toastui-editor-contents code { background: var(--v-surface) !important; color: var(--v-text) !important; font-family: "DMMono-Regular", "SF Mono", monospace !important; border-radius: 4px !important; padding: 2px 5px !important; font-size: 13px !important; }

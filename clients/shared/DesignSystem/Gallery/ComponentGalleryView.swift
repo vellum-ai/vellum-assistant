@@ -135,7 +135,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         case .tokens:
             return [
                 GalleryComponent("colors", "VColor", keywords: ["colors", "semantic colors", "theme"], description: "Adaptive semantic color tokens sourced from Figma. Each token resolves to a light/dark pair. Always use instead of raw Color values."),
-                GalleryComponent("typography", "VFont", keywords: ["typography", "fonts", "text styles"], description: "Typography scale with Inter and DM Mono fonts. Includes body, headline, caption, mono, section, and display styles."),
+                GalleryComponent("typography", "VFont", keywords: ["typography", "fonts", "text styles"], description: "DM Sans typography scale matching Figma. Includes title, body, label, and chat tokens."),
                 GalleryComponent("spacing", "VSpacing", keywords: ["spacing", "padding", "margins"], description: "4pt grid spacing tokens from xxs(2) to xxxl(48) with semantic aliases (inline, content, section, page)."),
                 GalleryComponent("radius", "VRadius", keywords: ["radius", "corner radius", "rounded"], description: "Corner radius tokens from xs(2) to pill(999). Always use instead of raw cornerRadius values."),
                 GalleryComponent("shadows", "VShadow", keywords: ["shadows", "elevation"], description: "Shadow tokens (sm, md, lg, glow, accentGlow) applied via .vShadow() modifier."),
@@ -192,7 +192,7 @@ struct ComponentGalleryView: View {
         NavigationSplitView {
             VStack(spacing: 0) {
                 Text("Component Gallery")
-                    .font(VFont.sectionTitle)
+                    .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentDefault)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.top, VSpacing.md)
@@ -368,18 +368,18 @@ struct GallerySectionHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text(title)
-                .font(VFont.largeTitle)
+                .font(VFont.titleLarge)
                 .foregroundStyle(VColor.contentDefault)
             Text(description)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundStyle(VColor.contentSecondary)
             if let useInsteadOf {
                 HStack(spacing: VSpacing.xs) {
                     Text("Replaces")
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .foregroundStyle(VColor.contentTertiary)
                     Text(useInsteadOf)
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .foregroundStyle(VColor.contentTertiary)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xxs)
@@ -401,11 +401,11 @@ struct GalleryComponentCard: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text(component.title)
-                    .font(VFont.headline)
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundStyle(VColor.contentDefault)
 
                 Text(component.description)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentSecondary)
                     .lineLimit(3)
                     .multilineTextAlignment(.leading)
@@ -415,10 +415,10 @@ struct GalleryComponentCard: View {
                 if let useInsteadOf = component.useInsteadOf {
                     HStack(spacing: VSpacing.xs) {
                         Text("Replaces")
-                            .font(VFont.small)
+                            .font(VFont.labelSmall)
                             .foregroundStyle(VColor.contentTertiary)
                         Text(useInsteadOf)
-                            .font(VFont.small)
+                            .font(VFont.labelSmall)
                             .foregroundStyle(VColor.contentTertiary)
                             .lineLimit(1)
                             .padding(.horizontal, VSpacing.sm)
@@ -446,7 +446,7 @@ struct GalleryOverview: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             Text("\(category.rawValue) — \(category.components.count) components")
-                .font(VFont.headline)
+                .font(VFont.bodySmallEmphasised)
                 .foregroundStyle(VColor.contentSecondary)
 
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 260, maximum: 400), spacing: VSpacing.md)], spacing: VSpacing.md) {

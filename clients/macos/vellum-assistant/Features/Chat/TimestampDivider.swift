@@ -87,7 +87,7 @@ struct TimestampDivider: View {
         HStack(spacing: VSpacing.sm) {
             line
             Text(formattedTime)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
             line
         }

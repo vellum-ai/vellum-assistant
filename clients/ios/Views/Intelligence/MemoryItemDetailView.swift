@@ -118,18 +118,18 @@ struct MemoryItemDetailView: View {
             if isEditing {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Subject")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                     TextField("Subject", text: $editSubject)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                 }
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Statement")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                     TextEditor(text: $editStatement)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .frame(minHeight: 100)
                 }
             } else {
@@ -137,10 +137,10 @@ struct MemoryItemDetailView: View {
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Statement")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                     Text(liveItem.statement)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentDefault)
                 }
             }
@@ -167,7 +167,7 @@ struct MemoryItemDetailView: View {
             } else {
                 HStack {
                     Text("Kind")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                     Spacer()
                     kindBadge(liveItem.kind)
@@ -181,14 +181,14 @@ struct MemoryItemDetailView: View {
                 if let scopeLabel = liveItem.scopeLabel {
                     HStack {
                         Text("Scope")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         Spacer()
                         HStack(spacing: VSpacing.xxs) {
                             VIconView(.lock, size: 12)
                                 .foregroundColor(VColor.contentSecondary)
                             Text(scopeLabel)
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.contentDefault)
                         }
                     }
@@ -207,11 +207,11 @@ struct MemoryItemDetailView: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     HStack {
                         Text("Importance")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         Spacer()
                         Text("\(Int(editImportance * 100))%")
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentDefault)
                     }
                     Slider(value: $editImportance, in: 0...1, step: 0.1)
@@ -294,11 +294,11 @@ struct MemoryItemDetailView: View {
     private func detailRow(label: String, value: String) -> some View {
         HStack {
             Text(label)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
             Spacer()
             Text(value)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
         }
         .accessibilityElement(children: .combine)
@@ -311,7 +311,7 @@ struct MemoryItemDetailView: View {
         let label = memoryKind?.label ?? kind.capitalized
 
         return Text(label)
-            .font(VFont.caption)
+            .font(VFont.labelDefault)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)
             .background(Capsule().fill(color.opacity(0.15)))

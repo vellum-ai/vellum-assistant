@@ -26,7 +26,7 @@ struct ImproveExperienceStepView: View {
             .padding(.bottom, VSpacing.md)
 
         Text("Choose your privacy preferences.\nYou can update these anytime in Settings.")
-            .font(VFont.buttonLarge)
+            .font(VFont.titleSmall)
             .multilineTextAlignment(.center)
             .foregroundColor(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
@@ -105,7 +105,7 @@ struct ImproveExperienceStepView: View {
     private var tosConsentText: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text(.init("I agree to the [Terms of Service](https://www.vellum.ai/docs/vellum-terms-of-use) and [Privacy Policy](https://www.vellum.ai/docs/privacy-policy)"))
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
                 .tint(VColor.primaryBase)
                 .environment(\.openURL, OpenURLAction { url in

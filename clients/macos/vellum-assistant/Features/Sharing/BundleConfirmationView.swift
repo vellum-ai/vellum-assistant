@@ -68,7 +68,7 @@ struct BundleConfirmationView: View {
 
             // App name
             Text(viewModel.manifest.name)
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
@@ -76,7 +76,7 @@ struct BundleConfirmationView: View {
             // Description
             if let description = viewModel.manifest.description, !description.isEmpty {
                 Text(description)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .lineLimit(2)
@@ -97,13 +97,13 @@ struct BundleConfirmationView: View {
             // Signer info
             if let signerName = viewModel.signatureResult.signerDisplayName, !signerName.isEmpty {
                 Text("Signed by \(signerName)")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
             }
 
             // Bundle size
             Text(viewModel.formattedSize)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
 
             // Security warnings — expandable disclosure
@@ -151,19 +151,19 @@ struct BundleConfirmationView: View {
         switch viewModel.trustTier {
         case .verified:
             Text("Verified")
-                .font(VFont.captionMedium)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.systemPositiveStrong)
         case .signed:
             Text("Signed")
-                .font(VFont.captionMedium)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.primaryBase)
         case .unsigned:
             Text("Not Signed")
-                .font(VFont.captionMedium)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentSecondary)
         case .tampered:
             Text("Tampered")
-                .font(VFont.captionMedium)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.systemNegativeStrong)
         }
     }
@@ -190,7 +190,7 @@ struct BundleConfirmationView: View {
                     VIconView(.triangleAlert, size: 10)
                         .foregroundColor(VColor.systemNegativeHover)
                     Text("\(viewModel.scanResult.warnings.count) warning\(viewModel.scanResult.warnings.count == 1 ? "" : "s")")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                     VIconView(viewModel.warningsExpanded ? .chevronUp : .chevronDown, size: 8)
                         .foregroundColor(VColor.contentTertiary)
@@ -202,7 +202,7 @@ struct BundleConfirmationView: View {
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     ForEach(viewModel.scanResult.warnings, id: \.self) { warning in
                         Text("\u{2022} \(warning)")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
                     }
                 }
@@ -241,7 +241,7 @@ struct BundleConfirmationView: View {
         if viewModel.showTamperedWarning {
             VStack(alignment: .trailing, spacing: VSpacing.xxs) {
                 Text("This app may have been modified.")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemNegativeStrong)
                 VButton(label: "Install Anyway", style: .danger) {
                     viewModel.confirm()
@@ -267,7 +267,7 @@ struct BundleConfirmationView: View {
                 .controlSize(.large)
 
             Text("Installing…")
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
 
             Spacer()
@@ -286,11 +286,11 @@ struct BundleConfirmationView: View {
                 .foregroundColor(VColor.systemNegativeStrong)
 
             Text("Installation Failed")
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
 
             Text(message)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.systemNegativeStrong)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xxl)
@@ -315,7 +315,7 @@ struct BundleConfirmationView: View {
                 .foregroundColor(VColor.systemPositiveStrong)
 
             Text("Installed")
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
 
             Spacer()

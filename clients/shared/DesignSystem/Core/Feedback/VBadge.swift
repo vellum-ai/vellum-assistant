@@ -51,7 +51,7 @@ public struct VBadge: View {
         switch style {
         case .count(let count):
             Text("\(count)")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.auxWhite)
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, VSpacing.xxs)
@@ -66,7 +66,7 @@ public struct VBadge: View {
 
         case .label(let text):
             Text(text)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(labelForegroundColor)
                 .padding(.horizontal, VSpacing.sm)
                 .padding(.vertical, labelVerticalPadding)

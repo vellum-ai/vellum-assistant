@@ -30,7 +30,7 @@ struct IconsGallerySection: View {
                 VSearchBar(placeholder: "Filter icons...", text: $searchText)
 
                 Text("\(filteredIcons.count) icons")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
 
                 VCard {
@@ -44,7 +44,7 @@ struct IconsGallerySection: View {
                                     .foregroundColor(VColor.contentDefault)
                                     .frame(width: 32, height: 32)
                                 Text(icon.rawValue.replacingOccurrences(of: "lucide-", with: ""))
-                                    .font(VFont.small)
+                                    .font(VFont.labelSmall)
                                     .foregroundColor(VColor.contentTertiary)
                                     .lineLimit(1)
                                     .truncationMode(.tail)

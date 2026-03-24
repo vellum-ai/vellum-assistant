@@ -27,7 +27,7 @@ struct APIKeyStepView: View {
             .padding(.bottom, VSpacing.md)
 
         Text("Where do you want your assistant to run?")
-            .font(VFont.buttonLarge)
+            .font(VFont.titleSmall)
             .foregroundColor(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
@@ -156,7 +156,7 @@ struct APIKeyStepView: View {
 
                         if let chipLabel {
                             Text(chipLabel)
-                                .font(VFont.captionMedium)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                                 .padding(.horizontal, VSpacing.sm)
                                 .padding(.vertical, VSpacing.xxs)

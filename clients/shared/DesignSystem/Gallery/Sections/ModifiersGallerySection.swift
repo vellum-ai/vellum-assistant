@@ -24,13 +24,13 @@ struct ModifiersGallerySection: View {
                         ], id: \.0) { name, radius in
                             VStack(spacing: VSpacing.md) {
                                 Text("Sample content")
-                                    .font(VFont.body)
+                                    .font(VFont.bodyMediumLighter)
                                     .foregroundColor(VColor.contentDefault)
                                     .padding(VSpacing.xl)
                                     .vCard(radius: radius)
 
                                 Text(".\(name) (\(Int(radius))pt)")
-                                    .font(VFont.caption)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentTertiary)
                             }
                         }
@@ -39,7 +39,7 @@ struct ModifiersGallerySection: View {
 
                 // Background colors
                 Text("Background Colors")
-                    .font(VFont.headline)
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundColor(VColor.contentSecondary)
 
                 VCard {
@@ -53,13 +53,13 @@ struct ModifiersGallerySection: View {
                         ], id: \.0) { name, color in
                             VStack(spacing: VSpacing.md) {
                                 Text("Sample content")
-                                    .font(VFont.body)
+                                    .font(VFont.bodyMediumLighter)
                                     .foregroundColor(VColor.contentDefault)
                                     .padding(VSpacing.xl)
                                     .vCard(background: color)
 
                                 Text(name)
-                                    .font(VFont.caption)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentTertiary)
                             }
                         }
@@ -80,13 +80,13 @@ struct ModifiersGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Hover over the items below to see the pointer cursor:")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
 
                         HStack(spacing: VSpacing.lg) {
                             Button("Button") {}
                                 .buttonStyle(.plain)
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.contentDefault)
                                 .padding(VSpacing.md)
                                 .background(VColor.surfaceBase)
@@ -98,7 +98,7 @@ struct ModifiersGallerySection: View {
                                 .pointerCursor()
 
                             Text("Tappable label")
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.primaryBase)
                                 .padding(VSpacing.md)
                                 .contentShape(Rectangle())
@@ -121,7 +121,7 @@ struct ModifiersGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Hover over the items below to see native tooltips:")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
 
                         HStack(spacing: VSpacing.lg) {
@@ -163,7 +163,7 @@ struct ModifiersGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Hover over the items below (200ms delay):")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
 
                         HStack(spacing: VSpacing.lg) {
@@ -185,7 +185,7 @@ struct ModifiersGallerySection: View {
                         }
 
                         Text("Bottom edge placement:")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
 
                         HStack(spacing: VSpacing.lg) {
@@ -212,12 +212,12 @@ struct ModifiersGallerySection: View {
                 HStack(spacing: VSpacing.lg) {
                     VStack(spacing: VSpacing.md) {
                         Text("With .vPanelBackground()")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
 
                         VStack(spacing: VSpacing.md) {
                             Text("Panel content")
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.contentDefault)
                         }
                         .frame(width: 200, height: 100)
@@ -231,12 +231,12 @@ struct ModifiersGallerySection: View {
 
                     VStack(spacing: VSpacing.md) {
                         Text("Without (default background)")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
 
                         VStack(spacing: VSpacing.md) {
                             Text("Regular content")
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.contentDefault)
                         }
                         .frame(width: 200, height: 100)
@@ -263,11 +263,11 @@ struct ModifiersGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("condition = true (bold applied)")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
 
                         Text("Hello, world!")
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentDefault)
                             .if(true) { view in
                                 view.bold()
@@ -276,11 +276,11 @@ struct ModifiersGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         Text("condition = false (no change)")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
 
                         Text("Hello, world!")
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentDefault)
                             .if(false) { view in
                                 view.bold()
@@ -331,16 +331,16 @@ struct ModifiersGallerySection: View {
                 VCard {
                     HStack(spacing: VSpacing.lg) {
                         VStack(spacing: VSpacing.md) {
-                            Text("Non-interactive (default)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            Text("Non-interactive (default)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                             Text("Widget content")
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.contentDefault)
                                 .inlineWidgetCard()
                         }
                         VStack(spacing: VSpacing.md) {
-                            Text("Interactive (hover highlight)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            Text("Interactive (hover highlight)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                             Text("Clickable widget")
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.contentDefault)
                                 .inlineWidgetCard(interactive: true)
                         }

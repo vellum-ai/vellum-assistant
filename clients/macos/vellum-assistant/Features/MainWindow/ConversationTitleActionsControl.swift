@@ -33,7 +33,7 @@ struct ConversationTitleActionsControl: View {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.gitBranch, size: 11)
                         Text("Forked from \(parentTitle)")
-                            .font(VFont.small)
+                            .font(VFont.labelSmall)
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }

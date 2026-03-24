@@ -24,12 +24,12 @@ struct GatewaySettingsCard: View {
             if !isManaged {
                 // Local Gateway Target (read-only copyable address)
                 Text("Local Gateway Target")
-                    .font(VFont.inputLabel)
+                    .font(VFont.bodySmallDefault)
                     .foregroundColor(VColor.contentSecondary)
 
                 HStack(spacing: VSpacing.sm) {
                     Text(store.localGatewayTarget)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentDefault)
                         .textSelection(.enabled)
                         .padding(.horizontal, VSpacing.md)
@@ -78,19 +78,19 @@ struct GatewaySettingsCard: View {
                 }
 
                 Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
             }
 
             // Gateway URL field
             Text("Gateway URL")
-                .font(VFont.inputLabel)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentSecondary)
 
             if isManaged {
                 // For managed assistants, show the gateway URL as read-only
                 Text(store.localGatewayTarget)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
                     .padding(.horizontal, VSpacing.md)
@@ -137,7 +137,7 @@ struct GatewaySettingsCard: View {
                         VIconView(.triangleAlert, size: 12)
                             .foregroundColor(VColor.systemNegativeHover)
                         Text("Gateway is running but tunnel is unreachable. Check your tunnel configuration.")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.systemNegativeHover)
                     }
                 }

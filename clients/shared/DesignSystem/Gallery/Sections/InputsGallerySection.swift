@@ -41,13 +41,13 @@ struct InputsGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.xl) {
                         Text("Live value: \"\(textFieldValue)\"")
-                            .font(VFont.mono)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentTertiary)
 
                         Divider().background(VColor.borderBase)
 
                         // --- States ---
-                        Text("States").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
+                        Text("States").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
 
                         HStack(alignment: .top, spacing: VSpacing.xl) {
                             VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -107,11 +107,11 @@ struct InputsGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         // --- Icons ---
-                        Text("Icons").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
+                        Text("Icons").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
 
                         HStack(alignment: .top, spacing: VSpacing.xl) {
                             VStack(alignment: .leading, spacing: VSpacing.md) {
-                                Text("Leading icon").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                Text("Leading icon").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                                 VTextField(
                                     placeholder: "Search...",
                                     text: $textFieldValue,
@@ -120,7 +120,7 @@ struct InputsGallerySection: View {
                             }
 
                             VStack(alignment: .leading, spacing: VSpacing.md) {
-                                Text("Trailing icon").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                Text("Trailing icon").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                                 VTextField(
                                     placeholder: "Enter email...",
                                     text: $textFieldValue,
@@ -129,7 +129,7 @@ struct InputsGallerySection: View {
                             }
 
                             VStack(alignment: .leading, spacing: VSpacing.md) {
-                                Text("Both icons").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                Text("Both icons").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                                 VTextField(
                                     placeholder: "Search files...",
                                     text: $textFieldValue,
@@ -142,7 +142,7 @@ struct InputsGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         // --- Label + Icon ---
-                        Text("Label with icon").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
+                        Text("Label with icon").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
 
                         VTextField(
                             "Tool Name",
@@ -154,17 +154,17 @@ struct InputsGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         // --- Width Variants ---
-                        Text("Width variants").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
+                        Text("Width variants").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
 
                         VStack(alignment: .leading, spacing: VSpacing.md) {
                             Text("Full width (default maxWidth: .infinity)")
-                                .font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                .font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                             VTextField(placeholder: "Fills available width...", text: $textFieldValue)
                         }
 
                         VStack(alignment: .leading, spacing: VSpacing.md) {
                             Text("Constrained width (maxWidth: 400)")
-                                .font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                .font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                             VTextField(
                                 placeholder: "Settings card width...",
                                 text: $textFieldValue,
@@ -175,25 +175,25 @@ struct InputsGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         // --- Custom Font ---
-                        Text("Custom font").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
+                        Text("Custom font").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
 
                         HStack(alignment: .top, spacing: VSpacing.xl) {
                             VStack(alignment: .leading, spacing: VSpacing.md) {
-                                Text("Monospaced (VFont.mono)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                Text("Monospaced (VFont.bodyMediumDefault)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                                 VTextField(
                                     placeholder: "Enter command...",
                                     text: $textFieldValue,
-                                    font: VFont.mono
+                                    font: VFont.bodyMediumDefault
                                 )
                             }
 
                             VStack(alignment: .leading, spacing: VSpacing.md) {
-                                Text("Monospaced secure").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                Text("Monospaced secure").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                                 VTextField(
                                     placeholder: "Enter secret...",
                                     text: $secureFieldValue,
                                     isSecure: true,
-                                    font: VFont.mono
+                                    font: VFont.bodyMediumDefault
                                 )
                             }
                         }
@@ -201,11 +201,11 @@ struct InputsGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         // --- Size Variants ---
-                        Text("Size variants").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
+                        Text("Size variants").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
 
                         HStack(alignment: .top, spacing: VSpacing.xl) {
                             VStack(alignment: .leading, spacing: VSpacing.md) {
-                                Text("Regular (default)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                Text("Regular (default)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                                 VTextField(
                                     "Label",
                                     placeholder: "Regular size...",
@@ -214,7 +214,7 @@ struct InputsGallerySection: View {
                             }
 
                             VStack(alignment: .leading, spacing: VSpacing.md) {
-                                Text("Small").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                Text("Small").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                                 VTextField(
                                     "Label",
                                     placeholder: "Small size...",
@@ -226,7 +226,7 @@ struct InputsGallerySection: View {
 
                         HStack(alignment: .top, spacing: VSpacing.xl) {
                             VStack(alignment: .leading, spacing: VSpacing.md) {
-                                Text("Regular with icons").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                Text("Regular with icons").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                                 VTextField(
                                     placeholder: "Search...",
                                     text: $textFieldValue,
@@ -236,7 +236,7 @@ struct InputsGallerySection: View {
                             }
 
                             VStack(alignment: .leading, spacing: VSpacing.md) {
-                                Text("Small with icons").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                Text("Small with icons").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                                 VTextField(
                                     placeholder: "Search...",
                                     text: $smallTextFieldValue,
@@ -250,11 +250,11 @@ struct InputsGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         // --- External Focus Control ---
-                        Text("External focus control").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
+                        Text("External focus control").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
 
                         VStack(alignment: .leading, spacing: VSpacing.md) {
                             Text("Pass a FocusState<Bool>.Binding via isFocused: to control focus programmatically.")
-                                .font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                .font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                             VAdaptiveStack(horizontalAlignment: .bottom) {
                                 VTextField(
                                     "Focusable field",
@@ -285,25 +285,25 @@ struct InputsGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.xl) {
                         Text("Live value: \(Int(sliderValue))")
-                            .font(VFont.mono)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentTertiary)
 
                         Divider().background(VColor.borderBase)
 
                         VStack(alignment: .leading, spacing: VSpacing.md) {
-                            Text("Default (0–100, step 1)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            Text("Default (0–100, step 1)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                             VSlider(value: $sliderValue)
                         }
 
                         VStack(alignment: .leading, spacing: VSpacing.md) {
                             Text("With tick marks (0–100, step 5): \(Int(sliderSteppedValue))")
-                                .font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                .font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                             VSlider(value: $sliderSteppedValue, range: 0...100, step: 5, showTickMarks: true)
                         }
 
                         VStack(alignment: .leading, spacing: VSpacing.md) {
                             Text("Small range (1–10, step 1): \(Int(sliderSmallValue))")
-                                .font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                .font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                             VSlider(value: $sliderSmallValue, range: 1...10, step: 1, showTickMarks: true)
                         }
                     }
@@ -325,14 +325,14 @@ struct InputsGallerySection: View {
                         HStack(spacing: VSpacing.xl) {
                             VStack(alignment: .leading) {
                                 Text("Min Height: \(Int(minHeight))")
-                                    .font(VFont.caption)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentSecondary)
                                 Slider(value: $minHeight, in: 40...200, step: 10)
                                     .frame(maxWidth: 200)
                             }
                             VStack(alignment: .leading) {
                                 Text("Max Height: \(Int(maxHeight))")
-                                    .font(VFont.caption)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentSecondary)
                                 Slider(value: $maxHeight, in: 100...400, step: 20)
                                     .frame(maxWidth: 200)
@@ -349,7 +349,7 @@ struct InputsGallerySection: View {
                         )
 
                         Text("Characters: \(textEditorValue.count)")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
                 }
@@ -368,23 +368,23 @@ struct InputsGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.xl) {
                         Text("Toggle A: \(toggleA ? "ON" : "OFF")  |  Toggle B: \(toggleB ? "ON" : "OFF")")
-                            .font(VFont.mono)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentTertiary)
 
                         Divider().background(VColor.borderBase)
 
                         VStack(alignment: .leading, spacing: VSpacing.md) {
-                            Text("With label").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            Text("With label").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                             VToggle(isOn: $toggleA, label: "Enable feature")
                         }
 
                         VStack(alignment: .leading, spacing: VSpacing.md) {
-                            Text("Without label").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            Text("Without label").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                             VToggle(isOn: $toggleB)
                         }
 
                         VStack(alignment: .leading, spacing: VSpacing.md) {
-                            Text("Non-interactive").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                            Text("Non-interactive").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                             VToggle(isOn: .constant(true), label: "Read-only toggle", interactive: false)
                         }
                     }
@@ -405,13 +405,13 @@ struct InputsGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.xl) {
                         Text("Live value: \"\(dropdownValue)\"")
-                            .font(VFont.mono)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentTertiary)
 
                         Divider().background(VColor.borderBase)
 
                         // --- States ---
-                        Text("States").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
+                        Text("States").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
 
                         HStack(alignment: .top, spacing: VSpacing.xl) {
                             VStack(alignment: .leading, spacing: VSpacing.lg) {
@@ -507,11 +507,11 @@ struct InputsGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         // --- Size Variants ---
-                        Text("Size variants").font(VFont.captionMedium).foregroundColor(VColor.contentTertiary)
+                        Text("Size variants").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
 
                         HStack(alignment: .top, spacing: VSpacing.xl) {
                             VStack(alignment: .leading, spacing: VSpacing.md) {
-                                Text("Regular (default)").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                Text("Regular (default)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                                 VDropdown(
                                     "Label",
                                     placeholder: "Regular size...",
@@ -526,7 +526,7 @@ struct InputsGallerySection: View {
                             }
 
                             VStack(alignment: .leading, spacing: VSpacing.md) {
-                                Text("Small").font(VFont.caption).foregroundColor(VColor.contentTertiary)
+                                Text("Small").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                                 VDropdown(
                                     "Label",
                                     placeholder: "Small size...",

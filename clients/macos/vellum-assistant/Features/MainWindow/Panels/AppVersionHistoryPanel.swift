@@ -32,7 +32,7 @@ struct AppVersionHistoryPanel: View {
                 Spacer()
 
                 Text("Version History")
-                    .font(VFont.bodyMedium)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentDefault)
 
                 Spacer()
@@ -53,7 +53,7 @@ struct AppVersionHistoryPanel: View {
                     ProgressView()
                         .controlSize(.small)
                     Text("Loading history...")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                     Spacer()
                 }
@@ -66,10 +66,10 @@ struct AppVersionHistoryPanel: View {
                         VIconView(.clock, size: 32)
                             .foregroundColor(VColor.contentTertiary)
                         Text("No version history")
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentSecondary)
                         Text("Changes will appear here after you edit the app.")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
                     Spacer()
@@ -142,7 +142,7 @@ struct AppVersionHistoryPanel: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(version.message)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentDefault)
                         .lineLimit(2)
 
@@ -152,7 +152,7 @@ struct AppVersionHistoryPanel: View {
                             .foregroundColor(VColor.contentTertiary)
 
                         Text(relativeTime(from: version.timestamp))
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
                 }
@@ -186,7 +186,7 @@ struct AppVersionHistoryPanel: View {
             // Diff header
             HStack {
                 Text("Changes in ")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
                 + Text(String(version.commitHash.prefix(7)))
                     .font(.system(size: 11, design: .monospaced))
@@ -230,7 +230,7 @@ struct AppVersionHistoryPanel: View {
                 HStack {
                     Spacer()
                     Text("No changes in this version")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                     Spacer()
                 }
@@ -242,7 +242,7 @@ struct AppVersionHistoryPanel: View {
                     VIconView(.triangleAlert, size: 14)
                         .foregroundColor(VColor.systemNegativeStrong)
                     Text(error)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.systemNegativeStrong)
                 }
                 .padding(.horizontal, VSpacing.lg)

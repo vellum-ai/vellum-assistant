@@ -506,13 +506,13 @@ extension ChatBubble {
                 .foregroundColor(isUser ? VColor.contentSecondary : VColor.contentSecondary)
 
             Text(attachment.filename)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(isUser ? VColor.contentDefault : VColor.contentDefault)
                 .lineLimit(1)
 
             if attachment.dataLength > 0 {
                 Text(formattedFileSize(base64Length: attachment.dataLength))
-                    .font(VFont.small)
+                    .font(VFont.labelSmall)
                     .foregroundColor(isUser ? VColor.contentSecondary : VColor.contentTertiary)
             }
         }

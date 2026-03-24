@@ -17,12 +17,12 @@ public struct CompletedSurfaceChip: View {
 
             if let title {
                 Text(title)
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentDefault)
             }
 
             Text(summary)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentSecondary)
         }
         .padding(.horizontal, VSpacing.md)

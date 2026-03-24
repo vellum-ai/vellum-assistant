@@ -69,7 +69,7 @@ public struct VDiffView: View {
         let kind = Self.classify(line)
         return HStack(spacing: 0) {
             Text(line.isEmpty ? " " : String(line))
-                .font(VFont.monoSmall)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentSecondary)
                 .fixedSize(horizontal: true, vertical: true)
             Spacer(minLength: 0)

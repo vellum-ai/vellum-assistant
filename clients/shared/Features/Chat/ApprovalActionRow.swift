@@ -39,7 +39,7 @@ public struct GuardianApprovalActionRow: View {
                     ProgressView()
                         .controlSize(.small)
                     Text("Submitting...")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                 }
             }

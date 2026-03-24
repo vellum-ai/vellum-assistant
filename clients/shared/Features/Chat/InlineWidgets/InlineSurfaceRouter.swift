@@ -82,7 +82,7 @@ public struct InlineSurfaceRouter: View {
             // Template cards and dynamic page previews handle their own header
             if !isTemplateCard, !isDynamicPreview, !isDocumentPreview, let title = surface.title {
                 Text(title)
-                    .font(VFont.cardTitle)
+                    .font(VFont.titleSmall)
                     .foregroundColor(VColor.contentDefault)
             }
 
@@ -157,7 +157,7 @@ public struct InlineSurfaceRouter: View {
         HStack(spacing: VSpacing.sm) {
             VLoadingIndicator(size: 14, color: VColor.contentSecondary)
             Text(surface.title ?? "Loading surface…")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentSecondary)
         }
         .padding(VSpacing.md)
@@ -179,7 +179,7 @@ public struct InlineSurfaceRouter: View {
             VIconView(.triangleAlert, size: 12)
                 .foregroundColor(VColor.contentSecondary)
             Text("Failed to load surface")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentSecondary)
         }
         .padding(VSpacing.md)
@@ -324,7 +324,7 @@ public struct InlineSurfaceRouter: View {
                     VIconView(.circleCheck, size: 12)
                         .foregroundColor(VColor.systemPositiveStrong)
                     Text(label)
-                        .font(VFont.captionMedium)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentDefault)
                 }
                 .padding(.horizontal, VSpacing.md)
@@ -349,7 +349,7 @@ public struct InlineSurfaceRouter: View {
                         onAction(surface.id, action.id, merged.isEmpty ? nil : merged)
                     } label: {
                         Text(action.label)
-                            .font(VFont.bodyMedium)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(buttonForeground(action.style))
                             .padding(.horizontal, VSpacing.lg)
                             .padding(.vertical, VSpacing.sm)

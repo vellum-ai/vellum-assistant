@@ -354,7 +354,7 @@ struct ChatView: View {
                             VIconView(.arrowDownToLine, size: 28)
                                 .foregroundColor(VColor.primaryBase)
                             Text("Drop files here")
-                                .font(VFont.bodyMedium)
+                                .font(VFont.bodyMediumDefault)
                                 .foregroundColor(VColor.primaryBase)
                         }
                     }
@@ -458,7 +458,7 @@ struct ChatView: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 HStack {
                     Text("/btw")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                     Spacer()
                     Button(action: { onDismissBtw?() }) {
@@ -471,22 +471,22 @@ struct ChatView: View {
 
                 if btwLoading && btwText.isEmpty {
                     Text("Thinking...")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentTertiary)
                 } else if !btwLoading && btwText.isEmpty {
                     Text("No response received.")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentTertiary)
                 } else {
                     Text(btwText)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentDefault)
                         .textSelection(.enabled)
                 }
 
                 if !btwLoading {
                     Text("Press Escape to dismiss")
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .foregroundColor(VColor.contentTertiary)
                 }
             }

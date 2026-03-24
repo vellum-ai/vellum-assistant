@@ -14,7 +14,7 @@ public struct InlineFallbackChip: View {
                 .foregroundColor(VColor.contentTertiary)
 
             Text("Interactive \(surfaceType.rawValue) surface")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentSecondary)
         }
         .padding(.horizontal, VSpacing.md)

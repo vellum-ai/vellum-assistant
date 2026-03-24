@@ -49,7 +49,7 @@ struct MemoryItemDetailSheet: View {
                         VIconView(.circleAlert, size: 11)
                             .foregroundColor(VColor.systemNegativeStrong)
                         Text(errorMessage)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.systemNegativeStrong)
                     }
                 }

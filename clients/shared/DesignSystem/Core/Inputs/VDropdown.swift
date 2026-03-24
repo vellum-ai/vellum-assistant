@@ -61,7 +61,7 @@ public struct VDropdown<T: Hashable>: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             if let label {
                 Text(label)
-                    .font(VFont.inputLabel)
+                    .font(VFont.bodySmallDefault)
                     .foregroundColor(isEnabled ? VColor.contentSecondary : VColor.contentDisabled)
                     .accessibilityHidden(true)
             }
@@ -123,7 +123,7 @@ public struct VDropdown<T: Hashable>: View {
 
             if let errorMessage {
                 Text(errorMessage)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemNegativeStrong)
                     .accessibilityHidden(true)
             }

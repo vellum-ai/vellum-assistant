@@ -9,22 +9,22 @@ extension MemoryItemDetailSheet {
     var viewModeContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Statement")
-                .font(VFont.bodyMedium)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentTertiary)
             Text(displayItem.statement)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .textSelection(.enabled)
         }
 
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Details")
-                .font(VFont.bodyMedium)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentTertiary)
 
             HStack(spacing: VSpacing.xs) {
                 Text("Kind")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentTertiary)
                     .frame(width: 110, alignment: .leading)
                 kindBadge
@@ -37,26 +37,26 @@ extension MemoryItemDetailSheet {
 
             HStack(spacing: VSpacing.xs) {
                 Text("Verification")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentTertiary)
                     .frame(width: 110, alignment: .leading)
                 if displayItem.isUserConfirmed {
                     VIconView(.circleCheck, size: 13)
                         .foregroundColor(VColor.systemPositiveStrong)
                     Text("Confirmed by you")
-                        .font(VFont.bodyMedium)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(VColor.contentSecondary)
                 } else if displayItem.isUserReported {
                     VIconView(.user, size: 12)
                         .foregroundColor(VColor.contentSecondary)
                     Text("Reported by you")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                 } else {
                     VIconView(.sparkles, size: 13)
                         .foregroundColor(VColor.contentTertiary)
                     Text("Inferred by assistant")
-                        .font(VFont.bodyMedium)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(VColor.contentSecondary)
                 }
             }
@@ -64,13 +64,13 @@ extension MemoryItemDetailSheet {
             if let scopeLabel = displayItem.scopeLabel {
                 HStack(spacing: VSpacing.xs) {
                     Text("Scope")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentTertiary)
                         .frame(width: 110, alignment: .leading)
                     VIconView(.lock, size: 12)
                         .foregroundColor(VColor.contentSecondary)
                     Text(scopeLabel)
-                        .font(VFont.bodyMedium)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(VColor.contentSecondary)
                 }
             }
@@ -101,17 +101,17 @@ extension MemoryItemDetailSheet {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Subject")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                 VTextField(placeholder: "Brief topic or label", text: $editSubject)
             }
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Statement")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                 TextEditor(text: $editStatement)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                     .scrollContentBackground(.hidden)
                     .padding(VSpacing.sm)
@@ -126,7 +126,7 @@ extension MemoryItemDetailSheet {
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Kind")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                 VDropdown(
                     placeholder: "Kind",
@@ -137,7 +137,7 @@ extension MemoryItemDetailSheet {
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Status")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                 VDropdown(
                     placeholder: "Status",
@@ -149,11 +149,11 @@ extension MemoryItemDetailSheet {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 HStack {
                     Text("Importance")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                     Spacer()
                     Text("\(Int(editImportance * 100))%")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                 }
                 VSlider(value: $editImportance, range: 0...1, step: 0.1)

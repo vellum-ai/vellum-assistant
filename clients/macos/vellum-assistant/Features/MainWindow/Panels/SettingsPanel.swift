@@ -141,7 +141,7 @@ struct SettingsPanel: View {
                 }
 
                 Text("Settings")
-                    .font(VFont.panelTitle)
+                    .font(VFont.titleLarge)
                     .foregroundColor(VColor.contentEmphasized)
 
                 Spacer()
@@ -287,7 +287,7 @@ struct SettingsPanel: View {
         .popover(isPresented: $showingDevUnlock) {
             VStack(spacing: VSpacing.md) {
                 Text("Enter passcode")
-                    .font(VFont.inputLabel)
+                    .font(VFont.bodySmallDefault)
                     .foregroundColor(VColor.contentSecondary)
                 VTextField(
                     placeholder: "",
@@ -316,7 +316,7 @@ struct SettingsPanel: View {
                         devUnlockText = ""
                     },
                     maxWidth: 160,
-                    font: VFont.mono
+                    font: VFont.bodyMediumDefault
                 )
             }
             .padding(VSpacing.lg)
@@ -413,7 +413,7 @@ struct SettingsPanel: View {
                     .foregroundStyle(VColor.primaryBase)
 
                 Text("Managed services are metered and deducted from your Vellum account balance.")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentSecondary)
 
                 Button {
@@ -424,7 +424,7 @@ struct SettingsPanel: View {
                             .underline()
                         VIconView(.arrowUpRight, size: 10)
                     }
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.primaryBase)
                 }
                 .buttonStyle(.plain)
@@ -499,7 +499,7 @@ struct SettingsPanel: View {
             // PERMISSIONS section (OS permissions)
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 Text("System Permissions")
-                    .font(VFont.sectionTitle)
+                    .font(VFont.titleSmall)
                     .foregroundColor(VColor.contentDefault)
 
                 permissionRow(
@@ -569,10 +569,10 @@ struct SettingsPanel: View {
                 VStack(alignment: .leading, spacing: VSpacing.md) {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Trust Rules")
-                            .font(VFont.sectionTitle)
+                            .font(VFont.titleSmall)
                             .foregroundColor(VColor.contentDefault)
                         Text("Control which tool actions are automatically allowed or denied")
-                            .font(VFont.sectionDescription)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentTertiary)
                     }
                     VButton(label: "Manage", style: .outlined) {
@@ -712,7 +712,7 @@ private struct SettingsNavRow: View {
                 Text(tab.rawValue)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                 Spacer()
             }
@@ -748,7 +748,7 @@ struct SettingsPanelEnvVarsSheet: View {
         VStack(spacing: 0) {
             HStack {
                 Text("Environment Variables")
-                    .font(VFont.headline)
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundColor(VColor.contentDefault)
                 Spacer()
                 VButton(label: "Done", style: .outlined) { dismiss() }
@@ -772,21 +772,21 @@ struct SettingsPanelEnvVarsSheet: View {
     private func envVarsSection(title: String, vars: [(String, String)]) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text(title)
-                .font(VFont.sectionTitle)
+                .font(VFont.titleSmall)
                 .foregroundColor(VColor.contentDefault)
             if vars.isEmpty {
                 Text("Loading...")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             } else {
                 ForEach(vars, id: \.0) { key, value in
                     HStack(alignment: .top, spacing: VSpacing.sm) {
                         Text(key)
-                            .font(VFont.monoSmall)
+                            .font(VFont.bodySmallDefault)
                             .foregroundColor(VColor.contentSecondary)
                             .frame(width: 200, alignment: .trailing)
                         Text(value)
-                            .font(VFont.monoSmall)
+                            .font(VFont.bodySmallDefault)
                             .foregroundColor(VColor.contentTertiary)
                             .textSelection(.enabled)
                         Spacer()

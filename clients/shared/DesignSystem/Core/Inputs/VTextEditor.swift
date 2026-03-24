@@ -22,7 +22,7 @@ public struct VTextEditor: View {
         TextField(placeholder, text: $text, axis: .vertical)
             .lineLimit(1...100)
             .textFieldStyle(.plain)
-            .font(VFont.body)
+            .font(VFont.bodyMediumLighter)
             .foregroundColor(VColor.contentDefault)
             .focused($isFocused)
             .frame(minHeight: minHeight, maxHeight: maxHeight, alignment: .topLeading)

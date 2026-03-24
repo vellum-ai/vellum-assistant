@@ -97,7 +97,7 @@ public struct ToolCallChip: View {
 
                     // Plain-language description of what was done
                     Text(toolCall.actionDescription)
-                        .font(VFont.captionMedium)
+                        .font(VFont.labelDefault)
                         .foregroundColor(toolCall.isError ? VColor.systemNegativeStrong : VColor.contentDefault)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -131,17 +131,17 @@ public struct ToolCallChip: View {
                     // Technical details section
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Technical details")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                             .textCase(.uppercase)
 
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text(toolCall.friendlyName)
-                                .font(VFont.captionMedium)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentSecondary)
                             if !resolvedInputFull.isEmpty {
                                 Text(resolvedInputFull)
-                                    .font(VFont.monoSmall)
+                                    .font(VFont.bodySmallDefault)
                                     .foregroundColor(VColor.contentSecondary)
                                     .textSelection(.enabled)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -188,7 +188,7 @@ public struct ToolCallChip: View {
                     if let result = toolCall.result {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Output")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                                 .textCase(.uppercase)
 
@@ -199,12 +199,12 @@ public struct ToolCallChip: View {
                                         VIconView(.triangleAlert, size: 11)
                                             .foregroundColor(VColor.systemNegativeStrong)
                                         Text("Exit code \(exitCode)")
-                                            .font(VFont.captionMedium)
+                                            .font(VFont.labelDefault)
                                             .foregroundColor(VColor.systemNegativeStrong)
                                     }
                                     if let explanation = Self.exitCodeExplanation(exitCode) {
                                         Text(explanation)
-                                            .font(VFont.caption)
+                                            .font(VFont.labelDefault)
                                             .foregroundColor(VColor.contentSecondary)
                                     }
                                     // Show any additional output beyond the tag itself
@@ -213,7 +213,7 @@ public struct ToolCallChip: View {
                                         .trimmingCharacters(in: .whitespacesAndNewlines)
                                     if !extraOutput.isEmpty {
                                         Text(extraOutput)
-                                            .font(VFont.monoSmall)
+                                            .font(VFont.bodySmallDefault)
                                             .foregroundColor(VColor.contentSecondary)
                                             .textSelection(.enabled)
                                     }
@@ -223,7 +223,7 @@ public struct ToolCallChip: View {
                                     VIconView(.circleCheck, size: 11)
                                         .foregroundColor(VColor.primaryBase)
                                     Text("Command completed successfully (no output).")
-                                        .font(VFont.caption)
+                                        .font(VFont.labelDefault)
                                         .foregroundColor(VColor.contentSecondary)
                                 }
                             } else {
@@ -233,7 +233,7 @@ public struct ToolCallChip: View {
                                 } else if lineCount > 500 {
                                     ScrollView {
                                         Text(result)
-                                            .font(VFont.monoSmall)
+                                            .font(VFont.bodySmallDefault)
                                             .foregroundColor(VColor.contentSecondary)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .textSelection(.enabled)
@@ -241,7 +241,7 @@ public struct ToolCallChip: View {
                                     .frame(maxHeight: 400)
                                 } else {
                                     Text(result)
-                                        .font(VFont.monoSmall)
+                                        .font(VFont.bodySmallDefault)
                                         .foregroundColor(VColor.contentSecondary)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .textSelection(.enabled)

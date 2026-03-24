@@ -26,7 +26,7 @@ struct OnboardingButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(isGhost ? VFont.caption : .system(size: 15, weight: .medium))
+                .font(isGhost ? VFont.labelDefault : .system(size: 15, weight: .medium))
                 .foregroundColor(foregroundColor)
                 .if(!isGhost) { $0.frame(maxWidth: .infinity) }
                 .padding(.horizontal, isGhost ? VSpacing.sm : VSpacing.xl)

@@ -136,7 +136,7 @@ struct AppsGridView: View {
                 VIconView(.pin, size: 14)
                     .foregroundColor(VColor.contentTertiary)
                 Text("Pinned")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .textCase(.uppercase)
             }
@@ -157,7 +157,7 @@ struct AppsGridView: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             if !pinnedApps.isEmpty {
                 Text("Other Apps")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .textCase(.uppercase)
                     .padding(.horizontal, VSpacing.md)
@@ -190,19 +190,19 @@ struct AppsGridView: View {
                 }
 
                 Text(app.name)
-                    .font(VFont.bodyBold)
+                    .font(VFont.bodyMediumEmphasised)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
 
                 if let description = app.description {
                     Text(description)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                         .lineLimit(2)
                 }
 
                 Text(formattedDate(app.createdAt))
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -261,7 +261,7 @@ struct AppsGridView: View {
             VIconView(.circleCheck, size: 16)
                 .foregroundColor(.white)
             Text("Shared to cloud")
-                .font(VFont.bodyBold)
+                .font(VFont.bodyMediumEmphasised)
                 .foregroundColor(.white)
         }
         .padding(.horizontal, VSpacing.md)
@@ -277,7 +277,7 @@ struct AppsGridView: View {
         VStack(spacing: VSpacing.md) {
             ProgressView()
             Text("Loading apps...")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -289,7 +289,7 @@ struct AppsGridView: View {
                 .foregroundColor(VColor.contentTertiary)
                 .accessibilityHidden(true)
             Text("No apps yet")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

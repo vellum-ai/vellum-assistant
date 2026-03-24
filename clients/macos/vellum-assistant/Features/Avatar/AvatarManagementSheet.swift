@@ -305,10 +305,10 @@ struct AvatarManagementSheet: View {
 
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text(label)
-                        .font(VFont.bodyMedium)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(destructive ? VColor.systemNegativeStrong : VColor.contentDefault)
                     Text(subtitle)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                 }
 

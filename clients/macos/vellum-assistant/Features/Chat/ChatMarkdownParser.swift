@@ -355,7 +355,7 @@ struct MarkdownTableView: View {
             HStack(spacing: 0) {
                 ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
                     Text(header)
-                        .font(.custom("Inter-Medium", size: 11))
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, VSpacing.sm)
@@ -393,7 +393,7 @@ struct MarkdownTableView: View {
     private func inlineMarkdownCell(_ text: String) -> some View {
         let attributed = Self.cachedAttributedString(for: text)
         return Text(attributed)
-            .font(.custom("Inter", size: 13))
+            .font(VFont.bodyMediumLighter)
             .foregroundColor(VColor.contentDefault)
             .textSelection(.enabled)
             // lineLimit(nil) ensures text wraps within the column width

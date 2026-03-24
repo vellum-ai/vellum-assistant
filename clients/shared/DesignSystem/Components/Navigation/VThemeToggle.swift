@@ -33,7 +33,7 @@ public struct VThemeToggle: View {
         HStack(spacing: VSpacing.xs) {
             if showLabel {
                 Text("Theme")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentDisabled)
                 Spacer()
             }

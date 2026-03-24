@@ -251,7 +251,7 @@ struct ComposerView: View {
     }
 
     private var composerTextField: some View {
-        let scaledBody = Font.custom("Inter", size: 13)
+        let scaledBody = VFont.bodyMediumLighter
         let hasSlashHighlight = slashCommandRange != nil
 
         return ScrollView(.vertical, showsIndicators: false) {

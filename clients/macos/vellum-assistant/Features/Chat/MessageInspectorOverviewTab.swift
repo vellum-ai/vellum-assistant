@@ -64,7 +64,7 @@ struct MessageInspectorOverviewTab: View {
                 cardHeader(title: title, subtitle: nil)
 
                 Text(body)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
@@ -81,7 +81,7 @@ struct MessageInspectorOverviewTab: View {
                 )
 
                 Text(message)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
@@ -92,12 +92,12 @@ struct MessageInspectorOverviewTab: View {
     private func cardHeader(title: String, subtitle: String?) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(title)
-                .font(VFont.bodyMedium)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentDefault)
 
             if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             }
         }
@@ -106,13 +106,13 @@ struct MessageInspectorOverviewTab: View {
     private func metadataRow(_ row: MessageInspectorOverviewContent.Row) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: VSpacing.md) {
             Text(row.label)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentSecondary)
 
             Spacer(minLength: VSpacing.sm)
 
             Text(row.value)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .multilineTextAlignment(.trailing)
                 .fixedSize(horizontal: false, vertical: true)

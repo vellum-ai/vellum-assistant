@@ -86,7 +86,7 @@ struct InstalledSkillsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(skill.name)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentDefault)
 
                     stateBadge(skill.state)
@@ -94,7 +94,7 @@ struct InstalledSkillsView: View {
 
                 if !skill.description.isEmpty {
                     Text(skill.description)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                         .lineLimit(2)
                 }
@@ -137,11 +137,11 @@ struct InstalledSkillsView: View {
                 .accessibilityHidden(true)
 
             Text("No Skills Installed")
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
 
             Text("Ask your assistant in chat to search for and install new skills.")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
@@ -155,7 +155,7 @@ struct InstalledSkillsView: View {
         VStack(spacing: VSpacing.md) {
             ProgressView()
             Text("Loading skills...")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

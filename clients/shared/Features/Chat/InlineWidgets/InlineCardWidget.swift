@@ -28,12 +28,12 @@ public struct InlineCardWidget: View {
             // Title + subtitle
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(data.title)
-                    .font(VFont.headline)
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundColor(VColor.contentDefault)
 
                 if let subtitle = data.subtitle {
                     Text(subtitle)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                 }
             }
@@ -41,7 +41,7 @@ public struct InlineCardWidget: View {
             // Body text
             if !data.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(markdownBody)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
             }
@@ -62,10 +62,10 @@ public struct InlineCardWidget: View {
             ForEach(Array(metadata.enumerated()), id: \.offset) { _, item in
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text(item.label)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                     Text(item.value)
-                        .font(VFont.bodyMedium)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(VColor.contentDefault)
                 }
             }

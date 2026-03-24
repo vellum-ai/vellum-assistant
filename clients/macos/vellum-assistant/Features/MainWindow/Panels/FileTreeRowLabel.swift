@@ -29,7 +29,7 @@ struct FileTreeRowLabel: View {
 
             // Name label
             Text(name)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(isDimmed ? VColor.contentTertiary : VColor.contentDefault)
                 .fixedSize(horizontal: true, vertical: false)
         }

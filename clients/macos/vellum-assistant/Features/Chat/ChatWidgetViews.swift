@@ -61,7 +61,7 @@ struct RunningIndicator: View {
                 }
 
                 Text(currentLabel)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
                     .animation(.easeInOut(duration: 0.3), value: labelIndex)
 
@@ -74,7 +74,7 @@ struct RunningIndicator: View {
 
                 if elapsed >= 5 {
                     Text(Self.formatElapsed(elapsed))
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                 }
 
@@ -105,7 +105,7 @@ struct CodePreviewView: View {
     var body: some View {
         ScrollView {
             Text(displayCode)
-                .font(VFont.monoSmall)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.sm)

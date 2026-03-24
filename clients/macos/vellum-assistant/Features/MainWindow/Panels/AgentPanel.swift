@@ -113,7 +113,7 @@ struct AgentPanelContent: View {
             }
         ) {
             Text("\(categoryCount(for: category))")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentTertiary)
         }
         .accessibilityLabel("\(label) filter")
@@ -250,47 +250,42 @@ struct SkillItemRow: View {
 
     var body: some View {
         VCard(padding: VSpacing.lg, action: onSelect) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                HStack(alignment: .center, spacing: VSpacing.sm) {
-                    if let emoji = skill.emoji, !emoji.isEmpty {
-                        Text(emoji)
-                            .font(.system(size: 16))
+            HStack(alignment: .center, spacing: VSpacing.lg) {
+                if let emoji = skill.emoji, !emoji.isEmpty {
+                    Text(emoji)
+                        .font(.system(size: 32))
+                }
+
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    HStack(alignment: .center, spacing: VSpacing.sm) {
+                        Text(skill.name)
+                            .font(VFont.titleSmall)
+                            .foregroundStyle(VColor.contentEmphasized)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+
+                        VSkillTypePill(source: skill.source)
+
+                        Spacer()
                     }
 
-                    Text(skill.name)
-                        .font(VFont.headline)
-                        .foregroundStyle(VColor.contentEmphasized)
+                    Text(skill.description)
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentTertiary)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                }
 
-                    VTag(
-                        category.displayName,
-                        color: category.color
+                if isRemovable {
+                    VButton(
+                        label: "Delete",
+                        iconOnly: VIcon.trash.rawValue,
+                        style: .dangerGhost,
+                        size: .compact,
+                        action: onDelete
                     )
-
-                    VSkillTypePill(source: skill.source)
-
-                    Spacer()
+                    .accessibilityLabel("Uninstall skill")
                 }
-                .overlay(alignment: .trailing) {
-                    if isRemovable {
-                        VButton(
-                            label: "Delete",
-                            iconOnly: VIcon.trash.rawValue,
-                            style: .dangerGhost,
-                            size: .compact,
-                            action: onDelete
-                        )
-                        .accessibilityLabel("Uninstall skill")
-                    }
-                }
-
-                Text(skill.description)
-                    .font(VFont.bodySmall)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .lineLimit(1)
-                    .multilineTextAlignment(.leading)
-                    .padding(.top, VSpacing.xs)
             }
         }
         .contextMenu {

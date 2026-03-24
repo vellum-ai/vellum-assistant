@@ -343,7 +343,7 @@ extension MainWindowView {
                         // Scheduled conversations section
                         HStack {
                             Text("Scheduled")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                             Spacer()
                         }

@@ -25,7 +25,7 @@ public struct VInlineMessage: View {
                 .accessibilityHidden(true)
 
             Text(message)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(foregroundColor)
                 .fixedSize(horizontal: false, vertical: true)
         }

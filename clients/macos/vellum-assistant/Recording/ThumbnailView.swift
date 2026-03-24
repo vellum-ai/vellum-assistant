@@ -77,7 +77,7 @@ struct ThumbnailView: View {
                 .foregroundColor(VColor.contentTertiary)
             if size.height >= 50 {
                 Text("Preview unavailable")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .lineLimit(1)
             }

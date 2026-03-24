@@ -82,12 +82,12 @@ struct ChannelVerificationFlowView: View {
                 } else {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(primaryIdentity ?? "Verified")
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
                         if let secondaryIdentity {
                             Text(secondaryIdentity)
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                                 .lineLimit(1)
                         }
@@ -123,14 +123,14 @@ struct ChannelVerificationFlowView: View {
 
         return VStack(alignment: .leading, spacing: 2) {
             Text(nameLine)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
 
             // Show @username if it wasn't already used as the name line
             if let formattedUsername, formattedUsername != nameLine {
                 Text(formattedUsername)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .lineLimit(1)
             }
@@ -139,13 +139,13 @@ struct ChannelVerificationFlowView: View {
             if let identity, !identity.isEmpty, identity != nameLine {
                 HStack(spacing: 0) {
                     Text("Telegram ID: ")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                     if let url = URL(string: "https://web.telegram.org/a/#\(identity)") {
                         VLink(identity, destination: url)
                     } else {
                         Text(identity)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                             .lineLimit(1)
                     }
@@ -164,7 +164,7 @@ struct ChannelVerificationFlowView: View {
             ProgressView()
                 .controlSize(.small)
             Text("Sending verification...")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentSecondary)
         }
     }
@@ -200,13 +200,13 @@ struct ChannelVerificationFlowView: View {
                         VIconView(.circleCheck, size: 12)
                             .foregroundColor(VColor.systemPositiveStrong)
                         Text("Verification Code Sent")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.systemPositiveStrong)
                     }
 
                     HStack(spacing: VSpacing.sm) {
                         Text(outboundCode)
-                            .font(VFont.mono)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentDefault)
                             .textSelection(.enabled)
                             .lineLimit(1)
@@ -227,7 +227,7 @@ struct ChannelVerificationFlowView: View {
                             HStack(spacing: VSpacing.xs) {
                                 VIconView(codeCopied ? .check : .copy, size: 12)
                                 Text(codeCopied ? "Copied" : "Copy")
-                                    .font(VFont.caption)
+                                    .font(VFont.labelDefault)
                             }
                             .foregroundColor(codeCopied ? VColor.systemPositiveStrong : VColor.contentSecondary)
                             .frame(height: 28)
@@ -251,7 +251,7 @@ struct ChannelVerificationFlowView: View {
                 HStack(spacing: VSpacing.md) {
                     if state.outboundSendCount > 0 {
                         Text("Sent \(state.outboundSendCount) time\(state.outboundSendCount == 1 ? "" : "s")")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
                     if let expiresAt = state.outboundExpiresAt {
@@ -260,11 +260,11 @@ struct ChannelVerificationFlowView: View {
                             let minutes = Int(remaining) / 60
                             let seconds = Int(remaining) % 60
                             Text("Expires in \(minutes):\(String(format: "%02d", seconds))")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                         } else {
                             Text("Verification expired")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.systemNegativeStrong)
                         }
                     }
@@ -289,7 +289,7 @@ struct ChannelVerificationFlowView: View {
                 if let bootstrapUrl = state.bootstrapUrl, let url = URL(string: bootstrapUrl) {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("Ask your guardian to open this link:")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
 
                         VButton(label: "Open in Telegram", leftIcon: VIcon.externalLink.rawValue, style: .ghost, size: .inline) {
@@ -316,7 +316,7 @@ struct ChannelVerificationFlowView: View {
                     verificationLabel
                 }
                 Text("Verification pending")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.systemNegativeHover)
                 Spacer()
             }
@@ -327,13 +327,13 @@ struct ChannelVerificationFlowView: View {
                     botUsername: botUsername,
                     phoneNumber: phoneNumber
                 ))
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
                 .padding(.leading, leadingPadding)
 
                 HStack(spacing: VSpacing.sm) {
                     Text(command)
-                        .font(VFont.mono)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -355,7 +355,7 @@ struct ChannelVerificationFlowView: View {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(commandCopied ? .check : .copy, size: 12)
                             Text(commandCopied ? "Copied" : "Copy")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                         }
                         .foregroundColor(commandCopied ? VColor.systemPositiveStrong : VColor.contentSecondary)
                         .frame(height: 28)
@@ -376,7 +376,7 @@ struct ChannelVerificationFlowView: View {
             } else {
                 // Fallback: show raw instruction if command can't be parsed
                 Text(instruction)
-                    .font(VFont.mono)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentDefault)
                     .padding(VSpacing.md)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -424,7 +424,7 @@ struct ChannelVerificationFlowView: View {
             if state.channel == "telegram" {
                 HStack(spacing: 0) {
                     Text("Enter a @username or chat ID. ")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
 
                     VButton(label: "Find yours \u{2192}", style: .ghost, size: .inline) {
@@ -435,7 +435,7 @@ struct ChannelVerificationFlowView: View {
                 }
             } else if state.channel == "phone" {
                 Text("This is your personal phone number")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             }
 
@@ -478,7 +478,7 @@ struct ChannelVerificationFlowView: View {
             Text("Guardian Verification")
             VInfoTooltip("Guardian verification links your account identity for this channel.")
         }
-        .font(VFont.caption)
+        .font(VFont.labelDefault)
         .foregroundColor(VColor.contentSecondary)
         .frame(width: labelColumnWidth, alignment: .leading)
     }

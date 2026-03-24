@@ -78,7 +78,7 @@ struct GeneratedPanel: View {
                 .accessibilityLabel(isExpanded ? "Exit full screen" : "Enter full screen")
 
                 Text("Dynamic")
-                    .font(VFont.panelTitle)
+                    .font(VFont.titleLarge)
                     .foregroundColor(VColor.contentDefault)
 
                 Spacer()
@@ -106,7 +106,7 @@ struct GeneratedPanel: View {
 
                     TextField("Filter pages...", text: $searchText)
                         .textFieldStyle(.plain)
-                        .font(VFont.mono)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(VColor.contentDefault)
 
                     if !searchText.isEmpty {
@@ -155,11 +155,11 @@ struct GeneratedPanel: View {
                                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                                     HStack {
                                         Text("Documents")
-                                            .font(VFont.display)
+                                            .font(VFont.titleSmall)
                                             .foregroundColor(VColor.contentTertiary)
                                         Spacer()
                                         Text("\(documentItems.count)")
-                                            .font(VFont.caption)
+                                            .font(VFont.labelDefault)
                                             .foregroundColor(VColor.contentTertiary)
                                     }
                                     .padding(.horizontal, VSpacing.xs)
@@ -179,11 +179,11 @@ struct GeneratedPanel: View {
                                     if !documentItems.isEmpty {
                                         HStack {
                                             Text("Pages")
-                                                .font(VFont.display)
+                                                .font(VFont.titleSmall)
                                                 .foregroundColor(VColor.contentTertiary)
                                             Spacer()
                                             Text("\(otherItems.count)")
-                                                .font(VFont.caption)
+                                                .font(VFont.labelDefault)
                                                 .foregroundColor(VColor.contentTertiary)
                                         }
                                         .padding(.horizontal, VSpacing.xs)
@@ -264,13 +264,13 @@ struct GeneratedPanel: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: VSpacing.xs) {
                     Text(item.name)
-                        .font(VFont.bodyBold)
+                        .font(VFont.bodyMediumEmphasised)
                         .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
 
                     if let version = item.version {
                         Text("v\(version)")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
 
@@ -284,7 +284,7 @@ struct GeneratedPanel: View {
 
                     if item.appType == "site" {
                         Text("Site")
-                            .font(VFont.small)
+                            .font(VFont.labelSmall)
                             .foregroundColor(VColor.systemPositiveStrong)
                             .padding(.horizontal, VSpacing.xs)
                             .padding(.vertical, 1)
@@ -299,13 +299,13 @@ struct GeneratedPanel: View {
 
                 if let description = item.description, !description.isEmpty {
                     Text(description)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                         .lineLimit(2)
                 }
 
                 Text(item.dateLabel)
-                    .font(VFont.small)
+                    .font(VFont.labelSmall)
                     .foregroundColor(VColor.contentTertiary)
             }
 
@@ -365,7 +365,7 @@ struct GeneratedPanel: View {
         HStack(spacing: 2) {
             VIconView(.users, size: 8)
             Text("Shared")
-                .font(VFont.small)
+                .font(VFont.labelSmall)
         }
         .foregroundColor(VColor.systemPositiveWeak)
         .padding(.horizontal, 5)
@@ -378,7 +378,7 @@ struct GeneratedPanel: View {
         HStack(spacing: 2) {
             VIconView(.circleArrowUp, size: 8)
             Text("Update available")
-                .font(VFont.small)
+                .font(VFont.labelSmall)
         }
         .foregroundColor(VColor.primaryBase)
         .padding(.horizontal, 5)

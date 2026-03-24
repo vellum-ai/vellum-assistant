@@ -292,7 +292,7 @@ private struct WorkspaceTreeSidebar: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("Files")
-                    .font(VFont.headline)
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundColor(VColor.contentDefault)
 
                 Spacer()
@@ -388,7 +388,7 @@ private struct WorkspaceTreeSidebar: View {
                 HStack(spacing: VSpacing.xs) {
                     ProgressView().controlSize(.small)
                     Text("Uploading \(state.uploadingCount) file\(state.uploadingCount == 1 ? "" : "s")...")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                 }
                 .padding(.horizontal, VSpacing.md)
@@ -525,7 +525,7 @@ private struct WorkspaceTreeRow: View {
                                 .foregroundColor(entry.isDirectory ? VColor.primaryBase : VColor.contentSecondary)
                             TextField("Name", text: $state.renamingText)
                                 .textFieldStyle(.plain)
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .fixedSize(horizontal: true, vertical: false)
                                 .onSubmit { submitRename() }
                                 .onExitCommand { state.renamingPath = nil }
@@ -721,7 +721,7 @@ private struct WorkspaceFileViewer: View {
                 VStack {
                     Spacer()
                     ProgressView("Loading file...")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentTertiary)
                     Spacer()
                 }
@@ -861,7 +861,7 @@ private struct WorkspaceFileViewer: View {
                 .foregroundColor(VColor.contentTertiary)
 
             Text("File too large to preview")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
 
             Spacer()
@@ -875,7 +875,7 @@ private struct WorkspaceFileViewer: View {
                 AuthenticatedImageView(url: url, connectionManager: connectionManager)
             } else {
                 Text("Unable to load image URL")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentTertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -888,7 +888,7 @@ private struct WorkspaceFileViewer: View {
                 WorkspaceVideoPlayer(url: url, connectionManager: connectionManager)
             } else {
                 Text("Unable to load video URL")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentTertiary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -904,11 +904,11 @@ private struct WorkspaceFileViewer: View {
 
             VStack(spacing: VSpacing.sm) {
                 Text(detail.mimeType)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
 
                 Text("Modified: \(detail.modifiedAt)")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             }
 
@@ -947,7 +947,7 @@ private struct AuthenticatedImageView: View {
                     VIconView(.triangleAlert, size: 24)
                         .foregroundColor(VColor.systemNegativeHover)
                     Text("Failed to load image")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentTertiary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1024,7 +1024,7 @@ private struct WorkspaceVideoPlayer: View {
                     VIconView(.triangleAlert, size: 24)
                         .foregroundColor(VColor.systemNegativeHover)
                     Text("Failed to load video")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentTertiary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

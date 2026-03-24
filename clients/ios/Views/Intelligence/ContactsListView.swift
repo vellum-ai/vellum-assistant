@@ -97,7 +97,7 @@ struct ContactsListView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     Text(contact.displayName)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentDefault)
 
                     roleBadge(contact.role)
@@ -116,7 +116,7 @@ struct ContactsListView: View {
 
             if contact.interactionCount > 0 {
                 Text("\(contact.interactionCount)")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             }
         }
@@ -136,7 +136,7 @@ struct ContactsListView: View {
             .uppercased()
 
         return Text(initials.isEmpty ? "?" : initials)
-            .font(VFont.caption)
+            .font(VFont.labelDefault)
             .foregroundColor(.white)
             .frame(width: 32, height: 32)
             .background(Circle().fill(VColor.primaryBase))
@@ -189,11 +189,11 @@ struct ContactsListView: View {
                 .accessibilityHidden(true)
 
             Text("No Contacts")
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
 
             Text("Contacts will appear here as people interact with your assistant.")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
@@ -207,7 +207,7 @@ struct ContactsListView: View {
         VStack(spacing: VSpacing.md) {
             ProgressView()
             Text("Loading contacts...")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

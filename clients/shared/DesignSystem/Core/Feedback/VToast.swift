@@ -49,7 +49,7 @@ public struct VToast: View {
             VIconView(vIcon, size: 14)
                 .foregroundColor(iconColor)
             Text(message)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .lineLimit(3)
 

@@ -35,7 +35,7 @@ struct SurfaceContainerView: View {
                 HStack(alignment: .top) {
                     if let title = surface.title {
                         Text(title)
-                            .font(VFont.headline)
+                            .font(VFont.bodySmallEmphasised)
                             .foregroundColor(VColor.contentDefault)
                     }
                     Spacer()

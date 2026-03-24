@@ -38,18 +38,18 @@ struct ToolPermissionTesterView: View {
                 VTextField(
                     placeholder: "Leave empty for assistant default",
                     text: $model.workingDir,
-                    font: VFont.mono
+                    font: VFont.bodyMediumDefault
                 )
             }
 
             // Toggles
             HStack(spacing: VSpacing.xl) {
                 VToggle(isOn: $model.isInteractive, label: "Interactive")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
 
                 VToggle(isOn: $model.forcePromptSideEffects, label: "In Temporary Chat")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
             }
         }
@@ -95,18 +95,18 @@ struct ToolPermissionTesterView: View {
     private func fieldNameLabel(_ field: ToolFieldDescriptor) -> some View {
         HStack(spacing: VSpacing.xs) {
             Text(field.id)
-                .font(VFont.monoSmall)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentDefault)
 
             if field.isRequired {
                 Text("*")
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemNegativeStrong)
             }
 
             if let desc = field.description {
                 Text(desc)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -121,14 +121,14 @@ struct ToolPermissionTesterView: View {
             VTextField(
                 placeholder: "",
                 text: fieldValueBinding(for: field.id),
-                font: VFont.mono
+                font: VFont.bodyMediumDefault
             )
 
         case .number, .integer:
             VTextField(
                 placeholder: "",
                 text: fieldValueBinding(for: field.id),
-                font: VFont.mono
+                font: VFont.bodyMediumDefault
             )
 
         case .boolean:
@@ -144,7 +144,7 @@ struct ToolPermissionTesterView: View {
 
         case .json:
             TextEditor(text: fieldValueBinding(for: field.id))
-                .font(VFont.mono)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentDefault)
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 60, maxHeight: 120)
@@ -206,7 +206,7 @@ struct ToolPermissionTesterView: View {
                 VIconView(.triangleAlert, size: 12)
                     .foregroundColor(VColor.systemNegativeStrong)
                 Text(error)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemNegativeStrong)
             }
             .textSelection(.enabled)
@@ -224,7 +224,7 @@ struct ToolPermissionTesterView: View {
 
                     if let ruleId = result.matchedRuleId {
                         Text("Rule: \(ruleId)")
-                            .font(VFont.monoSmall)
+                            .font(VFont.bodySmallDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
 
@@ -234,7 +234,7 @@ struct ToolPermissionTesterView: View {
                 // Reason
                 if !result.reason.isEmpty {
                     Text(result.reason)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                 }
 
@@ -263,7 +263,7 @@ struct ToolPermissionTesterView: View {
                         )
 
                         Text("Allow Once and Don\u{2019}t Allow are simulation-only. Always Allow persists a real trust rule.")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                             .italic()
                     }
@@ -275,7 +275,7 @@ struct ToolPermissionTesterView: View {
                         VIconView(.info, size: 11)
                             .foregroundColor(VColor.contentTertiary)
                         Text(label)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                             .italic()
                     }
@@ -294,7 +294,7 @@ struct ToolPermissionTesterView: View {
             VTextField(
                 placeholder: "e.g. host_bash, host_file_write",
                 text: $model.toolName,
-                font: VFont.mono
+                font: VFont.bodyMediumDefault
             )
         } else {
             VDropdown(
@@ -308,7 +308,7 @@ struct ToolPermissionTesterView: View {
 
     private func fieldLabel(_ text: String) -> some View {
         Text(text)
-            .font(VFont.inputLabel)
+            .font(VFont.bodySmallDefault)
             .foregroundColor(VColor.contentSecondary)
     }
 
@@ -327,7 +327,7 @@ struct ToolPermissionTesterView: View {
             VIconView(icon, size: 12)
                 .foregroundColor(color)
             Text(decision.capitalized)
-                .font(VFont.captionMedium)
+                .font(VFont.labelDefault)
                 .foregroundColor(color)
         }
     }

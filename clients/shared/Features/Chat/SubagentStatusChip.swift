@@ -47,7 +47,7 @@ public struct SubagentStatusChip: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: VSpacing.xs) {
                     Text(subagent.label)
-                        .font(VFont.captionMedium)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentDefault)
 
                     if !subagent.isTerminal {
@@ -65,7 +65,7 @@ public struct SubagentStatusChip: View {
 
                 if let error = subagent.error, !error.isEmpty {
                     Text(error)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.systemNegativeStrong)
                         .lineLimit(2)
                 }

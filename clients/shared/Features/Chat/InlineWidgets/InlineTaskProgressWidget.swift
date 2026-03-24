@@ -79,7 +79,7 @@ public struct InlineTaskProgressWidget: View {
     private var headerSection: some View {
         HStack(alignment: .center, spacing: VSpacing.sm) {
             Text(data.title)
-                .font(VFont.headline)
+                .font(VFont.bodySmallEmphasised)
                 .foregroundColor(VColor.contentDefault)
 
             Spacer()
@@ -95,7 +95,7 @@ public struct InlineTaskProgressWidget: View {
         return HStack(spacing: VSpacing.xs) {
             VIconView(icon, size: 10)
             Text(label)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
         }
         .foregroundColor(color)
         .padding(.horizontal, VSpacing.sm)
@@ -126,12 +126,12 @@ public struct InlineTaskProgressWidget: View {
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(step.label)
-                    .font(VFont.bodyMedium)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentDefault)
 
                 if let detail = step.detail {
                     Text(detail)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                 }
             }

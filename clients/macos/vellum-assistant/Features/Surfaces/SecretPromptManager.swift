@@ -187,10 +187,10 @@ struct SecretPromptView: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Secure Credential")
-                            .font(VFont.headline)
+                            .font(VFont.bodySmallEmphasised)
                             .foregroundColor(VColor.contentDefault)
                         Text(label)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
                     }
                     .textSelection(.enabled)
@@ -201,7 +201,7 @@ struct SecretPromptView: View {
                 // Description
                 if let description = description {
                     Text(description)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                         .textSelection(.enabled)
                 }
@@ -216,7 +216,7 @@ struct SecretPromptView: View {
                     placeholder: placeholder,
                     text: $secretValue,
                     isSecure: true,
-                    font: VFont.mono
+                    font: VFont.bodyMediumDefault
                 )
                 .accessibilityIdentifier("secure-credential-input")
 
@@ -238,7 +238,7 @@ struct SecretPromptView: View {
                         VIconView(.circleCheck, size: 14)
                             .foregroundColor(VColor.systemPositiveStrong)
                         Text("Saved securely")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.systemPositiveStrong)
                             .textSelection(.enabled)
                     }
@@ -304,7 +304,7 @@ struct SecretPromptView: View {
     private var usageContextSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Usage Scope")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentSecondary)
 
             if let purpose = purpose {
@@ -331,7 +331,7 @@ struct SecretPromptView: View {
                 .foregroundColor(VColor.primaryBase)
                 .frame(width: 14, alignment: .center)
             Text("\(label): \(value)")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
         }
     }
@@ -342,7 +342,7 @@ struct SecretPromptView: View {
                 .foregroundColor(VColor.systemPositiveStrong)
                 .frame(width: 14, alignment: .center)
             Text(text)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
         }
     }

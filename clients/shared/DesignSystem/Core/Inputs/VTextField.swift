@@ -14,8 +14,8 @@ public enum VInputSize {
 
     var font: Font {
         switch self {
-        case .regular: return VFont.body
-        case .small: return VFont.bodySmall
+        case .regular: return VFont.bodyMediumLighter
+        case .small: return VFont.labelDefault
         }
     }
 
@@ -116,7 +116,7 @@ public struct VTextField: View {
     public var errorMessage: String? = nil
     public var onSubmit: (() -> Void)? = nil
     public var maxWidth: CGFloat = .infinity
-    public var font: Font = VFont.body
+    public var font: Font = VFont.bodyMediumLighter
     public var size: VInputSize = .regular
 
     /// Internal focus state — used only when the caller does NOT provide
@@ -200,7 +200,7 @@ public struct VTextField: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             if let label {
                 Text(label)
-                    .font(VFont.inputLabel)
+                    .font(VFont.bodySmallDefault)
                     .foregroundColor(isEnabled ? VColor.contentSecondary : VColor.contentDisabled)
                     .accessibilityHidden(true)
             }
@@ -227,7 +227,7 @@ public struct VTextField: View {
 
             if let errorMessage {
                 Text(errorMessage)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemNegativeStrong)
                     .accessibilityHidden(true)
             }

@@ -25,7 +25,7 @@ struct AppIconGallerySection: View {
                                 .background(VColor.surfaceBase)
                                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                             Text(app)
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentSecondary)
                         }
                     }

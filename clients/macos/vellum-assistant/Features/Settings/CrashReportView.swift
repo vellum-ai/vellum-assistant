@@ -36,10 +36,10 @@ struct CrashReportView: View {
                 .foregroundColor(VColor.systemNegativeHover)
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text("The app crashed last session")
-                    .font(VFont.headline)
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundColor(VColor.contentDefault)
                 Text("Would you like to send the crash log to help us fix the issue? No personal data or message content is included.")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -49,7 +49,7 @@ struct CrashReportView: View {
     private var logPreview: some View {
         ScrollView {
             Text(crashLog)
-                .font(VFont.monoSmall)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
@@ -65,7 +65,7 @@ struct CrashReportView: View {
             VIconView(.circleCheck, size: 14)
                 .foregroundColor(VColor.systemPositiveStrong)
             Text("Crash report sent. Thank you!")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentSecondary)
         }
     }

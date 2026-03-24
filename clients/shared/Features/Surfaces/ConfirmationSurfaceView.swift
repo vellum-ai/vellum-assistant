@@ -72,14 +72,14 @@ public struct ConfirmationSurfaceView: View {
                 VIconView(.triangleAlert, size: 24)
                     .foregroundStyle(data.destructive ? VColor.systemNegativeStrong : VColor.systemMidStrong)
                 Text(inlineMarkdown(data.message))
-                    .font(VFont.headline)
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundColor(VColor.contentDefault)
             }
 
             // Detail text
             if let detail = data.detail {
                 Text(inlineMarkdown(detail))
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
             }
 
@@ -114,13 +114,13 @@ public struct ConfirmationSurfaceView: View {
                 VIconView(.circleCheck, size: 12)
                     .foregroundColor(VColor.systemPositiveStrong)
                 Text(data.confirmedLabel ?? "Done")
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentDefault)
             case .cancelled:
                 VIconView(.circleX, size: 12)
                     .foregroundColor(VColor.contentTertiary)
                 Text(data.cancelLabel ?? "Dismissed")
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
             }
         }

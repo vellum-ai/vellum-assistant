@@ -146,10 +146,10 @@ struct AssistantChannelsDetailView: View {
             VStack(alignment: .leading, spacing: VSpacing.xl) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Channels")
-                        .font(VFont.sectionTitle)
+                        .font(VFont.titleSmall)
                         .foregroundColor(VColor.contentDefault)
                     Text("Manage where \(assistantName) can be reached.")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                 }
 
@@ -171,10 +171,10 @@ struct AssistantChannelsDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Channels")
-                    .font(VFont.sectionTitle)
+                    .font(VFont.titleSmall)
                     .foregroundColor(VColor.contentDefault)
                 Text("Manage where \(assistantName) can be reached.")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             }
 
@@ -304,7 +304,7 @@ struct AssistantChannelsDetailView: View {
                 if isConnected && voiceRowExpanded {
                     HStack(spacing: VSpacing.sm) {
                         Text("Phone Number")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
                         VDropdown(
                             placeholder: "Not Set",
@@ -410,14 +410,14 @@ struct AssistantChannelsDetailView: View {
                 VIconView(icon, size: 16)
                     .foregroundColor(VColor.contentSecondary)
                 Text(name)
-                    .font(VFont.bodyMedium)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentDefault)
                     .frame(width: 100, alignment: .leading)
 
                 // Middle: identity / value
                 if let value {
                     Text(value)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                         .lineLimit(1)
                 }
@@ -504,7 +504,7 @@ struct AssistantChannelsDetailView: View {
                     VIconView(.circleCheck, size: 14)
                         .foregroundColor(VColor.systemPositiveStrong)
                     Text(email)
-                        .font(VFont.mono)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(VColor.contentDefault)
                         .textSelection(.enabled)
                     Spacer()
@@ -548,10 +548,10 @@ struct AssistantChannelsDetailView: View {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     if let username = store.telegramBotUsername, !username.isEmpty {
                         if let url = URL(string: "https://t.me/\(username)") {
-                            VLink("@\(username)", destination: url, font: VFont.body)
+                            VLink("@\(username)", destination: url, font: VFont.bodyMediumLighter)
                         } else {
                             Text("@\(username)")
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.contentDefault)
                                 .lineLimit(1)
                         }
@@ -559,10 +559,10 @@ struct AssistantChannelsDetailView: View {
                     if let botId = store.telegramBotId, !botId.isEmpty {
                         HStack(spacing: 0) {
                             Text("Bot ID: ")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                             Text(botId)
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                                 .lineLimit(1)
                         }
@@ -606,7 +606,7 @@ struct AssistantChannelsDetailView: View {
             )
 
             Text("Get your bot token from @BotFather on Telegram")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
 
             if store.telegramSaveInProgress {
@@ -614,7 +614,7 @@ struct AssistantChannelsDetailView: View {
                     ProgressView()
                         .controlSize(.small)
                     Text("Saving...")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                 }
             } else {
@@ -646,21 +646,21 @@ struct AssistantChannelsDetailView: View {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     if let username = store.slackChannelBotUsername, !username.isEmpty {
                         Text("@\(username)")
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
                     }
                     if let botUserId = store.slackChannelBotUserId, !botUserId.isEmpty {
                         HStack(spacing: 0) {
                             Text("Bot ID: ")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                             if let teamId = store.slackChannelTeamId,
                                let url = URL(string: "slack://user?team=\(teamId)&id=\(botUserId)") {
                                 VLink(botUserId, destination: url)
                             } else {
                                 Text(botUserId)
-                                    .font(VFont.caption)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentTertiary)
                                     .lineLimit(1)
                             }
@@ -714,7 +714,7 @@ struct AssistantChannelsDetailView: View {
             )
 
             Text("Create a Slack app with Socket Mode enabled to get these tokens")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
 
             if store.slackChannelSaveInProgress {
@@ -722,7 +722,7 @@ struct AssistantChannelsDetailView: View {
                     ProgressView()
                         .controlSize(.small)
                     Text("Saving...")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                 }
             } else {
@@ -763,7 +763,7 @@ struct AssistantChannelsDetailView: View {
             if status == "ready" {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Phone Number")
-                        .font(VFont.inputLabel)
+                        .font(VFont.bodySmallDefault)
                         .foregroundColor(VColor.contentSecondary)
                     VDropdown(
                         placeholder: "Not Set",
@@ -830,7 +830,7 @@ struct AssistantChannelsDetailView: View {
                     ProgressView()
                         .controlSize(.small)
                     Text("Saving...")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                 }
             } else {

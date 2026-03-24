@@ -38,9 +38,9 @@ struct SyntaxTheme: Sendable {
 
     // Pre-resolved SwiftUI font variants cached as static lets.
     // `Font` is `Sendable`, so these are safe to read from any thread.
-    private static let baseFont = VFont.mono
-    private static let boldFont = VFont.mono.bold()
-    private static let italicFont = VFont.mono.italic()
+    private static let baseFont = VFont.bodyMediumDefault
+    private static let boldFont = VFont.bodyMediumDefault.bold()
+    private static let italicFont = VFont.bodyMediumDefault.italic()
     private static let defaultForeground = VColor.contentDefault
 
     /// The canonical NSFont for code display, sourced from the design system.

@@ -329,7 +329,7 @@ struct ChatContentView: View {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.arrowDown, size: 10)
                             Text("Scroll to latest")
-                                .font(VFont.monoSmall)
+                                .font(VFont.bodySmallDefault)
                         }
                         .padding(.horizontal, VSpacing.md)
                         .padding(.vertical, VSpacing.sm)
@@ -495,7 +495,7 @@ struct ChatContentView: View {
                     TypingIndicatorView()
                     if let statusText = viewModel.assistantStatusText, !statusText.isEmpty {
                         Text(statusText)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
                     }
                     Spacer()
@@ -529,7 +529,7 @@ struct ChatContentView: View {
                     TypingIndicatorView()
                     if let statusText = viewModel.assistantStatusText, !statusText.isEmpty {
                         Text(statusText)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
                     }
                     Spacer()
@@ -552,11 +552,11 @@ struct ChatContentView: View {
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(error.message)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(2)
                 Text(error.recoverySuggestion)
-                    .font(VFont.small)
+                    .font(VFont.labelSmall)
                     .foregroundColor(VColor.contentSecondary)
                     .lineLimit(1)
             }
@@ -566,7 +566,7 @@ struct ChatContentView: View {
             if error.isRetryable {
                 Button(action: { viewModel.retryAfterConversationError() }) {
                     Text("Retry")
-                        .font(VFont.captionMedium)
+                        .font(VFont.labelDefault)
                         .foregroundColor(.white)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
@@ -600,12 +600,12 @@ struct ChatContentView: View {
                 .foregroundColor(.white)
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(errorText)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(.white)
                     .lineLimit(2)
                 if viewModel.isConnectionError, let hint = viewModel.connectionDiagnosticHint {
                     Text(hint)
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .foregroundColor(.white.opacity(0.8))
                         .lineLimit(2)
                 }
@@ -614,7 +614,7 @@ struct ChatContentView: View {
             if viewModel.isSecretBlockError {
                 Button(action: { viewModel.sendAnyway() }) {
                     Text("Send Anyway")
-                        .font(VFont.captionMedium)
+                        .font(VFont.labelDefault)
                         .foregroundColor(.white)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
@@ -624,7 +624,7 @@ struct ChatContentView: View {
             } else if viewModel.isRetryableError {
                 Button(action: { viewModel.retryLastMessage() }) {
                     Text("Retry")
-                        .font(VFont.captionMedium)
+                        .font(VFont.labelDefault)
                         .foregroundColor(.white)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
