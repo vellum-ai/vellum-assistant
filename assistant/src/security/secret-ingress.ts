@@ -57,7 +57,7 @@ const INGRESS_PATTERNS: SecretPattern[] = [
   },
 
   // Telegram
-  { label: "Telegram Bot Token", regex: /[0-9]{8,10}:[A-Za-z0-9_-]{35}/ },
+  { label: "Telegram Bot Token", regex: /\b[0-9]{8,10}:[A-Za-z0-9_-]{35}\b/ },
 
   // Anthropic
   { label: "Anthropic API Key", regex: /sk-ant-[A-Za-z0-9\-_]{80,}/ },
@@ -70,7 +70,7 @@ const INGRESS_PATTERNS: SecretPattern[] = [
   { label: "Google OAuth Secret", regex: /GOCSPX-[A-Za-z0-9\-_]{28}/ },
 
   // Twilio
-  { label: "Twilio API Key", regex: /SK[0-9a-f]{32}/ },
+  { label: "Twilio API Key", regex: /\bSK[0-9a-f]{32}\b/ },
 
   // SendGrid
   {

@@ -58,7 +58,13 @@ export async function handleUserMessageSignal(filename: string): Promise<void> {
 
   const writeResult = (
     data:
-      | { ok: true; accepted: boolean; requestId: string }
+      | {
+          ok: true;
+          accepted: boolean;
+          requestId: string;
+          error?: string;
+          message?: string;
+        }
       | { ok: false; error: string; requestId: string | null },
   ): void => {
     try {

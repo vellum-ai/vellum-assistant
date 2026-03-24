@@ -151,6 +151,22 @@ describe("checkIngressForSecrets", () => {
     expect(result.detectedTypes).toContain("GitLab PAT");
   });
 
+  test("blocks Telegram Bot Token", () => {
+    const result = checkIngressForSecrets(
+      "Bot token: 123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi",
+    );
+    expect(result.blocked).toBe(true);
+    expect(result.detectedTypes).toContain("Telegram Bot Token");
+  });
+
+  test("blocks Twilio API Key (SK*)", () => {
+    const result = checkIngressForSecrets(
+      "Twilio key: SK0123456789abcdef0123456789abcdef",
+    );
+    expect(result.blocked).toBe(true);
+    expect(result.detectedTypes).toContain("Twilio API Key");
+  });
+
   // ── Not blocked (excluded patterns) ────────────────────────────────
 
   test("does not block normal text", () => {
