@@ -283,7 +283,7 @@ struct InferenceServiceCard: View {
     private var providerPicker: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Provider")
-                .font(VFont.bodySmallDefault)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentSecondary)
             VDropdown(
                 placeholder: "Select a provider\u{2026}",
@@ -324,7 +324,7 @@ struct InferenceServiceCard: View {
     private var modelPicker: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Active Model")
-                .font(VFont.bodySmallDefault)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentSecondary)
             providerModelPicker
         }

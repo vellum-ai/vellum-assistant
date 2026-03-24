@@ -188,7 +188,7 @@ struct WebSearchServiceCard: View {
     private var providerPicker: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Provider")
-                .font(VFont.bodySmallDefault)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentSecondary)
             VDropdown(
                 placeholder: "Select a provider\u{2026}",

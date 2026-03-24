@@ -85,39 +85,86 @@ struct TokensGallerySection: View {
                 // MARK: - VFont
                 GallerySectionHeader(
                     title: "VFont",
-                    description: "Font scale tokens for consistent text styling."
+                    description: "DM Sans type scale. Each cell renders its own font token."
                 )
 
-                VCard {
+                // Type matrix (matches Figma node 2193-4447)
+                VCard(padding: 0) {
                     VStack(alignment: .leading, spacing: 0) {
-                        // Column headers
-                        typeRow(category: "", size: "", regular: "Regular", medium: "Medium", semiBold: "Semi-bold", isHeader: true)
-                        Divider().background(VColor.borderDisabled)
+                        typeMatrixHeader()
+                        typeMatrixDivider()
 
-                        // TITLE
-                        typeRow(category: "TITLE", size: "24px", regular: nil, medium: ("Title/Large", VFont.titleLarge), semiBold: nil)
-                        Divider().background(VColor.borderDisabled)
-                        typeRow(category: "", size: "20px", regular: nil, medium: ("Title/Medium", VFont.titleMedium), semiBold: nil)
-                        Divider().background(VColor.borderDisabled)
-                        typeRow(category: "", size: "18px", regular: nil, medium: nil, semiBold: ("Title/Small", VFont.titleSmall))
-                        Divider().background(VColor.borderDisabled)
+                        typeMatrixRow(group: "TITLE", size: "24", regular: nil, medium: ("Title/Large", VFont.titleLarge), semiBold: nil)
+                        typeMatrixDivider()
+                        typeMatrixRow(group: "", size: "20", regular: nil, medium: ("Title/Medium", VFont.titleMedium), semiBold: nil)
+                        typeMatrixDivider()
+                        typeMatrixRow(group: "", size: "18", regular: nil, medium: nil, semiBold: ("Title/Small", VFont.titleSmall))
+                        typeMatrixDivider()
 
-                        // BODY
-                        typeRow(category: "BODY", size: "16px", regular: ("Body/Lighter", VFont.bodyLargeLighter), medium: ("Body/Large Default", VFont.bodyLargeDefault), semiBold: ("Body/Large Emphasised", VFont.bodyLargeEmphasised))
-                        Divider().background(VColor.borderDisabled)
-                        typeRow(category: "", size: "14px", regular: ("Body/Lighter", VFont.bodyMediumLighter), medium: ("Body/Medium Default", VFont.bodyMediumDefault), semiBold: ("Body/Medium Emphasised", VFont.bodyMediumEmphasised))
-                        Divider().background(VColor.borderDisabled)
-                        typeRow(category: "", size: "12px", regular: nil, medium: ("Body/Small Default", VFont.bodySmallDefault), semiBold: ("Body/Small Emphasised", VFont.bodySmallEmphasised))
-                        Divider().background(VColor.borderDisabled)
+                        typeMatrixRow(group: "BODY", size: "16", regular: ("Body/Lighter", VFont.bodyLargeLighter), medium: ("Body/Large Default", VFont.bodyLargeDefault), semiBold: ("Body/Large Emphasised", VFont.bodyLargeEmphasised))
+                        typeMatrixDivider()
+                        typeMatrixRow(group: "", size: "14", regular: ("Body/Lighter", VFont.bodyMediumLighter), medium: ("Body/Medium Default", VFont.bodyMediumDefault), semiBold: ("Body/Medium Emphasised", VFont.bodyMediumEmphasised))
+                        typeMatrixDivider()
+                        typeMatrixRow(group: "", size: "12", regular: nil, medium: ("Body/Small Default", VFont.bodySmallDefault), semiBold: ("Body/Small Emphasised", VFont.bodySmallEmphasised))
+                        typeMatrixDivider()
 
-                        // LABEL
-                        typeRow(category: "LABEL", size: "11px", regular: nil, medium: ("Label/Medium Default", VFont.labelDefault), semiBold: nil)
-                        Divider().background(VColor.borderDisabled)
-                        typeRow(category: "", size: "10px", regular: nil, medium: ("Label/Small Default", VFont.labelSmall), semiBold: nil)
-                        Divider().background(VColor.borderDisabled)
+                        typeMatrixRow(group: "LABEL", size: "11", regular: nil, medium: ("Label/Default", VFont.labelDefault), semiBold: nil)
+                        typeMatrixDivider()
+                        typeMatrixRow(group: "", size: "10", regular: nil, medium: ("Label/Small", VFont.labelSmall), semiBold: nil)
+                        typeMatrixDivider()
 
-                        // CHAT
-                        typeRow(category: "CHAT", size: "16px", regular: nil, medium: ("Chat", VFont.chat), semiBold: nil)
+                        typeMatrixRow(group: "CHAT", size: "16", regular: nil, medium: ("Chat", VFont.chat), semiBold: nil)
+                    }
+                }
+
+                // Token reference list
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.md) {
+                        Text("Token Reference")
+                            .font(VFont.bodySmallEmphasised)
+                            .foregroundColor(VColor.contentDefault)
+                            .padding(.bottom, VSpacing.xs)
+
+                        let tokens: [(String, String, String, Font)] = [
+                            ("titleLarge", "Medium 24", "Headings, page titles", VFont.titleLarge),
+                            ("titleMedium", "Medium 20", "Section headings", VFont.titleMedium),
+                            ("titleSmall", "SemiBold 18", "Card titles, subheadings", VFont.titleSmall),
+                            ("bodyLargeLighter", "Regular 16", "Secondary body text", VFont.bodyLargeLighter),
+                            ("bodyLargeDefault", "Medium 16", "Primary body text", VFont.bodyLargeDefault),
+                            ("bodyLargeEmphasised", "SemiBold 16", "Emphasized body text", VFont.bodyLargeEmphasised),
+                            ("bodyMediumLighter", "Regular 14", "Secondary UI text", VFont.bodyMediumLighter),
+                            ("bodyMediumDefault", "Medium 14", "Default UI text", VFont.bodyMediumDefault),
+                            ("bodyMediumEmphasised", "SemiBold 14", "Emphasized UI text", VFont.bodyMediumEmphasised),
+                            ("bodySmallDefault", "Medium 12", "Captions, metadata", VFont.bodySmallDefault),
+                            ("bodySmallEmphasised", "SemiBold 12", "Tags, badges", VFont.bodySmallEmphasised),
+                            ("labelDefault", "Medium 11", "Form labels, tooltips", VFont.labelDefault),
+                            ("labelSmall", "Medium 10", "Fine print, timestamps", VFont.labelSmall),
+                            ("chat", "Medium 16 (24px line)", "Chat message text", VFont.chat),
+                        ]
+
+                        ForEach(tokens, id: \.0) { name, spec, usage, font in
+                            HStack(alignment: .top, spacing: VSpacing.lg) {
+                                Text("VFont.\(name)")
+                                    .font(VFont.bodySmallDefault)
+                                    .foregroundColor(VColor.contentEmphasized)
+                                    .frame(width: 200, alignment: .leading)
+
+                                Text(spec)
+                                    .font(VFont.bodySmallDefault)
+                                    .foregroundColor(VColor.contentTertiary)
+                                    .frame(width: 130, alignment: .leading)
+
+                                Text(usage)
+                                    .font(VFont.bodySmallDefault)
+                                    .foregroundColor(VColor.contentTertiary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                                Text("Aa")
+                                    .font(font)
+                                    .foregroundColor(VColor.contentDefault)
+                                    .frame(width: 60, alignment: .trailing)
+                            }
+                        }
                     }
                 }
 
@@ -271,73 +318,74 @@ struct TokensGallerySection: View {
         }
     }
 
-    private func typeRow(
-        category: String,
-        size: String,
-        regular: String,
-        medium: String,
-        semiBold: String,
-        isHeader: Bool
-    ) -> some View {
+    // MARK: - Type Matrix Helpers
+
+    private static let matrixGroupWidth: CGFloat = 70
+    private static let matrixSizeWidth: CGFloat = 50
+
+    private func typeMatrixDivider() -> some View {
+        Rectangle().fill(VColor.borderDisabled).frame(height: 1)
+    }
+
+    private func typeMatrixHeader() -> some View {
         HStack(spacing: 0) {
-            Text(category)
-                .font(VFont.bodySmallEmphasised)
-                .foregroundColor(VColor.contentTertiary)
-                .frame(width: 70, alignment: .leading)
-            Text(size)
-                .font(VFont.bodySmallEmphasised)
-                .foregroundColor(VColor.contentTertiary)
-                .frame(width: 50, alignment: .leading)
-            Text(regular)
+            Color.clear.frame(width: Self.matrixGroupWidth)
+            Color.clear.frame(width: Self.matrixSizeWidth)
+            Text("Regular")
                 .font(VFont.bodySmallEmphasised)
                 .foregroundColor(VColor.contentDisabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text(medium)
+            Text("Medium")
                 .font(VFont.bodySmallEmphasised)
                 .foregroundColor(VColor.contentDisabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text(semiBold)
+            Text("Semi-bold")
                 .font(VFont.bodySmallEmphasised)
                 .foregroundColor(VColor.contentDisabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.sm)
     }
 
-    private func typeRow(
-        category: String,
+    private func typeMatrixRow(
+        group: String,
         size: String,
         regular: (String, Font)?,
         medium: (String, Font)?,
         semiBold: (String, Font)?
     ) -> some View {
         HStack(spacing: 0) {
-            Text(category)
+            Text(group)
                 .font(VFont.bodySmallEmphasised)
                 .foregroundColor(VColor.contentTertiary)
-                .frame(width: 70, alignment: .leading)
-            Text(size)
+                .frame(width: Self.matrixGroupWidth, alignment: .leading)
+            Text("\(size)px")
                 .font(VFont.bodySmallEmphasised)
                 .foregroundColor(VColor.contentTertiary)
-                .frame(width: 50, alignment: .leading)
-            typeCellContent(regular)
+                .frame(width: Self.matrixSizeWidth, alignment: .leading)
+            typeMatrixCell(regular)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            typeCellContent(medium)
+            typeMatrixCell(medium)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            typeCellContent(semiBold)
+            typeMatrixCell(semiBold)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(.horizontal, VSpacing.lg)
         .padding(.vertical, VSpacing.lg)
     }
 
     @ViewBuilder
-    private func typeCellContent(_ token: (String, Font)?) -> some View {
+    private func typeMatrixCell(_ token: (String, Font)?) -> some View {
         if let (name, font) = token {
             Text(name)
                 .font(font)
                 .foregroundColor(VColor.contentEmphasized)
         } else {
-            Color.clear.frame(height: 1)
+            RoundedRectangle(cornerRadius: VRadius.xs)
+                .fill(VColor.surfaceBase.opacity(0.5))
+                .frame(height: 20)
+                .padding(.trailing, VSpacing.lg)
         }
     }
 

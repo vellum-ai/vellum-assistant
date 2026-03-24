@@ -126,7 +126,7 @@ struct ImageGenerationServiceCard: View {
     private var modelPicker: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Active Model")
-                .font(VFont.bodySmallDefault)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentSecondary)
             VDropdown(
                 placeholder: "Select a model\u{2026}",
