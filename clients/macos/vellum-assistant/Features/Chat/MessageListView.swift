@@ -86,6 +86,15 @@ struct PrecomputedCacheKey: Equatable {
     let displayedMessageCount: Int
 }
 
+/// Lightweight snapshot of scroll geometry for the onScrollGeometryChange
+/// handler. Captures only the values needed for scroll-direction and
+/// scrollable-content detection.
+private struct ScrollDetectionState: Equatable {
+    let contentOffsetY: CGFloat
+    let contentHeight: CGFloat
+    let containerHeight: CGFloat
+}
+
 struct MessageListView: View {
     let messages: [ChatMessage]
     let isSending: Bool
@@ -191,6 +200,21 @@ struct MessageListView: View {
     /// from genuine turn endings, so the `onChange(of: isSending)` handler can decide
     /// whether to reattach the scroll position on the next `isSending = true` transition.
     @State private var phaseWhenSendingStopped: String = ""
+
+    /// Current scroll phase from onScrollPhaseChange; used by the geometry
+    /// change handler to decide whether a scroll-up should trigger detach.
+    /// Only `.interacting` (direct user gesture) triggers detach — `.decelerating`
+    /// (momentum/inertia) is intentionally ignored.
+    @State private var scrollPhase: ScrollPhase = .idle
+    /// Last content offset Y observed by onScrollGeometryChange, used to
+    /// determine scroll direction (increasing offset = scrolling toward older content).
+    @State private var lastScrollContentOffsetY: CGFloat = 0
+    /// Content height from scroll geometry, used to guard against false
+    /// detaches on short conversations that can't scroll.
+    @State private var scrollContentHeight: CGFloat = 0
+    /// Container (viewport) height from scroll geometry, used alongside
+    /// scrollContentHeight to determine if content is scrollable.
+    @State private var scrollContainerHeight: CGFloat = 0
 
     /// The subset of messages actually shown, honoring the pagination window.
     /// Uses the shared `ChatVisibleMessageFilter` so hidden automated messages
@@ -916,7 +940,7 @@ struct MessageListView: View {
                         .id("scroll-bottom-anchor")
                         .onAppear {
                             // Only auto-tether on initial load (before any scroll events).
-                            // After the user has scrolled, rely on ScrollWheelDetector and
+                            // After the user has scrolled, rely on onScrollPhaseChange and
                             // anchorTracker preference tracking to manage isNearBottom —
                             // LazyVStack fires onAppear in the prefetch zone (several screens
                             // ahead) which would prematurely re-tether during normal scrolling.
@@ -957,11 +981,33 @@ struct MessageListView: View {
                 GeometryReader { geo in
                     Color.clear.preference(key: ScrollViewportHeightKey.self, value: geo.size.height)
                 }
-                ScrollWheelDetector(
-                    onScrollUp: { scrollCoordinator.handleScrollUp() },
-                    onScrollToBottom: { scrollCoordinator.handleScrollToBottom() },
-                    conversationId: conversationId
+            }
+            .onScrollPhaseChange { oldPhase, newPhase in
+                scrollPhase = newPhase
+                if newPhase == .idle && oldPhase != .idle && isNearBottom {
+                    // User finished scrolling and ended up near the bottom — re-tether.
+                    scrollCoordinator.handleScrollToBottom()
+                }
+            }
+            .onScrollGeometryChange(for: ScrollDetectionState.self) { geometry in
+                ScrollDetectionState(
+                    contentOffsetY: geometry.contentOffset.y,
+                    contentHeight: geometry.contentSize.height,
+                    containerHeight: geometry.containerSize.height
                 )
+            } action: { _, newState in
+                let isScrollable = newState.contentHeight > newState.containerHeight
+                let isScrollingUp = newState.contentOffsetY < lastScrollContentOffsetY
+                scrollContentHeight = newState.contentHeight
+                scrollContainerHeight = newState.containerHeight
+                lastScrollContentOffsetY = newState.contentOffsetY
+
+                // Only detach on direct user gesture (interacting), not momentum.
+                // Only detach when content is scrollable (prevents false detaches
+                // on short conversations).
+                if scrollPhase == .interacting && isScrollingUp && isScrollable {
+                    scrollCoordinator.handleScrollUp()
+                }
             }
             .scrollIndicators(.automatic)
             .onPreferenceChange(ScrollViewportHeightKey.self) { height in
