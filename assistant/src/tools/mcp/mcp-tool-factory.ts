@@ -62,7 +62,7 @@ export function createMcpTool(
 
     async execute(
       input: Record<string, unknown>,
-      _context: ToolContext,
+      context: ToolContext,
     ): Promise<ToolExecutionResult> {
       try {
         // Strip injected activity before sending to MCP server
@@ -77,6 +77,7 @@ export function createMcpTool(
           serverId,
           metadata.name,
           forwardInput,
+          context.signal,
         );
         return {
           content: result.content,
