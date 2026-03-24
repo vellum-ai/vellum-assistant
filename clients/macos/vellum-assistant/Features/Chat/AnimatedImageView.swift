@@ -146,13 +146,14 @@ struct AnimatedImageView: View {
         // Move file I/O (mtime check + data read) off main thread via detached task.
         if let fileURL = localFileURL {
             // Phase 1: resolve mtime-aware cache key off main thread.
-            let effectiveKey = await Task.detached(priority: .userInitiated) { () -> NSString in
-                if let attrs = try? FileManager.default.attributesOfItem(atPath: cacheKey as String),
+            let cacheKeyString = cacheKey as String
+            let effectiveKey = await Task.detached(priority: .userInitiated) { () -> String in
+                if let attrs = try? FileManager.default.attributesOfItem(atPath: cacheKeyString),
                    let mtime = attrs[.modificationDate] as? Date {
-                    return "\(cacheKey)?\(mtime.timeIntervalSince1970)" as NSString
+                    return "\(cacheKeyString)?\(mtime.timeIntervalSince1970)"
                 }
-                return cacheKey
-            }.value
+                return cacheKeyString
+            }.value as NSString
             guard !Task.isCancelled else { return }
 
             // Check in-memory cache before reading file bytes.
