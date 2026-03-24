@@ -56,6 +56,7 @@ struct ConversationActionsDrawer: View {
     let onUnpin: () -> Void
     let onArchive: () -> Void
     let onRename: () -> Void
+    var onOpenInNewWindow: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -65,6 +66,10 @@ struct ConversationActionsDrawer: View {
 
             if presentation.showsForkConversationAction {
                 SidebarPrimaryRow(icon: VIcon.gitBranch.rawValue, label: "Fork conversation", action: onForkConversation)
+            }
+
+            if let onOpenInNewWindow {
+                SidebarPrimaryRow(icon: VIcon.externalLink.rawValue, label: "Open in new window", action: onOpenInNewWindow)
             }
 
             SidebarPrimaryRow(
