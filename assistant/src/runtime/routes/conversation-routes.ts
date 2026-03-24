@@ -57,6 +57,7 @@ import {
 import { searchConversations } from "../../memory/conversation-queries.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
+import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getLogger } from "../../util/logger.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
@@ -638,6 +639,7 @@ export async function handleSendMessage(
     interface?: string;
     conversationType?: string;
     automated?: boolean;
+    bypassSecretCheck?: boolean;
   };
 
   const { conversationKey, content, attachmentIds } = body;
@@ -701,6 +703,22 @@ export async function handleSendMessage(
         "BAD_REQUEST",
         `Attachment IDs not found: ${missing.join(", ")}`,
         400,
+      );
+    }
+  }
+
+  // Block messages containing known-format secrets before any persistence
+  if (trimmedContent.length > 0 && !body.bypassSecretCheck) {
+    const ingressResult = checkIngressForSecrets(trimmedContent);
+    if (ingressResult.blocked) {
+      return Response.json(
+        {
+          accepted: false,
+          error: "secret_blocked",
+          message: ingressResult.userNotice,
+          detectedTypes: ingressResult.detectedTypes,
+        },
+        { status: 422 },
       );
     }
   }

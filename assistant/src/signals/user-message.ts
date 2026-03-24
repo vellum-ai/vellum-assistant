@@ -30,7 +30,7 @@ type UserMessageCallback = (params: {
   content: string;
   sourceChannel: string;
   sourceInterface: string;
-}) => Promise<{ accepted: boolean }>;
+}) => Promise<{ accepted: boolean; error?: string; message?: string }>;
 
 let _sendUserMessage: UserMessageCallback | null = null;
 
@@ -134,7 +134,13 @@ export async function handleUserMessageSignal(filename: string): Promise<void> {
       { accepted: result.accepted },
       "User message dispatched via signal file",
     );
-    writeResult({ ok: true, accepted: result.accepted, requestId });
+    writeResult({
+      ok: true,
+      accepted: result.accepted,
+      requestId,
+      ...(result.error ? { error: result.error } : {}),
+      ...(result.message ? { message: result.message } : {}),
+    });
   } catch (err) {
     log.error({ err }, "Failed to handle user-message signal");
     writeResult({

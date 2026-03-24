@@ -40,16 +40,14 @@ import { updateMetaFile } from "../memory/conversation-disk-view.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
-import {
-  getProvider,
-  initializeProviders,
-} from "../providers/registry.js";
+import { getProvider, initializeProviders } from "../providers/registry.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { registerCancelCallback } from "../signals/cancel.js";
 import { registerConversationUndoCallback } from "../signals/conversation-undo.js";
 import { appendEventToStream } from "../signals/event-stream.js";
@@ -512,6 +510,16 @@ export class DaemonServer {
     );
 
     registerUserMessageCallback(async (params) => {
+      // Block messages containing known-format secrets before persistence
+      const ingressResult = checkIngressForSecrets(params.content);
+      if (ingressResult.blocked) {
+        return {
+          accepted: false,
+          error: "secret_blocked" as const,
+          message: ingressResult.userNotice,
+        };
+      }
+
       const { conversationId } = getOrCreateConversation(
         params.conversationKey,
       );
@@ -706,9 +714,7 @@ export class DaemonServer {
 
       const createPromise = (async () => {
         const config = getConfig();
-        let provider = getProvider(
-          config.services.inference.provider,
-        );
+        let provider = getProvider(config.services.inference.provider);
         const { rateLimit } = config;
         if (rateLimit.maxRequestsPerMinute > 0) {
           provider = new RateLimitProvider(
