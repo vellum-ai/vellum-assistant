@@ -1278,7 +1278,9 @@ async function main() {
   featureFlagWatcher.start();
 
   const remoteFeatureFlagSync = new RemoteFeatureFlagSync();
-  remoteFeatureFlagSync.start();
+  // Intentionally fire-and-forget: remote flag fetch is best-effort;
+  // the gateway continues with registry defaults if it fails.
+  void remoteFeatureFlagSync.start();
 
   // ── Sleep/wake detection ──
   // Detect system sleep/wake transitions and force-reconnect channels
