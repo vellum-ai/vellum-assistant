@@ -50,8 +50,8 @@ export function ttsRouteDefinitions(): RouteDefinition[] {
           return httpError("BAD_REQUEST", "Message has no text content", 400);
         }
 
-        const sanitizedText = sanitizeForTts(result.text);
-        if (!sanitizedText.trim()) {
+        const sanitizedText = sanitizeForTts(result.text).trim();
+        if (!sanitizedText) {
           return httpError(
             "BAD_REQUEST",
             "Message has no speakable text content",
