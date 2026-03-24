@@ -325,7 +325,9 @@ final class ConversationRestorer {
     private func fetchConversationList() {
         Task { [weak self] in
             guard let self else { return }
-            let maxAttempts = 3
+            // Cap at 2 attempts to limit worst-case restore delay (~32s with 15s
+            // per-request timeout) while still covering the daemon restart race.
+            let maxAttempts = 2
             for attempt in 1...maxAttempts {
                 if let response = await conversationListClient.fetchConversationList(offset: 0, limit: 50) {
                     self.handleConversationListResponse(response)
