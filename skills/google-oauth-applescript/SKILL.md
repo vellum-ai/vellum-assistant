@@ -135,11 +135,17 @@ host_bash:
 > 1. Click **Add or Remove Scopes** → scroll to **"Manually add scopes"** → **paste** (Cmd+V) → click **Update**
 > 2. Back on the main page, scroll down and click **Save**
 >
-> You should see:
+> You should see all 7 scopes listed across the three categories (Non-sensitive, Sensitive, Restricted):
 >
-> - **Non-sensitive:** `userinfo.email`, `contacts.readonly`
-> - **Sensitive:** `calendar.readonly`, `calendar.events`, `gmail.send`
-> - **Restricted:** `gmail.modify`, `gmail.readonly`
+> - `userinfo.email`
+> - `contacts.readonly`
+> - `calendar.readonly`
+> - `calendar.events`
+> - `gmail.send`
+> - `gmail.modify`
+> - `gmail.readonly`
+>
+> **Note:** GCP may categorize these scopes differently than you'd expect — that's fine, as long as all 7 are present.
 >
 > **Quick note:** The `gmail.modify` and `gmail.send` scopes are what allow me to draft and send emails on your behalf. If you'd rather I only have read access to your email for now, you can uncheck those two - everything else will still work fine, and you can always come back and add them later.
 
