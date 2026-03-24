@@ -64,13 +64,18 @@ export async function handleRefreshChannelReadiness(
   req: Request,
 ): Promise<Response> {
   let body: { channel?: ChannelId; includeRemote?: boolean };
-  try {
-    body = (await req.json()) as typeof body;
-  } catch {
-    return Response.json(
-      { success: false, error: "Invalid JSON in request body" },
-      { status: 400 },
-    );
+  const text = await req.text();
+  if (!text.trim()) {
+    body = {};
+  } else {
+    try {
+      body = JSON.parse(text) as typeof body;
+    } catch {
+      return Response.json(
+        { success: false, error: "Invalid JSON in request body" },
+        { status: 400 },
+      );
+    }
   }
 
   const service = getReadinessService();
