@@ -87,6 +87,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var authWindow: NSWindow?
     public var authManager: AuthManager { services.authManager }
     public var mainWindow: MainWindow?
+    var threadWindowManager: ThreadWindowManager?
     var bundleConfirmationWindow: BundleConfirmationWindow?
 
     var pairingApprovalWindow: PairingApprovalWindow?
@@ -487,6 +488,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             hasSetupDaemon = false
         }
 
+        if threadWindowManager == nil {
+            threadWindowManager = ThreadWindowManager(services: services)
+        }
         setupGatewayConnectionManager()
         setupMenuBar()
         setupFileMenu()
@@ -632,6 +636,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         connectionStatusCancellable?.cancel()
         pulseTimer?.invalidate()
         pulseTimer = nil
+        threadWindowManager?.closeAll()
         voiceInput?.stop()
         ambientAgent.teardown()
         surfaceManager.dismissAll()

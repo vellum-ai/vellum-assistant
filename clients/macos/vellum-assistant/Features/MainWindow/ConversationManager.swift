@@ -110,6 +110,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Tracks access order for LRU eviction. Most-recently-accessed ID is at the end.
     private var vmAccessOrder: [UUID] = []
     private var pendingEvictionTask: Task<Void, Never>?
+    /// Conversation local IDs whose ViewModels are pinned by open pop-out windows.
+    /// Pinned VMs are exempt from LRU eviction.
+    private var pinnedViewModelIds: Set<UUID> = []
     private let connectionManager: GatewayConnectionManager
     private let eventStreamClient: EventStreamClient
     private let conversationClient: ConversationClientProtocol
@@ -2037,7 +2040,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             // Find the oldest non-active, non-busy VM so we never cancel an in-flight response
             // just because the user switched conversations.
             guard let victim = vmAccessOrder.first(where: {
-                guard $0 != activeConversationId, let vm = chatViewModels[$0] else { return false }
+                guard $0 != activeConversationId,
+                      !pinnedViewModelIds.contains($0),
+                      let vm = chatViewModels[$0] else { return false }
                 return !vm.isSending && !vm.isThinking && vm.pendingQueuedCount == 0
             }) else {
                 break
@@ -2053,6 +2058,32 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         if evictedCount > 0 {
             os_signpost(.event, log: stallLog, name: "LRU.evict", "%{public}d VMs", evictedCount)
         }
+    }
+
+    // MARK: - Pop-Out Window Pinning
+
+    /// Pin a ViewModel so it is exempt from LRU eviction.
+    /// Called by `ThreadWindowManager` when a pop-out window opens.
+    func pinViewModel(_ conversationLocalId: UUID) {
+        pinnedViewModelIds.insert(conversationLocalId)
+        log.info("Pinned VM \(conversationLocalId), \(self.pinnedViewModelIds.count) pinned")
+    }
+
+    /// Unpin a ViewModel, allowing LRU eviction again.
+    /// Called by `ThreadWindowManager` when a pop-out window closes.
+    func unpinViewModel(_ conversationLocalId: UUID) {
+        pinnedViewModelIds.remove(conversationLocalId)
+        log.info("Unpinned VM \(conversationLocalId), \(self.pinnedViewModelIds.count) pinned")
+        scheduleEvictionIfNeeded()
+    }
+
+    /// Returns an existing or newly-created ViewModel for a detached pop-out window.
+    /// Unlike the private `getOrCreateViewModel(for:)`, this is accessible to
+    /// `ThreadWindowManager` and ensures the message loop is started.
+    func viewModelForDetachedWindow(conversationLocalId: UUID) -> ChatViewModel? {
+        let vm = getOrCreateViewModel(for: conversationLocalId)
+        vm?.ensureMessageLoopStarted()
+        return vm
     }
 
     private var archivedConversationIds: Set<String> {

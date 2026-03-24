@@ -17,12 +17,16 @@ extension ChatViewModel {
     /// Returns true if the given conversation ID belongs to this chat conversation.
     /// Messages with a nil conversationId are always accepted; messages whose
     /// conversationId doesn't match the current conversation are silently ignored
-    /// to prevent cross-conversation contamination (e.g. from a popover text_qa flow).
+    /// to prevent cross-conversation contamination (e.g. from pop-out windows or
+    /// popover text_qa flows).
     func belongsToConversation(_ messageConversationId: String?) -> Bool {
         guard let messageConversationId else { return true }
         guard let conversationId else {
-            // No conversation established yet — accept all messages
-            return true
+            // No conversation established yet — reject messages that belong to
+            // a known conversation. This prevents cross-contamination when multiple
+            // ViewModels coexist (e.g. pop-out windows). The VM will claim its
+            // conversation via bootstrapCorrelationId in the conversationInfo handler.
+            return false
         }
         return messageConversationId == conversationId
     }
