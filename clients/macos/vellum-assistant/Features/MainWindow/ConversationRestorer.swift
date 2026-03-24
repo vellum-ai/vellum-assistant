@@ -325,11 +325,19 @@ final class ConversationRestorer {
     private func fetchConversationList() {
         Task { [weak self] in
             guard let self else { return }
-            if let response = await conversationListClient.fetchConversationList(offset: 0, limit: 50) {
-                self.handleConversationListResponse(response)
-            } else {
-                self.delegate?.restoreLastActiveConversation()
+            let maxAttempts = 3
+            for attempt in 1...maxAttempts {
+                if let response = await conversationListClient.fetchConversationList(offset: 0, limit: 50) {
+                    self.handleConversationListResponse(response)
+                    return
+                }
+                if attempt < maxAttempts {
+                    log.warning("Conversation list fetch attempt \(attempt) of \(maxAttempts) failed, retrying in 2 seconds...")
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                }
             }
+            log.warning("All \(maxAttempts) conversation list fetch attempts failed, falling back to last active conversation")
+            self.delegate?.restoreLastActiveConversation()
         }
     }
 }
