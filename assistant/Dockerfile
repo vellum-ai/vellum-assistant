@@ -52,6 +52,7 @@ RUN apt-get update && apt-get install -y \
     sudo \
     htop \
     procps \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy bun binary from builder instead of re-installing
