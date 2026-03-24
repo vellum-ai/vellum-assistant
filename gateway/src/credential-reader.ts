@@ -142,12 +142,12 @@ export function getRootDir(): string {
 /**
  * Returns the workspace root for user-facing state.
  *
- * When the WORKSPACE_DIR env var is set, returns that value (used in
- * containerized deployments where the workspace is a separate volume).
- * Otherwise falls back to ~/.vellum/workspace.
+ * When the VELLUM_WORKSPACE_DIR (or legacy WORKSPACE_DIR) env var is set,
+ * returns that value (used in containerized deployments where the workspace
+ * is a separate volume). Otherwise falls back to ~/.vellum/workspace.
  */
 export function getWorkspaceDir(): string {
-  const override = process.env.WORKSPACE_DIR?.trim();
+  const override = (process.env.VELLUM_WORKSPACE_DIR ?? process.env.WORKSPACE_DIR)?.trim();
   if (override) return override;
   return join(getRootDir(), "workspace");
 }
