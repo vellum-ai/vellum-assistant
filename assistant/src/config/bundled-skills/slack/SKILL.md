@@ -16,7 +16,7 @@ When the user says "scan my Slack", "what's happening on Slack", or similar:
 
 1. Call `slack_scan_digest` immediately. If preferred channels are configured, scan those; otherwise scan top active channels.
 2. Present results progressively: overview first (channel names, message counts, top threads), then offer to drill into specific threads.
-3. For threads the user wants to explore, use `messaging_read` with `thread_id` to fetch full content, then summarize with attribution (who said what, decisions made, open questions).
+3. For threads the user wants to explore, use the Slack Web API via CLI to fetch full thread content (e.g., `conversations.replies`), then summarize with attribution (who said what, decisions made, open questions).
 
 ## Thread Summarization
 
@@ -63,16 +63,19 @@ When responding to messages from Slack channels, replies are automatically threa
 - Continuing a conversation stays in the same thread
 - Thread context expires after 24 hours of inactivity, starting a fresh thread
 
-## Proactive Delivery
+## Slack Web API
 
-When you need to **send** content to Slack proactively (e.g. a scheduled digest, a scan summary, or a report):
+For any Slack operations not covered by the bundled tools (sending messages, reading threads, searching, etc.), use the Slack Web API directly via `bash` with `network_mode: "proxied"` and `credential_ids: ["slack_channel/bot_token"]`. The proxy handles authentication automatically.
 
-- Use `messaging_send` with `platform: "slack"` and the target `conversation_id` (Slack channel or DM ID). This posts directly via `chat.postMessage` and preserves the full message content.
-- Do **NOT** use `send_notification` for rich content like digests - the notification router's decision engine rewrites content into short alerts, stripping the actual digest.
-- `send_notification` is appropriate for short alerts and status updates where you want the router to pick the best channel. `messaging_send` is appropriate when you have specific content to deliver to a specific Slack destination.
-- For scheduled tasks (cron/RRULE), always end with a `messaging_send` call so the results actually reach the user. Without it, the output only lives in the conversation log.
+Refer to the Slack Web API docs at https://api.slack.com/methods for available methods and parameters. The bot token scopes configured in the manifest determine what's accessible.
 
-For setting up recurring digests, load the `slack-digest-setup` skill which covers the full configuration, scheduling, and delivery protocol.
+Do **NOT** use `messaging_send` or other messaging skill tools with `platform: "slack"` — Slack is not handled by the messaging skill.
+
+### Delivery notes
+
+- For rich content (digests, reports): use the Slack API directly. `send_notification` rewrites content into short alerts.
+- For short alerts: `send_notification` is fine — it lets the notification router pick the best channel.
+- For scheduled tasks: always include an explicit Slack API call to deliver results, otherwise output only lives in the conversation log.
 
 ## Connection
 

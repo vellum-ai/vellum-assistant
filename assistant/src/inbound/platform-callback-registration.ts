@@ -24,9 +24,21 @@ import {
   getPlatformInternalApiKey,
 } from "../config/env.js";
 import { getIsContainerized } from "../config/env-registry.js";
+import { credentialKey } from "../security/credential-key.js";
+import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("platform-callback-registration");
+
+export interface PlatformCallbackRegistrationContext {
+  containerized: boolean;
+  platformBaseUrl: string;
+  assistantId: string;
+  hasInternalApiKey: boolean;
+  hasAssistantApiKey: boolean;
+  authHeader: string | null;
+  enabled: boolean;
+}
 
 /**
  * Whether the daemon should register callback routes with the platform.
@@ -41,6 +53,45 @@ export function shouldUsePlatformCallbacks(): boolean {
     !!getPlatformBaseUrl() &&
     !!getPlatformAssistantId()
   );
+}
+
+export async function resolvePlatformCallbackRegistrationContext(): Promise<PlatformCallbackRegistrationContext> {
+  const containerized = getIsContainerized();
+  const [storedBaseUrlRaw, storedAssistantIdRaw, storedAssistantApiKeyRaw] =
+    await Promise.all([
+      getSecureKeyAsync(credentialKey("vellum", "platform_base_url")),
+      getSecureKeyAsync(credentialKey("vellum", "platform_assistant_id")),
+      getSecureKeyAsync(credentialKey("vellum", "assistant_api_key")),
+    ]);
+
+  const storedBaseUrl = storedBaseUrlRaw?.trim();
+  const platformBaseUrl = (storedBaseUrl || getPlatformBaseUrl()).replace(
+    /\/+$/,
+    "",
+  );
+  const assistantId =
+    getPlatformAssistantId().trim() || storedAssistantIdRaw?.trim() || "";
+  const internalApiKey = getPlatformInternalApiKey().trim();
+  const assistantApiKey = storedAssistantApiKeyRaw?.trim() || "";
+  const authHeader = internalApiKey
+    ? `Bearer ${internalApiKey}`
+    : assistantApiKey
+      ? `Api-Key ${assistantApiKey}`
+      : null;
+
+  return {
+    containerized,
+    platformBaseUrl,
+    assistantId,
+    hasInternalApiKey: internalApiKey.length > 0,
+    hasAssistantApiKey: assistantApiKey.length > 0,
+    authHeader,
+    enabled:
+      containerized &&
+      platformBaseUrl.length > 0 &&
+      assistantId.length > 0 &&
+      authHeader !== null,
+  };
 }
 
 interface RegisterCallbackRouteResponse {
@@ -65,19 +116,22 @@ export async function registerCallbackRoute(
   callbackPath: string,
   type: string,
 ): Promise<string> {
-  const platformBaseUrl = getPlatformBaseUrl().replace(/\/+$/, "");
-  const assistantId = getPlatformAssistantId();
-  const apiKey = getPlatformInternalApiKey();
+  const context = await resolvePlatformCallbackRegistrationContext();
+  if (!context.enabled || !context.authHeader) {
+    throw new Error(
+      "Platform callbacks not available — missing containerized platform registration context",
+    );
+  }
+
+  const platformBaseUrl = context.platformBaseUrl;
+  const assistantId = context.assistantId;
 
   const url = `${platformBaseUrl}/v1/internal/gateway/callback-routes/register/`;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    Authorization: context.authHeader,
   };
-
-  if (apiKey) {
-    headers["Authorization"] = `Bearer ${apiKey}`;
-  }
 
   const body = JSON.stringify({
     assistant_id: assistantId,

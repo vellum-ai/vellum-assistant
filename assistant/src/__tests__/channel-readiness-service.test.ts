@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { credentialKey } from "../security/credential-key.js";
+
 let mockTwilioPhoneNumber: string | undefined;
 let mockRawConfig: Record<string, unknown> | undefined;
 let mockSecureKeys: Record<string, string>;
 let mockHasTwilioCredentials: boolean;
+let mockShouldUsePlatformCallbacks: boolean;
 
 mock.module("../calls/twilio-rest.js", () => ({
   getPhoneNumberSid: async () => null,
@@ -40,6 +43,10 @@ mock.module("../email/service.js", () => ({
   }),
 }));
 
+mock.module("../inbound/platform-callback-registration.js", () => ({
+  shouldUsePlatformCallbacks: () => mockShouldUsePlatformCallbacks,
+}));
+
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
 }));
@@ -51,6 +58,7 @@ mock.module("../runtime/channel-invite-transports/whatsapp.js", () => ({
 import type { ChannelId } from "../channels/types.js";
 import {
   ChannelReadinessService,
+  createReadinessService,
   REMOTE_TTL_MS,
 } from "../runtime/channel-readiness-service.js";
 import type {
@@ -96,6 +104,7 @@ describe("ChannelReadinessService", () => {
     mockRawConfig = undefined;
     mockSecureKeys = {};
     mockHasTwilioCredentials = false;
+    mockShouldUsePlatformCallbacks = false;
   });
 
   test("local checks run on every call (no caching of local results)", async () => {
@@ -255,6 +264,38 @@ describe("ChannelReadinessService", () => {
 
     expect(snapshot.ready).toBe(true);
     expect(snapshot.reasons).toHaveLength(0);
+  });
+
+  test("telegram readiness accepts managed callback routing when ingress is absent", async () => {
+    mockShouldUsePlatformCallbacks = true;
+    mockSecureKeys[credentialKey("telegram", "bot_token")] = "123:abc";
+    mockSecureKeys[credentialKey("telegram", "webhook_secret")] = "secret";
+
+    const readiness = createReadinessService();
+    const [snapshot] = await readiness.getReadiness("telegram");
+
+    expect(snapshot.ready).toBe(true);
+    expect(snapshot.localChecks).toContainEqual({
+      name: "ingress",
+      passed: true,
+      message: "Managed platform callback routing is configured",
+    });
+  });
+
+  test("phone readiness accepts managed callback routing when ingress is absent", async () => {
+    mockShouldUsePlatformCallbacks = true;
+    mockHasTwilioCredentials = true;
+    mockTwilioPhoneNumber = "+15555550123";
+
+    const readiness = createReadinessService();
+    const [snapshot] = await readiness.getReadiness("phone");
+
+    expect(snapshot.ready).toBe(true);
+    expect(snapshot.localChecks).toContainEqual({
+      name: "ingress",
+      passed: true,
+      message: "Managed platform callback routing is configured",
+    });
   });
 
   test("getReadiness with no channel returns all registered channels", async () => {

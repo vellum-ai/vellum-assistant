@@ -179,51 +179,48 @@ struct OAuthProviderServiceCard: View {
     }
 
     private var managedConnectionsList: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
             ForEach(store.managedConnections(for: providerKey), id: \.id) { entry in
                 managedConnectionRow(for: entry)
+                    .padding(.vertical, VSpacing.xs)
             }
-            VButton(label: "Connect Another Account", style: .outlined, isDisabled: store.managedIsConnecting(for: providerKey)) {
-                store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
-            }
-            if store.managedIsConnecting(for: providerKey) {
-                Text("Waiting for authorization...")
-                    .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+
+            Divider()
+                .foregroundStyle(VColor.borderBase)
+
+            HStack(spacing: VSpacing.sm) {
+                VButton(label: "Connect Another Account", leftIcon: "lucide-plus", style: .outlined, isDisabled: store.managedIsConnecting(for: providerKey)) {
+                    store.startManagedOAuthConnect(providerKey: providerKey, userId: currentUserId)
+                }
+                if store.managedIsConnecting(for: providerKey) {
+                    VBusyIndicator(size: 8, color: VColor.contentTertiary)
+                    Text("Waiting for authorization...")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
             }
         }
     }
 
     private func managedConnectionRow(for entry: OAuthConnectionEntry) -> some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(entry.account_label ?? "\(displayName) Account")
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
-                if let scopes = entry.scopes_granted, !scopes.isEmpty {
-                    FlowLayout(spacing: 4) {
-                        ForEach(scopes.sorted(), id: \.self) { scope in
-                            Text(friendlyScopeName(scope))
-                                .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentSecondary)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(VColor.surfaceBase)
-                                .clipShape(RoundedRectangle(cornerRadius: 4))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 4)
-                                        .stroke(VColor.borderBase, lineWidth: 1)
-                                )
-                        }
-                    }
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(alignment: .bottom, spacing: VSpacing.sm) {
+                VTextField(
+                    "Account",
+                    placeholder: "",
+                    text: .constant(entry.account_label ?? "\(displayName) Account")
+                )
+                .disabled(true)
+                VButton(label: "Disconnect", style: .danger) {
+                    store.disconnectManagedOAuthConnection(entry.id, providerKey: providerKey, userId: currentUserId)
                 }
             }
-            Spacer()
-            Text("Connected")
-                .font(VFont.labelDefault)
-                .foregroundColor(VColor.systemPositiveStrong)
-            VButton(label: "Disconnect", style: .danger) {
-                store.disconnectManagedOAuthConnection(entry.id, providerKey: providerKey, userId: currentUserId)
+            if let scopes = entry.scopes_granted, !scopes.isEmpty {
+                FlowLayout(spacing: VSpacing.xs) {
+                    ForEach(scopes.sorted(), id: \.self) { scope in
+                        VTag(friendlyScopeName(scope), color: VColor.primaryBase)
+                    }
+                }
             }
         }
     }

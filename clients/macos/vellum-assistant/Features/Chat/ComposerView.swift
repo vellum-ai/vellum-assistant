@@ -599,7 +599,7 @@ VStreamingWaveform(
 
                     VButton(
                         label: "End voice mode",
-                        iconOnly: VIcon.phoneCall.rawValue,
+                        iconOnly: VIcon.x.rawValue,
                         style: .danger,
                         iconSize: composerActionButtonSize,
                         action: { onEndVoiceMode?() }

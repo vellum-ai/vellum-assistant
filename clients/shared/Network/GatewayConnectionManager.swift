@@ -97,6 +97,8 @@ public final class GatewayConnectionManager: ObservableObject {
     #if os(macOS)
     var lastAutoWakeAttempt: Date?
     var autoWakeTask: Task<Void, Never>?
+    var reconnectionTask: Task<Void, Never>?
+    var reconnectionGeneration: Int = 0
     #endif
 
     // MARK: - Event Stream
@@ -134,6 +136,10 @@ public final class GatewayConnectionManager: ObservableObject {
     }
 
     func connectImpl(cancelAutoWake: Bool) async throws {
+        #if os(macOS)
+        reconnectionTask?.cancel()
+        reconnectionTask = nil
+        #endif
         disconnectInternal(cancelAutoWake: cancelAutoWake)
 
         isConnecting = true
@@ -179,6 +185,8 @@ public final class GatewayConnectionManager: ObservableObject {
                     }
                 }
             }
+
+            startReconnectionLoop()
             #endif
 
             isConnecting = false
@@ -190,6 +198,10 @@ public final class GatewayConnectionManager: ObservableObject {
     // MARK: - Disconnect
 
     public func disconnect() {
+        #if os(macOS)
+        reconnectionTask?.cancel()
+        reconnectionTask = nil
+        #endif
         disconnectInternal()
     }
 
@@ -218,6 +230,8 @@ public final class GatewayConnectionManager: ObservableObject {
     public func reconfigure(conversationKey: String? = nil) {
         self.conversationKey = conversationKey
         #if os(macOS)
+        reconnectionTask?.cancel()
+        reconnectionTask = nil
         autoWakeTask?.cancel()
         autoWakeTask = nil
         #endif
@@ -551,6 +565,89 @@ public final class GatewayConnectionManager: ObservableObject {
             self.autoWakeTask = nil
         }
     }
+
+    // MARK: - Background Reconnection Loop
+
+    /// Retries connection with increasing delays after the initial `connect()` fails.
+    /// Only applies to local assistants on macOS. Uses health checks and auto-wake
+    /// to reconnect without calling `connectImpl()` (which would interfere via
+    /// `disconnectInternal()`). Cancelled on explicit `disconnect()` or `reconfigure()`.
+    private func startReconnectionLoop() {
+        guard isLocal, shouldReconnect else { return }
+        reconnectionTask?.cancel()
+        reconnectionGeneration += 1
+        let generation = reconnectionGeneration
+        reconnectionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let delays: [UInt64] = [3, 5, 10, 15] // seconds
+            var attempt = 0
+            while !Task.isCancelled {
+                // If another path (e.g. autoWakeIfAssistantDied) connected us, exit
+                guard !self.isConnected else {
+                    log.info("reconnect-loop: already connected, exiting")
+                    break
+                }
+                // Honor explicit disconnect/reconfigure
+                guard self.shouldReconnect else {
+                    log.info("reconnect-loop: shouldReconnect is false, exiting")
+                    break
+                }
+
+                let delaySec = delays[min(attempt, delays.count - 1)]
+                log.info("reconnect-loop: attempt \(attempt + 1), waiting \(delaySec)s")
+                try? await Task.sleep(nanoseconds: delaySec * 1_000_000_000)
+                guard !Task.isCancelled else { break }
+
+                attempt += 1
+
+                do {
+                    try await self.performHealthCheck()
+                } catch {
+                    // Health check failed — try auto-wake if gateway unreachable
+                    if let wakeHandler = self.wakeHandler {
+                        let reachable = await HealthCheckClient.isReachable()
+                        if !reachable {
+                            // Cancel competing auto-wake triggered by performHealthCheck → setConnected(false)
+                            self.autoWakeTask?.cancel()
+                            self.autoWakeTask = nil
+                            log.info("reconnect-loop: gateway unreachable — attempting wake")
+                            guard !Task.isCancelled, self.shouldReconnect else { break }
+                            do {
+                                try await wakeHandler()
+                                guard !Task.isCancelled else { break }
+                                try await self.performHealthCheck()
+                            } catch {
+                                log.warning("reconnect-loop: wake + health check failed: \(error)")
+                                continue
+                            }
+                        } else {
+                            log.warning("reconnect-loop: health check failed but gateway reachable: \(error)")
+                            continue
+                        }
+                    } else {
+                        log.warning("reconnect-loop: health check failed (no wake handler): \(error)")
+                        continue
+                    }
+                }
+
+                // If we reach here, health check succeeded
+                guard !Task.isCancelled else { break }
+                self.startHealthCheckLoop()
+                self.isAuthenticated = true
+                self.isConnecting = false
+                log.info("reconnect-loop: connected successfully after \(attempt) attempt(s)")
+                self.eventStreamClient.startSSE()
+                if self.reconnectionGeneration == generation {
+                    self.reconnectionTask = nil
+                }
+                return
+            }
+            log.info("reconnect-loop: cancelled")
+            if self.reconnectionGeneration == generation {
+                self.reconnectionTask = nil
+            }
+        }
+    }
     #endif
 
     // MARK: - Post-Sparkle Update Detection
@@ -634,6 +731,7 @@ public final class GatewayConnectionManager: ObservableObject {
     deinit {
         #if os(macOS)
         autoWakeTask?.cancel()
+        reconnectionTask?.cancel()
         #endif
     }
 }

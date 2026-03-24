@@ -318,7 +318,10 @@ export async function startCli(): Promise<void> {
   }
 
   /** Send a user message via signal file to the daemon. */
-  async function sendUserMessage(content: string): Promise<boolean> {
+  async function sendUserMessage(
+    content: string,
+    options?: { bypassSecretCheck?: boolean },
+  ): Promise<{ ok: boolean; error?: string; message?: string }> {
     try {
       const signalsDir = getSignalsDir();
       mkdirSync(signalsDir, { recursive: true });
@@ -334,12 +337,23 @@ export async function startCli(): Promise<void> {
           sourceChannel: "vellum",
           interface: "cli",
           requestId,
+          ...(options?.bypassSecretCheck
+            ? { bypassSecretCheck: true }
+            : undefined),
         }),
       );
 
-      const accepted = await new Promise<boolean>((resolve) => {
+      const result = await new Promise<{
+        ok: boolean;
+        error?: string;
+        message?: string;
+      }>((resolve) => {
         let settled = false;
-        const settle = (value: boolean): void => {
+        const settle = (value: {
+          ok: boolean;
+          error?: string;
+          message?: string;
+        }): void => {
           if (settled) return;
           settled = true;
           watcher.close();
@@ -350,13 +364,16 @@ export async function startCli(): Promise<void> {
         const checkResult = (): void => {
           try {
             const raw = readFileSync(resultPath, "utf-8");
-            const result = JSON.parse(raw) as {
+            const parsed = JSON.parse(raw) as {
               ok?: boolean;
               accepted?: boolean;
               requestId?: string;
+              error?: string;
+              message?: string;
             };
-            if (result.requestId === requestId) {
-              settle(result.ok === true && result.accepted !== false);
+            if (parsed.requestId === requestId) {
+              const ok = parsed.ok === true && parsed.accepted !== false;
+              settle({ ok, error: parsed.error, message: parsed.message });
             }
           } catch {
             // Result file not yet readable; ignore.
@@ -369,16 +386,16 @@ export async function startCli(): Promise<void> {
           }
         });
 
-        const timeoutId = setTimeout(() => settle(false), 10_000);
+        const timeoutId = setTimeout(() => settle({ ok: false }), 10_000);
 
         if (existsSync(resultPath)) {
           checkResult();
         }
       });
 
-      return accepted;
+      return result;
     } catch {
-      return false;
+      return { ok: false };
     }
   }
 
@@ -673,13 +690,37 @@ export async function startCli(): Promise<void> {
           const content = pendingUserContent;
           pendingUserContent = null;
           lastResponse = "";
-          sendUserMessage(content).then((ok) => {
-            if (ok) {
+          sendUserMessage(content).then((result) => {
+            if (result.ok) {
               generating = true;
               spinner.start("Thinking...");
             } else {
-              process.stdout.write("[Not connected — message not sent]\n");
-              prompt();
+              if (result.error === "secret_blocked" && result.message) {
+                process.stdout.write(`${result.message}\n`);
+                rl.question("Send anyway? (y/N): ", (answer) => {
+                  if (answer.trim().toLowerCase() === "y") {
+                    lastResponse = "";
+                    sendUserMessage(content, {
+                      bypassSecretCheck: true,
+                    }).then((retryResult) => {
+                      if (retryResult.ok) {
+                        generating = true;
+                        spinner.start("Thinking...");
+                      } else {
+                        process.stdout.write(
+                          "[Not connected — message not sent]\n",
+                        );
+                        prompt();
+                      }
+                    });
+                  } else {
+                    prompt();
+                  }
+                });
+              } else {
+                process.stdout.write("[Not connected — message not sent]\n");
+                prompt();
+              }
             }
           });
         } else {
@@ -1290,10 +1331,34 @@ export async function startCli(): Promise<void> {
 
     // Regular user message
     lastResponse = "";
-    sendUserMessage(content).then((ok) => {
-      if (!ok) {
-        process.stdout.write("[Not connected — message not sent]\n");
-        prompt();
+    sendUserMessage(content).then((result) => {
+      if (!result.ok) {
+        if (result.error === "secret_blocked" && result.message) {
+          process.stdout.write(`${result.message}\n`);
+          rl.question("Send anyway? (y/N): ", (answer) => {
+            if (answer.trim().toLowerCase() === "y") {
+              lastResponse = "";
+              sendUserMessage(content, { bypassSecretCheck: true }).then(
+                (retryResult) => {
+                  if (retryResult.ok) {
+                    generating = true;
+                    spinner.start("Thinking...");
+                  } else {
+                    process.stdout.write(
+                      "[Not connected — message not sent]\n",
+                    );
+                    prompt();
+                  }
+                },
+              );
+            } else {
+              prompt();
+            }
+          });
+        } else {
+          process.stdout.write("[Not connected — message not sent]\n");
+          prompt();
+        }
         return;
       }
       generating = true;

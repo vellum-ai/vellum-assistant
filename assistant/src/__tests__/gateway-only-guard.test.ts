@@ -40,6 +40,9 @@ const ALLOWLIST = new Set([
   "AGENTS.md", // documents the gateway-only rule itself
   "ARCHITECTURE.md", // architecture overview with port references
   "assistant/src/runtime/middleware/twilio-validation.ts", // comment explaining proxy URL rewriting
+
+  // --- Code generation tooling (documents the default server URL, not API consumption) ---
+  "assistant/scripts/generate-openapi.ts", // OpenAPI spec generator embeds default server URL
 ]);
 
 /** Patterns that indicate a direct runtime URL reference via hardcoded port. */

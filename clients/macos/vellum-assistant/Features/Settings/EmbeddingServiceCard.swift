@@ -165,8 +165,8 @@ struct EmbeddingServiceCard: View {
                         draftProvider = newValue
                     }
                 ),
-                options: providerOptions,
-                )
+                options: providerOptions
+            )
         }
     }
 
@@ -185,7 +185,7 @@ struct EmbeddingServiceCard: View {
             placeholder: placeholder,
             text: $apiKeyText,
             isSecure: true,
-            errorMessage: store.embeddingKeySaveError,
+            errorMessage: store.embeddingKeySaveError
         )
         .id("embedding-api-key-\(draftProvider)-\(placeholder)")
     }
@@ -196,7 +196,7 @@ struct EmbeddingServiceCard: View {
         VTextField(
             "Model",
             placeholder: defaultModelForProvider.isEmpty ? "Enter model name" : defaultModelForProvider,
-            text: $draftModel,
+            text: $draftModel
         )
     }
 

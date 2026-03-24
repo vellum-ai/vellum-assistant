@@ -135,6 +135,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.secretDetection).toEqual({
       enabled: true,
       action: "redact",
+      blockIngress: true,
       entropyThreshold: 4.0,
       allowOneTimeSend: false,
     });
@@ -157,6 +158,7 @@ describe("AssistantConfigSchema", () => {
       secretDetection: {
         enabled: false,
         action: "block" as const,
+        blockIngress: false,
         entropyThreshold: 5.5,
       },
       auditLog: { retentionDays: 30 },
@@ -436,7 +438,10 @@ describe("AssistantConfigSchema", () => {
 
   test("defaults permissions.mode to workspace", () => {
     const result = AssistantConfigSchema.parse({});
-    expect(result.permissions).toEqual({ mode: "workspace", dangerouslySkipPermissions: false });
+    expect(result.permissions).toEqual({
+      mode: "workspace",
+      dangerouslySkipPermissions: false,
+    });
   });
 
   test("accepts explicit permissions.mode strict", () => {
@@ -1141,7 +1146,10 @@ describe("loadConfig with schema validation", () => {
   test("defaults permissions.mode to workspace when not specified", () => {
     writeConfig({});
     const config = loadConfig();
-    expect(config.permissions).toEqual({ mode: "workspace", dangerouslySkipPermissions: false });
+    expect(config.permissions).toEqual({
+      mode: "workspace",
+      dangerouslySkipPermissions: false,
+    });
   });
 
   test("loads explicit permissions.mode strict", () => {

@@ -52,6 +52,7 @@ final class ConversationRestorer {
     private let conversationHistoryClient: any ConversationHistoryClientProtocol
     private var connectionCancellable: AnyCancellable?
     private var disconnectCancellable: AnyCancellable?
+    private var fetchConversationListTask: Task<Void, Never>?
 
     weak var delegate: ConversationRestorerDelegate?
 
@@ -59,6 +60,10 @@ final class ConversationRestorer {
         self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.conversationHistoryClient = conversationHistoryClient
+    }
+
+    deinit {
+        fetchConversationListTask?.cancel()
     }
 
     func startObserving(skipInitialFetch: Bool = false) {
@@ -323,13 +328,24 @@ final class ConversationRestorer {
     // MARK: - Private
 
     private func fetchConversationList() {
-        Task { [weak self] in
+        fetchConversationListTask = Task { [weak self] in
             guard let self else { return }
-            if let response = await conversationListClient.fetchConversationList(offset: 0, limit: 50) {
-                self.handleConversationListResponse(response)
-            } else {
-                self.delegate?.restoreLastActiveConversation()
+            // Cap at 2 attempts to limit worst-case restore delay (~32s with 15s
+            // per-request timeout) while still covering the daemon restart race.
+            let maxAttempts = 2
+            for attempt in 1...maxAttempts {
+                if let response = await conversationListClient.fetchConversationList(offset: 0, limit: 50) {
+                    self.handleConversationListResponse(response)
+                    return
+                }
+                if attempt < maxAttempts {
+                    log.warning("Conversation list fetch attempt \(attempt) of \(maxAttempts) failed, retrying in 2 seconds...")
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard !Task.isCancelled else { return }
+                }
             }
+            log.warning("All \(maxAttempts) conversation list fetch attempts failed, falling back to last active conversation")
+            self.delegate?.restoreLastActiveConversation()
         }
     }
 }

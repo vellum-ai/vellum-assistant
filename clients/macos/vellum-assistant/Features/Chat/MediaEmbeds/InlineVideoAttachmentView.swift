@@ -395,7 +395,6 @@ struct InlineVideoAttachmentView: View {
 
         isLoading = true
         Task {
-            let gatewayBaseUrl = resolveGatewayBaseUrl()
             let maxRetries = 3
             var lastError: VideoPlaybackFailure?
 
@@ -405,7 +404,7 @@ struct InlineVideoAttachmentView: View {
                 }
 
                 do {
-                    let data = try await fetchAttachmentContent(gatewayBaseUrl: gatewayBaseUrl, attachmentId: attachmentId)
+                    let data = try await AttachmentContentClient.fetchContent(attachmentId: attachmentId)
                     let fileURL = safeTempURL()
                     try data.write(to: fileURL)
                     await MainActor.run { isLoading = false }
@@ -455,7 +454,6 @@ struct InlineVideoAttachmentView: View {
         let sourceURL = localFileURL ?? cachedFileURL
         let isLazy = attachment.isLazyLoad
         let attachmentId = attachment.id.isEmpty ? nil : attachment.id
-        let gatewayBaseUrl = isLazy ? resolveGatewayBaseUrl() : ""
         let base64 = attachment.data
         panel.begin { response in
             guard response == .OK, let destURL = panel.url else { return }
@@ -486,7 +484,7 @@ struct InlineVideoAttachmentView: View {
             } else if isLazy, let attachmentId {
                 Task {
                     do {
-                        let data = try await fetchAttachmentContent(gatewayBaseUrl: gatewayBaseUrl, attachmentId: attachmentId)
+                        let data = try await AttachmentContentClient.fetchContent(attachmentId: attachmentId)
                         try data.write(to: destURL)
                         await MainActor.run {
                             self.isSaving = false
@@ -534,11 +532,10 @@ struct InlineVideoAttachmentView: View {
             NSWorkspace.shared.open(fileURL)
         } else if attachment.isLazyLoad {
             guard let attachmentId = attachment.id.isEmpty ? nil : attachment.id else { return }
-            let gatewayBaseUrl = resolveGatewayBaseUrl()
             isLoading = true
             Task {
                 do {
-                    let data = try await fetchAttachmentContent(gatewayBaseUrl: gatewayBaseUrl, attachmentId: attachmentId)
+                    let data = try await AttachmentContentClient.fetchContent(attachmentId: attachmentId)
                     let fileURL = safeTempURL()
                     try data.write(to: fileURL)
                     await MainActor.run {
@@ -556,31 +553,6 @@ struct InlineVideoAttachmentView: View {
             NSWorkspace.shared.open(fileURL)
         }
     }
-}
-
-/// Resolve the local gateway base URL: env var > lockfile > default 7830.
-private func resolveGatewayBaseUrl() -> String {
-    let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-    return "http://127.0.0.1:\(LockfilePaths.resolveGatewayPort(connectedAssistantId: connectedId))"
-}
-
-/// Fetch raw attachment bytes via the gateway's runtime proxy.
-private func fetchAttachmentContent(gatewayBaseUrl: String, attachmentId: String) async throws -> Data {
-    guard let token = ActorTokenManager.getToken(), !token.isEmpty else {
-        throw URLError(.userAuthenticationRequired)
-    }
-    let url = URL(string: "\(gatewayBaseUrl)/v1/attachments/\(attachmentId)/content")!
-    var request = URLRequest(url: url)
-    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-
-    let (data, response) = try await URLSession.shared.data(for: request)
-    guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-        let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-        log.error("Attachment fetch failed with HTTP \(statusCode) for \(attachmentId)")
-        throw URLError(.badServerResponse)
-    }
-
-    return data
 }
 
 /// NSViewRepresentable wrapper for AVPlayerView.

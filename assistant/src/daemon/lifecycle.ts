@@ -1100,6 +1100,12 @@ export async function runDaemon(): Promise<void> {
           },
         }),
       alerter: (alert) => server.broadcast(alert),
+      onConversationCreated: (info) =>
+        server.broadcast({
+          type: "heartbeat_conversation_created",
+          conversationId: info.conversationId,
+          title: info.title,
+        }),
     });
     heartbeat.start();
     server.setHeartbeatService(heartbeat);

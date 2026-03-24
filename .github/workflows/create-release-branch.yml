@@ -117,6 +117,7 @@ jobs:
             .dependencies["@vellumai/assistant"] = $v |
             .dependencies["@vellumai/cli"] = $v |
             .dependencies["@vellumai/credential-executor"] = $v |
+            .dependencies["@vellumai/trust-broker"] = $v |
             .dependencies["@vellumai/vellum-gateway"] = $v
           ' meta/package.json > tmp && mv tmp meta/package.json
 
@@ -125,6 +126,6 @@ jobs:
 
           git add -A
           if ! git diff --cached --quiet; then
-            git commit -m "[staging] Release v$VERSION"
+            git commit -m "Release v$VERSION"
           fi
           git push origin "$BRANCH"

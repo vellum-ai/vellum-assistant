@@ -530,16 +530,30 @@ extension ChatBubble {
     }
 
     func saveFileAttachment(_ attachment: ChatAttachment) {
-        guard !attachment.data.isEmpty,
-              let data = Data(base64Encoded: attachment.data),
-              !data.isEmpty else { return }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = (attachment.filename as NSString).lastPathComponent
         panel.canCreateDirectories = true
+
+        let isLazy = attachment.isLazyLoad
+        let attachmentId = attachment.id.isEmpty ? nil : attachment.id
+        let base64 = attachment.data
+
         panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
-            DispatchQueue.global(qos: .userInitiated).async {
-                try? data.write(to: url)
+            guard response == .OK, let destURL = panel.url else { return }
+            if isLazy, let attachmentId {
+                Task {
+                    do {
+                        let data = try await AttachmentContentClient.fetchContent(attachmentId: attachmentId)
+                        try data.write(to: destURL)
+                    } catch {
+                        // Fetch failed — nothing to write
+                    }
+                }
+            } else {
+                guard let data = Data(base64Encoded: base64), !data.isEmpty else { return }
+                DispatchQueue.global(qos: .userInitiated).async {
+                    try? data.write(to: destURL)
+                }
             }
         }
     }

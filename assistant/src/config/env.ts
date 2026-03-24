@@ -152,11 +152,15 @@ export function getPlatformBaseUrl(): string {
   } catch {
     // Config not yet available (early bootstrap) — fall through
   }
+  const defaultUrl =
+    str("VELLUM_DEV") === "1"
+      ? "https://dev-platform.vellum.ai"
+      : "https://platform.vellum.ai";
   return (
     configUrl ||
     str("VELLUM_PLATFORM_URL") ||
     _platformBaseUrlOverride ||
-    "https://platform.vellum.ai"
+    defaultUrl
   );
 }
 

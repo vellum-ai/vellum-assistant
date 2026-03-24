@@ -1,6 +1,7 @@
 import AppKit
-import VellumAssistantShared
+@preconcurrency import Sentry
 import SwiftUI
+import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+MenuBar")
@@ -587,6 +588,19 @@ extension AppDelegate {
                     self?.dismissLogReportWindow()
                     self?.mainWindow?.windowState.showToast(message: "Feedback sent", style: .success)
                 } catch {
+                    let event = Event(level: .error)
+                    event.message = SentryMessage(formatted: "Feedback submission failed: \(error.localizedDescription)")
+                    event.tags = [
+                        "source": "feedback_submission",
+                        "feedback_classification": LogExporter.feedbackClassification(for: formData.reason),
+                    ]
+                    event.extra = [
+                        "error_type": String(describing: type(of: error)),
+                        "error_description": error.localizedDescription,
+                        "included_logs": formData.includeLogs,
+                    ]
+                    MetricKitManager.captureSentryEvent(event)
+
                     self?.dismissLogReportWindow()
                     self?.mainWindow?.windowState.showToast(
                         message: "Could not send feedback: \(error.localizedDescription)",

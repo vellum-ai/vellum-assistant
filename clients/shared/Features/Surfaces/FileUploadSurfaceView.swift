@@ -201,10 +201,11 @@ public struct FileUploadSurfaceView: View {
             }
         }
 
-        guard panel.runModal() == .OK else { return }
-
-        for url in panel.urls {
-            addFile(from: url)
+        panel.begin { response in
+            guard response == .OK else { return }
+            for url in panel.urls {
+                addFile(from: url)
+            }
         }
     }
 

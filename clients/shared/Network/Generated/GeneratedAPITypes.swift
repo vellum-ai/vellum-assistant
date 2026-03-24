@@ -3249,6 +3249,19 @@ public struct SchedulesListResponseSchedule: Codable, Sendable {
     }
 }
 
+/// Server push — broadcast when a heartbeat creates a conversation, so the client can show it in the sidebar.
+public struct HeartbeatConversationCreated: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let title: String
+
+    public init(type: String, conversationId: String, title: String) {
+        self.type = type
+        self.conversationId = conversationId
+        self.title = title
+    }
+}
+
 /// Server push — broadcast when a schedule creates a conversation, so the client can show it as a chat conversation.
 public struct ScheduleConversationCreated: Codable, Sendable {
     public let type: String

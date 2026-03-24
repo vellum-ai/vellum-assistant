@@ -2,6 +2,7 @@
  * Approval prompt delivery: rich UI (buttons) with plain-text fallback.
  */
 import type { ChannelId } from "../../channels/types.js";
+import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import type { ApprovalMessageContext } from "../approval-message-composer.js";
 import { composeApprovalMessageGenerative } from "../approval-message-composer.js";
@@ -19,6 +20,66 @@ import type { ApprovalCopyGenerator } from "../http-types.js";
 import { requiredDecisionKeywords } from "./channel-route-shared.js";
 
 const log = getLogger("runtime-http");
+
+// ---------------------------------------------------------------------------
+// Tool input summary for rich-UI approval prompts
+// ---------------------------------------------------------------------------
+
+/** Max characters for the tool input preview line. */
+const INPUT_PREVIEW_MAX_LENGTH = 200;
+
+/**
+ * Extract a concise, human-readable preview of the tool input so that
+ * sequential approval prompts for the same tool are distinguishable.
+ *
+ * Returns `null` when no meaningful preview can be produced.
+ */
+/** Escape backticks in user-controlled input so they don't break inline code spans. */
+function escapeBackticks(value: string): string {
+  return value.replace(/`/g, "'");
+}
+
+/** Redact potential secrets from tool input before previewing. */
+function sanitizePreviewValue(value: string): string {
+  return escapeBackticks(redactSecrets(value));
+}
+
+function formatToolInputPreview(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+): string | null {
+  // Pick the most relevant field based on tool type
+  const command = toolInput.command ?? toolInput.cmd;
+  if (typeof command === "string" && command.length > 0) {
+    return truncatePreview(`\`${sanitizePreviewValue(command)}\``);
+  }
+
+  const path = toolInput.path ?? toolInput.file_path ?? toolInput.filePath;
+  if (typeof path === "string" && path.length > 0) {
+    const verb =
+      toolName.includes("write") || toolName.includes("edit")
+        ? "writing to"
+        : toolName.includes("read")
+          ? "reading"
+          : "on";
+    return truncatePreview(`${verb} \`${sanitizePreviewValue(path)}\``);
+  }
+
+  const url = toolInput.url;
+  if (typeof url === "string" && url.length > 0) {
+    return truncatePreview(`fetching \`${sanitizePreviewValue(url)}\``);
+  }
+
+  return null;
+}
+
+function truncatePreview(text: string): string {
+  if (text.length <= INPUT_PREVIEW_MAX_LENGTH) return text;
+  const truncated = text.slice(0, INPUT_PREVIEW_MAX_LENGTH - 1) + "…";
+  // Preserve backtick pairing so markdown renders correctly.
+  const openBackticks = (truncated.match(/`/g) || []).length;
+  return openBackticks % 2 !== 0 ? truncated + "`" : truncated;
+}
 
 export interface DeliverGeneratedApprovalPromptParams {
   replyCallbackUrl: string;
@@ -61,15 +122,29 @@ export async function deliverGeneratedApprovalPrompt(
       approvalCopyGenerator,
     );
 
+    // Append a tool input preview so sequential approvals are distinguishable
+    let enrichedText = richText;
+    if (uiMetadata.permissionDetails) {
+      const preview = formatToolInputPreview(
+        uiMetadata.permissionDetails.toolName,
+        uiMetadata.permissionDetails.toolInput,
+      );
+      if (preview) {
+        enrichedText = `${enrichedText}\n\n${preview}`;
+      }
+    }
+
     // Append a legend explaining what each button does
     const legend = buildActionLegend(uiMetadata.actions);
-    const richTextWithLegend = legend ? `${richText}\n\n${legend}` : richText;
+    if (legend) {
+      enrichedText = `${enrichedText}\n\n${legend}`;
+    }
 
     try {
       await deliverApprovalPrompt(
         replyCallbackUrl,
         chatId,
-        richTextWithLegend,
+        enrichedText,
         uiMetadata,
         assistantId,
         bearerToken,

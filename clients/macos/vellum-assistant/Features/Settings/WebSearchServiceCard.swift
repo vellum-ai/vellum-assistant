@@ -195,7 +195,7 @@ struct WebSearchServiceCard: View {
                 selection: $draftProvider,
                 options: availableProviders.map { provider in
                     (label: SettingsStore.webSearchProviderDisplayNames[provider] ?? provider, value: provider)
-                },
+                }
             )
         }
     }

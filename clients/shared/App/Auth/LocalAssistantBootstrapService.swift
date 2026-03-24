@@ -76,13 +76,19 @@ public final class LocalAssistantBootstrapService {
         let installId = DeviceIdStore.getOrCreate()
 
         // Resolve the user's organization ID — required for all platform API calls.
+        // Always fetch the org list to validate any persisted ID, since the persisted
+        // value may belong to a different environment (e.g. dev vs prod).
         let organizationId: String
-        if let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
-            organizationId = persistedOrgId
-            log.info("Using persisted organization: \(organizationId, privacy: .public)")
-        } else {
-            do {
-                let orgs = try await authService.getOrganizations()
+        do {
+            let orgs = try await authService.getOrganizations()
+            let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+            if let persistedOrgId, orgs.contains(where: { $0.id == persistedOrgId }) {
+                organizationId = persistedOrgId
+                log.info("Validated persisted organization: \(organizationId, privacy: .public)")
+            } else {
+                if persistedOrgId != nil {
+                    log.warning("Persisted organization ID not found in user's orgs — re-resolving")
+                }
                 switch orgs.count {
                 case 0:
                     throw LocalBootstrapError.registrationFailed("No organizations found for this account")
@@ -93,13 +99,13 @@ public final class LocalAssistantBootstrapService {
                 }
                 UserDefaults.standard.set(organizationId, forKey: "connectedOrganizationId")
                 log.info("Resolved organization: \(organizationId, privacy: .public)")
-            } catch let error as LocalBootstrapError {
-                throw error
-            } catch let error as PlatformAPIError {
-                throw mapPlatformError(error, context: .registration)
-            } catch {
-                throw LocalBootstrapError.registrationFailed(error.localizedDescription)
             }
+        } catch let error as LocalBootstrapError {
+            throw error
+        } catch let error as PlatformAPIError {
+            throw mapPlatformError(error, context: .registration)
+        } catch {
+            throw LocalBootstrapError.registrationFailed(error.localizedDescription)
         }
 
         // Step 1: Ensure registration (idempotent)

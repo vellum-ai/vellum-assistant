@@ -13,7 +13,7 @@
 import type { TrustRule } from "@vellumai/ces-contracts";
 
 import { getGatewayInternalBaseUrl } from "../config/env.js";
-import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
+import { mintEdgeRelayToken } from "../runtime/auth/token-service.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("trust-client");
@@ -35,7 +35,7 @@ export interface AcceptStarterBundleResult {
 
 function authHeaders(): Record<string, string> {
   return {
-    Authorization: `Bearer ${mintDaemonDeliveryToken()}`,
+    Authorization: `Bearer ${mintEdgeRelayToken()}`,
     "Content-Type": "application/json",
   };
 }
