@@ -1543,9 +1543,9 @@ export function conversationRouteDefinitions(deps: {
       tags: ["conversations"],
       queryParams: [
         {
-          name: "conversationId",
+          name: "conversationKey",
           required: true,
-          description: "ID of the conversation",
+          description: "Key of the conversation",
         },
       ],
       handler: async ({ url }) =>

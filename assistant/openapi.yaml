@@ -1803,12 +1803,12 @@ paths:
       tags:
         - conversations
       parameters:
-        - name: conversationId
+        - name: conversationKey
           in: query
           required: true
           schema:
             type: string
-          description: ID of the conversation
+          description: Key of the conversation
   /v1/surface-actions:
     post:
       operationId: surfaceactions_post
