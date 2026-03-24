@@ -292,8 +292,12 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
 
     /// Called when no valid update is found.  Clears the flag in case a
     /// previously-advertised update was pulled from the appcast.
+    /// Preserves `isUpdateAvailable` when a deferred update is already
+    /// staged — a subsequent "not found" check shouldn't hide the toolbar
+    /// button while an update is downloaded and ready to install.
     nonisolated public func updaterDidNotFindUpdate(_ updater: SPUUpdater) {
         Task { @MainActor in
+            guard !self.isDeferredUpdateReady else { return }
             self.isUpdateAvailable = false
             self.availableUpdateVersion = nil
             self.pendingUpdateVersion = nil

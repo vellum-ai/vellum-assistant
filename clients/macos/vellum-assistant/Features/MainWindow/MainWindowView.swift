@@ -433,7 +433,7 @@ struct MainWindowView: View {
             }
             WindowDragArea()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if updateManager.isUpdateAvailable || updateManager.isServiceGroupUpdateAvailable {
+            if updateManager.isUpdateAvailable || updateManager.isServiceGroupUpdateAvailable || updateManager.isDeferredUpdateReady {
                 VButton(
                     label: updateManager.isDeferredUpdateReady
                         ? "Restart to update"
@@ -447,7 +447,11 @@ struct MainWindowView: View {
                             : "A new version is available")
                 ) {
                     if updateManager.isDeferredUpdateReady {
-                        NSApp.terminate(nil)
+                        // Trigger Sparkle's installer directly — it handles
+                        // termination and relaunch.  Calling NSApp.terminate
+                        // first creates a race where the installer starts
+                        // mid-teardown and can't coordinate the relaunch.
+                        updateManager.installDeferredUpdateIfAvailable()
                     } else if updateManager.isServiceGroupUpdateAvailable && !updateManager.isUpdateAvailable {
                         // Service group update only — navigate to Settings where the upgrade controls live
                         settingsStore.pendingSettingsTab = .general
@@ -459,6 +463,7 @@ struct MainWindowView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 .animation(VAnimation.fast, value: updateManager.isUpdateAvailable)
                 .animation(VAnimation.fast, value: updateManager.isServiceGroupUpdateAvailable)
+                .animation(VAnimation.fast, value: updateManager.isDeferredUpdateReady)
             }
             if windowState.isConversationVisible {
                 // Temporary chat toggle — always visible on private conversations (so users can exit temp chat),
