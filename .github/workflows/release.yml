@@ -931,17 +931,7 @@ jobs:
       contents: read
     strategy:
       matrix:
-        include:
-          - package: assistant
-            npm_name: ""
-          - package: cli
-            npm_name: ""
-          - package: credential-executor
-            npm_name: ""
-          - package: gateway
-            npm_name: ""
-          - package: credential-executor
-            npm_name: "@vellumai/trust-broker"
+        package: [assistant, cli, credential-executor, gateway, trust-broker]
     steps:
       - uses: actions/checkout@v6
 
@@ -956,22 +946,24 @@ jobs:
 
       - name: Install and publish
         run: |
-          cd ${{ matrix.package }}
+          PACKAGE="${{ matrix.package }}"
+          if [ "$PACKAGE" = "trust-broker" ]; then
+            cd credential-executor
+            jq '.name = "@vellumai/trust-broker"' package.json > package.json.tmp
+            mv package.json.tmp package.json
+            echo "Publishing credential-executor as @vellumai/trust-broker"
+          else
+            cd "$PACKAGE"
+          fi
           if ! bun install --frozen-lockfile; then
             echo "bun install --frozen-lockfile failed; regenerating lockfile and retrying..."
             rm -f bun.lock
             rm -rf node_modules
             bun install
           fi
-          if [ -n "$NPM_NAME_OVERRIDE" ]; then
-            jq --arg name "$NPM_NAME_OVERRIDE" '.name = $name' package.json > package.json.tmp
-            mv package.json.tmp package.json
-            echo "Publishing as $NPM_NAME_OVERRIDE"
-          fi
           npm publish --access public --no-provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_NAME_OVERRIDE: ${{ matrix.npm_name }}
 
   publish-meta:
     needs: [extract-version, publish-npm]
