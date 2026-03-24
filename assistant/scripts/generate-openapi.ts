@@ -4,11 +4,12 @@
  * HTTP route definitions.
  *
  * Pipeline:
- *   1. Read all route definition files (src/runtime/routes/*.ts)
- *   2. Read http-server.ts for inline and pre-auth routes
- *   3. Extract endpoint + method pairs via static analysis
- *   4. Convert to OpenAPI path items
- *   5. Write to openapi.yaml
+ *   1. Programmatically import and invoke all *RouteDefinitions() exports
+ *      from src/runtime/routes/ — no regex, no source-text parsing.
+ *   2. Combine with inline routes (defined in buildRouteTable()) and
+ *      pre-auth / non-v1 routes.
+ *   3. Convert to OpenAPI path items.
+ *   4. Write to openapi.yaml.
  *
  * Usage:
  *   cd assistant && bun run scripts/generate-openapi.ts
@@ -24,7 +25,6 @@ import { stringify } from "yaml";
 
 const ROOT = resolve(import.meta.dir, "..");
 const ROUTES_DIR = join(ROOT, "src/runtime/routes");
-const HTTP_SERVER_PATH = join(ROOT, "src/runtime/http-server.ts");
 const OUTPUT_PATH = join(ROOT, "openapi.yaml");
 const PKG_PATH = join(ROOT, "package.json");
 
@@ -39,65 +39,96 @@ interface RouteEntry {
 }
 
 // ---------------------------------------------------------------------------
-// Route extraction
+// Programmatic route extraction
 // ---------------------------------------------------------------------------
 
 /**
- * Extract endpoint/method pairs from a TypeScript source string.
+ * Create a recursive proxy that stands in for any dependency object.
  *
- * Matches route definition objects of the form:
- *   { endpoint: "...", method: "...", handler: ... }
- * where endpoint and method can appear in either order within the object.
- *
- * To avoid picking up a `method:` from a neighboring route object, we find
- * the enclosing `{ ... }` block for each `endpoint` match by scanning for
- * balanced braces.
+ * Route definition functions capture deps in handler closures but never
+ * access them during array construction, so this stub is never actually
+ * invoked at runtime — it just needs to be truthy and not throw when
+ * properties are read or the value is called as a function.
  */
-function extractRouteDefinitions(source: string): RouteEntry[] {
+function createDeepStub(): unknown {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stub: any = new Proxy(function () {}, {
+    get(_target, prop) {
+      // Prevent the stub from being treated as a Promise (await-able).
+      if (prop === "then") return undefined;
+      // Prevent infinite iteration.
+      if (prop === Symbol.iterator) return undefined;
+      // String coercion.
+      if (prop === Symbol.toPrimitive) return () => "";
+      return createDeepStub();
+    },
+    apply() {
+      return createDeepStub();
+    },
+  });
+  return stub;
+}
+
+/**
+ * Dynamically import every route module under `src/runtime/routes/`,
+ * find all exported functions whose names end with `RouteDefinitions`,
+ * invoke each with a deep stub as its first argument, and collect the
+ * `{ endpoint, method }` pairs from the returned arrays.
+ *
+ * This replaces the previous regex + balanced-brace scanning approach
+ * and automatically picks up new route modules without manual updates.
+ */
+async function collectRoutesFromModules(): Promise<RouteEntry[]> {
   const routes: RouteEntry[] = [];
-  const endpointRe = /endpoint:\s*["'`]([^"'`]+)["'`]/g;
 
-  let match: RegExpExecArray | null;
-  while ((match = endpointRe.exec(source)) !== null) {
-    const endpoint = match[1];
-    const pos = match.index;
+  const files = (await readdir(ROUTES_DIR, { recursive: true })).filter(
+    (f) =>
+      typeof f === "string" &&
+      f.endsWith(".ts") &&
+      !f.endsWith(".test.ts") &&
+      !f.endsWith(".benchmark.test.ts") &&
+      !f.includes("node_modules"),
+  );
 
-    // Walk backwards from the endpoint match to find the opening `{` of the
-    // enclosing object literal, respecting nesting depth.
-    let depth = 0;
-    let blockStart = -1;
-    for (let i = pos - 1; i >= 0; i--) {
-      if (source[i] === "}") depth++;
-      if (source[i] === "{") {
-        if (depth === 0) {
-          blockStart = i;
-          break;
-        }
-        depth--;
-      }
+  for (const file of files) {
+    const filePath = join(ROUTES_DIR, file);
+    let mod: Record<string, unknown>;
+    try {
+      mod = (await import(filePath)) as Record<string, unknown>;
+    } catch (err) {
+      console.warn(
+        `Warning: could not import ${file}: ${err instanceof Error ? err.message : err}`,
+      );
+      continue;
     }
 
-    // Walk forwards to find the matching closing `}`.
-    depth = 0;
-    let blockEnd = -1;
-    const searchStart = blockStart >= 0 ? blockStart : pos;
-    for (let i = searchStart; i < source.length; i++) {
-      if (source[i] === "{") depth++;
-      if (source[i] === "}") {
-        depth--;
-        if (depth === 0) {
-          blockEnd = i + 1;
-          break;
-        }
+    for (const [exportName, exportValue] of Object.entries(mod)) {
+      if (
+        !exportName.endsWith("RouteDefinitions") ||
+        typeof exportValue !== "function"
+      ) {
+        continue;
       }
-    }
 
-    if (blockStart < 0 || blockEnd < 0) continue;
-
-    const block = source.slice(blockStart, blockEnd);
-    const methodMatch = block.match(/method:\s*["'`]([A-Z]+)["'`]/);
-    if (methodMatch) {
-      routes.push({ method: methodMatch[1], endpoint });
+      try {
+        const defs = exportValue(createDeepStub()) as Array<{
+          endpoint?: string;
+          method?: string;
+        }>;
+        if (!Array.isArray(defs)) continue;
+        for (const def of defs) {
+          if (
+            typeof def.endpoint === "string" &&
+            typeof def.method === "string"
+          ) {
+            routes.push({ endpoint: def.endpoint, method: def.method });
+          }
+        }
+      } catch (err) {
+        console.warn(
+          `Warning: ${exportName}() in ${file} threw: ${err instanceof Error ? err.message : err}`,
+        );
+      }
     }
   }
 
@@ -105,16 +136,35 @@ function extractRouteDefinitions(source: string): RouteEntry[] {
 }
 
 /**
+ * Routes defined inline in RuntimeHttpServer.buildRouteTable() that are
+ * not exported from any route module. These are kept here because they
+ * depend on cross-cutting concerns specific to the RuntimeHttpServer
+ * instance (see B2 in the improvement plan for the recommendation to
+ * extract these into modules).
+ *
+ * Whenever buildRouteTable() gains or loses an inline route, this list
+ * must be updated — the `--check` CI job will catch staleness.
+ */
+const INLINE_ROUTES: RouteEntry[] = [
+  { endpoint: "browser-relay/status", method: "GET" },
+  { endpoint: "browser-relay/command", method: "POST" },
+  { endpoint: "conversations", method: "GET" },
+  { endpoint: "conversations/seen", method: "POST" },
+  { endpoint: "conversations/unread", method: "POST" },
+  { endpoint: "conversations/:id", method: "GET" },
+  { endpoint: "interfaces/:path*", method: "GET" },
+  { endpoint: "internal/twilio/voice-webhook", method: "POST" },
+  { endpoint: "internal/twilio/status", method: "POST" },
+  { endpoint: "internal/twilio/connect-action", method: "POST" },
+  { endpoint: "internal/oauth/callback", method: "POST" },
+];
+
+/**
  * Pre-auth routes handled directly in routeRequest() before the router.
- * These are a small, stable set that bypass JWT authentication.
+ * These are a small, stable set that bypass JWT authentication and are
+ * not part of the declarative route table.
  */
 const PRE_AUTH_ROUTES: RouteEntry[] = [
-  // Handled outside /v1/ namespace
-  // { method: "GET", endpoint: "__healthz" },   // /healthz — non-v1
-  // { method: "GET", endpoint: "__readyz" },     // /readyz  — non-v1
-
-  // These are matched in routeRequest() before auth, but are also in the
-  // route table for authenticated access. We include the pre-auth-only ones:
   { method: "GET", endpoint: "audio/:id" },
   { method: "POST", endpoint: "guardian/init" },
   { method: "POST", endpoint: "guardian/refresh" },
@@ -287,29 +337,15 @@ async function main() {
   };
   const version = pkg.version;
 
-  // Collect routes from all route definition files
-  const allRoutes: RouteEntry[] = [...PRE_AUTH_ROUTES];
+  // Collect routes programmatically from route modules
+  const moduleRoutes = await collectRoutesFromModules();
 
-  // 1. Read route definition files in src/runtime/routes/
-  const routeFiles = (await readdir(ROUTES_DIR, { recursive: true })).filter(
-    (f) =>
-      typeof f === "string" &&
-      f.endsWith(".ts") &&
-      !f.endsWith(".test.ts") &&
-      !f.includes("node_modules"),
-  );
-
-  for (const file of routeFiles) {
-    const filePath = join(ROUTES_DIR, file);
-    const source = await readFile(filePath, "utf-8");
-    const routes = extractRouteDefinitions(source);
-    allRoutes.push(...routes);
-  }
-
-  // 2. Read http-server.ts for inline route definitions in buildRouteTable()
-  const httpServerSource = await readFile(HTTP_SERVER_PATH, "utf-8");
-  const inlineRoutes = extractRouteDefinitions(httpServerSource);
-  allRoutes.push(...inlineRoutes);
+  // Combine all route sources
+  const allRoutes: RouteEntry[] = [
+    ...PRE_AUTH_ROUTES,
+    ...INLINE_ROUTES,
+    ...moduleRoutes,
+  ];
 
   // Build the spec
   const spec = buildSpec(allRoutes, version);
