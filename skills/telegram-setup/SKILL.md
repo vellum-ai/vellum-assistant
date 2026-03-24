@@ -1,11 +1,13 @@
 ---
 name: telegram-setup
-description: Connect a Telegram bot with managed platform callback routing in containerized deployments and public ingress locally
+description: Connect a Telegram bot to the Vellum Assistant gateway with automated webhook registration and credential storage
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🤖"
   vellum:
     display-name: "Telegram Setup"
+    includes:
+      - public-ingress
 ---
 
 You are helping your user connect a Telegram bot to the Vellum Assistant gateway. Walk through each step below.
