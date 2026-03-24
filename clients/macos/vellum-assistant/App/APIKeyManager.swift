@@ -20,8 +20,8 @@ extension Notification.Name {
     static let localBootstrapCompleted = Notification.Name("localBootstrapCompleted")
 }
 
-/// Manages API keys using CredentialStorage (Keychain in Release, file-based
-/// in DEBUG). The daemon owns the canonical encrypted store; the app syncs
+/// Manages API keys using file-based CredentialStorage. The daemon owns the
+/// canonical encrypted store; the app syncs
 /// keys to the daemon via HTTP on save/clear/reconnect.
 enum APIKeyManager {
     private static let udPrefix = "vellum_provider_"
@@ -70,7 +70,7 @@ enum APIKeyManager {
            !udValue.isEmpty,
            storage.get(account: udKey) == nil {
             // Only remove from UserDefaults if the credential store
-            // write succeeds. A transient Keychain/file failure should
+            // write succeeds. A transient credential storage failure should
             // not destroy the user's only copy of the key.
             guard storage.set(account: udKey, value: udValue) else { return }
         }

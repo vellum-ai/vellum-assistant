@@ -299,7 +299,7 @@ struct VoiceSettingsView: View {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.lock, size: 10)
                             .foregroundColor(VColor.contentTertiary)
-                        Text("Your API key is stored securely in the macOS Keychain.")
+                        Text("Your API key is stored securely on this device.")
                             .font(VFont.caption)
                             .foregroundColor(VColor.contentTertiary)
                     }

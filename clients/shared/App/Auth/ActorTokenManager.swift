@@ -1,13 +1,13 @@
 import Foundation
 
-/// Cross-platform JWT access token storage using Keychain via APIKeyManager.
+/// Cross-platform JWT access token storage using credential storage via APIKeyManager.
 /// The access token (JWT) serves as both authentication and identity for
 /// HTTP requests to the runtime, transmitted as `Authorization: Bearer <jwt>`.
 ///
-/// Note: Keychain storage keys are intentionally unchanged from the original
+/// Note: Storage keys are intentionally unchanged from the original
 /// "actor-token" naming to avoid orphaning existing credentials on upgrade.
 ///
-/// Follows the same Keychain persistence pattern as SessionTokenManager.
+/// Follows the same credential storage pattern as SessionTokenManager.
 public enum ActorTokenManager {
     private static let provider = "actor-token"
     private static let guardianPrincipalIdProvider = "actor-token-guardian-principal-id"

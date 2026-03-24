@@ -75,7 +75,7 @@ public struct GuardianClient: GuardianClientProtocol {
     // MARK: - Actor Token Bootstrap
 
     /// Calls `POST /v1/guardian/init` to obtain a JWT access token bound to
-    /// (assistantId, platform, deviceId). Stores credentials in Keychain via
+    /// (assistantId, platform, deviceId). Stores credentials in credential storage via
     /// `ActorTokenManager`.
     ///
     /// - Returns: `true` on success, `false` on failure.

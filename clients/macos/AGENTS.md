@@ -274,7 +274,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 
 ## Permissions
 
-Requires Accessibility, Screen Recording, and Microphone permissions (System Settings > Privacy & Security). `PermissionManager` handles checking/prompting. API key stored in Keychain via `APIKeyManager`.
+Requires Accessibility, Screen Recording, and Microphone permissions (System Settings > Privacy & Security). `PermissionManager` handles checking/prompting. API key stored via `APIKeyManager`.
 
 ---
 
