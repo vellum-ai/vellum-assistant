@@ -4,8 +4,8 @@ import VellumAssistantShared
 
 /// Settings section for viewing guardian status and approved contact channel policies.
 struct ChannelsGuardianSection: View {
-    @ObservedObject var channelTrustStore: ChannelTrustStore
-    @ObservedObject var contactsStore: ContactsStore
+    var channelTrustStore: ChannelTrustStore
+    var contactsStore: ContactsStore
     @State private var showRevokeConfirmation = false
     @State private var channelToRevoke: ContactChannelPayload?
 

@@ -4,7 +4,7 @@ import VellumAssistantShared
 /// Contacts list panel for the Settings > Contacts page.
 @MainActor
 struct ContactsListView: View {
-    @ObservedObject var viewModel: ContactsViewModel
+    @Bindable var viewModel: ContactsViewModel
     @Binding var selection: ContactSelection?
 
     @State private var hoveredContactId: String?

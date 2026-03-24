@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 import SwiftUI
 import VellumAssistantShared
@@ -6,15 +5,23 @@ import VellumAssistantShared
 /// ViewModel for the contacts list, providing daemon HTTP integration
 /// for loading and filtering contacts. Delegates data operations to
 /// the shared ContactsStore.
-@MainActor
-final class ContactsViewModel: ObservableObject {
+@MainActor @Observable
+final class ContactsViewModel {
 
-    // MARK: - Published State
+    // MARK: - State
 
-    @Published var contacts: [ContactPayload] = []
-    @Published var isLoading = false
-    @Published var isCreatingContact = false
-    @Published var searchQuery = ""
+    var isCreatingContact = false
+    var searchQuery = ""
+
+    // MARK: - Computed Properties (forwarded from ContactsStore)
+
+    var contacts: [ContactPayload] {
+        contactsStore?.contacts ?? []
+    }
+
+    var isLoading: Bool {
+        contactsStore?.isLoading ?? false
+    }
 
     // MARK: - Dependencies
 
@@ -24,13 +31,7 @@ final class ContactsViewModel: ObservableObject {
 
     init(connectionManager: GatewayConnectionManager?, eventStreamClient: EventStreamClient? = nil) {
         if let connectionManager, let eventStreamClient {
-            let store = ContactsStore(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
-            self.contactsStore = store
-
-            store.$contacts
-                .assign(to: &$contacts)
-            store.$isLoading
-                .assign(to: &$isLoading)
+            self.contactsStore = ContactsStore(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
         } else {
             self.contactsStore = nil
         }

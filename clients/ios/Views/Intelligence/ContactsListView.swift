@@ -3,7 +3,7 @@ import SwiftUI
 import VellumAssistantShared
 
 struct ContactsListView: View {
-    @ObservedObject var contactsStore: ContactsStore
+    var contactsStore: ContactsStore
     @State private var searchQuery = ""
     @State private var contactToDelete: ContactPayload?
     @State private var showDeleteConfirmation = false

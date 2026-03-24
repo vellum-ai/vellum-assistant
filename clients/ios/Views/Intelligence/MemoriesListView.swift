@@ -19,7 +19,7 @@ private enum MemoryStatusFilter: String, CaseIterable {
 }
 
 struct MemoriesListView: View {
-    @ObservedObject var store: MemoryItemsStore
+    var store: MemoryItemsStore
     @State private var searchText = ""
     @State private var selectedKind: String? = nil
     @State private var statusFilter: MemoryStatusFilter = .active

@@ -19,7 +19,7 @@ struct ContactsContainerView: View {
     var isEmailEnabled: Bool = false
     var showToast: ((String, ToastInfo.Style) -> Void)?
 
-    @StateObject private var viewModel: ContactsViewModel
+    @State private var viewModel: ContactsViewModel
     @State private var selection: ContactSelection? = .assistant
 
     private let contactClient: ContactClientProtocol = ContactClient()
@@ -30,7 +30,7 @@ struct ContactsContainerView: View {
         self.conversationManager = conversationManager
         self.isEmailEnabled = isEmailEnabled
         self.showToast = showToast
-        _viewModel = StateObject(wrappedValue: ContactsViewModel(connectionManager: connectionManager, eventStreamClient: eventStreamClient))
+        _viewModel = State(wrappedValue: ContactsViewModel(connectionManager: connectionManager, eventStreamClient: eventStreamClient))
     }
 
     var body: some View {
@@ -158,7 +158,7 @@ struct ContactsContainerView: View {
             .frame(maxWidth: 700, maxHeight: .infinity, alignment: .leading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
-        .onReceive(viewModel.$contacts) { newContacts in
+        .onChange(of: viewModel.contacts) { _, newContacts in
             // Default to assistant on first load (don't override existing selection)
             if selection == nil && !newContacts.isEmpty {
                 selection = .assistant
