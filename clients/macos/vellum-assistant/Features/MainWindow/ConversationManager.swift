@@ -147,6 +147,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     @Published private(set) var conversationInteractionStates: [UUID: ConversationInteractionState] = [:]
     /// Subscriptions to per-conversation interaction-state changes.
     private var interactionStateCancellables: [UUID: Set<AnyCancellable>] = [:]
+    /// Generation counter per conversation for invalidating withObservationTracking loops
+    /// when subscriptions are cancelled (conversation switch, close, archive).
+    private var errorObservationGenerations: [UUID: Int] = [:]
     /// Pending anchor message ID for scroll-to behavior on notification deep links.
     @Published var pendingAnchorMessageId: UUID?
     /// Message ID to visually highlight after an anchor scroll completes.
@@ -2259,6 +2262,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
         busyConversationIds.remove(conversationId)
         interactionStateCancellables.removeValue(forKey: conversationId)
+        // Invalidate any in-flight withObservationTracking loop for error bridging.
+        if let gen = errorObservationGenerations[conversationId] {
+            errorObservationGenerations[conversationId] = gen + 1
+        }
     }
 
     /// Atomically cancel all per-conversation subscriptions and remove cached state
@@ -2273,6 +2280,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         busyConversationIds.remove(id)
         interactionStateCancellables[id] = nil
         conversationInteractionStates.removeValue(forKey: id)
+        // Invalidate any in-flight withObservationTracking loop for error bridging.
+        if let gen = errorObservationGenerations[id] {
+            errorObservationGenerations[id] = gen + 1
+        }
     }
 
     // MARK: - Interaction State
@@ -2301,18 +2312,27 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             (errMgr.errorText, errMgr.conversationError)
         )
 
-        func observeErrors() {
+        // Bump the generation to invalidate any prior observation loop for this conversation.
+        let generation = (errorObservationGenerations[conversationId] ?? 0) + 1
+        errorObservationGenerations[conversationId] = generation
+
+        func observeErrors(generation: Int) {
+            // Stop re-arming if the generation has been invalidated (conversation switched/closed).
+            guard self.errorObservationGenerations[conversationId] == generation else { return }
             withObservationTracking {
                 _ = errMgr.errorText
                 _ = errMgr.conversationError
-            } onChange: {
-                Task { @MainActor in
+            } onChange: { [weak self, weak errMgr] in
+                Task { @MainActor [weak self, weak errMgr] in
+                    guard let self,
+                          let errMgr,
+                          self.errorObservationGenerations[conversationId] == generation else { return }
                     errorSubject.send((errMgr.errorText, errMgr.conversationError))
-                    observeErrors() // re-arm
+                    observeErrors(generation: generation) // re-arm
                 }
             }
         }
-        observeErrors()
+        observeErrors(generation: generation)
 
         // Combine busy-state publishers with error and message publishers.
         // Error state: errorText or conversationError non-nil.
