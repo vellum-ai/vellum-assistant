@@ -14,6 +14,11 @@ export interface HostCuRequest {
   reasoning?: string;
 }
 
+export interface HostCuCancelRequest {
+  type: "host_cu_cancel";
+  requestId: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
-export type _HostCuServerMessages = HostCuRequest;
+export type _HostCuServerMessages = HostCuRequest | HostCuCancelRequest;
