@@ -585,7 +585,7 @@ extension AppDelegate {
                 do {
                     try await LogExporter.sendFeedback(formData: formData)
                     self?.dismissLogReportWindow()
-                    self?.mainWindow?.windowState.showToast(message: "Feedback sent", style: .success)
+                    self?.mainWindow?.windowState.showToast(message: "Feedback submitted", style: .success)
                 } catch {
                     self?.dismissLogReportWindow()
                     self?.mainWindow?.windowState.showToast(

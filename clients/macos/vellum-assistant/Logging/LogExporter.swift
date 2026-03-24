@@ -72,6 +72,12 @@ enum LogExporter {
                 )
             } catch {
                 log.warning("Background feedback upload failed: \(error.localizedDescription)")
+                await MainActor.run {
+                    AppDelegate.shared?.mainWindow?.windowState.showToast(
+                        message: "Feedback upload failed",
+                        style: .error
+                    )
+                }
             }
             try? FileManager.default.removeItem(at: archiveURL)
         }
