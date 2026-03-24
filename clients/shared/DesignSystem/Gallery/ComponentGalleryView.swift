@@ -116,7 +116,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         case .modifiers:
             return [
                 GalleryComponent("vCardMod", ".vCard()", keywords: ["card modifier"], description: "Apply card styling (background, corner radius, border) to any view with configurable radius and background color."),
-                GalleryComponent("pointerCursor", ".pointerCursor()", keywords: ["pointer", "cursor", "hand"], description: "Show pointing-hand cursor on hover. Uses native .pointerStyle(.link) on macOS 15+, falls back to NSCursor on macOS 14."),
+                GalleryComponent("pointerCursor", ".pointerCursor()", keywords: ["pointer", "cursor", "hand"], description: "Show pointing-hand cursor on hover. Uses native .pointerStyle(.link)."),
                 GalleryComponent("nativeTooltip", ".nativeTooltip()", keywords: ["native tooltip", "help"], description: "Attaches a native macOS tooltip via AppKit. Use instead of .help() where gesture recognizers block tooltip display."),
                 GalleryComponent("vTooltip", ".vTooltip()", keywords: ["tooltip", "popover"], description: "Fast 200ms floating tooltip using NSPanel. Escapes clipping bounds, never steals clicks. Use for quick hints on any view."),
                 GalleryComponent("vPanelBackground", ".vPanelBackground()", keywords: ["panel background"], description: "Fills the view with the subtle background color used for side panels and drawers."),

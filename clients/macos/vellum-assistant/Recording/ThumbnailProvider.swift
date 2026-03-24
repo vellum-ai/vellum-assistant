@@ -14,7 +14,7 @@ struct ThumbnailResult {
 
 /// Captures, normalizes, and caches source preview thumbnails.
 ///
-/// Uses `SCScreenshotManager` (macOS 14+) to capture display and window
+/// Uses `SCScreenshotManager` to capture display and window
 /// screenshots, scales them to a max of 320x200pt for picker row thumbnails,
 /// and maintains an in-memory cache with a 30-second TTL.
 ///
@@ -105,10 +105,6 @@ actor ThumbnailProvider {
             return ThumbnailResult(image: nil, status: .failed(.sourceGone), fromCache: false)
         }
 
-        guard #available(macOS 14, *) else {
-            return ThumbnailResult(image: nil, status: .failed(.captureFailed), fromCache: false)
-        }
-
         await acquireSlot()
         guard !Task.isCancelled else {
             releaseSlot()
@@ -180,10 +176,6 @@ actor ThumbnailProvider {
         guard let scWindow = window.scWindow else {
             log.warning("No SCWindow reference for window \(window.id)")
             return ThumbnailResult(image: nil, status: .failed(.sourceGone), fromCache: false)
-        }
-
-        guard #available(macOS 14, *) else {
-            return ThumbnailResult(image: nil, status: .failed(.captureFailed), fromCache: false)
         }
 
         await acquireSlot()

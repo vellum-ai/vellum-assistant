@@ -569,7 +569,7 @@ final class ScreenRecorder: NSObject {
     ///   - displayId: CGDirectDisplayID as UInt32. Required when captureScope is `display`.
     ///   - windowId: CGWindowID. Required when captureScope is `window`.
     ///   - includeAudio: Whether to capture system audio (default: false).
-    ///   - includeMicrophone: Whether to capture microphone audio (default: false). Requires macOS 14+.
+    ///   - includeMicrophone: Whether to capture microphone audio (default: false).
     func start(
         captureScope: String = "display",
         displayId: String? = nil,
