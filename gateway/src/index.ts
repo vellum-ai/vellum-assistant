@@ -82,6 +82,7 @@ import {
   createSlackSocketModeClient,
   type SlackSocketModeClient,
 } from "./slack/socket-mode.js";
+import { fetchThreadContext } from "./slack/thread-context.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
 import {
@@ -1183,24 +1184,46 @@ async function main() {
     if (!botToken || !appToken) return;
 
     slackSocketClient = createSlackSocketModeClient(
-      {
-        appToken,
-        botToken,
-        gatewayConfig: config,
-      },
+      { appToken, botToken, gatewayConfig: config },
       (normalized) => {
         const { threadTs, channel } = normalized;
         const replyCallbackUrl = `${config.gatewayInternalBaseUrl}/deliver/slack?threadTs=${encodeURIComponent(threadTs)}&channel=${encodeURIComponent(channel)}`;
 
-        handleInbound(config, normalized.event, {
-          replyCallbackUrl,
-          routingOverride: normalized.routing,
-        }).catch((err) => {
-          log.error(
-            { err, channel, threadTs },
-            "Failed to forward Slack event to runtime",
-          );
-        });
+        // Check if this is a regular thread reply (not an edit or callback action).
+        // Edits and callbacks don't benefit from thread context and would just add
+        // unnecessary Slack API traffic + latency.
+        const messageTs = normalized.event.source.messageId;
+        const isEdit = !!normalized.event.message.isEdit;
+        const isCallback = !!normalized.event.message.callbackData;
+        const isThreadReply =
+          messageTs !== undefined &&
+          threadTs !== messageTs &&
+          !isEdit &&
+          !isCallback;
+
+        const forward = (threadContextHint?: string) => {
+          const hints: string[] = [];
+          if (threadContextHint) hints.push(threadContextHint);
+
+          handleInbound(config, normalized.event, {
+            replyCallbackUrl,
+            routingOverride: normalized.routing,
+            ...(hints.length > 0 ? { transportMetadata: { hints } } : {}),
+          }).catch((err) => {
+            log.error(
+              { err, channel, threadTs },
+              "Failed to forward Slack event to runtime",
+            );
+          });
+        };
+
+        if (isThreadReply && botToken) {
+          fetchThreadContext(channel, threadTs, messageTs, botToken)
+            .then((context) => forward(context ?? undefined))
+            .catch(() => forward());
+        } else {
+          forward();
+        }
       },
     );
 
