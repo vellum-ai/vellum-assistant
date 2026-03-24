@@ -10,29 +10,39 @@ import {
   type ImageGenCredentials,
 } from "./gemini-image-service.js";
 
+export interface GenerateAvatarOptions {
+  /** Pre-resolved credentials, bypassing local secure-key lookup.
+   *  Used by the CLI which fetches credentials from the daemon. */
+  credentials?: ImageGenCredentials;
+}
+
 export async function generateAvatar(
   prompt: string,
+  options?: GenerateAvatarOptions,
 ): Promise<{ imageBase64: string; mimeType: string }> {
   const config = getConfig();
   const imageGenMode = config.services["image-generation"].mode;
 
-  // Resolve credentials strictly based on mode — no cross-mode fallbacks
-  let credentials: ImageGenCredentials | undefined;
+  // Use caller-supplied credentials when available (CLI path),
+  // otherwise resolve from local secure storage (daemon path).
+  let credentials: ImageGenCredentials | undefined = options?.credentials;
 
-  if (imageGenMode === "managed") {
-    const managedBaseUrl = await buildManagedBaseUrl("gemini");
-    if (managedBaseUrl) {
-      const ctx = await resolveManagedProxyContext();
-      credentials = {
-        type: "managed-proxy",
-        assistantApiKey: ctx.assistantApiKey,
-        baseUrl: managedBaseUrl,
-      };
-    }
-  } else {
-    const geminiKey = await getProviderKeyAsync("gemini");
-    if (geminiKey) {
-      credentials = { type: "direct", apiKey: geminiKey };
+  if (!credentials) {
+    if (imageGenMode === "managed") {
+      const managedBaseUrl = await buildManagedBaseUrl("gemini");
+      if (managedBaseUrl) {
+        const ctx = await resolveManagedProxyContext();
+        credentials = {
+          type: "managed-proxy",
+          assistantApiKey: ctx.assistantApiKey,
+          baseUrl: managedBaseUrl,
+        };
+      }
+    } else {
+      const geminiKey = await getProviderKeyAsync("gemini");
+      if (geminiKey) {
+        credentials = { type: "direct", apiKey: geminiKey };
+      }
     }
   }
 

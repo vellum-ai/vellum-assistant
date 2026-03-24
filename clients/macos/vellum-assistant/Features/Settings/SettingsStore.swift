@@ -2164,6 +2164,30 @@ public final class SettingsStore: ObservableObject {
         scheduleRoutingSourceRefresh()
     }
 
+    /// Persist image-generation mode and model without the race where the
+    /// model-set's read-modify-write clobbers the mode change. Patches
+    /// mode first, then sets the model through the dedicated handler
+    /// (which suppresses config-watcher reload to avoid evicting
+    /// conversations).
+    func saveImageGenModeAndModel(mode: String, model: String) {
+        imageGenMode = mode
+        selectedImageGenModel = model
+        UserDefaults.standard.set(model, forKey: "selectedImageGenModel")
+        Task {
+            // 1. Persist mode via PATCH (no dedicated handler for mode)
+            let modeOk = await settingsClient.patchConfig([
+                "services": ["image-generation": ["mode": mode]]
+            ])
+            if !modeOk {
+                log.error("Failed to patch config for image-generation mode")
+            }
+            // 2. Persist model via the dedicated handler that suppresses
+            //    config-watcher reload. Sequential so mode lands first.
+            _ = await settingsClient.setImageGenModel(modelId: model)
+        }
+        scheduleRoutingSourceRefresh()
+    }
+
     func setWebSearchMode(_ mode: String) {
         webSearchMode = mode
         Task {
