@@ -31,6 +31,14 @@ export interface RouteContext {
   params: RouteParams;
 }
 
+/** Definition for a query parameter exposed in the OpenAPI spec. */
+export interface RouteQueryParam {
+  name: string;
+  required?: boolean;
+  description?: string;
+  schema?: { type: string };
+}
+
 /**
  * A single route entry in the declarative table.
  *
@@ -41,12 +49,26 @@ export interface RouteContext {
  * - `handler`: Async function that produces the Response.
  * - `policyKey`: Override the policy lookup key. When omitted the router
  *   derives it from the endpoint pattern (stripping param segments).
+ *
+ * Optional OpenAPI metadata fields allow route definitions to declare their
+ * own documentation inline, which the OpenAPI generator reads to produce a
+ * richer spec.
  */
 export interface RouteDefinition {
   endpoint: string;
   method: string;
   handler: (ctx: RouteContext) => Promise<Response> | Response;
   policyKey?: string;
+
+  // -- OpenAPI metadata (optional) ------------------------------------------
+  /** Short one-line summary for the operation. */
+  summary?: string;
+  /** Longer description (Markdown allowed). */
+  description?: string;
+  /** Tags used to group operations in the generated spec. */
+  tags?: string[];
+  /** Query parameters accepted by this endpoint. */
+  queryParams?: RouteQueryParam[];
 }
 
 // ---------------------------------------------------------------------------

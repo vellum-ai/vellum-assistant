@@ -32,10 +32,25 @@ const PKG_PATH = join(ROOT, "package.json");
 // Types
 // ---------------------------------------------------------------------------
 
+interface RouteQueryParam {
+  name: string;
+  required?: boolean;
+  description?: string;
+  schema?: { type: string };
+}
+
 interface RouteEntry {
   method: string;
   /** Endpoint path relative to /v1/ (e.g. "conversations/:id"). */
   endpoint: string;
+  /** Short one-line summary for the OpenAPI operation. */
+  summary?: string;
+  /** Longer description (Markdown allowed). */
+  description?: string;
+  /** Tags used to group operations in the generated spec. */
+  tags?: string[];
+  /** Query parameters accepted by this endpoint. */
+  queryParams?: RouteQueryParam[];
 }
 
 // ---------------------------------------------------------------------------
@@ -97,11 +112,73 @@ function extractRouteDefinitions(source: string): RouteEntry[] {
     const block = source.slice(blockStart, blockEnd);
     const methodMatch = block.match(/method:\s*["'`]([A-Z]+)["'`]/);
     if (methodMatch) {
-      routes.push({ method: methodMatch[1], endpoint });
+      const entry: RouteEntry = { method: methodMatch[1], endpoint };
+
+      // Extract queryParams first so we can strip them from the block before
+      // matching top-level scalar fields like description (which also appears
+      // inside individual queryParam objects).
+      const queryParamsMatch = block.match(
+        /queryParams:\s*\[((?:[^\[\]]|\[[^\]]*\])*)\]/,
+      );
+      if (queryParamsMatch) {
+        entry.queryParams = extractQueryParams(queryParamsMatch[1]);
+      }
+
+      // Strip the queryParams block so nested `description:` values don't
+      // collide with the top-level route description regex below.
+      const scalarBlock = queryParamsMatch
+        ? block.replace(queryParamsMatch[0], "")
+        : block;
+
+      const summaryMatch = scalarBlock.match(/summary:\s*["'`]([^"'`]+)["'`]/);
+      if (summaryMatch) entry.summary = summaryMatch[1];
+
+      const descriptionMatch = scalarBlock.match(
+        /description:\s*["'`]([^"'`]+)["'`]/,
+      );
+      if (descriptionMatch) entry.description = descriptionMatch[1];
+
+      const tagsMatch = scalarBlock.match(/tags:\s*\[([^\]]+)\]/);
+      if (tagsMatch) {
+        entry.tags = tagsMatch[1]
+          .split(",")
+          .map((t) => t.trim().replace(/^["'`]|["'`]$/g, ""))
+          .filter(Boolean);
+      }
+
+      routes.push(entry);
     }
   }
 
   return routes;
+}
+
+/**
+ * Parse queryParams array content extracted via regex into structured objects.
+ */
+function extractQueryParams(raw: string): RouteQueryParam[] {
+  const params: RouteQueryParam[] = [];
+  // Match individual `{ name: "...", ... }` objects within the array.
+  const objRe = /\{([^}]+)\}/g;
+  let objMatch: RegExpExecArray | null;
+  while ((objMatch = objRe.exec(raw)) !== null) {
+    const inner = objMatch[1];
+    const nameMatch = inner.match(/name:\s*["'`]([^"'`]+)["'`]/);
+    if (!nameMatch) continue;
+    const param: RouteQueryParam = { name: nameMatch[1] };
+
+    const reqMatch = inner.match(/required:\s*(true|false)/);
+    if (reqMatch) param.required = reqMatch[1] === "true";
+
+    const descMatch = inner.match(/description:\s*["'`]([^"'`]+)["'`]/);
+    if (descMatch) param.description = descMatch[1];
+
+    const typeMatch = inner.match(/type:\s*["'`]([^"'`]+)["'`]/);
+    if (typeMatch) param.schema = { type: typeMatch[1] };
+
+    params.push(param);
+  }
+  return params;
 }
 
 /**
@@ -168,17 +245,25 @@ function extractPathParams(openApiPath: string): string[] {
 // Spec builder
 // ---------------------------------------------------------------------------
 
+interface OpenApiParameter {
+  name: string;
+  in: string;
+  required: boolean;
+  schema: { type: string };
+  description?: string;
+}
+
+interface OpenApiOperation {
+  operationId: string;
+  summary?: string;
+  description?: string;
+  tags?: string[];
+  responses: Record<string, { description: string }>;
+  parameters?: OpenApiParameter[];
+}
+
 interface OpenApiPathItem {
-  [method: string]: {
-    operationId: string;
-    responses: Record<string, { description: string }>;
-    parameters?: Array<{
-      name: string;
-      in: string;
-      required: boolean;
-      schema: { type: string };
-    }>;
-  };
+  [method: string]: OpenApiOperation;
 }
 
 function buildSpec(
@@ -191,6 +276,10 @@ function buildSpec(
     path: string;
     method: string;
     endpoint: string;
+    summary?: string;
+    description?: string;
+    tags?: string[];
+    queryParams?: RouteQueryParam[];
   }> = [];
 
   // Non-v1 routes first
@@ -212,6 +301,10 @@ function buildSpec(
         path: openApiPath,
         method: r.method,
         endpoint: r.endpoint,
+        summary: r.summary,
+        description: r.description,
+        tags: r.tags,
+        queryParams: r.queryParams,
       });
     }
   }
@@ -237,20 +330,41 @@ function buildSpec(
         `_${methodLower}`;
 
     const pathParams = extractPathParams(route.path);
-    const operation: OpenApiPathItem[string] = {
+    const operation: OpenApiOperation = {
       operationId,
       responses: {
         "200": { description: "Successful response" },
       },
     };
 
-    if (pathParams.length > 0) {
-      operation.parameters = pathParams.map((name) => ({
-        name,
-        in: "path",
-        required: true,
-        schema: { type: "string" },
-      }));
+    // Attach OpenAPI metadata from route definitions when present.
+    if (route.summary) operation.summary = route.summary;
+    if (route.description) operation.description = route.description;
+    if (route.tags && route.tags.length > 0) operation.tags = route.tags;
+
+    // Path parameters
+    const parameters: OpenApiParameter[] = pathParams.map((name) => ({
+      name,
+      in: "path" as const,
+      required: true,
+      schema: { type: "string" },
+    }));
+
+    // Query parameters from route metadata
+    if (route.queryParams) {
+      for (const qp of route.queryParams) {
+        parameters.push({
+          name: qp.name,
+          in: "query",
+          required: qp.required ?? false,
+          schema: qp.schema ?? { type: "string" },
+          ...(qp.description ? { description: qp.description } : {}),
+        });
+      }
+    }
+
+    if (parameters.length > 0) {
+      operation.parameters = parameters;
     }
 
     paths[route.path][methodLower] = operation;

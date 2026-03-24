@@ -555,21 +555,33 @@ export function secretRouteDefinitions(
     {
       endpoint: "secrets",
       method: "POST",
+      summary: "Add or update a secret (API key or credential)",
+      tags: ["secrets"],
       handler: async ({ req }) => handleAddSecret(req, deps?.getCesClient),
     },
     {
       endpoint: "secrets",
       method: "DELETE",
+      summary: "Delete a secret by type and name",
+      tags: ["secrets"],
       handler: async ({ req }) => handleDeleteSecret(req),
     },
     {
       endpoint: "secrets",
       method: "GET",
+      summary: "List all stored secrets",
+      description:
+        "Returns API keys and credentials with masked values. Credential store unreachability is reported in the response.",
+      tags: ["secrets"],
       handler: async () => handleListSecrets(),
     },
     {
       endpoint: "secrets/read",
       method: "POST",
+      summary: "Read a single secret by type and name",
+      description:
+        "Returns the secret value masked by default. Set reveal:true in the request body to get the full value.",
+      tags: ["secrets"],
       handler: async ({ req }) => handleReadSecret(req),
     },
   ];

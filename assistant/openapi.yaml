@@ -111,6 +111,9 @@ paths:
       responses:
         "200":
           description: Successful response
+      summary: Serve a static file from an app dist directory
+      tags:
+        - apps
       parameters:
         - name: appId
           in: path
@@ -282,6 +285,9 @@ paths:
       responses:
         "200":
           description: Successful response
+      summary: Create a shareable link for an app bundle
+      tags:
+        - apps
   /v1/apps/shared:
     get:
       operationId: apps_shared_get
@@ -294,6 +300,9 @@ paths:
       responses:
         "200":
           description: Successful response
+      summary: Delete a shared app link
+      tags:
+        - apps
       parameters:
         - name: token
           in: path
@@ -305,6 +314,9 @@ paths:
       responses:
         "200":
           description: Successful response
+      summary: Download a shared app bundle
+      tags:
+        - apps
       parameters:
         - name: token
           in: path
@@ -317,6 +329,9 @@ paths:
       responses:
         "200":
           description: Successful response
+      summary: Get metadata for a shared app
+      tags:
+        - apps
       parameters:
         - name: token
           in: path
@@ -1197,11 +1212,31 @@ paths:
       responses:
         "200":
           description: Successful response
+      summary: List messages in a conversation
+      tags:
+        - conversations
+      parameters:
+        - name: conversationId
+          in: query
+          required: false
+          schema:
+            type: string
+          description: ID of the conversation
+        - name: conversationKey
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Key of the conversation (alternative to conversationId)
     post:
       operationId: messages_post
       responses:
         "200":
           description: Successful response
+      summary: Send a message to a conversation
+      description: Enqueues a user message. Returns 202 immediately; observe progress via SSE.
+      tags:
+        - conversations
   /v1/messages/{id}/content:
     get:
       operationId: messages_by_id_content_get
@@ -1492,6 +1527,28 @@ paths:
       responses:
         "200":
           description: Successful response
+      summary: Search conversations by query string
+      tags:
+        - conversations
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Search query
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum number of results
+        - name: maxMessagesPerConversation
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max messages to return per conversation
   /v1/search/global:
     get:
       operationId: search_global_get
@@ -1510,22 +1567,36 @@ paths:
       responses:
         "200":
           description: Successful response
+      summary: Delete a secret by type and name
+      tags:
+        - secrets
     get:
       operationId: secrets_get
       responses:
         "200":
           description: Successful response
+      summary: List all stored secrets
+      description: Returns API keys and credentials with masked values. Credential store unreachability is reported in the response.
+      tags:
+        - secrets
     post:
       operationId: secrets_post
       responses:
         "200":
           description: Successful response
+      summary: Add or update a secret (API key or credential)
+      tags:
+        - secrets
   /v1/secrets/read:
     post:
       operationId: secrets_read_post
       responses:
         "200":
           description: Successful response
+      summary: Read a single secret by type and name
+      description: Returns the secret value masked by default. Set reveal:true in the request body to get the full value.
+      tags:
+        - secrets
   /v1/settings/avatar/generate:
     post:
       operationId: settings_avatar_generate_post
@@ -1728,6 +1799,16 @@ paths:
       responses:
         "200":
           description: Successful response
+      summary: Get a suggested reply for a conversation
+      tags:
+        - conversations
+      parameters:
+        - name: conversationId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: ID of the conversation
   /v1/surface-actions:
     post:
       operationId: surfaceactions_post

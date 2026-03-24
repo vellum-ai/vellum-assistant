@@ -1487,11 +1487,25 @@ export function conversationRouteDefinitions(deps: {
     {
       endpoint: "messages",
       method: "GET",
+      summary: "List messages in a conversation",
+      tags: ["conversations"],
+      queryParams: [
+        { name: "conversationId", description: "ID of the conversation" },
+        {
+          name: "conversationKey",
+          description:
+            "Key of the conversation (alternative to conversationId)",
+        },
+      ],
       handler: ({ url }) => handleListMessages(url, deps.interfacesDir),
     },
     {
       endpoint: "messages",
       method: "POST",
+      summary: "Send a message to a conversation",
+      description:
+        "Enqueues a user message. Returns 202 immediately; observe progress via SSE.",
+      tags: ["conversations"],
       handler: async ({ req, authContext }) =>
         handleSendMessage(
           req,
@@ -1505,11 +1519,35 @@ export function conversationRouteDefinitions(deps: {
     {
       endpoint: "search",
       method: "GET",
+      summary: "Search conversations by query string",
+      tags: ["conversations"],
+      queryParams: [
+        { name: "q", required: true, description: "Search query" },
+        {
+          name: "limit",
+          description: "Maximum number of results",
+          schema: { type: "integer" },
+        },
+        {
+          name: "maxMessagesPerConversation",
+          description: "Max messages to return per conversation",
+          schema: { type: "integer" },
+        },
+      ],
       handler: ({ url }) => handleSearchConversations(url),
     },
     {
       endpoint: "suggestion",
       method: "GET",
+      summary: "Get a suggested reply for a conversation",
+      tags: ["conversations"],
+      queryParams: [
+        {
+          name: "conversationId",
+          required: true,
+          description: "ID of the conversation",
+        },
+      ],
       handler: async ({ url }) =>
         handleGetSuggestion(url, {
           suggestionCache: deps.suggestionCache,
