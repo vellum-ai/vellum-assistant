@@ -84,6 +84,28 @@ export function ensurePromptFiles(): void {
     }
   }
 
+  // Seed NOW.md scratchpad — always created if missing, regardless of whether
+  // this is a fresh install or not.  Kept out of PROMPT_FILES because NOW.md is
+  // ephemeral state, not identity context.
+  const nowDest = getWorkspacePromptPath("NOW.md");
+  if (!existsSync(nowDest)) {
+    const nowSrc = join(templatesDir, "NOW.md");
+    try {
+      if (existsSync(nowSrc)) {
+        copyFileSync(nowSrc, nowDest);
+        log.info(
+          { file: "NOW.md", dest: nowDest },
+          "Created NOW.md scratchpad from template",
+        );
+      }
+    } catch (err) {
+      log.warn(
+        { err, file: "NOW.md" },
+        "Failed to create NOW.md from template",
+      );
+    }
+  }
+
   // Seed users/default.md persona template
   try {
     const usersDir = join(getWorkspaceDir(), "users");
