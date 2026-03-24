@@ -140,15 +140,6 @@ import * as voiceConfigUpdate from "./bundled-skills/settings/tools/voice-config
 // ── skill-management ───────────────────────────────────────────────────────────
 import * as deleteManaged from "./bundled-skills/skill-management/tools/delete-managed.js";
 import * as scaffoldManaged from "./bundled-skills/skill-management/tools/scaffold-managed.js";
-// ── slack ──────────────────────────────────────────────────────────────────────
-import * as slackAddReaction from "./bundled-skills/slack/tools/slack-add-reaction.js";
-import * as slackChannelDetails from "./bundled-skills/slack/tools/slack-channel-details.js";
-import * as slackChannelPermissions from "./bundled-skills/slack/tools/slack-channel-permissions.js";
-import * as slackConfigureChannels from "./bundled-skills/slack/tools/slack-configure-channels.js";
-import * as slackDeleteMessage from "./bundled-skills/slack/tools/slack-delete-message.js";
-import * as slackEditMessage from "./bundled-skills/slack/tools/slack-edit-message.js";
-import * as slackLeaveChannel from "./bundled-skills/slack/tools/slack-leave-channel.js";
-import * as slackScanDigest from "./bundled-skills/slack/tools/slack-scan-digest.js";
 // ── subagent ───────────────────────────────────────────────────────────────────
 import * as subagentAbort from "./bundled-skills/subagent/tools/subagent-abort.js";
 import * as subagentMessage from "./bundled-skills/subagent/tools/subagent-message.js";
@@ -334,16 +325,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   // skill-management
   ["skill-management:tools/scaffold-managed.ts", scaffoldManaged],
   ["skill-management:tools/delete-managed.ts", deleteManaged],
-
-  // slack
-  ["slack:tools/slack-scan-digest.ts", slackScanDigest],
-  ["slack:tools/slack-channel-details.ts", slackChannelDetails],
-  ["slack:tools/slack-configure-channels.ts", slackConfigureChannels],
-  ["slack:tools/slack-add-reaction.ts", slackAddReaction],
-  ["slack:tools/slack-delete-message.ts", slackDeleteMessage],
-  ["slack:tools/slack-edit-message.ts", slackEditMessage],
-  ["slack:tools/slack-leave-channel.ts", slackLeaveChannel],
-  ["slack:tools/slack-channel-permissions.ts", slackChannelPermissions],
 
   // subagent
   ["subagent:tools/subagent-spawn.ts", subagentSpawn],
