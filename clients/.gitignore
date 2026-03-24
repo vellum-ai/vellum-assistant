@@ -6,6 +6,8 @@ dist/
 *.xcuserdata
 xcuserdata/
 DerivedData/
+*.d
+*.dia
 .dev/
 .DS_Store
 context.md
