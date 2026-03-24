@@ -11,6 +11,8 @@ final class MessageAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
     @Published var isLoading: Bool = false
     @Published var isPlaying: Bool = false
     @Published var error: String? = nil
+    @Published var isNotConfigured: Bool = false
+    @Published var isFeatureDisabled: Bool = false
 
     private var audioPlayer: AVAudioPlayer?
     private let ttsClient: any TTSClientProtocol
@@ -23,6 +25,8 @@ final class MessageAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
     func playMessage(messageId: String, conversationId: String?) async {
         isLoading = true
         error = nil
+        isNotConfigured = false
+        isFeatureDisabled = false
 
         let result = await ttsClient.synthesize(messageId: messageId, conversationId: conversationId)
 
@@ -39,9 +43,11 @@ final class MessageAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
             }
 
         case .featureDisabled:
+            isFeatureDisabled = true
             error = "Text-to-speech is not enabled"
 
         case .notConfigured:
+            isNotConfigured = true
             error = "Text-to-speech is not configured"
 
         case .notFound:
