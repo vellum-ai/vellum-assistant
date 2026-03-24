@@ -9,13 +9,49 @@ import {
   type CharacterTraits,
   writeTraitsAndRenderAvatar,
 } from "../../avatar/traits-png-sync.js";
-import { setPlatformBaseUrl } from "../../config/env.js";
+import { getConfig } from "../../config/loader.js";
+import type { ImageGenCredentials } from "../../media/gemini-image-service.js";
+import { MANAGED_PROVIDER_META } from "../../providers/managed-proxy/constants.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { generateAndSaveAvatar } from "../../tools/system/avatar-generator.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { getSecureKeyViaDaemon } from "../lib/daemon-credential-client.js";
 import { log } from "../logger.js";
 import { writeOutput } from "../output.js";
+
+/**
+ * Resolve managed proxy credentials by fetching them from the running daemon.
+ * The CLI has no CES client, so it can't read credentials from the keychain
+ * directly — instead it asks the daemon (which has CES access) for the values.
+ *
+ * Returns undefined when managed mode is not active or prerequisites are missing.
+ */
+async function resolveManagedCredentialsViaDaemon(): Promise<
+  ImageGenCredentials | undefined
+> {
+  const config = getConfig();
+  if (config.services["image-generation"].mode !== "managed") return undefined;
+
+  const meta = MANAGED_PROVIDER_META.gemini;
+  if (!meta?.managed || !meta.proxyPath) return undefined;
+
+  try {
+    const urlKey = credentialKey("vellum", "platform_base_url");
+    const apiKeyKey = credentialKey("vellum", "assistant_api_key");
+
+    const [platformUrl, apiKey] = await Promise.all([
+      getSecureKeyViaDaemon(urlKey),
+      getSecureKeyViaDaemon(apiKeyKey),
+    ]);
+
+    if (!platformUrl || !apiKey) return undefined;
+
+    const baseUrl = `${platformUrl.replace(/\/+$/, "")}${meta.proxyPath}`;
+    return { type: "managed-proxy", assistantApiKey: apiKey, baseUrl };
+  } catch {
+    return undefined;
+  }
+}
 
 export function registerAvatarCommand(program: Command): void {
   const avatar = program
@@ -69,20 +105,15 @@ Examples:
   $ assistant avatar generate --description "a friendly robot with green eyes"`,
     )
     .action(async (opts: { description: string }) => {
-      // Rehydrate the platform base URL from the credential store so the
-      // managed proxy fallback works. The CLI runs as a separate process
-      // without the daemon's in-memory state.
-      try {
-        const key = credentialKey("vellum", "platform_base_url");
-        const persisted = await getSecureKeyViaDaemon(key);
-        if (persisted) {
-          setPlatformBaseUrl(persisted);
-        }
-      } catch {
-        // Non-fatal — direct Gemini key may still work
-      }
+      // The CLI runs as a separate process without the daemon's CES
+      // client, so resolve managed proxy credentials from the daemon
+      // and pass them directly to the avatar generator.
+      const credentials = await resolveManagedCredentialsViaDaemon();
 
-      const result = await generateAndSaveAvatar(opts.description);
+      const result = await generateAndSaveAvatar(
+        opts.description,
+        credentials ? { credentials } : undefined,
+      );
 
       if (result.isError) {
         log.error(result.content);

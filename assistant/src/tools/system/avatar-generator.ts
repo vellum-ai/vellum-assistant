@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { generateAvatar } from "../../media/avatar-router.js";
+import {
+  generateAvatar,
+  type GenerateAvatarOptions,
+} from "../../media/avatar-router.js";
 import { mapGeminiError } from "../../media/gemini-image-service.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
@@ -27,6 +30,7 @@ export interface AvatarGenerationResult {
  */
 export async function generateAndSaveAvatar(
   description: string,
+  options?: GenerateAvatarOptions,
 ): Promise<AvatarGenerationResult> {
   if (typeof description !== "string" || description.trim() === "") {
     return {
@@ -45,7 +49,7 @@ export async function generateAndSaveAvatar(
       "Circular or rounded composition filling the canvas. " +
       "Subtle background color (not white or transparent).";
 
-    const result = await generateAvatar(prompt);
+    const result = await generateAvatar(prompt, options);
     if (!result.imageBase64) {
       return {
         content: "Error: No image data returned. Please try again.",
