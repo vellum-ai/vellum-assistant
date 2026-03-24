@@ -4,7 +4,7 @@ import VellumAssistantShared
 /// Full-page detail view for an installed skill, showing metadata and a two-pane file browser.
 struct SkillDetailView: View {
     let skill: SkillInfo
-    @ObservedObject var skillsManager: SkillsManager
+    var skillsManager: SkillsManager
     let onBack: () -> Void
     let onDelete: (SkillInfo) -> Void
 
