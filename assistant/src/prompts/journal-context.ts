@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { getWorkspaceDir } from "../util/platform.js";
 
@@ -52,10 +52,21 @@ export function formatJournalRelativeTime(mtime: number): string {
  * (newest first), and returns a formatted string with timestamps.
  * Returns `null` when no entries are available.
  */
-export function buildJournalContext(maxEntries: number): string | null {
+export function buildJournalContext(
+  maxEntries: number,
+  userSlug?: string | null,
+): string | null {
   if (maxEntries <= 0) return null;
 
-  const journalDir = join(getWorkspaceDir(), "journal");
+  // When no user is identified, skip journal entirely
+  let journalDir: string;
+  if (userSlug != null) {
+    // Sanitize slug to prevent path traversal
+    const safeSlug = basename(userSlug);
+    journalDir = join(getWorkspaceDir(), "journal", safeSlug);
+  } else {
+    return null;
+  }
 
   let files: string[];
   try {
@@ -88,7 +99,7 @@ export function buildJournalContext(maxEntries: number): string | null {
   if (entries.length === 0) return null;
 
   const sections: string[] = [
-    "# Journal\n\nYour journal entries, most recent first. These are YOUR words from past conversations.",
+    `# Journal\n\nYour journal entries, most recent first. These are YOUR words from past conversations.\n**Write new entries to:** \`journal/${basename(userSlug!)}/\``,
   ];
 
   for (let i = 0; i < entries.length; i++) {
