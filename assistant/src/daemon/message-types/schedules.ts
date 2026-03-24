@@ -84,6 +84,13 @@ export interface HeartbeatAlert {
   body: string;
 }
 
+/** Server push — broadcast when a heartbeat creates a conversation. */
+export interface HeartbeatConversationCreated {
+  type: "heartbeat_conversation_created";
+  conversationId: string;
+  title: string;
+}
+
 export interface HeartbeatConfigResponse {
   type: "heartbeat_config_response";
   enabled: boolean;
@@ -141,6 +148,7 @@ export type _SchedulesClientMessages =
 export type _SchedulesServerMessages =
   | SchedulesListResponse
   | HeartbeatAlert
+  | HeartbeatConversationCreated
   | HeartbeatConfigResponse
   | HeartbeatRunsListResponse
   | HeartbeatRunNowResponse
