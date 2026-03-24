@@ -131,9 +131,31 @@ For new view models and state objects targeting macOS 15+ / iOS 17+, prefer the 
 
 > These rules exist because competing `proxy.scrollTo` calls have caused repeated freezes and crashes in the chat view. Follow them any time you touch scroll-position logic.
 
+### Architecture: MessageListScrollCoordinator
+
+All scroll state and reactions for the message list live in `MessageListScrollCoordinator` (`Features/Chat/`), split across three files per the ~500-600 line target:
+
+- **`MessageListScrollCoordinator.swift`** — Core state declarations (`@Published` reactive state, non-reactive bookkeeping, `ScrollSuppression` OptionSet, suppression management, diagnostics, cleanup).
+- **`MessageListScrollCoordinator+PinAndScroll.swift`** — Pin requests (`requestBottomPin`, `configureBottomPinCoordinator`), scroll restore, user scroll actions (`handleScrollUp`, `handleScrollToBottom`), suppress-auto-scroll, resize task, pagination trigger/execution, anchor handling.
+- **`MessageListScrollCoordinator+Reactions.swift`** — Consolidated reaction points that replace former inline `onChange` handlers: `sendingStateChanged`, `messagesChanged`, `containerResized`, `conversationSwitched`, `anchorMessageIdChanged`, `flashHighlight`, `handleConfirmationFocusIfNeeded`.
+
+The coordinator is an `ObservableObject` owned by `MessageListView` via `@StateObject`. It separates reactive state (`@Published` properties that drive view updates) from non-reactive bookkeeping (plain stored properties that update on every scroll tick without triggering `objectWillChange`).
+
+### Scroll Event Detection
+
+- **User scroll detection:** Use `.onScrollPhaseChange` (macOS 15+) to detect user-initiated scroll phases (`.interacting`, `.decelerating`, `.idle`). This replaces legacy AppKit `NSEvent` scroll-wheel monitors.
+- **Scroll geometry tracking:** Use `.onScrollGeometryChange(for:of:action:)` (macOS 15+) to observe distance-from-bottom and viewport height changes. This replaces legacy `PreferenceKey`-based geometry readers for scroll tracking.
+
+### ScrollSuppression OptionSet
+
+The `ScrollSuppression` OptionSet manages reasons for temporarily suppressing auto-scroll-to-bottom. Each reason (`.pagination`, `.expansion`, `.resize`) has an independent timeout and can be active concurrently. Check `scrollCoordinator.isSuppressed` before issuing any automatic `proxy.scrollTo` call. Manage reasons via `addSuppression`/`removeSuppression` on the coordinator.
+
+### Rules
+
 - **Cancel auto-scroll tasks immediately on user-initiated scroll.** When the user manually scrolls (up, pagination pull, etc.), cancel the debounce/auto-scroll `Task` synchronously inside the scroll callback — before any `await`. Do not rely on the task noticing cancellation at its next sleep boundary; by then the trailing `proxy.scrollTo` may already have been scheduled, starting a fight with the user's scroll position.
 - **Guard scroll `onChange` handlers with the `ScrollSuppression` state machine.** Any `onChange(of: messages.count)` that calls `proxy.scrollTo` must check `scrollCoordinator.isSuppressed`. Suppression reasons (`.pagination`, `.expansion`, `.resize`) are managed via `addSuppression`/`removeSuppression` on `MessageListScrollCoordinator`, each with a defined timeout. This prevents auto-scroll from racing pagination scroll or other competing operations.
-- **Use an in-flight guard to prevent stacking concurrent pagination loads.** A `@State var isPaginationInFlight: Bool` (or equivalent) must gate the pagination sentinel's `onAppear`. Without it, rapid scroll-to-top can enqueue multiple concurrent loads before `isLoadingMoreMessages` is set by the async response, duplicating content and corrupting the history cursor.
+- **Use an in-flight guard to prevent stacking concurrent pagination loads.** The coordinator's `isPaginationInFlight` flag gates the pagination sentinel. Without it, rapid scroll-to-top can enqueue multiple concurrent loads before `isLoadingMoreMessages` is set by the async response, duplicating content and corrupting the history cursor.
+- **Route all scroll reactions through coordinator methods.** Do not add inline `onChange` handlers that call `proxy.scrollTo` directly in `MessageListView`. Instead, add a new method on the coordinator (in the appropriate extension file) and call it from the view. This keeps scroll logic centralized and testable.
 <details>
 <summary><strong>Layout timing, scroll forwarding, and .scrollPosition caveats</strong></summary>
 
