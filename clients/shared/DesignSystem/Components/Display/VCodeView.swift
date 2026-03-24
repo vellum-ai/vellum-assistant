@@ -486,24 +486,24 @@ public struct VCodeSearchBar: View {
         VStack(spacing: 0) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(.search, size: 12)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
 
                 TextField("Search...", text: $searchQuery)
                     .textFieldStyle(.plain)
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .focused($isFocused)
                     .onSubmit { goToNextMatch() }
 
                 if !searchQuery.isEmpty {
                     Text(matchCount > 0 ? "\(currentMatchIndex + 1) of \(matchCount)" : "No results")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .fixedSize()
 
                     Button(action: goToPreviousMatch) {
                         VIconView(.chevronUp, size: 12)
-                            .foregroundColor(matchCount > 0 ? VColor.contentDefault : VColor.contentTertiary)
+                            .foregroundStyle(matchCount > 0 ? VColor.contentDefault : VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
                     .disabled(matchCount == 0)
@@ -511,7 +511,7 @@ public struct VCodeSearchBar: View {
 
                     Button(action: goToNextMatch) {
                         VIconView(.chevronDown, size: 12)
-                            .foregroundColor(matchCount > 0 ? VColor.contentDefault : VColor.contentTertiary)
+                            .foregroundStyle(matchCount > 0 ? VColor.contentDefault : VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
                     .disabled(matchCount == 0)
@@ -520,7 +520,7 @@ public struct VCodeSearchBar: View {
 
                 Button(action: onDismiss) {
                     VIconView(.x, size: 12)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close search")

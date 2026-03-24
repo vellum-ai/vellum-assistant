@@ -22,11 +22,11 @@ public struct VTag: View {
         HStack(spacing: VSpacing.xs) {
             if let icon {
                 VIconView(icon, size: 12)
-                    .foregroundColor(color)
+                    .foregroundStyle(color)
             }
             Text(label)
                 .font(VFont.bodySmallEmphasised)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)

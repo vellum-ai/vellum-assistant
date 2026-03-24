@@ -25,7 +25,7 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
             HStack {
                 Text(uppercased ? title.uppercased() : title)
                     .font(titleFont)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Spacer()
                 if let onClose = onClose {
                     VButton(label: "Close", iconOnly: "xmark", style: .ghost, action: onClose)

@@ -50,7 +50,7 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
                     VStack(spacing: VSpacing.xs) {
                         Text(item.label)
                             .font(VFont.labelDefault)
-                            .foregroundColor(selection == item.tag ? VColor.contentDefault : VColor.contentTertiary)
+                            .foregroundStyle(selection == item.tag ? VColor.contentDefault : VColor.contentTertiary)
                             .padding(.horizontal, VSpacing.xl)
                             .padding(.vertical, VSpacing.xs)
 
@@ -123,12 +123,12 @@ private struct PillSegment: View {
             Group {
                 if let icon {
                     VIconView(.resolve(icon), size: size == .compact ? 10 : 12)
-                        .foregroundColor(isSelected ? VColor.contentDefault : VColor.contentTertiary)
+                        .foregroundStyle(isSelected ? VColor.contentDefault : VColor.contentTertiary)
                 } else {
                     Text(label)
                         .font(size == .compact ? VFont.labelDefault : VFont.bodyMediumLighter)
                         .fixedSize()
-                        .foregroundColor(isSelected ? selectedTextColor : VColor.contentSecondary)
+                        .foregroundStyle(isSelected ? selectedTextColor : VColor.contentSecondary)
                 }
             }
             .padding(.horizontal, icon != nil ? VSpacing.sm : (size == .compact ? VSpacing.sm : VSpacing.lg))

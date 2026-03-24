@@ -62,7 +62,7 @@ public struct VDropdown<T: Hashable>: View {
             if let label {
                 Text(label)
                     .font(VFont.bodySmallDefault)
-                    .foregroundColor(isEnabled ? VColor.contentSecondary : VColor.contentDisabled)
+                    .foregroundStyle(isEnabled ? VColor.contentSecondary : VColor.contentDisabled)
                     .accessibilityHidden(true)
             }
 
@@ -88,16 +88,16 @@ public struct VDropdown<T: Hashable>: View {
                     HStack(spacing: size == .small ? VSpacing.xs : VSpacing.sm) {
                         if let resolvedIcon = icon ?? optionIcon?(selection) {
                             VIconView(resolvedIcon, size: size.iconSize)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                         }
 
                         Group {
                             if let selectedLabel {
                                 Text(selectedLabel)
-                                    .foregroundColor(VColor.contentDefault)
+                                    .foregroundStyle(VColor.contentDefault)
                             } else {
                                 Text(placeholder)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                             }
                         }
                         .font(size.font)
@@ -105,7 +105,7 @@ public struct VDropdown<T: Hashable>: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     VIconView(.chevronDown, size: size.iconSize)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .accessibilityHidden(true)
                 }
                 .padding(.horizontal, size.horizontalPadding)
@@ -124,7 +124,7 @@ public struct VDropdown<T: Hashable>: View {
             if let errorMessage {
                 Text(errorMessage)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
                     .accessibilityHidden(true)
             }
         }

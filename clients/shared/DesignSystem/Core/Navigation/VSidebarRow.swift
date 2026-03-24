@@ -13,7 +13,7 @@ import SwiftUI
 ///
 /// // With trailing content:
 /// VSidebarRow(label: "Identity", isActive: true, action: { }) {
-///     Text("5").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+///     Text("5").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
 /// }
 /// ```
 public struct VSidebarRow<Trailing: View>: View {
@@ -60,12 +60,12 @@ public struct VSidebarRow<Trailing: View>: View {
         HStack(spacing: isExpanded ? VSpacing.xs : 0) {
             if let icon {
                 VIconView(.resolve(icon), size: 13)
-                    .foregroundColor(iconColor)
+                    .foregroundStyle(iconColor)
                     .frame(width: Self.iconSlotSize, height: Self.iconSlotSize)
             }
             Text(label)
                 .font(VFont.bodyMediumDefault)
-                .foregroundColor(textColor)
+                .foregroundStyle(textColor)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(width: isExpanded ? nil : 0, alignment: .leading)

@@ -34,7 +34,7 @@ public struct VThemeToggle: View {
             if showLabel {
                 Text("Theme")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentDisabled)
+                    .foregroundStyle(VColor.contentDisabled)
                 Spacer()
             }
             segmentedControl

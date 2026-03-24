@@ -54,7 +54,7 @@ public struct VTab: View {
                     Spacer().frame(width: 16)
                 }
             }
-            .foregroundColor(isSelected && (style == .pill || style == .rectangular) ? VColor.contentDefault : (isSelected ? VColor.contentDefault : VColor.contentSecondary))
+            .foregroundStyle(isSelected && (style == .pill || style == .rectangular) ? VColor.contentDefault : (isSelected ? VColor.contentDefault : VColor.contentSecondary))
             .padding(.horizontal, VSpacing.lg)
             .frame(height: 32)
             .contentShape(RoundedRectangle(cornerRadius: cornerRadius))
@@ -64,7 +64,7 @@ public struct VTab: View {
             if isCloseable, let onClose = onClose {
                 Button(action: onClose) {
                     VIconView(.x, size: 10)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Close \(label)")

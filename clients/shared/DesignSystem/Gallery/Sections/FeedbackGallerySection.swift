@@ -21,7 +21,7 @@ struct FeedbackGallerySection: View {
                         HStack {
                             Text("Count: \(Int(badgeCount))")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                             Slider(value: $badgeCount, in: 1...99, step: 1)
                                 .frame(maxWidth: 200)
                         }
@@ -31,19 +31,19 @@ struct FeedbackGallerySection: View {
                         // Count row
                         HStack(spacing: VSpacing.xl) {
                             VStack(spacing: VSpacing.xs) {
-                                Text("Accent").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Accent").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VBadge(style: .count(Int(badgeCount)), color: VColor.primaryBase)
                             }
                             VStack(spacing: VSpacing.xs) {
-                                Text("Success").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Success").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VBadge(style: .count(Int(badgeCount)), color: VColor.systemPositiveStrong)
                             }
                             VStack(spacing: VSpacing.xs) {
-                                Text("Error").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Error").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VBadge(style: .count(Int(badgeCount)), color: VColor.systemNegativeStrong)
                             }
                             VStack(spacing: VSpacing.xs) {
-                                Text("Warning").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Warning").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VBadge(style: .count(Int(badgeCount)), color: VColor.systemMidStrong)
                             }
                         }
@@ -51,7 +51,7 @@ struct FeedbackGallerySection: View {
                         // Dot row
                         HStack(spacing: VSpacing.xl) {
                             VStack(spacing: VSpacing.xs) {
-                                Text("Dot").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Dot").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 HStack(spacing: VSpacing.md) {
                                     VBadge(style: .dot, color: VColor.primaryBase)
                                     VBadge(style: .dot, color: VColor.systemPositiveStrong)
@@ -63,7 +63,7 @@ struct FeedbackGallerySection: View {
 
                         // Label with tone (subtle)
                         VStack(alignment: .leading, spacing: VSpacing.sm) {
-                            Text("Subtle labels").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                            Text("Subtle labels").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                             HStack(spacing: VSpacing.lg) {
                                 VBadge(label: "Accent", tone: .accent)
                                 VBadge(label: "Neutral", tone: .neutral)
@@ -77,7 +77,7 @@ struct FeedbackGallerySection: View {
 
                         // Label with tone (solid)
                         VStack(alignment: .leading, spacing: VSpacing.sm) {
-                            Text("Solid labels").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                            Text("Solid labels").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                             HStack(spacing: VSpacing.lg) {
                                 VBadge(label: "Accent", tone: .accent, emphasis: .solid)
                                 VBadge(label: "Neutral", tone: .neutral, emphasis: .solid)
@@ -116,7 +116,7 @@ struct FeedbackGallerySection: View {
 
                         // With icon
                         VStack(alignment: .leading, spacing: VSpacing.sm) {
-                            Text("With icon").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                            Text("With icon").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                             HStack(spacing: VSpacing.lg) {
                                 VTag("Identity", color: VColor.funTeal, icon: .user)
                                 VTag("Event", color: VColor.funPink, icon: .calendar)
@@ -140,27 +140,27 @@ struct FeedbackGallerySection: View {
                 VCard {
                     HStack(spacing: VSpacing.xxl) {
                         VStack(spacing: VSpacing.md) {
-                            Text("Small (14)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                            Text("Small (14)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                             VLoadingIndicator(size: 14, color: VColor.primaryBase)
                         }
                         VStack(spacing: VSpacing.md) {
-                            Text("Default (20)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                            Text("Default (20)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                             VLoadingIndicator()
                         }
                         VStack(spacing: VSpacing.md) {
-                            Text("Large (32)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                            Text("Large (32)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                             VLoadingIndicator(size: 32, color: VColor.primaryBase)
                         }
                         VStack(spacing: VSpacing.md) {
-                            Text("Success").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                            Text("Success").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                             VLoadingIndicator(color: VColor.systemPositiveStrong)
                         }
                         VStack(spacing: VSpacing.md) {
-                            Text("Error").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                            Text("Error").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                             VLoadingIndicator(color: VColor.systemNegativeStrong)
                         }
                         VStack(spacing: VSpacing.md) {
-                            Text("Warning").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                            Text("Warning").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                             VLoadingIndicator(color: VColor.systemMidStrong)
                         }
                     }
@@ -272,11 +272,11 @@ struct FeedbackGallerySection: View {
                         // Text only
                         HStack(spacing: VSpacing.lg) {
                             VStack(spacing: VSpacing.xs) {
-                                Text("Text only").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Text only").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VShortcutTag("\u{2318}K")
                             }
                             VStack(spacing: VSpacing.xs) {
-                                Text("Text only").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Text only").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VShortcutTag("\u{2318}G")
                             }
                         }
@@ -286,11 +286,11 @@ struct FeedbackGallerySection: View {
                         // With icon
                         HStack(spacing: VSpacing.lg) {
                             VStack(spacing: VSpacing.xs) {
-                                Text("With icon").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("With icon").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VShortcutTag("fn", icon: "mic.fill")
                             }
                             VStack(spacing: VSpacing.xs) {
-                                Text("With icon").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("With icon").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VShortcutTag("Esc", icon: "escape")
                             }
                         }
@@ -313,23 +313,23 @@ struct FeedbackGallerySection: View {
                         // Size variants
                         HStack(spacing: VSpacing.xl) {
                             VStack(spacing: VSpacing.xs) {
-                                Text("Regular (default)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Regular (default)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VCopyButton(text: "Hello, world!")
                             }
                             VStack(spacing: VSpacing.xs) {
-                                Text("Compact").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Compact").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VCopyButton(text: "Compact copy", size: .compact)
                             }
                             VStack(spacing: VSpacing.xs) {
-                                Text("Inline (18×18)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Inline (18×18)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VCopyButton(text: "Inline copy", size: .inline)
                             }
                             VStack(spacing: VSpacing.xs) {
-                                Text("Custom frame (20pt)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Custom frame (20pt)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VCopyButton(text: "Small frame", iconSize: 20)
                             }
                             VStack(spacing: VSpacing.xs) {
-                                Text("Large frame (28pt)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Large frame (28pt)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VCopyButton(text: "Large frame", iconSize: 28)
                             }
                         }
@@ -339,7 +339,7 @@ struct FeedbackGallerySection: View {
                         // Custom hint
                         HStack(spacing: VSpacing.xl) {
                             VStack(spacing: VSpacing.xs) {
-                                Text("Custom tooltip").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Custom tooltip").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VCopyButton(text: "api_key_123", accessibilityHint: "Copy API key")
                             }
                         }
@@ -362,15 +362,15 @@ struct FeedbackGallerySection: View {
                         // Size variants
                         HStack(spacing: VSpacing.xxl) {
                             VStack(spacing: VSpacing.md) {
-                                Text("Small (6)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Small (6)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VBusyIndicator(size: 6)
                             }
                             VStack(spacing: VSpacing.md) {
-                                Text("Default (10)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Default (10)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VBusyIndicator()
                             }
                             VStack(spacing: VSpacing.md) {
-                                Text("Large (16)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Large (16)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VBusyIndicator(size: 16)
                             }
                         }
@@ -380,15 +380,15 @@ struct FeedbackGallerySection: View {
                         // Color variants
                         HStack(spacing: VSpacing.xxl) {
                             VStack(spacing: VSpacing.md) {
-                                Text("Accent").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Accent").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VBusyIndicator(color: VColor.primaryBase)
                             }
                             VStack(spacing: VSpacing.md) {
-                                Text("Success").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Success").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VBusyIndicator(color: VColor.systemPositiveStrong)
                             }
                             VStack(spacing: VSpacing.md) {
-                                Text("Error").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Error").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                                 VBusyIndicator(color: VColor.systemNegativeStrong)
                             }
                         }
@@ -410,7 +410,7 @@ struct FeedbackGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.xl) {
                         // Text line
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Text line").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                            Text("Text line").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                             VSkeletonBone(height: 14)
                         }
 
@@ -418,7 +418,7 @@ struct FeedbackGallerySection: View {
 
                         // Title
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Title").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                            Text("Title").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                             VSkeletonBone(width: 200, height: 20)
                         }
 
@@ -426,7 +426,7 @@ struct FeedbackGallerySection: View {
 
                         // Avatar
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Avatar").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                            Text("Avatar").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                             VSkeletonBone(width: 40, height: 40, radius: VRadius.pill)
                         }
 
@@ -434,7 +434,7 @@ struct FeedbackGallerySection: View {
 
                         // Paragraph
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
-                            Text("Paragraph").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                            Text("Paragraph").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                             VStack(alignment: .leading, spacing: VSpacing.sm) {
                                 VSkeletonBone(height: 14)
                                 VSkeletonBone(width: 280, height: 14)
@@ -479,7 +479,7 @@ struct FeedbackGallerySection: View {
                     HStack(spacing: VSpacing.xs) {
                         Text("Some setting")
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                         VInfoTooltip("Explanation of this setting.")
                     }
                 }

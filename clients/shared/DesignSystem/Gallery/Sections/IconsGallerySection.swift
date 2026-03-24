@@ -31,7 +31,7 @@ struct IconsGallerySection: View {
 
                 Text("\(filteredIcons.count) icons")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
 
                 VCard {
                     LazyVGrid(
@@ -41,11 +41,11 @@ struct IconsGallerySection: View {
                         ForEach(filteredIcons, id: \.rawValue) { icon in
                             VStack(spacing: VSpacing.xs) {
                                 VIconView(icon, size: 20)
-                                    .foregroundColor(VColor.contentDefault)
+                                    .foregroundStyle(VColor.contentDefault)
                                     .frame(width: 32, height: 32)
                                 Text(icon.rawValue.replacingOccurrences(of: "lucide-", with: ""))
                                     .font(VFont.labelSmall)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                                     .lineLimit(1)
                                     .truncationMode(.tail)
                             }

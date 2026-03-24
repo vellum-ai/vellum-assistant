@@ -83,7 +83,7 @@ public struct VSkillTypePill: View {
             Text(type.label)
                 .font(VFont.labelDefault)
         }
-        .foregroundColor(type.foregroundColor)
+        .foregroundStyle(type.foregroundColor)
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.xs)
         .background(

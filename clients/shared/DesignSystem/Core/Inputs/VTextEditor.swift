@@ -23,7 +23,7 @@ public struct VTextEditor: View {
             .lineLimit(1...100)
             .textFieldStyle(.plain)
             .font(VFont.bodyMediumLighter)
-            .foregroundColor(VColor.contentDefault)
+            .foregroundStyle(VColor.contentDefault)
             .focused($isFocused)
             .frame(minHeight: minHeight, maxHeight: maxHeight, alignment: .topLeading)
             .padding(.horizontal, VSpacing.md)
