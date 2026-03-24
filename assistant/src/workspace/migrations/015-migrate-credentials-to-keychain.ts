@@ -63,7 +63,12 @@ function keychainDelete(account: string): boolean {
     return true;
   } catch (err: unknown) {
     // Item not found is acceptable — treat as success
-    if (err instanceof Error && err.message.includes("could not be found")) {
+    if (
+      err instanceof Error &&
+      "stderr" in err &&
+      typeof (err as { stderr: unknown }).stderr === "string" &&
+      (err as { stderr: string }).stderr.includes("could not be found")
+    ) {
       return true;
     }
     return false;
@@ -78,7 +83,7 @@ function keychainList(): string[] {
       maxBuffer: 10 * 1024 * 1024,
     });
 
-    const blocks = stdout.split(/class: "genp"/);
+    const blocks = stdout.split('class: "genp"');
     const accounts: string[] = [];
 
     for (const block of blocks) {
