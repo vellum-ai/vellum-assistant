@@ -102,17 +102,17 @@ export function pipeToLogFile(
   tag: string,
   onLine?: (line: string) => void,
 ): void {
-  if (fd === "ignore") return;
-  const numFd: number = fd;
+  if (fd === "ignore" && !onLine) return;
+  const writeFd = fd !== "ignore" ? fd : null;
   const tagLabel = `[${tag}]`;
   const streams = [child.stdout, child.stderr].filter(Boolean);
   let ended = 0;
 
   function onDone() {
     ended++;
-    if (ended >= streams.length) {
+    if (ended >= streams.length && writeFd !== null) {
       try {
-        closeSync(numFd);
+        closeSync(writeFd);
       } catch {
         /* best-effort */
       }
@@ -129,11 +129,13 @@ export function pipeToLogFile(
         if (i === lines.length - 1 && lines[i] === "") break;
         const nl = i < lines.length - 1 ? "\n" : "";
         const stripped = lines[i].replace(PINO_TIME_RE, "");
-        const prefix = `${new Date().toISOString()} ${tagLabel} `;
-        try {
-          writeSync(numFd, prefix + stripped + nl);
-        } catch {
-          /* best-effort */
+        if (writeFd !== null) {
+          const prefix = `${new Date().toISOString()} ${tagLabel} `;
+          try {
+            writeSync(writeFd, prefix + stripped + nl);
+          } catch {
+            /* best-effort */
+          }
         }
         if (onLine && stripped) {
           try {
