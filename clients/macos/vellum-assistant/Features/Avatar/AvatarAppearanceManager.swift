@@ -304,7 +304,7 @@ final class AvatarAppearanceManager {
     // MARK: - Remote Avatar Fetch (Docker/remote instances)
 
     /// Fetches the avatar image via HTTP through the gateway for Docker/remote instances.
-    private func fetchAvatarViaHTTP() async {
+    private func fetchAvatarViaHTTP(skipClearOnFailure: Bool = false) async {
         do {
             let response = try await GatewayHTTPClient.get(
                 path: "assistants/{assistantId}/workspace/file/content",
@@ -312,9 +312,11 @@ final class AvatarAppearanceManager {
                 timeout: 10
             )
             guard response.isSuccess, !response.data.isEmpty else {
-                if customAvatarImage != nil { customAvatarImage = nil }
-                cachedChatAvatar = nil
-                updateDockIcon()
+                if !skipClearOnFailure {
+                    if customAvatarImage != nil { customAvatarImage = nil }
+                    cachedChatAvatar = nil
+                    updateDockIcon()
+                }
                 return
             }
             cachedChatAvatar = nil
@@ -322,9 +324,11 @@ final class AvatarAppearanceManager {
             updateDockIcon()
         } catch {
             log.warning("Failed to fetch avatar via HTTP: \(error.localizedDescription)")
-            if customAvatarImage != nil { customAvatarImage = nil }
-            cachedChatAvatar = nil
-            updateDockIcon()
+            if !skipClearOnFailure {
+                if customAvatarImage != nil { customAvatarImage = nil }
+                cachedChatAvatar = nil
+                updateDockIcon()
+            }
         }
     }
 
@@ -424,12 +428,43 @@ final class AvatarAppearanceManager {
             updateDockIcon()
         }
 
+        let diskLoadSucceeded = customAvatarImage != nil
+
         Task { [weak self] in
             await self?.fetchComponents()
-            await self?.fetchAvatarViaHTTP()
+            await self?.fetchAvatarViaHTTP(skipClearOnFailure: diskLoadSucceeded)
             await self?.fetchTraitsViaHTTP()
         }
         updateDockLabel()
+    }
+
+    /// Posts character traits to the daemon via the gateway so the daemon
+    /// renders and persists the avatar in its workspace. Used after onboarding
+    /// to sync the randomly-generated avatar to the daemon (especially
+    /// important for managed/remote assistants where the filesystem is not shared).
+    /// Fires `reloadAvatar()` on success so cached state picks up the daemon's
+    /// rendered image.
+    func syncTraitsToDaemon(bodyShape: AvatarBodyShape, eyeStyle: AvatarEyeStyle, color: AvatarColor) async {
+        let json: [String: Any] = [
+            "bodyShape": bodyShape.rawValue,
+            "eyeStyle": eyeStyle.rawValue,
+            "color": color.rawValue,
+        ]
+        do {
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/avatar/render-from-traits",
+                json: json,
+                timeout: 15
+            )
+            if response.isSuccess {
+                log.info("Synced avatar traits to daemon: \(bodyShape.rawValue)/\(eyeStyle.rawValue)/\(color.rawValue)")
+                reloadAvatar()
+            } else {
+                log.warning("Failed to sync avatar traits to daemon: HTTP \(response.statusCode)")
+            }
+        } catch {
+            log.warning("Failed to sync avatar traits to daemon: \(error.localizedDescription)")
+        }
     }
 
     /// Clears all cached avatar state and resets the dock icon to the default

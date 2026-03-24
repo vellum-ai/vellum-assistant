@@ -158,6 +158,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// finished before the observer was registered.
     var localBootstrapDidComplete = false
 
+    /// Onboarding state retained during first-launch so post-hatch logic
+    /// can access the randomly-generated avatar traits.
+    var onboardingState: OnboardingState?
+
     /// Guards `.appOpen` sound so it fires only once per app session,
     /// even if `proceedToApp()` is called again after assistant switches
     /// or re-authentication flows.
@@ -543,6 +547,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     // reflects the user's saved image instead of the
                     // bundled Vellum logo.
                     AvatarAppearanceManager.shared.reloadAvatar()
+                    self.syncOnboardingAvatarIfNeeded()
 
                     // Record lifecycle telemetry events (fire-and-forget).
                     Task { await self.telemetryClient.recordLifecycleEvent("hatch") }
@@ -569,6 +574,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     // Assistant not ready — show the main window with a
                     // timeout screen so the user knows something went wrong.
                     log.warning("Assistant not ready after timeout — showing timeout screen")
+                    // Can't sync traits (no daemon), but still clean up onboarding state.
+                    self.onboardingState = nil
                     transitionBootstrap(to: .timedOut)
                     showMainWindow(isFirstLaunch: true)
                     debugStateWriter.start(appDelegate: self)
@@ -583,7 +590,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     // Gateway is healthy — reload the avatar so
                     // logout→re-login cycles repopulate the dock icon.
                     AvatarAppearanceManager.shared.reloadAvatar()
+                    self.syncOnboardingAvatarIfNeeded()
                     await self.telemetryClient.recordLifecycleEvent("app_open")
+                } else {
+                    // Can't sync traits (no daemon), but still clean up onboarding state.
+                    self.onboardingState = nil
                 }
             }
             showMainWindow()
@@ -651,6 +662,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         showMainWindow()
         mainWindow?.conversationManager.createConversation()
         SoundManager.shared.play(.newConversation)
+    }
+
+    /// If onboarding generated avatar traits, sync them to the daemon and clear the state.
+    /// Called from both the first-launch and non-first-launch paths in `proceedToApp`
+    /// so that auth-gate onboarding flows also persist avatar traits on the daemon.
+    private func syncOnboardingAvatarIfNeeded() {
+        guard let body = onboardingState?.hatchAvatarBodyShape,
+              let eyes = onboardingState?.hatchAvatarEyeStyle,
+              let color = onboardingState?.hatchAvatarColor else {
+            onboardingState = nil
+            return
+        }
+        Task {
+            await AvatarAppearanceManager.shared.syncTraitsToDaemon(
+                bodyShape: body, eyeStyle: eyes, color: color
+            )
+        }
+        onboardingState = nil
     }
 
 }
