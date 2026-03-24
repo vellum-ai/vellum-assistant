@@ -44,26 +44,15 @@ function readPersonaFile(filePath: string): string | null {
   }
 }
 
-// ── User persona ───────────────────────────────────────────────────
+// ── User filename resolution ──────────────────────────────────────
 
 /**
- * Resolve the per-user persona file for the current actor.
- *
- * - If `trustContext` is undefined (desktop/native), looks up the guardian
- *   contact and reads their user file.
- * - If `trustContext` is defined and carries a `requesterExternalUserId`,
- *   looks up the contact by channel + external user ID.
- * - Falls back to `users/default.md` when no contact is found or the
- *   contact has no `userFile` set.
- * - Logs a debug warning when a contact's `userFile` is set but the
- *   corresponding file is missing on disk.
+ * Resolve the raw userFile filename for the current actor's contact.
+ * Returns the validated filename (e.g. "sidd.md") or null.
  */
-export function resolveUserPersona(
+function resolveUserFilename(
   trustContext: TrustContext | undefined,
 ): string | null {
-  const usersDir = join(getWorkspaceDir(), "users");
-  const defaultPath = join(usersDir, "default.md");
-
   let filename: string | null = null;
 
   if (trustContext === undefined) {
@@ -93,20 +82,47 @@ export function resolveUserPersona(
     }
   }
 
-  // Resolve file path — validate basename to prevent path traversal
+  // Validate basename to prevent path traversal
   if (filename) {
     if (basename(filename) !== filename || filename === ".." || filename === ".") {
       log.warn(
         { userFile: filename },
         "Contact userFile contains path traversal; ignoring",
       );
-      return readPersonaFile(defaultPath);
+      return null;
     }
+    return filename;
+  }
+
+  return null;
+}
+
+// ── User persona ───────────────────────────────────────────────────
+
+/**
+ * Resolve the per-user persona file for the current actor.
+ *
+ * - If `trustContext` is undefined (desktop/native), looks up the guardian
+ *   contact and reads their user file.
+ * - If `trustContext` is defined and carries a `requesterExternalUserId`,
+ *   looks up the contact by channel + external user ID.
+ * - Falls back to `users/default.md` when no contact is found or the
+ *   contact has no `userFile` set.
+ * - Logs a debug warning when a contact's `userFile` is set but the
+ *   corresponding file is missing on disk.
+ */
+export function resolveUserPersona(
+  trustContext: TrustContext | undefined,
+): string | null {
+  const usersDir = join(getWorkspaceDir(), "users");
+  const defaultPath = join(usersDir, "default.md");
+
+  const filename = resolveUserFilename(trustContext);
+  if (filename) {
     const filePath = join(usersDir, filename);
     if (existsSync(filePath)) {
       return readPersonaFile(filePath);
     }
-    // userFile is set but the file doesn't exist on disk
     log.debug(
       { userFile: filename },
       "Contact has userFile set but file is missing on disk; falling back to default.md",
