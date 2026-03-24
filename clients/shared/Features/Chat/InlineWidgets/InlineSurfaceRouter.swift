@@ -83,7 +83,7 @@ public struct InlineSurfaceRouter: View {
             if !isTemplateCard, !isDynamicPreview, !isDocumentPreview, let title = surface.title {
                 Text(title)
                     .font(VFont.titleSmall)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
             }
 
             surfaceContent
@@ -106,7 +106,7 @@ public struct InlineSurfaceRouter: View {
                     }
                 } label: {
                     VIconView(.arrowUpRight, size: 10)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .padding(VSpacing.xs)
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.sm)
@@ -125,7 +125,7 @@ public struct InlineSurfaceRouter: View {
                         )
                     } label: {
                         VIconView(.arrowUpRight, size: 10)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                             .padding(VSpacing.xs)
                             .background(
                                 RoundedRectangle(cornerRadius: VRadius.sm)
@@ -158,7 +158,7 @@ public struct InlineSurfaceRouter: View {
             VLoadingIndicator(size: 14, color: VColor.contentSecondary)
             Text(surface.title ?? "Loading surface…")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         }
         .padding(VSpacing.md)
         .frame(maxWidth: 540, alignment: .leading)
@@ -177,10 +177,10 @@ public struct InlineSurfaceRouter: View {
     private var strippedFailedPlaceholder: some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.triangleAlert, size: 12)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
             Text("Failed to load surface")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         }
         .padding(VSpacing.md)
         .frame(maxWidth: 540, alignment: .leading)
@@ -322,10 +322,10 @@ public struct InlineSurfaceRouter: View {
                 Spacer()
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.circleCheck, size: 12)
-                        .foregroundColor(VColor.systemPositiveStrong)
+                        .foregroundStyle(VColor.systemPositiveStrong)
                     Text(label)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                 }
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.sm)
@@ -350,7 +350,7 @@ public struct InlineSurfaceRouter: View {
                     } label: {
                         Text(action.label)
                             .font(VFont.bodyMediumDefault)
-                            .foregroundColor(buttonForeground(action.style))
+                            .foregroundStyle(buttonForeground(action.style))
                             .padding(.horizontal, VSpacing.lg)
                             .padding(.vertical, VSpacing.sm)
                             .background(

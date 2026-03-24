@@ -220,7 +220,7 @@ public struct InlineWeatherWidget: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(data.location)
                         .font(VFont.bodySmallEmphasised)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                 }
                 Spacer()
                 Picker("", selection: $useFahrenheit) {
@@ -237,10 +237,10 @@ public struct InlineWeatherWidget: View {
                 HStack(alignment: .top, spacing: 0) {
                     Text("\(data.currentTemp(useFahrenheit: useFahrenheit))")
                         .font(.system(size: 48, weight: .thin, design: .rounded))
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                     Text("°")
                         .font(.system(size: 28, weight: .thin, design: .rounded))
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .offset(y: 4)
                 }
 
@@ -249,23 +249,23 @@ public struct InlineWeatherWidget: View {
                     HStack(spacing: VSpacing.xs) {
                         if let firstItem = data.forecast.first {
                             VIconView(SFSymbolMapping.icon(forSFSymbol: firstItem.icon, fallback: .cloud), size: 14)
-                                .foregroundColor(iconColor(for: firstItem.icon))
+                                .foregroundStyle(iconColor(for: firstItem.icon))
                         }
                         Text(data.condition)
                             .font(VFont.bodyMediumDefault)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                     }
 
                     // Feels like
                     Text("Feels like \(data.feelsLike(useFahrenheit: useFahrenheit))°")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
 
                     // H/L
                     if let hl = todayHighLow {
                         Text("H:\(hl.high)°  L:\(hl.low)°")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                     }
                 }
                 .padding(.top, VSpacing.sm)
@@ -279,7 +279,7 @@ public struct InlineWeatherWidget: View {
                 } icon: {
                     VIconView(.wind, size: 12)
                 }
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
 
                 Label {
                     Text("\(data.humidity)%")
@@ -287,7 +287,7 @@ public struct InlineWeatherWidget: View {
                 } icon: {
                     VIconView(.droplets, size: 12)
                 }
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
             }
         }
         .padding(.vertical, VSpacing.sm)
@@ -300,10 +300,10 @@ public struct InlineWeatherWidget: View {
             // Header
             HStack(spacing: VSpacing.xs) {
                 VIconView(.clock, size: 12)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                 Text("HOURLY FORECAST")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                 Spacer()
             }
             .padding(.vertical, VSpacing.sm)
@@ -317,15 +317,15 @@ public struct InlineWeatherWidget: View {
                         VStack(spacing: VSpacing.sm) {
                             Text(item.time)
                                 .font(item.time == "Now" ? VFont.bodyMediumEmphasised : VFont.labelDefault)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
 
                             VIconView(SFSymbolMapping.icon(forSFSymbol: item.icon, fallback: .cloud), size: 18)
-                                .foregroundColor(iconColor(for: item.icon))
+                                .foregroundStyle(iconColor(for: item.icon))
                                 .frame(height: 22)
 
                             Text("\(item.temp(useFahrenheit: useFahrenheit))°")
                                 .font(VFont.bodyMediumDefault)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                         }
                         .frame(minWidth: 44)
                     }
@@ -340,10 +340,10 @@ public struct InlineWeatherWidget: View {
     private var dailyForecastHeader: some View {
         HStack {
             VIconView(.calendar, size: 12)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
             Text("\(data.forecast.count)-DAY FORECAST")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
             Spacer()
         }
         .padding(.vertical, VSpacing.sm)
@@ -359,19 +359,19 @@ public struct InlineWeatherWidget: View {
             // Day name
             Text(item.day)
                 .font(item.day == "Today" ? VFont.bodyMediumEmphasised : VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .frame(width: 46, alignment: .leading)
 
             // Weather icon + optional precip
             VStack(spacing: VSpacing.xxs) {
                 VIconView(SFSymbolMapping.icon(forSFSymbol: item.icon, fallback: .cloud), size: 16)
-                    .foregroundColor(iconColor(for: item.icon))
+                    .foregroundStyle(iconColor(for: item.icon))
                     .frame(width: 24, height: 20)
 
                 if let precip = item.precip {
                     Text("\(precip)%")
                         .font(VFont.labelSmall)
-                        .foregroundColor(VColor.systemNegativeHover)
+                        .foregroundStyle(VColor.systemNegativeHover)
                 }
             }
             .frame(width: 36)
@@ -379,7 +379,7 @@ public struct InlineWeatherWidget: View {
             // Low temp
             Text("\(low)°")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .frame(width: 32, alignment: .trailing)
 
             // Temperature bar
@@ -388,7 +388,7 @@ public struct InlineWeatherWidget: View {
             // High temp
             Text("\(high)°")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .frame(width: 32, alignment: .trailing)
         }
         .padding(.vertical, VSpacing.sm)

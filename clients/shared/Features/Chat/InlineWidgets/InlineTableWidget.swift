@@ -41,7 +41,7 @@ public struct InlineTableWidget: View {
                         toggleSelectAll()
                     } label: {
                         VIconView(allSelected ? .circleCheck : .circle, size: 14)
-                            .foregroundColor(allSelected ? VColor.primaryBase : VColor.contentTertiary)
+                            .foregroundStyle(allSelected ? VColor.primaryBase : VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(allSelected ? "Deselect all" : "Select all")
@@ -53,7 +53,7 @@ public struct InlineTableWidget: View {
                 ForEach(data.columns) { column in
                     Text(column.label)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .columnFrame(column.width)
                         .textSelection(.enabled)
                 }
@@ -71,7 +71,7 @@ public struct InlineTableWidget: View {
             if let caption = data.caption {
                 Text(caption)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .padding(.top, VSpacing.xs)
             }
         }
@@ -94,7 +94,7 @@ public struct InlineTableWidget: View {
                     toggleSelection(row.id)
                 } label: {
                     VIconView(isSelected ? .circleCheck : .circle, size: 14)
-                        .foregroundColor(isSelected ? VColor.primaryBase : VColor.contentTertiary)
+                        .foregroundStyle(isSelected ? VColor.primaryBase : VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
                 .frame(width: 28)
@@ -126,11 +126,11 @@ public struct InlineTableWidget: View {
             if let icon = value?.icon,
                let vIcon = SFSymbolMapping.icon(forSFSymbol: icon) {
                 VIconView(vIcon, size: 12)
-                    .foregroundColor(resolveIconColor(value?.iconColor))
+                    .foregroundStyle(resolveIconColor(value?.iconColor))
             }
             Text(value?.text ?? "")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .lineLimit(2)
                 .textSelection(.enabled)
         }

@@ -11,11 +11,11 @@ public struct InlineFallbackChip: View {
     public var body: some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.layers, size: 12)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
 
             Text("Interactive \(surfaceType.rawValue) surface")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.sm)

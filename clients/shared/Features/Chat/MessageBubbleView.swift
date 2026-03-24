@@ -132,10 +132,10 @@ public struct MessageBubbleView: View {
                 if message.status == .pendingOffline {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.history, size: 11)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         Text("Pending")
                             .font(VFont.labelSmall)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                     .padding(.horizontal, VSpacing.sm)
                 }
@@ -144,16 +144,16 @@ public struct MessageBubbleView: View {
                 if message.role == .user && message.status == .sendFailed {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.triangleAlert, size: 11)
-                            .foregroundColor(VColor.systemNegativeStrong)
+                            .foregroundStyle(VColor.systemNegativeStrong)
                         Text("Failed to send")
                             .font(VFont.labelSmall)
-                            .foregroundColor(VColor.systemNegativeStrong)
+                            .foregroundStyle(VColor.systemNegativeStrong)
                         Button {
                             onRetryFailedMessage?(message.id)
                         } label: {
                             Text("Retry")
                                 .font(VFont.labelSmall.weight(.medium))
-                                .foregroundColor(VColor.primaryBase)
+                                .foregroundStyle(VColor.primaryBase)
                         }
                         .buttonStyle(.plain)
                     }
@@ -266,7 +266,7 @@ public struct MessageBubbleView: View {
         if isUser {
             Text(text)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .padding(VSpacing.md)
                 .background(VColor.surfaceActive)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
