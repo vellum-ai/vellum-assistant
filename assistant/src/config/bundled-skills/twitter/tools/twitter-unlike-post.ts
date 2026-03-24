@@ -47,7 +47,8 @@ export async function run(
     const body = resp.body as { data?: { liked?: boolean } };
 
     if (resp.status === 200) {
-      if (body.data?.liked === true) return ok("Tweet was not liked.");
+      if (body.data?.liked === true)
+        return ok("Tweet was not previously liked — nothing to unlike.");
       return ok(`Unliked tweet ${tweetId}.`);
     }
 
