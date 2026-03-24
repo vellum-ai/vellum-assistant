@@ -78,7 +78,7 @@ enum LogExporter {
                 )
             } catch {
                 log.warning("Background feedback upload failed: \(error.localizedDescription)")
-                await MainActor.run {
+                _ = await MainActor.run {
                     AppDelegate.shared?.mainWindow?.windowState.showToast(
                         message: "Feedback upload failed",
                         style: .error
