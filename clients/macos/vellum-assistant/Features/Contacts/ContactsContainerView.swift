@@ -128,6 +128,7 @@ struct ContactsContainerView: View {
                                     viewModel.loadContacts()
                                 },
                                 onSelectAssistant: { selection = .assistant },
+                                conversationManager: conversationManager,
                                 showToast: showToast,
                                 guardianName: viewModel.guardianContact?.displayName
                             )
@@ -241,6 +242,7 @@ struct ContactsContainerView: View {
                     contact: contact,
                     connectionManager: connectionManager,
                     store: store,
+                    conversationManager: conversationManager,
                     onSelectAssistant: { selection = .assistant },
                     showCardBorders: false
                 )

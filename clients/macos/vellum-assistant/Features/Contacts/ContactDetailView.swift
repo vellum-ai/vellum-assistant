@@ -11,6 +11,7 @@ struct ContactDetailView: View {
     var store: SettingsStore?
     var onDelete: (() -> Void)?
     var onSelectAssistant: (() -> Void)?
+    var conversationManager: ConversationManager?
     var showToast: ((String, ToastInfo.Style) -> Void)?
     var guardianName: String?
 
@@ -39,6 +40,7 @@ struct ContactDetailView: View {
                     contact: displayContact,
                     connectionManager: connectionManager,
                     store: store,
+                    conversationManager: conversationManager,
                     onSelectAssistant: onSelectAssistant,
                     showCardBorders: false
                 )

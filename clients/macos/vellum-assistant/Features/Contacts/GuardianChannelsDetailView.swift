@@ -15,6 +15,7 @@ struct GuardianChannelsDetailView: View {
     var contactClient: ContactClientProtocol = ContactClient()
     var channelClient: ChannelClientProtocol = ChannelClient()
     var store: SettingsStore?
+    var conversationManager: ConversationManager?
     var onSelectAssistant: (() -> Void)?
     var showCardBorders: Bool = true
 
@@ -210,8 +211,15 @@ struct GuardianChannelsDetailView: View {
                         }
                     } else if needsSetup {
                         VButton(label: "Set up", style: .outlined) {
-                            dismissedChannels.remove(type)
-                            setupExpanded.insert(type)
+                            if let conversationManager {
+                                conversationManager.openConversation(
+                                    message: channelSetupMessage(for: type),
+                                    forceNew: true
+                                )
+                            } else {
+                                dismissedChannels.remove(type)
+                                setupExpanded.insert(type)
+                            }
                         }
                     }
                 }
@@ -232,6 +240,18 @@ struct GuardianChannelsDetailView: View {
             || (!existingChannels.isEmpty && !dismissedChannels.contains(type))
             || setupExpanded.contains(type) {
             verificationFlowContent(for: type)
+        } else {
+            VButton(label: "Set up", style: .outlined) {
+                if let conversationManager {
+                    conversationManager.openConversation(
+                        message: channelSetupMessage(for: type),
+                        forceNew: true
+                    )
+                } else {
+                    dismissedChannels.remove(type)
+                    setupExpanded.insert(type)
+                }
+            }
         }
 
         if errorChannelType == type, let errorMessage {
@@ -479,6 +499,15 @@ struct GuardianChannelsDetailView: View {
         case "phone": return "Phone Calling"
         case "slack": return "Slack"
         default: return type.capitalized
+        }
+    }
+
+    private func channelSetupMessage(for type: String) -> String {
+        switch type {
+        case "telegram": return "I'd like to verify my identity as your guardian on Telegram. Can you help me set that up?"
+        case "slack": return "I'd like to verify my identity as your guardian on Slack. Can you help me set that up?"
+        case "phone": return "I'd like to verify my identity as your guardian for phone calls. Can you help me set that up?"
+        default: return "I'd like to verify my identity as your guardian on \(type.capitalized). Can you help me set that up?"
         }
     }
 
