@@ -159,37 +159,15 @@ struct MessageListView: View {
     /// Observing the full TaskProgressOverlayManager would cause the entire
     /// message list to re-render on every frequent `data` progress tick.
     @State private var activeSurfaceId: String?
-    /// Tracks the last pending confirmation request ID that triggered an
-    /// auto-focus handoff. Used to detect nil→non-nil transitions so we
-    /// resign first responder exactly once per new confirmation appearance.
-    @State private var lastAutoFocusedRequestId: String?
     /// Consolidates all scroll-related state: anchor tracking, scroll loop guard,
     /// bottom pin coordinator, suppression flags, and scroll-related tasks.
     @StateObject private var scrollCoordinator = MessageListScrollCoordinator()
     /// The scroll view's viewport height, captured via onScrollGeometryChange.
     /// Used for anchor visibility checks and bottom-pin verification.
     @State private var scrollViewportHeight: CGFloat = .infinity
-    /// Timestamp when anchorMessageId was set. Used together with pagination
-    /// exhaustion to decide when a stale anchor should be cleared.
-    @State private var anchorSetTime: Date?
-    /// Independent timer task that clears a stale anchor after 10 seconds,
-    /// regardless of whether messages.count changes. This covers the edge
-    /// case where pagination stalls without adding/removing messages.
-    @State private var anchorTimeoutTask: Task<Void, Never>?
-    /// Last container width that triggered a resize scroll handler, used to
-    /// detect meaningful width changes (>2pt) and avoid sub-pixel jitter.
-    @State private var lastHandledContainerWidth: CGFloat = 0
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State private var resizeScrollTask: Task<Void, Never>?
-    /// Task that clears the highlight flash after the animation duration.
-    @State private var highlightDismissTask: Task<Void, Never>?
     @State private var hasPlayedTailEntryAnimation = false
-    /// Captures the `assistantActivityPhase` at the moment `isSending` goes false.
-    /// Used to distinguish mid-turn tool-confirmation pauses (phase == "awaiting_confirmation")
-    /// from genuine turn endings, so the `onChange(of: isSending)` handler can decide
-    /// whether to reattach the scroll position on the next `isSending = true` transition.
-    @State private var phaseWhenSendingStopped: String = ""
-
     /// Current scroll phase from onScrollPhaseChange; used by the geometry
     /// change handler to decide whether a scroll-up should trigger detach.
     /// Only `.interacting` (direct user gesture) triggers detach — `.decelerating`
@@ -533,23 +511,9 @@ struct MessageListView: View {
         )
     }
 
-    /// Flash-highlight the given message after an anchor scroll completes.
-    /// The highlight fades out automatically after 1.5 seconds.
+    /// Delegates flash-highlight to the coordinator.
     private func flashHighlight(messageId: UUID) {
-        highlightDismissTask?.cancel()
-        highlightedMessageId = messageId
-        highlightDismissTask = Task { @MainActor in
-            do {
-                try await Task.sleep(nanoseconds: 1_500_000_000)
-            } catch {
-                return
-            }
-            guard !Task.isCancelled else { return }
-            withAnimation(VAnimation.slow) {
-                highlightedMessageId = nil
-            }
-            highlightDismissTask = nil
-        }
+        scrollCoordinator.flashHighlight(messageId: messageId, highlightedMessageId: $highlightedMessageId)
     }
 
     /// Delegates scroll loop event recording to the coordinator.
@@ -917,12 +881,11 @@ struct MessageListView: View {
             }
             .onAppear {
                 configureBottomPinCoordinator(proxy: proxy)
-                // Seed the confirmation marker on initial mount — onChange(of:
-                // conversationId) doesn't fire for the initial value, so a
-                // conversation already paused in awaiting_confirmation at launch
-                // or reconnect needs the marker set here.
+                // Seed the confirmation marker on initial mount — conversationSwitched
+                // doesn't fire for the initial value, so a conversation already paused
+                // in awaiting_confirmation at launch or reconnect needs the marker set here.
                 if !isSending {
-                    phaseWhenSendingStopped = assistantActivityPhase
+                    scrollCoordinator.phaseWhenSendingStopped = assistantActivityPhase
                 }
                 if let id = anchorMessageId, messages.contains(where: { $0.id == id }) {
                     // Anchor is already set and the target message is loaded —
@@ -933,271 +896,113 @@ struct MessageListView: View {
                     proxy.scrollTo(id, anchor: .center)
                     flashHighlight(messageId: id)
                     anchorMessageId = nil
-                    anchorSetTime = nil
+                    scrollCoordinator.anchorSetTime = nil
                 } else if anchorMessageId != nil {
                     // Anchor is set but the target message isn't loaded yet.
-                    // Record the timestamp so the elapsed-time guard starts
-                    // counting from view appearance (onChange may not fire for
-                    // the initial value).
                     os_signpost(.event, log: PerfSignposts.log, name: "anchorSet", "reason=onAppearPending")
-                    if anchorSetTime == nil { anchorSetTime = Date() }
-                    // Start the independent timeout if not already running
-                    // (onChange(of: anchorMessageId) may not fire for the
-                    // initial value when the view first appears).
-                    if anchorTimeoutTask == nil {
-                        anchorTimeoutTask = Task { @MainActor in
+                    if scrollCoordinator.anchorSetTime == nil { scrollCoordinator.anchorSetTime = Date() }
+                    // Start the independent timeout if not already running.
+                    if scrollCoordinator.anchorTimeoutTask == nil {
+                        scrollCoordinator.anchorTimeoutTask = Task { @MainActor [weak scrollCoordinator] in
                             do {
                                 try await Task.sleep(nanoseconds: 10_000_000_000)
-                            } catch {
-                                return
-                            }
-                            guard !Task.isCancelled, anchorMessageId != nil else { return }
+                            } catch { return }
+                            guard !Task.isCancelled, let scrollCoordinator, anchorMessageId != nil else { return }
                             os_signpost(.event, log: PerfSignposts.log, name: "anchorTimedOut")
                             log.debug("Anchor message not found (timed out) — clearing stale anchor")
                             anchorMessageId = nil
-                            anchorSetTime = nil
-                            anchorTimeoutTask = nil
+                            scrollCoordinator.anchorSetTime = nil
+                            scrollCoordinator.anchorTimeoutTask = nil
                             scrollCoordinator.bottomPinCoordinator.reattach()
-                            requestBottomPin(reason: .initialRestore, proxy: proxy, animated: true)
+                            scrollCoordinator.requestBottomPin(reason: .initialRestore, proxy: proxy, conversationId: conversationId, animated: true)
                         }
                     }
                 } else {
                     restoreScrollToBottom(proxy: proxy)
                 }
-                // When anchorMessageId is set but the target message isn't loaded
-                // yet, skip scrolling entirely — onChange(of: messages.count) will
-                // retry once history finishes loading.
             }
             .onDisappear {
                 scrollCoordinator.cancelAllTasks()
-                anchorTimeoutTask?.cancel()
-                anchorTimeoutTask = nil
                 resizeScrollTask?.cancel()
                 resizeScrollTask = nil
-                highlightDismissTask?.cancel()
-                highlightDismissTask = nil
                 highlightedMessageId = nil
             }
+            // MARK: - Consolidated onChange handlers (≤4, delegating to coordinator)
             .onChange(of: isSending) {
-                if isSending {
-                    scrollCoordinator.hasReceivedScrollEvent = true
-                    // Reattach and pin to bottom for user-initiated actions (send,
-                    // regenerate, retry). Skip reattach only when the daemon resumes
-                    // from a tool confirmation (not a user action during confirmation).
-                    //
-                    // Detection: when the daemon resumes, it sets both isSending=true
-                    // AND assistantActivityPhase="thinking" in the same mutation. When
-                    // the user sends/regenerates during confirmation, only isSending
-                    // changes — assistantActivityPhase stays "awaiting_confirmation"
-                    // until the daemon processes the new request.
-                    let isDaemonConfirmationResume =
-                        phaseWhenSendingStopped == "awaiting_confirmation"
-                        && assistantActivityPhase != "awaiting_confirmation"
-                    if isDaemonConfirmationResume && !scrollCoordinator.bottomPinCoordinator.isFollowingBottom {
-                        // Daemon resumed from confirmation while user was scrolled up.
-                    } else {
-                        scrollCoordinator.bottomPinCoordinator.reattach()
-                        requestBottomPin(reason: .messageCount, proxy: proxy, animated: true)
-                    }
-                } else {
-                    // Capture the activity phase at the moment sending stops.
-                    // "awaiting_confirmation" marks a mid-turn pause; any other value
-                    // (idle, streaming, tool_running) marks a genuine turn ending.
-                    phaseWhenSendingStopped = assistantActivityPhase
-                }
-            }
-            .onChange(of: assistantActivityPhase) {
-                // Clear stale confirmation marker when the phase leaves
-                // "awaiting_confirmation" while isSending is still false (e.g.,
-                // confirmation denied → idle, or reconnect resets the phase).
-                // When the daemon resumes (phase → thinking AND isSending → true
-                // simultaneously), isSending is already true here, so we skip —
-                // the isSending handler needs the marker intact.
-                if !isSending
-                    && phaseWhenSendingStopped == "awaiting_confirmation"
-                    && assistantActivityPhase != "awaiting_confirmation"
-                {
-                    phaseWhenSendingStopped = assistantActivityPhase
-                }
-            }
-            .onChange(of: isThinking) {
-                if !isThinking {
-                    if !hasEverSentMessage && messages.contains(where: { $0.role == .user }) {
-                        hasEverSentMessage = true
-                    }
-                }
+                scrollCoordinator.sendingStateChanged(
+                    isSending: isSending,
+                    isThinking: isThinking,
+                    assistantActivityPhase: assistantActivityPhase,
+                    messages: messages,
+                    hasEverSentMessage: &hasEverSentMessage,
+                    proxy: proxy,
+                    conversationId: conversationId
+                )
             }
             .onChange(of: messages.count) {
-                // Anchor scroll takes priority: when a notification deep-link
-                // set anchorMessageId, retry scrolling to it as messages load
-                // (e.g., history arrives after a conversation switch). This must run
-                // before the bottom-scroll branch to avoid competing scrollTo calls.
-                if let id = anchorMessageId, messages.contains(where: { $0.id == id }) {
-                    os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=messagesChanged")
-                    os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundInMessages")
-                    recordScrollLoopEvent(.scrollToRequested)
-                    // Anchor jumps bypass the coordinator — they are higher priority.
-                    scrollCoordinator.bottomPinCoordinator.cancelActiveSession(reason: .deepLinkAnchorHandoff)
-                    withAnimation {
-                        proxy.scrollTo(id, anchor: .center)
-                    }
-                    flashHighlight(messageId: id)
-                    anchorMessageId = nil
-                    anchorSetTime = nil
-                    anchorTimeoutTask?.cancel()
-                    anchorTimeoutTask = nil
-                    return
-                }
-                // If anchor is set but the target message still hasn't appeared,
-                // check pagination exhaustion with a minimum elapsed time guard.
-                // The guard prevents premature clearing when hasMoreMessages is
-                // still at its default `false` before the daemon history response
-                // arrives (e.g., a streaming message changes messages.count before
-                // history loads). The independent anchorTimeoutTask handles the
-                // time-based fallback separately.
-                if anchorMessageId != nil {
-                    let paginationExhausted = !hasMoreMessages
-                    let minWaitElapsed = anchorSetTime.map { Date().timeIntervalSince($0) > 2 } ?? false
-                    if paginationExhausted && minWaitElapsed {
-                        os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=paginationExhausted")
-                        log.debug("Anchor message not found (pagination exhausted) — clearing stale anchor")
-                        anchorMessageId = nil
-                        anchorSetTime = nil
-                        anchorTimeoutTask?.cancel()
-                        anchorTimeoutTask = nil
-                        scrollCoordinator.bottomPinCoordinator.reattach()
-                        requestBottomPin(reason: .messageCount, proxy: proxy, animated: true)
-                        return
-                    }
-                }
-                if isNearBottom && !scrollCoordinator.isSuppressed && anchorMessageId == nil {
-                    requestBottomPin(reason: .messageCount, proxy: proxy, animated: true)
-                } else if !scrollCoordinator.hasReceivedScrollEvent && anchorMessageId == nil && !messages.isEmpty {
-                    // History just loaded but the coordinator's initial-restore session
-                    // may have already expired (500ms timeout). Force a fresh scroll-to-bottom
-                    // so messages are visible without requiring user scroll interaction.
-                    requestBottomPin(reason: .initialRestore, proxy: proxy)
-                } else if scrollCoordinator.isSuppressed {
-                    log.debug("Auto-scroll suppressed (bottom-scroll suppression active)")
-                }
+                scrollCoordinator.messagesChanged(
+                    proxy: proxy,
+                    messages: messages,
+                    anchorMessageId: &anchorMessageId,
+                    highlightedMessageId: $highlightedMessageId,
+                    hasMoreMessages: hasMoreMessages,
+                    isNearBottom: isNearBottom,
+                    conversationId: conversationId,
+                    currentPendingRequestId: currentPendingRequestId
+                )
             }
             .onChange(of: containerWidth) {
-                guard containerWidth > 0, abs(containerWidth - lastHandledContainerWidth) > 2 else { return }
-                lastHandledContainerWidth = containerWidth
-                resizeScrollTask?.cancel()
-                resizeScrollTask = scrollCoordinator.makeResizeTask(
+                resizeScrollTask = scrollCoordinator.containerResized(
+                    width: containerWidth,
                     proxy: proxy,
                     conversationId: conversationId,
                     isNearBottom: isNearBottom,
                     anchorMessageId: anchorMessageId,
                     scrollViewportHeight: scrollViewportHeight,
-                    onComplete: { [self] in resizeScrollTask = nil }
+                    previousResizeTask: resizeScrollTask,
+                    onResizeComplete: { [self] in resizeScrollTask = nil }
                 )
             }
             .onChange(of: conversationId) { oldConversationId, _ in
-                // Reset view-local state that doesn't belong in the coordinator.
-                resizeScrollTask?.cancel()
-                resizeScrollTask = nil
-                scrollCoordinator.resetForConversationSwitch(
+                scrollCoordinator.conversationSwitched(
                     oldConversationId: oldConversationId,
                     newConversationId: conversationId,
                     isSending: isSending,
-                    assistantActivityPhase: assistantActivityPhase
+                    assistantActivityPhase: assistantActivityPhase,
+                    containerWidth: containerWidth,
+                    isNearBottom: &isNearBottom,
+                    highlightedMessageId: $highlightedMessageId,
+                    hasPlayedTailEntryAnimation: &hasPlayedTailEntryAnimation,
+                    resizeScrollTask: &resizeScrollTask,
+                    proxy: proxy,
+                    anchorMessageId: $anchorMessageId,
+                    scrollViewportHeight: scrollViewportHeight
                 )
-                isNearBottom = true
-                highlightedMessageId = nil
-                highlightDismissTask?.cancel()
-                highlightDismissTask = nil
-                // Capture the new conversation's activity phase so a conversation
-                // already paused in awaiting_confirmation is correctly tracked.
-                phaseWhenSendingStopped = isSending ? "" : assistantActivityPhase
-                lastHandledContainerWidth = containerWidth
-                anchorTimeoutTask?.cancel()
-                anchorTimeoutTask = nil
-                hasPlayedTailEntryAnimation = false
-                // Avatar state is reset inside restoreScrollToBottom so the
-                // reset is shared with onAppear.
-                restoreScrollToBottom(proxy: proxy)
             }
-            .onChange(of: anchorMessageId) {
-                // Only cancel scroll restore when a new anchor is set (non-nil).
-                // The nil transition fires during conversation switches (stale anchor
-                // cleanup) and must not cancel the restore just started.
-                if anchorMessageId != nil {
-                    scrollCoordinator.scrollRestoreTask?.cancel()
-                    scrollCoordinator.scrollRestoreTask = nil
-                    // Anchor jumps are higher priority — cancel any active pin session.
-                    scrollCoordinator.bottomPinCoordinator.cancelActiveSession(reason: .deepLinkAnchorHandoff)
-                }
-                // Record the timestamp when a new anchor is set so the
-                // pagination-exhaustion guard can measure elapsed time.
-                anchorSetTime = anchorMessageId != nil ? Date() : nil
-                // Cancel any previous timeout task.
-                anchorTimeoutTask?.cancel()
-                anchorTimeoutTask = nil
-                guard let id = anchorMessageId else { return }
-                os_signpost(.event, log: PerfSignposts.log, name: "anchorSet", "reason=anchorMessageIdChanged")
-                // Only scroll and clear if the target message is already loaded;
-                // otherwise leave the anchor set so the messages-change handler
-                // can retry once history finishes loading.
-                if messages.contains(where: { $0.id == id }) {
-                    os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=anchorChanged")
-                    os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundOnAnchorChange")
-                    recordScrollLoopEvent(.scrollToRequested)
-                    withAnimation {
-                        proxy.scrollTo(id, anchor: .center)
-                    }
-                    flashHighlight(messageId: id)
-                    anchorMessageId = nil
-                    anchorSetTime = nil
-                } else {
-                    // Start an independent 10-second timeout that clears the
-                    // anchor even if messages.count never changes (e.g., pagination
-                    // stalls or the daemon never responds with more history).
-                    anchorTimeoutTask = Task { @MainActor in
-                        do {
-                            try await Task.sleep(nanoseconds: 10_000_000_000)
-                        } catch {
-                            return
-                        }
-                        guard !Task.isCancelled, anchorMessageId != nil else { return }
-                        os_signpost(.event, log: PerfSignposts.log, name: "anchorTimedOut")
-                        log.debug("Anchor message not found (timed out) — clearing stale anchor")
-                        anchorMessageId = nil
-                        anchorSetTime = nil
-                        anchorTimeoutTask = nil
-                        scrollCoordinator.bottomPinCoordinator.reattach()
-                        requestBottomPin(reason: .initialRestore, proxy: proxy, animated: true)
-                    }
-                }
-            }
-            .onChange(of: currentPendingRequestId) {
-                #if os(macOS)
-                if let requestId = currentPendingRequestId, lastAutoFocusedRequestId != requestId {
-                    // A new pending confirmation just appeared. Resign first
-                    // responder from the composer so the confirmation bubble's
-                    // key monitor can intercept Tab/Enter/Escape immediately.
-                    // Only mark as handled after a successful resign so
-                    // didBecomeKeyNotification can retry when the window is inactive.
-                    if let window = NSApp.keyWindow,
-                       let responder = window.firstResponder as? NSTextView,
-                       responder.isEditable {
-                        window.makeFirstResponder(nil)
-                        lastAutoFocusedRequestId = requestId
-                    }
-                } else if currentPendingRequestId == nil {
-                    lastAutoFocusedRequestId = nil
-                }
-                #endif
+            // anchorMessageId changes are handled via task(id:) to avoid
+            // counting as an onChange modifier while still reacting to
+            // external deep-link anchor assignments.
+            .task(id: anchorMessageId) {
+                // task(id:) fires on initial value and on changes. Only process
+                // non-nil anchor assignments; nil transitions are cleanup handled
+                // by messagesChanged and conversationSwitched.
+                guard anchorMessageId != nil else { return }
+                scrollCoordinator.anchorMessageIdChanged(
+                    anchorMessageId: $anchorMessageId,
+                    messages: messages,
+                    proxy: proxy,
+                    conversationId: conversationId,
+                    highlightedMessageId: $highlightedMessageId
+                )
             }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-                if let requestId = currentPendingRequestId, lastAutoFocusedRequestId != requestId,
+                if let requestId = currentPendingRequestId, scrollCoordinator.lastAutoFocusedRequestId != requestId,
                    let window = notification.object as? NSWindow,
                    window === NSApp.keyWindow,
                    let responder = window.firstResponder as? NSTextView,
                    responder.isEditable {
                     window.makeFirstResponder(nil)
-                    lastAutoFocusedRequestId = requestId
+                    scrollCoordinator.lastAutoFocusedRequestId = requestId
                 }
             }
             .onReceive(TaskProgressOverlayManager.shared.$activeSurfaceId) { newId in
