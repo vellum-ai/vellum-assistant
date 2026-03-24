@@ -304,6 +304,10 @@ export class DaemonServer {
     this._heartbeatService = service;
   }
 
+  getHeartbeatService(): HeartbeatService | undefined {
+    return this._heartbeatService;
+  }
+
   private deriveMemoryPolicy(conversationId: string): ConversationMemoryPolicy {
     const conversationType = getConversationType(conversationId);
     if (conversationType === "private") {

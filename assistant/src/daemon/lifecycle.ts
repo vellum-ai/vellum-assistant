@@ -840,6 +840,7 @@ export async function runDaemon(): Promise<void> {
         getHandlerContext: () => server.getHandlerContext(),
       }),
       getCesClient: () => server.getCesClient(),
+      getHeartbeatService: () => server.getHeartbeatService(),
     });
 
     // Inject voice bridge deps BEFORE attempting to start the HTTP server.

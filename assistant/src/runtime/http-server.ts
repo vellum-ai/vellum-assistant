@@ -171,6 +171,7 @@ import {
   pairingRouteDefinitions,
 } from "./routes/pairing-routes.js";
 import { recordingRouteDefinitions } from "./routes/recording-routes.js";
+import { heartbeatRouteDefinitions } from "./routes/heartbeat-routes.js";
 import { scheduleRouteDefinitions } from "./routes/schedule-routes.js";
 import { secretRouteDefinitions } from "./routes/secret-routes.js";
 import { settingsRouteDefinitions } from "./routes/settings-routes.js";
@@ -250,6 +251,7 @@ export class RuntimeHttpServer {
   private getWatchDeps?: RuntimeHttpServerOptions["getWatchDeps"];
   private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
   private getCesClient?: RuntimeHttpServerOptions["getCesClient"];
+  private getHeartbeatService?: RuntimeHttpServerOptions["getHeartbeatService"];
   private router: HttpRouter;
 
   constructor(options: RuntimeHttpServerOptions = {}) {
@@ -272,6 +274,7 @@ export class RuntimeHttpServer {
     this.getWatchDeps = options.getWatchDeps;
     this.getRecordingDeps = options.getRecordingDeps;
     this.getCesClient = options.getCesClient;
+    this.getHeartbeatService = options.getHeartbeatService;
     this.router = new HttpRouter(this.buildRouteTable());
   }
 
@@ -956,6 +959,9 @@ export class RuntimeHttpServer {
       ...avatarRouteDefinitions(),
       ...scheduleRouteDefinitions({
         sendMessageDeps: this.sendMessageDeps,
+      }),
+      ...heartbeatRouteDefinitions({
+        getHeartbeatService: this.getHeartbeatService,
       }),
       ...notificationRouteDefinitions(),
       ...diagnosticsRouteDefinitions(),
