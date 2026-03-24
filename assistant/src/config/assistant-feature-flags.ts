@@ -339,6 +339,7 @@ export function _setOverridesForTesting(
   overrides: Record<string, boolean>,
 ): void {
   cachedOverrides = { ...overrides };
+  cachedRemoteValues = null;
 }
 
 // ---------------------------------------------------------------------------
