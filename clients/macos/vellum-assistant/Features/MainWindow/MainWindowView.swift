@@ -399,7 +399,6 @@ struct MainWindowView: View {
                 onRetry: { rewakeAssistant() },
                 onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .appCrash) }
             )
-            .transition(.opacity)
         }
     }
 
