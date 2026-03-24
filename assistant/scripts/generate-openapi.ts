@@ -48,6 +48,10 @@ interface RouteEntry {
  * Matches route definition objects of the form:
  *   { endpoint: "...", method: "...", handler: ... }
  * where endpoint and method can appear in either order within the object.
+ *
+ * To avoid picking up a `method:` from a neighboring route object, we find
+ * the enclosing `{ ... }` block for each `endpoint` match by scanning for
+ * balanced braces.
  */
 function extractRouteDefinitions(source: string): RouteEntry[] {
   const routes: RouteEntry[] = [];
@@ -58,13 +62,40 @@ function extractRouteDefinitions(source: string): RouteEntry[] {
     const endpoint = match[1];
     const pos = match.index;
 
-    // Search in a window around the endpoint match for the method field.
-    // Route definition objects are compact, so ±300 chars is generous.
-    const windowStart = Math.max(0, pos - 300);
-    const windowEnd = Math.min(source.length, pos + 500);
-    const window = source.slice(windowStart, windowEnd);
+    // Walk backwards from the endpoint match to find the opening `{` of the
+    // enclosing object literal, respecting nesting depth.
+    let depth = 0;
+    let blockStart = -1;
+    for (let i = pos - 1; i >= 0; i--) {
+      if (source[i] === "}") depth++;
+      if (source[i] === "{") {
+        if (depth === 0) {
+          blockStart = i;
+          break;
+        }
+        depth--;
+      }
+    }
 
-    const methodMatch = window.match(/method:\s*["'`]([A-Z]+)["'`]/);
+    // Walk forwards to find the matching closing `}`.
+    depth = 0;
+    let blockEnd = -1;
+    const searchStart = blockStart >= 0 ? blockStart : pos;
+    for (let i = searchStart; i < source.length; i++) {
+      if (source[i] === "{") depth++;
+      if (source[i] === "}") {
+        depth--;
+        if (depth === 0) {
+          blockEnd = i + 1;
+          break;
+        }
+      }
+    }
+
+    if (blockStart < 0 || blockEnd < 0) continue;
+
+    const block = source.slice(blockStart, blockEnd);
+    const methodMatch = block.match(/method:\s*["'`]([A-Z]+)["'`]/);
     if (methodMatch) {
       routes.push({ method: methodMatch[1], endpoint });
     }

@@ -277,8 +277,8 @@ paths:
         "200":
           description: Successful response
   /v1/apps/share:
-    get:
-      operationId: apps_share_get
+    post:
+      operationId: apps_share_post
       responses:
         "200":
           description: Successful response
@@ -289,8 +289,8 @@ paths:
         "200":
           description: Successful response
   /v1/apps/shared/{token}:
-    get:
-      operationId: apps_shared_by_token_get
+    delete:
+      operationId: apps_shared_by_token_delete
       responses:
         "200":
           description: Successful response
@@ -300,8 +300,8 @@ paths:
           required: true
           schema:
             type: string
-    post:
-      operationId: apps_shared_by_token_post
+    get:
+      operationId: apps_shared_by_token_get
       responses:
         "200":
           description: Successful response
@@ -324,8 +324,8 @@ paths:
           schema:
             type: string
   /v1/apps/sign-bundle:
-    get:
-      operationId: apps_signbundle_get
+    post:
+      operationId: apps_signbundle_post
       responses:
         "200":
           description: Successful response
@@ -336,14 +336,19 @@ paths:
         "200":
           description: Successful response
   /v1/attachments:
+    delete:
+      operationId: attachments_delete
+      responses:
+        "200":
+          description: Successful response
     post:
       operationId: attachments_post
       responses:
         "200":
           description: Successful response
   /v1/attachments/{id}:
-    delete:
-      operationId: attachments_by_id_delete
+    get:
+      operationId: attachments_by_id_get
       responses:
         "200":
           description: Successful response
@@ -354,8 +359,8 @@ paths:
           schema:
             type: string
   /v1/attachments/{id}/content:
-    post:
-      operationId: attachments_by_id_content_post
+    get:
+      operationId: attachments_by_id_content_get
       responses:
         "200":
           description: Successful response
@@ -384,8 +389,8 @@ paths:
         "200":
           description: Successful response
   /v1/avatar/render-from-traits:
-    get:
-      operationId: avatar_renderfromtraits_get
+    post:
+      operationId: avatar_renderfromtraits_post
       responses:
         "200":
           description: Successful response
@@ -402,8 +407,8 @@ paths:
         "200":
           description: Successful response
   /v1/browser-relay/command:
-    get:
-      operationId: browserrelay_command_get
+    post:
+      operationId: browserrelay_command_post
       responses:
         "200":
           description: Successful response
@@ -420,8 +425,8 @@ paths:
         "200":
           description: Successful response
   /v1/calls/{id}:
-    post:
-      operationId: calls_by_id_post
+    get:
+      operationId: calls_by_id_get
       responses:
         "200":
           description: Successful response
@@ -474,6 +479,11 @@ paths:
         "200":
           description: Successful response
   /v1/channel-verification-sessions:
+    delete:
+      operationId: channelverificationsessions_delete
+      responses:
+        "200":
+          description: Successful response
     post:
       operationId: channelverificationsessions_post
       responses:
@@ -492,8 +502,8 @@ paths:
         "200":
           description: Successful response
   /v1/channel-verification-sessions/status:
-    delete:
-      operationId: channelverificationsessions_status_delete
+    get:
+      operationId: channelverificationsessions_status_get
       responses:
         "200":
           description: Successful response
@@ -504,8 +514,8 @@ paths:
         "200":
           description: Successful response
   /v1/channels/dead-letters:
-    post:
-      operationId: channels_deadletters_post
+    get:
+      operationId: channels_deadletters_get
       responses:
         "200":
           description: Successful response
@@ -516,8 +526,8 @@ paths:
         "200":
           description: Successful response
   /v1/channels/inbound:
-    delete:
-      operationId: channels_inbound_delete
+    post:
+      operationId: channels_inbound_post
       responses:
         "200":
           description: Successful response
@@ -528,8 +538,8 @@ paths:
         "200":
           description: Successful response
   /v1/channels/readiness/refresh:
-    get:
-      operationId: channels_readiness_refresh_get
+    post:
+      operationId: channels_readiness_refresh_post
       responses:
         "200":
           description: Successful response
@@ -562,9 +572,19 @@ paths:
       responses:
         "200":
           description: Successful response
+    put:
+      operationId: config_embeddings_put
+      responses:
+        "200":
+          description: Successful response
   /v1/config/permissions/skip:
     get:
       operationId: config_permissions_skip_get
+      responses:
+        "200":
+          description: Successful response
+    put:
+      operationId: config_permissions_skip_put
       responses:
         "200":
           description: Successful response
@@ -586,8 +606,8 @@ paths:
         "200":
           description: Successful response
   /v1/contact-channels/{contactChannelId}:
-    post:
-      operationId: contactchannels_by_contactChannelId_post
+    patch:
+      operationId: contactchannels_by_contactChannelId_patch
       responses:
         "200":
           description: Successful response
@@ -603,7 +623,23 @@ paths:
       responses:
         "200":
           description: Successful response
+    post:
+      operationId: contacts_post
+      responses:
+        "200":
+          description: Successful response
   /v1/contacts/{id}:
+    delete:
+      operationId: contacts_by_id_delete
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
     get:
       operationId: contacts_by_id_get
       responses:
@@ -621,9 +657,14 @@ paths:
       responses:
         "200":
           description: Successful response
-  /v1/contacts/invites/{id}:
     post:
-      operationId: contacts_invites_by_id_post
+      operationId: contacts_invites_post
+      responses:
+        "200":
+          description: Successful response
+  /v1/contacts/invites/{id}:
+    delete:
+      operationId: contacts_invites_by_id_delete
       responses:
         "200":
           description: Successful response
@@ -646,14 +687,14 @@ paths:
           schema:
             type: string
   /v1/contacts/invites/redeem:
-    get:
-      operationId: contacts_invites_redeem_get
+    post:
+      operationId: contacts_invites_redeem_post
       responses:
         "200":
           description: Successful response
   /v1/contacts/merge:
-    get:
-      operationId: contacts_merge_get
+    post:
+      operationId: contacts_merge_post
       responses:
         "200":
           description: Successful response
@@ -828,6 +869,11 @@ paths:
       responses:
         "200":
           description: Successful response
+    post:
+      operationId: documents_post
+      responses:
+        "200":
+          description: Successful response
   /v1/documents/{id}:
     get:
       operationId: documents_by_id_get
@@ -853,8 +899,8 @@ paths:
         "200":
           description: Successful response
   /v1/guardian-actions/decision:
-    get:
-      operationId: guardianactions_decision_get
+    post:
+      operationId: guardianactions_decision_post
       responses:
         "200":
           description: Successful response
@@ -883,8 +929,13 @@ paths:
         "200":
           description: Successful response
   /v1/heartbeat/checklist:
-    post:
-      operationId: heartbeat_checklist_post
+    get:
+      operationId: heartbeat_checklist_get
+      responses:
+        "200":
+          description: Successful response
+    put:
+      operationId: heartbeat_checklist_put
       responses:
         "200":
           description: Successful response
@@ -894,9 +945,14 @@ paths:
       responses:
         "200":
           description: Successful response
+    put:
+      operationId: heartbeat_config_put
+      responses:
+        "200":
+          description: Successful response
   /v1/heartbeat/run-now:
-    get:
-      operationId: heartbeat_runnow_get
+    post:
+      operationId: heartbeat_runnow_post
       responses:
         "200":
           description: Successful response
@@ -942,6 +998,11 @@ paths:
       responses:
         "200":
           description: Successful response
+    put:
+      operationId: integrations_ingress_config_put
+      responses:
+        "200":
+          description: Successful response
   /v1/integrations/oauth/start:
     post:
       operationId: integrations_oauth_start_post
@@ -949,8 +1010,18 @@ paths:
         "200":
           description: Successful response
   /v1/integrations/slack/channel/config:
+    delete:
+      operationId: integrations_slack_channel_config_delete
+      responses:
+        "200":
+          description: Successful response
     get:
       operationId: integrations_slack_channel_config_get
+      responses:
+        "200":
+          description: Successful response
+    post:
+      operationId: integrations_slack_channel_config_post
       responses:
         "200":
           description: Successful response
@@ -961,14 +1032,24 @@ paths:
         "200":
           description: Successful response
   /v1/integrations/telegram/config:
+    delete:
+      operationId: integrations_telegram_config_delete
+      responses:
+        "200":
+          description: Successful response
     get:
       operationId: integrations_telegram_config_get
       responses:
         "200":
           description: Successful response
+    post:
+      operationId: integrations_telegram_config_post
+      responses:
+        "200":
+          description: Successful response
   /v1/integrations/telegram/setup:
-    delete:
-      operationId: integrations_telegram_setup_delete
+    post:
+      operationId: integrations_telegram_setup_post
       responses:
         "200":
           description: Successful response
@@ -979,26 +1060,31 @@ paths:
         "200":
           description: Successful response
   /v1/integrations/twilio/credentials:
-    get:
-      operationId: integrations_twilio_credentials_get
+    delete:
+      operationId: integrations_twilio_credentials_delete
+      responses:
+        "200":
+          description: Successful response
+    post:
+      operationId: integrations_twilio_credentials_post
       responses:
         "200":
           description: Successful response
   /v1/integrations/twilio/numbers:
-    post:
-      operationId: integrations_twilio_numbers_post
+    get:
+      operationId: integrations_twilio_numbers_get
       responses:
         "200":
           description: Successful response
   /v1/integrations/twilio/numbers/assign:
-    get:
-      operationId: integrations_twilio_numbers_assign_get
+    post:
+      operationId: integrations_twilio_numbers_assign_post
       responses:
         "200":
           description: Successful response
   /v1/integrations/twilio/numbers/provision:
-    delete:
-      operationId: integrations_twilio_numbers_provision_delete
+    post:
+      operationId: integrations_twilio_numbers_provision_post
       responses:
         "200":
           description: Successful response
@@ -1009,8 +1095,18 @@ paths:
         "200":
           description: Successful response
   /v1/integrations/vercel/config:
+    delete:
+      operationId: integrations_vercel_config_delete
+      responses:
+        "200":
+          description: Successful response
     get:
       operationId: integrations_vercel_config_get
+      responses:
+        "200":
+          description: Successful response
+    post:
+      operationId: integrations_vercel_config_post
       responses:
         "200":
           description: Successful response
@@ -1056,7 +1152,23 @@ paths:
       responses:
         "200":
           description: Successful response
+    post:
+      operationId: memoryitems_post
+      responses:
+        "200":
+          description: Successful response
   /v1/memory-items/{id}:
+    delete:
+      operationId: memoryitems_by_id_delete
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
     get:
       operationId: memoryitems_by_id_get
       responses:
@@ -1068,8 +1180,8 @@ paths:
           required: true
           schema:
             type: string
-    post:
-      operationId: memoryitems_by_id_post
+    patch:
+      operationId: memoryitems_by_id_patch
       responses:
         "200":
           description: Successful response
@@ -1082,6 +1194,11 @@ paths:
   /v1/messages:
     get:
       operationId: messages_get
+      responses:
+        "200":
+          description: Successful response
+    post:
+      operationId: messages_post
       responses:
         "200":
           description: Successful response
@@ -1160,6 +1277,11 @@ paths:
   /v1/model:
     get:
       operationId: model_get
+      responses:
+        "200":
+          description: Successful response
+    put:
+      operationId: model_put
       responses:
         "200":
           description: Successful response
@@ -1247,8 +1369,8 @@ paths:
         "200":
           description: Successful response
   /v1/pending-interactions:
-    post:
-      operationId: pendinginteractions_post
+    get:
+      operationId: pendinginteractions_get
       responses:
         "200":
           description: Successful response
@@ -1305,6 +1427,17 @@ paths:
           required: true
           schema:
             type: string
+    patch:
+      operationId: schedules_by_id_patch
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/schedules/{id}/cancel:
     post:
       operationId: schedules_by_id_cancel_post
@@ -1330,8 +1463,8 @@ paths:
           schema:
             type: string
   /v1/schedules/{id}/toggle:
-    get:
-      operationId: schedules_by_id_toggle_get
+    post:
+      operationId: schedules_by_id_toggle_post
       responses:
         "200":
           description: Successful response
@@ -1360,14 +1493,24 @@ paths:
         "200":
           description: Successful response
   /v1/secrets:
+    delete:
+      operationId: secrets_delete
+      responses:
+        "200":
+          description: Successful response
+    get:
+      operationId: secrets_get
+      responses:
+        "200":
+          description: Successful response
     post:
       operationId: secrets_post
       responses:
         "200":
           description: Successful response
   /v1/secrets/read:
-    delete:
-      operationId: secrets_read_delete
+    post:
+      operationId: secrets_read_post
       responses:
         "200":
           description: Successful response
@@ -1378,8 +1521,8 @@ paths:
         "200":
           description: Successful response
   /v1/settings/client:
-    post:
-      operationId: settings_client_post
+    put:
+      operationId: settings_client_put
       responses:
         "200":
           description: Successful response
@@ -1526,8 +1669,8 @@ paths:
         "200":
           description: Successful response
   /v1/slack/share:
-    get:
-      operationId: slack_share_get
+    post:
+      operationId: slack_share_post
       responses:
         "200":
           description: Successful response
@@ -1616,8 +1759,8 @@ paths:
         "200":
           description: Successful response
   /v1/tools/simulate-permission:
-    get:
-      operationId: tools_simulatepermission_get
+    post:
+      operationId: tools_simulatepermission_post
       responses:
         "200":
           description: Successful response
@@ -1639,9 +1782,14 @@ paths:
       responses:
         "200":
           description: Successful response
+    post:
+      operationId: trustrules_manage_post
+      responses:
+        "200":
+          description: Successful response
   /v1/trust-rules/manage/{id}:
-    get:
-      operationId: trustrules_manage_by_id_get
+    delete:
+      operationId: trustrules_manage_by_id_delete
       responses:
         "200":
           description: Successful response
@@ -1651,8 +1799,8 @@ paths:
           required: true
           schema:
             type: string
-    post:
-      operationId: trustrules_manage_by_id_post
+    patch:
+      operationId: trustrules_manage_by_id_patch
       responses:
         "200":
           description: Successful response
@@ -1823,8 +1971,8 @@ paths:
         "200":
           description: Successful response
   /v1/workspace/mkdir:
-    get:
-      operationId: workspace_mkdir_get
+    post:
+      operationId: workspace_mkdir_post
       responses:
         "200":
           description: Successful response
@@ -1841,8 +1989,8 @@ paths:
         "200":
           description: Successful response
   /v1/workspace/write:
-    get:
-      operationId: workspace_write_get
+    post:
+      operationId: workspace_write_post
       responses:
         "200":
           description: Successful response
