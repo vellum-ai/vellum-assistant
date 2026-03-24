@@ -198,6 +198,8 @@ struct OnboardingFlowView: View {
             )
             if !isAuthenticated && managedSignInEnabled && state.currentStep > 0 {
                 log.info("User signed out during managed onboarding — returning to welcome screen")
+                completionDelayTask?.cancel()
+                didCallComplete = false
                 isBootstrappingManaged = false
                 managedBootstrapError = nil
                 withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
@@ -243,6 +245,7 @@ struct OnboardingFlowView: View {
                 completionDelayTask = Task {
                     try? await Task.sleep(nanoseconds: 1_000_000_000)
                     guard !Task.isCancelled else { return }
+                    guard state.hatchCompleted else { return }
                     onComplete()
                 }
             }
