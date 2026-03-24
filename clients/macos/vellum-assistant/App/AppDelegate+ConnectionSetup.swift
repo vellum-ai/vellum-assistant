@@ -207,6 +207,13 @@ extension AppDelegate {
                         scheduleJobId: msg.scheduleJobId,
                         title: msg.title
                     )
+                case .heartbeatConversationCreated(let msg):
+                    guard !self.isBootstrapping else { break }
+                    self.ensureMainWindowExists()
+                    self.mainWindow?.conversationManager.createHeartbeatConversation(
+                        conversationId: msg.conversationId,
+                        title: msg.title
+                    )
                 case .notificationConversationCreated(let msg):
                     guard !self.isBootstrapping else { break }
                     self.handleNotificationConversationCreated(msg)

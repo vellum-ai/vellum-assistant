@@ -627,6 +627,18 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         log.info("Created notification conversation \(localId) for conversation \(conversationId) (source: \(sourceEventName))")
     }
 
+    /// Create a visible conversation bound to a heartbeat-created conversation.
+    /// Called when the daemon broadcasts `heartbeat_conversation_created` so the user
+    /// sees heartbeat conversations in the sidebar without a full refresh.
+    func createHeartbeatConversation(conversationId: String, title: String) {
+        guard let localId = createBackgroundConversation(
+            conversationId: conversationId,
+            title: title,
+            source: "heartbeat"
+        ) else { return }
+        log.info("Created heartbeat conversation \(localId) for conversation \(conversationId)")
+    }
+
     func closeConversation(id: UUID) {
         // No-op if only 1 conversation remains
         guard conversations.count > 1 else { return }

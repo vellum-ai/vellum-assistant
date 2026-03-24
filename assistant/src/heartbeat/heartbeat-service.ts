@@ -17,6 +17,10 @@ export interface HeartbeatDeps {
     content: string,
   ) => Promise<{ messageId: string }>;
   alerter: (alert: HeartbeatAlert) => void;
+  onConversationCreated?: (info: {
+    conversationId: string;
+    title: string;
+  }) => void;
   /** Override for current hour (0-23), for testing. */
   getCurrentHour?: () => number;
 }
@@ -132,6 +136,11 @@ export class HeartbeatService {
         source: "heartbeat",
         origin: "heartbeat",
         systemHint: "Heartbeat",
+      });
+
+      this.deps.onConversationCreated?.({
+        conversationId: conversation.id,
+        title: "Heartbeat",
       });
 
       await this.deps.processMessage(conversation.id, prompt);

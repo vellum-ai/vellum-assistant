@@ -2119,6 +2119,7 @@ public enum ServerMessage: Decodable, Sendable {
     case workItemCancelResponse(WorkItemCancelResponse)
     case taskRunConversationCreated(TaskRunConversationCreated)
     case scheduleConversationCreated(ScheduleConversationCreated)
+    case heartbeatConversationCreated(HeartbeatConversationCreated)
     case subagentSpawned(SubagentSpawned)
     case subagentStatusChanged(SubagentStatusChanged)
     indirect case subagentEvent(SubagentEventMessage)
@@ -2485,6 +2486,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "schedule_conversation_created":
             let message = try ScheduleConversationCreated(from: decoder)
             self = .scheduleConversationCreated(message)
+        case "heartbeat_conversation_created":
+            let message = try HeartbeatConversationCreated(from: decoder)
+            self = .heartbeatConversationCreated(message)
         case "subagent_spawned":
             let message = try SubagentSpawned(from: decoder)
             self = .subagentSpawned(message)
