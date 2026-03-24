@@ -29,31 +29,64 @@ public enum VFont {
         #endif
     }
 
+    /// The `wght` OpenType variation axis tag (0x77676874).
+    private static let wghtTag: Int = 0x77676874
+
+    /// Creates a DM Sans font at the given CSS weight (400/500/600) and size.
+    ///
+    /// Loads the base font by PostScript name (which CTFontManagerRegisterFontsForURL
+    /// makes available at process scope), then creates a variation copy with the
+    /// requested `wght` axis value via CTFont.
+    private static func dmSans(weight: Int, size: CGFloat) -> Font {
+        // Use the PostScript name that matches the registered file's default instance.
+        // Any of the three registered files works — we override the weight axis below.
+        let baseName = "DMSans-Regular" as CFString
+        let baseFont = CTFontCreateWithName(baseName, size, nil)
+        let variations: [CFNumber: CFNumber] = [
+            wghtTag as CFNumber: weight as CFNumber,
+        ]
+        let variantFont = CTFontCreateCopyWithAttributes(
+            baseFont, size, nil,
+            CTFontDescriptorCreateWithAttributes([
+                kCTFontVariationAttribute: variations,
+            ] as CFDictionary)
+        )
+        #if os(macOS)
+        let nsFont = variantFont as NSFont
+        return Font(nsFont)
+        #elseif os(iOS)
+        let uiFont = variantFont as! UIFont
+        return Font(uiFont)
+        #else
+        return Font.custom("DMSans-Regular", fixedSize: size)
+        #endif
+    }
+
     // MARK: - Title (Figma)
 
-    public static let titleLarge  = Font.custom("DMSans-Medium", size: adaptiveSize(24))
-    public static let titleMedium = Font.custom("DMSans-Medium", size: adaptiveSize(20))
-    public static let titleSmall  = Font.custom("DMSans-SemiBold", size: adaptiveSize(18))
+    public static let titleLarge  = dmSans(weight: 500, size: adaptiveSize(24))
+    public static let titleMedium = dmSans(weight: 500, size: adaptiveSize(20))
+    public static let titleSmall  = dmSans(weight: 600, size: adaptiveSize(18))
 
     // MARK: - Body (Figma)
 
-    public static let bodyLargeLighter    = Font.custom("DMSans-Regular", size: 16)
-    public static let bodyLargeDefault    = Font.custom("DMSans-Medium", size: 16)
-    public static let bodyLargeEmphasised = Font.custom("DMSans-SemiBold", size: 16)
-    public static let bodyMediumLighter    = Font.custom("DMSans-Regular", size: 14)
-    public static let bodyMediumDefault    = Font.custom("DMSans-Medium", size: 14)
-    public static let bodyMediumEmphasised = Font.custom("DMSans-SemiBold", size: 14)
-    public static let bodySmallDefault    = Font.custom("DMSans-Medium", size: 12)
-    public static let bodySmallEmphasised = Font.custom("DMSans-SemiBold", size: 12)
+    public static let bodyLargeLighter    = dmSans(weight: 400, size: 16)
+    public static let bodyLargeDefault    = dmSans(weight: 500, size: 16)
+    public static let bodyLargeEmphasised = dmSans(weight: 600, size: 16)
+    public static let bodyMediumLighter    = dmSans(weight: 400, size: 14)
+    public static let bodyMediumDefault    = dmSans(weight: 500, size: 14)
+    public static let bodyMediumEmphasised = dmSans(weight: 600, size: 14)
+    public static let bodySmallDefault    = dmSans(weight: 500, size: 12)
+    public static let bodySmallEmphasised = dmSans(weight: 600, size: 12)
 
     // MARK: - Label (Figma)
 
-    public static let labelDefault = Font.custom("DMSans-Medium", size: 11)
-    public static let labelSmall   = Font.custom("DMSans-Medium", size: 10)
+    public static let labelDefault = dmSans(weight: 500, size: 11)
+    public static let labelSmall   = dmSans(weight: 500, size: 10)
 
     // MARK: - Chat (Figma — 16pt Medium with 24px line height, applied via .lineSpacing)
 
-    public static let chat = Font.custom("DMSans-Medium", size: 16)
+    public static let chat = dmSans(weight: 500, size: 16)
 
     // MARK: - Specialized
 
