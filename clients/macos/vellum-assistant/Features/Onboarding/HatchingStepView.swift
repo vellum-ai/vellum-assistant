@@ -15,9 +15,30 @@ struct HatchingStepView: View {
     @State private var showCharacter = true
     @State private var hatchStarted = false
     @State private var failureReason: String?
-    @State private var hatchBody = AvatarBodyShape.allCases.randomElement()!
-    @State private var hatchEyes = AvatarEyeStyle.allCases.randomElement()!
-    @State private var hatchColor = AvatarColor.allCases.randomElement()! // color-literal-ok
+    private var hatchBody: AvatarBodyShape {
+        get {
+            if state.hatchAvatarBodyShape == nil {
+                state.hatchAvatarBodyShape = .allCases.randomElement()!
+            }
+            return state.hatchAvatarBodyShape!
+        }
+    }
+    private var hatchEyes: AvatarEyeStyle {
+        get {
+            if state.hatchAvatarEyeStyle == nil {
+                state.hatchAvatarEyeStyle = .allCases.randomElement()!
+            }
+            return state.hatchAvatarEyeStyle!
+        }
+    }
+    private var hatchColor: AvatarColor {
+        get {
+            if state.hatchAvatarColor == nil {
+                state.hatchAvatarColor = .allCases.randomElement()!
+            }
+            return state.hatchAvatarColor!
+        }
+    }
     @State private var completionTask: Task<Void, Never>?
 
     var body: some View {
