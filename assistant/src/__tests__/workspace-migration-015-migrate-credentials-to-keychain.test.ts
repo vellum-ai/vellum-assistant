@@ -88,7 +88,8 @@ describe("015-migrate-credentials-to-keychain migration", () => {
     process.env.VELLUM_DESKTOP_APP = "1";
     delete process.env.VELLUM_DEV;
 
-    restorePlatform();
+    // Ensure tests run as if on macOS, even when CI is Linux
+    setPlatform("darwin");
     listKeysFn.mockReturnValue([]);
     getKeyFn.mockReturnValue(undefined);
     setKeyFn.mockReturnValue(true);
