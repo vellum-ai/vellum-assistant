@@ -464,6 +464,21 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "social-auto-like",
+      "name": "social-auto-like",
+      "description": "Automatically like Twitter/X posts shared in Slack channels in real-time",
+      "metadata": {
+        "emoji": "❤️",
+        "vellum": {
+          "display-name": "Social Auto-Like",
+          "includes": [
+            "twitter"
+          ]
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "spotify-oauth-setup",
       "name": "spotify-oauth-setup",
       "description": "Set up Spotify OAuth credentials using a collaborative guided flow",
