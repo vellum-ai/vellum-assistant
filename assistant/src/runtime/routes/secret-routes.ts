@@ -532,7 +532,7 @@ export async function handleListSecrets(): Promise<Response> {
       return { type: "api_key" as const, name: account };
     });
 
-    return Response.json({ secrets });
+    return Response.json({ secrets, accounts: secrets });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return httpError("INTERNAL_ERROR", message, 500);
