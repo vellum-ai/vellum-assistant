@@ -8,7 +8,7 @@ struct QuickInputConversation: Identifiable {
 }
 
 struct QuickInputView: View {
-    @ObservedObject var textModel: QuickInputTextModel
+    @Bindable var textModel: QuickInputTextModel
     let onSubmit: (String) -> Void
     let onDismiss: () -> Void
     let onSelectConversation: ((UUID, String) -> Void)?

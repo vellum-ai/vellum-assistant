@@ -21,7 +21,7 @@ private struct UnifiedFeatureFlag: Identifiable {
 @MainActor
 struct SettingsDeveloperTab: View {
     @ObservedObject var store: SettingsStore
-    @ObservedObject private var devModeManager = DevModeManager.shared
+    private var devModeManager: DevModeManager { DevModeManager.shared }
     var connectionManager: GatewayConnectionManager?
     var featureFlagClient: FeatureFlagClientProtocol = FeatureFlagClient()
     var authManager: AuthManager

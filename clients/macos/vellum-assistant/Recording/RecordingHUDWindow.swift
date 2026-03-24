@@ -83,11 +83,12 @@ final class RecordingHUDWindow {
 // MARK: - View Model
 
 @MainActor
-final class RecordingHUDViewModel: ObservableObject {
-    @Published var elapsedSeconds: Int = 0
-    @Published var isRecording = true
-    @Published var isPaused = false
-    @Published var failureMessage: String?
+@Observable
+final class RecordingHUDViewModel {
+    var elapsedSeconds: Int = 0
+    var isRecording = true
+    var isPaused = false
+    var failureMessage: String?
 
     private var timer: Timer?
     private let onStop: () -> Void
@@ -144,7 +145,7 @@ final class RecordingHUDViewModel: ObservableObject {
 // MARK: - View
 
 struct RecordingHUDView: View {
-    @ObservedObject var viewModel: RecordingHUDViewModel
+    var viewModel: RecordingHUDViewModel
 
     @State private var dotOpacity: Double = 1.0
 

@@ -16,8 +16,9 @@ public enum InlineVideoEmbedState: Equatable {
 /// All mutations are main-actor–isolated because the state
 /// feeds directly into SwiftUI views.
 @MainActor
-public final class InlineVideoEmbedStateManager: ObservableObject {
-    @Published public private(set) var state: InlineVideoEmbedState = .placeholder
+@Observable
+public final class InlineVideoEmbedStateManager {
+    public private(set) var state: InlineVideoEmbedState = .placeholder
 
     public init() {}
 

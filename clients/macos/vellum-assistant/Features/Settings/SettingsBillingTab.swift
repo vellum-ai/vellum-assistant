@@ -14,7 +14,7 @@ struct SettingsBillingTab: View {
     @State private var topUpError: String?
     @State private var hostWindow: NSWindow?
     @State private var inviteCode: String = ""
-    @ObservedObject private var devModeManager = DevModeManager.shared
+    private var devModeManager: DevModeManager { DevModeManager.shared }
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
