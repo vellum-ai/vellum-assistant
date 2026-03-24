@@ -797,9 +797,7 @@ final class ScreenRecorder: NSObject {
             config.channelCount = 2
         }
 
-        // SCStreamConfiguration.captureMicrophone and SCStreamOutputType.microphone
-        // require macOS 15+ despite being declared in the macOS 14 SDK headers.
-        if includeMicrophone, #available(macOS 15, *) {
+        if includeMicrophone {
             config.captureMicrophone = true
         }
 
@@ -846,9 +844,9 @@ final class ScreenRecorder: NSObject {
             aInput = input
         }
 
-        // Microphone input: AAC (optional — separate track, macOS 15+)
+        // Microphone input: AAC (optional — separate track)
         var mInput: AVAssetWriterInput?
-        if includeMicrophone, #available(macOS 15, *) {
+        if includeMicrophone {
             let micSettings: [String: Any] = [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
                 AVSampleRateKey: 48000,
@@ -872,11 +870,7 @@ final class ScreenRecorder: NSObject {
             log.info("System audio: sampleRate=48000, channels=2, bitRate=128000")
         }
         if includeMicrophone {
-            if #available(macOS 15, *) {
-                log.info("Microphone audio: sampleRate=48000, channels=1, bitRate=64000")
-            } else {
-                log.info("Microphone requested but macOS 15+ required — skipped")
-            }
+            log.info("Microphone audio: sampleRate=48000, channels=1, bitRate=64000")
         }
 
         // Create stream and output delegate — the delegate forwards sample
@@ -891,7 +885,7 @@ final class ScreenRecorder: NSObject {
             if includeAudio {
                 try captureStream.addStreamOutput(delegate, type: .audio, sampleHandlerQueue: outputQueue)
             }
-            if includeMicrophone, #available(macOS 15, *) {
+            if includeMicrophone {
                 try captureStream.addStreamOutput(delegate, type: .microphone, sampleHandlerQueue: outputQueue)
             }
         } catch {
