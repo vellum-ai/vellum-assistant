@@ -16,7 +16,12 @@ struct SettingsSchedulesTab: View {
     @State private var editMode: String = ""
     @State private var editTimezone: String = ""
 
+    // Heartbeat state
+    @State private var heartbeatConfig: HeartbeatConfigResponse?
+    @State private var isHeartbeatRunning = false
+
     private let scheduleClient: ScheduleClientProtocol = ScheduleClient()
+    private let heartbeatClient: HeartbeatClientProtocol = HeartbeatClient()
 
     // MARK: - Computed Filters
 
@@ -32,12 +37,16 @@ struct SettingsSchedulesTab: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
+            if let config = heartbeatConfig {
+                heartbeatCard(config)
+            }
+
             if isLoading {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = loadError {
                 errorView(error)
-            } else if schedules.isEmpty {
+            } else if schedules.isEmpty && heartbeatConfig == nil {
                 VEmptyState(
                     title: "No schedules",
                     subtitle: "Schedules you create through conversation will appear here.",
@@ -48,7 +57,10 @@ struct SettingsSchedulesTab: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .task { await loadSchedules() }
+        .task {
+            await loadSchedules()
+            heartbeatConfig = await heartbeatClient.fetchConfig()
+        }
         .alert("Delete Schedule", isPresented: deleteConfirmBinding) {
             Button("Cancel", role: .cancel) {
                 deleteConfirmId = nil
@@ -439,6 +451,67 @@ struct SettingsSchedulesTab: View {
                 await loadSchedules()
             }
             runningScheduleIds.remove(schedule.id)
+        }
+    }
+
+    // MARK: - Heartbeat
+
+    @ViewBuilder
+    private func heartbeatCard(_ config: HeartbeatConfigResponse) -> some View {
+        SettingsCard(
+            title: "Heartbeat",
+            subtitle: heartbeatSubtitle(config)
+        ) {
+            HStack(alignment: .top, spacing: VSpacing.md) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    HStack(spacing: VSpacing.sm) {
+                        Circle()
+                            .fill(config.enabled ? VColor.systemPositiveStrong : VColor.contentDisabled)
+                            .frame(width: 8, height: 8)
+                        Text(config.enabled ? "Enabled" : "Disabled")
+                            .font(VFont.bodyMedium)
+                            .foregroundColor(VColor.contentDefault)
+                    }
+                    if let nextRun = config.nextRunAt, let formatted = formatEpochMs(nextRun) {
+                        Text("Next run: \(formatted)")
+                            .font(VFont.caption)
+                            .foregroundColor(VColor.contentTertiary)
+                    }
+                }
+                Spacer()
+                if isHeartbeatRunning {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 20, height: 20)
+                } else {
+                    VButton(
+                        label: "Run Now",
+                        iconOnly: VIcon.play.rawValue,
+                        style: .ghost,
+                        tooltip: "Run heartbeat now"
+                    ) {
+                        runHeartbeatNow()
+                    }
+                }
+            }
+        }
+    }
+
+    private func heartbeatSubtitle(_ config: HeartbeatConfigResponse) -> String {
+        let interval = Int(config.intervalMs / 60_000)
+        var subtitle = "Every \(interval) min"
+        if let start = config.activeHoursStart, let end = config.activeHoursEnd {
+            subtitle += " (\(Int(start)):00\u{2013}\(Int(end)):00)"
+        }
+        return subtitle
+    }
+
+    private func runHeartbeatNow() {
+        isHeartbeatRunning = true
+        Task {
+            _ = await heartbeatClient.runNow()
+            heartbeatConfig = await heartbeatClient.fetchConfig()
+            isHeartbeatRunning = false
         }
     }
 
