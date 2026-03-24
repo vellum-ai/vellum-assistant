@@ -32,10 +32,38 @@ const PKG_PATH = join(ROOT, "package.json");
 // Types
 // ---------------------------------------------------------------------------
 
+interface RouteQueryParam {
+  name: string;
+  type?: string;
+  required?: boolean;
+  description?: string;
+}
+
+interface RouteBodySchema {
+  type: string;
+  properties?: Record<string, unknown>;
+  required?: string[];
+  description?: string;
+}
+
 interface RouteEntry {
   method: string;
   /** Endpoint path relative to /v1/ (e.g. "conversations/:id"). */
   endpoint: string;
+  /** Short summary for OpenAPI operation. */
+  summary?: string;
+  /** Longer description for OpenAPI operation. */
+  description?: string;
+  /** Grouping tags. */
+  tags?: string[];
+  /** Query parameter definitions. */
+  queryParams?: RouteQueryParam[];
+  /** JSON Schema for the request body. */
+  requestBody?: RouteBodySchema;
+  /** JSON Schema for the 200 response body. */
+  responseBody?: RouteBodySchema;
+  /** Source module filename, used for auto-deriving tags. */
+  sourceModule?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,6 +142,12 @@ async function collectRoutesFromModules(): Promise<RouteEntry[]> {
         const defs = exportValue(createDeepStub()) as Array<{
           endpoint?: string;
           method?: string;
+          summary?: string;
+          description?: string;
+          tags?: string[];
+          queryParams?: RouteQueryParam[];
+          requestBody?: RouteBodySchema;
+          responseBody?: RouteBodySchema;
         }>;
         if (!Array.isArray(defs)) continue;
         for (const def of defs) {
@@ -121,7 +155,31 @@ async function collectRoutesFromModules(): Promise<RouteEntry[]> {
             typeof def.endpoint === "string" &&
             typeof def.method === "string"
           ) {
-            routes.push({ endpoint: def.endpoint, method: def.method });
+            routes.push({
+              endpoint: def.endpoint,
+              method: def.method,
+              summary:
+                typeof def.summary === "string" ? def.summary : undefined,
+              description:
+                typeof def.description === "string"
+                  ? def.description
+                  : undefined,
+              tags: Array.isArray(def.tags)
+                ? def.tags.filter((t): t is string => typeof t === "string")
+                : undefined,
+              queryParams: Array.isArray(def.queryParams)
+                ? def.queryParams
+                : undefined,
+              requestBody:
+                def.requestBody && typeof def.requestBody === "object"
+                  ? def.requestBody
+                  : undefined,
+              responseBody:
+                def.responseBody && typeof def.responseBody === "object"
+                  ? def.responseBody
+                  : undefined,
+              sourceModule: file,
+            });
           }
         }
       } catch (err) {
@@ -220,17 +278,51 @@ function extractPathParams(openApiPath: string): string[] {
 // Spec builder
 // ---------------------------------------------------------------------------
 
-interface OpenApiPathItem {
-  [method: string]: {
-    operationId: string;
-    responses: Record<string, { description: string }>;
-    parameters?: Array<{
-      name: string;
-      in: string;
-      required: boolean;
-      schema: { type: string };
-    }>;
+interface OpenApiParameter {
+  name: string;
+  in: string;
+  required: boolean;
+  schema: { type: string };
+  description?: string;
+}
+
+interface OpenApiOperation {
+  operationId: string;
+  summary?: string;
+  description?: string;
+  tags?: string[];
+  parameters?: OpenApiParameter[];
+  requestBody?: {
+    required: boolean;
+    content: {
+      "application/json": {
+        schema: RouteBodySchema;
+      };
+    };
   };
+  responses: Record<
+    string,
+    {
+      description: string;
+      content?: {
+        "application/json": {
+          schema: RouteBodySchema;
+        };
+      };
+    }
+  >;
+}
+
+interface OpenApiPathItem {
+  [method: string]: OpenApiOperation;
+}
+
+/** Derive a tag name from a route module filename (e.g. "secret-routes.ts" → "secrets"). */
+function deriveTagFromModule(filename: string): string {
+  // Strip directory prefix and extension
+  const base = filename.replace(/^.*[\/]/, "").replace(/\.ts$/, "");
+  // Remove trailing "-routes" suffix
+  return base.replace(/-routes$/, "");
 }
 
 function buildSpec(
@@ -243,6 +335,7 @@ function buildSpec(
     path: string;
     method: string;
     endpoint: string;
+    entry: RouteEntry;
   }> = [];
 
   // Non-v1 routes first
@@ -250,7 +343,12 @@ function buildSpec(
     const key = `${r.method}:${r.path}`;
     if (!seen.has(key)) {
       seen.add(key);
-      uniqueRoutes.push({ path: r.path, method: r.method, endpoint: r.path });
+      uniqueRoutes.push({
+        path: r.path,
+        method: r.method,
+        endpoint: r.path,
+        entry: { method: r.method, endpoint: r.path },
+      });
     }
   }
 
@@ -264,6 +362,7 @@ function buildSpec(
         path: openApiPath,
         method: r.method,
         endpoint: r.endpoint,
+        entry: r,
       });
     }
   }
@@ -288,21 +387,66 @@ function buildSpec(
       : route.path.replace(/^\//, "").replace(/[/{}\-]/g, "_") +
         `_${methodLower}`;
 
+    const { entry } = route;
+
+    // Build parameters: path params + query params from metadata
     const pathParams = extractPathParams(route.path);
-    const operation: OpenApiPathItem[string] = {
+    const parameters: OpenApiParameter[] = pathParams.map((name) => ({
+      name,
+      in: "path" as const,
+      required: true,
+      schema: { type: "string" },
+    }));
+
+    if (entry.queryParams) {
+      for (const qp of entry.queryParams) {
+        parameters.push({
+          name: qp.name,
+          in: "query",
+          required: qp.required ?? false,
+          schema: { type: qp.type ?? "string" },
+          ...(qp.description ? { description: qp.description } : {}),
+        });
+      }
+    }
+
+    // Determine tags: explicit tags > auto-derived from source module
+    const tags: string[] | undefined =
+      entry.tags && entry.tags.length > 0
+        ? entry.tags
+        : entry.sourceModule
+          ? [deriveTagFromModule(entry.sourceModule)]
+          : undefined;
+
+    // Build the operation
+    const operation: OpenApiOperation = {
       operationId,
+      ...(entry.summary ? { summary: entry.summary } : {}),
+      ...(entry.description ? { description: entry.description } : {}),
+      ...(tags ? { tags } : {}),
       responses: {
-        "200": { description: "Successful response" },
+        "200": entry.responseBody
+          ? {
+              description: "Successful response",
+              content: {
+                "application/json": { schema: entry.responseBody },
+              },
+            }
+          : { description: "Successful response" },
       },
     };
 
-    if (pathParams.length > 0) {
-      operation.parameters = pathParams.map((name) => ({
-        name,
-        in: "path",
+    if (parameters.length > 0) {
+      operation.parameters = parameters;
+    }
+
+    if (entry.requestBody) {
+      operation.requestBody = {
         required: true,
-        schema: { type: "string" },
-      }));
+        content: {
+          "application/json": { schema: entry.requestBody },
+        },
+      };
     }
 
     paths[route.path][methodLower] = operation;
