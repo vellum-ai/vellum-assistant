@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'release/v*'
+  workflow_dispatch:
 
 concurrency:
   group: release
@@ -29,13 +30,12 @@ jobs:
       - name: Detect staging release
         id: detect-staging
         run: |
-          COMMIT_MSG=$(git log -1 --format=%s)
-          if echo "$COMMIT_MSG" | grep -qF '[staging]'; then
-            echo "is_staging=true" >> "$GITHUB_OUTPUT"
-            echo "Staging release detected from commit message: $COMMIT_MSG"
-          else
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "is_staging=false" >> "$GITHUB_OUTPUT"
-            echo "Production release detected from commit message: $COMMIT_MSG"
+            echo "Manual dispatch — full production release"
+          else
+            echo "is_staging=true" >> "$GITHUB_OUTPUT"
+            echo "Commit-triggered release — staging only"
           fi
 
   push-assistant-image:
