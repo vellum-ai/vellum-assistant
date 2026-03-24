@@ -120,6 +120,16 @@ export async function orchestrateOAuthConnect(
   options: OAuthConnectOptions,
 ): Promise<OAuthConnectResult> {
   const resolvedService = resolveService(options.service);
+  log.info(
+    {
+      rawService: options.service,
+      resolvedService,
+      isInteractive: options.isInteractive,
+      hasOpenUrl: !!options.openUrl,
+      hasSendToClient: !!options.sendToClient,
+    },
+    "orchestrateOAuthConnect: starting",
+  );
 
   // Read provider config from the DB
   const providerRow = getProvider(resolvedService);
@@ -198,6 +208,20 @@ export async function orchestrateOAuthConnect(
       safeError: true,
     };
   }
+
+  log.info(
+    {
+      service: resolvedService,
+      authUrl,
+      tokenUrl,
+      scopeCount: finalScopes.length,
+      callbackTransport,
+      loopbackPort,
+      hasClientSecret: !!options.clientSecret,
+      clientIdPrefix: options.clientId.substring(0, 12) + "…",
+    },
+    "orchestrateOAuthConnect: resolved provider config",
+  );
 
   const oauthConfig = {
     authUrl,
@@ -331,19 +355,31 @@ export async function orchestrateOAuthConnect(
   // -----------------------------------------------------------------------
   // Interactive path — open browser, block until completion
   // -----------------------------------------------------------------------
+  log.info(
+    { service: resolvedService, callbackTransport, loopbackPort },
+    "orchestrateOAuthConnect: entering interactive path",
+  );
   try {
     const { tokens, grantedScopes, rawTokenResponse } = await startOAuth2Flow(
       oauthConfig,
       {
         openUrl: (url) => {
+          log.info(
+            { service: resolvedService, urlLength: url.length },
+            "orchestrateOAuthConnect: openUrl callback fired, delivering auth URL to client",
+          );
           if (options.openUrl) {
+            log.info("orchestrateOAuthConnect: using options.openUrl");
             options.openUrl(url);
           } else if (options.sendToClient) {
+            log.info("orchestrateOAuthConnect: using sendToClient with open_url event");
             options.sendToClient({
               type: "open_url",
               url,
               title: `Connect ${resolvedService}`,
             });
+          } else {
+            log.warn("orchestrateOAuthConnect: no openUrl or sendToClient available — auth URL will not reach the user");
           }
         },
       },
@@ -354,6 +390,11 @@ export async function orchestrateOAuthConnect(
           : undefined,
     );
 
+    log.info(
+      { service: resolvedService, grantedScopeCount: grantedScopes.length },
+      "orchestrateOAuthConnect: interactive flow completed, exchanged code for tokens",
+    );
+
     // Parse account identifier from the provider's identity endpoint.
     // Best-effort — format varies by provider and may fail.
     let parsedAccountIdentifier: string | undefined;
@@ -361,6 +402,10 @@ export async function orchestrateOAuthConnect(
       try {
         parsedAccountIdentifier = await behavior.identityVerifier(
           tokens.accessToken,
+        );
+        log.info(
+          { service: resolvedService, parsedAccountIdentifier },
+          "orchestrateOAuthConnect: identity verified",
         );
       } catch {
         // Non-fatal
@@ -375,6 +420,11 @@ export async function orchestrateOAuthConnect(
       parsedAccountIdentifier,
     });
 
+    log.info(
+      { service: resolvedService, accountInfo },
+      "orchestrateOAuthConnect: tokens stored, connect complete",
+    );
+
     return {
       success: true,
       deferred: false,
@@ -384,6 +434,10 @@ export async function orchestrateOAuthConnect(
   } catch (err: unknown) {
     const message =
       err instanceof Error ? err.message : "Unknown error during OAuth flow";
+    log.error(
+      { service: resolvedService, err },
+      "orchestrateOAuthConnect: interactive flow failed",
+    );
     return {
       success: false,
       error: `Error connecting "${resolvedService}": ${message}`,
