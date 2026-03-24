@@ -41,6 +41,8 @@ import {
 import { createWhatsAppWebhookHandler } from "./http/routes/whatsapp-webhook.js";
 import { createWhatsAppDeliverHandler } from "./http/routes/whatsapp-deliver.js";
 import { createSlackDeliverHandler } from "./http/routes/slack-deliver.js";
+import { createA2AWebhookHandler } from "./http/routes/a2a-webhook.js";
+import { createA2ADeliverHandler } from "./http/routes/a2a-deliver.js";
 import { createOAuthCallbackHandler } from "./http/routes/oauth-callback.js";
 import { createPairingProxyHandler } from "./http/routes/pairing-proxy.js";
 import {
@@ -277,6 +279,13 @@ async function main() {
     },
     { credentials: credentialCache, configFile: configFileCache },
   );
+  const handleA2AWebhook = createA2AWebhookHandler(config, {
+    credentials: credentialCache,
+  });
+  const handleA2ADeliver = createA2ADeliverHandler(config, {
+    credentials: credentialCache,
+    configFile: configFileCache,
+  });
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const pairingProxy = createPairingProxyHandler(config);
   const channelVerificationSessionProxy =
@@ -366,6 +375,10 @@ async function main() {
       precondition: requireWhatsApp,
       handler: (req) => handleWhatsAppWebhook(req),
     },
+    {
+      path: "/webhook/a2a",
+      handler: (req) => handleA2AWebhook(req),
+    },
 
     // ── Audio serving (unauthenticated — Twilio fetches these URLs directly) ──
     {
@@ -399,6 +412,11 @@ async function main() {
       precondition: requireSlack,
       auth: "track-failures",
       handler: (req) => handleSlackDeliver(req),
+    },
+    {
+      path: "/deliver/a2a",
+      auth: "track-failures",
+      handler: (req) => handleA2ADeliver(req),
     },
 
     // ── Pairing (mixed auth) ──

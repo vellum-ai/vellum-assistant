@@ -2637,6 +2637,189 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/webhook/a2a": {
+        post: {
+          summary: "A2A inbound webhook",
+          description:
+            "Receives assistant-to-assistant (A2A) envelopes. Pairing request/accepted envelopes require no auth. Message and pairing_finalize envelopes require Bearer token authentication. Feature-flag gated — returns 404 when assistant-a2a is disabled.",
+          operationId: "a2aWebhook",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  description:
+                    "A2A envelope (message, pairing_request, pairing_accepted, or pairing_finalize)",
+                  properties: {
+                    version: { type: "string", enum: ["v1"] },
+                    type: {
+                      type: "string",
+                      enum: [
+                        "message",
+                        "pairing_request",
+                        "pairing_accepted",
+                        "pairing_finalize",
+                      ],
+                    },
+                    senderAssistantId: { type: "string" },
+                  },
+                  required: ["version", "type", "senderAssistantId"],
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Envelope accepted and forwarded to runtime",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: { ok: { type: "boolean" } },
+                  },
+                },
+              },
+            },
+            "400": {
+              description: "Invalid JSON or malformed envelope",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "401": {
+              description:
+                "Unauthorized — missing or invalid Bearer token for message/pairing_finalize envelopes",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "404": {
+              description: "A2A feature flag disabled",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "405": {
+              description: "Method not allowed (only POST accepted)",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "413": {
+              description: "Payload too large",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "415": {
+              description:
+                "Unsupported media type (Content-Type must be application/json)",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/deliver/a2a": {
+        post: {
+          summary: "A2A delivery (internal)",
+          description:
+            "Internal endpoint called by the assistant runtime to deliver outbound messages to another assistant via its gateway. Target routing info (gatewayUrl, assistantId) comes from query params in the callback URL. Accepts standard ChannelReplyPayload.",
+          operationId: "a2aDeliver",
+          parameters: [
+            {
+              name: "gatewayUrl",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+              description: "Target assistant's gateway base URL",
+            },
+            {
+              name: "assistantId",
+              in: "query",
+              required: true,
+              schema: { type: "string" },
+              description: "Target assistant's ID",
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    chatId: { type: "string" },
+                    text: { type: "string" },
+                    assistantId: { type: "string" },
+                  },
+                  required: ["text"],
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "Message delivered to target assistant",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: { ok: { type: "boolean" } },
+                  },
+                },
+              },
+            },
+            "400": {
+              description: "Missing query params or invalid request body",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — daemon JWT required",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "405": {
+              description: "Method not allowed (only POST accepted)",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "502": {
+              description:
+                "Delivery failed — outbound token missing or target unreachable",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/v1/admin/upgrade-broadcast": {
         post: {
           summary: "Broadcast upgrade to connected clients",
