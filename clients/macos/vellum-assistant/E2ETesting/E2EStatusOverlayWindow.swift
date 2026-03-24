@@ -79,11 +79,12 @@ struct E2EStatus: Codable {
 // MARK: - View Model
 
 @MainActor
-final class E2EStatusOverlayViewModel: ObservableObject {
-    @Published var currentStatus: E2EStatus?
+@Observable
+final class E2EStatusOverlayViewModel {
+    var currentStatus: E2EStatus?
 
-    private let statusFilePath: String
-    private var pollTimer: Timer?
+    @ObservationIgnored private let statusFilePath: String
+    @ObservationIgnored private var pollTimer: Timer?
 
     init(statusFilePath: String) {
         self.statusFilePath = statusFilePath
@@ -112,7 +113,7 @@ final class E2EStatusOverlayViewModel: ObservableObject {
 // MARK: - View
 
 struct E2EStatusOverlayView: View {
-    @ObservedObject var viewModel: E2EStatusOverlayViewModel
+    var viewModel: E2EStatusOverlayViewModel
 
     @State private var dotOpacity: Double = 1.0
 

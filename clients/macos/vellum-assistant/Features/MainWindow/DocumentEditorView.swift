@@ -8,7 +8,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// Built-in document editor view using Toast UI Editor.
 /// Displayed in the Directory panel's Documents tab.
 struct DocumentEditorView: NSViewRepresentable {
-    @ObservedObject var documentManager: DocumentManager
+    var documentManager: DocumentManager
     let onContentChanged: (String, String, Int) -> Void
 
     func makeCoordinator() -> Coordinator {

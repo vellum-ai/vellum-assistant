@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 struct WatchProgressView: View {
-    @ObservedObject var session: WatchSession
+    var session: WatchSession
     let onStop: () -> Void
 
     @State private var isPulsing = false
