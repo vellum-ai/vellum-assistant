@@ -2050,16 +2050,20 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let previous = platformBaseUrl
         platformBaseUrl = trimmed
-        AuthService.shared.configuredBaseURL = trimmed
+        // Do NOT update AuthService.shared.configuredBaseURL here — for managed
+        // assistants, GatewayHTTPClient.resolveConnection() derives its base URL
+        // from AuthService.shared.baseURL.  Changing it before the PUT request
+        // causes the request to be sent to the *new* (possibly unreachable) host
+        // instead of the current one, making the save always fail and revert.
         Task {
             guard let response = await settingsClient.setPlatformConfig(baseUrl: trimmed) else {
                 self.platformBaseUrl = previous
-                AuthService.shared.configuredBaseURL = previous
                 return
             }
-            if !response.success {
+            if response.success {
+                AuthService.shared.configuredBaseURL = trimmed
+            } else {
                 self.platformBaseUrl = previous
-                AuthService.shared.configuredBaseURL = previous
                 if let error = response.error {
                     log.error("Platform config update failed: \(error)")
                 }
