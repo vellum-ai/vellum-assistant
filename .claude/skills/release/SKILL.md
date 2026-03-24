@@ -50,6 +50,13 @@ This triggers the unified Release workflow which automatically handles:
 - Creating GitHub Releases on both `vellum-ai/vellum-assistant` and `vellum-ai/velly`
 - Updating the `vellum-assistant-platform` dependency
 
+To manually publish individual Docker images to GCR (e.g. for hotfixes or re-publishing):
+
+```bash
+bun scripts/gcr-publish.ts --version <semver> --services trust-broker
+bun scripts/gcr-publish.ts --version <semver> --services assistant,gateway --dry-run
+```
+
 ### 4. Verify the workflow started
 
 ```bash
