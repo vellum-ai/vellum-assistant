@@ -149,14 +149,14 @@ struct DebugPanelView: View {
         VStack(spacing: VSpacing.xxs) {
             HStack(spacing: VSpacing.xs) {
                 VIconView(icon, size: 11)
-                    .foregroundColor(color)
+                    .foregroundStyle(color)
                 Text(value)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
             }
             Text(label)
                 .font(VFont.labelSmall)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
         }
     }
 
@@ -167,13 +167,13 @@ struct DebugPanelView: View {
         VStack(spacing: VSpacing.md) {
             Spacer()
             VIconView(icon, size: 36)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
             Text(title)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
             Text(subtitle)
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
             Spacer()
@@ -274,7 +274,7 @@ struct TraceTimelineIOSView: View {
                         }
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
-                        .foregroundColor(VColor.systemNegativeHover)
+                        .foregroundStyle(VColor.systemNegativeHover)
                         .background(VColor.surfaceActive)
                         .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                         .overlay(
@@ -298,24 +298,24 @@ struct TraceTimelineIOSView: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(groupStatusIcon(groupStatus), size: 11)
-                    .foregroundColor(groupStatusColor(groupStatus))
+                    .foregroundStyle(groupStatusColor(groupStatus))
 
                 Text(requestId.isEmpty ? "System" : "Request \(requestId.prefix(8))")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
 
                 if groupStatus == .cancelled {
                     Text("Cancelled")
                         .font(VFont.labelSmall)
-                        .foregroundColor(VColor.systemMidStrong)
+                        .foregroundStyle(VColor.systemMidStrong)
                 } else if groupStatus == .handedOff {
                     Text("Handed off")
                         .font(VFont.labelSmall)
-                        .foregroundColor(VColor.systemPositiveWeak)
+                        .foregroundStyle(VColor.systemPositiveWeak)
                 } else if groupStatus == .error {
                     Text("Error")
                         .font(VFont.labelSmall)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                        .foregroundStyle(VColor.systemNegativeStrong)
                 }
 
                 Rectangle()
@@ -371,7 +371,7 @@ struct TraceTimelineIOSView: View {
                     traceRow(event: event)
                     if hasAttributes {
                         VIconView(isExpanded ? .chevronUp : .chevronDown, size: 10)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .frame(width: 18)
                     }
                 }
@@ -385,10 +385,10 @@ struct TraceTimelineIOSView: View {
                         HStack(spacing: VSpacing.sm) {
                             Text(key)
                                 .font(VFont.labelSmall)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                             Text(stringValue(attrs[key]))
                                 .font(VFont.labelSmall)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                                 .lineLimit(3)
                         }
                     }
@@ -408,18 +408,18 @@ struct TraceTimelineIOSView: View {
     private func traceRow(event: TraceStore.StoredEvent) -> some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
             VIconView(iconName(for: event.kind), size: 12)
-                .foregroundColor(statusColor(for: event.status))
+                .foregroundStyle(statusColor(for: event.status))
                 .frame(width: 20, alignment: .center)
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(event.summary)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .lineLimit(2)
 
                 Text(formattedTimestamp(event.timestampMs))
                     .font(VFont.labelSmall)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
 
             Spacer(minLength: 0)

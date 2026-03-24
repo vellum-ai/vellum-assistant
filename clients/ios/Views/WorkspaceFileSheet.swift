@@ -29,17 +29,17 @@ struct WorkspaceFileSheet: View {
                         ProgressView()
                         Text("Loading file...")
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let error {
                     VStack(spacing: VSpacing.md) {
                         VIconView(.triangleAlert, size: 36)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .accessibilityHidden(true)
                         Text(error)
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                             .multilineTextAlignment(.center)
                     }
                     .padding(VSpacing.xl)
@@ -95,7 +95,7 @@ struct WorkspaceFileSheet: View {
         } else {
             Text("No content")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
@@ -103,7 +103,7 @@ struct WorkspaceFileSheet: View {
     private func metadataView(_ response: WorkspaceFileResponse) -> some View {
         VStack(spacing: VSpacing.lg) {
             VIconView(.file, size: 48)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .accessibilityHidden(true)
 
             VStack(spacing: VSpacing.sm) {
@@ -128,11 +128,11 @@ struct WorkspaceFileSheet: View {
         HStack {
             Text(label)
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .frame(width: 80, alignment: .leading)
             Text(value)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .lineLimit(2)
             Spacer()
         }
@@ -206,11 +206,11 @@ private struct AuthenticatedImageView: View {
             } else if failed {
                 VStack(spacing: VSpacing.md) {
                     VIconView(.image, size: 36)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .accessibilityHidden(true)
                     Text("Unable to load image")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -249,11 +249,11 @@ private struct WorkspaceVideoPlayer: View {
             } else if failed {
                 VStack(spacing: VSpacing.md) {
                     VIconView(.triangleAlert, size: 36)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .accessibilityHidden(true)
                     Text("Unable to load video")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {

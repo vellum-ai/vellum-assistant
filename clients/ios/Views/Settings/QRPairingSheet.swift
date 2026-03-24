@@ -75,7 +75,7 @@ struct QRPairingSheet: View {
         VStack(spacing: VSpacing.lg) {
             Text("Scan the QR code from your Assistant to pair.")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
 
@@ -88,7 +88,7 @@ struct QRPairingSheet: View {
 
             Text("Open Vellum on your Assistant, go to Settings \u{2192} Connect, and tap Show QR Code.")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
         }
@@ -104,7 +104,7 @@ struct QRPairingSheet: View {
                 .controlSize(.large)
             Text("Sending pairing request...")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
             Spacer()
         }
     }
@@ -116,15 +116,15 @@ struct QRPairingSheet: View {
             Spacer()
 
             VIconView(.laptop, size: 48)
-                .foregroundColor(VColor.primaryBase)
+                .foregroundStyle(VColor.primaryBase)
 
             Text("Waiting for Approval")
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Text("Approve this pairing request on your Assistant to continue.")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
 
@@ -144,7 +144,7 @@ struct QRPairingSheet: View {
                 .controlSize(.large)
             Text("Connecting to Assistant...")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
             Spacer()
         }
     }
@@ -156,15 +156,15 @@ struct QRPairingSheet: View {
             Spacer()
 
             VIconView(.circleCheck, size: 64)
-                .foregroundColor(VColor.systemPositiveStrong)
+                .foregroundStyle(VColor.systemPositiveStrong)
 
             Text("Connected!")
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Text("Your iPhone is now connected to your Assistant.")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
 
             Spacer()
@@ -184,16 +184,16 @@ struct QRPairingSheet: View {
             Spacer()
 
             VIconView(.triangleAlert, size: 48)
-                .foregroundColor(VColor.systemNegativeStrong)
+                .foregroundStyle(VColor.systemNegativeStrong)
 
             Text("Pairing Failed")
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             if let message = errorMessage {
                 Text(message)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, VSpacing.xl)
             }
@@ -202,7 +202,7 @@ struct QRPairingSheet: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Debug Info")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Group {
                         if let reason = failureReason {
                             Text("Reason: \(reason)")
@@ -213,7 +213,7 @@ struct QRPairingSheet: View {
                         Text("Request ID: \(String(payload.pairingRequestId.prefix(8)))…")
                     }
                     .font(.system(size: 11, design: .monospaced))
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                 }
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.vertical, VSpacing.sm)
@@ -238,7 +238,7 @@ struct QRPairingSheet: View {
                 Button("Cancel") {
                     dismiss()
                 }
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
             }
             .padding(.bottom, VSpacing.xxl)
         }

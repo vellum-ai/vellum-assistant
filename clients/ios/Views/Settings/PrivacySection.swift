@@ -52,7 +52,7 @@ struct PrivacySection: View {
         } label: {
             HStack {
                 Text(name)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Spacer()
                 statusBadge(status)
             }
@@ -76,7 +76,7 @@ struct PrivacySection: View {
         Text(label)
             .font(.caption2)
             .fontWeight(.medium)
-            .foregroundColor(color)
+            .foregroundStyle(color)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(color.opacity(0.15))

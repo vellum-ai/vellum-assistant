@@ -150,7 +150,7 @@ struct IdentityView: View {
                 Section {
                     Text(introText)
                         .font(VFont.titleMedium)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
@@ -174,16 +174,16 @@ struct IdentityView: View {
                 } label: {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.brain, size: 16)
-                            .foregroundColor(VColor.primaryBase)
+                            .foregroundStyle(VColor.primaryBase)
                             .frame(width: 24)
                         Text("Skills")
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                         Spacer()
                         if viewModel.installedSkillsCount > 0 {
                             Text("\(viewModel.installedSkillsCount)")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 2)
                                 .background(
@@ -203,16 +203,16 @@ struct IdentityView: View {
                 } label: {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.users, size: 16)
-                            .foregroundColor(VColor.primaryBase)
+                            .foregroundStyle(VColor.primaryBase)
                             .frame(width: 24)
                         Text("Contacts")
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                         Spacer()
                         if viewModel.contactsCount > 0 {
                             Text("\(viewModel.contactsCount)")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 2)
                                 .background(
@@ -232,16 +232,16 @@ struct IdentityView: View {
                 } label: {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.bookOpen, size: 16)
-                            .foregroundColor(VColor.primaryBase)
+                            .foregroundStyle(VColor.primaryBase)
                             .frame(width: 24)
                         Text("Memories")
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                         Spacer()
                         if viewModel.memoriesCount > 0 {
                             Text("\(viewModel.memoriesCount)")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 2)
                                 .background(
@@ -261,11 +261,11 @@ struct IdentityView: View {
                 } label: {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.folder, size: 16)
-                            .foregroundColor(VColor.primaryBase)
+                            .foregroundStyle(VColor.primaryBase)
                             .frame(width: 24)
                         Text("Browse Workspace")
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                     }
                 }
             }
@@ -292,12 +292,12 @@ struct IdentityView: View {
                 if !identity.name.isEmpty {
                     Text(identity.name)
                         .font(VFont.bodySmallEmphasised)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                 }
                 if !identity.role.isEmpty {
                     Text(identity.role)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
             }
 
@@ -313,16 +313,16 @@ struct IdentityView: View {
     private var disconnectedState: some View {
         VStack(spacing: VSpacing.lg) {
             VIconView(.monitor, size: 48)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .accessibilityHidden(true)
 
             Text("Connect to your Assistant")
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Text("Intelligence information is available when connected to your Assistant.")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
 
@@ -343,7 +343,7 @@ struct IdentityView: View {
             ProgressView()
             Text("Loading...")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

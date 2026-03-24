@@ -131,7 +131,7 @@ struct ContentView: View {
                 .scaleEffect(1.5)
             Text("Connecting to your Assistant...")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -141,15 +141,15 @@ struct ContentView: View {
     private var connectionFailedView: some View {
         VStack(spacing: VSpacing.lg) {
             VIconView(.wifiOff, size: 48)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
 
             Text("Unable to Connect")
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Text("Unable to reach your Assistant's gateway. This could mean your Assistant is offline, the tunnel is down, or the gateway is not active.")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
 
@@ -157,7 +157,7 @@ struct ContentView: View {
                 let delaySeconds = Int(min(pow(2.0, Double(retryCount - 1)) * 2.0, 30.0))
                 Text("Retrying in \(delaySeconds)s…")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
 
             VStack(spacing: VSpacing.md) {
