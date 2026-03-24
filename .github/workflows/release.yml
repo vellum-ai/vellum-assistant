@@ -15,13 +15,28 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.extract.outputs.version }}
+      is_staging: ${{ steps.detect-staging.outputs.is_staging }}
     steps:
+      - uses: actions/checkout@v6
+
       - name: Extract version from branch name
         id: extract
         run: |
           BRANCH="${GITHUB_REF_NAME}"
           VERSION="${BRANCH#release/v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Detect staging release
+        id: detect-staging
+        run: |
+          COMMIT_MSG=$(git log -1 --format=%s)
+          if echo "$COMMIT_MSG" | grep -qF '[staging]'; then
+            echo "is_staging=true" >> "$GITHUB_OUTPUT"
+            echo "Staging release detected from commit message: $COMMIT_MSG"
+          else
+            echo "is_staging=false" >> "$GITHUB_OUTPUT"
+            echo "Production release detected from commit message: $COMMIT_MSG"
+          fi
 
   push-assistant-image:
     needs: [extract-version, ci-assistant]
@@ -570,6 +585,7 @@ jobs:
 
   push-dockerhub-image:
     needs: [extract-version, ci-assistant, ci-gateway, ci-credential-executor]
+    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ${{ matrix.runs_on }}
     timeout-minutes: 45
     permissions:
@@ -831,6 +847,7 @@ jobs:
 
   publish-npm:
     needs: [extract-version, ci-cli, ci-gateway, ci-playwright]
+    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -865,6 +882,7 @@ jobs:
 
   publish-meta:
     needs: [extract-version, publish-npm]
+    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1542,7 +1560,7 @@ jobs:
 
   release:
     needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, ci-playwright]
-    if: ${{ !cancelled() && needs.extract-version.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.ci-playwright.result == 'success' }}
+    if: ${{ !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && needs.ci-playwright.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1653,7 +1671,7 @@ jobs:
 
   merge-release-branch:
     needs: [extract-version, release]
-    if: ${{ !cancelled() && needs.release.result == 'success' }}
+    if: ${{ !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.release.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -1685,6 +1703,7 @@ jobs:
 
   update-platform:
     needs: [extract-version, publish-npm]
+    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1898,6 +1917,7 @@ jobs:
 
   release-ios:
     needs: [extract-version, build-ios]
+    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: macos-15
     timeout-minutes: 30
     env:
@@ -2125,14 +2145,33 @@ jobs:
         run: |
           VERSION="${{ needs.extract-version.outputs.version }}"
           VERSION_TAG="v${VERSION}"
+          IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
 
-          # Determine release status from the release job
+          # Determine release status
           RELEASE_FAILED="false"
-          if [ "${{ needs.release.result }}" != "success" ]; then
-            RELEASE_FAILED="true"
+          if [ "$IS_STAGING" = "true" ]; then
+            # For staging, check that GCP image pushes and register-release succeeded
+            if [ "${{ needs.push-assistant-manifest.result }}" != "success" ] || \
+               [ "${{ needs.push-gateway-manifest.result }}" != "success" ] || \
+               [ "${{ needs.push-credential-executor-manifest.result }}" != "success" ] || \
+               [ "${{ needs.register-release.result }}" != "success" ]; then
+              RELEASE_FAILED="true"
+            fi
+          else
+            if [ "${{ needs.release.result }}" != "success" ]; then
+              RELEASE_FAILED="true"
+            fi
           fi
 
-          if [ "$RELEASE_FAILED" = "true" ]; then
+          if [ "$IS_STAGING" = "true" ]; then
+            if [ "$RELEASE_FAILED" = "true" ]; then
+              HEADER="❌ Staging Release ${VERSION_TAG} Failed"
+              STYLE="danger"
+            else
+              HEADER="🟡 Staging Release ${VERSION_TAG} Ready"
+              STYLE=""
+            fi
+          elif [ "$RELEASE_FAILED" = "true" ]; then
             HEADER="❌ Release ${VERSION_TAG} Failed"
             STYLE="danger"
           else
@@ -2165,10 +2204,18 @@ jobs:
           fi
 
           CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$DH" "$RR")
-          META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "${{ github.actor }}")
 
-          # Fetch release notes from GitHub release
-          RELEASE_BODY=$(gh release view "$VERSION_TAG" --repo "${{ github.repository }}" --json body -q .body 2>/dev/null || echo "")
+          if [ "$IS_STAGING" = "true" ]; then
+            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped._' "$VERSION" "${{ github.actor }}")
+          else
+            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "${{ github.actor }}")
+          fi
+
+          # Fetch release notes from GitHub release (only for production releases)
+          RELEASE_BODY=""
+          if [ "$IS_STAGING" != "true" ]; then
+            RELEASE_BODY=$(gh release view "$VERSION_TAG" --repo "${{ github.repository }}" --json body -q .body 2>/dev/null || echo "")
+          fi
 
           RELEASE_SUMMARY=""
           if [ -n "$RELEASE_BODY" ]; then
@@ -2214,7 +2261,7 @@ jobs:
             style: "primary"
           }')
 
-          if [ "$RELEASE_FAILED" = "true" ]; then
+          if [ "$RELEASE_FAILED" = "true" ] || [ "$IS_STAGING" = "true" ]; then
             BUTTONS=$(jq -n --argjson run "$VIEW_RUN" '[$run]')
           else
             BUTTONS=$(jq -n --argjson run "$VIEW_RUN" --argjson release "$VIEW_RELEASE" '[$run, $release]')
