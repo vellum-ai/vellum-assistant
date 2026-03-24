@@ -1774,10 +1774,14 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
-      - name: Rebase release branch onto main
+      - name: Rebase and merge release branch
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           VERSION="${{ needs.extract-version.outputs.version }}"
           BRANCH="release/v$VERSION"
+          # Use a temp branch name that won't re-trigger this workflow
+          TEMP_BRANCH="merge-back/v$VERSION"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -1787,21 +1791,20 @@ jobs:
           # merge conflicts when the PR is created.
           git fetch origin main
           git rebase origin/main
-          git push origin "$BRANCH" --force-with-lease
 
-      - name: Merge release branch and delete
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        run: |
-          VERSION="${{ needs.extract-version.outputs.version }}"
-          BRANCH="release/v$VERSION"
+          # Push to a temporary branch instead of back to release/v* to
+          # avoid re-triggering the release workflow.
+          git push origin "HEAD:refs/heads/$TEMP_BRANCH"
 
           PR_URL=$(gh pr create \
             --title "Release v$VERSION" \
             --body "Automated version bump to $VERSION." \
             --base main \
-            --head "$BRANCH")
+            --head "$TEMP_BRANCH")
           gh pr merge "$PR_URL" --squash --admin --delete-branch
+
+          # Clean up the original release branch
+          git push origin --delete "$BRANCH" || true
 
   update-platform:
     needs: [extract-version, publish-npm]
