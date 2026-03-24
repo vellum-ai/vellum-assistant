@@ -39,6 +39,7 @@ struct VoiceSettingsView: View {
             pttCard
             conversationTimeoutCard
             ttsCard
+            readAloudCard
         }
         .onDisappear {
             stopRecordingCustomKey()
@@ -273,7 +274,7 @@ struct VoiceSettingsView: View {
         (label: "60 seconds", value: 60),
     ]
 
-    // MARK: - Text-to-Speech Card
+    // MARK: - Voice Conversation TTS Card
 
     private var ttsCard: some View {
         SettingsCard(title: "Text-to-Speech", subtitle: "ElevenLabs provides high-quality voice responses during voice conversations. An API key is required.") {
@@ -319,6 +320,44 @@ struct VoiceSettingsView: View {
             } else {
                 VButton(label: "Set Up", style: .outlined) {
                     ttsSetupExpanded = true
+                }
+            }
+        }
+    }
+
+    // MARK: - Read Aloud Card
+
+    private var readAloudCard: some View {
+        SettingsCard(title: "Read Aloud", subtitle: "Fish Audio powers natural-sounding read-aloud for any assistant message. Requires a Fish Audio account with an API key and a voice reference ID.") {
+            VStack(alignment: .leading, spacing: VSpacing.md) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    Text("1. Create a Fish Audio account at fish.audio")
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundColor(VColor.contentSecondary)
+                    Text("2. Generate an API key from your Fish Audio dashboard")
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundColor(VColor.contentSecondary)
+                    Text("3. Choose or create a voice and copy its reference ID")
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundColor(VColor.contentSecondary)
+                    Text("4. Run the setup commands in your terminal:")
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundColor(VColor.contentSecondary)
+                }
+
+                Text("assistant credentials set --service fish-audio --field api_key YOUR_KEY\nassistant config set fishAudio.referenceId YOUR_VOICE_ID")
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundColor(VColor.contentSecondary)
+                    .padding(VSpacing.md)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .fill(VColor.surfaceBase)
+                    )
+                    .textSelection(.enabled)
+
+                VButton(label: "Visit Fish Audio", rightIcon: VIcon.arrowUpRight.rawValue, style: .outlined) {
+                    NSWorkspace.shared.open(URL(string: "https://fish.audio")!)
                 }
             }
         }
