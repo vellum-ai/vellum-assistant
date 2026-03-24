@@ -321,7 +321,7 @@ The WhatsApp channel enables inbound and outbound messaging via the Meta WhatsAp
 - `WHATSAPP_APP_SECRET` — App secret for webhook signature verification
 - `WHATSAPP_WEBHOOK_VERIFY_TOKEN` — Token for the Meta webhook subscription handshake
 
-These can be set via environment variables or stored in the credential vault (keychain / encrypted store) under the `whatsapp` service prefix.
+These can be set via environment variables or stored in the credential vault (CES / encrypted store) under the `whatsapp` service prefix.
 
 **Limitations (v1)**: Rich approval UI (inline buttons) is not supported. Contacts and location message types are acknowledged but not forwarded.
 
@@ -343,7 +343,7 @@ All endpoints are JWT-authenticated via `Authorization: Bearer <jwt>`.
 
 **Credential storage pattern:**
 
-Both tokens are stored in the secure key store (macOS Keychain with encrypted file fallback):
+Both tokens are stored in the secure key store (CES credential store with encrypted file fallback):
 
 | Secure key                           | Content                                                                    |
 | ------------------------------------ | -------------------------------------------------------------------------- |
@@ -667,9 +667,9 @@ All six enforcement points derive the flag key via `skillFlagKey(skill)` — whi
 
 ```mermaid
 graph LR
-    subgraph "macOS Keychain"
-        K1["API Key<br/>service: vellum-assistant<br/>account: anthropic<br/>stored via /usr/bin/security CLI"]
-        K2["Credential Secrets<br/>key: credential/{service}/{field}<br/>stored via secure-keys.ts<br/>(encrypted file fallback if Keychain unavailable)"]
+    subgraph "Credential Store"
+        K1["API Key<br/>service: vellum-assistant<br/>account: anthropic<br/>stored via CES"]
+        K2["Credential Secrets<br/>key: credential/{service}/{field}<br/>stored via secure-keys.ts<br/>(encrypted file fallback)"]
     end
 
     subgraph "UserDefaults (plist)"
@@ -1937,10 +1937,10 @@ Connected channels are resolved at signal emission time: vellum is always includ
 
 | What                                     | Where                                                             | Format                              | ORM/Driver                         | Retention                                               |
 | ---------------------------------------- | ----------------------------------------------------------------- | ----------------------------------- | ---------------------------------- | ------------------------------------------------------- |
-| API key                                  | macOS Keychain                                                    | Encrypted binary                    | `/usr/bin/security` CLI            | Permanent                                               |
-| Credential secrets                       | macOS Keychain (or encrypted file fallback)                       | Encrypted binary                    | `secure-keys.ts` wrapper           | Permanent (until deleted via tool)                      |
+| API key                                  | CES / encrypted file store                                        | Encrypted binary                    | CES API / `secure-keys.ts`         | Permanent                                               |
+| Credential secrets                       | CES / encrypted file store                                        | Encrypted binary                    | `secure-keys.ts` wrapper           | Permanent (until deleted via tool)                      |
 | Credential metadata                      | `~/.vellum/workspace/data/credentials/metadata.json`              | JSON                                | Atomic file write                  | Permanent (until deleted via tool)                      |
-| Integration OAuth tokens                 | macOS Keychain (or encrypted file fallback, via `secure-keys.ts`) | Encrypted binary                    | `TokenManager` auto-refresh        | Until disconnected or revoked                           |
+| Integration OAuth tokens                 | CES / encrypted file store (via `secure-keys.ts`)                 | Encrypted binary                    | `TokenManager` auto-refresh        | Until disconnected or revoked                           |
 | User preferences                         | UserDefaults                                                      | plist                               | Foundation                         | Permanent                                               |
 | Session logs                             | `~/Library/.../logs/session-*.json`                               | JSON per session                    | Swift Codable                      | Unbounded                                               |
 | Conversations & messages                 | `~/.vellum/workspace/data/db/assistant.db`                        | SQLite + WAL                        | Drizzle ORM (Bun)                  | Permanent                                               |

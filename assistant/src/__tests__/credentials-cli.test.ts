@@ -895,7 +895,7 @@ describe("assistant credentials CLI", () => {
       expect(result.exitCode).toBe(0);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(true);
-      expect(parsed.scrubbedValue).toBe("(broker unreachable)");
+      expect(parsed.scrubbedValue).toBe("(credential store unreachable)");
       expect(parsed.brokerUnreachable).toBe(true);
     });
 
@@ -913,7 +913,7 @@ describe("assistant credentials CLI", () => {
       expect(result.exitCode).toBe(1);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(false);
-      expect(parsed.error).toContain("Keychain broker is unreachable");
+      expect(parsed.error).toContain("Credential store is unreachable");
     });
   });
 
@@ -1029,7 +1029,7 @@ describe("assistant credentials CLI", () => {
       expect(result.exitCode).toBe(1);
       const parsed = JSON.parse(result.stdout);
       expect(parsed.ok).toBe(false);
-      expect(parsed.error).toContain("Keychain broker is unreachable");
+      expect(parsed.error).toContain("Credential store is unreachable");
     });
 
     test("returns credential-not-found when broker is up", async () => {

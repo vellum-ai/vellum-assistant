@@ -168,7 +168,7 @@ At least --id or --provider must be specified.`,
     .requiredOption("--client-id <id>", "OAuth client ID")
     .option(
       "--client-secret <secret>",
-      "OAuth client secret (stored in secure keychain)",
+      "OAuth client secret (stored in credential store)",
     )
     .option(
       "--client-secret-credential-path <path>",
@@ -179,7 +179,7 @@ At least --id or --provider must be specified.`,
       `
 Creates a new app registration or returns the existing one if an app with the
 same provider and client ID already exists. The client secret, if provided, is
-stored in the secure system keychain — not in the database.
+stored in the secure credential store — not in the database.
 
 When an existing app is matched and a --client-secret is provided, the stored
 secret is updated. The app row itself is returned as-is.
@@ -277,7 +277,7 @@ Arguments:
   id   The app UUID to delete (as returned by "apps list" or "apps get")
 
 Permanently removes the app registration and its stored client secret from
-the keychain. Any OAuth connections that reference this app will no longer be
+the credential store. Any OAuth connections that reference this app will no longer be
 able to refresh tokens.
 
 Exits with code 1 if the app ID is not found.

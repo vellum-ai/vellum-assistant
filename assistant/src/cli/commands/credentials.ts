@@ -635,7 +635,7 @@ Examples:
             if (unreachable) {
               writeError(
                 cmd,
-                "Keychain broker is unreachable — restart the Vellum app and accept the macOS Keychain prompt",
+                "Credential store is unreachable — ensure the assistant is running",
               );
             } else {
               writeError(cmd, "Credential not found");
@@ -676,7 +676,7 @@ Examples:
           const output = buildCredentialOutput(metadata, secret, connection);
 
           if (unreachable && (secret == null || secret.length === 0)) {
-            output.scrubbedValue = "(broker unreachable)";
+            output.scrubbedValue = "(credential store unreachable)";
             output.brokerUnreachable = true;
           }
 
@@ -686,7 +686,7 @@ Examples:
             printCredentialHuman(output);
             if (unreachable && (secret == null || secret.length === 0)) {
               log.info(
-                "    \u26A0 Keychain broker unreachable — restart the Vellum app and accept the macOS Keychain prompt to access credentials",
+                "    \u26A0 Credential store is unreachable — ensure the assistant is running",
               );
             }
           }
@@ -770,7 +770,7 @@ Examples:
             if (unreachable) {
               writeError(
                 cmd,
-                "Keychain broker is unreachable — restart the Vellum app and accept the macOS Keychain prompt",
+                "Credential store is unreachable — ensure the assistant is running",
               );
             } else {
               writeError(cmd, "Credential not found");

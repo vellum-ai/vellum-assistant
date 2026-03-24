@@ -213,7 +213,7 @@ async function handleOAuthConnectStart(body: {
   if (requiresSecret && !clientSecret) {
     return httpError(
       "BAD_REQUEST",
-      `client_secret is required for "${body.service}" but not found in the keychain. Store it first via the credential vault.`,
+      `client_secret is required for "${body.service}" but not found in the credential store. Store it first via the credential vault.`,
       400,
     );
   }

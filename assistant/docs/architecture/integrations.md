@@ -122,7 +122,7 @@ sequenceDiagram
     participant Browser as System Browser
     participant Google as Google OAuth Server
     participant Store as SQLite OAuth Store
-    participant Vault as Secure Keychain
+    participant Vault as Credential Store
     participant TokenMgr as TokenManager
     participant Tool as Gmail Tool Executor
     participant API as Gmail REST API
@@ -173,7 +173,7 @@ sequenceDiagram
 
 | Decision                                   | Rationale                                                                                                                                                                                                                                        |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| PKCE by default, optional client_secret    | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in the secure keychain (`oauth_app/{id}/client_secret`) for autonomous refresh                                                                                |
+| PKCE by default, optional client_secret    | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in the credential store (`oauth_app/{id}/client_secret`) for autonomous refresh                                                                                |
 | Shared connect orchestrator                | All OAuth providers route through `orchestrateOAuthConnect()`, which resolves profiles, enforces scope policy, runs the flow, stores tokens, and verifies identity. Adding a provider is a declarative profile entry, not new orchestration code |
 | Canonical credential naming                | All reads and writes use `client_id`/`client_secret` as canonical field names                                                                                                                                                                    |
 | Gateway callback transport                 | OAuth callbacks are now routed through the gateway at `${ingress.publicBaseUrl}/webhooks/oauth/callback` instead of a loopback redirect URI. This enables OAuth flows to work in remote and tunneled deployments.                                |
@@ -261,7 +261,7 @@ Result is a discriminated union: `{ success, deferred, grantedScopes, accountInf
 
 `assistant/src/daemon/handlers/oauth-connect.ts` handles `oauth_connect_start` messages. The handler:
 
-1. Resolves client credentials from the keychain using canonical names (`client_id`, `client_secret`).
+1. Resolves client credentials from the credential store using canonical names (`client_id`, `client_secret`).
 2. Validates that required credentials exist (including `client_secret` when the provider requires it).
 3. Delegates to `orchestrateOAuthConnect()`.
 4. Sends `oauth_connect_result` back to the client.
@@ -286,7 +286,7 @@ This replaces provider-specific handlers — any provider in the registry can be
 | `assistant/src/oauth/scope-policy.ts`            | Scope resolution and policy enforcement (pure, no I/O)                           |
 | `assistant/src/oauth/connect-orchestrator.ts`    | Shared connect orchestrator (profile → scopes → flow → tokens)                   |
 | `assistant/src/oauth/connect-types.ts`           | Shared types (`OAuthProviderBehavior`, `OAuthScopePolicy`, `OAuthConnectResult`) |
-| `assistant/src/oauth/token-persistence.ts`       | Token storage: keychain writes, metadata upsert, post-connect hooks              |
+| `assistant/src/oauth/token-persistence.ts`       | Token storage: credential store writes, metadata upsert, post-connect hooks      |
 | `assistant/src/daemon/handlers/oauth-connect.ts` | Generic `oauth_connect_start` / `oauth_connect_result` handler                   |
 
 ---
