@@ -688,10 +688,6 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             sendReorderConversations()
         }
 
-        // Close any pop-out window for this conversation before releasing the VM.
-        AppDelegate.shared?.threadWindowManager?.closeThread(conversationLocalId: id)
-        pinnedViewModelIds.remove(id)
-
         if let conversationId = conversations[index].conversationId {
             chatViewModels[id]?.stopGenerating()
             var archived = archivedConversationIds

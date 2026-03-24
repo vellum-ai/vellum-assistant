@@ -193,12 +193,6 @@ extension MainWindowView {
                 sidebar.draggingConversationId = conversation.id
                 sidebar.isHoveredConversation = nil
             },
-            onOpenInNewWindow: conversation.conversationId != nil ? {
-                AppDelegate.shared?.threadWindowManager?.openThread(
-                    conversationLocalId: conversation.id,
-                    conversationManager: conversationManager
-                )
-            } : nil,
             onShowFeedback: conversation.conversationId != nil && !LogExporter.isManagedAssistant ? {
                 AppDelegate.shared?.showLogReportWindow(scope: .conversation(conversationId: conversation.conversationId!, conversationTitle: conversation.title))
             } : nil

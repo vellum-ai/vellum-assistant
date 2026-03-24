@@ -1176,15 +1176,7 @@ struct MainWindowView: View {
                     conversationManager.archiveConversation(id: id)
                     dismissConversationDrawer()
                 },
-                onRename: { startRenameActiveConversation(); dismissConversationDrawer() },
-                onOpenInNewWindow: conversationManager.activeConversation?.conversationId != nil ? {
-                    guard let id = conversationManager.activeConversationId else { return }
-                    AppDelegate.shared?.threadWindowManager?.openThread(
-                        conversationLocalId: id,
-                        conversationManager: conversationManager
-                    )
-                    dismissConversationDrawer()
-                } : nil
+                onRename: { startRenameActiveConversation(); dismissConversationDrawer() }
             )
             .offset(x: conversationTitleFrame.minX, y: conversationTitleFrame.maxY)
             .zIndex(10)
