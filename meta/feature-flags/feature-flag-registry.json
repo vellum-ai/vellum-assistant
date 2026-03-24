@@ -328,6 +328,14 @@
       "label": "Backward Releases",
       "description": "Show older versions in the version picker, allowing rollback to previous releases",
       "defaultEnabled": true
+    },
+    {
+      "id": "show-background-conversations",
+      "scope": "assistant",
+      "key": "feature_flags.show-background-conversations.enabled",
+      "label": "Show Background Conversations",
+      "description": "Include background conversations (heartbeat, tasks) in the sidebar conversation list",
+      "defaultEnabled": false
     }
   ]
 }
