@@ -36,6 +36,7 @@ public final class EventStreamClient {
     private var sseReconnectDelay: TimeInterval = 1.0
     private let maxReconnectDelay: TimeInterval = 30.0
     private var shouldReconnect = true
+    private var hasShownCreditsExhausted = false
 
     // MARK: - SSE Parse Time Tracking
 
@@ -220,8 +221,7 @@ public final class EventStreamClient {
                     code: .providerBilling,
                     userMessage: detail,
                     retryable: false,
-                    errorCategory: "credits_exhausted",
-                    failedMessageContent: content
+                    errorCategory: "credits_exhausted"
                 )))
             case .error(_, let message, _):
                 self.broadcastMessage(.conversationError(ConversationErrorMessage(
@@ -252,7 +252,8 @@ public final class EventStreamClient {
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
                     log.error("SSE connection failed with status \(statusCode)")
-                    if statusCode == 402 {
+                    if statusCode == 402, !self.hasShownCreditsExhausted {
+                        self.hasShownCreditsExhausted = true
                         self.broadcastMessage(.conversationError(ConversationErrorMessage(
                             conversationId: "",
                             code: .providerBilling,
@@ -268,6 +269,7 @@ public final class EventStreamClient {
                     return
                 }
 
+                self.hasShownCreditsExhausted = false
                 log.info("SSE stream connected")
 
                 for try await line in bytes.lines {
