@@ -58,7 +58,7 @@ struct ConversationStarterClient: ConversationStarterClientProtocol {
 
 /// Raw surface content from the daemon, preserving the untyped data dict
 /// so callers can construct a `UiSurfaceShowMessage` without lossy roundtrips.
-public struct SurfaceContentResponse: Sendable {
+public struct SurfaceContentResponse: @unchecked Sendable {
     public let surfaceType: String
     public let title: String?
     public let rawData: [String: Any]
