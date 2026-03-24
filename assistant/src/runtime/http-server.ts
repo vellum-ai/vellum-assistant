@@ -28,11 +28,13 @@ import {
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
 import { parseChannelId } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   getGatewayInternalBaseUrl,
   hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
 } from "../config/env.js";
+import { getConfig } from "../config/loader.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { PairingStore } from "../daemon/pairing-store.js";
 import {
@@ -60,8 +62,6 @@ import {
   consumeCallback,
   consumeCallbackError,
 } from "../security/oauth-callback-registry.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getConfig } from "../config/loader.js";
 import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { buildAssistantEvent } from "./assistant-event.js";
