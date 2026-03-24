@@ -2208,11 +2208,7 @@ public final class SettingsStore: ObservableObject {
             return nil
         }
 
-        #if DEBUG
         let credentialStorage = FileCredentialStorage()
-        #else
-        let credentialStorage = KeychainCredentialStorage()
-        #endif
 
         let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
 

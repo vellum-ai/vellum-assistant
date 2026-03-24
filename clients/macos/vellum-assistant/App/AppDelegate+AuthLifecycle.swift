@@ -199,11 +199,7 @@ extension AppDelegate {
             }
 
             // Clear locally-cached credentials for all local assistants
-            #if DEBUG
             let credStorage = FileCredentialStorage()
-            #else
-            let credStorage = KeychainCredentialStorage()
-            #endif
             for assistant in LockfileAssistant.loadAll() where !assistant.isRemote && !assistant.isManaged {
                 let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: assistant.assistantId)
                 _ = credStorage.delete(account: credentialAccount)
@@ -381,11 +377,7 @@ extension AppDelegate {
             }
 
             do {
-                #if DEBUG
                 let credentialStorage = FileCredentialStorage()
-                #else
-                let credentialStorage = KeychainCredentialStorage()
-                #endif
                 let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
                 let outcome = try await bootstrapService.bootstrap(
                     runtimeAssistantId: assistantId,
