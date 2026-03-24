@@ -47,7 +47,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Track keychain writes
+// Track credential store writes
 const storedKeys = new Map<string, string>();
 mock.module("../security/secure-keys.js", () => {
   const syncSet = (key: string, value: string) => {
@@ -158,7 +158,7 @@ describe("E2E: secure store and list lifecycle", () => {
     expect(result.content).toContain("github");
     // Value must NOT appear in tool output (invariant 1)
     expect(result.content).not.toContain("ghp_abc123");
-    // Value must be in keychain
+    // Value must be in credential store
     expect(storedKeys.get("credential/github/token")).toBe("ghp_abc123");
   });
 
@@ -188,7 +188,7 @@ describe("E2E: secure store and list lifecycle", () => {
     expect(result.content).not.toContain("secret2");
   });
 
-  test("delete removes credential from keychain", async () => {
+  test("delete removes credential from credential store", async () => {
     storedKeys.set("credential/github/token", "secret1");
 
     const result = await credentialStoreTool.execute(
@@ -241,7 +241,7 @@ describe("E2E: one-time send override", () => {
     );
     expect(result.isError).toBe(false);
     expect(result.content).toContain("NOT saved");
-    // Value must NOT be in keychain
+    // Value must NOT be in credential store
     expect(storedKeys.has("credential/svc/key")).toBe(false);
     // Value must NOT appear in output
     expect(result.content).not.toContain("tmp1");

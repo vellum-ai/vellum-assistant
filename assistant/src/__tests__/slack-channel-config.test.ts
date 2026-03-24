@@ -252,7 +252,7 @@ describe("Slack channel config handler", () => {
   });
 
   test("GET reports per-field token presence independently of connection row", async () => {
-    // Only bot_token in keychain, no app_token, but connection row exists
+    // Only bot_token in credential store, no app_token, but connection row exists
     oauthConnectionStore["slack_channel"] = {
       id: "conn-slack",
       status: "active",

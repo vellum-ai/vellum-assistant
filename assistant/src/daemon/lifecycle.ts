@@ -282,12 +282,12 @@ export async function runDaemon(): Promise<void> {
     log.info("Daemon startup: workspace migrations complete");
 
     // Backfill oauth_connection rows for manual-token providers (Telegram,
-    // Slack channel) that already have keychain credentials from before the
+    // Slack channel) that already have stored credentials from before the
     // oauth_connection migration. Safe to call on every startup.
     //
     // Must run AFTER workspace migrations so that migration 015 (which copies
-    // encrypted-store credentials to the keychain) has already executed.
-    // Otherwise syncManualTokenConnection sees no keychain credentials and
+    // encrypted-store credentials to the credential store) has already executed.
+    // Otherwise syncManualTokenConnection sees no stored credentials and
     // incorrectly removes existing connection rows.
     try {
       await backfillManualTokenConnections();

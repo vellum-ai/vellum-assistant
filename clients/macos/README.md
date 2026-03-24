@@ -32,7 +32,7 @@ The `HTTPTransport` supports two route modes:
 ### Key Differences in Managed Mode
 
 - No local daemon process -- the assistant runs on the Vellum platform
-- No actor credentials or bearer token -- session token auth is used instead (stored in Keychain)
+- No actor credentials or bearer token -- session token auth is used instead (stored in Credential Store)
 - Onboarding skips local daemon hatching and Fn key setup
 - If bootstrap fails, the user stays on the onboarding screen with a retry option
 
@@ -40,7 +40,7 @@ The `HTTPTransport` supports two route modes:
 
 | State | Location |
 |-------|----------|
-| Session token | Keychain (`AuthManager`) |
+| Session token | Credential Store (`AuthManager`) |
 | Lockfile entry | `~/.vellum.lock.json` (with `cloud: "vellum"`) |
 | Connected assistant ID | UserDefaults (`connectedAssistantId`) |
 
@@ -401,7 +401,7 @@ Features/
   Voice/              Voice input UI (VoiceTranscriptionWindow)
 Recording/            Screen recording (HUD, capture, thumbnails)
 Telemetry/            Crash reporting, MetricKit, perf signposts
-Security/             Keychain broker
+Security/             Credential broker
 Logging/
   TraceStore          In-memory trace event store (per-session, dedup, retention cap)
   Session recording   JSON logs to ~/Library/App Support/

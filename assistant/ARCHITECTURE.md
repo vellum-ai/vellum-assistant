@@ -1142,7 +1142,7 @@ Skills can expose custom tools via a `TOOLS.json` manifest alongside their `SKIL
 
 ### Bundled Skill Retrieval Contract (CLI-First)
 
-Config/status retrieval instructions in bundled `SKILL.md` files are CLI-first. Retrieval should flow through canonical `vellum` CLI surfaces (`assistant config get` for generic settings, secure credential surfaces for secrets, and domain reads where available) instead of direct gateway curl snippets or keychain lookups.
+Config/status retrieval instructions in bundled `SKILL.md` files are CLI-first. Retrieval should flow through canonical `vellum` CLI surfaces (`assistant config get` for generic settings, secure credential surfaces for secrets, and domain reads where available) instead of direct gateway curl snippets or credential store lookups.
 
 ```mermaid
 graph LR
@@ -1156,7 +1156,7 @@ Rules enforced by guard tests:
 
 - Retrieval reads use `bash` + canonical CLI surfaces (`assistant config get` and domain read commands where available).
 - Direct gateway `curl` + manual bearer headers are for control-plane writes/actions, not retrieval reads.
-- Bundled skill docs must not instruct direct keychain lookups (`security find-generic-password`, `secret-tool`) for retrieval.
+- Bundled skill docs must not instruct direct credential store lookups (`security find-generic-password`, `secret-tool`) for retrieval.
 - `host_bash` is not used for Vellum CLI retrieval commands unless intentionally allowlisted.
 - Outbound credentialed API calls use CES tools (`make_authenticated_request`, `run_authenticated_command`) so credential materialization happens in a separate process. Command output (stdout/stderr) is forwarded back to the assistant and may contain credential values if the command echoes them, so the isolation covers injection, not output. `host_bash` is available as a user-approved escape hatch but is outside the strong secrecy guarantee.
 

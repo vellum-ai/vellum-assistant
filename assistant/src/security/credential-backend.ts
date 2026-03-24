@@ -30,7 +30,7 @@ export interface CredentialListResult {
 // ---------------------------------------------------------------------------
 
 export interface CredentialBackend {
-  /** Human-readable name for logging (e.g. "keychain", "encrypted-store"). */
+  /** Human-readable name for logging (e.g. "encrypted-store"). */
   readonly name: string;
 
   /** Whether this backend is currently reachable. Sync and cheap. */

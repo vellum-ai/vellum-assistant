@@ -2,9 +2,9 @@
  * Helpers for managing oauth_connection records for non-OAuth (manual-token)
  * providers like slack_channel and telegram.
  *
- * These providers store credentials via the keychain (setSecureKeyAsync) but
- * also maintain an oauth_connection row so that getConnectionByProvider() can
- * be used as the single source of truth for connection status across the
+ * These providers store credentials via the credential store (setSecureKeyAsync)
+ * but also maintain an oauth_connection row so that getConnectionByProvider()
+ * can be used as the single source of truth for connection status across the
  * codebase.
  */
 
@@ -57,7 +57,7 @@ export async function ensureManualTokenConnection(
  * Remove the oauth_connection row for a manual-token provider.
  *
  * Note: This only removes the oauth_connection row. The caller is still
- * responsible for deleting the keychain credentials separately.
+ * responsible for deleting the stored credentials separately.
  */
 export function removeManualTokenConnection(providerKey: string): void {
   const conn = getConnectionByProvider(providerKey);
@@ -114,7 +114,7 @@ export async function syncManualTokenConnection(
 
 /**
  * Backfill oauth_connection rows for manual-token providers that already
- * have valid keychain credentials but are missing connection records.
+ * have valid stored credentials but are missing connection records.
  *
  * This handles the upgrade path from installations that stored credentials
  * before the oauth_connection migration. Without this, existing Telegram

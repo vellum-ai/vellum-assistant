@@ -1,8 +1,8 @@
 /**
  * OAuthClientProvider implementation for MCP servers.
  *
- * Uses secure-keys (OS keychain / encrypted file store) for persistent
- * credential storage and a loopback HTTP server for the browser callback.
+ * Uses secure-keys (credential store) for persistent credential storage
+ * and a loopback HTTP server for the browser callback.
  */
 
 import { createServer, type Server } from "node:http";
@@ -30,7 +30,7 @@ const log = getLogger("mcp-oauth");
 const CALLBACK_PATH = "/oauth/callback";
 const CALLBACK_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 
-// Keychain key helpers
+// Credential store key helpers
 function tokensKey(serverId: string): string {
   return `mcp:${serverId}:tokens`;
 }

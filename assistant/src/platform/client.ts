@@ -30,7 +30,7 @@ export class VellumPlatformClient {
    *
    * First tries the in-memory managed proxy context (available when the daemon
    * has rehydrated env overrides). Falls back to reading platform credentials
-   * directly from the secure keychain so that standalone CLI invocations work
+   * directly from the credential store so that standalone CLI invocations work
    * without the daemon having run its rehydration step.
    *
    * Returns `null` when auth prerequisites are missing (not logged in, no API
@@ -44,7 +44,7 @@ export class VellumPlatformClient {
     let apiKey = ctx.enabled ? ctx.assistantApiKey : "";
     let assistantId = getPlatformAssistantId();
 
-    // Fall back to keychain for values not yet rehydrated (standalone CLI).
+    // Fall back to credential store for values not yet rehydrated (standalone CLI).
     if (!baseUrl) {
       baseUrl =
         (await getSecureKeyAsync(

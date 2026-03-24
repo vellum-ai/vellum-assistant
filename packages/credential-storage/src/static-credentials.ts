@@ -233,7 +233,7 @@ export class StaticCredentialMetadataStore {
 
   /**
    * Throws if the metadata file has an unrecognized version.
-   * Call this before performing irreversible keychain operations
+   * Call this before performing irreversible credential store operations
    * so the operation fails cleanly before any side effects.
    */
   assertWritable(): void {

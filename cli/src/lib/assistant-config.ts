@@ -438,7 +438,7 @@ export async function allocateLocalResources(
 ): Promise<LocalInstanceResources> {
   // First local assistant gets the home directory with default ports.
   // Respect BASE_DATA_DIR when set (e.g. in e2e tests) so the daemon,
-  // gateway, and keychain broker all resolve paths under the same root.
+  // gateway, and credential store all resolve paths under the same root.
   const existingLocals = loadAllAssistants().filter((e) => e.cloud === "local");
   if (existingLocals.length === 0) {
     const baseDir = getBaseDir();

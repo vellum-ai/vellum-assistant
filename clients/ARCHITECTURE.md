@@ -49,9 +49,9 @@ Types that use Combine `$`-prefixed publishers (e.g., `VoiceTranscriptionViewMod
 
 ```mermaid
 graph LR
-    subgraph "macOS Keychain"
-        K1["API Key<br/>service: vellum-assistant<br/>account: anthropic<br/>stored via /usr/bin/security CLI"]
-        K2["Credential Secrets<br/>key: credential/{service}/{field}<br/>stored via secure-keys.ts<br/>(encrypted file fallback if Keychain unavailable)"]
+    subgraph "Credential Store"
+        K1["API Key<br/>service: vellum-assistant<br/>account: anthropic<br/>stored via secure-keys.ts"]
+        K2["Credential Secrets<br/>key: credential/{service}/{field}<br/>stored via secure-keys.ts"]
     end
 
     subgraph "UserDefaults (plist)"
@@ -497,7 +497,7 @@ When the current assistant is managed (`isCurrentAssistantManaged == true`), the
 
 | Data | Storage | Location |
 |------|---------|----------|
-| Session token | Keychain | provider: `session-token` (via `SessionTokenManager`) |
+| Session token | Credential Store | provider: `session-token` (via `SessionTokenManager`) |
 | Platform token file | Filesystem | `~/.vellum/platform-token` (0600 permissions, daemon-readable) |
 | Managed lockfile entry | Filesystem | `~/.vellum.lock.json` (entry with `cloud: "vellum"`) |
 | Connected assistant ID | UserDefaults | `connectedAssistantId` |
@@ -512,7 +512,7 @@ When a managed-mode HTTP request receives a 401, the `HTTPDaemonClient` does not
 |------|---------|
 | `clients/shared/App/Auth/ManagedAssistantBootstrapService.swift` | Discover-or-create orchestrator for managed assistants |
 | `clients/shared/App/Auth/AuthService.swift` | Platform API methods (`getAssistant`, `hatchAssistant`) |
-| `clients/shared/App/Auth/SessionTokenManager.swift` | Session token storage (Keychain + `~/.vellum/platform-token` file bridge) |
+| `clients/shared/App/Auth/SessionTokenManager.swift` | Session token storage (Credential Store + `~/.vellum/platform-token` file bridge) |
 | `clients/shared/Network/DaemonConfig.swift` | `RouteMode`, `AuthMode`, `TransportMetadata` types |
 | `clients/shared/Network/HTTPDaemonClient.swift` | Endpoint builder and auth application for both route modes |
 | `clients/macos/vellum-assistant/App/AppDelegate.swift` | Transport selection (`configureDaemonTransport`) and startup guardrails |
@@ -603,15 +603,15 @@ iOS pairing uses a v4 QR code protocol with Mac-side approval. There is no manua
 
 Both macOS and iOS clients use a single JWT access token for all HTTP authentication, sent as `Authorization: Bearer <jwt>`. The JWT serves as both authentication and identity — there is no separate `X-Actor-Token` header. A shared credential refresh mechanism maintains valid tokens without re-bootstrapping or re-pairing. Bootstrap (macOS) and pairing (iOS) are only used for initial credential issuance.
 
-**Credential storage:** The client stores the following in the Keychain:
+**Credential storage:** The client stores the following in the Credential Store:
 
 | Data | Storage | Purpose |
 |------|---------|---------|
-| Access token (JWT) | Keychain | `Authorization: Bearer <jwt>` header for authenticated requests |
-| Refresh token | Keychain | Presented to the refresh endpoint to rotate credentials |
-| Access token expiry | Keychain | Absolute expiry timestamp of the current access token |
-| Refresh token expiry | Keychain | Absolute expiry timestamp of the current refresh token |
-| `refreshAfter` | Keychain | Timestamp at which the client should proactively refresh (80% of access token TTL) |
+| Access token (JWT) | Credential Store | `Authorization: Bearer <jwt>` header for authenticated requests |
+| Refresh token | Credential Store | Presented to the refresh endpoint to rotate credentials |
+| Access token expiry | Credential Store | Absolute expiry timestamp of the current access token |
+| Refresh token expiry | Credential Store | Absolute expiry timestamp of the current refresh token |
+| `refreshAfter` | Credential Store | Timestamp at which the client should proactively refresh (80% of access token TTL) |
 
 **Proactive refresh:** Both macOS and iOS run a periodic check every 5 minutes. If `now >= refreshAfter`, the client calls `POST /v1/guardian/refresh` (through the gateway) with the current refresh token and `Authorization: Bearer <jwt>`. On success, the response provides a new `accessToken`, `refreshToken`, `accessTokenExpiresAt`, `refreshTokenExpiresAt`, and `refreshAfter`. All stored credentials are updated atomically.
 
@@ -625,19 +625,19 @@ Both macOS and iOS clients use a single JWT access token for all HTTP authentica
 
 - A gateway URL must be configured (cloud tunnel or LAN). LAN pairing requires setting `VELLUM_ENABLE_INSECURE_LAN_PAIRING=1`; when enabled, `localLanUrl` is included in the QR payload.
 - A conversation key is auto-generated on first connect and stored in UserDefaults.
-- iOS maintains a stable `deviceId` (UUID) in the Keychain across reinstalls.
+- iOS maintains a stable `deviceId` (UUID) in the Credential Store across reinstalls.
 
 ### Configuration Storage (iOS)
 
 | Data | Storage | Key |
 |------|---------|-----|
 | Gateway URL | UserDefaults | `gateway_base_url` |
-| Bearer token | Keychain | provider: `runtime-bearer-token` |
-| Actor token | Keychain | provider: `actor-token` |
-| Refresh token | Keychain | provider: `actor-refresh-token` |
+| Bearer token | Credential Store | provider: `runtime-bearer-token` |
+| Actor token | Credential Store | provider: `actor-token` |
+| Refresh token | Credential Store | provider: `actor-refresh-token` |
 | Conversation key | UserDefaults | `conversation_key` |
 | Host ID | UserDefaults | `gateway_host_id` |
-| Device ID | Keychain | provider: `pairing-device-id` |
+| Device ID | Credential Store | provider: `pairing-device-id` |
 
 ### Key Files
 
@@ -745,7 +745,7 @@ New settings sections brought to iOS for feature parity with macOS:
 
 | View | File | Purpose |
 |------|------|---------|
-| `ModelsServicesSection` | `ios/Views/Settings/ModelsServicesSection.swift` | Active model display/set, API key management via Keychain |
+| `ModelsServicesSection` | `ios/Views/Settings/ModelsServicesSection.swift` | Active model display/set, API key management via Credential Store |
 | `PrivacySection` | `ios/Views/Settings/PrivacySection.swift` | System permission status display with deep-link to iOS Settings |
 | `ChannelsGuardianSection` | `ios/Views/Settings/ChannelsGuardianSection.swift` | Guardian status, guardian channel management, approved contacts overview |
 

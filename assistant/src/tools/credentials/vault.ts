@@ -425,8 +425,7 @@ class CredentialStoreTool implements Tool {
         const allMetadata = listCredentialMetadata();
         // Verify secrets still exist by reading all key names once (instead of
         // per-entry getSecureKeyAsync calls that each re-read/re-derive the store).
-        // Uses the async variant to include keys from both the primary backend
-        // (e.g. keychain) and the encrypted store (legacy keys).
+        // Uses the async variant to include keys from the credential store.
         let secureKeySet: Set<string> | undefined;
         try {
           secureKeySet = new Set((await listSecureKeysAsync()).accounts);
@@ -781,7 +780,7 @@ class CredentialStoreTool implements Tool {
             };
           }
         } else {
-          // Default: persist to keychain
+          // Default: persist to credential store
           const key = credentialKey(service, field);
           const ok = await setSecureKeyAsync(key, result.value);
           if (!ok) {

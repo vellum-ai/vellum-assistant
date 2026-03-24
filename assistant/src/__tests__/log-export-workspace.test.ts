@@ -56,7 +56,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Mock getSecureKeyAsync to avoid keychain access during tests
+// Mock getSecureKeyAsync to avoid credential store access during tests
 mock.module("../util/secure-keys.js", () => ({
   getSecureKeyAsync: async () => undefined,
 }));

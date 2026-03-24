@@ -56,7 +56,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
 
   /**
    * Custom connectivity check using both the oauth_connection record AND
-   * actual keychain credentials. The connection row alone can become stale
+   * actual stored credentials. The connection row alone can become stale
    * if clearTelegramConfig() returns early on a secure-key deletion error
    * without removing the row. Checking both ensures we don't report
    * Telegram as connected when secrets are missing.

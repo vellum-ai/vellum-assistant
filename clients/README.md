@@ -64,7 +64,7 @@ clients/
 - **Shared chat features** (`ChatViewModel`, `ChatMessage`, `MessageBubbleView`, `InputBarView`, `AttachmentStripView`, `MarkdownRenderer`, `CurrentStepIndicator`, inline widgets)
 - **Design system** (`VColor`, `VFont`, `VSpacing`, `VRadius`, `VShadow`, `VAnimation`, and all `V`-prefixed components)
 - **Shared feature stores** (`SkillsStore`, `ContactsStore`, `DirectoryStore`, `ChannelTrustStore` — cross-platform data operations for skills, contacts, apps, documents, and guardian trust)
-- **Shared utilities** (`APIKeyManager` for Keychain credential storage, `PermissionManager`, `MacOSClientFeatureFlagManager`)
+- **Shared utilities** (`APIKeyManager` for credential storage, `PermissionManager`, `MacOSClientFeatureFlagManager`)
 - **Shared app utilities** (signing identity management)
 
 **Dependencies**: None (only system frameworks: AuthenticationServices, Network, Security)
