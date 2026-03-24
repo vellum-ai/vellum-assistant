@@ -2293,6 +2293,27 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         let msgMgr = viewModel.messageManager
         let errMgr = viewModel.errorManager
 
+        // Bridge @Observable ChatErrorManager into Combine so the rest of
+        // the pipeline stays unchanged. A withObservationTracking loop
+        // detects changes to errorText / conversationError and pushes
+        // snapshots into a CurrentValueSubject.
+        let errorSubject = CurrentValueSubject<(String?, ConversationError?), Never>(
+            (errMgr.errorText, errMgr.conversationError)
+        )
+
+        func observeErrors() {
+            withObservationTracking {
+                _ = errMgr.errorText
+                _ = errMgr.conversationError
+            } onChange: {
+                Task { @MainActor in
+                    errorSubject.send((errMgr.errorText, errMgr.conversationError))
+                    observeErrors() // re-arm
+                }
+            }
+        }
+        observeErrors()
+
         // Combine busy-state publishers with error and message publishers.
         // Error state: errorText or conversationError non-nil.
         // WaitingForInput: hasPendingConfirmation (derived from messages).
@@ -2304,11 +2325,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             msgMgr.$messages
         )
         .combineLatest(
-            errMgr.$errorText,
-            errMgr.$conversationError
+            errorSubject
         )
-        .map { busyTuple, errorText, conversationError in
+        .map { busyTuple, errorTuple in
             let (isSending, isThinking, pendingQueuedCount, messages) = busyTuple
+            let (errorText, conversationError) = errorTuple
             let hasError = errorText != nil || conversationError != nil
             let hasPendingConfirmation = messages.contains(where: { $0.confirmation?.state == .pending })
             let isBusy = isSending || isThinking || pendingQueuedCount > 0
