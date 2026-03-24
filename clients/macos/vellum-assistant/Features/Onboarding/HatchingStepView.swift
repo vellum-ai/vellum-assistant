@@ -395,7 +395,7 @@ struct HatchingStepView: View {
                                 state.hatchCurrentStep = step
                                 state.hatchTotalSteps = total
                                 state.hatchStepLabel = label
-                                state.hatchProgressTarget = Double(step) / Double(total)
+                                state.hatchProgressTarget = min(Double(step) / Double(total), 0.95)
                             }
                             return  // Don't append sentinel lines to hatchLogLines
                         }
