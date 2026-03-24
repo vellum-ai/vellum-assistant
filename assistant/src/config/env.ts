@@ -13,16 +13,9 @@
  * imported from platform/logger without circular imports.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-
 import { getLogger } from "../util/logger.js";
-import {
-  checkUnrecognizedEnvVars,
-  getBaseDataDir,
-  getWorkspaceDirOverride,
-} from "./env-registry.js";
+import { checkUnrecognizedEnvVars } from "./env-registry.js";
+import { getConfig } from "./loader.js";
 
 const log = getLogger("env");
 
@@ -145,34 +138,6 @@ export function getOllamaBaseUrlEnv(): string | undefined {
 
 // ── Platform ─────────────────────────────────────────────────────────────────
 
-/**
- * Read the platform base URL from the workspace config file
- * (~/.vellum/workspace/config.json → platform.baseUrl).
- *
- * Resolves the workspace directory inline (same logic as platform.ts) to
- * avoid importing from util/platform.js, which many tests mock without
- * providing every export.
- */
-function getConfigPlatformUrl(): string | undefined {
-  try {
-    const wsDir =
-      getWorkspaceDirOverride() ||
-      join(getBaseDataDir() || homedir(), ".vellum", "workspace");
-    const configPath = join(wsDir, "config.json");
-    if (!existsSync(configPath)) return undefined;
-    const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
-      string,
-      unknown
-    >;
-    const platform = raw.platform as Record<string, unknown> | undefined;
-    const baseUrl = platform?.baseUrl;
-    if (typeof baseUrl === "string" && baseUrl.trim()) return baseUrl.trim();
-  } catch {
-    // ignore
-  }
-  return undefined;
-}
-
 let _platformBaseUrlOverride: string | undefined;
 
 export function setPlatformBaseUrl(value: string | undefined): void {
@@ -180,8 +145,15 @@ export function setPlatformBaseUrl(value: string | undefined): void {
 }
 
 export function getPlatformBaseUrl(): string {
+  let configUrl: string | undefined;
+  try {
+    const val = getConfig().platform.baseUrl;
+    if (val) configUrl = val;
+  } catch {
+    // Config not yet available (early bootstrap) — fall through
+  }
   return (
-    getConfigPlatformUrl() ||
+    configUrl ||
     str("VELLUM_PLATFORM_URL") ||
     _platformBaseUrlOverride ||
     "https://platform.vellum.ai"

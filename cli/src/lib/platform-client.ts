@@ -17,32 +17,25 @@ function getPlatformTokenPath(): string {
   return join(getXdgConfigHome(), "vellum", "platform-token");
 }
 
-/**
- * Read the platform base URL from the workspace config file
- * (~/.vellum/workspace/config.json → platform.baseUrl).
- */
-function getConfigPlatformUrl(): string | undefined {
-  try {
-    const configPath = join(homedir(), ".vellum", "workspace", "config.json");
-    if (!existsSync(configPath)) return undefined;
-    const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
-      string,
-      unknown
-    >;
-    const platform = raw.platform as Record<string, unknown> | undefined;
-    const baseUrl = platform?.baseUrl;
-    if (typeof baseUrl === "string" && baseUrl.trim()) return baseUrl.trim();
-  } catch {
-    // ignore
-  }
-  return undefined;
-}
-
 export function getPlatformUrl(): string {
+  let configUrl: string | undefined;
+  try {
+    const base = process.env.BASE_DATA_DIR?.trim() || homedir();
+    const configPath = join(base, ".vellum", "workspace", "config.json");
+    if (existsSync(configPath)) {
+      const raw = JSON.parse(readFileSync(configPath, "utf-8")) as Record<
+        string,
+        unknown
+      >;
+      const val = (raw.platform as Record<string, unknown> | undefined)
+        ?.baseUrl;
+      if (typeof val === "string" && val.trim()) configUrl = val.trim();
+    }
+  } catch {
+    // Config not available — fall through
+  }
   return (
-    getConfigPlatformUrl() ||
-    process.env.VELLUM_PLATFORM_URL ||
-    "https://platform.vellum.ai"
+    configUrl || process.env.VELLUM_PLATFORM_URL || "https://platform.vellum.ai"
   );
 }
 
