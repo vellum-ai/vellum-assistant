@@ -158,6 +158,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// finished before the observer was registered.
     var localBootstrapDidComplete = false
 
+    /// Onboarding state retained during first-launch so post-hatch logic
+    /// can access the randomly-generated avatar traits.
+    var onboardingState: OnboardingState?
+
     /// Guards `.appOpen` sound so it fires only once per app session,
     /// even if `proceedToApp()` is called again after assistant switches
     /// or re-authentication flows.
@@ -544,6 +548,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     // bundled Vellum logo.
                     AvatarAppearanceManager.shared.reloadAvatar()
 
+                    // Sync the onboarding avatar traits to the daemon so it persists
+                    // the rendered avatar in its workspace. Critical for managed/remote
+                    // assistants where the client filesystem is not shared with the daemon.
+                    if let body = self.onboardingState?.hatchAvatarBodyShape,
+                       let eyes = self.onboardingState?.hatchAvatarEyeStyle,
+                       let color = self.onboardingState?.hatchAvatarColor {
+                        Task {
+                            await AvatarAppearanceManager.shared.syncTraitsToDaemon(
+                                bodyShape: body, eyeStyle: eyes, color: color
+                            )
+                        }
+                    }
+                    self.onboardingState = nil
+
                     // Record lifecycle telemetry events (fire-and-forget).
                     Task { await self.telemetryClient.recordLifecycleEvent("hatch") }
                     Task { await self.telemetryClient.recordLifecycleEvent("app_open") }
@@ -569,6 +587,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
                     // Assistant not ready — show the main window with a
                     // timeout screen so the user knows something went wrong.
                     log.warning("Assistant not ready after timeout — showing timeout screen")
+                    self.onboardingState = nil
                     transitionBootstrap(to: .timedOut)
                     showMainWindow(isFirstLaunch: true)
                     debugStateWriter.start(appDelegate: self)
