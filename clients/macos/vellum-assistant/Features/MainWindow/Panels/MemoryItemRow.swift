@@ -28,8 +28,8 @@ struct MemoryItemRow: View {
                     }
 
                     Text(item.statement)
-                        .font(VFont.caption)
-                        .foregroundStyle(VColor.contentTertiary)
+                        .font(VFont.bodySmall)
+                        .foregroundStyle(VColor.contentSecondary)
                         .lineLimit(1)
                         .multilineTextAlignment(.leading)
                 }
