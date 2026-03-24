@@ -98,6 +98,7 @@ public final class GatewayConnectionManager: ObservableObject {
     var lastAutoWakeAttempt: Date?
     var autoWakeTask: Task<Void, Never>?
     var reconnectionTask: Task<Void, Never>?
+    var reconnectionGeneration: Int = 0
     #endif
 
     // MARK: - Event Stream
@@ -576,8 +577,9 @@ public final class GatewayConnectionManager: ObservableObject {
     private func startReconnectionLoop() {
         guard isLocal else { return }
         reconnectionTask?.cancel()
-        var task: Task<Void, Never>?
-        task = Task { @MainActor [weak self] in
+        reconnectionGeneration += 1
+        let generation = reconnectionGeneration
+        reconnectionTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let delays: [UInt64] = [3, 5, 10, 15] // seconds
             var attempt = 0
@@ -631,17 +633,16 @@ public final class GatewayConnectionManager: ObservableObject {
                 self.isConnecting = false
                 log.info("reconnect-loop: connected successfully after \(attempt) attempt(s)")
                 self.eventStreamClient.startSSE()
-                if self.reconnectionTask === task {
+                if self.reconnectionGeneration == generation {
                     self.reconnectionTask = nil
                 }
                 return
             }
             log.info("reconnect-loop: cancelled")
-            if self.reconnectionTask === task {
+            if self.reconnectionGeneration == generation {
                 self.reconnectionTask = nil
             }
         }
-        reconnectionTask = task
     }
     #endif
 
