@@ -1,10 +1,108 @@
+import { execFileSync } from "node:child_process";
+
 import { getLogger } from "../../util/logger.js";
 import type { WorkspaceMigration } from "./types.js";
 
 const log = getLogger("workspace-migrations");
 
-const BROKER_WAIT_INTERVAL_MS = 500;
-const BROKER_WAIT_MAX_ATTEMPTS = 10; // 5 seconds total
+// ---------------------------------------------------------------------------
+// Inline macOS Keychain helpers (security CLI)
+//
+// Intentionally duplicated from 015 — each migration must be fully
+// self-contained so it can run independently even if surrounding code changes.
+// ---------------------------------------------------------------------------
+
+const SERVICE_NAME = "vellum-assistant";
+
+function keychainIsAvailable(): boolean {
+  return process.platform === "darwin";
+}
+
+function keychainGet(account: string): string | undefined {
+  try {
+    const stdout = execFileSync(
+      "/usr/bin/security",
+      ["find-generic-password", "-s", SERVICE_NAME, "-a", account, "-w"],
+      { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+    return stdout.trim();
+  } catch {
+    return undefined;
+  }
+}
+
+function keychainSet(account: string, value: string): boolean {
+  try {
+    execFileSync(
+      "/usr/bin/security",
+      [
+        "add-generic-password",
+        "-s",
+        SERVICE_NAME,
+        "-a",
+        account,
+        "-w",
+        value,
+        "-U",
+      ],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function keychainDelete(account: string): boolean {
+  try {
+    execFileSync(
+      "/usr/bin/security",
+      ["delete-generic-password", "-s", SERVICE_NAME, "-a", account],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
+    return true;
+  } catch (err: unknown) {
+    // Item-not-found is acceptable (already deleted)
+    if (
+      err instanceof Error &&
+      "stderr" in err &&
+      typeof (err as { stderr: unknown }).stderr === "string" &&
+      (err as { stderr: string }).stderr.includes("could not be found")
+    ) {
+      return true;
+    }
+    return false;
+  }
+}
+
+function keychainList(): string[] {
+  try {
+    const stdout = execFileSync("/usr/bin/security", ["dump-keychain"], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+      maxBuffer: 10 * 1024 * 1024,
+    });
+
+    const blocks = stdout.split('class: "genp"');
+    const accounts: string[] = [];
+
+    for (const block of blocks) {
+      if (!block.includes(`"svce"<blob>="${SERVICE_NAME}"`)) continue;
+      const match = block.match(/"acct"<blob>="([^"]+)"/);
+      if (match) {
+        accounts.push(match[1]);
+      }
+    }
+
+    return accounts;
+  } catch {
+    return [];
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Migration
+// ---------------------------------------------------------------------------
 
 export const migrateCredentialsFromKeychainMigration: WorkspaceMigration = {
   id: "016-migrate-credentials-from-keychain",
@@ -21,24 +119,8 @@ export const migrateCredentialsFromKeychainMigration: WorkspaceMigration = {
       return;
     }
 
-    const { createBrokerClient } =
-      await import("../../security/keychain-broker-client.js");
-    const client = createBrokerClient();
-
-    let brokerAvailable = false;
-    for (let i = 0; i < BROKER_WAIT_MAX_ATTEMPTS; i++) {
-      if (client.isAvailable()) {
-        brokerAvailable = true;
-        break;
-      }
-      await new Promise((r) => setTimeout(r, BROKER_WAIT_INTERVAL_MS));
-    }
-
-    if (!brokerAvailable) {
-      throw new Error(
-        "Keychain broker not available after waiting — credential rollback " +
-          "will be retried on next startup",
-      );
+    if (!keychainIsAvailable()) {
+      return;
     }
 
     const { listKeys, getKey, deleteKey } =
@@ -61,13 +143,12 @@ export const migrateCredentialsFromKeychainMigration: WorkspaceMigration = {
         continue;
       }
 
-      const result = await client.set(account, value);
-      if (result.status === "ok") {
+      if (keychainSet(account, value)) {
         deleteKey(account);
         rolledBackCount++;
       } else {
         log.warn(
-          { account, status: result.status },
+          { account },
           "Failed to write key to keychain during rollback — skipping",
         );
         failedCount++;
@@ -89,31 +170,13 @@ export const migrateCredentialsFromKeychainMigration: WorkspaceMigration = {
       return;
     }
 
-    const { createBrokerClient } =
-      await import("../../security/keychain-broker-client.js");
-    const client = createBrokerClient();
-
-    // Wait for the broker to become available (up to 5 seconds), matching
-    // the retry strategy in secure-keys.ts waitForBrokerAvailability().
-    let brokerAvailable = false;
-    for (let i = 0; i < BROKER_WAIT_MAX_ATTEMPTS; i++) {
-      if (client.isAvailable()) {
-        brokerAvailable = true;
-        break;
-      }
-      await new Promise((r) => setTimeout(r, BROKER_WAIT_INTERVAL_MS));
-    }
-
-    if (!brokerAvailable) {
-      throw new Error(
-        "Keychain broker not available after waiting — credential migration " +
-          "will be retried on next startup",
-      );
+    if (!keychainIsAvailable()) {
+      return;
     }
 
     const { setKey } = await import("../../security/encrypted-store.js");
 
-    const accounts = await client.list();
+    const accounts = keychainList();
     if (accounts.length === 0) {
       return;
     }
@@ -122,16 +185,16 @@ export const migrateCredentialsFromKeychainMigration: WorkspaceMigration = {
     let failedCount = 0;
 
     for (const account of accounts) {
-      const result = await client.get(account);
-      if (!result || !result.found || result.value === undefined) {
+      const value = keychainGet(account);
+      if (value === undefined) {
         log.warn({ account }, "Failed to read key from keychain — skipping");
         failedCount++;
         continue;
       }
 
-      const written = setKey(account, result.value);
+      const written = setKey(account, value);
       if (written) {
-        await client.del(account);
+        keychainDelete(account);
         migratedCount++;
       } else {
         log.warn(

@@ -16,18 +16,18 @@ See [`assistant/docs/credential-execution-service.md`](../credential-execution-s
 
 ### What remains
 
-The keychain broker is almost fully deleted. Only these migration-support components remain:
+The keychain broker is fully deleted. Only these historical migrations remain:
 
-| Component | Location | Why it exists |
-|---|---|---|
-| Keychain broker client | `assistant/src/security/keychain-broker-client.ts` | Used only by workspace migrations 015 and 016 |
-| Migration 015 | `assistant/src/workspace/migrations/015-migrate-credentials-to-keychain.ts` | Historical migration that copied encrypted store credentials into keychain |
+| Component     | Location                                                                      | Why it exists                                                                                      |
+| ------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Migration 015 | `assistant/src/workspace/migrations/015-migrate-credentials-to-keychain.ts`   | Historical migration that copied encrypted store credentials into keychain                         |
 | Migration 016 | `assistant/src/workspace/migrations/016-migrate-credentials-from-keychain.ts` | Reverse migration that copies keychain credentials back to the encrypted store for CES unification |
 
-The broker client remains because migrations 015/016 must be able to read/write the keychain for users who previously stored credentials there. These migrations are append-only and cannot be removed.
+Migrations 015/016 use inline `security` CLI helpers that shell out to `/usr/bin/security` directly, replacing the former broker client and UDS protocol. These migrations are append-only and cannot be removed.
 
 ### What was removed
 
+- **Keychain broker client** (`keychain-broker-client.ts`) -- the TypeScript client that communicated with the Swift UDS server. Migrations 015/016 now use inline `security` CLI helpers instead.
 - **`KeychainBackend`** class and `createKeychainBackend()` factory -- the daemon's `CredentialBackend` implementation that wrapped the broker client. Removed from `credential-backend.ts`.
 - **`resolveBackendAsync()` keychain resolution path** -- the daemon no longer considers `VELLUM_DESKTOP_APP` or `VELLUM_DEV` for backend selection. Backend resolution in `secure-keys.ts` now follows the CES RPC > CES HTTP > encrypted store priority.
 - **Dual-writing and broker-unavailable commit behavior** -- the daemon previously committed to the keychain backend even when the broker socket was unreachable, causing operations to fail visibly. This behavior is gone; CES RPC is the primary backend with encrypted store as a graceful fallback.
@@ -50,15 +50,15 @@ The macOS app embedded a `KeychainBrokerServer` (NWListener on a Unix domain soc
 
 Transport: Unix domain socket at `~/.vellum/keychain-broker.sock`, newline-delimited JSON.
 
-| Method | Params | Result |
-|---|---|---|
-| `broker.ping` | none | `{ pong: true }` |
-| `key.get` | `{ account }` | `{ found, value? }` |
-| `key.set` | `{ account, value }` | `{ stored: true }` |
-| `key.delete` | `{ account }` | `{ deleted: true }` |
-| `key.list` | none | `{ accounts: string[] }` |
+| Method        | Params               | Result                   |
+| ------------- | -------------------- | ------------------------ |
+| `broker.ping` | none                 | `{ pong: true }`         |
+| `key.get`     | `{ account }`        | `{ found, value? }`      |
+| `key.set`     | `{ account, value }` | `{ stored: true }`       |
+| `key.delete`  | `{ account }`        | `{ deleted: true }`      |
+| `key.list`    | none                 | `{ accounts: string[] }` |
 
-This protocol is still used by migrations 015/016 via the broker client.
+This protocol is no longer used. Migrations 015/016 now use inline `security` CLI helpers that shell out to `/usr/bin/security` directly instead of communicating over UDS.
 
 ### Security model
 
