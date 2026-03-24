@@ -334,6 +334,7 @@ final class ConversationRestorer {
                 if attempt < maxAttempts {
                     log.warning("Conversation list fetch attempt \(attempt) of \(maxAttempts) failed, retrying in 2 seconds...")
                     try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard !Task.isCancelled else { return }
                 }
             }
             log.warning("All \(maxAttempts) conversation list fetch attempts failed, falling back to last active conversation")
