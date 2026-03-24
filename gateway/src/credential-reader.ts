@@ -2,14 +2,12 @@
  * Read-only reader for the assistant's credential stores.
  *
  * Resolution order:
- * 1. CES HTTP API (when CES_CREDENTIAL_URL is set — containerized mode)
- * 2. Keychain broker (UDS — native macOS/Linux)
- * 3. Encrypted-at-rest file (~/.vellum/protected/keys.enc)
+ * 1. CES HTTP API (when CES_CREDENTIAL_URL is set)
+ * 2. Encrypted-at-rest file (~/.vellum/protected/keys.enc)
  */
 
-import { createDecipheriv, pbkdf2Sync, randomUUID } from "node:crypto";
+import { createDecipheriv, pbkdf2Sync } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { createConnection } from "node:net";
 import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
 import { credentialKey } from "./credential-key.js";
@@ -197,126 +195,6 @@ function readEncryptedCredential(account: string): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
-// Keychain broker reader (UDS) — native async implementation
-// ---------------------------------------------------------------------------
-
-const BROKER_TIMEOUT_MS = 5_000;
-
-function getBrokerTokenPath(): string {
-  return join(getRootDir(), "protected", "keychain-broker.token");
-}
-
-/**
- * Try to read a credential from the keychain broker over its Unix domain socket.
- * Uses a native UDS connection (no external process spawn).
- * Returns `undefined` if the broker is unavailable, the socket file doesn't exist,
- * the token file is missing, or the broker doesn't have the requested key.
- */
-async function readBrokerCredential(
-  account: string,
-): Promise<string | undefined> {
-  const socketPath = join(getRootDir(), "keychain-broker.sock");
-
-  // Check socket file exists before attempting connection — createConnection
-  // can throw synchronously in some runtimes (e.g. Bun) for ENOENT.
-  if (!existsSync(socketPath)) return undefined;
-
-  const tokenPath = getBrokerTokenPath();
-  let token: string;
-  try {
-    if (!existsSync(tokenPath)) return undefined;
-    token = readFileSync(tokenPath, "utf-8").trim();
-    if (!token) return undefined;
-  } catch {
-    return undefined;
-  }
-
-  const reqId = randomUUID();
-  const request = JSON.stringify({
-    v: 1,
-    id: reqId,
-    method: "key.get",
-    token,
-    params: { account },
-  });
-
-  try {
-    return await new Promise<string | undefined>((resolve) => {
-      let buf = "";
-      let settled = false;
-
-      // Declare socket before the timer so the timeout closure never
-      // hits a TDZ if createConnection throws synchronously.
-      let socket: ReturnType<typeof createConnection> | undefined;
-
-      const timer = setTimeout(() => {
-        if (!settled) {
-          settled = true;
-          try {
-            socket?.destroy();
-          } catch {
-            /* already destroyed or never created */
-          }
-          log.debug({ account }, "Broker read timed out");
-          resolve(undefined);
-        }
-      }, BROKER_TIMEOUT_MS);
-
-      try {
-        socket = createConnection({ path: socketPath });
-      } catch (err) {
-        clearTimeout(timer);
-        settled = true;
-        log.debug({ err, account }, "Failed to connect to keychain broker");
-        resolve(undefined);
-        return;
-      }
-
-      socket.on("connect", () => {
-        socket!.write(request + "\n");
-      });
-
-      socket.on("data", (chunk) => {
-        buf += chunk.toString();
-        const idx = buf.indexOf("\n");
-        if (idx !== -1) {
-          clearTimeout(timer);
-          if (settled) return;
-          settled = true;
-          try {
-            const resp = JSON.parse(buf.slice(0, idx));
-            if (
-              resp.ok &&
-              resp.result?.found &&
-              typeof resp.result.value === "string"
-            ) {
-              resolve(resp.result.value);
-            } else {
-              resolve(undefined);
-            }
-          } catch {
-            resolve(undefined);
-          }
-          socket!.destroy();
-        }
-      });
-
-      socket.on("error", (err) => {
-        clearTimeout(timer);
-        if (!settled) {
-          settled = true;
-          log.debug({ err, account }, "Failed to read from keychain broker");
-          resolve(undefined);
-        }
-      });
-    });
-  } catch (err) {
-    log.debug({ err, account }, "Failed to read from keychain broker");
-    return undefined;
-  }
-}
-
-// ---------------------------------------------------------------------------
 // CES HTTP credential reader (containerized mode)
 // ---------------------------------------------------------------------------
 
@@ -382,7 +260,7 @@ async function readCesCredential(
 }
 
 // ---------------------------------------------------------------------------
-// Public credential reader — tries CES, broker, then encrypted store
+// Public credential reader — tries CES, then encrypted store
 // ---------------------------------------------------------------------------
 
 /**
@@ -390,8 +268,7 @@ async function readCesCredential(
  *
  * Resolution order:
  * 1. CES HTTP API (when CES_CREDENTIAL_URL is set)
- * 2. Keychain broker (UDS)
- * 3. Encrypted-at-rest store (keys.enc)
+ * 2. Encrypted-at-rest store (keys.enc)
  */
 export async function readCredential(
   account: string,
@@ -399,10 +276,6 @@ export async function readCredential(
   // CES HTTP backend (containerized mode)
   const cesValue = await readCesCredential(account);
   if (cesValue !== undefined) return cesValue;
-
-  // Keychain broker (native mode)
-  const brokerValue = await readBrokerCredential(account);
-  if (brokerValue !== undefined) return brokerValue;
 
   // Encrypted file fallback
   return readEncryptedCredential(account);
