@@ -1774,6 +1774,21 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
+      - name: Rebase release branch onto main
+        run: |
+          VERSION="${{ needs.extract-version.outputs.version }}"
+          BRANCH="release/v$VERSION"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Rebase the release branch onto main so that commits already
+          # cherry-picked to main are automatically skipped, preventing
+          # merge conflicts when the PR is created.
+          git fetch origin main
+          git rebase origin/main
+          git push origin "$BRANCH" --force-with-lease
+
       - name: Merge release branch and delete
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
