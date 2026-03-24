@@ -18,6 +18,10 @@ const testDir = join(
 const vellumRoot = join(testDir, ".vellum");
 const protectedDir = join(vellumRoot, "protected");
 const featureFlagStorePath = join(protectedDir, "feature-flags.json");
+const remoteFeatureFlagStorePath = join(
+  protectedDir,
+  "feature-flags-remote.json",
+);
 
 // Write the test registry to an isolated temp path so we never touch
 // the committed gateway/src/feature-flag-registry.json file.
@@ -63,6 +67,7 @@ beforeEach(() => {
   _setRegistryCandidateOverrides([defaultsPath]);
   resetFeatureFlagDefaultsCache();
   clearFeatureFlagStoreCache();
+  clearRemoteFeatureFlagStoreCache();
 });
 
 afterEach(() => {
@@ -80,6 +85,7 @@ afterEach(() => {
   _setRegistryCandidateOverrides(null);
   resetFeatureFlagDefaultsCache();
   clearFeatureFlagStoreCache();
+  clearRemoteFeatureFlagStoreCache();
 });
 
 const { createFeatureFlagsGetHandler, createFeatureFlagsPatchHandler } =
@@ -91,6 +97,8 @@ const {
 } = await import("../feature-flag-defaults.js");
 const { clearFeatureFlagStoreCache, readPersistedFeatureFlags } =
   await import("../feature-flag-store.js");
+const { clearRemoteFeatureFlagStoreCache } =
+  await import("../feature-flag-remote-store.js");
 
 describe("GET /v1/feature-flags handler", () => {
   test("returns all declared assistant-scope flags with defaults when no persisted file exists", async () => {
@@ -247,6 +255,120 @@ describe("GET /v1/feature-flags handler", () => {
     // readPersistedFeatureFlags filters out non-boolean values, so the
     // invalid "no" string is dropped and the flag falls back to its
     // registry default (true).
+    const browserFlag = body.flags.find(
+      (f: { key: string }) => f.key === "feature_flags.browser.enabled",
+    );
+    expect(browserFlag).toBeDefined();
+    expect(browserFlag.enabled).toBe(true);
+    expect(browserFlag.defaultEnabled).toBe(true);
+  });
+
+  test("remote values fill in when no local override exists", async () => {
+    // Write a remote store with contacts enabled (overriding registry default of false)
+    writeFileSync(
+      remoteFeatureFlagStorePath,
+      JSON.stringify({
+        version: 1,
+        values: {
+          "feature_flags.contacts.enabled": true,
+        },
+      }),
+    );
+    clearRemoteFeatureFlagStoreCache();
+
+    // No local override for contacts
+    if (existsSync(featureFlagStorePath)) {
+      rmSync(featureFlagStorePath);
+    }
+    clearFeatureFlagStoreCache();
+
+    const handler = createFeatureFlagsGetHandler();
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    const contactsFlag = body.flags.find(
+      (f: { key: string }) => f.key === "feature_flags.contacts.enabled",
+    );
+    expect(contactsFlag).toBeDefined();
+    // Remote value (true) overrides registry default (false)
+    expect(contactsFlag.enabled).toBe(true);
+  });
+
+  test("local overrides take precedence over remote values", async () => {
+    // Set remote value to true
+    writeFileSync(
+      remoteFeatureFlagStorePath,
+      JSON.stringify({
+        version: 1,
+        values: {
+          "feature_flags.contacts.enabled": true,
+        },
+      }),
+    );
+    clearRemoteFeatureFlagStoreCache();
+
+    // Set local override to false
+    writeFileSync(
+      featureFlagStorePath,
+      JSON.stringify({
+        version: 1,
+        values: {
+          "feature_flags.contacts.enabled": false,
+        },
+      }),
+    );
+    clearFeatureFlagStoreCache();
+
+    const handler = createFeatureFlagsGetHandler();
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    const contactsFlag = body.flags.find(
+      (f: { key: string }) => f.key === "feature_flags.contacts.enabled",
+    );
+    expect(contactsFlag).toBeDefined();
+    // Local override (false) takes precedence over remote (true)
+    expect(contactsFlag.enabled).toBe(false);
+  });
+
+  test("registry default used when neither local nor remote is set", async () => {
+    // No local override
+    if (existsSync(featureFlagStorePath)) {
+      rmSync(featureFlagStorePath);
+    }
+    clearFeatureFlagStoreCache();
+
+    // No remote value (empty remote store)
+    if (existsSync(remoteFeatureFlagStorePath)) {
+      rmSync(remoteFeatureFlagStorePath);
+    }
+    clearRemoteFeatureFlagStoreCache();
+
+    const handler = createFeatureFlagsGetHandler();
+    const res = await handler(
+      new Request("http://gateway.test/v1/feature-flags"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    // contacts has defaultEnabled: false in registry
+    const contactsFlag = body.flags.find(
+      (f: { key: string }) => f.key === "feature_flags.contacts.enabled",
+    );
+    expect(contactsFlag).toBeDefined();
+    expect(contactsFlag.enabled).toBe(false);
+    expect(contactsFlag.defaultEnabled).toBe(false);
+
+    // browser has defaultEnabled: true in registry
     const browserFlag = body.flags.find(
       (f: { key: string }) => f.key === "feature_flags.browser.enabled",
     );
