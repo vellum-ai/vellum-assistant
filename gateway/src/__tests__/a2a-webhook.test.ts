@@ -4,15 +4,21 @@ import type { CredentialCache } from "../credential-cache.js";
 
 // ── Mocks ──
 
-let forwardToRuntimeMock = mock(async () => ({
-  accepted: true,
-  duplicate: false,
-  eventId: "evt-1",
-}));
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let forwardToRuntimeMock: ReturnType<typeof mock<(...args: any[]) => any>>;
+
+function resetForwardMock() {
+  forwardToRuntimeMock = mock(async () => ({
+    accepted: true,
+    duplicate: false,
+    eventId: "evt-1",
+  }));
+}
+resetForwardMock();
 
 mock.module("../runtime/client.js", () => ({
-  forwardToRuntime: (...args: unknown[]) =>
-    forwardToRuntimeMock(...(args as [unknown, unknown, unknown])),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  forwardToRuntime: (...args: any[]) => forwardToRuntimeMock(...args),
   CircuitBreakerOpenError: class extends Error {
     retryAfterSecs: number;
     constructor(s: number) {
@@ -104,14 +110,15 @@ function makeRequest(
   });
 }
 
+function getForwardedPayload(callIndex = 0): Record<string, unknown> {
+  const call = forwardToRuntimeMock.mock.calls[callIndex];
+  return (call as unknown[])[1] as Record<string, unknown>;
+}
+
 describe("POST /webhook/a2a", () => {
   beforeEach(() => {
     featureFlagEnabled = true;
-    forwardToRuntimeMock = mock(async () => ({
-      accepted: true,
-      duplicate: false,
-      eventId: "evt-1",
-    }));
+    resetForwardMock();
   });
 
   test("returns 404 when feature flag is disabled", async () => {
@@ -148,11 +155,7 @@ describe("POST /webhook/a2a", () => {
     expect(body.ok).toBe(true);
     expect(forwardToRuntimeMock).toHaveBeenCalledTimes(1);
 
-    // Verify the forwarded payload
-    const [, payload] = forwardToRuntimeMock.mock.calls[0] as [
-      unknown,
-      Record<string, unknown>,
-    ];
+    const payload = getForwardedPayload();
     expect(payload.sourceChannel).toBe("vellum");
     expect(payload.interface).toBe("vellum");
     expect(payload.conversationExternalId).toBe("alice");
@@ -180,10 +183,7 @@ describe("POST /webhook/a2a", () => {
     expect(res.status).toBe(200);
     expect(forwardToRuntimeMock).toHaveBeenCalledTimes(1);
 
-    const [, payload] = forwardToRuntimeMock.mock.calls[0] as [
-      unknown,
-      Record<string, unknown>,
-    ];
+    const payload = getForwardedPayload();
     expect(
       (payload.sourceMetadata as Record<string, unknown>).authenticated,
     ).toBe(false);
@@ -238,10 +238,7 @@ describe("POST /webhook/a2a", () => {
     expect(res.status).toBe(200);
     expect(forwardToRuntimeMock).toHaveBeenCalledTimes(1);
 
-    const [, payload] = forwardToRuntimeMock.mock.calls[0] as [
-      unknown,
-      Record<string, unknown>,
-    ];
+    const payload = getForwardedPayload();
     expect(payload.content).toBe("hello from alice");
     expect(
       (payload.sourceMetadata as Record<string, unknown>).authenticated,
@@ -356,10 +353,7 @@ describe("POST /webhook/a2a", () => {
     );
 
     expect(res.status).toBe(200);
-    const [, payload] = forwardToRuntimeMock.mock.calls[0] as [
-      unknown,
-      Record<string, unknown>,
-    ];
+    const payload = getForwardedPayload();
     expect(payload.conversationExternalId).toBe("alice-id");
   });
 
@@ -391,10 +385,7 @@ describe("POST /webhook/a2a", () => {
     );
 
     expect(res.status).toBe(200);
-    const [, payload] = forwardToRuntimeMock.mock.calls[0] as [
-      unknown,
-      Record<string, unknown>,
-    ];
+    const payload = getForwardedPayload();
     const url = new URL(
       payload.replyCallbackUrl as string,
       "http://placeholder",
@@ -420,10 +411,7 @@ describe("POST /webhook/a2a", () => {
     );
 
     expect(res.status).toBe(200);
-    const [, payload] = forwardToRuntimeMock.mock.calls[0] as [
-      unknown,
-      Record<string, unknown>,
-    ];
+    const payload = getForwardedPayload();
     expect(payload.replyCallbackUrl).toContain(
       encodeURIComponent("http://alice-pairing.test"),
     );

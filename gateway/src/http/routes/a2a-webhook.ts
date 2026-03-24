@@ -10,14 +10,14 @@ import { forwardToRuntime } from "../../runtime/client.js";
 import {
   parseA2AEnvelope,
   A2AValidationError,
-} from "../../../../assistant/src/runtime/a2a/message-contract.js";
+} from "../../a2a/message-contract.js";
 import type {
   A2AEnvelope,
   A2AMessageEnvelope,
   A2APairingRequest,
   A2APairingAccepted,
   A2APairingFinalize,
-} from "../../../../assistant/src/runtime/a2a/message-contract.js";
+} from "../../a2a/message-contract.js";
 
 const log = getLogger("a2a-webhook");
 
