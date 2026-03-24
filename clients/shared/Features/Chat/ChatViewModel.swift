@@ -177,6 +177,34 @@ public final class ChatViewModel: ObservableObject {
         objectWillChange.send()
     }
 
+    // MARK: - @Observable → ObservableObject bridge for ChatErrorManager
+
+    /// Recursively observe all tracked properties on the @Observable
+    /// ChatErrorManager and forward changes into ChatViewModel's
+    /// ObservableObject objectWillChange via the coalesced publish path.
+    private func observeErrorManager() {
+        withObservationTracking {
+            // Touch every tracked property so the observation system
+            // registers interest in all of them.
+            _ = errorManager.errorText
+            _ = errorManager.conversationError
+            _ = errorManager.isConversationErrorDisplayedInline
+            _ = errorManager.connectionDiagnosticHint
+            _ = errorManager.isConnectionError
+            _ = errorManager.isSecretBlockError
+            _ = errorManager.isRetryableError
+            _ = errorManager.hasRetryPayload
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scheduleCoalescedPublish()
+                #if DEBUG
+                self?.trackPublish(source: "errorManager")
+                #endif
+                self?.observeErrorManager() // re-arm
+            }
+        }
+    }
+
     // MARK: - Debug publish-rate counters
 
     private static let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
@@ -1102,14 +1130,11 @@ public final class ChatViewModel: ObservableObject {
                 #endif
             }
             .store(in: &cancellables)
-        errorManager.objectWillChange
-            .sink { [weak self] _ in
-                self?.scheduleCoalescedPublish()
-                #if DEBUG
-                self?.trackPublish(source: "errorManager")
-                #endif
-            }
-            .store(in: &cancellables)
+        // ChatErrorManager is @Observable — bridge its changes into
+        // ChatViewModel's ObservableObject objectWillChange via
+        // withObservationTracking so views that read error state through
+        // ChatViewModel's computed forwarding properties still update.
+        observeErrorManager()
 
         // Surface attachment validation errors in the error manager so the UI
         // can show them without the attachment manager needing a direct reference.

@@ -1287,7 +1287,7 @@ struct MainWindowView: View {
 /// the correct conversation's ViewModel — even if the user switches conversations while a
 /// toast is visible.
 private struct ErrorToastOverlay: View {
-    @ObservedObject var errorManager: ChatErrorManager
+    var errorManager: ChatErrorManager
     let onOpenModelsAndServices: () -> Void
     let onRetryConversationError: () -> Void
     let onCopyDebugInfo: () -> Void
