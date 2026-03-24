@@ -160,8 +160,22 @@ extension AppDelegate {
                         log.error("[open_url] Failed to parse URL from open_url event: \(msg.url.prefix(80))")
                         break
                     }
-                    log.info("[open_url] Opening URL directly in default browser: \(msg.url.prefix(80))…")
-                    NSWorkspace.shared.open(url)
+                    // Auto-open https URLs (trusted daemon origin); prompt for other schemes
+                    if url.scheme == "https" {
+                        log.info("[open_url] Opening https URL directly in default browser")
+                        NSWorkspace.shared.open(url)
+                    } else {
+                        log.info("[open_url] Non-https scheme (\(url.scheme ?? "nil")), showing confirmation")
+                        let alert = NSAlert()
+                        alert.messageText = "Open External Link?"
+                        alert.informativeText = msg.url
+                        alert.alertStyle = .informational
+                        alert.addButton(withTitle: "Open in Browser")
+                        alert.addButton(withTitle: "Cancel")
+                        if alert.runModal() == .alertFirstButtonReturn {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
                 case .navigateSettings(let msg):
                     self.showSettingsTab(msg.tab)
                 case .acpPermissionRequest(let msg):

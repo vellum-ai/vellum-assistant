@@ -290,7 +290,11 @@ function startLoopbackServerAndWaitForCode(
 
     const server: Server = createServer((req, res) => {
       log.info(
-        { method: req.method, url: req.url, settled },
+        {
+          method: req.method,
+          path: new URL(req.url ?? "/", "http://127.0.0.1").pathname,
+          settled,
+        },
         "oauth2 loopback: received request",
       );
 
@@ -303,7 +307,10 @@ function startLoopbackServerAndWaitForCode(
       const url = new URL(req.url ?? "/", `http://127.0.0.1`);
 
       if (url.pathname !== LOOPBACK_CALLBACK_PATH) {
-        log.info({ pathname: url.pathname }, "oauth2 loopback: non-callback path, returning 404");
+        log.info(
+          { pathname: url.pathname },
+          "oauth2 loopback: non-callback path, returning 404",
+        );
         res.writeHead(404, { "Content-Type": "text/plain" });
         res.end("Not found");
         return;
@@ -324,7 +331,10 @@ function startLoopbackServerAndWaitForCode(
 
       if (error) {
         const errorDesc = url.searchParams.get("error_description") ?? error;
-        log.error({ error, errorDesc }, "oauth2 loopback: authorization denied by user/provider");
+        log.error(
+          { error, errorDesc },
+          "oauth2 loopback: authorization denied by user/provider",
+        );
         res.writeHead(200, { "Content-Type": "text/html" });
         res.end(
           renderLoopbackPage(`Authorization failed: ${errorDesc}`, false),
@@ -343,7 +353,9 @@ function startLoopbackServerAndWaitForCode(
         return;
       }
 
-      log.info("oauth2 loopback: authorization code received, exchanging for tokens");
+      log.info(
+        "oauth2 loopback: authorization code received, exchanging for tokens",
+      );
       res.writeHead(200, { "Content-Type": "text/html" });
       res.end(
         renderLoopbackPage(
