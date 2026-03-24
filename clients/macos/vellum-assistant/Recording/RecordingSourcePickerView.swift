@@ -307,19 +307,17 @@ struct RecordingSourcePickerView: View {
             }
             .padding(.horizontal, VSpacing.xl)
 
-            if #available(macOS 14, *) {
-                HStack(spacing: VSpacing.sm) {
-                    VToggle(isOn: $viewModel.includeMicrophone)
-                        .accessibilityLabel("Microphone")
-                    VIconView(.mic, size: 14)
-                        .foregroundColor(VColor.contentSecondary)
-                        .frame(width: 20)
-                    Text("Microphone")
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentDefault)
-                }
-                .padding(.horizontal, VSpacing.xl)
+            HStack(spacing: VSpacing.sm) {
+                VToggle(isOn: $viewModel.includeMicrophone)
+                    .accessibilityLabel("Microphone")
+                VIconView(.mic, size: 14)
+                    .foregroundColor(VColor.contentSecondary)
+                    .frame(width: 20)
+                Text("Microphone")
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundColor(VColor.contentDefault)
             }
+            .padding(.horizontal, VSpacing.xl)
 
             // Buttons
             HStack(spacing: VSpacing.md) {

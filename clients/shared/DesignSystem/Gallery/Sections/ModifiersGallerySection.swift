@@ -74,7 +74,7 @@ struct ModifiersGallerySection: View {
                 // MARK: - .pointerCursor()
                 GallerySectionHeader(
                     title: ".pointerCursor()",
-                    description: "Shows a pointing-hand cursor on hover. Uses native .pointerStyle(.link) on macOS 15+, falls back to NSCursor on macOS 14."
+                    description: "Shows a pointing-hand cursor on hover. Uses native .pointerStyle(.link)."
                 )
 
                 VCard {

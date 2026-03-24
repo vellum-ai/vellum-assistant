@@ -42,7 +42,7 @@ APIs that still compile without warning but are deprecated by Apple. Do not intr
 
 ### State Management: @Observable vs ObservableObject
 
-For new view models and state objects targeting macOS 14+ / iOS 17+, prefer the `@Observable` macro (Observation framework) over `ObservableObject`.
+For new view models and state objects targeting macOS 15+ / iOS 17+, prefer the `@Observable` macro (Observation framework) over `ObservableObject`.
 
 <details>
 <summary><strong>Migration reference table</strong></summary>
@@ -217,7 +217,7 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
 - If you have 3+ `.onKeyPress()` handlers on a single view, extract the view + handlers into its own `@ViewBuilder`.
 - Use computed properties (`private var foo: some View`) for complex sub-hierarchies.
 
-**`.onKeyPress()` API signatures (macOS 14+):**
+**`.onKeyPress()` API signatures (macOS 15+):**
 - `.onKeyPress(.key) { return .handled }` — no-argument closure `() -> KeyPress.Result`
 - `.onKeyPress(.key, phases: .down) { press in return .handled }` — use this when you need `press.modifiers`
 - These are different overloads; using the wrong signature causes confusing build errors.
