@@ -592,7 +592,7 @@ struct ActiveChatViewWrapper: View {
     var showInspectButton: Bool = false
     var isTTSEnabled: Bool = false
     let connectionManager: GatewayConnectionManager
-    @ObservedObject var ambientAgent: AmbientAgent
+    var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
     let conversationManager: ConversationManager
     let onMicrophoneToggle: () -> Void
