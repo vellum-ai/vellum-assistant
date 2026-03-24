@@ -84,13 +84,6 @@ extension AppDelegate {
 
         let assistant = loadAssistantFromLockfile()
 
-        // Start the keychain broker before the gateway so it is listening
-        // when the process launches and reads the socket path.
-        #if !DEBUG
-        keychainBroker = KeychainBrokerServer()
-        keychainBroker?.start()
-        #endif
-
         configureDaemonTransport(for: assistant)
 
         // Set recovery credentials for automatic 401 re-bootstrap
@@ -466,9 +459,6 @@ extension AppDelegate {
             UserDefaults.standard.set(currentVersion, forKey: "preUpdateVersion")
 
             // Stop daemon before app replacement
-            #if !DEBUG
-            self.keychainBroker?.stop()
-            #endif
             self.vellumCli.stop()
         }
         updateManager.startAutomaticChecks()

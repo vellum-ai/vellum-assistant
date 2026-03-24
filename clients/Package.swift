@@ -46,7 +46,7 @@ let package = Package(
                 .enableUpcomingFeature("BareSlashRegexLiterals")
             ],
             linkerSettings: [
-                .linkedFramework("Network"),  // Required for KeychainBrokerServer (NWListener/NWConnection)
+                .linkedFramework("Network"),  // Required for NWError (ChatErrorManager, ChatViewModel)
                 .linkedFramework("AuthenticationServices"),  // Required for shared AuthManager (ASWebAuthenticationSession)
             ]
         ),

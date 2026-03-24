@@ -137,13 +137,6 @@ final class VellumCli {
             "PATH": fullEnv["PATH"] ?? "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
             "VELLUM_DESKTOP_APP": "1",
         ]
-        #if DEBUG
-        // Debug builds compile out KeychainBrokerServer (#if !DEBUG), so the
-        // keychain broker UDS never starts.  Tell the daemon this is a dev
-        // environment so it uses the encrypted file store instead of waiting
-        // for a broker that will never appear.
-        env["VELLUM_DEV"] = "1"
-        #endif
         for key in forwardedEnvKeys {
             if let val = fullEnv[key] {
                 env[key] = val

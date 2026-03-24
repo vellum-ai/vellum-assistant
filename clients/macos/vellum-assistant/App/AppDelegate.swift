@@ -108,9 +108,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     #if DEBUG
     var galleryWindow: ComponentGalleryWindow?
     #endif
-    #if !DEBUG
-    var keychainBroker: KeychainBrokerServer?
-    #endif
     var windowObserver: Any?
     /// Timestamp of the last `showMainWindow` call that performed work.
     /// Used by the debounce guard in `showMainWindow()`.
@@ -646,9 +643,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         debugStateWriter.stop()
         RandomSoundTimer.shared.stop()
         SoundManager.shared.stop()
-        #if !DEBUG
-        keychainBroker?.stop()
-        #endif
         vellumCli.stop()
     }
 
