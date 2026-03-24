@@ -831,16 +831,31 @@ export async function sleepContainers(
   }
 }
 
-/** Start existing stopped containers. */
+/** Start existing stopped containers, starting Colima first if it isn't running. */
 export async function wakeContainers(
   res: ReturnType<typeof dockerResourceNames>,
 ): Promise<void> {
+  await ensureColimaRunning();
   for (const container of [
     res.assistantContainer,
     res.gatewayContainer,
     res.cesContainer,
   ]) {
     await exec("docker", ["start", container]);
+  }
+}
+
+/**
+ * Checks whether Colima is running and starts it if not.
+ * Assumes the Docker/Colima toolchain is already installed (handled during hatch).
+ */
+async function ensureColimaRunning(): Promise<void> {
+  ensureLocalBinOnPath();
+  try {
+    await exec("colima", ["status"]);
+  } catch {
+    console.log("🚀 Colima is not running. Starting Colima...");
+    await exec("colima", ["start"]);
   }
 }
 
