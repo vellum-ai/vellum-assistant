@@ -1093,7 +1093,12 @@ export async function runDaemon(): Promise<void> {
     const heartbeatConfig = config.heartbeat;
     const heartbeat = new HeartbeatService({
       processMessage: (conversationId, content) =>
-        server.processMessage(conversationId, content),
+        server.processMessage(conversationId, content, undefined, {
+          trustContext: {
+            sourceChannel: "vellum",
+            trustClass: "guardian",
+          },
+        }),
       alerter: (alert) => server.broadcast(alert),
     });
     heartbeat.start();
