@@ -32,7 +32,6 @@ final class ThreadWindowManager {
         if let existing = threadWindows[conversationLocalId] {
             existing.show(
                 viewModel: dummyViewModel(), // won't actually re-create — show() is idempotent
-                title: "",
                 conversationManager: conversationManager,
                 settingsStore: services.settingsStore,
                 ambientAgent: services.ambientAgent,
@@ -48,8 +47,6 @@ final class ThreadWindowManager {
             return false
         }
 
-        let title = conversationManager.conversations.first(where: { $0.id == conversationLocalId })?.title ?? "Thread"
-
         // Pin the ViewModel so it won't be LRU-evicted
         conversationManager.pinViewModel(conversationLocalId)
 
@@ -63,7 +60,6 @@ final class ThreadWindowManager {
 
         threadWindow.show(
             viewModel: viewModel,
-            title: title,
             conversationManager: conversationManager,
             settingsStore: services.settingsStore,
             ambientAgent: services.ambientAgent,

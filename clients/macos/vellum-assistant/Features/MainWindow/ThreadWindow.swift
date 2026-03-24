@@ -26,7 +26,6 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
     /// Build and show the pop-out window for the given conversation.
     func show(
         viewModel: ChatViewModel,
-        title: String,
         conversationManager: ConversationManager,
         settingsStore: SettingsStore,
         ambientAgent: AmbientAgent,
@@ -41,11 +40,16 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
 
         let rootView = ThreadWindowContentView(
             viewModel: viewModel,
-            title: title,
+            conversationLocalId: conversationLocalId,
             conversationManager: conversationManager,
             settingsStore: settingsStore,
             ambientAgent: ambientAgent,
-            connectionManager: connectionManager
+            onFork: { [weak conversationManager] daemonMessageId in
+                guard let conversationManager else { return }
+                Task { @MainActor in
+                    await conversationManager.forkConversation(throughDaemonMessageId: daemonMessageId)
+                }
+            }
         )
 
         let hostingController = NSHostingController(rootView: rootView)
@@ -61,6 +65,8 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
             width: windowWidth,
             height: windowHeight
         )
+
+        let title = conversationManager.conversations.first(where: { $0.id == conversationLocalId })?.title ?? "Thread"
 
         let nsWindow = TitleBarZoomableWindow(
             contentRect: windowRect,
@@ -93,6 +99,10 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
 
     func close() {
         teardown()
+        // Detach the SwiftUI hosting view before closing so that pending
+        // view-graph updates cannot post constraint changes to a closed window,
+        // which would crash in the AppKit display cycle.
+        window?.contentViewController = nil
         window?.close()
         window = nil
     }
@@ -144,6 +154,8 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
         MainActor.assumeIsolated {
             log.info("Thread window closed for conversation \(self.conversationLocalId)")
             teardown()
+            // Detach SwiftUI hosting view to prevent layout crashes on close.
+            window?.contentViewController = nil
             window = nil
             onClose?()
         }
@@ -154,16 +166,24 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
 
 /// SwiftUI root view for a pop-out thread window.
 /// Renders a simplified chat view with a title bar and the conversation content.
+/// Avoids observing `ConversationManager` directly — only the specific callbacks
+/// and data needed are passed in to prevent broad re-renders.
 private struct ThreadWindowContentView: View {
     @ObservedObject var viewModel: ChatViewModel
-    let title: String
+    let conversationLocalId: UUID
     @ObservedObject var conversationManager: ConversationManager
     @ObservedObject var settingsStore: SettingsStore
     @ObservedObject var ambientAgent: AmbientAgent
-    let connectionManager: GatewayConnectionManager
+    let onFork: (String) -> Void
 
     @State private var anchorMessageId: UUID?
     @State private var highlightedMessageId: UUID?
+
+    /// Derived title from ConversationManager — updates reactively when
+    /// the conversation is renamed, avoiding the stale-title bug.
+    private var title: String {
+        conversationManager.conversations.first(where: { $0.id == conversationLocalId })?.title ?? "Thread"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -207,7 +227,7 @@ private struct ThreadWindowContentView: View {
             onSend: { viewModel.sendMessage() },
             onStop: viewModel.stopGenerating,
             onAcceptSuggestion: viewModel.acceptSuggestion,
-            onAttach: {},
+            onAttach: { openFilePicker(viewModel: viewModel) },
             onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
             onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
             onDropImageData: { data, name in
@@ -238,11 +258,7 @@ private struct ThreadWindowContentView: View {
             onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
             watchSession: ambientAgent.activeWatchSession,
             onStopWatch: { viewModel.stopWatchSession() },
-            onForkFromMessage: { [conversationManager] daemonMessageId in
-                Task { @MainActor in
-                    await conversationManager.forkConversation(throughDaemonMessageId: daemonMessageId)
-                }
-            },
+            onForkFromMessage: { daemonMessageId in onFork(daemonMessageId) },
             onRetryFailedMessage: { messageId in
                 viewModel.retryFailedMessage(id: messageId)
             },
