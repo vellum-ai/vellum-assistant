@@ -1368,6 +1368,18 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/pairing/request:
+    post:
+      operationId: pairing_request_post
+      responses:
+        "200":
+          description: Successful response
+  /v1/pairing/status:
+    get:
+      operationId: pairing_status_get
+      responses:
+        "200":
+          description: Successful response
   /v1/pending-interactions:
     get:
       operationId: pendinginteractions_get
