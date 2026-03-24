@@ -16,6 +16,7 @@ import {
   type TurnInterfaceContext,
 } from "../channels/types.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
+import { stripCommentLines } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
@@ -475,19 +476,10 @@ export function stripVoiceCallControlContext(messages: Message[]): Message[] {
  * or `null` if the file is missing, empty, or unreadable.
  */
 export function readNowScratchpad(): string | null {
-  const path = getWorkspacePromptPath("NOW.md");
-  if (!existsSync(path)) return null;
+  const nowPath = getWorkspacePromptPath("NOW.md");
+  if (!existsSync(nowPath)) return null;
   try {
-    const raw = readFileSync(path, "utf-8");
-    const stripped = raw
-      .split("\n")
-      .filter((line) => {
-        const trimmed = line.trimStart();
-        return trimmed !== "_" && !trimmed.startsWith("_ ");
-      })
-      .join("\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
+    const stripped = stripCommentLines(readFileSync(nowPath, "utf-8")).trim();
     return stripped.length > 0 ? stripped : null;
   } catch {
     return null;
