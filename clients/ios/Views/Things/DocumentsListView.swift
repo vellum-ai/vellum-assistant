@@ -89,22 +89,22 @@ struct DocumentsListView: View {
     private func documentRow(_ doc: DocumentListItem) -> some View {
         HStack(spacing: VSpacing.md) {
             VIconView(.fileText, size: 24)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(doc.title)
                     .font(VFont.bodyMediumEmphasised)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
 
                 HStack(spacing: VSpacing.sm) {
                     Text("\(doc.wordCount) words")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
 
                     Text(formattedDate(doc.updatedAt))
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
 
@@ -123,7 +123,7 @@ struct DocumentsListView: View {
             ProgressView()
             Text("Loading documents...")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -131,11 +131,11 @@ struct DocumentsListView: View {
     private var emptyView: some View {
         VStack(spacing: VSpacing.md) {
             VIconView(.fileText, size: 48)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .accessibilityHidden(true)
             Text("No documents yet")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)

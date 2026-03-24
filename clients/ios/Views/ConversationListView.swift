@@ -122,14 +122,14 @@ struct ChatsDisconnectedView: View {
         NavigationStack {
             VStack(spacing: VSpacing.lg) {
                 VIconView(.messageSquare, size: 48)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .accessibilityHidden(true)
                 Text("Chats Require Connection")
                     .font(VFont.titleMedium)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Text("Connect to your Assistant to start a conversation.")
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, VSpacing.xl)
                 if onConnectTapped != nil {
@@ -276,7 +276,7 @@ struct ConversationListView: View {
             ProgressView()
             Text("Loading chats\u{2026}")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Chats")
@@ -651,7 +651,7 @@ struct ConversationListView: View {
                             .lineLimit(1)
                         if scheduleGroupHasPinned(group) {
                             VIconView(.pin, size: 10)
-                                .foregroundColor(VColor.primaryBase)
+                                .foregroundStyle(VColor.primaryBase)
                                 .accessibilityLabel("Pinned")
                         }
                         if scheduleGroupHasUnread(group) {
@@ -691,7 +691,7 @@ struct ConversationListView: View {
                     .lineLimit(1)
                 if store.isConnectedMode && conversation.isPinned {
                     VIconView(.pin, size: 10)
-                        .foregroundColor(VColor.primaryBase)
+                        .foregroundStyle(VColor.primaryBase)
                         .accessibilityLabel("Pinned")
                 }
                 if store.isConnectedMode && conversation.hasUnseenLatestAssistantMessage {
@@ -762,7 +762,7 @@ struct ConversationChatView: View {
                             showDebugPanel = true
                         } label: {
                             VIconView(.bug, size: 20)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                         }
                     }
                 }
@@ -801,22 +801,22 @@ struct ConversationChatView: View {
         Button(action: action) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(.gitBranch, size: 14)
-                    .foregroundColor(VColor.primaryBase)
+                    .foregroundStyle(VColor.primaryBase)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Forked from")
                         .font(VFont.labelSmall)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                     Text(forkParent.title ?? "Parent conversation")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                         .lineLimit(1)
                 }
 
                 Spacer()
 
                 VIconView(.chevronRight, size: 14)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.sm)
@@ -865,7 +865,7 @@ struct ConversationChatView: View {
             }
         } label: {
             VIconView(showCopiedConfirmation ? .check : .share, size: 20)
-                .foregroundColor(showCopiedConfirmation ? VColor.systemPositiveStrong : VColor.contentTertiary)
+                .foregroundStyle(showCopiedConfirmation ? VColor.systemPositiveStrong : VColor.contentTertiary)
         }
         .disabled(!hasTextMessages)
     }

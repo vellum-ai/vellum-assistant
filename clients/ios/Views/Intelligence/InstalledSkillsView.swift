@@ -87,7 +87,7 @@ struct InstalledSkillsView: View {
                 HStack(spacing: 4) {
                     Text(skill.name)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
 
                     stateBadge(skill.state)
                 }
@@ -95,7 +95,7 @@ struct InstalledSkillsView: View {
                 if !skill.description.isEmpty {
                     Text(skill.description)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .lineLimit(2)
                 }
             }
@@ -125,7 +125,7 @@ struct InstalledSkillsView: View {
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .background(Capsule().fill(color.opacity(0.15)))
-            .foregroundColor(color)
+            .foregroundStyle(color)
     }
 
     // MARK: - Empty States
@@ -133,16 +133,16 @@ struct InstalledSkillsView: View {
     private var emptyState: some View {
         VStack(spacing: VSpacing.lg) {
             VIconView(.brain, size: 48)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .accessibilityHidden(true)
 
             Text("No Skills Installed")
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Text("Ask your assistant in chat to search for and install new skills.")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
         }
@@ -156,7 +156,7 @@ struct InstalledSkillsView: View {
             ProgressView()
             Text("Loading skills...")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

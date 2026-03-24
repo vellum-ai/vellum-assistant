@@ -44,14 +44,14 @@ struct ThingsDisconnectedView: View {
         NavigationStack {
             VStack(spacing: VSpacing.lg) {
                 VIconView(.layoutGrid, size: 48)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .accessibilityHidden(true)
                 Text("Library Requires Connection")
                     .font(VFont.titleMedium)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Text("Connect to your Assistant to browse apps, shared apps, and documents.")
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, VSpacing.xl)
                 if onConnectTapped != nil {
