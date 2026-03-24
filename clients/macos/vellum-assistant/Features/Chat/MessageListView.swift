@@ -146,9 +146,6 @@ struct MessageListView: View {
     /// Measured width of the chat container, used to detect sidebar/split resizes
     /// and stabilize scroll position during layout width changes.
     var containerWidth: CGFloat = 0
-    /// Height of the composer section, measured in ChatView and passed down
-    /// so the viewport-pinned avatar overlay can offset above the composer.
-    var composerHeight: CGFloat = 0
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @State private var identity: IdentityInfo? = IdentityInfo.load()
@@ -755,8 +752,12 @@ struct MessageListView: View {
             })
             .onScrollPhaseChange { oldPhase, newPhase in
                 scrollPhase = newPhase
-                if newPhase == .idle && oldPhase != .idle && isNearBottom {
+                if newPhase == .idle && oldPhase != .idle && scrollCoordinator.anchorIsVisible {
                     // User finished scrolling and ended up near the bottom — re-tether.
+                    // Uses anchorIsVisible (geometry-derived) instead of isNearBottom
+                    // to break the circular dependency: isNearBottom is only set by
+                    // handleScrollToBottom(), so checking it here would prevent
+                    // users from re-tethering by scrolling back to the bottom.
                     scrollCoordinator.handleScrollToBottom()
                 }
             }
@@ -805,7 +806,7 @@ struct MessageListView: View {
                 // Distance from bottom: how far the visible rect's bottom edge
                 // is from the content bottom. Replaces the AnchorMinYKey preference
                 // + hidden anchor view + GeometryReader + coordinate space conversion.
-                geo.contentOffset.y + geo.contentSize.height - geo.visibleRect.height
+                geo.contentSize.height - geo.contentOffset.y - geo.visibleRect.height
             } action: { _, distanceFromBottom in
                 // Filter non-finite values and apply 2pt dead-zone to reduce
                 // layout invalidation cascades during rapid scroll.
@@ -849,7 +850,7 @@ struct MessageListView: View {
             }
             .overlay(alignment: .bottom) {
                 conversationTailAvatar
-                    .padding(.bottom, composerHeight + ConversationAvatarFollower.verticalOffset)
+                    .padding(.bottom, ConversationAvatarFollower.verticalOffset)
             }
             .overlay(alignment: .bottom) {
                 if !isNearBottom && !scrollCoordinator.anchorIsVisible
