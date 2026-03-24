@@ -743,10 +743,8 @@ struct MessageListView: View {
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
             .environment(\.suppressAutoScroll, { [self] in
-                let resizeActive = resizeScrollTask != nil && !resizeScrollTask!.isCancelled
                 scrollCoordinator.handleSuppressAutoScroll(
                     isNearBottom: isNearBottom,
-                    isResizeActive: resizeActive,
                     conversationId: conversationId,
                     proxy: proxy,
                     scrollViewportHeight: scrollViewportHeight
