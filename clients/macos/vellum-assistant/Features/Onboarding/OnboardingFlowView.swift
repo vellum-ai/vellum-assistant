@@ -262,28 +262,19 @@ struct OnboardingFlowView: View {
         }
 
         isResolvingAssociatedManagedAssistant = true
-        managedBootstrapError = nil
         defer { isResolvingAssociatedManagedAssistant = false }
 
-        do {
-            let activation = try await ManagedAssistantConnectionCoordinator().activateManagedAssistant()
-
-            if activation.reusedExisting {
-                // Assistant is already provisioned and running — safe to proceed.
-                log.info("Authenticated with existing managed assistant \(activation.assistant.id, privacy: .public); proceeding to app")
-                onComplete()
-            } else {
-                // Newly created — enter hatching UI and wait for readiness.
-                log.info("Authenticated and created new managed assistant \(activation.assistant.id, privacy: .public); entering hatching flow")
-                state.hasExistingManagedAssistant = false
-                state.isManagedHatch = true
-                state.isHatching = true
-                await awaitManagedAssistantReady(assistantId: activation.assistant.id)
-            }
-        } catch {
-            log.error("Failed to activate managed assistant after authentication: \(error.localizedDescription, privacy: .public)")
-            state.advance()
+        // Only auto-proceed if there's already a managed assistant in the lockfile.
+        // Do NOT create a new managed assistant here — that should only happen if
+        // the user explicitly selects Vellum Cloud on the hosting selector.
+        if let existing = LockfileAssistant.loadLatest(), existing.isManaged {
+            log.info("Authenticated with existing managed assistant \(existing.assistantId, privacy: .public); proceeding to app")
+            onComplete()
+            return
         }
+
+        log.info("Authenticated account has no existing managed assistant — advancing to hosting selector")
+        state.advance()
     }
 
     @ViewBuilder
