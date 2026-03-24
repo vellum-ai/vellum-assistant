@@ -2,6 +2,7 @@
  * Approval prompt delivery: rich UI (buttons) with plain-text fallback.
  */
 import type { ChannelId } from "../../channels/types.js";
+import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
 import type { ApprovalMessageContext } from "../approval-message-composer.js";
 import { composeApprovalMessageGenerative } from "../approval-message-composer.js";
@@ -33,6 +34,16 @@ const INPUT_PREVIEW_MAX_LENGTH = 200;
  *
  * Returns `null` when no meaningful preview can be produced.
  */
+/** Escape backticks in user-controlled input so they don't break inline code spans. */
+function escapeBackticks(value: string): string {
+  return value.replace(/`/g, "'");
+}
+
+/** Redact potential secrets from tool input before previewing. */
+function sanitizePreviewValue(value: string): string {
+  return escapeBackticks(redactSecrets(value));
+}
+
 function formatToolInputPreview(
   toolName: string,
   toolInput: Record<string, unknown>,
@@ -40,7 +51,7 @@ function formatToolInputPreview(
   // Pick the most relevant field based on tool type
   const command = toolInput.command ?? toolInput.cmd;
   if (typeof command === "string" && command.length > 0) {
-    return truncatePreview(`\`${command}\``);
+    return truncatePreview(`\`${sanitizePreviewValue(command)}\``);
   }
 
   const path = toolInput.path ?? toolInput.file_path ?? toolInput.filePath;
@@ -51,12 +62,12 @@ function formatToolInputPreview(
         : toolName.includes("read")
           ? "reading"
           : "on";
-    return truncatePreview(`${verb} \`${path}\``);
+    return truncatePreview(`${verb} \`${sanitizePreviewValue(path)}\``);
   }
 
   const url = toolInput.url;
   if (typeof url === "string" && url.length > 0) {
-    return truncatePreview(`fetching \`${url}\``);
+    return truncatePreview(`fetching \`${sanitizePreviewValue(url)}\``);
   }
 
   return null;
@@ -64,7 +75,10 @@ function formatToolInputPreview(
 
 function truncatePreview(text: string): string {
   if (text.length <= INPUT_PREVIEW_MAX_LENGTH) return text;
-  return text.slice(0, INPUT_PREVIEW_MAX_LENGTH - 1) + "…";
+  const truncated = text.slice(0, INPUT_PREVIEW_MAX_LENGTH - 1) + "…";
+  // Preserve backtick pairing so markdown renders correctly.
+  const openBackticks = (truncated.match(/`/g) || []).length;
+  return openBackticks % 2 !== 0 ? truncated + "`" : truncated;
 }
 
 export interface DeliverGeneratedApprovalPromptParams {
