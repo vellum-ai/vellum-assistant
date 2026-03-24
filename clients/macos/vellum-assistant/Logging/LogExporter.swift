@@ -61,6 +61,10 @@ enum LogExporter {
 
         let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
+        // Capture main-actor-isolated values before entering the detached task.
+        let baseURL = AuthService.shared.baseURL
+        let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+
         // Upload in the background so the caller can dismiss UI immediately.
         // The archive temp file is cleaned up after the upload completes or fails.
         Task.detached {
@@ -68,7 +72,9 @@ enum LogExporter {
                 try await uploadFeedbackToPlatform(
                     archiveURL: archiveURL,
                     formData: formData,
-                    connectedAssistantId: connectedAssistantId
+                    connectedAssistantId: connectedAssistantId,
+                    baseURL: baseURL,
+                    organizationId: orgId
                 )
             } catch {
                 log.warning("Background feedback upload failed: \(error.localizedDescription)")
@@ -86,7 +92,7 @@ enum LogExporter {
     // MARK: - Platform Feedback Upload
 
     /// Maps `LogReportReason` to the platform API's `FeedbackClassification` values.
-    private static func feedbackClassification(for reason: LogReportReason) -> String {
+    private nonisolated static func feedbackClassification(for reason: LogReportReason) -> String {
         switch reason {
         case .somethingBroken: return "something_broken"
         case .appCrash: return "app_crash"
@@ -99,12 +105,13 @@ enum LogExporter {
 
     /// Uploads the feedback archive and metadata to the platform API.
     /// Throws on network or HTTP errors so the caller can surface feedback.
-    private static func uploadFeedbackToPlatform(
+    private nonisolated static func uploadFeedbackToPlatform(
         archiveURL: URL,
         formData: LogReportFormData,
-        connectedAssistantId: String?
+        connectedAssistantId: String?,
+        baseURL: String,
+        organizationId: String?
     ) async throws {
-        let baseURL = AuthService.shared.baseURL
         guard let url = URL(string: "\(baseURL)/v1/feedback/") else {
             log.warning("Failed to construct platform feedback URL")
             throw URLError(.badURL)
@@ -118,7 +125,7 @@ enum LogExporter {
         if let token = await SessionTokenManager.getTokenAsync() {
             request.setValue(token, forHTTPHeaderField: "X-Session-Token")
         }
-        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
+        if let orgId = organizationId, !orgId.isEmpty {
             request.setValue(orgId, forHTTPHeaderField: "Vellum-Organization-Id")
         }
 
@@ -175,7 +182,7 @@ enum LogExporter {
     }
 
     /// Appends a simple text field to a multipart/form-data body.
-    private static func appendFormField(_ body: inout Data, boundary: String, name: String, value: String) {
+    private nonisolated static func appendFormField(_ body: inout Data, boundary: String, name: String, value: String) {
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
         body.append("\(value)\r\n".data(using: .utf8)!)
@@ -183,7 +190,7 @@ enum LogExporter {
 
     // MARK: - Private
 
-    private static func defaultArchiveName() -> String {
+    private nonisolated static func defaultArchiveName() -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withFullDate, .withTime, .withColonSeparatorInTime]
         let timestamp = formatter.string(from: Date())
