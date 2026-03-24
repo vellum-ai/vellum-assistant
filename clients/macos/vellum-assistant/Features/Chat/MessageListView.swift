@@ -154,7 +154,7 @@ struct MessageListView: View {
     /// individual bubbles don't each subscribe to the shared manager.
     /// With @Observable fine-grained tracking, reading only `activeSurfaceId`
     /// won't trigger re-renders on frequent `data` progress ticks.
-    private var taskProgressManager = TaskProgressOverlayManager.shared
+    var taskProgressManager = TaskProgressOverlayManager.shared
     /// Consolidates all scroll-related state: anchor tracking, scroll loop guard,
     /// bottom pin coordinator, suppression flags, and scroll-related tasks.
     @StateObject private var scrollCoordinator = MessageListScrollCoordinator()

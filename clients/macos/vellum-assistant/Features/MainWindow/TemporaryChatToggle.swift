@@ -15,7 +15,7 @@ struct TemporaryChatToggle: View {
             tooltip: tooltip,
             action: onToggle
         )
-        .foregroundStyle(isActive ? VColor.primaryBase : nil)
+        .if(isActive) { $0.foregroundStyle(VColor.primaryBase) }
     }
 }
 
