@@ -79,7 +79,7 @@ final class SSHTerminalWindow {
 /// SwiftUI root view for the terminal window, composing the terminal view
 /// with a status toolbar.
 private struct SSHTerminalContentView: View {
-    @ObservedObject var sessionManager: TerminalSessionManager
+    var sessionManager: TerminalSessionManager
 
     var body: some View {
         VStack(spacing: 0) {

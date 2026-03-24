@@ -9,7 +9,7 @@ extension Notification.Name {
 
 struct MainWindowView: View {
     @ObservedObject var conversationManager: ConversationManager
-    @ObservedObject var appListManager: AppListManager
+    var appListManager: AppListManager
     var zoomManager: ZoomManager
     /// Plain `let` instead of `@ObservedObject` so SwiftUI doesn't observe
     /// TraceStore mutations when the DebugPanel isn't visible. DebugPanel

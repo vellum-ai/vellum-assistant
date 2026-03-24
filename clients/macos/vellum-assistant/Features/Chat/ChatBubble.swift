@@ -39,7 +39,7 @@ struct ChatBubble: View {
     var processingStatusText: String?
     /// Whether the message-tts feature flag is enabled. Passed from the parent.
     var isTTSEnabled: Bool = false
-    @StateObject private var audioPlayer = MessageAudioPlayer()
+    @State private var audioPlayer = MessageAudioPlayer()
     @State private var isHovered = false
     /// Stores async-parsed segments for large messages (>500 chars) that missed the
     /// synchronous cache. Keyed by text content so multiple segments can be in flight.

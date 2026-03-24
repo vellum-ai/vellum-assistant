@@ -5,7 +5,8 @@ import VellumAssistantShared
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppListManager")
 
 @MainActor
-final class AppListManager: ObservableObject {
+@Observable
+final class AppListManager {
 
     struct AppItem: Identifiable, Codable, Hashable {
         let id: String
@@ -89,12 +90,12 @@ final class AppListManager: ObservableObject {
         }
     }
 
-    @Published var apps: [AppItem] = []
+    var apps: [AppItem] = []
 
     /// IDs of apps the user explicitly removed. Prevents daemon sync from re-adding them.
-    private var removedAppIds: Set<String> = []
+    @ObservationIgnored private var removedAppIds: Set<String> = []
 
-    private let fileURL: URL
+    @ObservationIgnored private let fileURL: URL
 
     /// Only pinned apps, sorted by pinnedOrder ascending.
     var pinnedApps: [AppItem] {
