@@ -154,11 +154,14 @@ struct InferenceServiceCard: View {
             }
 
             // Symmetric case: if the user is authenticated and the mode is
-            // still the default "your-own" and they have no BYO key saved,
-            // switch to "managed" so signed-in users get managed inference
-            // out of the box. Users who have explicitly configured a BYO key
-            // keep their preference.
-            if isLoggedIn && draftMode == "your-own" && !store.hasKeyForProvider(draftProvider) {
+            // still the default "your-own", switch to "managed" so signed-in
+            // users get managed inference out of the box — but only when the
+            // provider requires an API key and the user hasn't configured one.
+            // Providers like Ollama that don't use keys (apiKeyPlaceholder is
+            // nil) are left alone since the user intentionally set up a local
+            // provider.
+            let providerRequiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
+            if isLoggedIn && draftMode == "your-own" && providerRequiresKey && !store.hasKeyForProvider(draftProvider) {
                 draftMode = "managed"
                 store.setInferenceMode("managed")
             }
@@ -184,10 +187,15 @@ struct InferenceServiceCard: View {
                 // loading to authenticated), restore the persisted managed
                 // mode that onAppear may have temporarily overridden.
                 draftMode = "managed"
-            } else if isAuthenticated && store.inferenceMode == "your-own" && !store.hasKeyForProvider(draftProvider) {
-                // When a user signs in and has no BYO key, default to managed.
-                draftMode = "managed"
-                store.setInferenceMode("managed")
+            } else if isAuthenticated && store.inferenceMode == "your-own" {
+                // When a user signs in and has no BYO key for a key-based
+                // provider, default to managed. Keyless providers (e.g. Ollama)
+                // are left in your-own mode.
+                let requiresKey = store.dynamicProviderApiKeyPlaceholder(draftProvider) != nil
+                if requiresKey && !store.hasKeyForProvider(draftProvider) {
+                    draftMode = "managed"
+                    store.setInferenceMode("managed")
+                }
             }
         }
         .onChange(of: authManager.isLoading) { _, isLoading in
