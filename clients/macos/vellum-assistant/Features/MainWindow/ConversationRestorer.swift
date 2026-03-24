@@ -52,6 +52,7 @@ final class ConversationRestorer {
     private let conversationHistoryClient: any ConversationHistoryClientProtocol
     private var connectionCancellable: AnyCancellable?
     private var disconnectCancellable: AnyCancellable?
+    private var fetchConversationListTask: Task<Void, Never>?
 
     weak var delegate: ConversationRestorerDelegate?
 
@@ -59,6 +60,10 @@ final class ConversationRestorer {
         self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.conversationHistoryClient = conversationHistoryClient
+    }
+
+    deinit {
+        fetchConversationListTask?.cancel()
     }
 
     func startObserving(skipInitialFetch: Bool = false) {
@@ -323,7 +328,7 @@ final class ConversationRestorer {
     // MARK: - Private
 
     private func fetchConversationList() {
-        Task { [weak self] in
+        fetchConversationListTask = Task { [weak self] in
             guard let self else { return }
             // Cap at 2 attempts to limit worst-case restore delay (~32s with 15s
             // per-request timeout) while still covering the daemon restart race.
