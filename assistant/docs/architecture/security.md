@@ -222,7 +222,7 @@ sequenceDiagram
     participant Prompter as SecretPrompter
     participant HTTP as HTTP Transport
     participant UI as SecretPromptManager (Swift)
-    participant Keychain as macOS Keychain
+    participant Store as Credential Store (CES / encrypted file)
 
     Model->>Vault: action: "prompt", service, field, label
     Vault->>Prompter: requestSecret(service, field, label, ...)
@@ -233,7 +233,7 @@ sequenceDiagram
         UI->>HTTP: secret_response {requestId, value, delivery: "store"}
         HTTP->>Prompter: resolve(value, "store")
         Prompter->>Vault: {value, delivery: "store"}
-        Vault->>Keychain: setSecureKeyAsync("credential/svc/field", value)
+        Vault->>Store: setSecureKeyAsync("credential/svc/field", value)
         Vault->>Model: "Credential stored securely" (no value in output)
     else One-Time Send (if enabled)
         UI->>HTTP: secret_response {requestId, value, delivery: "transient_send"}
@@ -265,7 +265,7 @@ graph TB
 The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send Once" button in the secret prompt UI. When used:
 
 - The secret value is handed to the `CredentialBroker`, which holds it in memory for the next `consume` or `browserFill` call
-- The value is **not** persisted to the keychain
+- The value is **not** persisted to the credential store
 - The broker discards the value after a single use
 - The vault tool output confirms delivery without including the secret value — the value is never returned to the model
 - The config gate must be explicitly enabled by the operator
@@ -274,7 +274,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 
 | Component           | Location                                             | What it stores                                                                                                                                               |
 | ------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Secret values       | macOS Keychain (primary) or encrypted file fallback  | Encrypted credential values keyed as `credential/{service}/{field}`. Falls back to encrypted file backend on Linux/headless or when Keychain is unavailable. |
+| Secret values       | CES credential store or encrypted file store         | Encrypted credential values keyed as `credential/{service}/{field}`. Stored via CES RPC (primary), CES HTTP (containerized), or encrypted file store (fallback). |
 | Credential metadata | `~/.vellum/workspace/data/credentials/metadata.json` | Service, field, label, policy (allowedTools, allowedDomains), timestamps                                                                                     |
 | Config              | `~/.vellum/workspace/config.*`                       | `secretDetection` settings: enabled, action, entropyThreshold, allowOneTimeSend                                                                              |
 
@@ -283,7 +283,7 @@ The `allowOneTimeSend` config gate (default: `false`) enables a secondary "Send 
 | File                                                 | Role                                                                  |
 | ---------------------------------------------------- | --------------------------------------------------------------------- |
 | `assistant/src/tools/credentials/vault.ts`           | `credential_store` tool — store, list, delete, prompt actions         |
-| `assistant/src/security/secure-keys.ts`              | Async secure key CRUD via keychain broker and encrypted file store    |
+| `assistant/src/security/secure-keys.ts`              | Async secure key CRUD via CES and encrypted file store               |
 | `assistant/src/tools/credentials/metadata-store.ts`  | JSON file metadata CRUD for credential records                        |
 | `assistant/src/tools/credentials/broker.ts`          | Brokered credential access with policy enforcement and transient send |
 | `assistant/src/tools/credentials/policy-validate.ts` | Policy input validation (allowedTools, allowedDomains)                |
