@@ -597,7 +597,11 @@ export async function handleUpdateMemoryItem(
   // If sourceType was set (either directly or via mapping), also write verificationState
   if (body.sourceType !== undefined && body.verificationState === undefined) {
     set.verificationState =
-      body.sourceType === "tool" ? "user_confirmed" : "assistant_inferred";
+      body.sourceType === "tool"
+        ? "user_confirmed"
+        : existing.verificationState === "user_reported"
+          ? "user_reported"
+          : "assistant_inferred";
   }
 
   // If subject, statement, or kind changed, recompute fingerprint
