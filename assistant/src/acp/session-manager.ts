@@ -283,6 +283,11 @@ export class AcpSessionManager {
             stopReason: response.stopReason,
           });
 
+          // Free the session slot so it doesn't count against the
+          // concurrency limit. Kill the agent process first.
+          current.process.kill();
+          this.sessions.delete(acpSessionId);
+
           // Notify parent session so the LLM sees the agent's output
           if (this.onAcpSessionFinished) {
             const agentLabel = current.state.agentId;
@@ -321,6 +326,10 @@ export class AcpSessionManager {
             acpSessionId,
             error: err.message,
           });
+
+          // Free the session slot.
+          current.process.kill();
+          this.sessions.delete(acpSessionId);
         }
       });
 
