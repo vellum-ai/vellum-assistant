@@ -152,6 +152,14 @@ struct InferenceServiceCard: View {
                     store.setInferenceMode("your-own")
                 }
             }
+
+            // Symmetric case: if the user is authenticated and the mode is
+            // still the default "your-own", switch to "managed" so signed-in
+            // users get managed inference out of the box.
+            if isLoggedIn && draftMode == "your-own" {
+                draftMode = "managed"
+                store.setInferenceMode("managed")
+            }
         }
         .onChange(of: store.inferenceMode) { _, newValue in
             // Sync draft when external changes arrive (e.g. daemon reload),
@@ -169,11 +177,15 @@ struct InferenceServiceCard: View {
                 // attempt managed-proxy routing while unauthenticated.
                 draftMode = "your-own"
                 store.setInferenceMode("your-own")
-            } else if isAuthenticated && store.inferenceMode == "managed" {
-                // When auth becomes available (e.g. startup transition from
-                // loading to authenticated), restore the persisted managed
-                // mode that onAppear may have temporarily overridden.
+            } else if isAuthenticated {
+                // When auth becomes available, default to managed mode.
+                // This covers both restoring a persisted managed mode that
+                // onAppear may have temporarily overridden, and switching
+                // new sign-ins from the "your-own" default to managed.
                 draftMode = "managed"
+                if store.inferenceMode != "managed" {
+                    store.setInferenceMode("managed")
+                }
             }
         }
         .onChange(of: authManager.isLoading) { _, isLoading in
