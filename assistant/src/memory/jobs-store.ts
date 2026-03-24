@@ -90,13 +90,21 @@ export function enqueueMemoryJob(
  * Upsert a debounced job: if a pending job of the same type and conversation
  * already exists, push its `runAfter` forward instead of creating a duplicate.
  * This prevents rapid message indexing from spawning redundant jobs.
+ *
+ * Pass a `dbOverride` (transaction handle) to make this call atomic with
+ * surrounding writes.
  */
 export function upsertDebouncedJob(
   type: MemoryJobType,
   payload: { conversationId: string },
   runAfter: number,
+  dbOverride?: Parameters<ReturnType<typeof getDb>["transaction"]>[0] extends (
+    tx: infer T,
+  ) => unknown
+    ? T
+    : never,
 ): void {
-  const db = getDb();
+  const db = dbOverride ?? getDb();
   const existing = db
     .select()
     .from(memoryJobs)
@@ -114,7 +122,7 @@ export function upsertDebouncedJob(
       .where(eq(memoryJobs.id, existing.id))
       .run();
   } else {
-    enqueueMemoryJob(type, payload, runAfter);
+    enqueueMemoryJob(type, payload, runAfter, dbOverride);
   }
 }
 
