@@ -130,16 +130,16 @@ describe("runWorkspaceMigrations", () => {
       throw new Error("migration 002 failed");
     });
 
-    await expect(
-      runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]),
-    ).rejects.toThrow("migration 002 failed");
+    // Runner no longer throws — it marks failed migrations and continues
+    await runWorkspaceMigrations(WORKSPACE_DIR, [m1, m2]);
 
-    // m1 ran successfully before the error
+    // m1 ran successfully, m2 was attempted
     expect(m1.run).toHaveBeenCalledTimes(1);
+    expect(m2.run).toHaveBeenCalledTimes(1);
 
-    // Checkpoints saved: started m1, completed m1, started m2 = 3 writes
-    expect(writeFileSyncFn).toHaveBeenCalledTimes(3);
-    expect(renameSyncFn).toHaveBeenCalledTimes(3);
+    // Checkpoints saved: started m1, completed m1, started m2, failed m2 = 4 writes
+    expect(writeFileSyncFn).toHaveBeenCalledTimes(4);
+    expect(renameSyncFn).toHaveBeenCalledTimes(4);
 
     // Verify the completed checkpoint contains m1
     // The second write is the "completed" marker for m1
@@ -149,6 +149,14 @@ describe("runWorkspaceMigrations", () => {
     const parsed = JSON.parse(completedWrite);
     expect(parsed.applied["001"]).toBeDefined();
     expect(parsed.applied["001"].status).toBe("completed");
+
+    // Verify m2 is marked as failed
+    const failedWrite = (
+      writeFileSyncFn.mock.calls[3] as unknown[]
+    )[1] as string;
+    const failedParsed = JSON.parse(failedWrite);
+    expect(failedParsed.applied["002"]).toBeDefined();
+    expect(failedParsed.applied["002"].status).toBe("failed");
   });
 
   test("idempotent on re-run", async () => {
