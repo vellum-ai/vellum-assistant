@@ -278,84 +278,74 @@ final class ChatBottomPinCoordinator {
         sessionGeneration += 1
         let generation = sessionGeneration
 
-        guard let session = activeSession else { return }
+        // Immediate first attempt — synchronous so callers see the result
+        // before yielding (important for tests and single-frame UI updates).
+        guard var session = activeSession else { return }
+        session.recordAttempt()
+        activeSession = session
+        log.debug("[BottomPin] immediateAttempt sid=\(session.sessionId) reason=\(session.reason.rawValue) animated=\(animated) attempt=\(session.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(session.elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
+        let pinned = onPinRequested?(session.reason, animated) ?? false
 
-        // Defer the first attempt by one main-actor hop so the scroll request
-        // doesn't compound with the message-append layout transaction.
-        // This splits the mega-layout into two smaller passes.
-        // Precedent: ConversationTailAnchorYKey handler already uses
-        // Task { @MainActor in } for the same reason (layout re-entry).
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard self.sessionGeneration == generation else { return }
+        if pinned {
+            log.debug("[BottomPin] success sid=\(session.sessionId) attempt=\(session.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(session.elapsedMs)")
+            completeSession(generation: generation)
+            return
+        }
 
-            guard var deferredSession = self.activeSession else { return }
-            deferredSession.recordAttempt()
-            self.activeSession = deferredSession
-            log.debug("[BottomPin] immediateAttempt sid=\(deferredSession.sessionId) reason=\(deferredSession.reason.rawValue) animated=\(animated) attempt=\(deferredSession.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(deferredSession.elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
-            let pinned = self.onPinRequested?(self.activeSession?.reason ?? session.reason, animated) ?? false
-
-            if pinned {
-                log.debug("[BottomPin] success sid=\(deferredSession.sessionId) attempt=\(deferredSession.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(deferredSession.elapsedMs)")
-                self.completeSession(generation: generation)
-                return
-            }
-
-            // Start the async bounded retry loop only if immediate attempt failed.
-            self.sessionTask = Task { @MainActor [weak self] in
-                while !Task.isCancelled {
-                    guard let self else { break }
-                    guard self.sessionGeneration == generation else {
-                        if let s = self.activeSession {
-                            log.debug("[BottomPin] generationMismatch sid=\(s.sessionId) staleGen=\(generation) currentGen=\(self.sessionGeneration)")
-                        }
-                        break
+        // Async bounded retry loop for subsequent attempts.
+        sessionTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self else { break }
+                guard self.sessionGeneration == generation else {
+                    if let s = self.activeSession {
+                        log.debug("[BottomPin] generationMismatch sid=\(s.sessionId) staleGen=\(generation) currentGen=\(self.sessionGeneration)")
                     }
-                    guard var currentSession = self.activeSession else { break }
-                    guard !currentSession.isExhausted else {
-                        log.debug("[BottomPin] exhausted sid=\(currentSession.sessionId) attempt=\(currentSession.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(currentSession.elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
-                        break
-                    }
-
-                    // Check session timeout.
-                    let elapsed = CFAbsoluteTimeGetCurrent() - currentSession.startTime
-                    if elapsed > Self.sessionTimeout {
-                        let elapsedMs = Int(elapsed * 1000)
-                        log.debug("[BottomPin] timeout sid=\(currentSession.sessionId) attempt=\(currentSession.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
-                        break
-                    }
-
-                    do {
-                        try await Task.sleep(nanoseconds: Self.retryInterval)
-                    } catch {
-                        break
-                    }
-                    guard !Task.isCancelled else { break }
-
-                    // Re-check follow state after sleep — user may have scrolled up.
-                    guard self.isFollowingBottom else {
-                        log.debug("[BottomPin] retryAborted sid=\(currentSession.sessionId) reason=detachedDuringSleep attempt=\(currentSession.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(currentSession.elapsedMs) isFollowingBottom=false")
-                        break
-                    }
-
-                    currentSession.recordAttempt()
-                    self.activeSession = currentSession
-                    log.debug("[BottomPin] retryAttempt sid=\(currentSession.sessionId) reason=\(currentSession.reason.rawValue) animated=\(animated) attempt=\(currentSession.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(currentSession.elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
-                    let succeeded = self.onPinRequested?(currentSession.reason, animated) ?? false
-
-                    if succeeded {
-                        log.debug("[BottomPin] success sid=\(currentSession.sessionId) attempt=\(currentSession.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(currentSession.elapsedMs)")
-                        self.completeSession(generation: generation)
-                        return
-                    }
+                    break
+                }
+                guard var currentSession = self.activeSession else { break }
+                guard !currentSession.isExhausted else {
+                    log.debug("[BottomPin] exhausted sid=\(currentSession.sessionId) attempt=\(currentSession.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(currentSession.elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
+                    break
                 }
 
-                // Clean up if we fell through without completing.
-                if let self, let s = self.activeSession, self.sessionGeneration == generation {
-                    log.debug("[BottomPin] sessionEnd sid=\(s.sessionId) attempt=\(s.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(s.elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
+                // Check session timeout.
+                let elapsed = CFAbsoluteTimeGetCurrent() - currentSession.startTime
+                if elapsed > Self.sessionTimeout {
+                    let elapsedMs = Int(elapsed * 1000)
+                    log.debug("[BottomPin] timeout sid=\(currentSession.sessionId) attempt=\(currentSession.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
+                    break
                 }
-                self?.completeSession(generation: generation)
+
+                do {
+                    try await Task.sleep(nanoseconds: Self.retryInterval)
+                } catch {
+                    break
+                }
+                guard !Task.isCancelled else { break }
+
+                // Re-check follow state after sleep — user may have scrolled up.
+                guard self.isFollowingBottom else {
+                    log.debug("[BottomPin] retryAborted sid=\(currentSession.sessionId) reason=detachedDuringSleep attempt=\(currentSession.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(currentSession.elapsedMs) isFollowingBottom=false")
+                    break
+                }
+
+                currentSession.recordAttempt()
+                self.activeSession = currentSession
+                log.debug("[BottomPin] retryAttempt sid=\(currentSession.sessionId) reason=\(currentSession.reason.rawValue) animated=\(animated) attempt=\(currentSession.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(currentSession.elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
+                let succeeded = self.onPinRequested?(currentSession.reason, animated) ?? false
+
+                if succeeded {
+                    log.debug("[BottomPin] success sid=\(currentSession.sessionId) attempt=\(currentSession.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(currentSession.elapsedMs)")
+                    self.completeSession(generation: generation)
+                    return
+                }
             }
+
+            // Clean up if we fell through without completing.
+            if let self, let s = self.activeSession, self.sessionGeneration == generation {
+                log.debug("[BottomPin] sessionEnd sid=\(s.sessionId) attempt=\(s.attemptCount)/\(BottomPinSession.maxRetries) elapsedMs=\(s.elapsedMs) isFollowingBottom=\(self.isFollowingBottom)")
+            }
+            self?.completeSession(generation: generation)
         }
     }
 
