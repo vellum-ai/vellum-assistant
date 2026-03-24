@@ -351,8 +351,11 @@ struct MessageListView: View {
         }
 
         let displayMessages = visibleMessages
-        let displayMessageIds = displayMessages.map(\.id)
-        let displayMessageById = Dictionary(uniqueKeysWithValues: displayMessages.map { ($0.id, $0) })
+        let displayMessageById = Dictionary(displayMessages.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
+        let displayMessageIds: [UUID] = {
+            var seen = Set<UUID>()
+            return displayMessages.map(\.id).filter { seen.insert($0).inserted }
+        }()
         let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
         let latestAssistantId = displayMessages.last(where: { $0.role == .assistant })?.id
         let anchoredThinkingIndex = resolvedThinkingAnchorIndex(for: displayMessages)
