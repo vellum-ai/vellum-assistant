@@ -140,6 +140,18 @@ export function createCesProcessManager(
 
       if (managedAllowed) {
         discoveryResult = await discoverCes();
+        if (discoveryResult.mode === "unavailable") {
+          // The managed sidecar bootstrap socket is not present — this happens
+          // when the flag is enabled by default but the instance pre-dates the
+          // socket volume mount (e.g. existing Docker configs without the
+          // ces-bootstrap volume). Warn and fall back to local discovery so
+          // these deployments don't fail on upgrade.
+          log.warn(
+            { reason: discoveryResult.reason },
+            "CES managed sidecar bootstrap socket unavailable — falling back to local CES discovery",
+          );
+          discoveryResult = discoverLocalCes();
+        }
       } else {
         log.info(
           "CES managed sidecar feature flag is off — skipping managed discovery, falling back to local",
