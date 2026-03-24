@@ -202,11 +202,6 @@ extension AppDelegate {
         self.overlayWindow = overlay
         self.ambientAgent.pause()
 
-        // Hide main window so the target app becomes frontmost for CU
-        if mainWindow?.isVisible == true {
-            mainWindow?.hide()
-        }
-
         // Watch for terminal states and auto-dismiss after a delay.
         // Use Combine sink instead of async publisher to avoid holding
         // a long-lived task that blocks forever if terminal state is never reached.
@@ -252,9 +247,5 @@ extension AppDelegate {
         activeOverlayConversationId = nil
         ambientAgent.resume()
 
-        // Restore main window if it was hidden
-        if mainWindow?.isVisible == false {
-            mainWindow?.show()
-        }
     }
 }
