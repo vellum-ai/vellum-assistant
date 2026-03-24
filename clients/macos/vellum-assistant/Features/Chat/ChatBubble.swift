@@ -46,6 +46,7 @@ struct ChatBubble: View {
     @State var asyncSegments: [String: [MarkdownSegment]] = [:]
 
     @State private var showCopyConfirmation = false
+    @State private var showTTSSetupPopover = false
     @State private var copyConfirmationTimer: DispatchWorkItem?
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
     // Cached interleaved content state — updated via .onChange(of:) to avoid
@@ -175,7 +176,7 @@ struct ChatBubble: View {
         hasCopyableText || canInspectMessage || canForkFromMessage
     }
     private var showOverflowMenu: Bool {
-        hasOverflowActions && !message.isStreaming && (isHovered || showCopyConfirmation || audioPlayer.isPlaying || audioPlayer.isLoading)
+        hasOverflowActions && !message.isStreaming && (isHovered || showCopyConfirmation || audioPlayer.isPlaying || audioPlayer.isLoading || showTTSSetupPopover)
     }
 
     /// Composite identity for the `.task` modifier so it re-runs when either
@@ -498,22 +499,80 @@ struct ChatBubble: View {
                 audioPlayer.stop()
             }
         } else if let daemonMessageId = message.daemonMessageId {
-            VButton(
-                label: "Play as audio",
-                iconOnly: VIcon.volume2.rawValue,
-                style: .ghost,
-                iconSize: 24,
-                iconColor: audioPlayer.error != nil ? VColor.systemNegativeStrong : VColor.contentTertiary
-            ) {
+            ttsIdleButton(daemonMessageId: daemonMessageId)
+        }
+    }
+
+    @ViewBuilder
+    private func ttsIdleButton(daemonMessageId: String) -> some View {
+        let button = VButton(
+            label: "Play as audio",
+            iconOnly: VIcon.volume2.rawValue,
+            style: .ghost,
+            iconSize: 24,
+            iconColor: audioPlayer.error != nil ? VColor.systemNegativeStrong : VColor.contentTertiary
+        ) {
+            if audioPlayer.isNotConfigured {
+                showTTSSetupPopover = true
+            } else {
                 Task {
                     await audioPlayer.playMessage(
                         messageId: daemonMessageId,
                         conversationId: nil
                     )
+                    if audioPlayer.isNotConfigured {
+                        showTTSSetupPopover = true
+                    }
                 }
             }
-            .vTooltip(audioPlayer.error ?? "Read aloud", edge: .bottom)
         }
+
+        if audioPlayer.isNotConfigured {
+            button
+                .popover(isPresented: $showTTSSetupPopover, arrowEdge: .bottom) {
+                    ttsSetupPopoverContent
+                }
+        } else if audioPlayer.isFeatureDisabled {
+            button
+                .vTooltip("Text-to-speech is not enabled", edge: .bottom)
+        } else {
+            button
+                .vTooltip("Read aloud", edge: .bottom)
+        }
+    }
+
+    private var ttsSetupPopoverContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Read aloud isn't set up yet")
+                .font(VFont.titleSmall)
+                .foregroundColor(VColor.contentEmphasized)
+            Text("Connect a Fish Audio voice to hear messages spoken aloud.")
+                .font(VFont.bodyMediumDefault)
+                .foregroundColor(VColor.contentSecondary)
+            HStack(spacing: VSpacing.md) {
+                VButton(label: "Set Up", style: .primary) {
+                    showTTSSetupPopover = false
+                    NotificationCenter.default.post(
+                        name: .navigateToSettingsTab,
+                        object: SettingsTab.voice
+                    )
+                }
+                Button {
+                    if let url = URL(string: "https://fish.audio") {
+                        NSWorkspace.shared.open(url)
+                    }
+                } label: {
+                    Text("Learn more")
+                        .underline()
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.primaryBase)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(VSpacing.lg)
+        .frame(maxWidth: 280)
+        .background(VColor.surfaceOverlay)
     }
 
     // MARK: - Bubble Content
