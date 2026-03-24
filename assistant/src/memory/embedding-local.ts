@@ -1,4 +1,4 @@
-import { existsSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
@@ -20,6 +20,35 @@ interface WorkerResponse {
   type?: string;
   vectors?: number[][];
   error?: string;
+}
+
+/**
+ * Detect model loading errors (corrupted cache, incompatible ONNX format, etc.)
+ * that can be resolved by clearing the model cache and re-downloading.
+ */
+function isModelCorruptionError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return (
+    msg.includes("protobuf parsing") ||
+    (msg.includes("load model") && msg.includes("failed")) ||
+    msg.includes("invalid model") ||
+    msg.includes("corrupt")
+  );
+}
+
+/** Remove the cached model files so they are re-downloaded on next attempt. */
+function clearModelCache(): void {
+  const embeddingModelsDir = getEmbeddingModelsDir();
+  const modelCacheDir = join(embeddingModelsDir, "model-cache");
+  if (existsSync(modelCacheDir)) {
+    log.info({ modelCacheDir }, "Removing corrupted model cache");
+    try {
+      rmSync(modelCacheDir, { recursive: true, force: true });
+    } catch (err) {
+      log.warn({ err, modelCacheDir }, "Failed to remove model cache");
+    }
+  }
 }
 
 /**
@@ -141,7 +170,23 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
       );
     }
 
-    await this.startWorker(bunPath, workerPath);
+    try {
+      await this.startWorker(bunPath, workerPath);
+    } catch (err) {
+      // If the model cache is corrupted (e.g. protobuf parsing failure from an
+      // incompatible or partially downloaded ONNX file), clear the cache and
+      // retry once — the worker will re-download the model on the next attempt.
+      if (isModelCorruptionError(err)) {
+        log.warn(
+          { err, model: this.model },
+          "Model cache appears corrupted, clearing and retrying",
+        );
+        clearModelCache();
+        await this.startWorker(bunPath, workerPath);
+      } else {
+        throw err;
+      }
+    }
   }
 
   private async startWorker(
