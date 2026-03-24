@@ -29,6 +29,13 @@ const SAFE_ENV_VARS = [
   "GNUPGHOME",
   "VELLUM_DEV",
   "VELLUM_WORKSPACE_DIR",
+  "CES_BOOTSTRAP_SOCKET_DIR",
+  "GATEWAY_INTERNAL_URL",
+  "VELLUM_PLATFORM_URL",
+  "CES_CREDENTIAL_URL",
+  "CES_MANAGED_MODE",
+  "IS_CONTAINERIZED",
+  "CES_SERVICE_TOKEN",
 ] as const;
 
 export function buildSanitizedEnv(): Record<string, string> {
