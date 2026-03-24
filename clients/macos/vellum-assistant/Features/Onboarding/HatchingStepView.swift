@@ -68,12 +68,16 @@ struct HatchingStepView: View {
             if !hatchStarted {
                 hatchStarted = true
                 startHatching()
-                startProgressTimer()
             }
         }
         .onDisappear {
             completionTask?.cancel()
             stopProgressTimer()
+        }
+        .onChange(of: state.hatchStepLabel) { oldLabel, newLabel in
+            if oldLabel == nil, newLabel != nil {
+                startProgressTimer()
+            }
         }
         .onChange(of: state.hatchCompleted) { _, completed in
             if completed {
@@ -184,7 +188,7 @@ struct HatchingStepView: View {
             if let label = state.hatchStepLabel {
                 Text(label)
                     .font(VFont.bodySmallDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
         }
         .transition(.opacity.animation(.easeOut(duration: 0.3)))
