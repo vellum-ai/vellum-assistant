@@ -178,9 +178,6 @@ struct MessageListView: View {
     /// Suppresses bottom auto-scroll for the ~32ms layout window after pagination
     /// restores scroll position, preventing a jump back to the bottom.
     @State private var isSuppressingBottomScroll: Bool = false
-    @State private var isAppActive: Bool = NSApp.isActive
-    @State private var conversationSwitchSuppressionTask: Task<Void, Never>?
-    @State private var suppressScrollbarDuringConversationSwitch: Bool = false
     @State private var expandSuppressionTask: Task<Void, Never>?
     /// Tracks the last pending confirmation request ID that triggered an
     /// auto-focus handoff. Used to detect nil→non-nil transitions so we
@@ -1274,8 +1271,8 @@ struct MessageListView: View {
                     },
                     conversationId: conversationId
                 )
-                ConversationScrollbarVisibilityController(isAppActive: isAppActive, suppressScrollbar: suppressScrollbarDuringConversationSwitch)
             }
+            .scrollIndicators(.automatic)
             .onPreferenceChange(ScrollViewportHeightKey.self) { height in
                 // Filter non-finite viewport heights and sub-pixel jitter.
                 // A 0.5pt dead-zone prevents floating-point rounding differences
@@ -1432,7 +1429,6 @@ struct MessageListView: View {
                 }
             }
             .onAppear {
-                isAppActive = NSApp.isActive
                 configureBottomPinCoordinator(proxy: proxy)
                 // Seed the confirmation marker on initial mount — onChange(of:
                 // conversationId) doesn't fire for the initial value, so a
@@ -1486,9 +1482,6 @@ struct MessageListView: View {
                 // retry once history finishes loading.
             }
             .onDisappear {
-                conversationSwitchSuppressionTask?.cancel()
-                conversationSwitchSuppressionTask = nil
-                suppressScrollbarDuringConversationSwitch = false
                 anchorTimeoutTask?.cancel()
                 anchorTimeoutTask = nil
                 resizeScrollTask?.cancel()
@@ -1708,20 +1701,6 @@ struct MessageListView: View {
                 lastHandledContainerWidth = containerWidth
                 anchorTimeoutTask?.cancel()
                 anchorTimeoutTask = nil
-                conversationSwitchSuppressionTask?.cancel()
-                suppressScrollbarDuringConversationSwitch = true
-                conversationSwitchSuppressionTask = Task { @MainActor in
-                    // Let the newly-selected conversation finish its first layout pass so
-                    // the scroller style/metrics settle before allowing re-show.
-                    do {
-                        try await Task.sleep(nanoseconds: 150_000_000)
-                    } catch {
-                        return
-                    }
-                    guard !Task.isCancelled else { return }
-                    suppressScrollbarDuringConversationSwitch = false
-                    conversationSwitchSuppressionTask = nil
-                }
                 hasPlayedTailEntryAnimation = false
                 // Avatar state (scrollTracking.avatarTargetY, avatarDisplayY, scrollTracking)
                 // is reset inside
@@ -1811,15 +1790,6 @@ struct MessageListView: View {
             }
             .onReceive(TaskProgressOverlayManager.shared.$activeSurfaceId) { newId in
                 activeSurfaceId = newId
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-                isAppActive = true
-            }
-            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
-                isAppActive = false
-                conversationSwitchSuppressionTask?.cancel()
-                conversationSwitchSuppressionTask = nil
-                suppressScrollbarDuringConversationSwitch = false
             }
         }
     }
@@ -2064,180 +2034,6 @@ private struct MessageCellView: View, Equatable {
 
         if shouldShowThinkingIndicator && anchoredThinkingIndex == index {
             thinkingIndicatorRow()
-        }
-    }
-}
-
-/// Controls scrollbar visibility using AppKit's NSTrackingArea for hover detection
-/// instead of SwiftUI's `.onHover`. This avoids feeding hover state through the
-/// SwiftUI state graph, which would trigger expensive body re-evaluations and
-/// hover hit-testing through the entire message list on every mouse move.
-private struct ConversationScrollbarVisibilityController: NSViewRepresentable, Equatable {
-    let isAppActive: Bool
-    let suppressScrollbar: Bool
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async {
-            context.coordinator.install(from: view)
-            context.coordinator.update(isAppActive: isAppActive, suppressScrollbar: suppressScrollbar)
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        // If the initial async install in makeNSView ran before the view was in
-        // the hierarchy, findEnclosingScrollView would have returned nil and the
-        // controller stays permanently uninstalled. Retry here — but only when
-        // still unresolved, to avoid the render loop that unconditional
-        // re-installation would cause.
-        if context.coordinator.lastResolvedScrollView == nil {
-            context.coordinator.install(from: nsView)
-        }
-        context.coordinator.update(isAppActive: isAppActive, suppressScrollbar: suppressScrollbar)
-    }
-
-    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        coordinator.cleanup()
-    }
-
-    final class Coordinator: NSObject {
-        weak var lastResolvedScrollView: NSScrollView?
-        private var trackingArea: NSTrackingArea?
-        private var isMouseInside: Bool = false
-        private var isAppActive: Bool = true
-        private var suppressScrollbar: Bool = false
-        private var hoverExitWorkItem: DispatchWorkItem?
-        private var isInstalled: Bool = false
-
-        func install(from markerView: NSView) {
-            guard !isInstalled else { return }
-            guard let scrollView = findEnclosingScrollView(from: markerView) else { return }
-            lastResolvedScrollView = scrollView
-            isInstalled = true
-
-            // Configure scroll view once
-            scrollView.hasVerticalScroller = true
-            scrollView.hasHorizontalScroller = false
-            scrollView.autohidesScrollers = false
-            scrollView.scrollerStyle = .overlay
-            scrollView.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
-            scrollView.automaticallyAdjustsContentInsets = false
-            scrollView.verticalScroller?.controlSize = .small
-
-            // Install tracking area on the scroll view. `.inVisibleRect` auto-updates
-            // the rect on resize; `.activeInActiveApp` stops tracking when the app
-            // is in the background.
-            let area = NSTrackingArea(
-                rect: .zero,
-                options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
-                owner: self,
-                userInfo: nil
-            )
-            scrollView.addTrackingArea(area)
-            trackingArea = area
-
-            // Check if the mouse is already inside
-            if let window = scrollView.window {
-                let mouseLocation = window.mouseLocationOutsideOfEventStream
-                let pointInScrollView = scrollView.convert(mouseLocation, from: nil)
-                isMouseInside = scrollView.bounds.contains(pointInScrollView)
-            }
-
-            updateVisibility()
-        }
-
-        func update(isAppActive: Bool, suppressScrollbar: Bool) {
-            guard isAppActive != self.isAppActive || suppressScrollbar != self.suppressScrollbar else { return }
-            let wasActive = self.isAppActive
-            self.isAppActive = isAppActive
-            self.suppressScrollbar = suppressScrollbar
-
-            // When app deactivates, clear hover state so scrollbar hides.
-            // NSTrackingArea with .activeInActiveApp stops sending events
-            // but doesn't emit mouseExited, so we reset manually.
-            if wasActive && !isAppActive {
-                hoverExitWorkItem?.cancel()
-                hoverExitWorkItem = nil
-                isMouseInside = false
-            }
-
-            updateVisibility()
-        }
-
-        @objc func mouseEntered(with event: NSEvent) {
-            hoverExitWorkItem?.cancel()
-            hoverExitWorkItem = nil
-            isMouseInside = true
-            updateVisibility()
-        }
-
-        @objc func mouseExited(with event: NSEvent) {
-            // Debounce exit to avoid scrollbar flicker during rapid
-            // enter/exit transitions across nested subviews.
-            hoverExitWorkItem?.cancel()
-            let workItem = DispatchWorkItem { [weak self] in
-                self?.isMouseInside = false
-                self?.updateVisibility()
-                self?.hoverExitWorkItem = nil
-            }
-            hoverExitWorkItem = workItem
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: workItem)
-        }
-
-        func cleanup() {
-            hoverExitWorkItem?.cancel()
-            hoverExitWorkItem = nil
-            if let area = trackingArea, let scrollView = lastResolvedScrollView {
-                scrollView.removeTrackingArea(area)
-            }
-            trackingArea = nil
-        }
-
-        private func updateVisibility() {
-            guard let scrollView = lastResolvedScrollView else { return }
-            let shouldShow = isMouseInside && isAppActive && !suppressScrollbar
-            scrollView.verticalScroller?.isEnabled = shouldShow
-            scrollView.verticalScroller?.isHidden = !shouldShow
-            scrollView.verticalScroller?.alphaValue = shouldShow ? 1 : 0
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-        }
-
-        private func findEnclosingScrollView(from view: NSView) -> NSScrollView? {
-            if let scrollView = view.enclosingScrollView { return scrollView }
-            var current: NSView? = view.superview
-            while let ancestor = current {
-                if let scrollView = ancestor as? NSScrollView {
-                    return scrollView
-                }
-                current = ancestor.superview
-            }
-            guard let window = view.window, let contentView = window.contentView else { return nil }
-            let probeInWindow = view.convert(
-                NSPoint(x: view.bounds.midX, y: view.bounds.midY),
-                to: nil
-            )
-            return deepestScrollView(in: contentView, containing: probeInWindow)
-        }
-
-        private func deepestScrollView(in view: NSView, containing windowPoint: NSPoint) -> NSScrollView? {
-            let localPoint = view.convert(windowPoint, from: nil)
-            guard view.bounds.contains(localPoint) else { return nil }
-
-            for subview in view.subviews.reversed() {
-                if let nested = deepestScrollView(in: subview, containing: windowPoint) {
-                    return nested
-                }
-            }
-
-            if let scrollView = view as? NSScrollView {
-                return scrollView
-            }
-            return nil
         }
     }
 }
