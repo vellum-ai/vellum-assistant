@@ -196,6 +196,7 @@ export class PermissionChecker {
         if (
           context.trustClass === "trusted_contact" &&
           tool.trustedAutoApprove === true &&
+          tool.ownerSkillBundled === true &&
           tool.defaultRiskLevel === RiskLevel.Low &&
           !context.requireFreshApproval &&
           !isDynamicSkillLoad
