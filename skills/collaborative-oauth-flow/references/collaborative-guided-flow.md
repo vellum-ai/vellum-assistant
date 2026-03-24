@@ -227,7 +227,7 @@ For non-interactive channels, provide all URLs and instructions as text messages
 ## Guardrails
 
 - **No browser automation tools.** Path A uses `host_bash` + `/tmp/vellum-nav.sh` for navigation only.
-- **Browser-aware tab reuse.** The nav helper detects the browser each time. Falls back to `open` for unknown browsers.
+- **Browser-aware new-tab navigation.** The nav helper opens a new tab in the current browser window. Falls back to `open` for unknown browsers.
 - **Do not delete and recreate OAuth clients.** That orphans stored credentials.
 - **Do not leave the credential dialog early.** The Client Secret may be shown only once.
 - **Provider UI drift is normal.** Adapt instructions while preserving the same end state.
