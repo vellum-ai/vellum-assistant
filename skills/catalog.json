@@ -384,11 +384,18 @@
     {
       "id": "public-ingress",
       "name": "public-ingress",
-      "description": "Set up and manage ngrok-based public ingress for webhooks and OAuth callbacks via ingress.publicBaseUrl",
+      "description": "Set up and manage ngrok-based public ingress for local assistants; do not use this in managed mode when platform callback routing is available",
       "metadata": {
         "emoji": "🌍",
         "vellum": {
-          "display-name": "Public Ingress"
+          "display-name": "Public Ingress",
+          "activation-hints": [
+            "Local assistant needs a public webhook or OAuth callback URL",
+            "ngrok tunnel setup for a non-managed assistant"
+          ],
+          "avoid-when": [
+            "Running in a managed/containerized assistant with platform callback routing available"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"

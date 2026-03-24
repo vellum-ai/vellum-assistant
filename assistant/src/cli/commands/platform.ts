@@ -1,14 +1,8 @@
 import type { Command } from "commander";
 
 import {
-  getPlatformAssistantId,
-  getPlatformBaseUrl,
-  getPlatformInternalApiKey,
-} from "../../config/env.js";
-import { getIsContainerized } from "../../config/env-registry.js";
-import {
   registerCallbackRoute,
-  shouldUsePlatformCallbacks,
+  resolvePlatformCallbackRegistrationContext,
 } from "../../inbound/platform-callback-registration.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
@@ -55,17 +49,22 @@ Fields:
   assistantId         PLATFORM_ASSISTANT_ID — this assistant's platform UUID
   hasInternalApiKey   Whether PLATFORM_INTERNAL_API_KEY is set (boolean,
                       value not disclosed)
+  hasAssistantApiKey  Whether a stored assistant API key is available
+  available           Whether callback registration prerequisites are satisfied
 
 Examples:
   $ assistant platform status
   $ assistant platform status --json`,
     )
-    .action((_opts: Record<string, unknown>, cmd: Command) => {
+    .action(async (_opts: Record<string, unknown>, cmd: Command) => {
+      const context = await resolvePlatformCallbackRegistrationContext();
       const result = {
-        containerized: getIsContainerized(),
-        baseUrl: getPlatformBaseUrl(),
-        assistantId: getPlatformAssistantId(),
-        hasInternalApiKey: !!getPlatformInternalApiKey(),
+        containerized: context.containerized,
+        baseUrl: context.platformBaseUrl,
+        assistantId: context.assistantId,
+        hasInternalApiKey: context.hasInternalApiKey,
+        hasAssistantApiKey: context.hasAssistantApiKey,
+        available: context.enabled,
       };
 
       writeOutput(cmd, result);
@@ -76,6 +75,12 @@ Examples:
         log.info(`Assistant ID: ${result.assistantId || "(not set)"}`);
         log.info(
           `Internal API key: ${result.hasInternalApiKey ? "set" : "not set"}`,
+        );
+        log.info(
+          `Assistant API key: ${result.hasAssistantApiKey ? "set" : "not set"}`,
+        );
+        log.info(
+          `Callback registration available: ${result.available ? "yes" : "no"}`,
         );
       }
     });
@@ -145,11 +150,12 @@ Examples:
     )
     .action(async (opts: { path: string; type: string }, cmd: Command) => {
       try {
-        if (!shouldUsePlatformCallbacks()) {
+        const context = await resolvePlatformCallbackRegistrationContext();
+        if (!context.enabled) {
           writeOutput(cmd, {
             ok: false,
             error:
-              "Platform callbacks not available \u2014 not running in containerized mode",
+              "Platform callbacks not available — missing containerized platform registration context",
           });
           process.exitCode = 1;
           return;

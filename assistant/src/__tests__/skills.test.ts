@@ -603,7 +603,7 @@ describe("bundled browser skill", () => {
   });
 });
 
-describe("ingress-dependent setup skills declare public-ingress", () => {
+describe("ingress-dependent setup skills declare public-ingress intentionally", () => {
   const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
   const FIRST_PARTY_SKILLS_DIR = join(
     import.meta.dir,
@@ -649,13 +649,27 @@ describe("ingress-dependent setup skills declare public-ingress", () => {
     return undefined;
   }
 
-  test("telegram-setup includes public-ingress", () => {
+  test("telegram-setup does not hard-depend on public-ingress", () => {
     const includes = readSkillIncludes(
       FIRST_PARTY_SKILLS_DIR,
       "telegram-setup",
     );
+    expect(includes ?? []).not.toContain("public-ingress");
+  });
+
+  test("twilio-setup includes public-ingress", () => {
+    const includes = readSkillIncludes(FIRST_PARTY_SKILLS_DIR, "twilio-setup");
     expect(includes).toBeDefined();
     expect(includes).toContain("public-ingress");
+  });
+
+  test("public-ingress frontmatter advertises managed-mode avoidance", () => {
+    const content = readFileSync(
+      join(FIRST_PARTY_SKILLS_DIR, "public-ingress", "SKILL.md"),
+      "utf-8",
+    );
+    expect(content).toContain("avoid-when:");
+    expect(content.toLowerCase()).toContain("managed/containerized");
   });
 });
 
