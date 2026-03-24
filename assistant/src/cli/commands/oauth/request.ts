@@ -452,7 +452,7 @@ Examples:
             if (managed) {
               authHint =
                 `Hint: Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth platform status --provider ${providerKey}' to check connection health.\n` +
+                `Run 'assistant oauth platform status ${providerKey}' to check connection health.\n` +
                 `To reconnect, run 'assistant oauth platform connect --help'.`;
             } else {
               authHint =
