@@ -85,13 +85,18 @@ function readBodyData(data: string): unknown {
 
 /**
  * Determine whether a provider is running in platform-managed mode.
+ * Returns false if config is unavailable (e.g. in test environments).
  */
 function isManagedMode(providerKey: string): boolean {
   const provider = getProvider(providerKey);
   const managedKey = provider?.managedServiceConfigKey;
   if (!managedKey || !(managedKey in ServicesSchema.shape)) return false;
-  const services: Services = getConfig().services;
-  return services[managedKey as keyof Services].mode === "managed";
+  try {
+    const services: Services = getConfig().services;
+    return services[managedKey as keyof Services].mode === "managed";
+  } catch {
+    return false;
+  }
 }
 
 /**

@@ -221,29 +221,6 @@ mock.module("../oauth/connection-resolver.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock config/loader (needed by request.ts for managed mode check)
-// ---------------------------------------------------------------------------
-
-mock.module("../config/loader.js", () => ({
-  getConfig: () => ({
-    services: {
-      inference: {
-        mode: "your-own",
-        provider: "anthropic",
-        model: "claude-opus-4-6",
-      },
-      "image-generation": {
-        mode: "your-own",
-        provider: "gemini",
-        model: "gemini-3.1-flash-image-preview",
-      },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
-      "google-oauth": { mode: "your-own" },
-    },
-  }),
-}));
-
-// ---------------------------------------------------------------------------
 // Mock platform/client (needed by request.ts)
 // ---------------------------------------------------------------------------
 
