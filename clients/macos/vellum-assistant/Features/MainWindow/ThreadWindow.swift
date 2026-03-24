@@ -82,6 +82,7 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
         nsWindow.backgroundColor = NSColor(VColor.surfaceBase)
         nsWindow.isReleasedWhenClosed = false
         nsWindow.contentMinSize = NSSize(width: 480, height: 400)
+        nsWindow.setFrame(windowRect, display: false)
         nsWindow.title = title
         nsWindow.delegate = self
 
@@ -190,6 +191,7 @@ private struct ThreadWindowContentView: View {
             threadTitleBar
             chatContent
         }
+        .frame(minWidth: 480, maxWidth: .infinity, minHeight: 400, maxHeight: .infinity)
         .background(VColor.surfaceBase)
     }
 
