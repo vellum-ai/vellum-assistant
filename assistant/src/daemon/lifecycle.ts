@@ -285,8 +285,7 @@ export async function runDaemon(): Promise<void> {
     // Slack channel) that already have stored credentials from before the
     // oauth_connection migration. Safe to call on every startup.
     //
-    // Must run AFTER workspace migrations so that migration 015 (which copies
-    // encrypted-store credentials to the credential store) has already executed.
+    // Must run AFTER workspace migrations.
     // Otherwise syncManualTokenConnection sees no stored credentials and
     // incorrectly removes existing connection rows.
     try {

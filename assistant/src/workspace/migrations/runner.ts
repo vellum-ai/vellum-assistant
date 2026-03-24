@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 
 import { ensureDir, readTextFileSync } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
-import type { WorkspaceMigration } from "./types.js";
+import type { WorkspaceMigration, WorkspaceMigrationStatus } from "./types.js";
 
 const log = getLogger("workspace-migrations");
 
@@ -16,7 +16,7 @@ export function getLastWorkspaceMigrationId(
 export type CheckpointFile = {
   applied: Record<
     string,
-    { appliedAt: string; status?: "started" | "completed" | "rolling_back" }
+    { appliedAt: string; status?: WorkspaceMigrationStatus }
   >;
 };
 
@@ -108,9 +108,14 @@ export async function runWorkspaceMigrations(
     } catch (error) {
       log.error(
         { migrationId: migration.id, error },
-        `Workspace migration failed: ${migration.id}`,
+        `Workspace migration failed: ${migration.id} — marking as failed and continuing`,
       );
-      throw error;
+      checkpoints.applied[migration.id] = {
+        appliedAt: new Date().toISOString(),
+        status: "failed",
+      };
+      saveCheckpoints(workspaceDir, checkpoints);
+      continue;
     }
 
     // Mark as completed
@@ -207,9 +212,14 @@ export async function rollbackWorkspaceMigrations(
     } catch (error) {
       log.error(
         { migrationId: migration.id, error },
-        `Workspace migration rollback failed: ${migration.id}`,
+        `Workspace migration rollback failed: ${migration.id} — marking as failed and continuing`,
       );
-      throw error;
+      checkpoints.applied[migration.id] = {
+        appliedAt: checkpoints.applied[migration.id]!.appliedAt,
+        status: "failed",
+      };
+      saveCheckpoints(workspaceDir, checkpoints);
+      continue;
     }
 
     // Remove the migration entry from checkpoints
