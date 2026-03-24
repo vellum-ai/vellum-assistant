@@ -26,6 +26,7 @@ struct HatchingStepView: View {
     }
     @State private var completionTask: Task<Void, Never>?
     @State private var progressTimer: Timer?
+    @State private var progressStartTime: CFAbsoluteTime?
 
     var body: some View {
         VStack(spacing: VSpacing.lg) {
@@ -282,7 +283,20 @@ struct HatchingStepView: View {
 
     // MARK: - Progress Timer
 
+    /// Estimated hatch duration per hosting mode, used to pace the progress bar.
+    /// The bar uses an asymptotic curve so it never stalls even if the actual
+    /// duration exceeds this estimate — it just moves more slowly.
+    private var estimatedDuration: TimeInterval {
+        switch state.cloudProvider {
+        case "local": return 10
+        case "docker": return 120
+        case "gcp", "aws": return 300
+        default: return 60
+        }
+    }
+
     private func startProgressTimer() {
+        progressStartTime = CFAbsoluteTimeGetCurrent()
         progressTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { _ in
             Task { @MainActor in
                 updateProgressDisplay()
@@ -296,9 +310,8 @@ struct HatchingStepView: View {
     }
 
     private func updateProgressDisplay() {
-        guard state.hatchStepLabel != nil else { return }
+        guard state.hatchStepLabel != nil, let startTime = progressStartTime else { return }
 
-        let target = state.hatchProgressTarget
         let current = state.hatchProgressDisplay
 
         if state.hatchCompleted {
@@ -318,17 +331,12 @@ struct HatchingStepView: View {
             return
         }
 
-        // Ceiling: don't creep past next step boundary, cap at 95%
-        let nextStepProgress = Double(state.hatchCurrentStep + 1) / Double(max(state.hatchTotalSteps, 1))
-        let ceiling = min(nextStepProgress - 0.02, 0.95)
-
-        if current < target {
-            // Lerp quickly toward target (catches up in ~200ms)
-            state.hatchProgressDisplay = current + (target - current) * 0.15
-        } else if current < ceiling {
-            // Slow creep (~1% per second at 60fps)
-            state.hatchProgressDisplay = min(current + 0.0003, ceiling)
-        }
+        // Asymptotic time-based progress: 0.95 * (1 - e^(-t/estimated))
+        // Never reaches 95% no matter how long — always appears to be moving.
+        // estimatedDuration controls the pace: at 1x estimate the bar is ~60%.
+        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+        let timeProgress = 0.95 * (1.0 - exp(-elapsed / estimatedDuration))
+        state.hatchProgressDisplay = timeProgress
     }
 
     // MARK: - Hatching / Pairing
