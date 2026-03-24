@@ -61,8 +61,11 @@ export async function deliverGeneratedApprovalPrompt(
       approvalCopyGenerator,
     );
 
-    // Append a legend explaining what each button does
-    const legend = buildActionLegend(uiMetadata.actions);
+    // Append a legend explaining what each button does.
+    // Skip for WhatsApp — it only renders a subset of buttons (max 3), so
+    // the legend would advertise options that aren't available as buttons.
+    const legend =
+      sourceChannel !== "whatsapp" ? buildActionLegend(uiMetadata.actions) : "";
     const richTextWithLegend = legend ? `${richText}\n\n${legend}` : richText;
 
     try {
