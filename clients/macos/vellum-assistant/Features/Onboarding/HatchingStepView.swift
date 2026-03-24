@@ -16,28 +16,13 @@ struct HatchingStepView: View {
     @State private var hatchStarted = false
     @State private var failureReason: String?
     private var hatchBody: AvatarBodyShape {
-        get {
-            if state.hatchAvatarBodyShape == nil {
-                state.hatchAvatarBodyShape = .allCases.randomElement()!
-            }
-            return state.hatchAvatarBodyShape!
-        }
+        state.hatchAvatarBodyShape ?? .allCases[0]
     }
     private var hatchEyes: AvatarEyeStyle {
-        get {
-            if state.hatchAvatarEyeStyle == nil {
-                state.hatchAvatarEyeStyle = .allCases.randomElement()!
-            }
-            return state.hatchAvatarEyeStyle!
-        }
+        state.hatchAvatarEyeStyle ?? .allCases[0]
     }
     private var hatchColor: AvatarColor {
-        get {
-            if state.hatchAvatarColor == nil {
-                state.hatchAvatarColor = .allCases.randomElement()!
-            }
-            return state.hatchAvatarColor!
-        }
+        state.hatchAvatarColor ?? .allCases[0]
     }
     @State private var completionTask: Task<Void, Never>?
 
@@ -59,6 +44,18 @@ struct HatchingStepView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .opacity(showContent ? 1 : 0)
         .onAppear {
+            // Eagerly initialize avatar traits so computed getters don't
+            // mutate @Observable state during body evaluation.
+            if state.hatchAvatarBodyShape == nil {
+                state.hatchAvatarBodyShape = .allCases.randomElement()!
+            }
+            if state.hatchAvatarEyeStyle == nil {
+                state.hatchAvatarEyeStyle = .allCases.randomElement()!
+            }
+            if state.hatchAvatarColor == nil {
+                state.hatchAvatarColor = .allCases.randomElement()!
+            }
+
             withAnimation(.easeOut(duration: 0.5)) {
                 showContent = true
             }
