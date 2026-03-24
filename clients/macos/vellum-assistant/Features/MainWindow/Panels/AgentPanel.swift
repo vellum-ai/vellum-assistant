@@ -282,6 +282,7 @@ struct SkillItemRow: View {
                     .foregroundStyle(VColor.contentSecondary)
                     .lineLimit(1)
                     .multilineTextAlignment(.leading)
+                    .padding(.top, VSpacing.xs)
             }
         }
         .contextMenu {
