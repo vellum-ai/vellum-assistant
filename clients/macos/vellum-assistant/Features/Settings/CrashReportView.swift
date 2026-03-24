@@ -49,7 +49,7 @@ struct CrashReportView: View {
     private var logPreview: some View {
         ScrollView {
             Text(crashLog)
-                .font(VFont.monoSmall)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)

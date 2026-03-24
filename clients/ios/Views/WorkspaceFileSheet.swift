@@ -86,7 +86,7 @@ struct WorkspaceFileSheet: View {
             WorkspaceVideoPlayer(url: contentURL, client: client)
         } else if let response = fileResponse, !response.isBinary, response.content != nil {
             TextEditor(text: $editableContent)
-                .font(VFont.mono)
+                .font(VFont.bodyMediumDefault)
                 .padding(VSpacing.sm)
                 .onChange(of: editableContent) { _, newValue in
                     isDirty = newValue != originalContent

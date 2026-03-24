@@ -20,7 +20,7 @@ public struct SkillInvocationChip: View {
                     .foregroundColor(VColor.contentTertiary)
 
                 Text(data.name)
-                    .font(VFont.mono)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentDefault)
 
                 Text(data.description)

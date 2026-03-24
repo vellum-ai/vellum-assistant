@@ -378,7 +378,7 @@ struct SettingsDeveloperTab: View {
 
             if let version = effectiveVersion {
                 Text(version)
-                    .font(VFont.mono)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(isVersionIncompatible ? VColor.systemNegativeStrong : VColor.contentDefault)
                     .textSelection(.enabled)
             } else {
@@ -396,7 +396,7 @@ struct SettingsDeveloperTab: View {
                     .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                 Text(appVersion)
-                    .font(VFont.mono)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.primaryBase)
             }
         }
@@ -465,7 +465,7 @@ struct SettingsDeveloperTab: View {
                 .frame(width: 100, alignment: .leading)
 
             Text(value)
-                .font(mono ? VFont.mono : VFont.bodyMediumLighter)
+                .font(mono ? VFont.bodyMediumDefault : VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .textSelection(.enabled)
 
@@ -492,7 +492,7 @@ struct SettingsDeveloperTab: View {
                             .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         Text(detail.value)
-                            .font(VFont.mono)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentSecondary)
                             .textSelection(.enabled)
                     }
@@ -504,7 +504,7 @@ struct SettingsDeveloperTab: View {
                             .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         Text(uuid)
-                            .font(VFont.mono)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentSecondary)
                             .textSelection(.enabled)
                     }

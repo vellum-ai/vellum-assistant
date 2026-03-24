@@ -504,7 +504,7 @@ struct AssistantChannelsDetailView: View {
                     VIconView(.circleCheck, size: 14)
                         .foregroundColor(VColor.systemPositiveStrong)
                     Text(email)
-                        .font(VFont.mono)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(VColor.contentDefault)
                         .textSelection(.enabled)
                     Spacer()

@@ -355,7 +355,7 @@ struct MarkdownTableView: View {
             HStack(spacing: 0) {
                 ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
                     Text(header)
-                        .font(.custom("Inter-Medium", size: 11))
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, VSpacing.sm)

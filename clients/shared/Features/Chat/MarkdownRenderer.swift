@@ -19,7 +19,7 @@ private struct CodeBlockView: View {
             HStack(spacing: VSpacing.sm) {
                 if !lang.isEmpty {
                     Text(lang)
-                        .font(VFont.monoSmall)
+                        .font(VFont.bodySmallDefault)
                         .foregroundColor(VColor.contentTertiary)
                 }
                 Spacer()
@@ -28,7 +28,7 @@ private struct CodeBlockView: View {
                         VIconView(showCopied ? .check : .copy, size: 11)
                         if showCopied {
                             Text("Copied")
-                                .font(VFont.monoSmall)
+                                .font(VFont.bodySmallDefault)
                         }
                     }
                     .foregroundColor(showCopied ? VColor.systemPositiveStrong : VColor.contentTertiary)
@@ -39,7 +39,7 @@ private struct CodeBlockView: View {
             .padding(.top, VSpacing.xs)
 
             Text(code)
-                .font(VFont.mono)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentDefault)
                 .padding(VSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)

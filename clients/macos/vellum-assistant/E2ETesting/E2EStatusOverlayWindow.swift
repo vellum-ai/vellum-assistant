@@ -145,12 +145,12 @@ struct E2EStatusOverlayView: View {
                     Spacer()
 
                     Text("Step \(status.iteration)")
-                        .font(VFont.monoSmall)
+                        .font(VFont.bodySmallDefault)
                         .foregroundColor(VColor.contentSecondary)
                         .monospacedDigit()
 
                     Text(status.elapsed)
-                        .font(VFont.monoSmall)
+                        .font(VFont.bodySmallDefault)
                         .foregroundColor(VColor.contentSecondary)
                         .monospacedDigit()
                 }

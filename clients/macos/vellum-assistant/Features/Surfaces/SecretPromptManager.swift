@@ -216,7 +216,7 @@ struct SecretPromptView: View {
                     placeholder: placeholder,
                     text: $secretValue,
                     isSecure: true,
-                    font: VFont.mono
+                    font: VFont.bodyMediumDefault
                 )
                 .accessibilityIdentifier("secure-credential-input")
 

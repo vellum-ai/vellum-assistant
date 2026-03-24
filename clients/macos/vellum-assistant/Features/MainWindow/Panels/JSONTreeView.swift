@@ -302,26 +302,26 @@ private struct JSONNodeRow: View {
         case .string(_, let value):
             primitiveRow {
                 Text("\"\(value)\"")
-                    .font(VFont.mono)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.syntaxString)
             }
         case .number(_, let value):
             primitiveRow {
                 Text("\(value)")
-                    .font(VFont.mono)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.syntaxNumber)
             }
         case .bool(_, let value):
             primitiveRow {
                 Text(value ? "true" : "false")
-                    .font(VFont.mono)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.syntaxNumber)
                     .bold()
             }
         case .null:
             primitiveRow {
                 Text("null")
-                    .font(VFont.mono)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .italic()
             }
@@ -352,10 +352,10 @@ private struct JSONNodeRow: View {
                             .animation(VAnimation.fast, value: isExpanded)
                         keyLabel
                         Text(summary)
-                            .font(VFont.mono)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentTertiary)
                         Text("(\(countLabel))")
-                            .font(VFont.monoSmall)
+                            .font(VFont.bodySmallDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
                     .contentShape(Rectangle())
@@ -392,10 +392,10 @@ private struct JSONNodeRow: View {
     private var keyLabel: some View {
         if let key = key {
             Text(key)
-                .font(VFont.mono)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentDefault)
             Text(": ")
-                .font(VFont.mono)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentTertiary)
         }
     }

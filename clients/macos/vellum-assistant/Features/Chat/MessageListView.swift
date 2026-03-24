@@ -1417,7 +1417,7 @@ struct MessageListView: View {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.arrowDown, size: 10)
                             Text("Scroll to latest")
-                                .font(VFont.monoSmall)
+                                .font(VFont.bodySmallDefault)
                         }
                         .padding(.horizontal, VSpacing.md)
                         .padding(.vertical, VSpacing.sm)

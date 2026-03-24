@@ -41,7 +41,7 @@ struct InputsGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.xl) {
                         Text("Live value: \"\(textFieldValue)\"")
-                            .font(VFont.mono)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentTertiary)
 
                         Divider().background(VColor.borderBase)
@@ -179,11 +179,11 @@ struct InputsGallerySection: View {
 
                         HStack(alignment: .top, spacing: VSpacing.xl) {
                             VStack(alignment: .leading, spacing: VSpacing.md) {
-                                Text("Monospaced (VFont.mono)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                                Text("Monospaced (VFont.bodyMediumDefault)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                                 VTextField(
                                     placeholder: "Enter command...",
                                     text: $textFieldValue,
-                                    font: VFont.mono
+                                    font: VFont.bodyMediumDefault
                                 )
                             }
 
@@ -193,7 +193,7 @@ struct InputsGallerySection: View {
                                     placeholder: "Enter secret...",
                                     text: $secureFieldValue,
                                     isSecure: true,
-                                    font: VFont.mono
+                                    font: VFont.bodyMediumDefault
                                 )
                             }
                         }
@@ -285,7 +285,7 @@ struct InputsGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.xl) {
                         Text("Live value: \(Int(sliderValue))")
-                            .font(VFont.mono)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentTertiary)
 
                         Divider().background(VColor.borderBase)
@@ -368,7 +368,7 @@ struct InputsGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.xl) {
                         Text("Toggle A: \(toggleA ? "ON" : "OFF")  |  Toggle B: \(toggleB ? "ON" : "OFF")")
-                            .font(VFont.mono)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentTertiary)
 
                         Divider().background(VColor.borderBase)
@@ -405,7 +405,7 @@ struct InputsGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.xl) {
                         Text("Live value: \"\(dropdownValue)\"")
-                            .font(VFont.mono)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentTertiary)
 
                         Divider().background(VColor.borderBase)

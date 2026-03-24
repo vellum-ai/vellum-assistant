@@ -54,7 +54,7 @@ public struct CommandListBubble: View {
             ForEach(commands) { command in
                 HStack(spacing: VSpacing.sm) {
                     Text(command.id)
-                        .font(VFont.monoSmall)
+                        .font(VFont.bodySmallDefault)
                         .foregroundColor(VColor.primaryBase)
                         .frame(width: 100, alignment: .leading)
 

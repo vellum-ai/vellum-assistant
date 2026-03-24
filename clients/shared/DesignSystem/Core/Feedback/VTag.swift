@@ -25,7 +25,7 @@ public struct VTag: View {
                     .foregroundColor(color)
             }
             Text(label)
-                .font(VFont.labelDefault)
+                .font(VFont.bodySmallEmphasised)
                 .foregroundColor(VColor.contentDefault)
         }
         .padding(.horizontal, VSpacing.sm)

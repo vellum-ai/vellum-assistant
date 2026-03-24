@@ -16,7 +16,7 @@ struct MemoryItemRow: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     HStack(alignment: .center, spacing: VSpacing.sm) {
                         Text(item.subject)
-                            .font(VFont.bodySmallEmphasised)
+                            .font(VFont.titleSmall)
                             .foregroundStyle(VColor.contentEmphasized)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -28,8 +28,8 @@ struct MemoryItemRow: View {
                     }
 
                     Text(item.statement)
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentSecondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }

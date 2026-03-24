@@ -316,7 +316,7 @@ struct SettingsPanel: View {
                         devUnlockText = ""
                     },
                     maxWidth: 160,
-                    font: VFont.mono
+                    font: VFont.bodyMediumDefault
                 )
             }
             .padding(VSpacing.lg)
@@ -782,11 +782,11 @@ struct SettingsPanelEnvVarsSheet: View {
                 ForEach(vars, id: \.0) { key, value in
                     HStack(alignment: .top, spacing: VSpacing.sm) {
                         Text(key)
-                            .font(VFont.monoSmall)
+                            .font(VFont.bodySmallDefault)
                             .foregroundColor(VColor.contentSecondary)
                             .frame(width: 200, alignment: .trailing)
                         Text(value)
-                            .font(VFont.monoSmall)
+                            .font(VFont.bodySmallDefault)
                             .foregroundColor(VColor.contentTertiary)
                             .textSelection(.enabled)
                         Spacer()

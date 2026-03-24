@@ -164,94 +164,7 @@ struct AgentPanelContent: View {
     // MARK: - Content View
 
     @ViewBuilder
-    private var categoryFilterDropdown: some View {
-        Button {
-            showFilterPopover.toggle()
-        } label: {
-            HStack(spacing: VSpacing.md) {
-                HStack(spacing: VSpacing.sm) {
-                    VIconView(.filter, size: 13)
-                        .foregroundColor(VColor.contentTertiary)
-                    Text(filterLabel)
-                        .foregroundColor(VColor.contentDefault)
-                }
-                .font(VFont.bodyMediumLighter)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                VIconView(.chevronDown, size: 13)
-                    .foregroundColor(VColor.contentTertiary)
-                    .accessibilityHidden(true)
-            }
-            .padding(.horizontal, VSpacing.md)
-            .padding(.vertical, VSpacing.xs)
-            .frame(height: 32)
-            .vInputChrome()
-        }
-        .buttonStyle(.plain)
-        .frame(width: 200)
-        .popover(isPresented: $showFilterPopover, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 0) {
-                Button {
-                    withAnimation(VAnimation.fast) {
-                        selectedCategories.removeAll()
-                    }
-                } label: {
-                    HStack(spacing: VSpacing.sm) {
-                        VIconView(.layoutGrid, size: 14)
-                            .foregroundColor(VColor.contentDefault)
-                            .frame(width: 20)
-                        Text("All")
-                            .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentDefault)
-                        Spacer()
-                    }
-                    .padding(.horizontal, VSpacing.md)
-                    .padding(.vertical, VSpacing.sm)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                Divider().padding(.horizontal, VSpacing.sm)
-
-                ForEach(sortedCategories, id: \.rawValue) { category in
-                    Button {
-                        withAnimation(VAnimation.fast) {
-                            if selectedCategories.contains(category) {
-                                selectedCategories.remove(category)
-                            } else {
-                                selectedCategories.insert(category)
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: VSpacing.sm) {
-                            VIconView(category.icon, size: 14)
-                                .foregroundColor(VColor.contentDefault)
-                                .frame(width: 20)
-                            Text(category.displayName)
-                                .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentDefault)
-                            Spacer()
-                            if selectedCategories.contains(category) {
-                                VIconView(.check, size: 12)
-                                    .foregroundColor(VColor.primaryBase)
-                            }
-                        }
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.sm)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.vertical, VSpacing.sm)
-            .frame(width: 220)
-        }
-    }
-
-    // MARK: - Skills Content
-
-    @ViewBuilder
-    private var skillsContent: some View {
+    private var contentView: some View {
         if let selectedId = selectedInstalledSkillId,
            let skill = filteredSkills.first(where: { $0.id == selectedId }) {
             SkillDetailView(
@@ -272,117 +185,30 @@ struct AgentPanelContent: View {
                 VLoadingIndicator()
                 Spacer()
             }
-            .frame(height: 60)
-        } else if userSkills.isEmpty {
-            VStack(spacing: VSpacing.md) {
-                Text("No skills installed")
-                    .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Button(action: { skillsManager.fetchSkills() }) {
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.refreshCw, size: 11)
-                        Text("Refresh")
-                            .font(VFont.labelDefault)
-                    }
-                    .foregroundColor(VColor.primaryBase)
-                }
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(.vertical, VSpacing.sm)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if filteredSkills.isEmpty {
+            VEmptyState(
+                title: selectedCategory == nil ? "No Skills Installed" : "No \(selectedCategory!.displayName) Skills",
+                subtitle: selectedCategory == nil
+                    ? "Ask your assistant in chat to search for and install new skills."
+                    : "Try selecting a different category or clearing the filter.",
+                icon: VIcon.zap.rawValue
+            )
         } else {
-            VStack(spacing: VSpacing.md) {
-                HStack(spacing: VSpacing.sm) {
-                    VSearchBar(placeholder: "Search skills", text: $globalSkillSearchQuery)
-                    categoryFilterDropdown
-                }
-
-                if categoryFilteredSkills.isEmpty {
-                    VEmptyState(
-                        title: "No skills in selected categories",
-                        subtitle: categoryEmptySubtitle,
-                        icon: "tray"
-                    )
-                    .frame(minHeight: 100)
-                } else {
-                    ScrollView {
-                        LazyVGrid(
-                            columns: [
-                                GridItem(.flexible(), spacing: VSpacing.md),
-                                GridItem(.flexible(), spacing: VSpacing.md)
-                            ],
-                            spacing: VSpacing.md
-                        ) {
-                            ForEach(categoryFilteredSkills) { skill in
-                                skillCard(skill)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func skillCard(_ skill: SkillInfo) -> some View {
-        SkillCardButton(skill: skill) {
-            withAnimation(VAnimation.fast) {
-                selectedInstalledSkillId = skill.id
-            }
-        } onDelete: {
-            skillToDelete = skill
-        }
-    }
-
-    // MARK: - Skill Card
-
-    private struct SkillCardButton: View {
-        let skill: SkillInfo
-        let onSelect: () -> Void
-        let onDelete: () -> Void
-
-        private var isRemovable: Bool {
-            skill.source == "managed" || skill.source == "clawhub"
-        }
-
-        var body: some View {
-            VInteractiveCard(action: onSelect) {
-                HStack(alignment: .center, spacing: VSpacing.lg) {
-                    skillIcon(skill.emoji)
-
-                    VStack(alignment: .leading, spacing: VSpacing.sm) {
-                        HStack(spacing: VSpacing.sm) {
-                            Text(skill.name)
-                                .font(VFont.bodyMediumEmphasised)
-                                .foregroundColor(VColor.contentDefault)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-
-                            Spacer()
-
-                            VSkillTypePill(source: skill.source)
-
-                            if isRemovable {
-                                VButton(
-                                    label: "Delete",
-                                    iconOnly: VIcon.trash.rawValue,
-                                    style: .dangerGhost,
-                                    tooltip: "Uninstall skill"
-                                ) {
-                                    onDelete()
+            ScrollView {
+                LazyVStack(spacing: VSpacing.sm) {
+                    ForEach(filteredSkills) { skill in
+                        SkillItemRow(
+                            skill: skill,
+                            onSelect: {
+                                withAnimation(VAnimation.fast) {
+                                    selectedInstalledSkillId = skill.id
                                 }
                             },
                             onDelete: {
                                 skillToDelete = skill
                             }
-                        }
-
-                        Text(skill.description)
-                            .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
-                            .lineLimit(2)
-                            .frame(maxWidth: .infinity, minHeight: 28, alignment: .topLeading)
+                        )
                     }
                 }
                 .background { OverlayScrollerStyle() }
@@ -424,47 +250,42 @@ struct SkillItemRow: View {
 
     var body: some View {
         VCard(padding: VSpacing.lg, action: onSelect) {
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                HStack(alignment: .center, spacing: VSpacing.sm) {
-                    if let emoji = skill.emoji, !emoji.isEmpty {
-                        Text(emoji)
-                            .font(.system(size: 16))
+            HStack(alignment: .center, spacing: VSpacing.lg) {
+                if let emoji = skill.emoji, !emoji.isEmpty {
+                    Text(emoji)
+                        .font(.system(size: 32))
+                }
+
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    HStack(alignment: .center, spacing: VSpacing.sm) {
+                        Text(skill.name)
+                            .font(VFont.titleSmall)
+                            .foregroundStyle(VColor.contentEmphasized)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+
+                        VSkillTypePill(source: skill.source)
+
+                        Spacer()
                     }
 
-                    Text(skill.name)
-                        .font(VFont.bodySmallEmphasised)
-                        .foregroundStyle(VColor.contentEmphasized)
+                    Text(skill.description)
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentTertiary)
                         .lineLimit(1)
                         .truncationMode(.tail)
+                }
 
-                    VTag(
-                        category.displayName,
-                        color: category.color
+                if isRemovable {
+                    VButton(
+                        label: "Delete",
+                        iconOnly: VIcon.trash.rawValue,
+                        style: .dangerGhost,
+                        size: .compact,
+                        action: onDelete
                     )
-
-                    VSkillTypePill(source: skill.source)
-
-                    Spacer()
+                    .accessibilityLabel("Uninstall skill")
                 }
-                .overlay(alignment: .trailing) {
-                    if isRemovable {
-                        VButton(
-                            label: "Delete",
-                            iconOnly: VIcon.trash.rawValue,
-                            style: .dangerGhost,
-                            size: .compact,
-                            action: onDelete
-                        )
-                        .accessibilityLabel("Uninstall skill")
-                    }
-                }
-
-                Text(skill.description)
-                    .font(VFont.bodySmall)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .lineLimit(1)
-                    .multilineTextAlignment(.leading)
-                    .padding(.top, VSpacing.xs)
             }
         }
         .contextMenu {

@@ -227,7 +227,7 @@ struct SubagentDetailPanel: View {
                     .foregroundColor(VColor.systemPositiveWeak)
                 if !event.content.isEmpty {
                     Text(event.content)
-                        .font(VFont.monoSmall)
+                        .font(VFont.bodySmallDefault)
                         .foregroundColor(VColor.contentTertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -246,7 +246,7 @@ struct SubagentDetailPanel: View {
 
         case .toolResult:
             Text(event.content)
-                .font(VFont.monoSmall)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentSecondary)
                 .lineLimit(6)
                 .textSelection(.enabled)

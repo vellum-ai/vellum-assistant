@@ -135,7 +135,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         case .tokens:
             return [
                 GalleryComponent("colors", "VColor", keywords: ["colors", "semantic colors", "theme"], description: "Adaptive semantic color tokens sourced from Figma. Each token resolves to a light/dark pair. Always use instead of raw Color values."),
-                GalleryComponent("typography", "VFont", keywords: ["typography", "fonts", "text styles"], description: "Typography scale with Inter and DM Mono fonts. Includes body, headline, caption, mono, section, and display styles."),
+                GalleryComponent("typography", "VFont", keywords: ["typography", "fonts", "text styles"], description: "DM Sans typography scale matching Figma. Includes title, body, label, and chat tokens."),
                 GalleryComponent("spacing", "VSpacing", keywords: ["spacing", "padding", "margins"], description: "4pt grid spacing tokens from xxs(2) to xxxl(48) with semantic aliases (inline, content, section, page)."),
                 GalleryComponent("radius", "VRadius", keywords: ["radius", "corner radius", "rounded"], description: "Corner radius tokens from xs(2) to pill(999). Always use instead of raw cornerRadius values."),
                 GalleryComponent("shadows", "VShadow", keywords: ["shadows", "elevation"], description: "Shadow tokens (sm, md, lg, glow, accentGlow) applied via .vShadow() modifier."),

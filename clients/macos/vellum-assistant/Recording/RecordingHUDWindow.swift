@@ -176,7 +176,7 @@ struct RecordingHUDView: View {
 
                 // Elapsed time (freezes when paused via timer pause)
                 Text(viewModel.formattedTime)
-                    .font(VFont.monoSmall)
+                    .font(VFont.bodySmallDefault)
                     .foregroundColor(viewModel.isPaused ? VColor.contentSecondary : VColor.contentDefault)
                     .monospacedDigit()
 

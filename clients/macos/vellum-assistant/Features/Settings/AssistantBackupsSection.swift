@@ -165,7 +165,7 @@ struct AssistantBackupsSection: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(backup.snapshotName)
-                            .font(VFont.mono)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
                         Text(backup.createdAt)

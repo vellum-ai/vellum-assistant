@@ -31,7 +31,7 @@ struct NavigationGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.xl) {
                         Text("Selected: \(segmentItems[segmentSelection])")
-                            .font(VFont.mono)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentTertiary)
 
                         Divider().background(VColor.borderBase)
@@ -60,7 +60,7 @@ struct NavigationGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.xl) {
                         Text("Selected: \(pillSelection)")
-                            .font(VFont.mono)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentTertiary)
 
                         Divider().background(VColor.borderBase)

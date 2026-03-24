@@ -157,7 +157,7 @@ struct AssistantUpgradeSection: View {
                                 .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                             Text(version)
-                                .font(VFont.mono)
+                                .font(VFont.bodyMediumDefault)
                                 .foregroundColor(VColor.contentDefault)
                         }
                     }
@@ -169,7 +169,7 @@ struct AssistantUpgradeSection: View {
                                 .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                             Text(version)
-                                .font(VFont.mono)
+                                .font(VFont.bodyMediumDefault)
                                 .foregroundColor(VColor.contentDefault)
                         }
                     }
@@ -179,7 +179,7 @@ struct AssistantUpgradeSection: View {
                             .foregroundColor(VColor.contentTertiary)
                         if let sgVersion = currentVersion, !sgVersion.isEmpty {
                             Text(sgVersion)
-                                .font(VFont.mono)
+                                .font(VFont.bodyMediumDefault)
                                 .foregroundColor(isVersionIncompatible ? VColor.systemNegativeStrong : VColor.contentDefault)
                         } else {
                             Text(healthzLoaded ? "Unavailable" : "Loading...")
@@ -216,7 +216,7 @@ struct AssistantUpgradeSection: View {
                                 .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                             Text(updateVersion)
-                                .font(VFont.mono)
+                                .font(VFont.bodyMediumDefault)
                                 .foregroundColor(VColor.primaryBase)
                         }
                     } else if hasCheckedForUpdates && !effectiveAvailable {

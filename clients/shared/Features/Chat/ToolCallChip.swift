@@ -141,7 +141,7 @@ public struct ToolCallChip: View {
                                 .foregroundColor(VColor.contentSecondary)
                             if !resolvedInputFull.isEmpty {
                                 Text(resolvedInputFull)
-                                    .font(VFont.monoSmall)
+                                    .font(VFont.bodySmallDefault)
                                     .foregroundColor(VColor.contentSecondary)
                                     .textSelection(.enabled)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -213,7 +213,7 @@ public struct ToolCallChip: View {
                                         .trimmingCharacters(in: .whitespacesAndNewlines)
                                     if !extraOutput.isEmpty {
                                         Text(extraOutput)
-                                            .font(VFont.monoSmall)
+                                            .font(VFont.bodySmallDefault)
                                             .foregroundColor(VColor.contentSecondary)
                                             .textSelection(.enabled)
                                     }
@@ -233,7 +233,7 @@ public struct ToolCallChip: View {
                                 } else if lineCount > 500 {
                                     ScrollView {
                                         Text(result)
-                                            .font(VFont.monoSmall)
+                                            .font(VFont.bodySmallDefault)
                                             .foregroundColor(VColor.contentSecondary)
                                             .frame(maxWidth: .infinity, alignment: .leading)
                                             .textSelection(.enabled)
@@ -241,7 +241,7 @@ public struct ToolCallChip: View {
                                     .frame(maxHeight: 400)
                                 } else {
                                     Text(result)
-                                        .font(VFont.monoSmall)
+                                        .font(VFont.bodySmallDefault)
                                         .foregroundColor(VColor.contentSecondary)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .textSelection(.enabled)

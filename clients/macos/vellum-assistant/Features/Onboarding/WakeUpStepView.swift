@@ -123,7 +123,7 @@ struct WakeUpStepView: View {
         Spacer()
 
         Text("\u{00A9} 2026 Vellum Inc.")
-            .font(VFont.monoSmall)
+            .font(VFont.bodySmallDefault)
             .foregroundStyle(VColor.contentTertiary.opacity(0.5))
             .padding(.bottom, VSpacing.sm)
 

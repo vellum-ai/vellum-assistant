@@ -314,7 +314,7 @@ public struct ToolConfirmationBubble: View {
     private func codePreviewBlock(_ content: String, maxHeight: CGFloat) -> some View {
         ScrollView {
             Text(content)
-                .font(VFont.monoSmall)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
@@ -363,7 +363,7 @@ public struct ToolConfirmationBubble: View {
                 let computedDiff = confirmation.unifiedDiffPreview ?? ""
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(diffInfo.filePath)
-                        .font(VFont.monoSmall)
+                        .font(VFont.bodySmallDefault)
                         .foregroundColor(VColor.contentTertiary)
 
                     if computedDiff.isEmpty {

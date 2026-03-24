@@ -246,7 +246,7 @@ struct LayoutGallerySection: View {
                         HStack(spacing: VSpacing.xl) {
                             Toggle("Show Dock", isOn: $showDock)
                             Text("Dock Width: \(Int(dockWidth))")
-                                .font(VFont.mono)
+                                .font(VFont.bodyMediumDefault)
                                 .foregroundColor(VColor.contentTertiary)
                         }
 

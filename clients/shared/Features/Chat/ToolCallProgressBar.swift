@@ -174,7 +174,7 @@ public struct ToolCallProgressBar: View {
                         .foregroundColor(VColor.contentTertiary)
 
                     Text(toolCall.inputSummary)
-                        .font(VFont.mono)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(VColor.contentSecondary)
                         .textSelection(.enabled)
                 }
@@ -229,7 +229,7 @@ public struct ToolCallProgressBar: View {
                                 .trimmingCharacters(in: .whitespacesAndNewlines)
                             if !extraOutput.isEmpty {
                                 Text(extraOutput)
-                                    .font(VFont.monoSmall)
+                                    .font(VFont.bodySmallDefault)
                                     .foregroundColor(VColor.contentSecondary)
                                     .textSelection(.enabled)
                             }
@@ -245,7 +245,7 @@ public struct ToolCallProgressBar: View {
                     } else {
                         ScrollView {
                             Text(result)
-                                .font(VFont.monoSmall)
+                                .font(VFont.bodySmallDefault)
                                 .foregroundColor(VColor.contentSecondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)

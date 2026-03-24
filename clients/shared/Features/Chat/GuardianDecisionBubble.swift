@@ -84,7 +84,7 @@ public struct GuardianDecisionBubble: View {
                             VIconView(.wrench, size: 10)
                                 .foregroundColor(VColor.contentTertiary)
                             Text(toolName)
-                                .font(VFont.monoSmall)
+                                .font(VFont.bodySmallDefault)
                                 .foregroundColor(VColor.contentSecondary)
                         }
                     }
@@ -95,7 +95,7 @@ public struct GuardianDecisionBubble: View {
                                 .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                             Text(decision.requestCode)
-                                .font(VFont.monoSmall)
+                                .font(VFont.bodySmallDefault)
                                 .foregroundColor(VColor.contentTertiary)
                         }
                     }

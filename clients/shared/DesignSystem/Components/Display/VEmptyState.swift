@@ -31,7 +31,7 @@ public struct VEmptyState: View {
                     .foregroundColor(VColor.contentTertiary)
             }
             Text(title)
-                .font(VFont.mono)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentTertiary)
             if let subtitle = subtitle {
                 Text(subtitle)

@@ -105,7 +105,7 @@ struct CodePreviewView: View {
     var body: some View {
         ScrollView {
             Text(displayCode)
-                .font(VFont.monoSmall)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(VSpacing.sm)

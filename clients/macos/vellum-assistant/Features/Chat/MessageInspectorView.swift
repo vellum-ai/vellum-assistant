@@ -76,7 +76,7 @@ struct MessageInspectorView: View {
                 }
 
                 Text(messageId)
-                    .font(VFont.monoSmall)
+                    .font(VFont.bodySmallDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .multilineTextAlignment(.trailing)
                     .fixedSize(horizontal: false, vertical: true)

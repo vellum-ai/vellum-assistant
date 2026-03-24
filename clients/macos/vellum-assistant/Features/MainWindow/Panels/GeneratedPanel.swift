@@ -106,7 +106,7 @@ struct GeneratedPanel: View {
 
                     TextField("Filter pages...", text: $searchText)
                         .textFieldStyle(.plain)
-                        .font(VFont.mono)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(VColor.contentDefault)
 
                     if !searchText.isEmpty {

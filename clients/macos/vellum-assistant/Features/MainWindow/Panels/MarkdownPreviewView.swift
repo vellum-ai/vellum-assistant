@@ -335,7 +335,7 @@ private func renderInlineMarkdown(_ text: String) -> Text {
             result = result + Text(content).italic()
         case .code(let content):
             result = result + Text(content)
-                .font(VFont.mono)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.systemPositiveStrong)
         case .link(let linkText, let linkUrl):
             if let url = URL(string: linkUrl) {
@@ -472,7 +472,7 @@ struct MarkdownPreviewView: View {
     private func codeBlockView(code: String) -> some View {
         ScrollView(.horizontal) {
             Text(code)
-                .font(VFont.mono)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentDefault)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: true, vertical: false)

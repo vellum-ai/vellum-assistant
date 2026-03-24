@@ -38,7 +38,7 @@ struct ToolPermissionTesterView: View {
                 VTextField(
                     placeholder: "Leave empty for assistant default",
                     text: $model.workingDir,
-                    font: VFont.mono
+                    font: VFont.bodyMediumDefault
                 )
             }
 
@@ -95,7 +95,7 @@ struct ToolPermissionTesterView: View {
     private func fieldNameLabel(_ field: ToolFieldDescriptor) -> some View {
         HStack(spacing: VSpacing.xs) {
             Text(field.id)
-                .font(VFont.monoSmall)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentDefault)
 
             if field.isRequired {
@@ -121,14 +121,14 @@ struct ToolPermissionTesterView: View {
             VTextField(
                 placeholder: "",
                 text: fieldValueBinding(for: field.id),
-                font: VFont.mono
+                font: VFont.bodyMediumDefault
             )
 
         case .number, .integer:
             VTextField(
                 placeholder: "",
                 text: fieldValueBinding(for: field.id),
-                font: VFont.mono
+                font: VFont.bodyMediumDefault
             )
 
         case .boolean:
@@ -144,7 +144,7 @@ struct ToolPermissionTesterView: View {
 
         case .json:
             TextEditor(text: fieldValueBinding(for: field.id))
-                .font(VFont.mono)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentDefault)
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 60, maxHeight: 120)
@@ -224,7 +224,7 @@ struct ToolPermissionTesterView: View {
 
                     if let ruleId = result.matchedRuleId {
                         Text("Rule: \(ruleId)")
-                            .font(VFont.monoSmall)
+                            .font(VFont.bodySmallDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
 
@@ -294,7 +294,7 @@ struct ToolPermissionTesterView: View {
             VTextField(
                 placeholder: "e.g. host_bash, host_file_write",
                 text: $model.toolName,
-                font: VFont.mono
+                font: VFont.bodyMediumDefault
             )
         } else {
             VDropdown(

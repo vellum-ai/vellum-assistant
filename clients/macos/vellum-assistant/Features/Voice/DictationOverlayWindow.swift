@@ -250,7 +250,7 @@ final class DictationOverlayWindow {
     private func makeLabel(for state: DictationState) -> NSTextField {
         let (text, color) = labelContent(for: state)
         let field = NSTextField(labelWithString: text)
-        field.font = NSFont(name: "Inter", size: 11) ?? NSFont.systemFont(ofSize: 11)
+        field.font = NSFont(name: "DMSans-Medium", size: 11) ?? NSFont.systemFont(ofSize: 11)
         field.textColor = color
         field.lineBreakMode = .byTruncatingTail
         field.maximumNumberOfLines = 1

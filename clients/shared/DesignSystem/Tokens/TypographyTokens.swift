@@ -8,7 +8,6 @@ import UIKit
 /// Font presets for the app. Always use these instead of raw Font.system() calls.
 ///
 /// **DM Sans** — geometric sans-serif for headings, body, and UI text.
-/// **DM Mono** — monospaced font for code and debug views.
 ///
 /// Token names follow the Figma type system: Category/Size-Weight.
 /// See: Figma → New App → Type (node 2193-4447)
@@ -27,36 +26,6 @@ public enum VFont {
         return base >= 18 ? round(base * compactScale) : base
         #else
         return base
-        #endif
-    }
-
-    /// DM Mono's default "f" has an exaggerated italic-style hook.
-    /// Stylistic Set 5 (ss05) provides a conventional "f" glyph.
-    private static func dmMono(_ name: String, size: CGFloat) -> Font {
-        #if os(macOS)
-        guard let nsFont = NSFont(name: name, size: size) else {
-            return Font.custom(name, size: size)
-        }
-        let descriptor = nsFont.fontDescriptor.addingAttributes([
-            .featureSettings: [[
-                NSFontDescriptor.FeatureKey.typeIdentifier: kStylisticAlternativesType,
-                NSFontDescriptor.FeatureKey.selectorIdentifier: kStylisticAltFiveOnSelector,
-            ]]
-        ])
-        return Font(NSFont(descriptor: descriptor, size: size) ?? nsFont)
-        #elseif os(iOS)
-        guard let uiFont = UIFont(name: name, size: size) else {
-            return Font.custom(name, size: size)
-        }
-        let descriptor = uiFont.fontDescriptor.addingAttributes([
-            .featureSettings: [[
-                UIFontDescriptor.FeatureKey.type: kStylisticAlternativesType,
-                UIFontDescriptor.FeatureKey.selector: kStylisticAltFiveOnSelector,
-            ]]
-        ])
-        return Font(UIFont(descriptor: descriptor, size: size))
-        #else
-        return Font.custom(name, size: size)
         #endif
     }
 
@@ -90,8 +59,6 @@ public enum VFont {
 
     public static let cardEmoji       = Font.system(size: 32)
     public static let onboardingEmoji = Font.system(size: adaptiveSize(80))
-    public static let mono            = dmMono("DMMono-Regular", size: 13)
-    public static let monoSmall       = dmMono("DMMono-Regular", size: 11)
 
     // MARK: - NSFont (AppKit — for NSTextView and TextKit 1)
 

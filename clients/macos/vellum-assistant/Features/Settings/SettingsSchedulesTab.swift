@@ -469,12 +469,12 @@ struct SettingsSchedulesTab: View {
                             .fill(config.enabled ? VColor.systemPositiveStrong : VColor.contentDisabled)
                             .frame(width: 8, height: 8)
                         Text(config.enabled ? "Enabled" : "Disabled")
-                            .font(VFont.bodyMedium)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentDefault)
                     }
                     if let nextRun = config.nextRunAt, let formatted = formatEpochMs(nextRun) {
                         Text("Next run: \(formatted)")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
                 }

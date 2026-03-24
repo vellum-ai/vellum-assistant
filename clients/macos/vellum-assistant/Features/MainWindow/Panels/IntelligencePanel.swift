@@ -137,7 +137,7 @@ struct IntelligencePanel: View {
         } label: {
             VStack(spacing: VSpacing.sm) {
                 Text(label)
-                    .font(VFont.bodyMediumLighter)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(isActive ? VColor.primaryActive : VColor.contentSecondary)
                     .padding(.bottom, VSpacing.xs)
 

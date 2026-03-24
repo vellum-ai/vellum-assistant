@@ -167,7 +167,7 @@ public struct VCodeView: View {
         LazyVStack(alignment: .trailing, spacing: 0) {
             ForEach(1...max(1, lineCount), id: \.self) { num in
                 Text("\(num)")
-                    .font(VFont.monoSmall)
+                    .font(VFont.bodySmallDefault)
                     .foregroundStyle(Self.gutterTextColor)
                     .frame(height: Self.lineHeight)
             }
@@ -490,7 +490,7 @@ public struct VCodeSearchBar: View {
 
                 TextField("Search...", text: $searchQuery)
                     .textFieldStyle(.plain)
-                    .font(VFont.mono)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentDefault)
                     .focused($isFocused)
                     .onSubmit { goToNextMatch() }

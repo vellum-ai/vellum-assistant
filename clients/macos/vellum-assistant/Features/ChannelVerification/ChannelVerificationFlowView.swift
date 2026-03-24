@@ -206,7 +206,7 @@ struct ChannelVerificationFlowView: View {
 
                     HStack(spacing: VSpacing.sm) {
                         Text(outboundCode)
-                            .font(VFont.mono)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentDefault)
                             .textSelection(.enabled)
                             .lineLimit(1)
@@ -333,7 +333,7 @@ struct ChannelVerificationFlowView: View {
 
                 HStack(spacing: VSpacing.sm) {
                     Text(command)
-                        .font(VFont.mono)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -376,7 +376,7 @@ struct ChannelVerificationFlowView: View {
             } else {
                 // Fallback: show raw instruction if command can't be parsed
                 Text(instruction)
-                    .font(VFont.mono)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentDefault)
                     .padding(VSpacing.md)
                     .frame(maxWidth: .infinity, alignment: .leading)

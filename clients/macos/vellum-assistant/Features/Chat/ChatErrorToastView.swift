@@ -259,10 +259,10 @@ struct MissingApiKeyBanner: View {
 
             VStack(spacing: VSpacing.xs) {
                 Text("API key required")
-                    .font(VFont.headline)
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundStyle(VColor.contentEmphasized)
                 Text("Add an API key in Settings to start chatting.")
-                    .font(VFont.bodyMedium)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentSecondary)
             }
 

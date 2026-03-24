@@ -89,27 +89,35 @@ struct TokensGallerySection: View {
                 )
 
                 VCard {
-                    VStack(alignment: .leading, spacing: VSpacing.lg) {
-                        // Title
-                        typographySample("titleLarge", font: VFont.titleLarge)
-                        typographySample("titleMedium", font: VFont.titleMedium)
-                        typographySample("titleSmall", font: VFont.titleSmall)
-                        // Body
-                        typographySample("bodyLargeLighter", font: VFont.bodyLargeLighter)
-                        typographySample("bodyLargeDefault", font: VFont.bodyLargeDefault)
-                        typographySample("bodyLargeEmphasised", font: VFont.bodyLargeEmphasised)
-                        typographySample("chat", font: VFont.chat)
-                        typographySample("bodyMediumLighter", font: VFont.bodyMediumLighter)
-                        typographySample("bodyMediumDefault", font: VFont.bodyMediumDefault)
-                        typographySample("bodyMediumEmphasised", font: VFont.bodyMediumEmphasised)
-                        typographySample("bodySmallDefault", font: VFont.bodySmallDefault)
-                        typographySample("bodySmallEmphasised", font: VFont.bodySmallEmphasised)
-                        // Label
-                        typographySample("labelDefault", font: VFont.labelDefault)
-                        typographySample("labelSmall", font: VFont.labelSmall)
-                        // Mono
-                        typographySample("mono", font: VFont.mono)
-                        typographySample("monoSmall", font: VFont.monoSmall)
+                    VStack(alignment: .leading, spacing: 0) {
+                        // Column headers
+                        typeRow(category: "", size: "", regular: "Regular", medium: "Medium", semiBold: "Semi-bold", isHeader: true)
+                        Divider().background(VColor.borderDisabled)
+
+                        // TITLE
+                        typeRow(category: "TITLE", size: "24px", regular: nil, medium: ("Title/Large", VFont.titleLarge), semiBold: nil)
+                        Divider().background(VColor.borderDisabled)
+                        typeRow(category: "", size: "20px", regular: nil, medium: ("Title/Medium", VFont.titleMedium), semiBold: nil)
+                        Divider().background(VColor.borderDisabled)
+                        typeRow(category: "", size: "18px", regular: nil, medium: nil, semiBold: ("Title/Small", VFont.titleSmall))
+                        Divider().background(VColor.borderDisabled)
+
+                        // BODY
+                        typeRow(category: "BODY", size: "16px", regular: ("Body/Lighter", VFont.bodyLargeLighter), medium: ("Body/Large Default", VFont.bodyLargeDefault), semiBold: ("Body/Large Emphasised", VFont.bodyLargeEmphasised))
+                        Divider().background(VColor.borderDisabled)
+                        typeRow(category: "", size: "14px", regular: ("Body/Lighter", VFont.bodyMediumLighter), medium: ("Body/Medium Default", VFont.bodyMediumDefault), semiBold: ("Body/Medium Emphasised", VFont.bodyMediumEmphasised))
+                        Divider().background(VColor.borderDisabled)
+                        typeRow(category: "", size: "12px", regular: nil, medium: ("Body/Small Default", VFont.bodySmallDefault), semiBold: ("Body/Small Emphasised", VFont.bodySmallEmphasised))
+                        Divider().background(VColor.borderDisabled)
+
+                        // LABEL
+                        typeRow(category: "LABEL", size: "11px", regular: nil, medium: ("Label/Medium Default", VFont.labelDefault), semiBold: nil)
+                        Divider().background(VColor.borderDisabled)
+                        typeRow(category: "", size: "10px", regular: nil, medium: ("Label/Small Default", VFont.labelSmall), semiBold: nil)
+                        Divider().background(VColor.borderDisabled)
+
+                        // CHAT
+                        typeRow(category: "CHAT", size: "16px", regular: nil, medium: ("Chat", VFont.chat), semiBold: nil)
                     }
                 }
 
@@ -136,7 +144,7 @@ struct TokensGallerySection: View {
                         ForEach(spacings, id: \.0) { name, value in
                             HStack(spacing: VSpacing.lg) {
                                 Text("\(name) (\(Int(value))pt)")
-                                    .font(VFont.mono)
+                                    .font(VFont.bodySmallDefault)
                                     .foregroundColor(VColor.contentSecondary)
                                     .frame(width: 120, alignment: .trailing)
                                 RoundedRectangle(cornerRadius: VRadius.xs)
@@ -248,7 +256,7 @@ struct TokensGallerySection: View {
                         ForEach(animations, id: \.0) { name, description in
                             HStack(spacing: VSpacing.lg) {
                                 Text(name)
-                                    .font(VFont.mono)
+                                    .font(VFont.bodySmallDefault)
                                     .foregroundColor(VColor.contentDefault)
                                     .frame(width: 80, alignment: .trailing)
                                 Text(description)
@@ -263,15 +271,73 @@ struct TokensGallerySection: View {
         }
     }
 
-    private func typographySample(_ name: String, font: Font) -> some View {
-        HStack(spacing: VSpacing.lg) {
-            Text(name)
-                .font(VFont.mono)
+    private func typeRow(
+        category: String,
+        size: String,
+        regular: String,
+        medium: String,
+        semiBold: String,
+        isHeader: Bool
+    ) -> some View {
+        HStack(spacing: 0) {
+            Text(category)
+                .font(VFont.bodySmallEmphasised)
                 .foregroundColor(VColor.contentTertiary)
-                .frame(width: 140, alignment: .trailing)
-            Text("The quick brown fox jumps")
+                .frame(width: 70, alignment: .leading)
+            Text(size)
+                .font(VFont.bodySmallEmphasised)
+                .foregroundColor(VColor.contentTertiary)
+                .frame(width: 50, alignment: .leading)
+            Text(regular)
+                .font(VFont.bodySmallEmphasised)
+                .foregroundColor(VColor.contentDisabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(medium)
+                .font(VFont.bodySmallEmphasised)
+                .foregroundColor(VColor.contentDisabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(semiBold)
+                .font(VFont.bodySmallEmphasised)
+                .foregroundColor(VColor.contentDisabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, VSpacing.sm)
+    }
+
+    private func typeRow(
+        category: String,
+        size: String,
+        regular: (String, Font)?,
+        medium: (String, Font)?,
+        semiBold: (String, Font)?
+    ) -> some View {
+        HStack(spacing: 0) {
+            Text(category)
+                .font(VFont.bodySmallEmphasised)
+                .foregroundColor(VColor.contentTertiary)
+                .frame(width: 70, alignment: .leading)
+            Text(size)
+                .font(VFont.bodySmallEmphasised)
+                .foregroundColor(VColor.contentTertiary)
+                .frame(width: 50, alignment: .leading)
+            typeCellContent(regular)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            typeCellContent(medium)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            typeCellContent(semiBold)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, VSpacing.lg)
+    }
+
+    @ViewBuilder
+    private func typeCellContent(_ token: (String, Font)?) -> some View {
+        if let (name, font) = token {
+            Text(name)
                 .font(font)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundColor(VColor.contentEmphasized)
+        } else {
+            Color.clear.frame(height: 1)
         }
     }
 

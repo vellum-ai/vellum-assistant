@@ -243,7 +243,7 @@ struct ButtonsGallerySection: View {
                             Text("Inline in text").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
                             HStack(spacing: VSpacing.xs) {
                                 Text("\"key\": \"value\"")
-                                    .font(VFont.mono)
+                                    .font(VFont.bodyMediumDefault)
                                     .foregroundColor(VColor.contentDefault)
                                 VButton(label: "Copy", iconOnly: VIcon.copy.rawValue, style: .ghost, size: .inline) {}
                             }

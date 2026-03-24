@@ -271,7 +271,7 @@ struct SkillDetailView: View {
 
             if isExpanded, let content = file.content {
                 Text(content)
-                    .font(VFont.mono)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentSecondary)
                     .textSelection(.enabled)
                     .padding(VSpacing.sm)

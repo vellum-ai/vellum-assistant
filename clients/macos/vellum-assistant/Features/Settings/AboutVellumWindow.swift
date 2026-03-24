@@ -96,7 +96,7 @@ struct AboutVellumView: View {
                     .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemMidStrong)
                 Text(Bundle.main.bundlePath)
-                    .font(VFont.mono)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .lineLimit(2)
                     .truncationMode(.middle)
@@ -134,7 +134,7 @@ struct AboutVellumView: View {
 
             if let version = serviceVersion, !version.isEmpty {
                 Text(version)
-                    .font(VFont.mono)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
 
@@ -227,7 +227,7 @@ struct AboutVellumView: View {
         HStack(spacing: VSpacing.xs) {
             if hasCommit {
                 Text(String(commitSHA!.prefix(7)))
-                    .font(VFont.mono)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .textSelection(.enabled)
                 Text("\u{00B7}")

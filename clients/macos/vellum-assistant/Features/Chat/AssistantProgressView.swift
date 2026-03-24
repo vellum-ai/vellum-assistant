@@ -926,7 +926,7 @@ private struct StepDetailRow: View {
                         .foregroundColor(VColor.contentSecondary)
                     if !resolvedInputFull.isEmpty {
                         Text(resolvedInputFull)
-                            .font(VFont.monoSmall)
+                            .font(VFont.bodySmallDefault)
                             .foregroundColor(VColor.contentSecondary)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1000,13 +1000,13 @@ private struct StepDetailRow: View {
                     .frame(maxHeight: 400)
                 } else if let attrText = attributedText {
                     Text(attrText)
-                        .font(VFont.monoSmall)
+                        .font(VFont.bodySmallDefault)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 } else if let plainText = text {
                     Text(plainText)
-                        .font(VFont.monoSmall)
+                        .font(VFont.bodySmallDefault)
                         .foregroundColor(VColor.contentSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .textSelection(.enabled)
@@ -1039,12 +1039,12 @@ private struct StepDetailRow: View {
     ) -> some View {
         if let attrText = attributedText {
             Text(attrText)
-                .font(VFont.monoSmall)
+                .font(VFont.bodySmallDefault)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         } else if let plainText = text {
             Text(plainText)
-                .font(VFont.monoSmall)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)

@@ -63,7 +63,7 @@ struct IdentityPanel: View {
                                 inlineEditField(
                                     text: $editingNameText,
                                     placeholder: "Enter a name",
-                                    font: .system(size: 22, weight: .regular, design: .rounded),
+                                    font: VFont.titleMedium,
                                     isSaving: isSavingIdentityField,
                                     onSave: { saveIdentityField(field: "Name", value: editingNameText) },
                                     onCancel: { isEditingName = false }
@@ -73,7 +73,7 @@ struct IdentityPanel: View {
                             } else {
                                 HStack(spacing: VSpacing.xs) {
                                     Text(introText ?? (hasRealName ? "I'm \(assistantDisplayName)!" : "I need a name!"))
-                                        .font(.system(size: 22, weight: .regular, design: .rounded))
+                                        .font(VFont.titleMedium)
                                         .foregroundColor(VColor.contentDefault)
                                         .multilineTextAlignment(.center)
 
@@ -130,12 +130,12 @@ struct IdentityPanel: View {
                                 if isEditingRole {
                                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                                         Text("Role")
-                                            .font(VFont.caption)
+                                            .font(VFont.labelDefault)
                                             .foregroundColor(VColor.contentTertiary)
                                         inlineEditField(
                                             text: $editingRoleText,
                                             placeholder: "Enter a role",
-                                            font: VFont.caption,
+                                            font: VFont.labelDefault,
                                             isSaving: isSavingIdentityField,
                                             onSave: { saveIdentityField(field: "Role", value: editingRoleText) },
                                             onCancel: { isEditingRole = false }
@@ -440,14 +440,14 @@ struct IdentityPanel: View {
 
             if truncate {
                 Text(value)
-                    .font(mono ? VFont.mono : VFont.bodyMediumLighter)
+                    .font(mono ? VFont.bodyMediumDefault : VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(value)
             } else {
                 Text(value)
-                    .font(mono ? VFont.mono : VFont.bodyMediumLighter)
+                    .font(mono ? VFont.bodyMediumDefault : VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
             }
@@ -457,10 +457,10 @@ struct IdentityPanel: View {
     private func identityInfoRow(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
-                .font(VFont.labelDefault)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentTertiary)
             Text(value)
-                .font(VFont.labelDefault)
+                .font(VFont.bodyMediumEmphasised)
                 .foregroundColor(VColor.contentEmphasized)
         }
     }

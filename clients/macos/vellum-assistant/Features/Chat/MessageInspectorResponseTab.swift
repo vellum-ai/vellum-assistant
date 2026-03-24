@@ -111,7 +111,7 @@ struct MessageInspectorResponseTab: View {
                             .foregroundColor(VColor.contentSecondary)
 
                         Text(body)
-                            .font(VFont.monoSmall)
+                            .font(VFont.bodySmallDefault)
                             .foregroundColor(VColor.contentDefault)
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
@@ -141,7 +141,7 @@ struct MessageInspectorResponseTab: View {
 
                 if let body = section.bodyText, !body.isEmpty {
                     Text(body)
-                        .font(VFont.monoSmall)
+                        .font(VFont.bodySmallDefault)
                         .foregroundColor(VColor.contentSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)

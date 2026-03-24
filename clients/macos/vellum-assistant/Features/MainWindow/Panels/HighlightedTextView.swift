@@ -180,7 +180,7 @@ struct HighlightedTextView: View {
         LazyVStack(alignment: .trailing, spacing: 0) {
             ForEach(1...max(1, lineCount), id: \.self) { num in
                 Text("\(num)")
-                    .font(VFont.monoSmall)
+                    .font(VFont.bodySmallDefault)
                     .foregroundStyle(Self.gutterTextColor)
                     .frame(height: VCodeView.lineHeight)
             }

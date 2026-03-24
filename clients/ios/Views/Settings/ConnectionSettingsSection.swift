@@ -84,7 +84,7 @@ struct DaemonConnectionSection: View {
                             .foregroundColor(VColor.contentSecondary)
                         Spacer()
                         Text(url)
-                            .font(VFont.mono)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentTertiary)
                             .lineLimit(1)
                             .truncationMode(.middle)

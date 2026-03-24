@@ -80,7 +80,7 @@ public struct ModelListBubble: View {
                         Spacer()
 
                         Text(model.id)
-                            .font(VFont.monoSmall)
+                            .font(VFont.bodySmallDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
                     .padding(.horizontal, VSpacing.lg)
