@@ -73,19 +73,19 @@ struct OnboardingView: View {
                 ProgressView()
                     .controlSize(.large)
                 Text("Setting up your assistant...")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
             } else {
                 VIconView(.triangleAlert, size: 48)
                     .foregroundColor(VColor.systemNegativeStrong)
 
                 Text("Setup Failed")
-                    .font(VFont.title)
+                    .font(VFont.titleMedium)
                     .foregroundColor(VColor.contentDefault)
 
                 if let error = managedBootstrapError {
                     Text(error)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, VSpacing.xl)
@@ -157,12 +157,12 @@ struct WelcomeStep: View {
                 .font(VFont.onboardingEmoji)
 
             Text("Welcome to Vellum Assistant")
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
                 .multilineTextAlignment(.center)
 
             Text("AI-powered assistant for your iPhone")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
 
@@ -187,7 +187,7 @@ struct ChoosePathStep: View {
             Spacer()
 
             Text("How would you like to connect?")
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
                 .multilineTextAlignment(.center)
 
@@ -196,10 +196,10 @@ struct ChoosePathStep: View {
                     HStack {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Log in with Vellum")
-                                .font(VFont.bodyBold)
+                                .font(VFont.bodyMediumEmphasised)
                                 .foregroundColor(VColor.contentDefault)
                             Text("Connect to your cloud assistant")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentSecondary)
                         }
                         Spacer()
@@ -219,10 +219,10 @@ struct ChoosePathStep: View {
                     HStack {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Connect to Assistant")
-                                .font(VFont.bodyBold)
+                                .font(VFont.bodyMediumEmphasised)
                                 .foregroundColor(VColor.contentDefault)
                             Text("Connect via your local network")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentSecondary)
                         }
                         Spacer()
@@ -258,11 +258,11 @@ struct DaemonSetupStep: View {
             Spacer()
 
             Text("Connect to Assistant")
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
 
             Text("Scan the QR code from your Assistant to pair.")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
@@ -275,9 +275,9 @@ struct DaemonSetupStep: View {
                     VIconView(.qrCode, size: 24)
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text("Scan QR Code")
-                            .font(VFont.bodyBold)
+                            .font(VFont.bodyMediumEmphasised)
                         Text("Open Vellum on your Assistant \u{2192} Settings \u{2192} Show QR Code")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -333,11 +333,11 @@ struct PermissionsStep: View {
             Spacer()
 
             Text("Permissions")
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
 
             Text("Grant permissions for voice input")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
 
@@ -369,11 +369,11 @@ struct ReadyStep: View {
             Spacer()
 
             Text("You're All Set!")
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
 
             Text("Start chatting with your AI assistant")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
 

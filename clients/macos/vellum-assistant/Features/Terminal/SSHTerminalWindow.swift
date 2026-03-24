@@ -96,7 +96,7 @@ private struct SSHTerminalContentView: View {
         HStack(spacing: VSpacing.sm) {
             statusIndicator
             Text(statusText)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
 
             Spacer()

@@ -79,13 +79,13 @@ struct SharedAppsListView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: VSpacing.xs) {
                     Text(app.name)
-                        .font(VFont.bodyBold)
+                        .font(VFont.bodyMediumEmphasised)
                         .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
 
                     if app.updateAvailable == true {
                         Text("Update")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.primaryBase)
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -97,7 +97,7 @@ struct SharedAppsListView: View {
                 if let signer = app.signerDisplayName {
                     HStack(spacing: VSpacing.xs) {
                         Text(signer)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
                         trustBadge(app.trustTier)
                     }
@@ -119,7 +119,7 @@ struct SharedAppsListView: View {
 
     private func trustBadge(_ tier: String) -> some View {
         Text(tier.capitalized)
-            .font(VFont.caption)
+            .font(VFont.labelDefault)
             .foregroundColor(trustColor(tier))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -147,11 +147,11 @@ struct SharedAppsListView: View {
                             .font(.system(size: 48))
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text(app.name)
-                                .font(VFont.title)
+                                .font(VFont.titleMedium)
                                 .foregroundColor(VColor.contentDefault)
                             if let signer = app.signerDisplayName {
                                 Text("by \(signer)")
-                                    .font(VFont.caption)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentSecondary)
                             }
                         }
@@ -161,7 +161,7 @@ struct SharedAppsListView: View {
                 if let description = app.description {
                     Section("Description") {
                         Text(description)
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentDefault)
                     }
                 }
@@ -258,7 +258,7 @@ struct SharedAppsListView: View {
         VStack(spacing: VSpacing.md) {
             ProgressView()
             Text("Loading shared apps...")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -270,7 +270,7 @@ struct SharedAppsListView: View {
                 .foregroundColor(VColor.contentTertiary)
                 .accessibilityHidden(true)
             Text("No shared apps")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

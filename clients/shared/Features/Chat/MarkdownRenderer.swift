@@ -246,13 +246,13 @@ public struct MarkdownRenderer: View {
         switch block {
         case .heading(let level, let text):
             Text(inlineMarkdown(text))
-                .font(level <= 2 ? VFont.headline : VFont.bodyMedium)
+                .font(level <= 2 ? VFont.bodySmallEmphasised : VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentDefault)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
         case .paragraph(let text):
             Text(inlineMarkdown(text))
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .tint(VColor.primaryBase)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -266,11 +266,11 @@ public struct MarkdownRenderer: View {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                     HStack(alignment: .top, spacing: VSpacing.xs) {
                         Text(ordered ? "\(index + 1)." : "•")
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentSecondary)
                             .frame(minWidth: ordered ? 24 : 12, alignment: .leading)
                         Text(inlineMarkdown(item))
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentDefault)
                             .tint(VColor.primaryBase)
                             .frame(maxWidth: .infinity, alignment: .leading)

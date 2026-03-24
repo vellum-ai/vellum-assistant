@@ -34,11 +34,11 @@ struct MessageInspectorPromptTab: View {
     private var headerCard: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Prompt sections")
-                .font(VFont.bodyMedium)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentDefault)
 
             Text(model.bannerText)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
         }
         .padding(VSpacing.lg)
@@ -61,18 +61,18 @@ struct MessageInspectorPromptTab: View {
             HStack(alignment: .firstTextBaseline, spacing: VSpacing.sm) {
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text(section.title)
-                        .font(VFont.bodyMedium)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(VColor.contentDefault)
                         .lineLimit(2)
 
                     HStack(spacing: VSpacing.xs) {
                         Text(section.kindLabel)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
 
                         if let formatLabel = section.formatLabel {
                             Text(formatLabel)
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentSecondary)
                         }
                     }
@@ -100,7 +100,7 @@ struct MessageInspectorPromptTab: View {
         switch section.presentationStyle {
         case .text:
             Text(section.displayText)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)

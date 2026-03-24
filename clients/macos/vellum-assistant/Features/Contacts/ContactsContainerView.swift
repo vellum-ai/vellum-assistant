@@ -142,10 +142,10 @@ struct ContactsContainerView: View {
                         VIconView(.users, size: 36)
                             .foregroundColor(VColor.contentTertiary)
                         Text("Select a contact")
-                            .font(VFont.headline)
+                            .font(VFont.bodySmallEmphasised)
                             .foregroundColor(VColor.contentSecondary)
                         Text("Choose a contact from the list to view their details.")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: 240)
@@ -182,12 +182,12 @@ struct ContactsContainerView: View {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         HStack(spacing: VSpacing.sm) {
                             Text("\(contact.displayName) (You)")
-                                .font(VFont.display)
+                                .font(VFont.titleSmall)
                                 .foregroundColor(VColor.contentDefault)
                             ContactTypeBadge(role: "guardian")
                         }
                         Text("\(contact.interactionCount) interaction\(contact.interactionCount == 1 ? "" : "s")")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
 
@@ -195,7 +195,7 @@ struct ContactsContainerView: View {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Name")
-                                .font(VFont.inputLabel)
+                                .font(VFont.bodySmallDefault)
                                 .foregroundColor(VColor.contentSecondary)
                             VTextField(placeholder: "Your name", text: $guardianEditedName)
                                 .disabled(true)
@@ -204,7 +204,7 @@ struct ContactsContainerView: View {
 
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Notes")
-                                .font(VFont.inputLabel)
+                                .font(VFont.bodySmallDefault)
                                 .foregroundColor(VColor.contentSecondary)
                             VTextEditor(
                                 placeholder: "Notes about yourself which AI will take into account",
@@ -311,7 +311,7 @@ struct ContactsContainerView: View {
                 // Header matching contact/guardian detail pattern
                 HStack(spacing: VSpacing.sm) {
                     Text("\(cachedAssistantName) (Your Assistant)")
-                        .font(VFont.display)
+                        .font(VFont.titleSmall)
                         .foregroundColor(VColor.contentDefault)
                     ContactTypeBadge(role: "assistant")
                 }

@@ -134,11 +134,11 @@ struct E2EStatusOverlayView: View {
                         }
 
                     Text("E2E")
-                        .font(VFont.captionMedium)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
 
                     Text(status.testName)
-                        .font(VFont.captionMedium)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
 
@@ -160,7 +160,7 @@ struct E2EStatusOverlayView: View {
                         .foregroundColor(VColor.primaryBase)
 
                     Text(status.summary)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                         .lineLimit(2)
                         .truncationMode(.tail)
@@ -172,7 +172,7 @@ struct E2EStatusOverlayView: View {
                         .frame(width: 8, height: 8)
 
                     Text("E2E — Waiting for agent...")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                 }
             }

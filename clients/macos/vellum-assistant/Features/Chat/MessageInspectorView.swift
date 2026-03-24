@@ -41,7 +41,7 @@ struct MessageInspectorView: View {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.chevronLeft, size: 12)
                     Text("Back")
-                        .font(VFont.bodyMedium)
+                        .font(VFont.bodyMediumDefault)
                 }
                 .foregroundColor(VColor.contentDefault)
                 .padding(.horizontal, VSpacing.sm)
@@ -54,11 +54,11 @@ struct MessageInspectorView: View {
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text("LLM Context Inspector")
-                    .font(VFont.headline)
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundColor(VColor.contentDefault)
 
                 Text("Select a call to inspect overview details, prompt sections, response sections, or raw payloads.")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
             }
 
@@ -69,7 +69,7 @@ struct MessageInspectorView: View {
                 case .loaded, .empty:
                     let count = viewState.logs.count
                     Text(count == 1 ? "1 LLM call" : "\(count) LLM calls")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                 case .loading, .failed:
                     EmptyView()
@@ -193,7 +193,7 @@ struct MessageInspectorView: View {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 HStack(alignment: .firstTextBaseline, spacing: VSpacing.sm) {
                     Text(callTitle(for: entry, index: index))
-                        .font(VFont.bodyMedium)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
 
@@ -201,13 +201,13 @@ struct MessageInspectorView: View {
 
                     if index == 0 {
                         Text("Latest")
-                            .font(VFont.small)
+                            .font(VFont.labelSmall)
                             .foregroundColor(VColor.primaryBase)
                     }
                 }
 
                 Text(callSubtitle(for: entry))
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
                     .lineLimit(2)
 
@@ -223,7 +223,7 @@ struct MessageInspectorView: View {
                     Spacer()
 
                     Text(formattedTimestamp(entry.createdAt))
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .foregroundColor(VColor.contentTertiary)
                 }
             }
@@ -265,11 +265,11 @@ struct MessageInspectorView: View {
     private func detailHeader(for entry: LLMRequestLogEntry) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text(callTitle(for: entry, index: selectedCallIndex(for: entry)))
-                .font(VFont.headline)
+                .font(VFont.bodySmallEmphasised)
                 .foregroundColor(VColor.contentDefault)
 
             Text(detailSubtitle(for: entry))
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentSecondary)
 
             if let summary = entry.summary {
@@ -453,7 +453,7 @@ struct MessageInspectorView: View {
 
     private func callMetadataChip(_ label: String) -> some View {
         Text(label)
-            .font(VFont.small)
+            .font(VFont.labelSmall)
             .foregroundColor(VColor.contentSecondary)
             .padding(.horizontal, VSpacing.xs)
             .padding(.vertical, 3)
@@ -463,7 +463,7 @@ struct MessageInspectorView: View {
 
     private func detailMetadataChip(_ label: String) -> some View {
         Text(label)
-            .font(VFont.caption)
+            .font(VFont.labelDefault)
             .foregroundColor(VColor.contentSecondary)
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.xs)

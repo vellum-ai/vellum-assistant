@@ -146,7 +146,7 @@ struct VoiceOrbView: View {
 
     private var stateLabel: some View {
         Text(stateLabelText)
-            .font(VFont.caption)
+            .font(VFont.labelDefault)
             .foregroundColor(VColor.contentSecondary)
             .animation(VAnimation.standard, value: stateLabelText)
     }

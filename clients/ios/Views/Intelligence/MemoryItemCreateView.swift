@@ -26,17 +26,17 @@ struct MemoryItemCreateView: View {
 
             Section("Subject") {
                 TextField("Brief topic or label", text: $subject)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
             }
 
             Section("Statement") {
                 TextEditor(text: $statement)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .frame(minHeight: 100)
                     .overlay(alignment: .topLeading) {
                         if statement.isEmpty {
                             Text("What should the assistant remember?")
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.contentTertiary)
                                 .padding(.top, 8)
                                 .padding(.leading, 4)
@@ -49,11 +49,11 @@ struct MemoryItemCreateView: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     HStack {
                         Text("Importance")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         Spacer()
                         Text("\(Int(importance * 100))%")
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentDefault)
                     }
                     Slider(value: $importance, in: 0...1, step: 0.1)

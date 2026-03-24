@@ -16,7 +16,7 @@ struct TokensGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("Semantic Tokens")
-                            .font(VFont.headline)
+                            .font(VFont.bodySmallEmphasised)
                             .foregroundColor(VColor.contentDefault)
 
                         let semanticTokens = VSemanticColorToken.allCases
@@ -30,10 +30,10 @@ struct TokensGallerySection: View {
                                         tokenSwatch(color: pair.darkColor, label: "D")
                                     }
                                     Text(token.rawValue)
-                                        .font(VFont.caption)
+                                        .font(VFont.labelDefault)
                                         .foregroundColor(VColor.contentSecondary)
                                     Text("\(pair.lightHex) / \(pair.darkHex)")
-                                        .font(VFont.small)
+                                        .font(VFont.labelSmall)
                                         .foregroundColor(VColor.contentTertiary)
                                 }
                             }
@@ -44,7 +44,7 @@ struct TokensGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("Syntax Colors")
-                            .font(VFont.headline)
+                            .font(VFont.bodySmallEmphasised)
                             .foregroundColor(VColor.contentDefault)
 
                         let syntaxTokens: [(String, Color)] = [
@@ -68,7 +68,7 @@ struct TokensGallerySection: View {
                                                 .stroke(VColor.borderBase, lineWidth: 1)
                                         )
                                     Text(name)
-                                        .font(VFont.caption)
+                                        .font(VFont.labelDefault)
                                         .foregroundColor(VColor.contentSecondary)
                                 }
                             }
@@ -90,22 +90,26 @@ struct TokensGallerySection: View {
 
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
-                        typographySample("largeTitle", font: VFont.largeTitle)
-                        typographySample("title", font: VFont.title)
-                        typographySample("headline", font: VFont.headline)
-                        typographySample("body", font: VFont.body)
-                        typographySample("bodyMedium", font: VFont.bodyMedium)
-                        typographySample("bodyBold", font: VFont.bodyBold)
-                        typographySample("bodySmall", font: VFont.bodySmall)
-                        typographySample("caption", font: VFont.caption)
-                        typographySample("captionMedium", font: VFont.captionMedium)
-                        typographySample("small", font: VFont.small)
+                        // Title
+                        typographySample("titleLarge", font: VFont.titleLarge)
+                        typographySample("titleMedium", font: VFont.titleMedium)
+                        typographySample("titleSmall", font: VFont.titleSmall)
+                        // Body
+                        typographySample("bodyLargeLighter", font: VFont.bodyLargeLighter)
+                        typographySample("bodyLargeDefault", font: VFont.bodyLargeDefault)
+                        typographySample("bodyLargeEmphasised", font: VFont.bodyLargeEmphasised)
+                        typographySample("chat", font: VFont.chat)
+                        typographySample("bodyMediumLighter", font: VFont.bodyMediumLighter)
+                        typographySample("bodyMediumDefault", font: VFont.bodyMediumDefault)
+                        typographySample("bodyMediumEmphasised", font: VFont.bodyMediumEmphasised)
+                        typographySample("bodySmallDefault", font: VFont.bodySmallDefault)
+                        typographySample("bodySmallEmphasised", font: VFont.bodySmallEmphasised)
+                        // Label
+                        typographySample("labelDefault", font: VFont.labelDefault)
+                        typographySample("labelSmall", font: VFont.labelSmall)
+                        // Mono
                         typographySample("mono", font: VFont.mono)
                         typographySample("monoSmall", font: VFont.monoSmall)
-                        typographySample("display", font: VFont.display)
-                        typographySample("modalTitle", font: VFont.modalTitle)
-                        typographySample("cardTitle", font: VFont.cardTitle)
-                        typographySample("inviteCode", font: VFont.inviteCode)
                     }
                 }
 
@@ -173,10 +177,10 @@ struct TokensGallerySection: View {
                                             .stroke(VColor.primaryBase, lineWidth: 2)
                                     )
                                 Text(name)
-                                    .font(VFont.captionMedium)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentSecondary)
                                 Text("\(Int(radius))pt")
-                                    .font(VFont.caption)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentTertiary)
                             }
                         }
@@ -209,7 +213,7 @@ struct TokensGallerySection: View {
                                     .frame(width: 80, height: 80)
                                     .vShadow(shadow)
                                 Text(name)
-                                    .font(VFont.captionMedium)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentSecondary)
                             }
                         }
@@ -248,7 +252,7 @@ struct TokensGallerySection: View {
                                     .foregroundColor(VColor.contentDefault)
                                     .frame(width: 80, alignment: .trailing)
                                 Text(description)
-                                    .font(VFont.caption)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentTertiary)
                             }
                         }
@@ -281,7 +285,7 @@ struct TokensGallerySection: View {
             )
             .overlay(alignment: .topLeading) {
                 Text(label)
-                    .font(VFont.small)
+                    .font(VFont.labelSmall)
                     .foregroundColor(VColor.contentTertiary)
                     .padding(4)
             }

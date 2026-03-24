@@ -435,19 +435,19 @@ struct IdentityPanel: View {
     private func idRow(label: String, value: String, mono: Bool = false, truncate: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
 
             if truncate {
                 Text(value)
-                    .font(mono ? VFont.mono : VFont.body)
+                    .font(mono ? VFont.mono : VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(value)
             } else {
                 Text(value)
-                    .font(mono ? VFont.mono : VFont.body)
+                    .font(mono ? VFont.mono : VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                     .textSelection(.enabled)
             }
@@ -457,10 +457,10 @@ struct IdentityPanel: View {
     private func identityInfoRow(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
             Text(value)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentEmphasized)
         }
     }
@@ -502,7 +502,7 @@ private struct WorkspaceFileSheet: View {
                 VIconView(.fileText, size: 13)
                     .foregroundColor(VColor.systemNegativeHover)
                 Text(fileName)
-                    .font(VFont.cardTitle)
+                    .font(VFont.titleSmall)
                     .foregroundColor(VColor.contentDefault)
                 Spacer()
                 Button(action: onClose) {

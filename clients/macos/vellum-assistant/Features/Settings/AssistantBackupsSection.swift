@@ -32,14 +32,14 @@ struct AssistantBackupsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Backups")
-                .font(VFont.sectionTitle)
+                .font(VFont.titleSmall)
                 .foregroundColor(VColor.contentDefault)
 
             if let backupPath = preUpdateBackupPath,
                FileManager.default.fileExists(atPath: backupPath) {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("A backup was automatically created before the last update.")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentSecondary)
                     HStack {
                         VButton(label: "Restore Pre-Update Data", style: .outlined) {
@@ -63,13 +63,13 @@ struct AssistantBackupsSection: View {
 
             if let error = errorMessage {
                 Text(error)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemNegativeStrong)
             }
 
             if let success = successMessage {
                 Text(success)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemPositiveStrong)
             }
         }
@@ -90,7 +90,7 @@ struct AssistantBackupsSection: View {
     private var localBackupContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Export or restore assistant data as a .vbundle archive.")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
         }
 
@@ -111,7 +111,7 @@ struct AssistantBackupsSection: View {
                 ProgressView()
                     .controlSize(.small)
                 Text(isExporting ? "Creating backup..." : "Restoring backup...")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             }
         }
@@ -123,7 +123,7 @@ struct AssistantBackupsSection: View {
     private var managedBackupContent: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Create and restore cloud backups for this assistant.")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
         }
 
@@ -144,7 +144,7 @@ struct AssistantBackupsSection: View {
                 ProgressView()
                     .controlSize(.small)
                 Text(isCreatingBackup ? "Creating backup..." : "Loading backups...")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             }
         }
@@ -158,7 +158,7 @@ struct AssistantBackupsSection: View {
     private var managedBackupList: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Available Backups")
-                .font(VFont.inputLabel)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentSecondary)
 
             ForEach(managedBackups, id: \.snapshotName) { backup in
@@ -169,7 +169,7 @@ struct AssistantBackupsSection: View {
                             .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
                         Text(backup.createdAt)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
                     Spacer()
@@ -180,7 +180,7 @@ struct AssistantBackupsSection: View {
                         }
                     } else {
                         Text("Not ready")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
                 }

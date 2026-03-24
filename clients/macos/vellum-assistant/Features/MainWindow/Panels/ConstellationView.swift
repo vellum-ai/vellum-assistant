@@ -219,7 +219,7 @@ private struct CategoryNodeView: View {
                 .foregroundColor(category.color)
 
             Text(category.displayName)
-                .font(VFont.bodyMedium)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -263,7 +263,7 @@ private struct SubCategoryNodeView: View {
                 .font(.system(size: 16))
 
             Text(label)
-                .font(VFont.small)
+                .font(VFont.labelSmall)
                 .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -317,7 +317,7 @@ private struct SkillNodeView: View {
             }
 
             Text(item.label)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentDefault)
                 .lineLimit(2)
                 .truncationMode(.tail)
@@ -391,21 +391,21 @@ private struct SkillPopoverView: View {
                 }
 
                 Text(item.label)
-                    .font(VFont.bodyMedium)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(2)
             }
 
             if let description = item.description, !description.isEmpty {
                 Text(description)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
                     .lineLimit(4)
             }
 
             if let category = item.category {
                 Text(category.displayName)
-                    .font(VFont.small)
+                    .font(VFont.labelSmall)
                     .foregroundColor(category.color)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.vertical, VSpacing.xxs)

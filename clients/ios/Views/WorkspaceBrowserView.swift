@@ -31,7 +31,7 @@ struct WorkspaceBrowserView: View {
                         .foregroundColor(VColor.contentTertiary)
                         .accessibilityHidden(true)
                     Text("Empty directory")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -272,7 +272,7 @@ struct WorkspaceBrowserView: View {
                 .accessibilityHidden(true)
 
             Text(entry.name)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
 
             Spacer()
@@ -290,12 +290,12 @@ struct WorkspaceBrowserView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.name)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
 
                 if let size = entry.size {
                     Text(formatFileSize(size))
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                 }
             }

@@ -17,11 +17,11 @@ extension MemoryItemDetailSheet {
     func metadataRow(label: String, value: String) -> some View {
         HStack(spacing: VSpacing.xs) {
             Text(label)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentTertiary)
                 .frame(width: 110, alignment: .leading)
             Text(value)
-                .font(VFont.bodyMedium)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentSecondary)
         }
     }

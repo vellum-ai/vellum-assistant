@@ -26,7 +26,7 @@ struct CommandPaletteView: View {
 
                 TextField("Search conversations, memories, schedules...", text: $viewModel.query)
                     .textFieldStyle(.plain)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                     .focused($isSearchFocused)
                     .onSubmit {
@@ -46,7 +46,7 @@ struct CommandPaletteView: View {
 
                 // Shortcut hint
                 Text("\u{2318}K")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .padding(.horizontal, VSpacing.xs)
                     .padding(.vertical, VSpacing.xxs)
@@ -104,7 +104,7 @@ struct CommandPaletteView: View {
                                 ProgressView()
                                     .controlSize(.mini)
                                 Text("Searching deeper...")
-                                    .font(VFont.caption)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentTertiary)
                             }
                             .frame(maxWidth: .infinity, alignment: .center)
@@ -146,7 +146,7 @@ struct CommandPaletteView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(VFont.caption)
+            .font(VFont.labelDefault)
             .foregroundColor(VColor.contentTertiary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, VSpacing.lg)
@@ -218,7 +218,7 @@ struct CommandPaletteView: View {
                 .frame(width: 20, alignment: .center)
 
             Text(action.label)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
 
@@ -226,7 +226,7 @@ struct CommandPaletteView: View {
 
             if let hint = action.shortcutHint {
                 Text(hint)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .padding(.horizontal, VSpacing.xs)
                     .padding(.vertical, VSpacing.xxs)
@@ -249,14 +249,14 @@ struct CommandPaletteView: View {
                 .frame(width: 20, alignment: .center)
 
             Text(recent.title)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
 
             Spacer()
 
             Text(relativeTime(recent.lastInteracted))
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
         }
         .padding(.horizontal, VSpacing.lg)
@@ -275,13 +275,13 @@ struct CommandPaletteView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(conv.title ?? "Untitled")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
 
                 if !conv.excerpt.isEmpty {
                     Text(conv.excerpt)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                         .lineLimit(1)
                 }
@@ -290,7 +290,7 @@ struct CommandPaletteView: View {
             Spacer()
 
             Text(relativeTimestamp(conv.updatedAt))
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
         }
         .padding(.horizontal, VSpacing.lg)
@@ -309,12 +309,12 @@ struct CommandPaletteView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(memory.text)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(2)
 
                 Text(memory.kind)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .padding(.horizontal, VSpacing.xs)
                     .padding(.vertical, 1)
@@ -340,12 +340,12 @@ struct CommandPaletteView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(schedule.name)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
 
                 Text(schedule.message)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .lineLimit(1)
             }
@@ -353,7 +353,7 @@ struct CommandPaletteView: View {
             Spacer()
 
             Text(schedule.enabled ? "Active" : "Paused")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(schedule.enabled ? VColor.systemPositiveStrong : VColor.contentTertiary)
         }
         .padding(.horizontal, VSpacing.lg)
@@ -372,13 +372,13 @@ struct CommandPaletteView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(contact.displayName)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
 
                 if let notes = contact.notes, !notes.isEmpty {
                     Text(notes.components(separatedBy: .newlines).first ?? notes)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                         .lineLimit(1)
                 }
@@ -398,14 +398,14 @@ struct CommandPaletteView: View {
         VStack(spacing: VSpacing.xs) {
             if viewModel.query.isEmpty {
                 Text("Type to search...")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             } else {
                 Text("No results found.")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
                 Text("Try rephrasing your search.")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             }
         }

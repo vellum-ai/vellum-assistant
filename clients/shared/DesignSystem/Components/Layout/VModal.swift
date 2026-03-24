@@ -63,7 +63,7 @@ public struct VModal<Content: View, Footer: View>: View {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.chevronLeft, size: 10)
                             Text("Back")
-                                .font(VFont.bodyMedium)
+                                .font(VFont.bodyMediumDefault)
                         }
                         .foregroundColor(VColor.contentSecondary)
                         .contentShape(Rectangle())
@@ -122,12 +122,12 @@ public struct VModal<Content: View, Footer: View>: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             if !title.isEmpty {
                 Text(title)
-                    .font(VFont.modalTitle)
+                    .font(VFont.titleSmall)
                     .foregroundColor(VColor.contentDefault)
             }
             if let subtitle {
                 Text(subtitle)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
             }
         }

@@ -182,11 +182,11 @@ struct DebugPanel: View {
                 VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 10)
                     .foregroundColor(color)
                 Text(value)
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentDefault)
             }
             Text(label)
-                .font(VFont.small)
+                .font(VFont.labelSmall)
                 .foregroundColor(VColor.contentTertiary)
         }
     }

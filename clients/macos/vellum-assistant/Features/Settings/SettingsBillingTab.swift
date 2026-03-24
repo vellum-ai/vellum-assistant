@@ -76,7 +76,7 @@ struct SettingsBillingTab: View {
                         VIconView(.circleAlert, size: 14)
                             .foregroundColor(VColor.systemNegativeStrong)
                         Text(error)
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.systemNegativeStrong)
                     }
                     VButton(label: "Try Again", style: .outlined) {
@@ -95,10 +95,10 @@ struct SettingsBillingTab: View {
             // Effective balance — large display
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Effective Balance")
-                    .font(VFont.inputLabel)
+                    .font(VFont.bodySmallDefault)
                     .foregroundColor(VColor.contentSecondary)
                 Text("$\(summary.effective_balance_usd)")
-                    .font(VFont.title)
+                    .font(VFont.titleMedium)
                     .foregroundColor(VColor.contentEmphasized)
             }
 
@@ -108,7 +108,7 @@ struct SettingsBillingTab: View {
                     VIconView(.triangleAlert, size: 14)
                         .foregroundColor(VColor.systemMidStrong)
                     Text("Pending charges could not be calculated. The balance shown may be incomplete.")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.systemMidStrong)
                 }
                 .padding(VSpacing.md)
@@ -123,18 +123,18 @@ struct SettingsBillingTab: View {
             HStack(spacing: VSpacing.xl) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Settled Balance")
-                        .font(VFont.inputLabel)
+                        .font(VFont.bodySmallDefault)
                         .foregroundColor(VColor.contentSecondary)
                     Text("$\(summary.settled_balance_usd)")
-                        .font(VFont.bodyMedium)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(VColor.contentDefault)
                 }
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(summary.is_degraded ? "Pending Charges (estimated)" : "Pending Charges")
-                        .font(VFont.inputLabel)
+                        .font(VFont.bodySmallDefault)
                         .foregroundColor(VColor.contentSecondary)
                     Text("$\(summary.pending_compute_usd)")
-                        .font(VFont.bodyMedium)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(summary.is_degraded ? VColor.contentSecondary : VColor.contentDefault)
                 }
             }
@@ -169,7 +169,7 @@ struct SettingsBillingTab: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Amount (USD)")
-                    .font(VFont.inputLabel)
+                    .font(VFont.bodySmallDefault)
                     .foregroundColor(VColor.contentSecondary)
                 VTextField(
                     placeholder: "Enter amount",
@@ -191,7 +191,7 @@ struct SettingsBillingTab: View {
                     VIconView(.circleAlert, size: 14)
                         .foregroundColor(VColor.systemNegativeStrong)
                     Text(topUpError)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.systemNegativeStrong)
                 }
             }
@@ -205,7 +205,7 @@ struct SettingsBillingTab: View {
             VStack(alignment: .leading, spacing: VSpacing.md) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Code")
-                        .font(VFont.inputLabel)
+                        .font(VFont.bodySmallDefault)
                         .foregroundColor(VColor.contentSecondary)
                     VTextField(
                         placeholder: "Enter invite code",

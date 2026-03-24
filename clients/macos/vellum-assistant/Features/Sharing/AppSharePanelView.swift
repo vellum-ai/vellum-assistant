@@ -122,12 +122,12 @@ struct AppSharePanelView: View {
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text(appName)
-                    .font(VFont.headline)
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(2)
 
                 Text(formattedFileSize)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             }
         }
@@ -153,7 +153,7 @@ struct AppSharePanelView: View {
                 }
 
                 Text(title)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
 
                 Spacer()

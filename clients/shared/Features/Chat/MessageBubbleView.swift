@@ -134,7 +134,7 @@ public struct MessageBubbleView: View {
                         VIconView(.history, size: 11)
                             .foregroundColor(VColor.contentTertiary)
                         Text("Pending")
-                            .font(VFont.small)
+                            .font(VFont.labelSmall)
                             .foregroundColor(VColor.contentTertiary)
                     }
                     .padding(.horizontal, VSpacing.sm)
@@ -146,13 +146,13 @@ public struct MessageBubbleView: View {
                         VIconView(.triangleAlert, size: 11)
                             .foregroundColor(VColor.systemNegativeStrong)
                         Text("Failed to send")
-                            .font(VFont.small)
+                            .font(VFont.labelSmall)
                             .foregroundColor(VColor.systemNegativeStrong)
                         Button {
                             onRetryFailedMessage?(message.id)
                         } label: {
                             Text("Retry")
-                                .font(VFont.small.weight(.medium))
+                                .font(VFont.labelSmall.weight(.medium))
                                 .foregroundColor(VColor.primaryBase)
                         }
                         .buttonStyle(.plain)
@@ -265,7 +265,7 @@ public struct MessageBubbleView: View {
         let isUser = role == .user
         if isUser {
             Text(text)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .padding(VSpacing.md)
                 .background(VColor.surfaceActive)

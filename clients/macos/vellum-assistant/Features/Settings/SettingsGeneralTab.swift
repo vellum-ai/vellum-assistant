@@ -110,10 +110,10 @@ struct SettingsGeneralTab: View {
                     VIconView(.triangleAlert, size: 28)
                         .foregroundStyle(VColor.systemMidStrong)
                     Text("This is taking longer than expected")
-                        .font(VFont.bodyMedium)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentDefault)
                     Text(dockerOperationLabel)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
                     VButton(label: "Dismiss", style: .outlined) {
                         isDockerOperationInProgress = false
@@ -123,10 +123,10 @@ struct SettingsGeneralTab: View {
                         .controlSize(.regular)
                         .progressViewStyle(.circular)
                     Text(dockerOperationLabel)
-                        .font(VFont.bodyMedium)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentDefault)
                     Text("This may take a minute. The assistant will be briefly unavailable.")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
                 }
             }
@@ -173,7 +173,7 @@ struct SettingsGeneralTab: View {
             if !store.approvedDevices.isEmpty {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Devices")
-                        .font(VFont.inputLabel)
+                        .font(VFont.bodySmallDefault)
                         .foregroundColor(VColor.contentSecondary)
 
                     ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
@@ -181,7 +181,7 @@ struct SettingsGeneralTab: View {
                             VIconView(.smartphone, size: 12)
                                 .foregroundColor(VColor.systemPositiveStrong)
                             Text(device.deviceName)
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.contentSecondary)
                             VButton(label: "Remove \(device.deviceName)", iconOnly: VIcon.trash.rawValue, style: .danger) {
                                 store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
@@ -197,7 +197,7 @@ struct SettingsGeneralTab: View {
                     VIconView(.triangleAlert, size: 12)
                         .foregroundColor(VColor.systemNegativeHover)
                     Text("Configure a gateway URL to enable pairing")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.systemNegativeHover)
                 }
             } else {
@@ -233,7 +233,7 @@ struct SettingsGeneralTab: View {
                     ProgressView()
                         .controlSize(.small)
                     Text("Checking...")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                 }
             } else if authManager.currentUser != nil {

@@ -49,7 +49,7 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
                 Button(action: { selection = item.tag }) {
                     VStack(spacing: VSpacing.xs) {
                         Text(item.label)
-                            .font(VFont.captionMedium)
+                            .font(VFont.labelDefault)
                             .foregroundColor(selection == item.tag ? VColor.contentDefault : VColor.contentTertiary)
                             .padding(.horizontal, VSpacing.xl)
                             .padding(.vertical, VSpacing.xs)
@@ -126,7 +126,7 @@ private struct PillSegment: View {
                         .foregroundColor(isSelected ? VColor.contentDefault : VColor.contentTertiary)
                 } else {
                     Text(label)
-                        .font(size == .compact ? VFont.captionMedium : VFont.body)
+                        .font(size == .compact ? VFont.labelDefault : VFont.bodyMediumLighter)
                         .fixedSize()
                         .foregroundColor(isSelected ? selectedTextColor : VColor.contentSecondary)
                 }

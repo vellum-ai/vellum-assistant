@@ -66,7 +66,7 @@ struct DaemonConnectionSection: View {
                             VIconView(.circleCheck, size: 16)
                                 .foregroundColor(VColor.systemPositiveStrong)
                             Text("Connected")
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.contentDefault)
                         }
                     } else {
@@ -75,7 +75,7 @@ struct DaemonConnectionSection: View {
                             VIconView(.circleAlert, size: 16)
                                 .foregroundColor(VColor.systemNegativeStrong)
                             Text("Disconnected")
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.contentDefault)
                         }
                     }
@@ -92,7 +92,7 @@ struct DaemonConnectionSection: View {
                 } else {
                     // Not configured state
                     Text("Scan a QR code from your Assistant to connect.")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                 }
             } header: {
@@ -160,7 +160,7 @@ struct DaemonConnectionSection: View {
 
                 if let error = authManager.errorMessage {
                     Text(error)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.systemNegativeStrong)
                 }
             } header: {

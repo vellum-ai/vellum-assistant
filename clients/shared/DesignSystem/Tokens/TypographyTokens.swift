@@ -7,9 +7,11 @@ import UIKit
 
 /// Font presets for the app. Always use these instead of raw Font.system() calls.
 ///
-/// **Inter** — humanist sans-serif for headings, body, and UI text.
+/// **DM Sans** — geometric sans-serif for headings, body, and UI text.
 /// **DM Mono** — monospaced font for code and debug views.
-/// **Silkscreen** — pixelated bitmap font, used sparingly for buttons.
+///
+/// Token names follow the Figma type system: Category/Size-Weight.
+/// See: Figma → New App → Type (node 2193-4447)
 public enum VFont {
 
     // MARK: - Compact-width scaling (iPhone)
@@ -54,65 +56,46 @@ public enum VFont {
         ])
         return Font(UIFont(descriptor: descriptor, size: size))
         #else
-        // Fallback for unsupported platforms (visionOS, tvOS, watchOS)
         return Font.custom(name, size: size)
         #endif
     }
-    // MARK: - Onboarding
 
-    public static let onboardingTitle = Font.custom("Inter-SemiBold", size: adaptiveSize(28))
-    public static let onboardingSubtitle = Font.system(size: 15)
+    // MARK: - Title (Figma)
 
-    // MARK: - Headings (Inter)
+    public static let titleLarge  = Font.custom("DMSans-Medium", size: adaptiveSize(24))
+    public static let titleMedium = Font.custom("DMSans-Medium", size: adaptiveSize(20))
+    public static let titleSmall  = Font.custom("DMSans-SemiBold", size: adaptiveSize(18))
 
-    public static let largeTitle = Font.custom("Inter-SemiBold", size: adaptiveSize(26))
-    public static let title      = Font.custom("Inter-SemiBold", size: adaptiveSize(22))
-    public static let headline   = Font.custom("Inter-SemiBold", size: 13)
+    // MARK: - Body (Figma)
 
-    // MARK: - Body / UI (Inter)
+    public static let bodyLargeLighter    = Font.custom("DMSans-Regular", size: 16)
+    public static let bodyLargeDefault    = Font.custom("DMSans-Medium", size: 16)
+    public static let bodyLargeEmphasised = Font.custom("DMSans-SemiBold", size: 16)
+    public static let bodyMediumLighter    = Font.custom("DMSans-Regular", size: 14)
+    public static let bodyMediumDefault    = Font.custom("DMSans-Medium", size: 14)
+    public static let bodyMediumEmphasised = Font.custom("DMSans-SemiBold", size: 14)
+    public static let bodySmallDefault    = Font.custom("DMSans-Medium", size: 12)
+    public static let bodySmallEmphasised = Font.custom("DMSans-SemiBold", size: 12)
 
-    public static let body       = Font.custom("Inter", size: 13)
-    public static let bodyMedium = Font.custom("Inter-Medium", size: 13)
-    public static let bodyBold   = Font.custom("Inter-SemiBold", size: 13)
-    public static let bodySmall  = Font.custom("Inter", size: 12)
-    public static let caption    = Font.custom("Inter", size: 11)
-    public static let captionMedium = Font.custom("Inter-Medium", size: 11)
-    public static let small      = Font.custom("Inter", size: 10)
+    // MARK: - Label (Figma)
+
+    public static let labelDefault = Font.custom("DMSans-Medium", size: 11)
+    public static let labelSmall   = Font.custom("DMSans-Medium", size: 10)
+
+    // MARK: - Chat (Figma — 16pt Medium with 24px line height, applied via .lineSpacing)
+
+    public static let chat = Font.custom("DMSans-Medium", size: 16)
 
     // MARK: - Specialized
 
-    public static let cardTitle   = Font.custom("Inter-SemiBold", size: 16)
-    public static let buttonLarge = Font.custom("Inter-Medium", size: 16)
-    public static let cardEmoji  = Font.system(size: 32)
+    public static let cardEmoji       = Font.system(size: 32)
     public static let onboardingEmoji = Font.system(size: adaptiveSize(80))
-    public static let mono       = dmMono("DMMono-Regular", size: 13)
-    public static let monoSmall  = dmMono("DMMono-Regular", size: 11)
-    public static let monoBodyMedium = dmMono("DMMono-Medium", size: 13)
-    public static let monoMedium = dmMono("DMMono-Medium", size: 16)
-
-    /// Large monospaced font for displaying invite codes
-    public static let inviteCode = Font.system(size: 28, weight: .medium, design: .monospaced)
-
-    /// Rounded system font for identity intro text
-    public static let introHeadline = Font.system(size: adaptiveSize(22), weight: .regular, design: .rounded)
-
-    /// Display font (used for panel headers like "AGENT", "GENERATED CONTENT")
-    public static let display    = Font.custom("Inter-SemiBold", size: adaptiveSize(18))
-
-    /// Modal title font (used by VModal for sheet/dialog titles).
-    public static let modalTitle = Font.custom("Inter-SemiBold", size: adaptiveSize(18))
-    public static let panelTitle   = Font.custom("Inter-Medium", size: adaptiveSize(24))
-    public static let sectionTitle   = Font.custom("Inter-Medium", size: adaptiveSize(17))
-    public static let sectionDescription = Font.custom("Inter", size: 13)
-    public static let inputLabel         = Font.custom("Inter-Medium", size: 12)
-
-    /// Small label (used for conversation tab names)
-    public static let tabLabel   = Font.custom("Inter", size: 11)
+    public static let mono            = dmMono("DMMono-Regular", size: 13)
+    public static let monoSmall       = dmMono("DMMono-Regular", size: 11)
 
     // MARK: - NSFont (AppKit — for NSTextView and TextKit 1)
 
     #if os(macOS)
-    /// DMMono-Regular 13pt `NSFont` with ss05, for use in `NSTextView` / TextKit layers.
     public static let nsMono: NSFont = {
         let base = NSFont(name: "DMMono-Regular", size: 13)
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
@@ -125,19 +108,12 @@ public enum VFont {
         return NSFont(descriptor: descriptor, size: 13) ?? base
     }()
 
-    /// Bold variant of `nsMono`.
     public static let nsMonoBold: NSFont = {
         NSFontManager.shared.convert(nsMono, toHaveTrait: .boldFontMask)
     }()
 
-    /// Italic variant of `nsMono`.
     public static let nsMonoItalic: NSFont = {
         NSFontManager.shared.convert(nsMono, toHaveTrait: .italicFontMask)
     }()
     #endif
-
-    // MARK: - Pixel (Silkscreen — use sparingly, e.g. buttons)
-
-    public static let pixel      = Font.custom("Silkscreen-Regular", size: 13)
-    public static let pixelSmall = Font.custom("Silkscreen-Regular", size: 11)
 }

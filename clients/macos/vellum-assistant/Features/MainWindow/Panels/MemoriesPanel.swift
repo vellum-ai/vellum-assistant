@@ -185,7 +185,7 @@ struct MemoriesPanel: View {
             }
         ) {
             Text("\(kindCount(for: kind))")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentTertiary)
         }
         .accessibilityLabel("\(label) filter")
@@ -212,7 +212,7 @@ struct MemoriesPanel: View {
             HStack(spacing: VSpacing.md) {
                 Text(statusFilter.rawValue)
                     .foregroundColor(VColor.contentDefault)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 VIconView(.chevronDown, size: 13)
@@ -240,7 +240,7 @@ struct MemoriesPanel: View {
                                 .foregroundColor(VColor.contentDefault)
                                 .frame(width: 20)
                             Text(status.rawValue)
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.contentDefault)
                             Spacer()
                             if statusFilter == status {
@@ -271,7 +271,7 @@ struct MemoriesPanel: View {
             HStack(spacing: VSpacing.md) {
                 Text(sortOption.rawValue)
                     .foregroundColor(VColor.contentDefault)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 VIconView(.chevronDown, size: 13)
@@ -300,7 +300,7 @@ struct MemoriesPanel: View {
                                 .foregroundColor(VColor.contentDefault)
                                 .frame(width: 20)
                             Text(option.rawValue)
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.contentDefault)
                             Spacer()
                             if sortOption == option {

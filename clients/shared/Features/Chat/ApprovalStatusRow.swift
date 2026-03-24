@@ -25,7 +25,7 @@ public struct ApprovalStatusRow: View {
             outcomeIcon
 
             Text(label)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentSecondary)
 
             Spacer()

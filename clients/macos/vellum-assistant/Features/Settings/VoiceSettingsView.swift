@@ -71,7 +71,7 @@ struct VoiceSettingsView: View {
             if pttEnabled {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("Activation Key:")
-                        .font(VFont.inputLabel)
+                        .font(VFont.bodySmallDefault)
                         .foregroundColor(VColor.contentSecondary)
 
                     HStack(spacing: VSpacing.sm) {
@@ -105,7 +105,7 @@ struct VoiceSettingsView: View {
                             VIconView(.info, size: 10)
                                 .foregroundColor(VColor.contentTertiary)
                             Text("This key will still type in other apps while held. For seamless use, a dedicated key (F-key, mouse button) is recommended.")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                                 .lineSpacing(1)
                         }
@@ -130,7 +130,7 @@ struct VoiceSettingsView: View {
                     )
 
                 Text(label)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
             }
             .padding(.horizontal, VSpacing.md)
@@ -299,8 +299,8 @@ struct VoiceSettingsView: View {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.lock, size: 10)
                             .foregroundColor(VColor.contentTertiary)
-                        Text("Your API key is stored securely on this device.")
-                            .font(VFont.caption)
+                        Text("Your API key is stored securely in the macOS Keychain.")
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
 

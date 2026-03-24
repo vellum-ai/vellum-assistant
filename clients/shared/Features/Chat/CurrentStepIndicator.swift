@@ -62,20 +62,20 @@ public struct CurrentStepIndicator: View {
                     HStack(spacing: VSpacing.xs) {
                         // Show tool name if available, otherwise show generic "Thinking..."
                         Text(current?.friendlyName ?? "Thinking...")
-                            .font(VFont.bodyMedium)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentDefault)
 
                         // Progress counter inline with title
                         if totalCount > 1 {
                             Text("(\(completedCount)/\(totalCount))")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                         }
                     }
 
                     if isLoading {
                         Text("Working...")
-                            .font(VFont.small)
+                            .font(VFont.labelSmall)
                             .foregroundColor(VColor.primaryBase)
                             .opacity(pulseOpacity)
                     }

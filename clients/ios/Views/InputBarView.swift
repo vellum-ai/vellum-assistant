@@ -103,7 +103,7 @@ struct InputBarView: View {
                 isVoiceOrbExpanded = false
             }) {
                 Text("Cancel")
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             }
             .buttonStyle(.plain)
@@ -163,7 +163,7 @@ struct InputBarView: View {
             // Text field
             TextField("Message...", text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .padding(VSpacing.md)
                 .background(VColor.surfaceBase)

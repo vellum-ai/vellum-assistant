@@ -48,12 +48,12 @@ public struct VButton: View {
                 }
                 .foregroundColor(iconColor ?? iconOnlyForegroundColor)
             } else {
-                HStack(spacing: VSpacing.sm) {
+                HStack(spacing: 6) {
                     if let leftIcon {
                         VIconView(.resolve(leftIcon), size: textIconSize)
                     }
                     Text(label)
-                        .font(size == .regular ? VFont.bodyMedium : VFont.captionMedium)
+                        .font(size == .compact || size == .pill ? VFont.labelDefault : VFont.bodyLargeEmphasised)
                     if isFullWidth && (leftIcon != nil || rightIcon != nil) {
                         Spacer(minLength: 0)
                     }
@@ -279,8 +279,7 @@ private struct ButtonLayoutModifier: ViewModifier {
                 .frame(maxWidth: isFullWidth ? .infinity : nil)
         } else {
             content
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.buttonV)
+                .padding(.horizontal, 10)
                 .frame(height: 32)
                 .frame(maxWidth: isFullWidth ? .infinity : nil)
         }

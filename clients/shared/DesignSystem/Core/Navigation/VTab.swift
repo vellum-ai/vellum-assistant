@@ -48,7 +48,7 @@ public struct VTab: View {
                     VIconView(.resolve(icon), size: 12)
                 }
                 Text(label)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .lineLimit(1)
                 if isCloseable, onClose != nil {
                     Spacer().frame(width: 16)

@@ -45,7 +45,7 @@ struct SkillDetailView: View {
                 Section("About") {
                     if !inspected.skill.summary.isEmpty {
                         Text(inspected.skill.summary)
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentSecondary)
                     }
 
@@ -63,10 +63,10 @@ struct SkillDetailView: View {
                         if let changelog = latestVersion.changelog, !changelog.isEmpty {
                             VStack(alignment: .leading, spacing: VSpacing.xs) {
                                 Text("Changelog")
-                                    .font(VFont.caption)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentTertiary)
                                 Text(changelog)
-                                    .font(VFont.body)
+                                    .font(VFont.bodyMediumLighter)
                                     .foregroundColor(VColor.contentSecondary)
                             }
                         }
@@ -84,7 +84,7 @@ struct SkillDetailView: View {
             } else if let error = skillsStore.inspectError {
                 Section("About") {
                     Text(error)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(.red)
                 }
             }
@@ -141,7 +141,7 @@ struct SkillDetailView: View {
             } else if let error = skillsStore.skillFilesError {
                 Section("Files") {
                     Text(error)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(.red)
                 }
             } else if let filesResponse = skillsStore.selectedSkillFiles, !filesResponse.files.isEmpty {
@@ -186,12 +186,12 @@ struct SkillDetailView: View {
                 .accessibilityHidden(true)
 
             Text(skill.name)
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
 
             if !skill.description.isEmpty {
                 Text(skill.description)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
             }
@@ -200,7 +200,7 @@ struct SkillDetailView: View {
                 HStack(spacing: 4) {
                     VIconView(.circleArrowUp, size: 12)
                     Text("Update available")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                 }
                 .foregroundColor(VColor.primaryBase)
                 .accessibilityElement(children: .combine)
@@ -216,11 +216,11 @@ struct SkillDetailView: View {
     private func detailRow(label: String, value: String) -> some View {
         HStack {
             Text(label)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
             Spacer()
             Text(value)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
         }
         .accessibilityElement(children: .combine)
@@ -249,12 +249,12 @@ struct SkillDetailView: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(file.path)
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
 
                         Text(formatFileSize(file.size))
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
 

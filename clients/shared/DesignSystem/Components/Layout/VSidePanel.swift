@@ -9,7 +9,7 @@ public struct VSidePanel<PinnedContent: View, Content: View>: View {
     @ViewBuilder public let pinnedContent: () -> PinnedContent
     @ViewBuilder public let content: () -> Content
 
-    public init(title: String, titleFont: Font = VFont.panelTitle, uppercased: Bool = false, contentPadding: EdgeInsets = EdgeInsets(top: VSpacing.lg, leading: VSpacing.lg, bottom: VSpacing.lg, trailing: VSpacing.lg), onClose: (() -> Void)? = nil, @ViewBuilder pinnedContent: @escaping () -> PinnedContent, @ViewBuilder content: @escaping () -> Content) {
+    public init(title: String, titleFont: Font = VFont.titleLarge, uppercased: Bool = false, contentPadding: EdgeInsets = EdgeInsets(top: VSpacing.lg, leading: VSpacing.lg, bottom: VSpacing.lg, trailing: VSpacing.lg), onClose: (() -> Void)? = nil, @ViewBuilder pinnedContent: @escaping () -> PinnedContent, @ViewBuilder content: @escaping () -> Content) {
         self.title = title
         self.titleFont = titleFont
         self.uppercased = uppercased

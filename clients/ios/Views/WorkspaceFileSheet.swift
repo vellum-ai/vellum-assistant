@@ -29,7 +29,7 @@ struct WorkspaceFileSheet: View {
                     VStack(spacing: VSpacing.md) {
                         ProgressView()
                         Text("Loading file...")
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentSecondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -39,7 +39,7 @@ struct WorkspaceFileSheet: View {
                             .foregroundColor(VColor.contentTertiary)
                             .accessibilityHidden(true)
                         Text(error)
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentSecondary)
                             .multilineTextAlignment(.center)
                     }
@@ -95,7 +95,7 @@ struct WorkspaceFileSheet: View {
             metadataView(response)
         } else {
             Text("No content")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentTertiary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -128,11 +128,11 @@ struct WorkspaceFileSheet: View {
     private func metadataRow(label: String, value: String) -> some View {
         HStack {
             Text(label)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
                 .frame(width: 80, alignment: .leading)
             Text(value)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .lineLimit(2)
             Spacer()
@@ -210,7 +210,7 @@ private struct AuthenticatedImageView: View {
                         .foregroundColor(VColor.contentTertiary)
                         .accessibilityHidden(true)
                     Text("Unable to load image")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -298,7 +298,7 @@ private struct WorkspaceVideoPlayer: View {
                         .foregroundColor(VColor.contentTertiary)
                         .accessibilityHidden(true)
                     Text("Unable to load video")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

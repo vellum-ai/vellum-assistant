@@ -44,17 +44,17 @@ public struct ModelListBubble: View {
                 // Provider header
                 HStack(spacing: VSpacing.sm) {
                     Text(group.name)
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .foregroundColor(VColor.contentTertiary)
                         .tracking(0.5)
                     Spacer()
                     if group.hasKey {
                         Text("connected")
-                            .font(VFont.small)
+                            .font(VFont.labelSmall)
                             .foregroundColor(VColor.systemPositiveStrong)
                     } else {
                         Text("no key")
-                            .font(VFont.small)
+                            .font(VFont.labelSmall)
                             .foregroundColor(VColor.systemNegativeHover)
                     }
                 }
@@ -74,7 +74,7 @@ public struct ModelListBubble: View {
                         }
 
                         Text(model.displayName)
-                            .font(model.isCurrent ? VFont.bodyBold : VFont.body)
+                            .font(model.isCurrent ? VFont.bodyMediumEmphasised : VFont.bodyMediumLighter)
                             .foregroundColor(group.hasKey ? VColor.contentDefault : VColor.contentTertiary)
 
                         Spacer()
@@ -90,7 +90,7 @@ public struct ModelListBubble: View {
 
             // Footer
             Text("Use Settings -> Models & Services to switch models, or `keys set <provider> <key>` to add a provider.")
-                .font(VFont.small)
+                .font(VFont.labelSmall)
                 .foregroundColor(VColor.contentTertiary)
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.top, VSpacing.md)

@@ -22,7 +22,7 @@ struct AvatarCustomizationPanel: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Back to identity")
                     Text("Customize Avatar")
-                        .font(VFont.panelTitle)
+                        .font(VFont.titleLarge)
                         .foregroundColor(VColor.contentDefault)
                     Spacer()
                 }
@@ -59,7 +59,7 @@ struct AvatarCustomizationPanel: View {
     private var profilePictureSection: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Profile Picture")
-                .font(VFont.headline)
+                .font(VFont.bodySmallEmphasised)
                 .foregroundColor(VColor.contentSecondary)
 
             if let customImage = appearance.customAvatarImage {
@@ -69,12 +69,12 @@ struct AvatarCustomizationPanel: View {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Button("Change") { pickImage() }
                             .buttonStyle(.plain)
-                            .font(VFont.bodyMedium)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.primaryBase)
 
                         Button("Remove") { appearance.clearCustomAvatar() }
                             .buttonStyle(.plain)
-                            .font(VFont.bodyMedium)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentTertiary)
                     }
                 }
@@ -85,7 +85,7 @@ struct AvatarCustomizationPanel: View {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.image, size: 12)
                         Text("Upload Custom Image")
-                            .font(VFont.bodyMedium)
+                            .font(VFont.bodyMediumDefault)
                     }
                     .foregroundColor(VColor.contentSecondary)
                     .padding(.horizontal, VSpacing.lg)

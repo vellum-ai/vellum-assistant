@@ -156,20 +156,20 @@ struct WebSearchServiceCard: View {
 
     private var managedIncludedMessage: some View {
         Text("Web search is included with managed inference.")
-            .font(VFont.body)
+            .font(VFont.bodyMediumLighter)
             .foregroundColor(VColor.contentDefault)
     }
 
     private var managedUnavailableMessage: some View {
         Text("Managed web search requires managed inference.")
-            .font(VFont.body)
+            .font(VFont.bodyMediumLighter)
             .foregroundColor(VColor.contentDefault)
     }
 
     private var managedLoginPrompt: some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Log in to Vellum to use managed web search.")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
             VButton(
                 label: authManager.isSubmitting ? "Logging in..." : "Log In",
@@ -188,7 +188,7 @@ struct WebSearchServiceCard: View {
     private var providerPicker: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Provider")
-                .font(VFont.inputLabel)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentSecondary)
             VDropdown(
                 placeholder: "Select a provider\u{2026}",

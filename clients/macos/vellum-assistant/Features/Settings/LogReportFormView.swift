@@ -80,7 +80,7 @@ struct LogReportFormView: View {
     private var reasonCards: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Category")
-                .font(VFont.inputLabel)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentSecondary)
             ForEach(LogReportReason.allCases) { reason in
                 ReasonCard(reason: reason, isSelected: selectedReason == reason) {
@@ -94,7 +94,7 @@ struct LogReportFormView: View {
     private var messageField: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("What happened?")
-                .font(VFont.inputLabel)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentSecondary)
             VTextEditor(
                 placeholder: "Describe what happened...",
@@ -159,7 +159,7 @@ struct LogReportFormView: View {
                     ProgressView()
                         .controlSize(.small)
                     Text("Sending feedback…")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                 }
             } else {
@@ -205,7 +205,7 @@ private struct ReasonCard: View {
                 VIconView(.resolve(reason.icon), size: 14)
                     .foregroundColor(isSelected ? VColor.primaryBase : VColor.contentSecondary)
                 Text(reason.displayName)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                 Spacer()
                 Circle()

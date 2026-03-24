@@ -26,7 +26,7 @@ struct SkillDetailView: View {
 
             if !skill.description.isEmpty {
                 Text(skill.description)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -116,7 +116,7 @@ struct SkillDetailView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
                     Text("Files")
-                        .font(VFont.headline)
+                        .font(VFont.bodySmallEmphasised)
                         .foregroundColor(VColor.contentDefault)
                     Spacer()
                 }
@@ -135,7 +135,7 @@ struct SkillDetailView: View {
                         }
                     } else if let error = skillsManager.skillFilesError {
                         Text(error)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.systemNegativeStrong)
                             .padding(VSpacing.md)
                     } else if let filesResponse = skillsManager.selectedSkillFiles, !filesResponse.files.isEmpty {
@@ -183,13 +183,13 @@ struct SkillDetailTitleRow: View {
             }
 
             Text(skill.name)
-                .font(VFont.cardTitle)
+                .font(VFont.titleSmall)
                 .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
 
             if skill.updateAvailable {
                 Text("UPDATE")
-                    .font(VFont.small)
+                    .font(VFont.labelSmall)
                     .foregroundColor(VColor.systemNegativeHover)
             }
 
@@ -238,7 +238,7 @@ struct SkillDetailMetaInfo: View {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.externalLink, size: 9)
                         Text("View on \(provenance.provider ?? "source")")
-                            .font(VFont.small)
+                            .font(VFont.labelSmall)
                     }
                     .foregroundColor(VColor.contentTertiary)
                 }
@@ -252,7 +252,7 @@ struct SkillDetailMetaInfo: View {
             VIconView(icon, size: 9)
             Text(value)
         }
-        .font(VFont.small)
+        .font(VFont.labelSmall)
         .foregroundColor(color)
     }
 }

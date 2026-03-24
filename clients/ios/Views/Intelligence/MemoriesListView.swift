@@ -123,7 +123,7 @@ struct MemoriesListView: View {
             Task { await store.loadItems() }
         } label: {
             Text(label)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(
@@ -148,12 +148,12 @@ struct MemoriesListView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.subject)
-                    .font(VFont.bodyMedium)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
 
                 Text(item.statement)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
                     .lineLimit(2)
             }
@@ -161,7 +161,7 @@ struct MemoriesListView: View {
             Spacer()
 
             Text(item.relativeLastSeen)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
         }
         .padding(.vertical, 2)
@@ -183,11 +183,11 @@ struct MemoriesListView: View {
                 .accessibilityHidden(true)
 
             Text("No Memories Yet")
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
 
             Text("Your assistant learns from conversations.")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
@@ -201,7 +201,7 @@ struct MemoriesListView: View {
         VStack(spacing: VSpacing.md) {
             ProgressView()
             Text("Loading memories...")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -38,7 +38,7 @@ struct ReauthView: View {
                 .padding(.bottom, VSpacing.xs)
 
             Text("Log in to continue.")
-                .font(VFont.buttonLarge)
+                .font(VFont.titleSmall)
                 .foregroundColor(VColor.contentSecondary)
                 .padding(.bottom, VSpacing.xxl)
 
@@ -49,7 +49,7 @@ struct ReauthView: View {
                             .controlSize(.small)
                             .progressViewStyle(.circular)
                         Text("Checking...")
-                            .font(VFont.buttonLarge)
+                            .font(VFont.titleSmall)
                             .foregroundColor(VColor.contentSecondary)
                     }
                     .frame(height: 36)
@@ -59,7 +59,7 @@ struct ReauthView: View {
                             .controlSize(.small)
                             .progressViewStyle(.circular)
                         Text(isActivatingManagedAssistant ? "Loading your assistant..." : "Logging in...")
-                            .font(VFont.buttonLarge)
+                            .font(VFont.titleSmall)
                             .foregroundColor(VColor.contentSecondary)
                     }
                     .frame(height: 36)
@@ -74,7 +74,7 @@ struct ReauthView: View {
 
                 if let error = authManager.errorMessage {
                     Text(error)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.systemNegativeStrong)
                         .multilineTextAlignment(.center)
                 }

@@ -215,7 +215,7 @@ struct JSONTreeView: View {
             VIconView(.triangleAlert, size: 24)
                 .foregroundColor(VColor.systemNegativeStrong)
             Text(error)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.systemNegativeStrong)
                 .multilineTextAlignment(.center)
                 .textSelection(.enabled)

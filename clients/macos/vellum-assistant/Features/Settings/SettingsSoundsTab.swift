@@ -35,7 +35,7 @@ struct SettingsSoundsTab: View {
 
             HStack(spacing: VSpacing.md) {
                 Text("Volume")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(soundManager.config.globalEnabled ? VColor.contentSecondary : VColor.contentDisabled)
 
                 VSlider(
@@ -89,7 +89,7 @@ struct SettingsSoundsTab: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             HStack(alignment: .center) {
                 Text(event.displayName)
-                    .font(VFont.bodyMedium)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentDefault)
 
                 Spacer()
@@ -161,7 +161,7 @@ struct SettingsSoundsTab: View {
 
     private var helperTextSection: some View {
         Text("Send your assistant a sound file or ask it to customize your sounds")
-            .font(VFont.caption)
+            .font(VFont.labelDefault)
             .foregroundColor(VColor.contentTertiary)
     }
 

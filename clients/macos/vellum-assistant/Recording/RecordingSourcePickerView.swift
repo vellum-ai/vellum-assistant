@@ -22,13 +22,13 @@ struct RecordingSourcePickerView: View {
         VStack(spacing: 0) {
             // Header
             Text("Screen Recording")
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
                 .padding(.top, VSpacing.sm)
                 .padding(.bottom, VSpacing.sm)
 
             Text("Choose what to record")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
                 .padding(.bottom, VSpacing.sm)
 
@@ -50,7 +50,7 @@ struct RecordingSourcePickerView: View {
             if viewModel.isLoading {
                 Spacer()
                 ProgressView("Loading sources...")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
                 Spacer()
             } else {
@@ -177,12 +177,12 @@ struct RecordingSourcePickerView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(window.title)
-                        .font(VFont.bodyMedium)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
                     if !window.appName.isEmpty {
                         Text(window.appName)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
                             .lineLimit(1)
                     }
@@ -236,7 +236,7 @@ struct RecordingSourcePickerView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: VSpacing.sm) {
                         Text(display.name)
-                            .font(VFont.bodyMedium)
+                            .font(VFont.bodyMediumDefault)
                             .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
                         if display.isCurrentDisplay {
@@ -244,7 +244,7 @@ struct RecordingSourcePickerView: View {
                         }
                     }
                     Text(display.subtitle)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                         .lineLimit(1)
                 }
@@ -283,7 +283,7 @@ struct RecordingSourcePickerView: View {
             VIconView(.squareDashed, size: 32)
                 .foregroundColor(VColor.contentTertiary)
             Text(message)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentTertiary)
         }
         .frame(maxWidth: .infinity)
@@ -302,7 +302,7 @@ struct RecordingSourcePickerView: View {
                     .foregroundColor(VColor.contentSecondary)
                     .frame(width: 20)
                 Text("System audio")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
             }
             .padding(.horizontal, VSpacing.xl)
@@ -315,7 +315,7 @@ struct RecordingSourcePickerView: View {
                         .foregroundColor(VColor.contentSecondary)
                         .frame(width: 20)
                     Text("Microphone")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentDefault)
                 }
                 .padding(.horizontal, VSpacing.xl)

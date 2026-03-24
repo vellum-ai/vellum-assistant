@@ -45,7 +45,7 @@ struct InlineVideoEmbedView: View {
                 VIconView(.video, size: 10)
                     .foregroundColor(VColor.contentTertiary)
                 Text(provider.capitalized)
-                    .font(VFont.small)
+                    .font(VFont.labelSmall)
                     .foregroundColor(VColor.contentTertiary)
                 Spacer()
             }
@@ -123,12 +123,12 @@ struct InlineVideoEmbedView: View {
             VIconView(.triangleAlert, size: 24)
                 .foregroundColor(VColor.contentTertiary)
             Text("Failed to load video")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentSecondary)
             Button("Open in Safari") {
                 UIApplication.shared.open(embedURL)
             }
-            .font(VFont.caption)
+            .font(VFont.labelDefault)
         }
         .frame(height: 200)
         .frame(maxWidth: .infinity)

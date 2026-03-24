@@ -41,7 +41,7 @@ struct ContactDetailView: View {
             if let notes = liveContact.notes, !notes.isEmpty {
                 Section("Notes") {
                     Text(notes)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                 }
             }
@@ -109,7 +109,7 @@ struct ContactDetailView: View {
             initialsView(for: liveContact.displayName, size: 64)
 
             Text(liveContact.displayName)
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
 
             HStack(spacing: VSpacing.sm) {
@@ -117,7 +117,7 @@ struct ContactDetailView: View {
 
                 if let contactType = liveContact.contactType, !contactType.isEmpty {
                     Text(contactType.capitalized)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                 }
             }
@@ -135,12 +135,12 @@ struct ContactDetailView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(channel.address)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentDefault)
 
                     HStack(spacing: 4) {
                         Text(channel.type.capitalized)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
 
                         if channel.isPrimary {
@@ -265,11 +265,11 @@ struct ContactDetailView: View {
     private func detailRow(label: String, value: String) -> some View {
         HStack {
             Text(label)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
             Spacer()
             Text(value)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
         }
         .accessibilityElement(children: .combine)

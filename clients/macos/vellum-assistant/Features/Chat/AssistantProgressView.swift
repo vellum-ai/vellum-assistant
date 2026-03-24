@@ -579,7 +579,7 @@ struct AssistantProgressView: View {
                 processingLabel
             } else {
                 Text(headlineText)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -609,7 +609,7 @@ struct AssistantProgressView: View {
 
             HStack(spacing: VSpacing.xs) {
                 Text(labels[labelIndex])
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                     .animation(.easeInOut(duration: 0.3), value: labelIndex)
 
@@ -630,7 +630,7 @@ struct AssistantProgressView: View {
             let elapsed = max(0, context.date.timeIntervalSince(startDate))
             if elapsed >= 5 {
                 Text(RunningIndicator.formatElapsed(elapsed))
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             }
         }
@@ -645,7 +645,7 @@ struct AssistantProgressView: View {
             Text(seconds < 60
                 ? String(format: "%.1fs", seconds)
                 : "\(Int(seconds) / 60)m \(Int(seconds) % 60)s")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
         }
     }
@@ -705,7 +705,7 @@ struct AssistantProgressView: View {
                     isOverflowPopoverShown.toggle()
                 }) {
                     Text("+\(overflow)")
-                        .font(VFont.captionMedium)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                         .padding(.horizontal, VSpacing.xs)
                         .padding(.vertical, VSpacing.xxs)
@@ -824,7 +824,7 @@ private struct StepDetailRow: View {
                     // Title (reason-first, then skillLabel for skill_execute, then fallback)
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text(stepTitle)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(stepTitleColor)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -844,7 +844,7 @@ private struct StepDetailRow: View {
 
                         if let start = toolCall.startedAt, let end = toolCall.completedAt, toolCall.isComplete {
                             Text(formatDuration(end.timeIntervalSince(start)))
-                                .font(VFont.small)
+                                .font(VFont.labelSmall)
                                 .foregroundColor(VColor.contentTertiary)
                         }
 
@@ -911,18 +911,18 @@ private struct StepDetailRow: View {
             // Technical details
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Technical details")
-                    .font(VFont.small)
+                    .font(VFont.labelSmall)
                     .foregroundColor(VColor.contentTertiary)
                     .textCase(.uppercase)
 
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     if let reason = toolCall.reasonDescription, !reason.isEmpty {
                         Text(toolCall.actionDescription)
-                            .font(VFont.captionMedium)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
                     }
                     Text(toolCall.friendlyName)
-                        .font(VFont.captionMedium)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                     if !resolvedInputFull.isEmpty {
                         Text(resolvedInputFull)
@@ -940,7 +940,7 @@ private struct StepDetailRow: View {
             if !toolCall.partialOutput.isEmpty && (!toolCall.isComplete || (toolCall.result ?? "").isEmpty) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(toolCall.isComplete ? "Output" : "Live output")
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .foregroundColor(VColor.contentTertiary)
                         .textCase(.uppercase)
 
@@ -961,7 +961,7 @@ private struct StepDetailRow: View {
             if let result = toolCall.result, !result.isEmpty {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Output")
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .foregroundColor(VColor.contentTertiary)
                         .textCase(.uppercase)
 
@@ -1125,7 +1125,7 @@ private struct CompactPermissionChip: View {
             }
 
             Text(state == .approved || state == .denied ? label : "Timed Out")
-                .font(VFont.small)
+                .font(VFont.labelSmall)
                 .foregroundColor(chipColor)
         }
         .padding(.horizontal, VSpacing.xs)

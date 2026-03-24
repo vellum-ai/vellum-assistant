@@ -393,7 +393,7 @@ struct MarkdownTableView: View {
     private func inlineMarkdownCell(_ text: String) -> some View {
         let attributed = Self.cachedAttributedString(for: text)
         return Text(attributed)
-            .font(.custom("Inter", size: 13))
+            .font(VFont.bodyMediumLighter)
             .foregroundColor(VColor.contentDefault)
             .textSelection(.enabled)
             // lineLimit(nil) ensures text wraps within the column width

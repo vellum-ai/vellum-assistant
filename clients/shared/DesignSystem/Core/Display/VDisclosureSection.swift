@@ -49,11 +49,11 @@ public struct VDisclosureSection<Content: View>: View {
 
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text(title)
-                            .font(VFont.bodyBold)
+                            .font(VFont.bodyMediumEmphasised)
                             .foregroundColor(VColor.contentDefault)
                         if let subtitle {
                             Text(subtitle)
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)

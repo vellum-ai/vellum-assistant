@@ -156,7 +156,7 @@ struct RecordingHUDView: View {
                     .foregroundColor(VColor.systemNegativeStrong)
 
                 Text(failure)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemNegativeStrong)
                     .lineLimit(1)
             } else {
@@ -182,7 +182,7 @@ struct RecordingHUDView: View {
 
                 if viewModel.isPaused {
                     Text("Paused")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.systemNegativeHover)
                 }
 

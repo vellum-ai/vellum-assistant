@@ -23,7 +23,7 @@ public struct VShortcutTag: View {
                 VIconView(.resolve(icon), size: 11)
             }
             Text(text)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
         }
         .foregroundColor(tagColor)
         .padding(.horizontal, VSpacing.sm)

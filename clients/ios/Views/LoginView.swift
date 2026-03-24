@@ -17,19 +17,19 @@ struct LoginView: View {
                 .font(VFont.onboardingEmoji)
 
             Text("Log in with Vellum")
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
                 .multilineTextAlignment(.center)
 
             Text("Sign in to connect to your cloud assistant")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
 
             if let error = authManager.errorMessage {
                 Text(error)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemNegativeStrong)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, VSpacing.xl)

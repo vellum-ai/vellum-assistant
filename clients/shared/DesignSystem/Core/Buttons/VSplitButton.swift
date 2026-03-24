@@ -50,7 +50,7 @@ public struct VSplitButton<MenuContent: View>: View {
                         VIconView(.resolve(icon), size: 13)
                     }
                     Text(label)
-                        .font(size == .regular ? VFont.bodyMedium : VFont.captionMedium)
+                        .font(size == .regular ? VFont.bodyMediumDefault : VFont.labelDefault)
                 }
                 .foregroundColor(foregroundColor)
                 .padding(.horizontal, size == .regular ? VSpacing.md : VSpacing.sm)

@@ -84,13 +84,13 @@ struct JITPermissionView: View {
             // Non-technical question (bold) + supporting message
             VStack(spacing: VSpacing.sm) {
                 Text(request.title)
-                    .font(VFont.onboardingTitle)
+                    .font(VFont.titleLarge)
                     .foregroundColor(VColor.contentDefault)
                     .multilineTextAlignment(.center)
                     .textSelection(.enabled)
 
                 Text(request.message)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 320)
@@ -111,7 +111,7 @@ struct JITPermissionView: View {
                             .foregroundColor(VColor.primaryBase)
                             .rotationEffect(.degrees(showTechnicalDetails ? 90 : 0))
                         Text("Technical details")
-                            .font(VFont.captionMedium)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.primaryBase)
                     }
                 }
@@ -120,13 +120,13 @@ struct JITPermissionView: View {
                 if showTechnicalDetails {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text(request.explanation)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
 
                         Text(request.technicalDetails)
-                            .font(VFont.small)
+                            .font(VFont.labelSmall)
                             .foregroundColor(VColor.contentTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
@@ -187,7 +187,7 @@ struct JITPermissionView: View {
     private func permissionButton(_ title: String, isPrimary: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(VFont.captionMedium)
+                .font(VFont.labelDefault)
                 .foregroundColor(isPrimary ? VColor.auxWhite : VColor.contentDefault.opacity(0.85))
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, VSpacing.sm)

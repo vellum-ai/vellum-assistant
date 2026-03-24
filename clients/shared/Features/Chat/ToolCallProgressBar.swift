@@ -110,7 +110,7 @@ public struct ToolCallProgressBar: View {
     @ViewBuilder
     private func stepLabel(for toolCall: ToolCallData) -> some View {
         Text(toolCall.friendlyName)
-            .font(VFont.small)
+            .font(VFont.labelSmall)
             .foregroundColor(stepTextColor(for: toolCall))
             .lineLimit(1)
             .multilineTextAlignment(.center)
@@ -149,7 +149,7 @@ public struct ToolCallProgressBar: View {
                     .foregroundColor(toolCall.isError ? VColor.systemNegativeStrong : VColor.primaryBase)
 
                 Text(toolCall.friendlyName)
-                    .font(VFont.bodyMedium)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentDefault)
 
                 Spacer()
@@ -170,7 +170,7 @@ public struct ToolCallProgressBar: View {
             if !toolCall.inputSummary.isEmpty {
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text("Input")
-                        .font(VFont.captionMedium)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
 
                     Text(toolCall.inputSummary)
@@ -184,7 +184,7 @@ public struct ToolCallProgressBar: View {
             if let cachedImage = toolCall.cachedImage {
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text("Screenshot")
-                        .font(VFont.captionMedium)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
 
                     #if os(macOS)
@@ -207,7 +207,7 @@ public struct ToolCallProgressBar: View {
             if let result = toolCall.result {
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text("Result")
-                        .font(VFont.captionMedium)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
 
                     if let exitCode = ToolCallChip.parseExitCode(from: result) {
@@ -216,12 +216,12 @@ public struct ToolCallProgressBar: View {
                                 VIconView(.triangleAlert, size: 11)
                                     .foregroundColor(VColor.systemNegativeStrong)
                                 Text("Exit code \(exitCode)")
-                                    .font(VFont.captionMedium)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.systemNegativeStrong)
                             }
                             if let explanation = ToolCallChip.exitCodeExplanation(exitCode) {
                                 Text(explanation)
-                                    .font(VFont.caption)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentSecondary)
                             }
                             let extraOutput = result
@@ -239,7 +239,7 @@ public struct ToolCallProgressBar: View {
                             VIconView(.circleCheck, size: 11)
                                 .foregroundColor(VColor.primaryBase)
                             Text("Command completed successfully (no output).")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentSecondary)
                         }
                     } else {

@@ -19,7 +19,7 @@ struct ChatGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         HStack {
                             Text("Amplitude: \(String(format: "%.2f", voiceComposerAmplitude))")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentSecondary)
                             Slider(value: $voiceComposerAmplitude, in: 0...1, step: 0.05)
                                 .frame(maxWidth: 200)
@@ -28,7 +28,7 @@ struct ChatGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         Text("Conversation style (voice mode)")
-                            .font(VFont.captionMedium)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
                         VStreamingWaveform(
                             amplitude: voiceComposerAmplitude,
@@ -41,7 +41,7 @@ struct ChatGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         Text("Dictation style (inline dictation)")
-                            .font(VFont.captionMedium)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
                         VStreamingWaveform(
                             amplitude: voiceComposerAmplitude,
@@ -99,7 +99,7 @@ struct ChatGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("SubagentStatusChip")
-                            .font(VFont.captionMedium)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
 
                         SubagentStatusChip(
@@ -127,7 +127,7 @@ struct ChatGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("SubagentConversationView")
-                            .font(VFont.captionMedium)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
 
                         SubagentConversationView(
@@ -174,7 +174,7 @@ struct ChatGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("Completed (success)")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         ToolCallChip(toolCall: ToolCallData(
                             toolName: "bash",
@@ -186,7 +186,7 @@ struct ChatGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         Text("Completed (error)")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         ToolCallChip(toolCall: ToolCallData(
                             toolName: "bash",
@@ -199,7 +199,7 @@ struct ChatGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         Text("File edit (success)")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         ToolCallChip(toolCall: ToolCallData(
                             toolName: "file_edit",
@@ -211,7 +211,7 @@ struct ChatGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         Text("In progress")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         ToolCallChip(toolCall: ToolCallData(
                             toolName: "file_read",
@@ -235,7 +235,7 @@ struct ChatGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("CurrentStepIndicator — in progress with multiple steps")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         CurrentStepIndicator(
                             toolCalls: [
@@ -262,7 +262,7 @@ struct ChatGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         Text("CurrentStepIndicator — completed")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         CurrentStepIndicator(
                             toolCalls: [
@@ -286,7 +286,7 @@ struct ChatGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("ToolCallProgressBar — multi-step with one in progress")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         ToolCallProgressBar(toolCalls: [
                             ToolCallData(
@@ -315,7 +315,7 @@ struct ChatGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         Text("ToolCallProgressBar — completed with error")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         ToolCallProgressBar(toolCalls: [
                             ToolCallData(
@@ -353,7 +353,7 @@ struct ChatGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("TypingIndicatorView — animated dots while assistant is thinking")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
 
                         HStack {
@@ -364,19 +364,19 @@ struct ChatGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         Text("AssistantProgressView — macOS only (clients/macos/)")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         Text("Unified container for all tool progress states. Smoothly morphs between thinking, running, streaming code, and completed phases. Not available in the shared gallery because it depends on macOS-only imports.")
-                            .font(VFont.small)
+                            .font(VFont.labelSmall)
                             .foregroundColor(VColor.contentTertiary)
 
                         Divider().background(VColor.borderBase)
 
                         Text("RunningIndicator — macOS only (clients/macos/)")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         Text("Spinning arc indicator used alongside tool progress views. Not available in the shared gallery because it depends on macOS-only imports.")
-                            .font(VFont.small)
+                            .font(VFont.labelSmall)
                             .foregroundColor(VColor.contentTertiary)
                     }
                 }
@@ -395,7 +395,7 @@ struct ChatGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("Collapsed — approved")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         ToolConfirmationBubble(
                             confirmation: ToolConfirmationData(
@@ -414,7 +414,7 @@ struct ChatGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         Text("Collapsed — denied")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         ToolConfirmationBubble(
                             confirmation: ToolConfirmationData(
@@ -433,7 +433,7 @@ struct ChatGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         Text("Collapsed — timed out")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         ToolConfirmationBubble(
                             confirmation: ToolConfirmationData(
@@ -454,7 +454,7 @@ struct ChatGallerySection: View {
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("Pending — low risk")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         ToolConfirmationBubble(
                             confirmation: ToolConfirmationData(
@@ -473,7 +473,7 @@ struct ChatGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         Text("Pending — medium risk with always-allow")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         ToolConfirmationBubble(
                             confirmation: ToolConfirmationData(
@@ -502,7 +502,7 @@ struct ChatGallerySection: View {
                         Divider().background(VColor.borderBase)
 
                         Text("Pending — high risk")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                         ToolConfirmationBubble(
                             confirmation: ToolConfirmationData(

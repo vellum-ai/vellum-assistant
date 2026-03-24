@@ -34,7 +34,7 @@ struct DrawerMenuView: View {
             if let balance = effectiveBalance {
                 HStack {
                     Text("$\(balance) remaining")
-                        .font(VFont.bodyMedium)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(
                             isZeroBalance ? VColor.systemNegativeStrong :
                             isLowBalance ? VColor.systemMidStrong :
@@ -43,7 +43,7 @@ struct DrawerMenuView: View {
                     Spacer()
                     if isBillingVisible {
                         Button("Add funds") { onOpenBilling() }
-                            .font(VFont.captionMedium)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.primaryBase)
                             .buttonStyle(.plain)
                     }
@@ -58,7 +58,7 @@ struct DrawerMenuView: View {
                 SidebarPrimaryRow(icon: VIcon.settings.rawValue, label: String(localized: "Settings"), action: onSettings)
 
                 Text("Ask the assistant in chat to help you with any settings you wish to alter.")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentDisabled)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.top, VSpacing.xs)

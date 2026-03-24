@@ -135,11 +135,11 @@ private struct FirstUsePromptView: View {
                     .foregroundColor(VColor.primaryBase)
 
                 Text("Enable Speech Recognition")
-                    .font(VFont.modalTitle)
+                    .font(VFont.titleSmall)
                     .foregroundColor(VColor.contentDefault)
 
                 Text("So your words come out the way you meant them.")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
@@ -206,11 +206,11 @@ private struct DeniedPromptView: View {
                     .foregroundColor(VColor.systemNegativeStrong)
 
                 Text(title)
-                    .font(VFont.modalTitle)
+                    .font(VFont.titleSmall)
                     .foregroundColor(VColor.contentDefault)
 
                 Text(subtitle)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)

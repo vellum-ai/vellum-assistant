@@ -17,7 +17,7 @@ struct SubagentDetailPanel: View {
     private var isRunning: Bool { subagentInfo?.status == .running || subagentInfo?.status == .pending }
 
     var body: some View {
-        VSidePanel(title: subagentInfo?.label ?? "Subagent", titleFont: VFont.sectionTitle, onClose: onClose, pinnedContent: {
+        VSidePanel(title: subagentInfo?.label ?? "Subagent", titleFont: VFont.titleSmall, onClose: onClose, pinnedContent: {
             VStack(alignment: .leading, spacing: VSpacing.lg) {
                 // Status + abort row
                 HStack {
@@ -28,7 +28,7 @@ struct SubagentDetailPanel: View {
                             HStack(spacing: VSpacing.xxs) {
                                 VIconView(.square, size: 8)
                                 Text("Abort")
-                                    .font(VFont.captionMedium)
+                                    .font(VFont.labelDefault)
                             }
                             .foregroundColor(VColor.systemNegativeStrong)
                             .padding(.horizontal, VSpacing.sm)
@@ -47,10 +47,10 @@ struct SubagentDetailPanel: View {
                 if let objective, !objective.isEmpty {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         Text("OBJECTIVE")
-                            .font(VFont.small)
+                            .font(VFont.labelSmall)
                             .foregroundColor(VColor.contentTertiary)
                         Text(objective)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentSecondary)
                             .lineLimit(4)
                     }
@@ -67,7 +67,7 @@ struct SubagentDetailPanel: View {
                         VIconView(.triangleAlert, size: 11)
                             .foregroundColor(VColor.systemNegativeStrong)
                         Text(error)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.systemNegativeStrong)
                     }
                     .padding(VSpacing.sm)
@@ -119,7 +119,7 @@ struct SubagentDetailPanel: View {
                     .fill(statusColor(info.status))
                     .frame(width: 8, height: 8)
                 Text(info.status.rawValue.replacingOccurrences(of: "_", with: " ").capitalized)
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(statusColor(info.status))
             }
             .padding(.horizontal, VSpacing.sm)
@@ -161,10 +161,10 @@ struct SubagentDetailPanel: View {
                 .foregroundColor(VColor.contentTertiary)
             VStack(alignment: .leading, spacing: 0) {
                 Text(label)
-                    .font(VFont.small)
+                    .font(VFont.labelSmall)
                     .foregroundColor(VColor.contentTertiary)
                 Text(value)
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
             }
         }
@@ -202,7 +202,7 @@ struct SubagentDetailPanel: View {
         HStack(spacing: VSpacing.xxs) {
             VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 8)
             Text(text)
-                .font(VFont.small)
+                .font(VFont.labelSmall)
         }
         .foregroundColor(color)
     }
@@ -223,7 +223,7 @@ struct SubagentDetailPanel: View {
         case .toolUse(let name):
             HStack(spacing: VSpacing.xs) {
                 Text(name)
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemPositiveWeak)
                 if !event.content.isEmpty {
                     Text(event.content)
@@ -259,7 +259,7 @@ struct SubagentDetailPanel: View {
 
         case .error:
             Text(event.content)
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.systemNegativeStrong)
                 .textSelection(.enabled)
                 .padding(VSpacing.sm)

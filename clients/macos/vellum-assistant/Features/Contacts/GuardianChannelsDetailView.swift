@@ -103,10 +103,10 @@ struct GuardianChannelsDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.xl) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Channels")
-                    .font(VFont.sectionTitle)
+                    .font(VFont.titleSmall)
                     .foregroundColor(VColor.contentDefault)
                 Text("Once verified, your assistant will recognize you when you message from these channels.")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             }
 
@@ -117,10 +117,10 @@ struct GuardianChannelsDetailView: View {
                     VIconView(.messageCircle, size: 24)
                         .foregroundColor(VColor.contentTertiary)
                     Text("No Channels Available")
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                     Text("Set up channels on your assistant first to verify your identity.")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                         .multilineTextAlignment(.center)
                     if let onSelectAssistant {
@@ -190,12 +190,12 @@ struct GuardianChannelsDetailView: View {
                     VIconView(channelIcon(for: type), size: 16)
                         .foregroundColor(isVerified ? VColor.systemPositiveStrong : VColor.contentSecondary)
                     Text(channelLabel(for: type))
-                        .font(VFont.bodyMedium)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundColor(VColor.contentDefault)
 
                     if isVerified, let channel = activeChannel {
                         Text(channel.address)
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentSecondary)
                             .lineLimit(1)
                     }
@@ -272,12 +272,12 @@ struct GuardianChannelsDetailView: View {
                 slackVerifiedIdentity(channel: channel, verificationState: verificationState)
             } else if type == "phone" {
                 Text(channel.address)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
             } else {
                 Text(channel.address)
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
             }
@@ -315,14 +315,14 @@ struct GuardianChannelsDetailView: View {
 
         VStack(alignment: .leading, spacing: 2) {
             Text(nameLine)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
 
             // Show @username if it wasn't already used as the name line
             if let formattedUsername, formattedUsername != nameLine {
                 Text(formattedUsername)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .lineLimit(1)
             }
@@ -331,13 +331,13 @@ struct GuardianChannelsDetailView: View {
             if let identity, !identity.isEmpty, identity != nameLine {
                 HStack(spacing: 0) {
                     Text("Telegram ID: ")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                     if let url = URL(string: "https://web.telegram.org/a/#\(identity)") {
                         VLink(identity, destination: url)
                     } else {
                         Text(identity)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                             .lineLimit(1)
                     }
@@ -366,7 +366,7 @@ struct GuardianChannelsDetailView: View {
 
         VStack(alignment: .leading, spacing: 2) {
             Text(primaryLine)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentDefault)
                 .lineLimit(1)
 
@@ -374,14 +374,14 @@ struct GuardianChannelsDetailView: View {
             if let identity, !identity.isEmpty {
                 HStack(spacing: 0) {
                     Text("Slack ID: ")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                     if let teamId = store?.slackChannelTeamId,
                        let url = URL(string: "slack://user?team=\(teamId)&id=\(identity)") {
                         VLink(identity, destination: url)
                     } else {
                         Text(identity)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                             .lineLimit(1)
                     }

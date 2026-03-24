@@ -15,11 +15,11 @@ struct SettingsCard<Content: View, Accessory: View>: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(title)
-                        .font(VFont.sectionTitle)
+                        .font(VFont.titleSmall)
                         .foregroundColor(VColor.contentEmphasized)
                     if let subtitle {
                         Text(subtitle)
-                            .font(VFont.sectionDescription)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentTertiary)
                     }
                 }

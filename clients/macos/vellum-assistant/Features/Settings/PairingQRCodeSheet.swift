@@ -58,7 +58,7 @@ struct PairingQRCodeSheet: View {
                             ProgressView()
                                 .controlSize(.large)
                             Text("Registering pairing request...")
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.contentSecondary)
                         }
                         .frame(width: 220, height: 220)
@@ -87,7 +87,7 @@ struct PairingQRCodeSheet: View {
                             VIconView(.circleCheck, size: 14)
                                 .foregroundColor(VColor.systemPositiveStrong)
                             Text("Ready to pair with iOS")
-                                .font(VFont.body)
+                                .font(VFont.bodyMediumLighter)
                                 .foregroundColor(VColor.systemPositiveStrong)
                         }
 
@@ -96,7 +96,7 @@ struct PairingQRCodeSheet: View {
                                 VIconView(.wifi, size: 12)
                                     .foregroundColor(VColor.contentTertiary)
                                 Text("LAN pairing available")
-                                    .font(VFont.caption)
+                                    .font(VFont.labelDefault)
                                     .foregroundColor(VColor.contentTertiary)
                             }
                         }
@@ -104,7 +104,7 @@ struct PairingQRCodeSheet: View {
                 }
 
                 Text("Scan this QR code with the Vellum iOS app. You will be asked to approve the pairing on this Mac.")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
 
@@ -145,7 +145,7 @@ struct PairingQRCodeSheet: View {
             VIconView(.triangleAlert, size: 32)
                 .foregroundColor(VColor.systemNegativeStrong)
             Text(message)
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.systemNegativeStrong)
                 .multilineTextAlignment(.center)
         }

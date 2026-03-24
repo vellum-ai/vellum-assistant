@@ -70,7 +70,7 @@ struct APIKeyEntryStepView: View {
             .padding(.bottom, VSpacing.md)
 
         Text("Enter an API key to connect your model provider.")
-            .font(VFont.buttonLarge)
+            .font(VFont.titleSmall)
             .multilineTextAlignment(.center)
             .foregroundColor(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
@@ -144,7 +144,7 @@ struct APIKeyEntryStepView: View {
     private var providerPicker: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Provider")
-                .font(VFont.inputLabel)
+                .font(VFont.bodySmallDefault)
                 .foregroundColor(VColor.contentSecondary)
             VDropdown(
                 placeholder: "Select a provider\u{2026}",
@@ -163,10 +163,10 @@ struct APIKeyEntryStepView: View {
             if hasExistingKey && !isEditing {
                 VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text("\(providerDisplayName) API Key")
-                        .font(VFont.inputLabel)
+                        .font(VFont.bodySmallDefault)
                         .foregroundColor(VColor.contentSecondary)
                     Text(maskedKey)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentDefault)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, VSpacing.md)

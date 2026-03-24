@@ -47,7 +47,7 @@ struct WakeUpStepView: View {
 
         // Subtitle
         Text("Your personal AI assistant,\nrunning on your terms.")
-            .font(VFont.buttonLarge)
+            .font(VFont.titleSmall)
             .foregroundColor(VColor.contentSecondary)
             .multilineTextAlignment(.center)
             .opacity(showSubtext ? 1 : 0)
@@ -64,7 +64,7 @@ struct WakeUpStepView: View {
                         .controlSize(.small)
                         .progressViewStyle(.circular)
                     Text("Checking...")
-                        .font(VFont.buttonLarge)
+                        .font(VFont.titleSmall)
                         .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(height: 36)
@@ -74,7 +74,7 @@ struct WakeUpStepView: View {
                         .controlSize(.small)
                         .progressViewStyle(.circular)
                     Text("Logging in...")
-                        .font(VFont.buttonLarge)
+                        .font(VFont.titleSmall)
                         .foregroundColor(VColor.contentSecondary)
                 }
                 .frame(height: 36)
@@ -99,7 +99,7 @@ struct WakeUpStepView: View {
             // Auth error message
             if let error = authManager?.errorMessage {
                 Text(error)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemNegativeStrong)
                     .multilineTextAlignment(.center)
             }

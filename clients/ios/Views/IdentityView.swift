@@ -149,7 +149,7 @@ struct IdentityView: View {
             if let introText = viewModel.introText {
                 Section {
                     Text(introText)
-                        .font(VFont.introHeadline)
+                        .font(VFont.titleMedium)
                         .foregroundColor(VColor.contentDefault)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .listRowBackground(Color.clear)
@@ -177,12 +177,12 @@ struct IdentityView: View {
                             .foregroundColor(VColor.primaryBase)
                             .frame(width: 24)
                         Text("Skills")
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentDefault)
                         Spacer()
                         if viewModel.installedSkillsCount > 0 {
                             Text("\(viewModel.installedSkillsCount)")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 2)
@@ -206,12 +206,12 @@ struct IdentityView: View {
                             .foregroundColor(VColor.primaryBase)
                             .frame(width: 24)
                         Text("Contacts")
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentDefault)
                         Spacer()
                         if viewModel.contactsCount > 0 {
                             Text("\(viewModel.contactsCount)")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 2)
@@ -235,12 +235,12 @@ struct IdentityView: View {
                             .foregroundColor(VColor.primaryBase)
                             .frame(width: 24)
                         Text("Memories")
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentDefault)
                         Spacer()
                         if viewModel.memoriesCount > 0 {
                             Text("\(viewModel.memoriesCount)")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 2)
@@ -264,7 +264,7 @@ struct IdentityView: View {
                             .foregroundColor(VColor.primaryBase)
                             .frame(width: 24)
                         Text("Browse Workspace")
-                            .font(VFont.body)
+                            .font(VFont.bodyMediumLighter)
                             .foregroundColor(VColor.contentDefault)
                     }
                 }
@@ -291,12 +291,12 @@ struct IdentityView: View {
             VStack(alignment: .leading, spacing: 2) {
                 if !identity.name.isEmpty {
                     Text(identity.name)
-                        .font(VFont.headline)
+                        .font(VFont.bodySmallEmphasised)
                         .foregroundColor(VColor.contentDefault)
                 }
                 if !identity.role.isEmpty {
                     Text(identity.role)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                 }
             }
@@ -317,11 +317,11 @@ struct IdentityView: View {
                 .accessibilityHidden(true)
 
             Text("Connect to your Assistant")
-                .font(VFont.title)
+                .font(VFont.titleMedium)
                 .foregroundColor(VColor.contentDefault)
 
             Text("Intelligence information is available when connected to your Assistant.")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
@@ -342,7 +342,7 @@ struct IdentityView: View {
         VStack(spacing: VSpacing.md) {
             ProgressView()
             Text("Loading...")
-                .font(VFont.body)
+                .font(VFont.bodyMediumLighter)
                 .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

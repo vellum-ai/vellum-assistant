@@ -45,11 +45,11 @@ struct ToolPermissionTesterView: View {
             // Toggles
             HStack(spacing: VSpacing.xl) {
                 VToggle(isOn: $model.isInteractive, label: "Interactive")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
 
                 VToggle(isOn: $model.forcePromptSideEffects, label: "In Temporary Chat")
-                    .font(VFont.body)
+                    .font(VFont.bodyMediumLighter)
                     .foregroundColor(VColor.contentSecondary)
             }
         }
@@ -100,13 +100,13 @@ struct ToolPermissionTesterView: View {
 
             if field.isRequired {
                 Text("*")
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemNegativeStrong)
             }
 
             if let desc = field.description {
                 Text(desc)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -206,7 +206,7 @@ struct ToolPermissionTesterView: View {
                 VIconView(.triangleAlert, size: 12)
                     .foregroundColor(VColor.systemNegativeStrong)
                 Text(error)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemNegativeStrong)
             }
             .textSelection(.enabled)
@@ -234,7 +234,7 @@ struct ToolPermissionTesterView: View {
                 // Reason
                 if !result.reason.isEmpty {
                     Text(result.reason)
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentSecondary)
                 }
 
@@ -263,7 +263,7 @@ struct ToolPermissionTesterView: View {
                         )
 
                         Text("Allow Once and Don\u{2019}t Allow are simulation-only. Always Allow persists a real trust rule.")
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                             .italic()
                     }
@@ -275,7 +275,7 @@ struct ToolPermissionTesterView: View {
                         VIconView(.info, size: 11)
                             .foregroundColor(VColor.contentTertiary)
                         Text(label)
-                            .font(VFont.caption)
+                            .font(VFont.labelDefault)
                             .foregroundColor(VColor.contentTertiary)
                             .italic()
                     }
@@ -308,7 +308,7 @@ struct ToolPermissionTesterView: View {
 
     private func fieldLabel(_ text: String) -> some View {
         Text(text)
-            .font(VFont.inputLabel)
+            .font(VFont.bodySmallDefault)
             .foregroundColor(VColor.contentSecondary)
     }
 
@@ -327,7 +327,7 @@ struct ToolPermissionTesterView: View {
             VIconView(icon, size: 12)
                 .foregroundColor(color)
             Text(decision.capitalized)
-                .font(VFont.captionMedium)
+                .font(VFont.labelDefault)
                 .foregroundColor(color)
         }
     }

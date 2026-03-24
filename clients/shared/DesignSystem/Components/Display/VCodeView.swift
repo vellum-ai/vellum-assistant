@@ -497,7 +497,7 @@ public struct VCodeSearchBar: View {
 
                 if !searchQuery.isEmpty {
                     Text(matchCount > 0 ? "\(currentMatchIndex + 1) of \(matchCount)" : "No results")
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                         .fixedSize()
 

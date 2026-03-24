@@ -118,12 +118,12 @@ struct ContactDetailView: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 HStack(spacing: VSpacing.sm) {
                     Text(displayContact.displayName)
-                        .font(VFont.display)
+                        .font(VFont.titleSmall)
                         .foregroundColor(VColor.contentDefault)
                     contactTypeBadge
                 }
                 Text("\(displayContact.interactionCount) interaction\(displayContact.interactionCount == 1 ? "" : "s")")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
             }
             Spacer()
@@ -148,14 +148,14 @@ struct ContactDetailView: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Name")
-                    .font(VFont.inputLabel)
+                    .font(VFont.bodySmallDefault)
                     .foregroundColor(VColor.contentSecondary)
                 VTextField(placeholder: "Give this human a name", text: $editedName, isFocused: $isNameFocused)
             }
 
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Notes")
-                    .font(VFont.inputLabel)
+                    .font(VFont.bodySmallDefault)
                     .foregroundColor(VColor.contentSecondary)
                 VTextEditor(
                     placeholder: "Optional notes about the human which AI will take into account",

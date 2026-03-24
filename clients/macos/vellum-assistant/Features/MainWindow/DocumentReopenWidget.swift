@@ -18,11 +18,11 @@ struct DocumentReopenWidget: View {
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text("Document")
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentTertiary)
 
                 Text(documentTitle)
-                    .font(VFont.bodyMedium)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.contentDefault)
                     .lineLimit(1)
             }
@@ -32,7 +32,7 @@ struct DocumentReopenWidget: View {
             // Reopen button
             Button(action: onReopen) {
                 Text("Open")
-                    .font(VFont.bodyMedium)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundColor(VColor.primaryBase)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.vertical, VSpacing.xs)

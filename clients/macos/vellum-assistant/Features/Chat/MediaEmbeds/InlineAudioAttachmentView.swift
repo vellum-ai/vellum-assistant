@@ -80,14 +80,14 @@ struct InlineAudioAttachmentView: View {
             // Center: filename + progress bar
             VStack(alignment: .leading, spacing: 3) {
                 Text(attachment.filename)
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.middle)
 
                 if let failure {
                     Text(failure.userMessage)
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .foregroundStyle(VColor.contentTertiary)
                         .lineLimit(1)
                 } else {
@@ -204,15 +204,15 @@ struct InlineAudioAttachmentView: View {
         Group {
             if duration > 0 || isPlaying {
                 Text("\(formatTime(progress)) / \(formatTime(duration))")
-                    .font(VFont.small)
+                    .font(VFont.labelSmall)
                     .foregroundStyle(VColor.contentTertiary)
             } else if attachment.dataLength > 0 {
                 Text(formattedFileSize(base64Length: attachment.dataLength))
-                    .font(VFont.small)
+                    .font(VFont.labelSmall)
                     .foregroundStyle(VColor.contentTertiary)
             } else if let sizeBytes = attachment.sizeBytes {
                 Text(formattedFileSize(bytes: sizeBytes))
-                    .font(VFont.small)
+                    .font(VFont.labelSmall)
                     .foregroundStyle(VColor.contentTertiary)
             }
         }

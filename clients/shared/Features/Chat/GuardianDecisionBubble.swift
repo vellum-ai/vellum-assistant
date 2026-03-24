@@ -56,13 +56,13 @@ public struct GuardianDecisionBubble: View {
                     .foregroundColor(config.accent)
 
                 Text(config.title)
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
             }
 
             // Question text (primary interaction prompt)
             Text(decision.questionText)
-                .font(VFont.bodyBold)
+                .font(VFont.bodyMediumEmphasised)
                 .foregroundColor(VColor.contentDefault)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -92,7 +92,7 @@ public struct GuardianDecisionBubble: View {
                     if !decision.requestCode.isEmpty {
                         HStack(spacing: VSpacing.xs) {
                             Text("Ref:")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                             Text(decision.requestCode)
                                 .font(VFont.monoSmall)

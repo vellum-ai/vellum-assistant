@@ -74,7 +74,7 @@ struct TraceTimelineView: View {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.circleArrowDown, size: 9)
                             Text("Jump to bottom")
-                                .font(VFont.small)
+                                .font(VFont.labelSmall)
                         }
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
@@ -105,23 +105,23 @@ struct TraceTimelineView: View {
                     .foregroundColor(groupStatusColor(groupStatus))
 
                 Text(requestId.isEmpty ? "System" : "Request \(requestId.prefix(8))")
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
                     .textSelection(.enabled)
 
                 if groupStatus == .cancelled {
                     Text("Cancelled")
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .foregroundColor(VColor.systemMidStrong)
                         .textSelection(.enabled)
                 } else if groupStatus == .handedOff {
                     Text("Handed off")
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .foregroundColor(VColor.systemPositiveWeak)
                         .textSelection(.enabled)
                 } else if groupStatus == .error {
                     Text("Error")
-                        .font(VFont.small)
+                        .font(VFont.labelSmall)
                         .foregroundColor(VColor.systemNegativeStrong)
                         .textSelection(.enabled)
                 }
@@ -193,11 +193,11 @@ struct TraceTimelineView: View {
                     ForEach(attrs.keys.sorted(), id: \.self) { key in
                         HStack(spacing: VSpacing.sm) {
                             Text(key)
-                                .font(VFont.small)
+                                .font(VFont.labelSmall)
                                 .foregroundColor(VColor.contentTertiary)
                                 .textSelection(.enabled)
                             Text(stringValue(attrs[key]))
-                                .font(VFont.small)
+                                .font(VFont.labelSmall)
                                 .foregroundColor(VColor.contentSecondary)
                                 .lineLimit(3)
                                 .textSelection(.enabled)

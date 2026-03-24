@@ -32,12 +32,12 @@ public struct FormSurfaceView: View {
 
                 let page = pages[safePageIndex]
                 Text(page.title)
-                    .font(VFont.headline)
+                    .font(VFont.bodySmallEmphasised)
                     .foregroundColor(VColor.contentDefault)
 
                 if let desc = page.description {
                     Text(desc)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                 }
 
@@ -54,7 +54,7 @@ public struct FormSurfaceView: View {
                 // Single-page mode (existing behavior)
                 if let description = data.description {
                     Text(description)
-                        .font(VFont.body)
+                        .font(VFont.bodyMediumLighter)
                         .foregroundColor(VColor.contentSecondary)
                 }
 
@@ -96,7 +96,7 @@ public struct FormSurfaceView: View {
             }
             Spacer()
             Text("\(currentPage + 1) of \(totalPages)")
-                .font(VFont.caption)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentTertiary)
         }
     }
@@ -157,7 +157,7 @@ public struct FormSurfaceView: View {
             HStack(spacing: VSpacing.xs) {
                 VIconView(.shield, size: 12)
                 Text("Secured input")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
             }
             .foregroundColor(VColor.contentSecondary)
             .padding(.horizontal, VSpacing.md)
@@ -169,10 +169,10 @@ public struct FormSurfaceView: View {
         .popover(isPresented: $showingSecurityInfo) {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Password Security")
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentDefault)
                 Text("Password values are masked in the UI using a secure text field. Submitted values are sent to the assistant for processing and are not logged.")
-                    .font(VFont.caption)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -225,11 +225,11 @@ public struct FormSurfaceView: View {
     private func fieldLabel(for field: FormField) -> some View {
         HStack(spacing: VSpacing.xxs) {
             Text(field.label)
-                .font(VFont.captionMedium)
+                .font(VFont.labelDefault)
                 .foregroundColor(VColor.contentDefault)
             if field.required {
                 Text("*")
-                    .font(VFont.captionMedium)
+                    .font(VFont.labelDefault)
                     .foregroundColor(VColor.systemNegativeStrong)
             }
         }
@@ -247,7 +247,7 @@ public struct FormSurfaceView: View {
             }
         }
         .pickerStyle(.menu)
-        .font(VFont.body)
+        .font(VFont.bodyMediumLighter)
         .foregroundColor(VColor.contentDefault)
     }
 
@@ -349,7 +349,7 @@ public struct FormSurfaceView: View {
             ProgressView()
                 .controlSize(.small)
             Text("Submitting\u{2026}")
-                .font(VFont.bodyMedium)
+                .font(VFont.bodyMediumDefault)
                 .foregroundColor(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity)

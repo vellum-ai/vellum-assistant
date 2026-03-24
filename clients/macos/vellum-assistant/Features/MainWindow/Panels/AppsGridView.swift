@@ -52,7 +52,7 @@ struct AppsGridView: View {
                     // Header
                     HStack(alignment: .center) {
                         Text("Library")
-                            .font(VFont.panelTitle)
+                            .font(VFont.titleLarge)
                             .foregroundColor(VColor.contentDefault)
                         Spacer()
                     }
@@ -282,12 +282,12 @@ struct AppsGridView: View {
                 // Name + date below the image
                 VStack(alignment: .leading, spacing: 2) {
                     Text(app.name)
-                        .font(VFont.bodyBold)
+                        .font(VFont.bodyMediumEmphasised)
                         .foregroundColor(VColor.contentDefault)
                         .lineLimit(1)
 
                     Text(Self.formatDate(app.lastOpenedAt))
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                         .lineLimit(1)
                 }
@@ -364,20 +364,20 @@ struct AppsGridView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: VSpacing.xs) {
                         Text(app.name)
-                            .font(VFont.bodyBold)
+                            .font(VFont.bodyMediumEmphasised)
                             .foregroundColor(VColor.contentDefault)
                             .lineLimit(1)
 
                         if let signer = app.signerDisplayName {
                             Text("by \(signer)")
-                                .font(VFont.caption)
+                                .font(VFont.labelDefault)
                                 .foregroundColor(VColor.contentTertiary)
                                 .lineLimit(1)
                         }
                     }
 
                     Text(Self.formatISO(app.installedAt))
-                        .font(VFont.caption)
+                        .font(VFont.labelDefault)
                         .foregroundColor(VColor.contentTertiary)
                         .lineLimit(1)
                 }
@@ -511,7 +511,7 @@ struct AppsGridView: View {
     private func appSection(title: String, apps: [AppListManager.AppItem]) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text(title)
-                .font(VFont.headline)
+                .font(VFont.bodySmallEmphasised)
                 .foregroundColor(VColor.contentSecondary)
 
             LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
@@ -526,7 +526,7 @@ struct AppsGridView: View {
     private func sharedSection(title: String, apps: [SharedAppItem]) -> some View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text(title)
-                .font(VFont.headline)
+                .font(VFont.bodySmallEmphasised)
                 .foregroundColor(VColor.contentSecondary)
 
             LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
