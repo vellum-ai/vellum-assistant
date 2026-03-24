@@ -6,8 +6,8 @@ import type { ContactWithChannels } from "../contacts/types.js";
 // Mock state for resolveCallHints tests
 // ---------------------------------------------------------------------------
 
-let mockAssistantName: string | null = "Velissa";
-let mockGuardianName: string = "Sidd";
+let mockAssistantName: string | null = "Nova";
+let mockGuardianName: string = "Alex";
 let mockTargetContact: ContactWithChannels | null = null;
 let mockRecentContacts: ContactWithChannels[] = [];
 let mockFindContactByAddressThrows = false;
@@ -93,14 +93,14 @@ describe("buildSttHints", () => {
 
   test("assistant name included", () => {
     const input = emptyInput();
-    input.assistantName = "Velissa";
-    expect(buildSttHints(input)).toBe("Velissa");
+    input.assistantName = "Nova";
+    expect(buildSttHints(input)).toBe("Nova");
   });
 
   test("guardian name included", () => {
     const input = emptyInput();
-    input.guardianName = "Sidd";
-    expect(buildSttHints(input)).toBe("Sidd");
+    input.guardianName = "Alex";
+    expect(buildSttHints(input)).toBe("Alex");
   });
 
   test('default guardian name "my human" excluded', () => {
@@ -214,8 +214,8 @@ describe("buildSttHints", () => {
   test("all sources combined in correct order", () => {
     const input: SttHintsInput = {
       staticHints: ["StaticOne"],
-      assistantName: "Velissa",
-      guardianName: "Sidd",
+      assistantName: "Nova",
+      guardianName: "Alex",
       taskDescription: "Call John at Acme",
       targetContactName: "Target",
       callerContactName: "Caller",
@@ -227,8 +227,8 @@ describe("buildSttHints", () => {
     const parts = result.split(",");
     // Verify all expected hints are present
     expect(parts).toContain("StaticOne");
-    expect(parts).toContain("Velissa");
-    expect(parts).toContain("Sidd");
+    expect(parts).toContain("Nova");
+    expect(parts).toContain("Alex");
     expect(parts).toContain("John");
     expect(parts).toContain("Acme");
     expect(parts).toContain("Target");
@@ -308,8 +308,8 @@ function makeContact(displayName: string): ContactWithChannels {
 
 describe("resolveCallHints", () => {
   beforeEach(() => {
-    mockAssistantName = "Velissa";
-    mockGuardianName = "Sidd";
+    mockAssistantName = "Nova";
+    mockGuardianName = "Alex";
     mockTargetContact = null;
     mockRecentContacts = [];
     mockFindContactByAddressThrows = false;
@@ -334,8 +334,8 @@ describe("resolveCallHints", () => {
     const parts = result.split(",");
 
     expect(parts).toContain("StaticHint");
-    expect(parts).toContain("Velissa");
-    expect(parts).toContain("Sidd");
+    expect(parts).toContain("Nova");
+    expect(parts).toContain("Alex");
     expect(parts).toContain("Alice");
     expect(parts).toContain("Dave");
     expect(parts).toContain("Eve");
@@ -365,8 +365,8 @@ describe("resolveCallHints", () => {
 
     // Target contact should be absent (lookup failed)
     // But other sources should still work
-    expect(parts).toContain("Velissa");
-    expect(parts).toContain("Sidd");
+    expect(parts).toContain("Nova");
+    expect(parts).toContain("Alex");
     expect(parts).toContain("Bob");
     expect(logWarnFn).toHaveBeenCalled();
   });
@@ -390,8 +390,8 @@ describe("resolveCallHints", () => {
 
     // Recent contacts should be absent (listing failed)
     // But other sources should still work
-    expect(parts).toContain("Velissa");
-    expect(parts).toContain("Sidd");
+    expect(parts).toContain("Nova");
+    expect(parts).toContain("Alex");
     expect(parts).toContain("Alice");
     expect(logWarnFn).toHaveBeenCalled();
   });
@@ -414,8 +414,8 @@ describe("resolveCallHints", () => {
 
     // For inbound, the contact found via fromNumber should appear as caller, not target
     expect(parts).toContain("Alice");
-    expect(parts).toContain("Velissa");
-    expect(parts).toContain("Sidd");
+    expect(parts).toContain("Nova");
+    expect(parts).toContain("Alex");
     expect(parts).toContain("Bob");
     expect(logWarnFn).not.toHaveBeenCalled();
   });
@@ -427,8 +427,8 @@ describe("resolveCallHints", () => {
     const parts = result.split(",");
 
     expect(parts).toContain("Static");
-    expect(parts).toContain("Velissa");
-    expect(parts).toContain("Sidd");
+    expect(parts).toContain("Nova");
+    expect(parts).toContain("Alex");
     expect(parts).toContain("RecentOne");
     expect(parts).toContain("RecentTwo");
     // No target contact lookup should have been attempted (no session)

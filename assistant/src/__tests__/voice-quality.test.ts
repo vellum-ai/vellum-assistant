@@ -175,11 +175,11 @@ describe("resolveVoiceQualityProfile", () => {
         voice: {
           language: "en-US",
           transcriptionProvider: "Deepgram",
-          hints: ["Vellum", "Velissa", "AI assistant"],
+          hints: ["Vellum", "Nova", "AI assistant"],
         },
       },
     };
     const profile = resolveVoiceQualityProfile();
-    expect(profile.hints).toEqual(["Vellum", "Velissa", "AI assistant"]);
+    expect(profile.hints).toEqual(["Vellum", "Nova", "AI assistant"]);
   });
 });
