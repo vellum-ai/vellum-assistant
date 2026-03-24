@@ -1,5 +1,4 @@
 #if os(macOS)
-import Combine
 import SwiftUI
 import AppKit
 import os
@@ -9,43 +8,37 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// Manages a floating NSPanel that shows a task_progress widget pinned to the
 /// top-right of the screen. Follows BrowserPiPManager / SessionOverlayWindow patterns.
 @MainActor
-public final class TaskProgressOverlayManager: ObservableObject {
+@Observable
+public final class TaskProgressOverlayManager {
     public static let shared = TaskProgressOverlayManager()
 
-    @Published var data: TaskProgressData?
+    var data: TaskProgressData?
     /// The surface ID currently shown in the floating overlay.
     /// ChatView uses this to suppress inline rendering for the same surface.
-    @Published public private(set) var activeSurfaceId: String?
+    public private(set) var activeSurfaceId: String?
 
-    private var panel: NSPanel?
-    private var dismissTask: Task<Void, Never>?
+    @ObservationIgnored private var panel: NSPanel?
+    @ObservationIgnored private var dismissTask: Task<Void, Never>?
 
     // MARK: - Debug publish-rate counters
 
     #if DEBUG
     private static let perfLog = OSLog(subsystem: "com.vellum.assistant", category: "PerfCounters")
-    private var publishCount = 0
-    private var lastRateLogTime = Date()
-    private var debugCancellable: AnyCancellable?
+    @ObservationIgnored private var publishCount = 0
+    @ObservationIgnored private var lastRateLogTime = Date()
 
-    private func trackPublish() {
+    private func trackDataUpdate() {
         publishCount += 1
         let now = Date()
         if now.timeIntervalSince(lastRateLogTime) >= 5 {
-            os_log(.debug, log: Self.perfLog, "TaskProgressOverlayManager publish rate: %d/5s", publishCount)
+            os_log(.debug, log: Self.perfLog, "TaskProgressOverlayManager update rate: %d/5s", publishCount)
             publishCount = 0
             lastRateLogTime = now
         }
     }
     #endif
 
-    private init() {
-        #if DEBUG
-        // Observe own objectWillChange to track publish frequency.
-        debugCancellable = self.objectWillChange
-            .sink { [weak self] _ in self?.trackPublish() }
-        #endif
-    }
+    private init() {}
 
     // MARK: - Public API
 
@@ -67,6 +60,9 @@ public final class TaskProgressOverlayManager: ObservableObject {
     public func update(data: TaskProgressData, surfaceId: String) {
         guard surfaceId == self.activeSurfaceId else { return }
         self.data = data
+        #if DEBUG
+        trackDataUpdate()
+        #endif
 
         // Resize panel to fit updated content
         if let panel, let fittingSize = panel.contentView?.fittingSize {
@@ -160,7 +156,7 @@ public final class TaskProgressOverlayManager: ObservableObject {
 // MARK: - Overlay SwiftUI View
 
 private struct TaskProgressOverlayView: View {
-    @ObservedObject var manager: TaskProgressOverlayManager
+    var manager: TaskProgressOverlayManager
 
     var body: some View {
         VStack(spacing: 0) {

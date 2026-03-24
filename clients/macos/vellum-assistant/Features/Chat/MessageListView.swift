@@ -150,12 +150,11 @@ struct MessageListView: View {
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @State private var identity: IdentityInfo? = IdentityInfo.load()
     @State private var appearance = AvatarAppearanceManager.shared
-    /// Read once at the list level and passed down to each ChatBubble so that
-    /// individual bubbles don't each subscribe to the shared ObservableObject.
-    /// Only the active surface ID is needed here (to suppress inline rendering).
-    /// Observing the full TaskProgressOverlayManager would cause the entire
-    /// message list to re-render on every frequent `data` progress tick.
-    @State private var activeSurfaceId: String?
+    /// Read at the list level and passed down to each ChatBubble so that
+    /// individual bubbles don't each subscribe to the shared manager.
+    /// With @Observable fine-grained tracking, reading only `activeSurfaceId`
+    /// won't trigger re-renders on frequent `data` progress ticks.
+    private var taskProgressManager = TaskProgressOverlayManager.shared
     /// Consolidates all scroll-related state: anchor tracking, scroll loop guard,
     /// bottom pin coordinator, suppression flags, and scroll-related tasks.
     @StateObject private var scrollCoordinator = MessageListScrollCoordinator()
@@ -670,7 +669,7 @@ struct MessageListView: View {
                                 shouldShowThinkingIndicator: state.shouldShowThinkingIndicator,
                                 assistantStatusText: state.effectiveStatusText,
                                 dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
-                                activeSurfaceId: activeSurfaceId,
+                                activeSurfaceId: taskProgressManager.activeSurfaceId,
                                 isHighlighted: highlightedMessageId == messageId,
                                 mediaEmbedSettings: mediaEmbedSettings,
                                 onConfirmationAllow: onConfirmationAllow,
@@ -1019,9 +1018,6 @@ struct MessageListView: View {
                     window.makeFirstResponder(nil)
                     scrollCoordinator.lastAutoFocusedRequestId = requestId
                 }
-            }
-            .onReceive(TaskProgressOverlayManager.shared.$activeSurfaceId) { newId in
-                activeSurfaceId = newId
             }
         }
     }
