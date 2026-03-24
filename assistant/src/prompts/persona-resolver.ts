@@ -62,7 +62,7 @@ function resolveUserFilename(
     const vellumGuardian = findGuardianForChannel("vellum");
     const guardian = vellumGuardian ?? listGuardianChannels();
     if (guardian) {
-      filename = guardian.contact.userFile ?? null;
+      filename = guardian.contact.userFile ?? "guardian.md";
     }
   } else if (trustContext.requesterExternalUserId) {
     // Channel-routed request — look up contact by channel identity
@@ -78,7 +78,7 @@ function resolveUserFilename(
       // separate identity concepts). Fall back to the channel-type guardian.
       const guardian = findGuardianForChannel(trustContext.sourceChannel);
       if (guardian) {
-        filename = guardian.contact.userFile ?? null;
+        filename = guardian.contact.userFile ?? "guardian.md";
       }
     }
   }
