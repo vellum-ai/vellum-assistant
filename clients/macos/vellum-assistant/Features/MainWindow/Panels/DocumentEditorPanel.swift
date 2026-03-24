@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 struct DocumentEditorPanelView: View {
-    @ObservedObject var documentManager: DocumentManager
+    var documentManager: DocumentManager
     let connectionManager: GatewayConnectionManager
     let onClose: () -> Void
 

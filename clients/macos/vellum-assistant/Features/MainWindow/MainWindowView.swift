@@ -51,7 +51,7 @@ struct MainWindowView: View {
     let ambientAgent: AmbientAgent
     let settingsStore: SettingsStore
     let authManager: AuthManager
-    @ObservedObject var documentManager: DocumentManager
+    var documentManager: DocumentManager
     let onMicrophoneToggle: () -> Void
     @ObservedObject var voiceModeManager: VoiceModeManager
     @ObservedObject var updateManager: UpdateManager
