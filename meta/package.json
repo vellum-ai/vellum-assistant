@@ -18,6 +18,7 @@
     "@vellumai/assistant": "0.5.10",
     "@vellumai/cli": "0.5.10",
     "@vellumai/credential-executor": "0.5.10",
+    "@vellumai/trust-broker": "0.5.10",
     "@vellumai/vellum-gateway": "0.5.10"
   },
   "devDependencies": {
