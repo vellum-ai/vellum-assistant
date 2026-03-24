@@ -511,13 +511,15 @@ export class DaemonServer {
 
     registerUserMessageCallback(async (params) => {
       // Block messages containing known-format secrets before persistence
-      const ingressResult = checkIngressForSecrets(params.content);
-      if (ingressResult.blocked) {
-        return {
-          accepted: false,
-          error: "secret_blocked" as const,
-          message: ingressResult.userNotice,
-        };
+      if (!params.bypassSecretCheck) {
+        const ingressResult = checkIngressForSecrets(params.content);
+        if (ingressResult.blocked) {
+          return {
+            accepted: false,
+            error: "secret_blocked" as const,
+            message: ingressResult.userNotice,
+          };
+        }
       }
 
       const { conversationId } = getOrCreateConversation(

@@ -30,6 +30,7 @@ type UserMessageCallback = (params: {
   content: string;
   sourceChannel: string;
   sourceInterface: string;
+  bypassSecretCheck?: boolean;
 }) => Promise<{ accepted: boolean; error?: string; message?: string }>;
 
 let _sendUserMessage: UserMessageCallback | null = null;
@@ -91,6 +92,7 @@ export async function handleUserMessageSignal(filename: string): Promise<void> {
       sourceChannel?: string;
       interface?: string;
       requestId?: string;
+      bypassSecretCheck?: boolean;
     };
     const { requestId } = parsed;
     parsedRequestId = requestId;
@@ -128,6 +130,7 @@ export async function handleUserMessageSignal(filename: string): Promise<void> {
       content: parsed.content,
       sourceChannel: parsed.sourceChannel ?? "vellum",
       sourceInterface: parsed.interface ?? "cli",
+      bypassSecretCheck: parsed.bypassSecretCheck === true,
     });
 
     log.info(

@@ -320,6 +320,7 @@ export async function startCli(): Promise<void> {
   /** Send a user message via signal file to the daemon. */
   async function sendUserMessage(
     content: string,
+    options?: { bypassSecretCheck?: boolean },
   ): Promise<{ ok: boolean; error?: string; message?: string }> {
     try {
       const signalsDir = getSignalsDir();
@@ -336,6 +337,9 @@ export async function startCli(): Promise<void> {
           sourceChannel: "vellum",
           interface: "cli",
           requestId,
+          ...(options?.bypassSecretCheck
+            ? { bypassSecretCheck: true }
+            : undefined),
         }),
       );
 
@@ -693,10 +697,30 @@ export async function startCli(): Promise<void> {
             } else {
               if (result.error === "secret_blocked" && result.message) {
                 process.stdout.write(`${result.message}\n`);
+                rl.question("Send anyway? (y/N): ", (answer) => {
+                  if (answer.trim().toLowerCase() === "y") {
+                    lastResponse = "";
+                    sendUserMessage(content, {
+                      bypassSecretCheck: true,
+                    }).then((retryResult) => {
+                      if (retryResult.ok) {
+                        generating = true;
+                        spinner.start("Thinking...");
+                      } else {
+                        process.stdout.write(
+                          "[Not connected — message not sent]\n",
+                        );
+                        prompt();
+                      }
+                    });
+                  } else {
+                    prompt();
+                  }
+                });
               } else {
                 process.stdout.write("[Not connected — message not sent]\n");
+                prompt();
               }
-              prompt();
             }
           });
         } else {
@@ -1311,10 +1335,30 @@ export async function startCli(): Promise<void> {
       if (!result.ok) {
         if (result.error === "secret_blocked" && result.message) {
           process.stdout.write(`${result.message}\n`);
+          rl.question("Send anyway? (y/N): ", (answer) => {
+            if (answer.trim().toLowerCase() === "y") {
+              lastResponse = "";
+              sendUserMessage(content, { bypassSecretCheck: true }).then(
+                (retryResult) => {
+                  if (retryResult.ok) {
+                    generating = true;
+                    spinner.start("Thinking...");
+                  } else {
+                    process.stdout.write(
+                      "[Not connected — message not sent]\n",
+                    );
+                    prompt();
+                  }
+                },
+              );
+            } else {
+              prompt();
+            }
+          });
         } else {
           process.stdout.write("[Not connected — message not sent]\n");
+          prompt();
         }
-        prompt();
         return;
       }
       generating = true;
