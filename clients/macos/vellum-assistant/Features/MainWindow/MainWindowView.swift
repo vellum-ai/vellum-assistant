@@ -397,11 +397,7 @@ struct MainWindowView: View {
         if showDaemonLoading && !isSettingsOpen {
             AssistantLoadingOverlayContent(
                 onRetry: { rewakeAssistant() },
-                onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .appCrash) },
-                onGoToDeveloper: {
-                    settingsStore.pendingSettingsTab = .developer
-                    windowState.selection = .panel(.settings)
-                }
+                onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .appCrash) }
             )
             .transition(.opacity)
         }
@@ -1326,7 +1322,6 @@ private struct ErrorToastOverlay: View {
 private struct AssistantLoadingOverlayContent: View {
     let onRetry: () -> Void
     let onSendLogs: () -> Void
-    let onGoToDeveloper: () -> Void
 
     /// How long to wait before showing the timeout error state.
     private static let timeoutSeconds: UInt64 = 15
@@ -1343,7 +1338,6 @@ private struct AssistantLoadingOverlayContent: View {
                         timedOut = false
                         onRetry()
                     },
-                    onGoToDeveloper: onGoToDeveloper,
                     onSendLogs: onSendLogs
                 )
             }
