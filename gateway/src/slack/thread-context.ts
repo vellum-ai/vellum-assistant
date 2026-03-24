@@ -12,8 +12,19 @@ import { resolveSlackUser } from "./normalize.js";
 
 const log = getLogger("slack-thread-context");
 
-/** Maximum number of thread messages to include in context. */
-const MAX_THREAD_MESSAGES = 15;
+/**
+ * Maximum number of thread messages to include in context.
+ * We fetch more than this to ensure we can always include the parent
+ * message plus the most recent replies.
+ */
+const MAX_CONTEXT_MESSAGES = 15;
+
+/**
+ * We over-fetch so we can take the parent + tail of the thread.
+ * Slack returns messages chronologically, so without over-fetching
+ * long threads would only show the oldest (least relevant) replies.
+ */
+const FETCH_LIMIT = 50;
 
 /** Timeout for the conversations.replies API call. */
 const FETCH_TIMEOUT_MS = 5_000;
@@ -36,14 +47,12 @@ interface SlackReplyMessage {
  * @param threadTs - Thread timestamp (parent message ts)
  * @param currentMessageTs - The current message's ts (excluded from context)
  * @param botToken - Bot OAuth token for API calls
- * @param botUserId - Bot's own user ID (to label bot messages)
  */
 export async function fetchThreadContext(
   channel: string,
   threadTs: string,
   currentMessageTs: string,
   botToken: string,
-  botUserId?: string,
 ): Promise<string | null> {
   try {
     const controller = new AbortController();
@@ -52,7 +61,7 @@ export async function fetchThreadContext(
     const params = new URLSearchParams({
       channel,
       ts: threadTs,
-      limit: String(MAX_THREAD_MESSAGES),
+      limit: String(FETCH_LIMIT),
       inclusive: "true",
     });
 
@@ -90,19 +99,29 @@ export async function fetchThreadContext(
     }
 
     // Exclude the current message from context (it's the user's new message)
-    const contextMessages = data.messages.filter(
+    const allContext = data.messages.filter(
       (msg) => msg.ts !== currentMessageTs,
     );
 
-    if (contextMessages.length === 0) return null;
+    if (allContext.length === 0) return null;
+
+    // Keep the parent message (first) + most recent replies to stay within
+    // budget. For threads with many messages, the middle is trimmed so the
+    // assistant sees the original topic and the latest conversation.
+    let contextMessages: SlackReplyMessage[];
+    if (allContext.length <= MAX_CONTEXT_MESSAGES) {
+      contextMessages = allContext;
+    } else {
+      const parent = allContext[0]!;
+      const recentReplies = allContext.slice(-(MAX_CONTEXT_MESSAGES - 1));
+      contextMessages = [parent, ...recentReplies];
+    }
 
     // Resolve user display names (best-effort, uses cache)
     const formattedMessages = await Promise.all(
       contextMessages.map(async (msg) => {
         let authorLabel: string;
-        if (msg.bot_id || (botUserId && msg.user === botUserId)) {
-          authorLabel = "Assistant";
-        } else if (msg.user) {
+        if (msg.user) {
           const userInfo = await resolveSlackUser(msg.user, botToken).catch(
             () => undefined,
           );

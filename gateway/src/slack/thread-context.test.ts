@@ -89,7 +89,7 @@ describe("fetchThreadContext", () => {
     expect(result).toContain("[Alice]: Check out this dashboard");
   });
 
-  it("labels bot messages as Assistant", async () => {
+  it("resolves all authors by display name including bots", async () => {
     mockSlackApi(
       [
         { user: "U001", text: "Help me with this", ts: "1000.0" },
@@ -100,7 +100,7 @@ describe("fetchThreadContext", () => {
           bot_id: "B123",
         },
       ],
-      { U001: "Alice" },
+      { U001: "Alice", UBOT: "Pax" },
     );
 
     const result = await fetchThreadContext(
@@ -108,31 +108,10 @@ describe("fetchThreadContext", () => {
       "1000.0",
       "1000.2",
       "xoxb-test-token",
-      "UBOT",
     );
 
     expect(result).toContain("[Alice]: Help me with this");
-    expect(result).toContain("[Assistant]: Sure, let me look into it");
-  });
-
-  it("also labels messages by botUserId (without bot_id field) as Assistant", async () => {
-    mockSlackApi(
-      [
-        { user: "U001", text: "Hey bot", ts: "1000.0" },
-        { user: "UBOT", text: "Hello!", ts: "1000.1" },
-      ],
-      { U001: "Alice" },
-    );
-
-    const result = await fetchThreadContext(
-      "C123",
-      "1000.0",
-      "1000.2",
-      "xoxb-test-token",
-      "UBOT",
-    );
-
-    expect(result).toContain("[Assistant]: Hello!");
+    expect(result).toContain("[Pax]: Sure, let me look into it");
   });
 
   it("excludes the current message from context", async () => {
@@ -154,6 +133,32 @@ describe("fetchThreadContext", () => {
     expect(result).toContain("reply to the following Slack message");
     expect(result).toContain("[Alice]: Parent message");
     expect(result).not.toContain("This is the current reply");
+  });
+
+  it("keeps parent + most recent replies for long threads", async () => {
+    // Simulate a thread with 20 messages (parent + 19 replies)
+    const messages = Array.from({ length: 20 }, (_, i) => ({
+      user: "U001",
+      text: `Message ${i}`,
+      ts: `1000.${i}`,
+    }));
+    mockSlackApi(messages, { U001: "Alice" });
+
+    const result = await fetchThreadContext(
+      "C123",
+      "1000.0",
+      "9999.0", // current message not in the list
+      "xoxb-test-token",
+    );
+
+    // Should include the parent (Message 0) and the 14 most recent
+    expect(result).toContain("[Alice]: Message 0\n");
+    // Middle messages (1-5) should be trimmed
+    expect(result).not.toContain("Message 1\n");
+    expect(result).not.toContain("Message 5\n");
+    // Recent messages should be present
+    expect(result).toContain("[Alice]: Message 19");
+    expect(result).toContain("[Alice]: Message 6\n");
   });
 
   it("returns null when API returns error", async () => {
