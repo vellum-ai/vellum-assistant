@@ -2,7 +2,7 @@ import VellumAssistantShared
 import SwiftUI
 
 struct SurfaceContainerView: View {
-    @ObservedObject var viewModel: SurfaceViewModel
+    var viewModel: SurfaceViewModel
 
     private var surface: Surface { viewModel.surface }
 

@@ -7,15 +7,16 @@ import VellumAssistantShared
 /// Each ChatBubble owns its own instance so multiple messages can have
 /// independent playback state.
 @MainActor
-final class MessageAudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegate {
-    @Published var isLoading: Bool = false
-    @Published var isPlaying: Bool = false
-    @Published var error: String? = nil
-    @Published var isNotConfigured: Bool = false
-    @Published var isFeatureDisabled: Bool = false
+@Observable
+final class MessageAudioPlayer: NSObject, AVAudioPlayerDelegate {
+    var isLoading: Bool = false
+    var isPlaying: Bool = false
+    var error: String? = nil
+    var isNotConfigured: Bool = false
+    var isFeatureDisabled: Bool = false
 
-    private var audioPlayer: AVAudioPlayer?
-    private let ttsClient: any TTSClientProtocol
+    @ObservationIgnored private var audioPlayer: AVAudioPlayer?
+    @ObservationIgnored private let ttsClient: any TTSClientProtocol
 
     init(ttsClient: any TTSClientProtocol = TTSClient()) {
         self.ttsClient = ttsClient
