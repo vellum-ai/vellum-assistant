@@ -1,6 +1,30 @@
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - Skill State Filter
+
+private enum SkillStateFilter: String, CaseIterable {
+    case all = "All"
+    case enabled = "Enabled"
+    case disabled = "Disabled"
+
+    func matches(_ state: String) -> Bool {
+        switch self {
+        case .all: return true
+        case .enabled: return state == "enabled"
+        case .disabled: return state == "disabled"
+        }
+    }
+
+    var icon: VIcon {
+        switch self {
+        case .all: return .circle
+        case .enabled: return .circleCheck
+        case .disabled: return .circleDashed
+        }
+    }
+}
+
 // MARK: - Agent Panel Content (embeddable)
 
 /// The installed skills management content, usable standalone
@@ -16,6 +40,8 @@ struct AgentPanelContent: View {
     @State private var selectedCategories: Set<SkillCategory> = []
     @State private var globalSkillSearchQuery = ""
     @State private var showFilterPopover = false
+    @State private var stateFilter: SkillStateFilter = .all
+    @State private var showStateFilterPopover = false
 
     init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, connectionManager: GatewayConnectionManager) {
         self.onInvokeSkill = onInvokeSkill
@@ -71,6 +97,12 @@ struct AgentPanelContent: View {
                 selectedInstalledSkillId = nil
             }
         }
+        .onChange(of: stateFilter) {
+            if let selectedId = selectedInstalledSkillId,
+               !categoryFilteredSkills.contains(where: { $0.id == selectedId }) {
+                selectedInstalledSkillId = nil
+            }
+        }
         .sheet(item: $skillToDelete) { skill in
             SkillDeleteConfirmView(
                 skillName: skill.name,
@@ -92,9 +124,10 @@ struct AgentPanelContent: View {
     }
 
     private var filteredUserSkills: [SkillInfo] {
-        guard hasActiveSearch else { return userSkills }
+        var result = userSkills.filter { stateFilter.matches($0.state) }
+        guard hasActiveSearch else { return result }
         let query = normalizedSkillQuery
-        return userSkills.filter {
+        return result.filter {
             $0.name.lowercased().contains(query) ||
             $0.description.lowercased().contains(query) ||
             $0.id.lowercased().contains(query) ||
@@ -117,6 +150,64 @@ struct AgentPanelContent: View {
             let bInstalled = (b.source == "managed" || b.source == "clawhub")
             if aInstalled != bInstalled { return aInstalled }
             return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        }
+    }
+
+    // MARK: - State Filter Dropdown
+
+    private var stateFilterDropdown: some View {
+        Button {
+            showStateFilterPopover.toggle()
+        } label: {
+            HStack(spacing: VSpacing.md) {
+                Text(stateFilter.rawValue)
+                    .foregroundStyle(VColor.contentDefault)
+                    .font(VFont.body)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                VIconView(.chevronDown, size: 13)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .frame(height: 32)
+            .vInputChrome()
+        }
+        .buttonStyle(.plain)
+        .frame(width: 158)
+        .accessibilityLabel("State filter: \(stateFilter.rawValue)")
+        .popover(isPresented: $showStateFilterPopover, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(SkillStateFilter.allCases, id: \.self) { state in
+                    Button {
+                        stateFilter = state
+                        showStateFilterPopover = false
+                    } label: {
+                        HStack(spacing: VSpacing.sm) {
+                            VIconView(state.icon, size: 14)
+                                .foregroundStyle(VColor.contentDefault)
+                                .frame(width: 20)
+                            Text(state.rawValue)
+                                .font(VFont.body)
+                                .foregroundStyle(VColor.contentDefault)
+                            Spacer()
+                            if stateFilter == state {
+                                VIconView(.check, size: 12)
+                                    .foregroundStyle(VColor.primaryBase)
+                            }
+                        }
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(state.rawValue) state")
+                    .accessibilityAddTraits(stateFilter == state ? .isSelected : [])
+                }
+            }
+            .padding(.vertical, VSpacing.sm)
+            .frame(width: 180)
         }
     }
 
@@ -284,6 +375,7 @@ struct AgentPanelContent: View {
             VStack(spacing: VSpacing.md) {
                 HStack(spacing: VSpacing.sm) {
                     VSearchBar(placeholder: "Search skills", text: $globalSkillSearchQuery)
+                    stateFilterDropdown
                     categoryFilterDropdown
                 }
 
