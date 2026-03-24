@@ -512,17 +512,13 @@ struct ChatBubble: View {
             iconSize: 24,
             iconColor: audioPlayer.error != nil ? VColor.systemNegativeStrong : VColor.contentTertiary
         ) {
-            if audioPlayer.isNotConfigured {
-                showTTSSetupPopover = true
-            } else {
-                Task {
-                    await audioPlayer.playMessage(
-                        messageId: daemonMessageId,
-                        conversationId: nil
-                    )
-                    if audioPlayer.isNotConfigured {
-                        showTTSSetupPopover = true
-                    }
+            Task {
+                await audioPlayer.playMessage(
+                    messageId: daemonMessageId,
+                    conversationId: nil
+                )
+                if audioPlayer.isNotConfigured {
+                    showTTSSetupPopover = true
                 }
             }
         }
@@ -552,10 +548,7 @@ struct ChatBubble: View {
             HStack(spacing: VSpacing.md) {
                 VButton(label: "Set Up", style: .primary) {
                     showTTSSetupPopover = false
-                    NotificationCenter.default.post(
-                        name: .navigateToSettingsTab,
-                        object: SettingsTab.voice
-                    )
+                    AppDelegate.shared?.showSettingsTab("Voice")
                 }
                 Button {
                     if let url = URL(string: "https://fish.audio") {
