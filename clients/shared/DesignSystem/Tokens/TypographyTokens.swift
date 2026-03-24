@@ -64,29 +64,29 @@ public enum VFont {
 
     // MARK: - Title (Figma)
 
-    public static let titleLarge  = dmSans(weight: 500, size: adaptiveSize(24))
-    public static let titleMedium = dmSans(weight: 500, size: adaptiveSize(20))
-    public static let titleSmall  = dmSans(weight: 600, size: adaptiveSize(18))
+    public static let titleLarge  = dmSans(weight: 400, size: adaptiveSize(24))
+    public static let titleMedium = dmSans(weight: 400, size: adaptiveSize(20))
+    public static let titleSmall  = dmSans(weight: 500, size: adaptiveSize(18))
 
     // MARK: - Body (Figma)
 
-    public static let bodyLargeLighter    = dmSans(weight: 400, size: 16)
-    public static let bodyLargeDefault    = dmSans(weight: 500, size: 16)
-    public static let bodyLargeEmphasised = dmSans(weight: 600, size: 16)
-    public static let bodyMediumLighter    = dmSans(weight: 400, size: 14)
-    public static let bodyMediumDefault    = dmSans(weight: 500, size: 14)
-    public static let bodyMediumEmphasised = dmSans(weight: 600, size: 14)
-    public static let bodySmallDefault    = dmSans(weight: 500, size: 12)
-    public static let bodySmallEmphasised = dmSans(weight: 600, size: 12)
+    public static let bodyLargeLighter    = dmSans(weight: 300, size: 16)
+    public static let bodyLargeDefault    = dmSans(weight: 400, size: 16)
+    public static let bodyLargeEmphasised = dmSans(weight: 500, size: 16)
+    public static let bodyMediumLighter    = dmSans(weight: 300, size: 14)
+    public static let bodyMediumDefault    = dmSans(weight: 400, size: 14)
+    public static let bodyMediumEmphasised = dmSans(weight: 500, size: 14)
+    public static let bodySmallDefault    = dmSans(weight: 400, size: 12)
+    public static let bodySmallEmphasised = dmSans(weight: 500, size: 12)
 
     // MARK: - Label (Figma)
 
-    public static let labelDefault = dmSans(weight: 500, size: 11)
-    public static let labelSmall   = dmSans(weight: 500, size: 10)
+    public static let labelDefault = dmSans(weight: 400, size: 11)
+    public static let labelSmall   = dmSans(weight: 400, size: 10)
 
     // MARK: - Chat (Figma — 16pt Medium with 24px line height, applied via .lineSpacing)
 
-    public static let chat = dmSans(weight: 500, size: 16)
+    public static let chat = dmSans(weight: 400, size: 16)
 
     // MARK: - Specialized
 
