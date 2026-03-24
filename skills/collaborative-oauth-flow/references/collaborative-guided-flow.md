@@ -40,13 +40,13 @@ host_bash:
     BROWSER=$(plutil -convert json -o - ~/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist 2>/dev/null | python3 -c "import json,sys;[print(h.get('LSHandlerRoleAll','')) for h in json.load(sys.stdin).get('LSHandlers',[]) if h.get('LSHandlerURLScheme')=='https']" 2>/dev/null)
     case "$BROWSER" in
       com.google.chrome)
-        osascript -e "tell application \"Google Chrome\" to set URL of active tab of front window to \"$URL\"" 2>/dev/null || open "$URL" ;;
+        osascript -e "tell application \"Google Chrome\" to tell front window to make new tab with properties {URL:\"$URL\"}" 2>/dev/null || open "$URL" ;;
       com.apple.safari)
-        osascript -e "tell application \"Safari\" to set URL of current tab of front window to \"$URL\"" 2>/dev/null || open "$URL" ;;
+        osascript -e "tell application \"Safari\" to tell front window to set current tab to (make new tab with properties {URL:\"$URL\"})" 2>/dev/null || open "$URL" ;;
       company.thebrowser.Browser)
-        osascript -e "tell application \"Arc\" to set URL of active tab of front window to \"$URL\"" 2>/dev/null || open "$URL" ;;
+        osascript -e "tell application \"Arc\" to tell front window to make new tab with properties {URL:\"$URL\"}" 2>/dev/null || open "$URL" ;;
       com.brave.Browser)
-        osascript -e "tell application \"Brave Browser\" to set URL of active tab of front window to \"$URL\"" 2>/dev/null || open "$URL" ;;
+        osascript -e "tell application \"Brave Browser\" to tell front window to make new tab with properties {URL:\"$URL\"}" 2>/dev/null || open "$URL" ;;
       *)
         open "$URL" ;;
     esac
@@ -62,7 +62,7 @@ host_bash:
   command: /tmp/vellum-nav.sh "TARGET_URL"
 ```
 
-The helper detects the default browser and navigates in the existing tab. Falls back to opening a new tab when no window exists.
+The helper detects the default browser and opens a new tab in the existing window. Falls back to opening a new tab when no window exists.
 
 ### Rules
 
