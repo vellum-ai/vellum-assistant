@@ -16,7 +16,7 @@ When the user says "scan my Slack", "what's happening on Slack", or similar:
 
 1. Call `slack_scan_digest` immediately. If preferred channels are configured, scan those; otherwise scan top active channels.
 2. Present results progressively: overview first (channel names, message counts, top threads), then offer to drill into specific threads.
-3. For threads the user wants to explore, use `messaging_read` with `thread_id` to fetch full content, then summarize with attribution (who said what, decisions made, open questions).
+3. For threads the user wants to explore, use the Slack Web API via CLI to fetch full thread content (e.g., `conversations.replies`), then summarize with attribution (who said what, decisions made, open questions).
 
 ## Thread Summarization
 
@@ -67,12 +67,24 @@ When responding to messages from Slack channels, replies are automatically threa
 
 When you need to **send** content to Slack proactively (e.g. a scheduled digest, a scan summary, or a report):
 
-- Use `messaging_send` with `platform: "slack"` and the target `conversation_id` (Slack channel or DM ID). This posts directly via `chat.postMessage` and preserves the full message content.
+- Use the Slack Web API directly via CLI. Post messages using `bash` with `network_mode: "proxied"` and `credential_ids: ["slack_channel:bot_token"]` to call `chat.postMessage` with the target channel ID. This preserves the full message content.
 - Do **NOT** use `send_notification` for rich content like digests - the notification router's decision engine rewrites content into short alerts, stripping the actual digest.
-- `send_notification` is appropriate for short alerts and status updates where you want the router to pick the best channel. `messaging_send` is appropriate when you have specific content to deliver to a specific Slack destination.
-- For scheduled tasks (cron/RRULE), always end with a `messaging_send` call so the results actually reach the user. Without it, the output only lives in the conversation log.
+- `send_notification` is appropriate for short alerts and status updates where you want the router to pick the best channel. Direct Slack API calls are appropriate when you have specific content to deliver to a specific Slack destination.
+- For scheduled tasks (cron/RRULE), always end with a Slack API call so the results actually reach the user. Without it, the output only lives in the conversation log.
+- Do **NOT** use `messaging_send` with `platform: "slack"` — the messaging skill does not handle Slack. Use the Slack Web API directly.
 
-For setting up recurring digests, load the `slack-digest-setup` skill which covers the full configuration, scheduling, and delivery protocol.
+## Slack Web API via CLI
+
+For reading and sending Slack messages, use `bash` with the Slack Web API directly. The bot token is available via `credential_ids: ["slack_channel:bot_token"]`.
+
+Common API methods:
+- **Send message**: `curl -X POST https://slack.com/api/chat.postMessage -H "Authorization: Bearer $SLACK_CHANNEL_BOT_TOKEN" -H "Content-Type: application/json" -d '{"channel":"<channel_id>","text":"<message>"}'`
+- **Read thread**: `curl -s https://slack.com/api/conversations.replies -H "Authorization: Bearer $SLACK_CHANNEL_BOT_TOKEN" -G -d "channel=<channel_id>&ts=<thread_ts>"`
+- **Read channel history**: `curl -s https://slack.com/api/conversations.history -H "Authorization: Bearer $SLACK_CHANNEL_BOT_TOKEN" -G -d "channel=<channel_id>&limit=<n>"`
+- **Search messages**: `curl -s https://slack.com/api/search.messages -H "Authorization: Bearer $SLACK_CHANNEL_BOT_TOKEN" -G --data-urlencode "query=<query>"`
+- **List conversations**: `curl -s https://slack.com/api/conversations.list -H "Authorization: Bearer $SLACK_CHANNEL_BOT_TOKEN" -G -d "types=public_channel,private_channel,im"`
+
+This gives full access to the Slack API surface including thread context, message metadata, and all features not available through abstraction layers.
 
 ## Connection
 

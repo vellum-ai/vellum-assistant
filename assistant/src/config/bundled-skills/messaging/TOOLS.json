@@ -11,7 +11,7 @@
         "properties": {
           "platform": {
             "type": "string",
-            "description": "Platform to test (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+            "description": "Platform to test (e.g. \"gmail\"). Auto-detected if only one is connected. Slack is not supported — use the Slack Web API directly."
           },
           "account": {
             "type": "string",
@@ -36,7 +36,7 @@
         "properties": {
           "platform": {
             "type": "string",
-            "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+            "description": "Platform (e.g. \"gmail\"). Auto-detected if only one is connected. Slack is not supported — use the Slack Web API directly."
           },
           "account": {
             "type": "string",
@@ -73,7 +73,7 @@
         "properties": {
           "platform": {
             "type": "string",
-            "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+            "description": "Platform (e.g. \"gmail\"). Auto-detected if only one is connected. Slack is not supported — use the Slack Web API directly."
           },
           "account": {
             "type": "string",
@@ -111,7 +111,7 @@
         "properties": {
           "platform": {
             "type": "string",
-            "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+            "description": "Platform (e.g. \"gmail\"). Auto-detected if only one is connected. Slack is not supported — use the Slack Web API directly."
           },
           "account": {
             "type": "string",
@@ -145,7 +145,7 @@
         "properties": {
           "platform": {
             "type": "string",
-            "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+            "description": "Platform (e.g. \"gmail\"). Auto-detected if only one is connected. Slack is not supported — use the Slack Web API directly."
           },
           "account": {
             "type": "string",
@@ -202,7 +202,7 @@
         "properties": {
           "platform": {
             "type": "string",
-            "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+            "description": "Platform (e.g. \"gmail\"). Auto-detected if only one is connected. Slack is not supported — use the Slack Web API directly."
           },
           "account": {
             "type": "string",
@@ -236,7 +236,7 @@
         "properties": {
           "platform": {
             "type": "string",
-            "description": "Platform (e.g. \"slack\", \"gmail\"). Auto-detected if only one is connected."
+            "description": "Platform (e.g. \"gmail\"). Auto-detected if only one is connected. Slack is not supported — use the Slack Web API directly."
           },
           "account": {
             "type": "string",
