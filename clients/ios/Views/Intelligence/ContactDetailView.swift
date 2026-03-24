@@ -4,7 +4,7 @@ import VellumAssistantShared
 
 struct ContactDetailView: View {
     let contact: ContactPayload
-    @ObservedObject var contactsStore: ContactsStore
+    var contactsStore: ContactsStore
     @Environment(\.dismiss) private var dismiss
     @State private var showDeleteConfirmation = false
     @State private var channelForPolicyEdit: ContactChannelPayload?

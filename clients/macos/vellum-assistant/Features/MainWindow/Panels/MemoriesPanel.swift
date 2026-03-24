@@ -65,7 +65,7 @@ private enum MemoryStatusFilter: String, CaseIterable {
 struct MemoriesPanel: View {
     let connectionManager: GatewayConnectionManager
     @Binding var focusedMemoryId: String?
-    @StateObject private var store: MemoryItemsStore
+    @State private var store: MemoryItemsStore
     @State private var showCreateSheet = false
     @State private var selectedItem: MemoryItemPayload?
     @State private var selectedKind: MemoryKind?
@@ -78,7 +78,7 @@ struct MemoriesPanel: View {
     init(connectionManager: GatewayConnectionManager, focusedMemoryId: Binding<String?> = .constant(nil)) {
         self.connectionManager = connectionManager
         _focusedMemoryId = focusedMemoryId
-        _store = StateObject(wrappedValue: MemoryItemsStore(memoryItemClient: MemoryItemClient()))
+        _store = State(wrappedValue: MemoryItemsStore(memoryItemClient: MemoryItemClient()))
     }
 
     /// Kinds to show in the sidebar filter. Excludes system-managed kinds.

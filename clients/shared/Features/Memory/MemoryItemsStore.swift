@@ -2,20 +2,20 @@ import Foundation
 
 /// Shared store for memory item CRUD operations with filter state.
 /// Used by both macOS and iOS memory list views.
-@MainActor
-public final class MemoryItemsStore: ObservableObject {
-    @Published public var items: [MemoryItemPayload] = []
-    @Published public var total: Int = 0
-    @Published public var isLoading = false
+@MainActor @Observable
+public final class MemoryItemsStore {
+    public var items: [MemoryItemPayload] = []
+    public var total: Int = 0
+    public var isLoading = false
 
     // Filter state
-    @Published public var kindFilter: String? = nil
-    @Published public var statusFilter: String? = "active"
-    @Published public var searchText: String = ""
-    @Published public var sortField: String = "lastSeenAt"
-    @Published public var sortOrder: String = "desc"
+    public var kindFilter: String? = nil
+    public var statusFilter: String? = "active"
+    public var searchText: String = ""
+    public var sortField: String = "lastSeenAt"
+    public var sortOrder: String = "desc"
 
-    private let memoryItemClient: MemoryItemClientProtocol
+    @ObservationIgnored private let memoryItemClient: MemoryItemClientProtocol
 
     public init(memoryItemClient: MemoryItemClientProtocol) {
         self.memoryItemClient = memoryItemClient

@@ -16,12 +16,18 @@ final class IdentityViewModel {
     var contactsStore: ContactsStore?
     var memoriesStore: MemoryItemsStore?
 
-    // Cached counts — updated via Combine when the stores' @Published properties change.
+    // SkillsStore is still ObservableObject, so we keep a Combine subscription for it.
     var installedSkillsCount: Int = 0
-    var contactsCount: Int = 0
-    var memoriesCount: Int = 0
 
-    private var cancellables: Set<AnyCancellable> = []
+    // Computed counts — derived directly from @Observable stores.
+    var contactsCount: Int {
+        contactsStore?.contacts.count ?? 0
+    }
+    var memoriesCount: Int {
+        memoriesStore?.items.count ?? 0
+    }
+
+    @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
 
     func setUp(connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient) {
         cancellables.removeAll()
@@ -37,19 +43,8 @@ final class IdentityViewModel {
             .sink { [weak self] count in self?.installedSkillsCount = count }
             .store(in: &cancellables)
 
-        contacts.$contacts
-            .map(\.count)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] count in self?.contactsCount = count }
-            .store(in: &cancellables)
-
         let memories = MemoryItemsStore(memoryItemClient: MemoryItemClient())
         memoriesStore = memories
-        memories.$items
-            .map(\.count)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] count in self?.memoriesCount = count }
-            .store(in: &cancellables)
 
         skills.fetchSkills(force: true)
         contacts.loadContacts()
@@ -65,8 +60,6 @@ final class IdentityViewModel {
         contactsStore = nil
         memoriesStore = nil
         installedSkillsCount = 0
-        contactsCount = 0
-        memoriesCount = 0
     }
 
     var identityClient: IdentityClientProtocol = IdentityClient()

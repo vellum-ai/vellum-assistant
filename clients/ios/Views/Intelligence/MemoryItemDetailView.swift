@@ -4,7 +4,7 @@ import VellumAssistantShared
 
 struct MemoryItemDetailView: View {
     let item: MemoryItemPayload
-    @ObservedObject var store: MemoryItemsStore
+    var store: MemoryItemsStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var isEditing = false

@@ -3,7 +3,7 @@ import SwiftUI
 import VellumAssistantShared
 
 struct MemoryItemCreateView: View {
-    @ObservedObject var store: MemoryItemsStore
+    var store: MemoryItemsStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var kind: String = "identity"

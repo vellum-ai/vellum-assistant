@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 
 /// Cross-platform store for contacts data operations.
@@ -7,13 +6,13 @@ import Foundation
 /// and deleting contacts. Platform-specific UI state (search filtering,
 /// panel presentation, etc.) remains in the platform view model that
 /// delegates here.
-@MainActor
-public final class ContactsStore: ObservableObject {
+@MainActor @Observable
+public final class ContactsStore {
 
     // MARK: - Published State
 
-    @Published public var contacts: [ContactPayload] = []
-    @Published public var isLoading = false
+    public var contacts: [ContactPayload] = []
+    public var isLoading = false
 
     // MARK: - Computed Properties
 
@@ -29,12 +28,12 @@ public final class ContactsStore: ObservableObject {
 
     // MARK: - Private State
 
-    private let connectionManager: GatewayConnectionManager
-    private let eventStreamClient: EventStreamClient
-    private let contactClient: ContactClientProtocol
-    private var contactsChangedTask: Task<Void, Never>?
-    private var subscriptionTask: Task<Void, Never>?
-    private var reconnectObserver: NSObjectProtocol?
+    @ObservationIgnored private let connectionManager: GatewayConnectionManager
+    @ObservationIgnored private let eventStreamClient: EventStreamClient
+    @ObservationIgnored private let contactClient: ContactClientProtocol
+    @ObservationIgnored private var contactsChangedTask: Task<Void, Never>?
+    @ObservationIgnored private var subscriptionTask: Task<Void, Never>?
+    @ObservationIgnored private var reconnectObserver: NSObjectProtocol?
 
     // MARK: - Init
 
