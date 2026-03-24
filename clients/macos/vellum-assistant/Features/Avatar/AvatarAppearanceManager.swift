@@ -304,7 +304,7 @@ final class AvatarAppearanceManager {
     // MARK: - Remote Avatar Fetch (Docker/remote instances)
 
     /// Fetches the avatar image via HTTP through the gateway for Docker/remote instances.
-    private func fetchAvatarViaHTTP() async {
+    private func fetchAvatarViaHTTP(skipClearOnFailure: Bool = false) async {
         do {
             let response = try await GatewayHTTPClient.get(
                 path: "assistants/{assistantId}/workspace/file/content",
@@ -312,9 +312,11 @@ final class AvatarAppearanceManager {
                 timeout: 10
             )
             guard response.isSuccess, !response.data.isEmpty else {
-                if customAvatarImage != nil { customAvatarImage = nil }
-                cachedChatAvatar = nil
-                updateDockIcon()
+                if !skipClearOnFailure {
+                    if customAvatarImage != nil { customAvatarImage = nil }
+                    cachedChatAvatar = nil
+                    updateDockIcon()
+                }
                 return
             }
             cachedChatAvatar = nil
@@ -322,9 +324,11 @@ final class AvatarAppearanceManager {
             updateDockIcon()
         } catch {
             log.warning("Failed to fetch avatar via HTTP: \(error.localizedDescription)")
-            if customAvatarImage != nil { customAvatarImage = nil }
-            cachedChatAvatar = nil
-            updateDockIcon()
+            if !skipClearOnFailure {
+                if customAvatarImage != nil { customAvatarImage = nil }
+                cachedChatAvatar = nil
+                updateDockIcon()
+            }
         }
     }
 
@@ -424,9 +428,11 @@ final class AvatarAppearanceManager {
             updateDockIcon()
         }
 
+        let diskLoadSucceeded = customAvatarImage != nil
+
         Task { [weak self] in
             await self?.fetchComponents()
-            await self?.fetchAvatarViaHTTP()
+            await self?.fetchAvatarViaHTTP(skipClearOnFailure: diskLoadSucceeded)
             await self?.fetchTraitsViaHTTP()
         }
         updateDockLabel()
