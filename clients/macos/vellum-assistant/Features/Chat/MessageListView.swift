@@ -83,14 +83,35 @@ extension EnvironmentValues {
     var cachedPrecomputedKey: PrecomputedCacheKey?
     /// Cached result for `precomputedState`, returned on cache hit.
     var cachedPrecomputedState: PrecomputedMessageListState?
+
+    // MARK: - Version Counter (O(1) fingerprint replacement)
+
+    /// Monotonically increasing counter that replaces the O(n) per-body-eval
+    /// `computeMessageFingerprint()` hash. Incremented when any of the following
+    /// triggers fire:
+    /// - `messages.count` changes (new message appended or pagination load)
+    /// - `isSending` or `isThinking` transitions (activity state change)
+    /// - `messages.last?.isStreaming` transitions (end of streaming)
+    /// - A tool call's `isComplete` transitions (observable via messages array
+    ///   identity change in SwiftUI)
+    ///
+    /// Over-invalidation is safe (triggers a recompute); under-invalidation is not.
+    var messageListVersion: Int = 0
+
+    /// Cached message count for detecting structural changes.
+    var lastKnownMessageCount: Int = 0
+    /// Cached streaming state of the last message.
+    var lastKnownLastMessageStreaming: Bool = false
+    /// Cached count of incomplete tool calls across all messages.
+    var lastKnownIncompleteToolCallCount: Int = 0
 }
 
 /// Lightweight key that captures all inputs to `precomputedState`.
-/// For the message array we use a hash-based fingerprint rather than
-/// storing the full array, keeping equality checks O(1) after an
-/// O(visible-messages) fingerprint computation.
+/// All fields are O(1) to compare. The `messageListVersion` counter
+/// replaces the former O(n) hash-based fingerprint — it is incremented
+/// by `onChange` handlers when structural or content changes occur.
 struct PrecomputedCacheKey: Equatable {
-    let messageFingerprint: Int
+    let messageListVersion: Int
     let isSending: Bool
     let isThinking: Bool
     let isCompacting: Bool
@@ -256,40 +277,50 @@ struct MessageListView: View {
         )
     }
 
-    /// Computes a lightweight fingerprint over visible messages that detects
-    /// additions, deletions, streaming updates, and confirmation state changes
-    /// without storing the full message array.
-    private func computeMessageFingerprint() -> Int {
-        var hasher = Hasher()
-        hasher.combine(messages.count)
-        hasher.combine(displayedMessageCount)
-        let visible = visibleMessages
-        hasher.combine(visible.count)
-        for msg in visible {
-            hasher.combine(msg.id)
-            hasher.combine(msg.textSegments.count)
-            if let last = msg.textSegments.last {
-                hasher.combine(last.count)
-            }
-            hasher.combine(msg.toolCalls.count)
-            for toolCall in msg.toolCalls {
-                hasher.combine(toolCall.isComplete)
-            }
-            hasher.combine(msg.isStreaming)
-            if let conf = msg.confirmation {
-                // ToolConfirmationState is Equatable but not Hashable/RawRepresentable;
-                // map to an int tag for hashing.
-                switch conf.state {
-                case .pending: hasher.combine(0)
-                case .approved: hasher.combine(1)
-                case .denied: hasher.combine(2)
-                case .timedOut: hasher.combine(3)
-                }
-            } else {
-                hasher.combine(-1)
-            }
+    /// Checks whether observable message-level inputs have changed since the
+    /// last body evaluation and, if so, bumps `scrollTracking.messageListVersion`.
+    /// This replaces the former O(n) `computeMessageFingerprint()` hash with an
+    /// O(1) version counter. Over-invalidation is safe (triggers a recompute);
+    /// under-invalidation is not.
+    ///
+    /// All checks are O(1) — we only inspect `messages.count`,
+    /// `messages.last?.isStreaming`, and the last message's tool call completion
+    /// states (typically 0–3 tool calls). `isSending` / `isThinking` transitions
+    /// are handled via `PrecomputedCacheKey` fields directly.
+    ///
+    /// Mutation paths that affect `PrecomputedMessageListState` inputs:
+    /// - `messages.count` changes (append, pagination, deletion)
+    /// - `messages.last?.isStreaming` transitions (end of streaming)
+    /// - Tool call `isComplete` transitions — detected via the last message's
+    ///   tool calls (active tool calls are always on the most recent assistant
+    ///   message) and via `messages.count` changes when tool results arrive
+    private func refreshMessageListVersionIfNeeded() {
+        let currentCount = messages.count
+        let currentLastStreaming = messages.last?.isStreaming ?? false
+        // Tool call completion is detected via the incomplete count on the
+        // last message only — active tool calls live on the tail assistant
+        // message, and completion of older tool calls always coincides with
+        // a messages.count change (the tool result message is appended).
+        let currentIncompleteToolCalls = messages.last?.toolCalls.filter { !$0.isComplete }.count ?? 0
+
+        var changed = false
+
+        if currentCount != scrollTracking.lastKnownMessageCount {
+            scrollTracking.lastKnownMessageCount = currentCount
+            changed = true
         }
-        return hasher.finalize()
+        if currentLastStreaming != scrollTracking.lastKnownLastMessageStreaming {
+            scrollTracking.lastKnownLastMessageStreaming = currentLastStreaming
+            changed = true
+        }
+        if currentIncompleteToolCalls != scrollTracking.lastKnownIncompleteToolCallCount {
+            scrollTracking.lastKnownIncompleteToolCallCount = currentIncompleteToolCalls
+            changed = true
+        }
+
+        if changed {
+            scrollTracking.messageListVersion += 1
+        }
     }
 
     /// Computes a fingerprint over active subagents that captures identity,
@@ -318,14 +349,18 @@ struct MessageListView: View {
     /// (timestamp indices, subagent grouping, turn detection) run once
     /// per body evaluation rather than being re-evaluated on layout passes.
     ///
-    /// Memoized behind a lightweight input fingerprint stored on the
-    /// non-reactive `ScrollTrackingState`. Cache hit returns immediately
-    /// after an O(visible-messages) fingerprint comparison; cache miss
-    /// runs the full computation. Storing on the class (not @State)
-    /// ensures cache updates never trigger additional body re-evaluations.
+    /// Memoized behind a lightweight O(1) cache key stored on the
+    /// non-reactive `ScrollTrackingState`. The key uses a version counter
+    /// (incremented by `refreshMessageListVersionIfNeeded()`) instead of
+    /// an O(n) per-message hash, making cache key construction O(1).
+    /// Cache hit returns immediately; cache miss runs the full computation.
+    /// Storing on the class (not @State) ensures cache updates never
+    /// trigger additional body re-evaluations.
     private var precomputedState: PrecomputedMessageListState {
+        os_signpost(.begin, log: stallLog, name: "PrecomputedState.resolve")
+        refreshMessageListVersionIfNeeded()
         let key = PrecomputedCacheKey(
-            messageFingerprint: computeMessageFingerprint(),
+            messageListVersion: scrollTracking.messageListVersion,
             isSending: isSending,
             isThinking: isThinking,
             isCompacting: isCompacting,
@@ -344,8 +379,11 @@ struct MessageListView: View {
                 "precomputedState cache stale: displayMessages count \(cached.displayMessages.count) vs \(freshMessages.count)"
             )
             #endif
+            os_signpost(.end, log: stallLog, name: "PrecomputedState.resolve", "hit")
             return cached
         }
+
+        os_signpost(.event, log: stallLog, name: "PrecomputedState.cacheMiss", "version=%d", scrollTracking.messageListVersion)
 
         let displayMessages = visibleMessages
         let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
@@ -450,6 +488,7 @@ struct MessageListView: View {
 
         scrollTracking.cachedPrecomputedKey = key
         scrollTracking.cachedPrecomputedState = result
+        os_signpost(.end, log: stallLog, name: "PrecomputedState.resolve", "miss")
         return result
     }
 
