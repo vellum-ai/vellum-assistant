@@ -39,6 +39,11 @@ export type HostFileRequest =
   | HostFileWriteRequest
   | HostFileEditRequest;
 
+export interface HostFileCancelRequest {
+  type: "host_file_cancel";
+  requestId: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
-export type _HostFileServerMessages = HostFileRequest;
+export type _HostFileServerMessages = HostFileRequest | HostFileCancelRequest;
