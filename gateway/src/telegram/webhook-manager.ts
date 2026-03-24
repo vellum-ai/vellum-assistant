@@ -106,6 +106,13 @@ async function resolveExpectedTelegramWebhookUrl(
     return `${baseUrl}/${TELEGRAM_CALLBACK_PATH}`;
   }
 
+  // Only fall back to managed callback registration in containerized mode.
+  // A local gateway that happens to have stored vellum credentials should not
+  // silently reroute Telegram webhooks to the platform.
+  if (!process.env.IS_CONTAINERIZED) {
+    return undefined;
+  }
+
   return registerManagedTelegramCallbackRoute(caches);
 }
 
