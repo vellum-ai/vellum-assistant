@@ -613,6 +613,7 @@ public final class GatewayConnectionManager: ObservableObject {
                             self.autoWakeTask?.cancel()
                             self.autoWakeTask = nil
                             log.info("reconnect-loop: gateway unreachable — attempting wake")
+                            guard !Task.isCancelled, self.shouldReconnect else { break }
                             do {
                                 try await wakeHandler()
                                 guard !Task.isCancelled else { break }
