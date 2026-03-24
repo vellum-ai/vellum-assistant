@@ -151,7 +151,7 @@ export async function indexMessageNow(
       );
     }
 
-    if (shouldExtract && isTrustedActor && !input.automated) {
+    if (shouldExtract && isTrustedActor && !input.automated && config.extraction.useLLM) {
       enqueueMemoryJob(
         "extract_items",
         { messageId: input.messageId, scopeId: input.scopeId ?? "default" },
@@ -185,7 +185,11 @@ export async function indexMessageNow(
     log.info("Skipping extraction jobs for automated message");
   }
 
-  const extractionGated = !isTrustedActor || !!input.automated;
+  if (!config.extraction.useLLM && shouldExtract && isTrustedActor && !input.automated) {
+    log.info("Skipping extraction job: LLM extraction is disabled (useLLM=false)");
+  }
+
+  const extractionGated = !isTrustedActor || !!input.automated || !config.extraction.useLLM;
   const enqueuedJobs =
     segments.length -
     skippedEmbedJobs +
