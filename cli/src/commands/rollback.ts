@@ -173,21 +173,7 @@ async function rollbackPlatformViaEndpoint(
     }
   }
 
-  // Step 2 — Workspace commit (starting)
-  await commitWorkspaceViaGateway(
-    entry.runtimeUrl,
-    entry.assistantId,
-    buildUpgradeCommitMessage({
-      action: "rollback",
-      phase: "starting",
-      from: currentVersion ?? "unknown",
-      to: version ?? "previous",
-      topology: "managed",
-      assistantId: entry.assistantId,
-    }),
-  );
-
-  // Step 3 — Authenticate
+  // Step 2 — Authenticate
   const token = readPlatformToken();
   if (!token) {
     const msg =
@@ -211,15 +197,7 @@ async function rollbackPlatformViaEndpoint(
     process.exit(1);
   }
 
-  // Step 4 — Broadcast starting event
-  console.log("📢 Notifying connected clients...");
-  await broadcastUpgradeEvent(
-    entry.runtimeUrl,
-    entry.assistantId,
-    buildStartingEvent(version ?? "previous", 90),
-  );
-
-  // Step 5 — Call rollback endpoint
+  // Step 3 — Call rollback endpoint
   if (version) {
     console.log(`Rolling back to ${version}...`);
   } else {
@@ -270,22 +248,7 @@ async function rollbackPlatformViaEndpoint(
 
   const rolledBackVersion = result.version ?? version ?? "unknown";
 
-  // Step 6 — Workspace commit (complete)
-  await commitWorkspaceViaGateway(
-    entry.runtimeUrl,
-    entry.assistantId,
-    buildUpgradeCommitMessage({
-      action: "rollback",
-      phase: "complete",
-      from: currentVersion ?? "unknown",
-      to: rolledBackVersion,
-      topology: "managed",
-      assistantId: entry.assistantId,
-      result: "success",
-    }),
-  );
-
-  // Step 7 — Print success
+  // Step 4 — Print success
   console.log(`Rolled back to version ${rolledBackVersion}.`);
   if (!version) {
     console.log("Tip: Run 'vellum rollback' again to undo.");
