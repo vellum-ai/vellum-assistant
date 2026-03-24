@@ -10,6 +10,7 @@ import type {
 } from "../../../../tools/types.js";
 import { getLogger } from "../../../../util/logger.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
+import { updateIdentityAvatarSection } from "./identity-avatar.js";
 
 const log = getLogger("avatar-remove");
 
@@ -49,6 +50,12 @@ export async function run(
     .catch((err) => {
       log.warn({ err }, "Failed to publish avatar_updated event");
     });
+
+  // Update IDENTITY.md to reflect the avatar was removed.
+  updateIdentityAvatarSection(
+    "Default character avatar (no custom image set)",
+    log,
+  );
 
   log.info("Custom avatar removed, reverting to character avatar");
 

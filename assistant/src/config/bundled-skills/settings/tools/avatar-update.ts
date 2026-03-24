@@ -10,6 +10,7 @@ import type {
 } from "../../../../tools/types.js";
 import { getLogger } from "../../../../util/logger.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
+import { updateIdentityAvatarSection } from "./identity-avatar.js";
 
 const log = getLogger("avatar-update");
 
@@ -71,10 +72,14 @@ export async function run(
       log.warn({ err }, "Failed to publish avatar_updated event");
     });
 
+  // Clear any stale avatar description from IDENTITY.md so the assistant
+  // is prompted to describe the new image on next read.
+  updateIdentityAvatarSection(null, log);
+
   log.info({ avatarPath, source: resolvedSource }, "Avatar updated");
 
   return {
-    content: `Avatar updated from ${sourcePath}. The app will refresh automatically.`,
+    content: `Avatar updated from ${sourcePath}. The app will refresh automatically. The avatar description in IDENTITY.md has been cleared — describe what the new avatar looks like by updating the ## Avatar section in IDENTITY.md with a plain-text description (not an image link).`,
     isError: false,
   };
 }
