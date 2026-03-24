@@ -266,21 +266,40 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// conversation ID. Lets bootstrap-window requests coalesce normally.
     static let bootstrapConversationId = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
 
-    /// Routes an automatic bottom-follow request through the coordinator.
+    /// Routes a bottom-follow request through the coordinator.
     /// Returns `false` when the scroll loop guard is tripped, suppressing the request.
+    /// Pass `userInitiated: true` for explicit user actions (e.g. "Scroll to latest" button)
+    /// to bypass the loop guard and suppression checks — user intent always wins.
     @discardableResult
     func requestBottomPin(
         reason: BottomPinRequestReason,
         proxy: ScrollViewProxy,
         conversationId: UUID?,
-        animated: Bool = false
+        animated: Bool = false,
+        userInitiated: Bool = false
     ) -> Bool {
         let convIdString = (conversationId ?? Self.bootstrapConversationId).uuidString
-        if scrollLoopGuard.isTripped(conversationId: convIdString) {
+        if !userInitiated, scrollLoopGuard.isTripped(conversationId: convIdString) {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                         "target=bottomAnchor reason=circuitBreakerSuppressed-requestBottomPin")
             return false
         }
+
+        // User-initiated scrolls bypass the coordinator session and suppression
+        // checks entirely — user intent always wins over defensive guards.
+        if userInitiated {
+            os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
+                        "target=bottomAnchor reason=userInitiated")
+            if animated {
+                withAnimation(VAnimation.fast) {
+                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                }
+            } else {
+                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+            }
+            return true
+        }
+
         let convId = conversationId ?? Self.bootstrapConversationId
         bottomPinCoordinator.requestPin(
             reason: reason,
