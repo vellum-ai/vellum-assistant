@@ -130,12 +130,14 @@ public struct PlatformAssistant: Codable, Sendable {
     public let name: String?
     public let description: String?
     public let created_at: String?
+    public let status: String?
 
-    public init(id: String, name: String? = nil, description: String? = nil, created_at: String? = nil) {
+    public init(id: String, name: String? = nil, description: String? = nil, created_at: String? = nil, status: String? = nil) {
         self.id = id
         self.name = name
         self.description = description
         self.created_at = created_at
+        self.status = status
     }
 }
 

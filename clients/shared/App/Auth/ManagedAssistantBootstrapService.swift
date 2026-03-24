@@ -114,6 +114,58 @@ public final class ManagedAssistantBootstrapService {
         }
     }
 
+    /// Polls `GET /v1/assistants/{id}/` until the assistant's status indicates it is
+    /// fully provisioned, or until the timeout elapses.
+    ///
+    /// If the platform response omits the `status` field (older API versions), the
+    /// assistant is assumed ready immediately for backward compatibility.
+    public func awaitAssistantProvisioned(assistantId: String, timeout: TimeInterval = 120) async throws {
+        guard let organizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId") else {
+            log.warning("No persisted organization ID — skipping provisioning poll")
+            return
+        }
+
+        let start = CFAbsoluteTimeGetCurrent()
+
+        while CFAbsoluteTimeGetCurrent() - start < timeout {
+            do {
+                let result = try await authService.getAssistant(id: assistantId, organizationId: organizationId)
+                switch result {
+                case .found(let assistant):
+                    guard let status = assistant.status else {
+                        log.info("Assistant \(assistantId, privacy: .public) has no status field — treating as ready")
+                        return
+                    }
+                    if status == "active" {
+                        log.info("Assistant \(assistantId, privacy: .public) status is active")
+                        return
+                    }
+                    let terminalFailureStatuses: Set<String> = ["failed", "error", "terminated"]
+                    if terminalFailureStatuses.contains(status) {
+                        log.error("Assistant \(assistantId, privacy: .public) reached terminal failure status: \(status, privacy: .public)")
+                        throw ManagedBootstrapError.hatchFailed("Assistant provisioning \(status)")
+                    }
+                    log.info("Assistant \(assistantId, privacy: .public) status: \(status, privacy: .public) — continuing to poll")
+                case .notFound:
+                    log.warning("Assistant \(assistantId, privacy: .public) not found during provisioning poll")
+                case .accessDenied:
+                    throw ManagedBootstrapError.accessRevoked(assistantId)
+                }
+            } catch let error as ManagedBootstrapError {
+                throw error
+            } catch let error as PlatformAPIError {
+                throw mapPlatformError(error)
+            } catch {
+                log.warning("Provisioning poll failed for \(assistantId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            }
+
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+        }
+
+        log.warning("Provisioning poll timed out for \(assistantId, privacy: .public) after \(timeout)s — proceeding to health check")
+    }
+
     /// Resolve the organization ID, preferring the persisted value.
     private func resolveOrganizationId() async throws -> String {
         if let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
