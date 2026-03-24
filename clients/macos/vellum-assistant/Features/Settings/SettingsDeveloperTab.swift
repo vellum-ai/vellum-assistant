@@ -527,13 +527,7 @@ struct SettingsDeveloperTab: View {
             isManaged: assistant.isManaged,
             organizationId: orgId,
             userId: userId,
-            credentialStorage: {
-                #if DEBUG
-                return FileCredentialStorage()
-                #else
-                return KeychainCredentialStorage()
-                #endif
-            }()
+            credentialStorage: FileCredentialStorage()
         )
     }
 
@@ -778,11 +772,7 @@ struct SettingsDeveloperTab: View {
             if response.isSuccess || response.statusCode == 404 {
                 // Clear the locally-cached credential so the key is not
                 // re-injected on the next daemon restart or bootstrap.
-                #if DEBUG
                 let credStorage = FileCredentialStorage()
-                #else
-                let credStorage = KeychainCredentialStorage()
-                #endif
                 let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: targetAssistantId)
                 _ = credStorage.delete(account: credentialAccount)
 

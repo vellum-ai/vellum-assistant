@@ -26,13 +26,7 @@ extension Notification.Name {
 enum APIKeyManager {
     private static let udPrefix = "vellum_provider_"
 
-    private static let storage: CredentialStorage = {
-        #if DEBUG
-        return FileCredentialStorage()
-        #else
-        return KeychainCredentialStorage()
-        #endif
-    }()
+    private static let storage: CredentialStorage = FileCredentialStorage()
 
     /// Provider identifiers whose API keys are synced to the daemon as
     /// `type: "api_key"`.
