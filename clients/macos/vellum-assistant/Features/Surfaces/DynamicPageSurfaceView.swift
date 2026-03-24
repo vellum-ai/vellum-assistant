@@ -63,7 +63,7 @@ extension DynamicPageSurfaceView {
     static let designSystemCSS: String = {
         guard let url = ResourceBundle.bundle.url(
             forResource: "vellum-design-system", withExtension: "css"
-        ), let css = try? String(contentsOf: url) else {
+        ), let css = try? String(contentsOf: url, encoding: .utf8) else {
             log.error("Failed to load vellum-design-system.css from resource bundle")
             assertionFailure("vellum-design-system.css not found in resource bundle")
             return ""
@@ -79,7 +79,7 @@ extension DynamicPageSurfaceView {
     static let widgetJS: String = {
         guard let url = ResourceBundle.bundle.url(
             forResource: "vellum-widgets", withExtension: "js"
-        ), let js = try? String(contentsOf: url) else {
+        ), let js = try? String(contentsOf: url, encoding: .utf8) else {
             log.error("Failed to load vellum-widgets.js from resource bundle")
             assertionFailure("vellum-widgets.js not found in resource bundle")
             return ""
