@@ -16,6 +16,7 @@ import {
   parseChannelId,
   parseInterfaceId,
 } from "../../channels/types.js";
+import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import {
   buildModelInfoEvent,
@@ -726,51 +727,53 @@ export async function handleSendMessage(
   // The JWT-verified principal is used as the sender identity through
   // the same trust resolution pipeline that channel ingress uses.
   if (authContext.actorPrincipalId) {
-    const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-    let trustCtx = resolveTrustContext({
-      assistantId,
-      sourceChannel: "vellum",
-      conversationExternalId: "local",
-      actorExternalId: authContext.actorPrincipalId,
-    });
-    if (trustCtx.trustClass === "unknown") {
-      // Attempt to heal guardian binding drift: after a DB reset the
-      // guardian binding gets a new vellum-principal-* UUID while the
-      // client still holds a valid JWT with the old one. The signing
-      // key survives the reset, so the JWT is authentic — just stale.
-      const healed = healGuardianBindingDrift(authContext.actorPrincipalId);
-      if (healed) {
-        trustCtx = resolveTrustContext({
-          assistantId,
-          sourceChannel: "vellum",
-          conversationExternalId: "local",
-          actorExternalId: authContext.actorPrincipalId,
-        });
-        log.info(
-          {
-            actorPrincipalId: authContext.actorPrincipalId,
-            trustClass: trustCtx.trustClass,
-          },
-          "Trust re-resolved after guardian binding drift heal",
-        );
-      } else {
-        log.warn(
-          {
-            actorPrincipalId: authContext.actorPrincipalId,
-            sourceChannel,
-            trustClass: trustCtx.trustClass,
-            principalType: authContext.principalType,
-          },
-          "JWT-verified actor resolved to unknown trust class — possible guardian binding drift (e.g. DB reset without re-bootstrap)",
-        );
+    // Dev bypass (HTTP auth disabled): the synthetic "dev-bypass" principal
+    // won't match any guardian binding. Resolve from the local guardian
+    // binding instead, which produces the correct guardian trust context.
+    if (isHttpAuthDisabled() && authContext.actorPrincipalId === "dev-bypass") {
+      conversation.setTrustContext(resolveLocalTrustContext(sourceChannel));
+    } else {
+      const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+      let trustCtx = resolveTrustContext({
+        assistantId,
+        sourceChannel: "vellum",
+        conversationExternalId: "local",
+        actorExternalId: authContext.actorPrincipalId,
+      });
+      if (trustCtx.trustClass === "unknown") {
+        // Attempt to heal guardian binding drift: after a DB reset the
+        // guardian binding gets a new vellum-principal-* UUID while the
+        // client still holds a valid JWT with the old one. The signing
+        // key survives the reset, so the JWT is authentic — just stale.
+        const healed = healGuardianBindingDrift(authContext.actorPrincipalId);
+        if (healed) {
+          trustCtx = resolveTrustContext({
+            assistantId,
+            sourceChannel: "vellum",
+            conversationExternalId: "local",
+            actorExternalId: authContext.actorPrincipalId,
+          });
+          log.info(
+            {
+              actorPrincipalId: authContext.actorPrincipalId,
+              trustClass: trustCtx.trustClass,
+            },
+            "Trust re-resolved after guardian binding drift heal",
+          );
+        } else {
+          log.warn(
+            {
+              actorPrincipalId: authContext.actorPrincipalId,
+              sourceChannel,
+              trustClass: trustCtx.trustClass,
+              principalType: authContext.principalType,
+            },
+            "JWT-verified actor resolved to unknown trust class — possible guardian binding drift (e.g. DB reset without re-bootstrap)",
+          );
+        }
       }
+      conversation.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
     }
-    conversation.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
-  } else if (authContext.principalType === "actor") {
-    // Dev bypass (HTTP auth disabled): resolve the full guardian context
-    // from the local guardian binding so downstream approval routing has
-    // guardianPrincipalId and guardianExternalUserId available.
-    conversation.setTrustContext(resolveLocalTrustContext(sourceChannel));
   } else {
     // Service principals (svc_gateway) or tokens without an actor ID
     // get a minimal guardian context so downstream code has something.

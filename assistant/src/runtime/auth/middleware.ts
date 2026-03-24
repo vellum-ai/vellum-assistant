@@ -55,6 +55,7 @@ function buildDevBypassContext(): AuthContext {
     subject: `actor:${DAEMON_INTERNAL_ASSISTANT_ID}:dev-bypass`,
     principalType: "actor",
     assistantId: DAEMON_INTERNAL_ASSISTANT_ID,
+    actorPrincipalId: "dev-bypass",
     scopeProfile: "actor_client_v1",
     scopes: resolveScopeProfile("actor_client_v1"),
     policyEpoch: Number.MAX_SAFE_INTEGER,
