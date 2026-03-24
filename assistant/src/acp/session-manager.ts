@@ -169,8 +169,11 @@ export class AcpSessionManager {
       );
     }
 
-    // Cancel any in-flight prompt before starting a new one
+    // Cancel any in-flight prompt before starting a new one.
+    // Clear currentPrompt BEFORE awaiting cancel so the old prompt's
+    // catch handler sees currentPrompt !== promptPromise and skips teardown.
     if (entry.currentPrompt) {
+      entry.currentPrompt = null;
       try {
         await entry.process.cancel(entry.state.acpSessionId);
       } catch (err) {
@@ -179,7 +182,6 @@ export class AcpSessionManager {
           "Failed to cancel in-flight prompt before steer",
         );
       }
-      entry.currentPrompt = null;
     }
 
     // Fire new prompt in the background with event handlers
