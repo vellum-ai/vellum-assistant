@@ -91,11 +91,16 @@ export function writeToLogFile(fd: number | "ignore", msg: string): void {
  *  prefixing each line with an ISO timestamp and tag (e.g. "[daemon]").
  *  Strips pino-pretty's redundant short time prefix when present.
  *  Streams are unref'd so they don't prevent the parent from exiting.
- *  The fd is closed automatically when both streams end. */
+ *  The fd is closed automatically when both streams end.
+ *
+ *  When `onLine` is provided, each stripped line is also forwarded to the
+ *  callback so callers can tee output to another destination (e.g. stdout
+ *  for the desktop app to capture). */
 export function pipeToLogFile(
   child: ChildProcess,
   fd: number | "ignore",
   tag: string,
+  onLine?: (line: string) => void,
 ): void {
   if (fd === "ignore") return;
   const numFd: number = fd;
@@ -129,6 +134,13 @@ export function pipeToLogFile(
           writeSync(numFd, prefix + stripped + nl);
         } catch {
           /* best-effort */
+        }
+        if (onLine && stripped) {
+          try {
+            onLine(stripped);
+          } catch {
+            /* best-effort */
+          }
         }
       }
     });

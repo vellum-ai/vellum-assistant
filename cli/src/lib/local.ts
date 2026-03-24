@@ -192,6 +192,26 @@ function resolveDaemonMainPath(assistantIndex: string): string {
   return join(dirname(assistantIndex), "daemon", "main.ts");
 }
 
+/**
+ * Build an onLine callback for pipeToLogFile that forwards daemon output
+ * to the CLI's stderr. This lets the desktop app capture daemon logs in
+ * real time (via its stderr readabilityHandler) and also makes
+ * DAEMON_ERROR: lines available for structured error parsing.
+ *
+ * Returns undefined when not running inside the desktop app so that
+ * terminal-based CLI invocations are unaffected.
+ */
+function makeDaemonOutputForwarder(): ((line: string) => void) | undefined {
+  if (!process.env.VELLUM_DESKTOP_APP) return undefined;
+  return (line: string) => {
+    try {
+      process.stderr.write(line + "\n");
+    } catch {
+      /* best-effort */
+    }
+  };
+}
+
 type DaemonStartOptions = {
   foreground?: boolean;
   defaultWorkspaceConfigPath?: string;
@@ -295,7 +315,7 @@ async function startDaemonFromSource(
           stdio: ["ignore", "pipe", "pipe"],
           env,
         });
-        pipeToLogFile(c, daemonLogFd, "daemon");
+        pipeToLogFile(c, daemonLogFd, "daemon", makeDaemonOutputForwarder());
         c.unref();
         return c;
       })();
@@ -407,7 +427,7 @@ async function startDaemonWatchFromSource(
     stdio: ["ignore", "pipe", "pipe"],
     env,
   });
-  pipeToLogFile(child, daemonLogFd, "daemon");
+  pipeToLogFile(child, daemonLogFd, "daemon", makeDaemonOutputForwarder());
   child.unref();
   const daemonPid = child.pid;
 
@@ -988,7 +1008,12 @@ export async function startLocalDaemon(
               stdio: ["ignore", "pipe", "pipe"],
               env: daemonEnv,
             });
-            pipeToLogFile(c, daemonLogFd, "daemon");
+            pipeToLogFile(
+              c,
+              daemonLogFd,
+              "daemon",
+              makeDaemonOutputForwarder(),
+            );
             c.unref();
             return c;
           })();
