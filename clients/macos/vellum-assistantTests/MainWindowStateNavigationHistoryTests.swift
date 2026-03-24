@@ -78,6 +78,17 @@ final class MainWindowStateNavigationHistoryTests: XCTestCase {
         XCTAssertNil(state.selection)
     }
 
+    func testNavigatingToConversationClearsLastActivePanel() {
+        let state = MainWindowState()
+        // Show a panel so lastActivePanelString is set
+        state.showPanel(.settings)
+        // Navigate to a conversation
+        let convId = UUID()
+        state.selection = .conversation(convId)
+        // The persisted panel should be cleared so restart lands on chat
+        XCTAssertNil(UserDefaults.standard.string(forKey: "lastActivePanel"))
+    }
+
     func testCloseDynamicPanelClearsState() {
         let state = MainWindowState()
         state.selection = .app("myapp")

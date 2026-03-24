@@ -41,6 +41,9 @@ public final class MainWindowState: ObservableObject {
             if case .conversation(let id) = selection {
                 persistentConversationId = id
             }
+            // Clear persisted panel so app restart lands on the latest chat, not a stale panel.
+            if case .conversation = selection { lastActivePanelString = nil }
+            else if selection == nil { lastActivePanelString = nil }
             // Chat dock is only relevant inside app views. Clear it when
             // navigating away so other pages never show a stale split layout.
             switch selection {
