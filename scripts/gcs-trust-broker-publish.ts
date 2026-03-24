@@ -19,7 +19,7 @@
  *
  * Usage:
  *   bun scripts/gcs-trust-broker-publish.ts --version <semver>
- *   bun scripts/gcs-trust-broker-publish.ts --version <semver> --environment production
+ *   bun scripts/gcs-trust-broker-publish.ts --version <semver> --sha <commit-sha>
  *   bun scripts/gcs-trust-broker-publish.ts --version <semver> --skip-latest
  *   bun scripts/gcs-trust-broker-publish.ts --version <semver> --dry-run
  */
@@ -35,7 +35,7 @@ const { values } = parseArgs({
   args: process.argv.slice(2),
   options: {
     version: { type: "string" },
-    environment: { type: "string", default: "production" },
+    sha: { type: "string" },
     "skip-latest": { type: "boolean", default: false },
     "dry-run": { type: "boolean", default: false },
   },
@@ -43,14 +43,14 @@ const { values } = parseArgs({
 });
 
 const version = values.version;
-const environment = values.environment ?? "production";
+const explicitSha = values.sha;
 const skipLatest = values["skip-latest"] ?? false;
 const dryRun = values["dry-run"] ?? false;
 
 if (!version) {
   console.error("ERROR: --version is required");
   console.error(
-    "Usage: bun scripts/gcs-trust-broker-publish.ts --version <semver> [--environment production] [--skip-latest] [--dry-run]"
+    "Usage: bun scripts/gcs-trust-broker-publish.ts --version <semver> [--sha <commit-sha>] [--skip-latest] [--dry-run]"
   );
   process.exit(1);
 }
@@ -76,9 +76,7 @@ if (missing.length > 0) {
   console.error(
     `ERROR: Missing required environment variables: ${missing.join(", ")}`
   );
-  console.error(
-    "Set them in your shell or in scripts/.env before running this script."
-  );
+  console.error("Set them in your shell before running this script.");
   process.exit(1);
 }
 
@@ -101,11 +99,10 @@ function git(cmd: string): string {
 
 const ceImage = `${GCP_REGISTRY_HOST}/${GCP_PROJECT_ID}/${CREDENTIAL_EXECUTOR_IMAGE_NAME}`;
 const tbImage = `${GCP_REGISTRY_HOST}/${GCP_PROJECT_ID}/${TRUST_BROKER_IMAGE_NAME}`;
-const sha = git("rev-parse HEAD");
+const sha = explicitSha ?? git("rev-parse HEAD");
 
 console.log("==> Trust Broker GCR Publish");
 console.log(`    Version:      v${version}`);
-console.log(`    Environment:  ${environment}`);
 console.log(`    CE image:     ${ceImage}`);
 console.log(`    TB image:     ${tbImage}`);
 console.log(`    Commit SHA:   ${sha}`);
@@ -187,7 +184,6 @@ console.log("===========================================");
 console.log("  Trust Broker GCR Publish Summary");
 console.log("===========================================");
 console.log(`  Version:     v${version}`);
-console.log(`  Environment: ${environment}`);
 console.log(`  Source:      ${ceImage}:v${version}`);
 
 if (dryRun) {
