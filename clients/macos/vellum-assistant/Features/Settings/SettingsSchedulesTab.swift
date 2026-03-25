@@ -472,8 +472,13 @@ struct SettingsSchedulesTab: View {
                             .font(VFont.bodyMediumDefault)
                             .foregroundStyle(VColor.contentDefault)
                     }
+                    if let lastRun = config.lastRunAt, let formatted = formatEpochMs(lastRun) {
+                        Text("Last ran \(formatted)")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                    }
                     if let nextRun = config.nextRunAt, let formatted = formatEpochMs(nextRun) {
-                        Text("Next run: \(formatted)")
+                        Text("Next run \(formatted)")
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentTertiary)
                     }

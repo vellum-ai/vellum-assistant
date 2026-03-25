@@ -1875,16 +1875,18 @@ public struct HeartbeatConfigResponse: Codable, Sendable {
     public let activeHoursStart: Double?
     public let activeHoursEnd: Double?
     public let nextRunAt: Int?
+    public let lastRunAt: Int?
     public let success: Bool
     public let error: String?
 
-    public init(type: String, enabled: Bool, intervalMs: Double, activeHoursStart: Double?, activeHoursEnd: Double?, nextRunAt: Int?, success: Bool, error: String? = nil) {
+    public init(type: String, enabled: Bool, intervalMs: Double, activeHoursStart: Double?, activeHoursEnd: Double?, nextRunAt: Int?, lastRunAt: Int? = nil, success: Bool, error: String? = nil) {
         self.type = type
         self.enabled = enabled
         self.intervalMs = intervalMs
         self.activeHoursStart = activeHoursStart
         self.activeHoursEnd = activeHoursEnd
         self.nextRunAt = nextRunAt
+        self.lastRunAt = lastRunAt
         self.success = success
         self.error = error
     }

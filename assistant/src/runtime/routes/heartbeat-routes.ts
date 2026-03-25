@@ -23,19 +23,25 @@ const log = getLogger("heartbeat-routes");
 // Handlers
 // ---------------------------------------------------------------------------
 
-function handleGetConfig(): Response {
+function handleGetConfig(
+  heartbeatService?: HeartbeatService,
+): Response {
   const config = getConfig().heartbeat;
   return Response.json({
     enabled: config.enabled,
     intervalMs: config.intervalMs,
     activeHoursStart: config.activeHoursStart ?? null,
     activeHoursEnd: config.activeHoursEnd ?? null,
-    nextRunAt: null, // TODO: track next run time in HeartbeatService
+    nextRunAt: heartbeatService?.nextRunAt ?? null,
+    lastRunAt: heartbeatService?.lastRunAt ?? null,
     success: true,
   });
 }
 
-function handleUpdateConfig(body: Record<string, unknown>): Response {
+function handleUpdateConfig(
+  body: Record<string, unknown>,
+  heartbeatService?: HeartbeatService,
+): Response {
   const config = getConfig();
   const heartbeat = { ...config.heartbeat };
 
@@ -63,7 +69,8 @@ function handleUpdateConfig(body: Record<string, unknown>): Response {
     intervalMs: heartbeat.intervalMs,
     activeHoursStart: heartbeat.activeHoursStart ?? null,
     activeHoursEnd: heartbeat.activeHoursEnd ?? null,
-    nextRunAt: null,
+    nextRunAt: heartbeatService?.nextRunAt ?? null,
+    lastRunAt: heartbeatService?.lastRunAt ?? null,
     success: true,
   });
 }
@@ -147,7 +154,7 @@ export function heartbeatRouteDefinitions(deps: {
       endpoint: "heartbeat/config",
       method: "GET",
       policyKey: "heartbeat",
-      handler: () => handleGetConfig(),
+      handler: () => handleGetConfig(deps.getHeartbeatService?.()),
     },
     {
       endpoint: "heartbeat/config",
@@ -162,7 +169,10 @@ export function heartbeatRouteDefinitions(deps: {
             400,
           );
         }
-        return handleUpdateConfig(body as Record<string, unknown>);
+        return handleUpdateConfig(
+          body as Record<string, unknown>,
+          deps.getHeartbeatService?.(),
+        );
       },
     },
     {
