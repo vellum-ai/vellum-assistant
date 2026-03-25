@@ -13,16 +13,14 @@ import type {
   A2APairingFinalize,
 } from "../runtime/a2a/index.js";
 import {
-  handleInboundPairingRequest,
+  completePairingApproval,
   handlePairingAccepted,
   handlePairingFinalize,
   initiatePairing,
-  completePairingApproval,
 } from "../runtime/a2a/pairing.js";
 import {
   createPairingRequest,
   findPairingByInviteCode,
-  findPairingByRemoteAssistant,
   updatePairingStatus,
 } from "../runtime/a2a/pairing-store.js";
 import { interceptA2AEnvelope } from "../runtime/routes/inbound-stages/a2a-interceptor.js";
