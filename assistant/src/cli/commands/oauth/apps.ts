@@ -97,9 +97,15 @@ Examples:
     .description(
       "Look up an OAuth app by ID, provider + client-id, or provider",
     )
-    .option("--id <id>", "App ID (UUID)")
-    .option("--provider <key>", "Provider key (e.g. integration:google)")
-    .option("--client-id <id>", "OAuth client ID (requires --provider)")
+    .option("--id <id>", "App ID (UUID) from 'assistant oauth apps list'")
+    .option(
+      "--provider <key>",
+      "Provider key (e.g. integration:google) from 'assistant oauth providers list'",
+    )
+    .option(
+      "--client-id <id>",
+      "OAuth client ID (requires --provider). The client ID registered with the OAuth provider's developer console.",
+    )
     .addHelpText(
       "after",
       `
@@ -133,14 +139,23 @@ At least --id or --provider must be specified.`,
           } else {
             writeOutput(cmd, {
               ok: false,
-              error: "Provide --id, --provider, or --provider + --client-id",
+              error:
+                "Provide --id, --provider, or --provider + --client-id. Run 'assistant oauth apps list' to see all registered apps.",
             });
             process.exitCode = 1;
             return;
           }
 
           if (!row) {
-            writeOutput(cmd, { ok: false, error: "App not found" });
+            const lookup = opts.id
+              ? `id=${opts.id}`
+              : opts.provider && opts.clientId
+                ? `provider=${opts.provider}, clientId=${opts.clientId}`
+                : `provider=${opts.provider}`;
+            writeOutput(cmd, {
+              ok: false,
+              error: `No app found for ${lookup}. Run 'assistant oauth apps list' to see registered apps, or 'assistant oauth apps upsert --help' to register a new one.`,
+            });
             process.exitCode = 1;
             return;
           }
@@ -163,9 +178,12 @@ At least --id or --provider must be specified.`,
     .description("Create or return an existing OAuth app registration")
     .requiredOption(
       "--provider <key>",
-      "Provider key (e.g. integration:google)",
+      "Provider key (e.g. integration:google) from 'assistant oauth providers list'",
     )
-    .requiredOption("--client-id <id>", "OAuth client ID")
+    .requiredOption(
+      "--client-id <id>",
+      "OAuth client ID from the provider's developer console",
+    )
     .option(
       "--client-secret <secret>",
       "OAuth client secret (stored in credential store)",
@@ -293,7 +311,7 @@ Examples:
         if (!deleted) {
           writeOutput(cmd, {
             ok: false,
-            error: `App not found: ${id}`,
+            error: `App not found: ${id}. Run 'assistant oauth apps list' to see registered apps and their IDs.`,
           });
           process.exitCode = 1;
           return;
