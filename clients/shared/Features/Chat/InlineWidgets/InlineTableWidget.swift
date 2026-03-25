@@ -131,7 +131,7 @@ public struct InlineTableWidget: View {
             Text(value?.text ?? "")
                 .font(VFont.bodyMediumLighter)
                 .foregroundStyle(VColor.contentDefault)
-                .lineLimit(2)
+                .lineLimit(nil)
                 .textSelection(.enabled)
         }
         .columnFrame(width)
