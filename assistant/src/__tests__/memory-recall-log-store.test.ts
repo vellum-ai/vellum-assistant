@@ -98,26 +98,23 @@ describe("memory-recall-log-store", () => {
 
     const result = getMemoryRecallLogByMessageIds([messageId]);
     expect(result).not.toBeNull();
-    expect(result!.conversationId).toBe(conversationId);
-    expect(result!.messageId).toBe(messageId);
-    expect(result!.enabled).toBe(1);
-    expect(result!.degraded).toBe(0);
+    expect(result!.enabled).toBe(true);
+    expect(result!.degraded).toBe(false);
     expect(result!.provider).toBe("anthropic");
     expect(result!.model).toBe("claude-sonnet");
-    expect(result!.degradationJson).toEqual({ reason: "none" });
+    expect(result!.degradation).toEqual({ reason: "none" });
     expect(result!.semanticHits).toBe(5);
     expect(result!.mergedCount).toBe(3);
     expect(result!.selectedCount).toBe(2);
     expect(result!.tier1Count).toBe(1);
     expect(result!.tier2Count).toBe(1);
     expect(result!.hybridSearchLatencyMs).toBe(150);
-    expect(result!.sparseVectorUsed).toBe(1);
+    expect(result!.sparseVectorUsed).toBe(true);
     expect(result!.injectedTokens).toBe(500);
     expect(result!.latencyMs).toBe(200);
-    expect(result!.topCandidatesJson).toEqual([{ id: "c1", score: 0.9 }]);
+    expect(result!.topCandidates).toEqual([{ id: "c1", score: 0.9 }]);
     expect(result!.injectedText).toBe("some memory context");
     expect(result!.reason).toBe("user query matched memories");
-    expect(result!.createdAt).toBeGreaterThan(0);
   });
 
   test("returns null when no log exists for a messageId", () => {
@@ -175,13 +172,11 @@ describe("memory-recall-log-store", () => {
     // Verify first log still has msg-a
     const firstLog = getMemoryRecallLogByMessageIds(["msg-a"]);
     expect(firstLog).not.toBeNull();
-    expect(firstLog!.messageId).toBe("msg-a");
-    expect(firstLog!.degraded).toBe(0);
+    expect(firstLog!.degraded).toBe(false);
 
     // Verify second log has msg-b
     const secondLog = getMemoryRecallLogByMessageIds(["msg-b"]);
     expect(secondLog).not.toBeNull();
-    expect(secondLog!.messageId).toBe("msg-b");
-    expect(secondLog!.degraded).toBe(1);
+    expect(secondLog!.degraded).toBe(true);
   });
 });

@@ -72,33 +72,29 @@ export function backfillMemoryRecallLogMessageId(
     .run();
 }
 
-export interface MemoryRecallLogRow {
-  id: string;
-  conversationId: string;
-  messageId: string | null;
-  enabled: number;
-  degraded: number;
+export interface MemoryRecallLog {
+  enabled: boolean;
+  degraded: boolean;
   provider: string | null;
   model: string | null;
-  degradationJson: unknown | null;
+  degradation: unknown | null;
   semanticHits: number;
   mergedCount: number;
   selectedCount: number;
   tier1Count: number;
   tier2Count: number;
   hybridSearchLatencyMs: number;
-  sparseVectorUsed: number;
+  sparseVectorUsed: boolean;
   injectedTokens: number;
   latencyMs: number;
-  topCandidatesJson: unknown;
+  topCandidates: unknown;
   injectedText: string | null;
   reason: string | null;
-  createdAt: number;
 }
 
 export function getMemoryRecallLogByMessageIds(
   messageIds: string[],
-): MemoryRecallLogRow | null {
+): MemoryRecallLog | null {
   if (messageIds.length === 0) return null;
   const db = getDb();
   const rows = db
@@ -109,10 +105,24 @@ export function getMemoryRecallLogByMessageIds(
   if (rows.length === 0) return null;
   const row = rows[0]!;
   return {
-    ...row,
-    degradationJson: row.degradationJson
+    enabled: !!row.enabled,
+    degraded: !!row.degraded,
+    provider: row.provider,
+    model: row.model,
+    degradation: row.degradationJson
       ? JSON.parse(row.degradationJson)
       : null,
-    topCandidatesJson: JSON.parse(row.topCandidatesJson),
+    semanticHits: row.semanticHits,
+    mergedCount: row.mergedCount,
+    selectedCount: row.selectedCount,
+    tier1Count: row.tier1Count,
+    tier2Count: row.tier2Count,
+    hybridSearchLatencyMs: row.hybridSearchLatencyMs,
+    sparseVectorUsed: !!row.sparseVectorUsed,
+    injectedTokens: row.injectedTokens,
+    latencyMs: row.latencyMs,
+    topCandidates: JSON.parse(row.topCandidatesJson),
+    injectedText: row.injectedText,
+    reason: row.reason,
   };
 }
