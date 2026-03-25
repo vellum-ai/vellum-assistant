@@ -10,6 +10,7 @@ import {
   gte,
   inArray,
   isNull,
+  lt,
   lte,
   sql,
 } from "drizzle-orm";
@@ -1110,6 +1111,77 @@ export function getMessages(conversationId: string): MessageRow[] {
     .orderBy(asc(messages.createdAt))
     .all()
     .map(parseMessage);
+}
+
+export interface PaginatedMessagesResult {
+  messages: MessageRow[];
+  hasMore: boolean;
+}
+
+export function getMessagesPaginated(
+  conversationId: string,
+  limit: number | undefined,
+  beforeTimestamp?: number,
+): PaginatedMessagesResult {
+  const db = getDb();
+
+  if (limit === undefined) {
+    const conditions = [eq(messages.conversationId, conversationId)];
+    if (beforeTimestamp !== undefined) {
+      conditions.push(lt(messages.createdAt, beforeTimestamp));
+    }
+    const rows = db
+      .select()
+      .from(messages)
+      .where(and(...conditions))
+      .orderBy(asc(messages.createdAt))
+      .all()
+      .map(parseMessage);
+    return { messages: rows, hasMore: false };
+  }
+
+  const conditions = [eq(messages.conversationId, conversationId)];
+  if (beforeTimestamp !== undefined) {
+    conditions.push(lt(messages.createdAt, beforeTimestamp));
+  }
+
+  const rows = db
+    .select()
+    .from(messages)
+    .where(and(...conditions))
+    .orderBy(desc(messages.createdAt))
+    .limit(limit + 1)
+    .all()
+    .map(parseMessage);
+
+  const hasMore = rows.length > limit;
+  if (hasMore) {
+    rows.splice(limit);
+  }
+  rows.reverse();
+
+  return { messages: rows, hasMore };
+}
+
+export function getLastAssistantTimestampBefore(
+  conversationId: string,
+  beforeTimestamp: number,
+): number {
+  const db = getDb();
+  const row = db
+    .select({ createdAt: messages.createdAt })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.role, "assistant"),
+        lt(messages.createdAt, beforeTimestamp),
+      ),
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1)
+    .get();
+  return row?.createdAt ?? 0;
 }
 
 /** Fetch a single message by ID, optionally scoped to a specific conversation. */

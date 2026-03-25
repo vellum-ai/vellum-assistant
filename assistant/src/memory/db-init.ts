@@ -89,6 +89,7 @@ import {
   migrateLlmRequestLogMessageId,
   migrateLlmRequestLogProvider,
   migrateMemoryItemSupersession,
+  migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
@@ -519,6 +520,9 @@ export function initializeDb(): void {
 
   // 93. Strip `integration:` prefix from provider_key across OAuth tables
   migrateStripIntegrationPrefixFromProviderKeys(database);
+
+  // 94. Composite index on messages(conversation_id, created_at) for paginated history queries
+  migrateMessagesConversationCreatedAtIndex(database);
 
   validateMigrationState(database);
 

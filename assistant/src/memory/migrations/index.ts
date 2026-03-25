@@ -134,6 +134,7 @@ export { migrateContactsUserFileColumn } from "./192-contacts-user-file-column.j
 export { migrateAddSourceTypeColumns } from "./193-add-source-type-columns.js";
 export { migrateCreateMemoryRecallLogs } from "./194-memory-recall-logs.js";
 export { migrateOAuthProvidersPingConfig } from "./195-oauth-providers-ping-config.js";
+export { migrateMessagesConversationCreatedAtIndex } from "./196-messages-conversation-created-at-index.js";
 export { migrateStripIntegrationPrefixFromProviderKeys } from "./196-strip-integration-prefix-from-provider-keys.js";
 export {
   MIGRATION_REGISTRY,
