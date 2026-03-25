@@ -74,6 +74,23 @@ export class HeartbeatService {
     this.start();
   }
 
+  /**
+   * Reset the heartbeat timer so the next run is a full interval from now.
+   * Called when the guardian sends a message — no need for a heartbeat shortly
+   * after an active conversation.
+   */
+  resetTimer(): void {
+    if (!this.timer) return;
+    const config = getConfig().heartbeat;
+    clearInterval(this.timer);
+    this.scheduleNextRun(config.intervalMs);
+    this.timer = setInterval(() => {
+      this.runOnce().catch((err) => {
+        log.error({ err }, "Heartbeat runOnce failed");
+      });
+    }, config.intervalMs);
+  }
+
   async stop(): Promise<void> {
     if (this.timer) {
       clearInterval(this.timer);
