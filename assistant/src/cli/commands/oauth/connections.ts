@@ -184,14 +184,17 @@ Examples:
   connections
     .command("get")
     .description("Look up an OAuth connection by ID or provider")
-    .option("--id <id>", "Connection ID (UUID)")
+    .option(
+      "--id <id>",
+      "Connection ID (UUID) from 'assistant oauth connections list' or 'assistant oauth status <provider>'",
+    )
     .option(
       "--provider <key>",
-      "Provider key (returns most recent active connection)",
+      "Provider key (e.g. integration:google) from 'assistant oauth providers list'. Returns most recent active connection.",
     )
     .option(
       "--client-id <id>",
-      "Filter by OAuth client ID (used with --provider)",
+      "Filter by OAuth client ID (used with --provider). Find IDs via 'assistant oauth apps list'.",
     )
     .addHelpText(
       "after",
@@ -222,14 +225,21 @@ At least --id or --provider must be specified.`,
           } else {
             writeOutput(cmd, {
               ok: false,
-              error: "Provide --id or --provider",
+              error:
+                "Provide --id or --provider. Run 'assistant oauth connections list' to see all connections, or 'assistant oauth status <provider>' to find connection IDs for a specific provider.",
             });
             process.exitCode = 1;
             return;
           }
 
           if (!row) {
-            writeOutput(cmd, { ok: false, error: "Connection not found" });
+            const source = opts.id
+              ? `--id ${opts.id}`
+              : `--provider ${opts.provider}`;
+            writeOutput(cmd, {
+              ok: false,
+              error: `No connection found for ${source}. Run 'assistant oauth connections list' to see all connections, or 'assistant oauth connect <provider>' to create a new connection.`,
+            });
             process.exitCode = 1;
             return;
           }
