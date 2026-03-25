@@ -121,6 +121,37 @@ export const llmRequestLogs = sqliteTable(
   (table) => [index("idx_llm_request_logs_message_id").on(table.messageId)],
 );
 
+export const memoryRecallLogs = sqliteTable(
+  "memory_recall_logs",
+  {
+    id: text("id").primaryKey(),
+    conversationId: text("conversation_id").notNull(),
+    messageId: text("message_id"),
+    enabled: integer("enabled").notNull(),
+    degraded: integer("degraded").notNull(),
+    provider: text("provider"),
+    model: text("model"),
+    degradationJson: text("degradation_json"),
+    semanticHits: integer("semantic_hits").notNull(),
+    mergedCount: integer("merged_count").notNull(),
+    selectedCount: integer("selected_count").notNull(),
+    tier1Count: integer("tier1_count").notNull(),
+    tier2Count: integer("tier2_count").notNull(),
+    hybridSearchLatencyMs: integer("hybrid_search_latency_ms").notNull(),
+    sparseVectorUsed: integer("sparse_vector_used").notNull(),
+    injectedTokens: integer("injected_tokens").notNull(),
+    latencyMs: integer("latency_ms").notNull(),
+    topCandidatesJson: text("top_candidates_json").notNull(),
+    injectedText: text("injected_text"),
+    reason: text("reason"),
+    createdAt: integer("created_at").notNull(),
+  },
+  (table) => [
+    index("idx_memory_recall_logs_message_id").on(table.messageId),
+    index("idx_memory_recall_logs_conversation_id").on(table.conversationId),
+  ],
+);
+
 export const llmUsageEvents = sqliteTable(
   "llm_usage_events",
   {
