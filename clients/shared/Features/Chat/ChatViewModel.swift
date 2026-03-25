@@ -2635,12 +2635,14 @@ public final class ChatViewModel: ObservableObject {
 
     /// Respond to a tool confirmation request displayed inline in the chat.
     public func respondToConfirmation(requestId: String, decision: String) {
+        log.info("[confirm-flow] respondToConfirmation called: requestId=\(requestId, privacy: .public) decision=\(decision, privacy: .public)")
         markConfirmationInFlight(requestId: requestId, decision: decision)
         Task {
             let success = await performConfirmationResponse(
                 requestId: requestId, decision: decision, selectedPattern: nil, selectedScope: nil
             )
             if !success {
+                log.error("[confirm-flow] respondToConfirmation POST failed (will show error banner): requestId=\(requestId, privacy: .public) decision=\(decision, privacy: .public)")
                 self.revertConfirmationInFlight(requestId: requestId)
                 self.errorText = "Failed to send confirmation response."
             }

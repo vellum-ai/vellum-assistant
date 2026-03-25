@@ -133,6 +133,7 @@ extension AppDelegate {
                 } else {
                     log.error("Failed to auto-approve confirmation")
                 }
+                log.info("[confirm-flow] CU auto-approved requestId=\(msg.requestId, privacy: .public) tool=\(msg.toolName, privacy: .public)")
                 return
             }
 
@@ -140,11 +141,14 @@ extension AppDelegate {
                 let activeSessionId = mainWindow.conversationManager.activeViewModel?.conversationId
                 let confirmationIsForActiveConversation = msg.conversationId == nil || msg.conversationId == activeSessionId
                 if confirmationIsForActiveConversation {
+                    log.info("[confirm-flow] Skipping notification (app active, inline handles): requestId=\(msg.requestId, privacy: .public) tool=\(msg.toolName, privacy: .public) appActive=\(NSApp.isActive) windowVisible=\(mainWindow.isVisible)")
                     return
                 }
             }
 
+            log.info("[confirm-flow] Posting macOS notification: requestId=\(msg.requestId, privacy: .public) tool=\(msg.toolName, privacy: .public)")
             let decision = await self.toolConfirmationNotificationService.showConfirmation(msg)
+            log.info("[confirm-flow] Notification path resolved: requestId=\(msg.requestId, privacy: .public) decision=\(decision, privacy: .public) isSentinel=\(decision == ToolConfirmationNotificationService.inlineHandledSentinel)")
             guard decision != ToolConfirmationNotificationService.inlineHandledSentinel else {
                 return
             }
@@ -158,7 +162,7 @@ extension AppDelegate {
                     decision: decision
                 )
             } else {
-                log.error("Failed to send confirmation response")
+                log.error("[confirm-flow] Notification-path POST failed: requestId=\(msg.requestId, privacy: .public) decision=\(decision, privacy: .public)")
             }
         }
     }
