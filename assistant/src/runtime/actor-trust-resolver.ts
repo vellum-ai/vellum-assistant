@@ -316,5 +316,10 @@ export function toTrustContext(
     requesterMemberDisplayName: ctx.actorMetadata.memberDisplayName,
     requesterExternalUserId: ctx.canonicalSenderId ?? undefined,
     requesterChatId: conversationExternalId,
+    actorKind: ctx.memberRecord
+      ? ctx.memberRecord.contact.contactType === "assistant"
+        ? "assistant"
+        : "human"
+      : undefined,
   };
 }
