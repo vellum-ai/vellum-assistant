@@ -14,7 +14,7 @@ import {
 } from "../../../oauth/oauth-store.js";
 import { VellumPlatformClient } from "../../../platform/client.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
-import { isManagedMode, resolveService, toBareProvider } from "./shared.js";
+import { isManagedMode, resolveService } from "./shared.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -233,7 +233,7 @@ Examples:
               const client = await VellumPlatformClient.create();
               if (client && client.platformAssistantId) {
                 const params = new URLSearchParams();
-                params.set("provider", toBareProvider(providerKey));
+                params.set("provider", providerKey);
                 params.set("status", "ACTIVE");
                 params.set("account_identifier", opts.account);
 
