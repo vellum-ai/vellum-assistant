@@ -13,7 +13,6 @@ import {
   fetchActiveConnections,
   isManagedMode,
   requirePlatformClient,
-  resolveService,
 } from "./shared.js";
 
 const log = getCliLogger("cli");
@@ -81,11 +80,9 @@ Examples:
 
         try {
           // -------------------------------------------------------------------
-          // 1. Resolve + validate provider
+          // 1. Validate provider
           // -------------------------------------------------------------------
-          const providerKey = resolveService(provider);
-
-          const providerRow = getProvider(providerKey);
+          const providerRow = getProvider(provider);
           if (!providerRow) {
             writeError(
               `Unknown provider "${provider}".\n\n` +
@@ -109,7 +106,7 @@ Examples:
           // -------------------------------------------------------------------
           // 3. Detect mode
           // -------------------------------------------------------------------
-          const managed = isManagedMode(providerKey);
+          const managed = isManagedMode(provider);
 
           if (managed) {
             // -----------------------------------------------------------------
@@ -120,7 +117,7 @@ Examples:
 
             const entries = await fetchActiveConnections(
               client,
-              providerKey,
+              provider,
               cmd,
             );
             if (!entries) return;
@@ -135,7 +132,7 @@ Examples:
               );
               if (matching.length === 0) {
                 writeError(
-                  `No active connection found for "${providerKey}" with account "${opts.account}".\n\n` +
+                  `No active connection found for "${provider}" with account "${opts.account}".\n\n` +
                     `Run 'assistant oauth status ${provider}' to see connected accounts.`,
                 );
                 return;
@@ -147,7 +144,7 @@ Examples:
               const match = entries.find((c) => c.id === opts.connectionId);
               if (!match) {
                 writeError(
-                  `Connection "${opts.connectionId}" is not an active ${providerKey} connection.\n\n` +
+                  `Connection "${opts.connectionId}" is not an active ${provider} connection.\n\n` +
                     `Run 'assistant oauth status ${provider}' to see active connections.`,
                 );
                 return;
@@ -158,7 +155,7 @@ Examples:
               // Neither specified — auto-resolve
               if (entries.length === 0) {
                 writeError(
-                  `No active connections found for "${providerKey}".\n\n` +
+                  `No active connections found for "${provider}".\n\n` +
                     `Run 'assistant oauth status ${provider}' to check connection status.`,
                 );
                 return;
@@ -170,7 +167,7 @@ Examples:
                   account: c.account_label ?? null,
                 }));
                 writeError(
-                  `Multiple active connections for "${providerKey}". ` +
+                  `Multiple active connections for "${provider}". ` +
                     `Specify which one to disconnect with --account or --connection-id.\n\n` +
                     `Run 'assistant oauth status ${provider}' to see connected accounts and IDs.`,
                   { connections: connectionList },
@@ -199,7 +196,7 @@ Examples:
 
             const result: Record<string, unknown> = {
               ok: true,
-              provider: providerKey,
+              provider: provider,
               connectionId,
             };
             if (accountLabel) result.account = accountLabel;
@@ -207,7 +204,7 @@ Examples:
 
             if (!jsonMode) {
               log.info(
-                `Disconnected ${providerKey} connection ${connectionId}`,
+                `Disconnected ${provider} connection ${connectionId}`,
               );
             }
           } else {
@@ -218,12 +215,12 @@ Examples:
             let accountLabel: string | undefined;
 
             if (opts.account) {
-              const conn = getActiveConnection(providerKey, {
+              const conn = getActiveConnection(provider, {
                 account: opts.account,
               });
               if (!conn) {
                 writeError(
-                  `No active connection found for "${providerKey}" with account "${opts.account}".\n\n` +
+                  `No active connection found for "${provider}" with account "${opts.account}".\n\n` +
                     `Run 'assistant oauth status ${provider}' to see connected accounts.`,
                 );
                 return;
@@ -232,9 +229,9 @@ Examples:
               accountLabel = conn.accountInfo ?? undefined;
             } else if (opts.connectionId) {
               const conn = getConnection(opts.connectionId);
-              if (!conn || conn.providerKey !== providerKey) {
+              if (!conn || conn.providerKey !== provider) {
                 writeError(
-                  `Connection "${opts.connectionId}" is not an active ${providerKey} connection.\n\n` +
+                  `Connection "${opts.connectionId}" is not an active ${provider} connection.\n\n` +
                     `Run 'assistant oauth status ${provider}' to see active connections.`,
                 );
                 return;
@@ -243,11 +240,11 @@ Examples:
               accountLabel = conn.accountInfo ?? undefined;
             } else {
               // Neither specified — auto-resolve
-              const active = listActiveConnectionsByProvider(providerKey);
+              const active = listActiveConnectionsByProvider(provider);
 
               if (active.length === 0) {
                 writeError(
-                  `No active connections found for "${providerKey}".\n\n` +
+                  `No active connections found for "${provider}".\n\n` +
                     `Run 'assistant oauth status ${provider}' to check connection status.`,
                 );
                 return;
@@ -259,7 +256,7 @@ Examples:
                   account: c.accountInfo ?? null,
                 }));
                 writeError(
-                  `Multiple active connections for "${providerKey}". ` +
+                  `Multiple active connections for "${provider}". ` +
                     `Specify which one to disconnect with --account or --connection-id.\n\n` +
                     `Run 'assistant oauth status ${provider}' to see connected accounts and IDs.`,
                   { connections: connectionList },
@@ -273,20 +270,20 @@ Examples:
 
             // Disconnect the OAuth connection (tokens + connection row)
             const oauthResult = await disconnectOAuthProvider(
-              providerKey,
+              provider,
               undefined,
               connectionId,
             );
             if (oauthResult === "error") {
               writeError(
-                `Failed to disconnect OAuth provider "${providerKey}" — please try again.`,
+                `Failed to disconnect OAuth provider "${provider}" — please try again.`,
               );
               return;
             }
 
             const result: Record<string, unknown> = {
               ok: true,
-              provider: providerKey,
+              provider: provider,
               connectionId,
             };
             if (accountLabel) result.account = accountLabel;
@@ -294,7 +291,7 @@ Examples:
 
             if (!jsonMode) {
               log.info(
-                `Disconnected ${providerKey} connection ${connectionId}`,
+                `Disconnected ${provider} connection ${connectionId}`,
               );
             }
           }

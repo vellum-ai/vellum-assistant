@@ -7,7 +7,6 @@ import {
 import { getProvider } from "../../../oauth/oauth-store.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
-import { resolveService } from "./shared.js";
 
 const log = getCliLogger("cli");
 
@@ -55,19 +54,14 @@ Examples:
 
         try {
           // -----------------------------------------------------------------
-          // 1. Resolve provider key
+          // 1. Validate provider exists
           // -----------------------------------------------------------------
-          const providerKey = resolveService(provider);
-
-          // -----------------------------------------------------------------
-          // 2. Validate provider exists
-          // -----------------------------------------------------------------
-          const providerRow = getProvider(providerKey);
+          const providerRow = getProvider(provider);
           if (!providerRow) {
             writeOutput(cmd, {
               ok: false,
               error:
-                `Unknown provider "${providerKey}". ` +
+                `Unknown provider "${provider}". ` +
                 `Run 'assistant oauth providers list' to see available providers.`,
             });
             process.exitCode = 1;
@@ -81,7 +75,7 @@ Examples:
             writeOutput(cmd, {
               ok: false,
               error:
-                `No ping URL configured for "${providerKey}". ` +
+                `No ping URL configured for "${provider}". ` +
                 `Register one with 'assistant oauth providers register --ping-url <url>'.`,
             });
             process.exitCode = 1;
@@ -113,7 +107,7 @@ Examples:
           let connection;
           try {
             connection = await resolveOAuthConnection(
-              providerKey,
+              provider,
               resolveOptions,
             );
           } catch (resolveErr) {
@@ -126,7 +120,7 @@ Examples:
               ok: false,
               error: resolveMessage,
               hint:
-                `Run 'assistant oauth status ${providerKey}' to check connection health. ` +
+                `Run 'assistant oauth status ${provider}' to check connection health. ` +
                 `To reconnect, run 'assistant oauth connect --help'.`,
             });
             process.exitCode = 1;
@@ -165,25 +159,25 @@ Examples:
           if (response.status >= 200 && response.status < 300) {
             // Success
             if (!jsonMode) {
-              log.info(`${providerKey}: OK (HTTP ${response.status})`);
+              log.info(`${provider}: OK (HTTP ${response.status})`);
             }
             writeOutput(cmd, {
               ok: true,
-              provider: providerKey,
+              provider: provider,
               status: response.status,
             });
           } else {
             // Non-2xx failure
             const payload: Record<string, unknown> = {
               ok: false,
-              provider: providerKey,
+              provider: provider,
               status: response.status,
               error: `Ping failed with HTTP ${response.status}`,
             };
 
             if (response.status === 401 || response.status === 403) {
               payload.hint =
-                `Run 'assistant oauth status ${providerKey}' to check connection health. ` +
+                `Run 'assistant oauth status ${provider}' to check connection health. ` +
                 `To reconnect, run 'assistant oauth connect --help'.`;
             }
 
@@ -194,19 +188,11 @@ Examples:
           // Network failure or other unexpected error
           const message = err instanceof Error ? err.message : String(err);
 
-          // Try to extract providerKey for recovery hints
-          let providerKey: string;
-          try {
-            providerKey = resolveService(provider);
-          } catch {
-            providerKey = provider;
-          }
-
           writeOutput(cmd, {
             ok: false,
             error: message,
             hint:
-              `Run 'assistant oauth status ${providerKey}' to check connection health. ` +
+              `Run 'assistant oauth status ${provider}' to check connection health. ` +
               `To reconnect, run 'assistant oauth connect --help'.`,
           });
           process.exitCode = 1;

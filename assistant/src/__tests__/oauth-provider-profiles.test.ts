@@ -1,16 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  getProviderBehavior,
-  resolveService,
-} from "../oauth/provider-behaviors.js";
+import { getProviderBehavior } from "../oauth/provider-behaviors.js";
 
 describe("oauth provider behaviors", () => {
-  test("gmail behavior defines bearer injection templates for Google API hosts", () => {
-    const service = resolveService("gmail");
-    const behavior = getProviderBehavior(service);
+  test("google behavior defines bearer injection templates for Google API hosts", () => {
+    const behavior = getProviderBehavior("google");
 
-    expect(service).toBe("google");
     expect(behavior).toBeDefined();
     expect(behavior?.injectionTemplates).toBeDefined();
     expect(behavior?.injectionTemplates).toHaveLength(3);

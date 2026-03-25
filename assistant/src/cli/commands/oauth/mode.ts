@@ -17,7 +17,6 @@ import { shouldOutputJson, writeOutput } from "../../output.js";
 import {
   fetchActiveConnections,
   getManagedServiceConfigKey,
-  resolveService,
 } from "./shared.js";
 
 /**
@@ -29,13 +28,13 @@ import {
  * command output or set a non-zero exit code.
  */
 async function countManagedConnections(
-  providerKey: string,
+  provider: string,
   cmd: Command,
 ): Promise<number> {
   try {
     const client = await VellumPlatformClient.create();
     if (!client || !client.platformAssistantId) return 0;
-    const entries = await fetchActiveConnections(client, providerKey, cmd, {
+    const entries = await fetchActiveConnections(client, provider, cmd, {
       silent: true,
     });
     return entries?.length ?? 0;
@@ -85,10 +84,9 @@ Examples:
     .action(async (provider: string, opts: { set?: string }, cmd: Command) => {
       try {
         // -----------------------------------------------------------------
-        // Resolve + validate provider
+        // Validate provider
         // -----------------------------------------------------------------
-        const providerKey = resolveService(provider);
-        const providerRow = getProvider(providerKey);
+        const providerRow = getProvider(provider);
 
         if (!providerRow) {
           writeOutput(cmd, {
@@ -101,7 +99,7 @@ Examples:
           return;
         }
 
-        const managedKey = getManagedServiceConfigKey(providerKey);
+        const managedKey = getManagedServiceConfigKey(provider);
 
         // -----------------------------------------------------------------
         // GET mode (no --set flag)
@@ -112,13 +110,13 @@ Examples:
             if (shouldOutputJson(cmd)) {
               writeOutput(cmd, {
                 ok: true,
-                provider: providerKey,
+                provider: provider,
                 mode: "your-own",
                 managedModeSupported: false,
               });
             } else {
               log.info(
-                `${providerKey} mode: your-own (managed mode not available for this provider)`,
+                `${provider} mode: your-own (managed mode not available for this provider)`,
               );
             }
             return;
@@ -131,12 +129,12 @@ Examples:
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, {
               ok: true,
-              provider: providerKey,
+              provider: provider,
               mode: currentMode,
               managedModeSupported: true,
             });
           } else {
-            log.info(`${providerKey} mode: ${currentMode}`);
+            log.info(`${provider} mode: ${currentMode}`);
           }
           return;
         }
@@ -163,14 +161,14 @@ Examples:
             if (shouldOutputJson(cmd)) {
               writeOutput(cmd, {
                 ok: true,
-                provider: providerKey,
+                provider: provider,
                 mode: "your-own",
                 changed: false,
                 managedModeSupported: false,
               });
             } else {
               log.info(
-                `${providerKey} is already set to your-own (managed mode not available for this provider)`,
+                `${provider} is already set to your-own (managed mode not available for this provider)`,
               );
             }
             return;
@@ -180,7 +178,7 @@ Examples:
           writeOutput(cmd, {
             ok: false,
             error:
-              `Managed mode is not available for ${providerKey}. ` +
+              `Managed mode is not available for ${provider}. ` +
               `Only providers with platform-managed OAuth support can be switched to managed mode.`,
           });
           process.exitCode = 1;
@@ -196,13 +194,13 @@ Examples:
           if (shouldOutputJson(cmd)) {
             writeOutput(cmd, {
               ok: true,
-              provider: providerKey,
+              provider: provider,
               mode: newMode,
               changed: false,
               managedModeSupported: true,
             });
           } else {
-            log.info(`${providerKey} is already set to ${newMode}`);
+            log.info(`${provider} is already set to ${newMode}`);
           }
           return;
         }
@@ -217,28 +215,28 @@ Examples:
         let newModeConnections = 0;
         if (currentMode === "managed") {
           // Old mode was managed — check platform connections
-          oldModeConnections = await countManagedConnections(providerKey, cmd);
+          oldModeConnections = await countManagedConnections(provider, cmd);
           // New mode is your-own — check local connections
           newModeConnections =
-            listActiveConnectionsByProvider(providerKey).length;
+            listActiveConnectionsByProvider(provider).length;
         } else {
           // Old mode was your-own — check local connections
           oldModeConnections =
-            listActiveConnectionsByProvider(providerKey).length;
+            listActiveConnectionsByProvider(provider).length;
           // New mode is managed — check platform connections
-          newModeConnections = await countManagedConnections(providerKey, cmd);
+          newModeConnections = await countManagedConnections(provider, cmd);
         }
 
         // Build hint if there are connections on the old mode but none on the new
         let hint: string | undefined;
         if (oldModeConnections > 0 && newModeConnections === 0) {
-          hint = `No active connections in ${newMode} mode. Run 'assistant oauth connect ${providerKey}' to connect.`;
+          hint = `No active connections in ${newMode} mode. Run 'assistant oauth connect ${provider}' to connect.`;
         }
 
         if (shouldOutputJson(cmd)) {
           const result: Record<string, unknown> = {
             ok: true,
-            provider: providerKey,
+            provider: provider,
             mode: newMode,
             changed: true,
             managedModeSupported: true,
@@ -246,7 +244,7 @@ Examples:
           if (hint) result.hint = hint;
           writeOutput(cmd, result);
         } else {
-          log.info(`${providerKey} mode changed to ${newMode}`);
+          log.info(`${provider} mode changed to ${newMode}`);
           if (hint) {
             process.stderr.write(hint + "\n");
           }

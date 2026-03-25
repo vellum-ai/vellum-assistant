@@ -3,7 +3,7 @@ import type { Command } from "commander";
 import { getActiveConnection } from "../../../oauth/oauth-store.js";
 import { withValidToken } from "../../../security/token-manager.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
-import { isManagedMode, resolveService } from "./shared.js";
+import { isManagedMode } from "./shared.js";
 
 // ---------------------------------------------------------------------------
 // CES shell lockdown guard
@@ -85,20 +85,15 @@ Examples:
       ) => {
         try {
           // ---------------------------------------------------------------
-          // 1. Resolve provider key
+          // 1. Check managed mode
           // ---------------------------------------------------------------
-          const providerKey = resolveService(provider);
-
-          // ---------------------------------------------------------------
-          // 2. Check managed mode
-          // ---------------------------------------------------------------
-          if (isManagedMode(providerKey)) {
+          if (isManagedMode(provider)) {
             const message =
               "Token retrieval is not supported for platform-managed providers. " +
               "When a provider is in managed mode, Vellum handles OAuth tokens on your behalf — " +
               "they are not exposed directly.\n\n" +
-              `To verify your connection is working, run 'assistant oauth ping ${providerKey}'.\n` +
-              `To make authenticated requests, use 'assistant oauth request --provider ${providerKey} <url>'.`;
+              `To verify your connection is working, run 'assistant oauth ping ${provider}'.\n` +
+              `To make authenticated requests, use 'assistant oauth request --provider ${provider} <url>'.`;
             writeOutput(cmd, { ok: false, error: message });
             process.exitCode = 1;
             return;
@@ -123,7 +118,7 @@ Examples:
           let tokenOpts: string | { connectionId: string } | undefined;
 
           if (opts.account || opts.clientId) {
-            const conn = getActiveConnection(providerKey, {
+            const conn = getActiveConnection(provider, {
               clientId: opts.clientId,
               account: opts.account,
             });
@@ -134,8 +129,8 @@ Examples:
                   ? ` with client ID "${opts.clientId}"`
                   : "";
               const message =
-                `No active connection found for "${providerKey}"${hint}. ` +
-                `Connect first with 'assistant oauth connect ${providerKey}'.`;
+                `No active connection found for "${provider}"${hint}. ` +
+                `Connect first with 'assistant oauth connect ${provider}'.`;
               writeOutput(cmd, { ok: false, error: message });
               process.exitCode = 1;
               return;
@@ -144,7 +139,7 @@ Examples:
           }
 
           const token = await withValidToken(
-            providerKey,
+            provider,
             async (t) => t,
             tokenOpts,
           );

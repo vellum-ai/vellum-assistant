@@ -6,15 +6,8 @@ import {
   ServicesSchema,
 } from "../../../config/schemas/services.js";
 import { getProvider } from "../../../oauth/oauth-store.js";
-import { resolveService } from "../../../oauth/provider-behaviors.js";
 import { VellumPlatformClient } from "../../../platform/client.js";
 import { writeOutput } from "../../output.js";
-
-// ---------------------------------------------------------------------------
-// Re-exports
-// ---------------------------------------------------------------------------
-
-export { resolveService };
 
 // ---------------------------------------------------------------------------
 // Shared types
