@@ -1176,6 +1176,7 @@ export class RuntimeHttpServer {
         approvalConversationGenerator: this.approvalConversationGenerator,
         suggestionCache: this.suggestionCache,
         suggestionInFlight: this.suggestionInFlight,
+        getHeartbeatService: this.getHeartbeatService,
       }),
       ...globalSearchRouteDefinitions(),
       ...approvalRouteDefinitions(),
@@ -1238,6 +1239,7 @@ export class RuntimeHttpServer {
         guardianActionCopyGenerator: this.guardianActionCopyGenerator,
         guardianFollowUpConversationGenerator:
           this.guardianFollowUpConversationGenerator,
+        getHeartbeatService: this.getHeartbeatService,
       }),
       ...callRouteDefinitions({ assistantId }),
 

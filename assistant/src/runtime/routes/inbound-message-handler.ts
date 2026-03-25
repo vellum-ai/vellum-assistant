@@ -5,6 +5,7 @@
  * invite token redemption.
  */
 import { getChannelPermissionProfile } from "../../channels/permission-profiles.js";
+import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -58,6 +59,7 @@ export async function handleChannelInbound(
   approvalConversationGenerator?: ApprovalConversationGenerator,
   _guardianActionCopyGenerator?: GuardianActionCopyGenerator,
   _guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator,
+  heartbeatService?: HeartbeatService,
 ): Promise<Response> {
   // Gateway-origin proof is enforced by route-policy middleware (svc_gateway
   // principal type required) before this handler runs. The exchange JWT
@@ -671,6 +673,12 @@ export async function handleChannelInbound(
         "Channel message blocked at ingress: contains secrets",
       );
     } else {
+      // Guardian messages reset the heartbeat timer so the next heartbeat
+      // fires a full interval after this interaction.
+      if (trustCtx.trustClass === "guardian") {
+        heartbeatService?.resetTimer();
+      }
+
       // Fire-and-forget: process the message and deliver the reply in the background.
       // The HTTP response returns immediately so the gateway webhook is not blocked.
       // The onEvent callback in processMessage registers pending interactions, and

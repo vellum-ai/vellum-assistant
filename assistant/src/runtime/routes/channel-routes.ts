@@ -8,6 +8,7 @@
  * - channel-guardian-routes.ts — guardian approval interception, expiry sweep
  */
 
+import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { RouteDefinition } from "../http-router.js";
 import type {
   ApprovalConversationGenerator,
@@ -53,6 +54,7 @@ export function channelRouteDefinitions(deps: {
   approvalConversationGenerator?: ApprovalConversationGenerator;
   guardianActionCopyGenerator?: GuardianActionCopyGenerator;
   guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
+  getHeartbeatService?: () => HeartbeatService | undefined;
 }): RouteDefinition[] {
   return [
     {
@@ -73,6 +75,7 @@ export function channelRouteDefinitions(deps: {
           deps.approvalConversationGenerator,
           deps.guardianActionCopyGenerator,
           deps.guardianFollowUpConversationGenerator,
+          deps.getHeartbeatService?.(),
         ),
     },
     {

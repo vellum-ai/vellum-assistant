@@ -55,6 +55,7 @@ import {
   getOrCreateConversation,
 } from "../../memory/conversation-key-store.js";
 import { searchConversations } from "../../memory/conversation-queries.js";
+import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
@@ -628,6 +629,7 @@ export async function handleSendMessage(
   deps: {
     sendMessageDeps?: SendMessageDeps;
     approvalConversationGenerator?: ApprovalConversationGenerator;
+    heartbeatService?: HeartbeatService;
   },
   authContext: AuthContext,
 ): Promise<Response> {
@@ -730,6 +732,10 @@ export async function handleSendMessage(
       503,
     );
   }
+
+  // Desktop messages are always from the guardian — reset the heartbeat
+  // timer so the next heartbeat is a full interval after this interaction.
+  deps.heartbeatService?.resetTimer();
 
   const conversationType =
     body.conversationType === "private" ? ("private" as const) : undefined;
@@ -1482,6 +1488,7 @@ export function conversationRouteDefinitions(deps: {
   approvalConversationGenerator?: ApprovalConversationGenerator;
   suggestionCache: Map<string, string>;
   suggestionInFlight: Map<string, Promise<string | null>>;
+  getHeartbeatService?: () => HeartbeatService | undefined;
 }): RouteDefinition[] {
   return [
     {
@@ -1498,6 +1505,7 @@ export function conversationRouteDefinitions(deps: {
           {
             sendMessageDeps: deps.sendMessageDeps,
             approvalConversationGenerator: deps.approvalConversationGenerator,
+            heartbeatService: deps.getHeartbeatService?.(),
           },
           authContext,
         ),

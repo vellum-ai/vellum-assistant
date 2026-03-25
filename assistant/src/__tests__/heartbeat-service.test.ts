@@ -329,6 +329,41 @@ describe("HeartbeatService", () => {
     expect(alerterCalls[0].body).toBe("DB locked");
   });
 
+  test("resetTimer() pushes nextRunAt forward", () => {
+    const service = createService();
+    service.start();
+
+    const firstNextRunAt = service.nextRunAt;
+    expect(firstNextRunAt).not.toBeNull();
+
+    // Simulate some time passing, then reset
+    const before = Date.now();
+    service.resetTimer();
+    const afterReset = service.nextRunAt;
+
+    expect(afterReset).not.toBeNull();
+    // The new nextRunAt should be >= the interval from now
+    expect(afterReset!).toBeGreaterThanOrEqual(before + mockConfig.heartbeat.intervalMs);
+    service.stop();
+  });
+
+  test("resetTimer() is a no-op when heartbeat is not running", () => {
+    const service = createService();
+    // Don't call start() — heartbeat not running
+    expect(service.nextRunAt).toBeNull();
+    service.resetTimer();
+    expect(service.nextRunAt).toBeNull();
+  });
+
+  test("resetTimer() is a no-op when heartbeat is disabled", () => {
+    mockConfig.heartbeat.enabled = false;
+    const service = createService();
+    service.start();
+    expect(service.nextRunAt).toBeNull();
+    service.resetTimer();
+    expect(service.nextRunAt).toBeNull();
+  });
+
   test("cleanup", () => {
     try {
       rmSync(testWorkspaceDir, { recursive: true, force: true });
