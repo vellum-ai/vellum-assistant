@@ -449,6 +449,8 @@ extension AppDelegate {
     }
 
     public func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        guard onboardingWindow == nil else { return nil }
+
         let menu = NSMenu()
 
         let newChatItem = NSMenuItem(title: "New Conversation", action: #selector(openNewChat), keyEquivalent: "")
