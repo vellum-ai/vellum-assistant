@@ -124,7 +124,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:dropbox --client-id $(cat <<'EOF'
+    assistant oauth connect integration:dropbox --client-id $(cat <<'EOF'
     <app-key>
     EOF
     )
