@@ -80,10 +80,9 @@ final class MessageListAnchorPerformanceTests: XCTestCase {
 
     // MARK: - 1. Coordinator Anchor Rapid-Update Stress Test
 
-    /// Benchmarks calling updateAnchor(distanceFromBottom:viewportHeight:) and
-    /// updateIsAtBottom() 10,000 times in a
-    /// tight loop. While individually trivial (O(1)), they are called on EVERY
-    /// scroll frame. This test detects if any future refactoring adds overhead.
+    /// Benchmarks setting `isAtBottom` 10,000 times in a tight loop. While
+    /// individually trivial (O(1)), this mirrors the per-scroll-frame hot path.
+    /// This test detects if any future refactoring adds overhead.
     func testBottomDetectionRapidUpdateStress() {
         let coordinator = MessageListScrollCoordinator()
 
@@ -91,8 +90,9 @@ final class MessageListAnchorPerformanceTests: XCTestCase {
             for i in 0..<10_000 {
                 // Simulate scroll position changes: alternate between bottom
                 // anchor and other views to stress isAtBottom updates.
-                let viewID: String? = i % 10 == 0 ? "scroll-bottom-anchor" : "message-\(i)"
-                coordinator.updateIsAtBottom(viewID)
+                // Simulate scroll geometry bottom detection: every 10th
+                // iteration is "at bottom", the rest are not.
+                coordinator.isAtBottom = (i % 10 == 0)
             }
         }
     }

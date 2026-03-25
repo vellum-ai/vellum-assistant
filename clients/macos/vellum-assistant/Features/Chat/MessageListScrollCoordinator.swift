@@ -192,9 +192,6 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// Fires a single deferred re-pin attempt after the cooldown drains.
     var loopGuardRecoveryTask: Task<Void, Never>?
 
-    // MARK: - Bottom Detection
-
-    /// Updates `isAtBottom` based on the current scroll position's view ID.
     // MARK: - Suppression Management
 
     /// Adds a suppression reason and schedules its automatic timeout.
