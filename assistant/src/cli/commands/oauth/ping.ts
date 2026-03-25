@@ -99,6 +99,12 @@ Examples:
           const baseUrl = `${parsed.protocol}//${parsed.host}`;
           const path = parsed.pathname;
 
+          // Preserve query parameters from the configured ping URL
+          const query: Record<string, string> = {};
+          for (const [key, value] of parsed.searchParams) {
+            query[key] = value;
+          }
+
           // -----------------------------------------------------------------
           // 4. Resolve connection (auto-detects managed vs BYO)
           // -----------------------------------------------------------------
@@ -140,6 +146,7 @@ Examples:
             method: "GET",
             path,
             baseUrl,
+            ...(Object.keys(query).length > 0 ? { query } : {}),
           });
 
           // -----------------------------------------------------------------
