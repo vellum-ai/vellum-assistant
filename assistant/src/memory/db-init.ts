@@ -117,6 +117,7 @@ import {
   migrateScheduleOneShotRouting,
   migrateScheduleQuietFlag,
   migrateSchemaIndexesAndColumns,
+  migrateStripIntegrationPrefixFromProviderKeys,
   migrateUsageDashboardIndexes,
   migrateVoiceInviteColumns,
   migrateVoiceInviteDisplayMetadata,
@@ -515,6 +516,9 @@ export function initializeDb(): void {
 
   // 92. Add ping_method, ping_headers, ping_body columns to oauth_providers
   migrateOAuthProvidersPingConfig(database);
+
+  // 93. Strip `integration:` prefix from provider_key across OAuth tables
+  migrateStripIntegrationPrefixFromProviderKeys(database);
 
   validateMigrationState(database);
 

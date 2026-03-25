@@ -38,6 +38,7 @@ import { migrateBackfillInlineAttachmentsToDiskDown } from "./180-backfill-inlin
 import { migrateRenameThreadStartersCheckpointsDown } from "./181-rename-thread-starters-checkpoints.js";
 import { migrateBackfillAudioAttachmentMimeTypesDown } from "./191-backfill-audio-attachment-mime-types.js";
 import { migrateAddSourceTypeColumnsDown } from "./193-add-source-type-columns.js";
+import { migrateStripIntegrationPrefixFromProviderKeysDown } from "./196-strip-integration-prefix-from-provider-keys.js";
 
 export interface MigrationRegistryEntry {
   /** The checkpoint key written to memory_checkpoints on completion. */
@@ -332,6 +333,13 @@ export const MIGRATION_REGISTRY: MigrationRegistryEntry[] = [
     description:
       "Add source_type and source_message_role columns to memory_items with backfill from verification_state and source messages",
     down: migrateAddSourceTypeColumnsDown,
+  },
+  {
+    key: "migration_strip_integration_prefix_from_provider_keys_v1",
+    version: 38,
+    description:
+      "Strip integration: prefix from provider_key across oauth_providers, oauth_apps, and oauth_connections",
+    down: migrateStripIntegrationPrefixFromProviderKeysDown,
   },
 ];
 
