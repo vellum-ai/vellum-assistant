@@ -538,13 +538,11 @@ struct AssistantProgressView: View {
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(GeometryReader { geo in
-            Color.clear
-                .onAppear { hideInlineChips = geo.size.width < 350 }
-                .onChange(of: geo.size.width) { _, width in
-                    hideInlineChips = width < 350
-                }
-        })
+        .onGeometryChange(for: Bool.self) { proxy in
+            proxy.size.width < 350
+        } action: { shouldHide in
+            hideInlineChips = shouldHide
+        }
     }
 
     // MARK: - Status Icon

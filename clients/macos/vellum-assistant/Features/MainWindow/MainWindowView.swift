@@ -512,14 +512,11 @@ struct MainWindowView: View {
                     onOpenForkParent: { openForkParentConversation() },
                     showDrawer: $showConversationActionsDrawer
                 )
-                .background(GeometryReader { proxy in
-                    Color.clear.onAppear {
-                        conversationTitleFrame = proxy.frame(in: .named("coreLayout"))
-                    }
-                    .onChange(of: proxy.frame(in: .named("coreLayout"))) { _, newFrame in
-                        conversationTitleFrame = newFrame
-                    }
-                })
+                .onGeometryChange(for: CGRect.self) { proxy in
+                    proxy.frame(in: .named("coreLayout"))
+                } action: { newFrame in
+                    conversationTitleFrame = newFrame
+                }
                 // Shift the title right so it centers above the chat content area
                 // (not the full window). Content starts after outer padding (16) +
                 // sidebar + spacing (16), so its center is offset from the window

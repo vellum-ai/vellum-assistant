@@ -572,14 +572,11 @@ extension MainWindowView {
                     showConversationSwitcher = false
                 }
                 .pointerCursor()
-                .background(GeometryReader { proxy in
-                    Color.clear.onAppear {
-                        conversationSwitcherTriggerFrame = proxy.frame(in: .named("coreLayout"))
-                    }
-                    .onChange(of: proxy.frame(in: .named("coreLayout"))) { _, newFrame in
-                        conversationSwitcherTriggerFrame = newFrame
-                    }
-                })
+                .onGeometryChange(for: CGRect.self) { proxy in
+                    proxy.frame(in: .named("coreLayout"))
+                } action: { newFrame in
+                    conversationSwitcherTriggerFrame = newFrame
+                }
             }
 
             Spacer()

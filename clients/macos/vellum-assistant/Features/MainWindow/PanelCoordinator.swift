@@ -868,12 +868,11 @@ struct DynamicWorkspaceWrapper: View {
                                 VButton(label: "Share", iconOnly: VIcon.share.rawValue, style: .outlined, iconSize: 32, tooltip: "Share") {
                                     showShareDrawer.toggle()
                                 }
-                                .background(GeometryReader { proxy in
-                                    Color.clear.onChange(of: showShareDrawer) { _, _ in
-                                        shareButtonFrame = proxy.frame(in: .named("appPageContainer"))
-                                    }
-                                    .onAppear { shareButtonFrame = proxy.frame(in: .named("appPageContainer")) }
-                                })
+                                .onGeometryChange(for: CGRect.self) { proxy in
+                                    proxy.frame(in: .named("appPageContainer"))
+                                } action: { newFrame in
+                                    shareButtonFrame = newFrame
+                                }
                                 .overlay {
                                     AppSharePanel(
                                         items: sharing.shareFileURL != nil ? [sharing.shareFileURL!] : [],
