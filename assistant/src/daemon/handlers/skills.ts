@@ -660,8 +660,62 @@ export async function searchSkills(
   { success: true; data: unknown } | { success: false; error: string }
 > {
   try {
-    const result = await clawhubSearch(query);
-    return { success: true, data: result };
+    // Search the loaded skill catalog (bundled + installed) for matches
+    const catalog = loadSkillCatalog();
+    const lowerQuery = query.toLowerCase();
+    const catalogMatches = catalog.filter(
+      (s) =>
+        s.id.toLowerCase().includes(lowerQuery) ||
+        s.displayName.toLowerCase().includes(lowerQuery) ||
+        s.description.toLowerCase().includes(lowerQuery),
+    );
+
+    // Shape that matches ClawhubSearchResultItem so the client
+    // (Swift ClawhubSkillItem) can decode results uniformly.
+    interface SearchItem {
+      name: string;
+      slug: string;
+      description: string;
+      author: string;
+      stars: number;
+      installs: number;
+      version: string;
+      createdAt: number;
+      source: "vellum" | "clawhub";
+    }
+
+    const catalogItems: SearchItem[] = catalogMatches.map((s) => ({
+      name: s.displayName,
+      slug: s.id,
+      description: s.description,
+      author: "Vellum",
+      stars: 0,
+      installs: 0,
+      version: "",
+      createdAt: 0,
+      source: "vellum" as const,
+    }));
+
+    // Search the community registry (non-fatal on failure)
+    let communitySkills: SearchItem[] = [];
+    try {
+      const communityResult = await clawhubSearch(query);
+      communitySkills = communityResult.skills;
+    } catch (err) {
+      log.warn(
+        { err },
+        "clawhub search failed, returning catalog-only results",
+      );
+    }
+
+    // Deduplicate: catalog takes precedence when slugs collide
+    const catalogSlugs = new Set(catalogItems.map((s) => s.slug));
+    const deduped = communitySkills.filter((s) => !catalogSlugs.has(s.slug));
+
+    return {
+      success: true,
+      data: { skills: [...catalogItems, ...deduped] },
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to search skills");

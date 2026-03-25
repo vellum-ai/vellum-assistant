@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import type { Command } from "commander";
 
 import type { CatalogSkill } from "../../skills/catalog-install.js";
@@ -8,7 +11,10 @@ import {
   readLocalCatalog,
   uninstallSkillLocally,
 } from "../../skills/catalog-install.js";
-import type { AuditResponse } from "../../skills/skillssh-registry.js";
+import type {
+  AuditResponse,
+  SkillsShSearchResult,
+} from "../../skills/skillssh-registry.js";
 import {
   fetchSkillAudits,
   formatAuditBadges,
@@ -16,6 +22,7 @@ import {
   resolveSkillSource,
   searchSkillsRegistry,
 } from "../../skills/skillssh-registry.js";
+import { getWorkspaceSkillsDir } from "../../util/platform.js";
 import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -93,20 +100,20 @@ Examples:
 
   skills
     .command("search <query>")
-    .description("Search the skills.sh community registry")
-    .option("--limit <n>", "Maximum number of results", "10")
+    .description("Search the Vellum catalog and skills.sh community registry")
+    .option("--limit <n>", "Maximum number of community results", "10")
     .option("--json", "Machine-readable JSON output")
     .addHelpText(
       "after",
       `
 Arguments:
   query    Free-text search term matched against skill names, descriptions,
-           and tags in the skills.sh registry.
+           and tags. Searches the Vellum catalog first, then the skills.sh
+           community registry.
 
-Searches the skills.sh community registry and displays matching skills
-with install counts and security audit badges (ATH, Socket, Snyk).
-Audit fetch failures are non-fatal — results are still shown without
-security data.
+Displays results from both sources with clear labels. When a skill ID
+exists in both the Vellum catalog and the community registry, a conflict
+note is shown with guidance on which install command to use.
 
 Examples:
   $ assistant skills search react
@@ -118,36 +125,82 @@ Examples:
       const limit = parseInt(opts.limit, 10) || 10;
 
       try {
-        const results = await searchSkillsRegistry(query, limit);
+        // ── Vellum catalog search ────────────────────────────────────
+        const repoSkillsDir = getRepoSkillsDir();
+        let catalog: CatalogSkill[];
+        if (repoSkillsDir) {
+          catalog = readLocalCatalog(repoSkillsDir);
+        } else {
+          try {
+            catalog = await fetchCatalog();
+          } catch {
+            catalog = [];
+          }
+        }
 
-        if (results.length === 0) {
+        const lowerQuery = query.toLowerCase();
+        const catalogMatches = catalog.filter(
+          (s) =>
+            s.id.toLowerCase().includes(lowerQuery) ||
+            s.name.toLowerCase().includes(lowerQuery) ||
+            s.description.toLowerCase().includes(lowerQuery),
+        );
+
+        // ── Community registry search (non-fatal on failure) ─────────
+        let registryResults: SkillsShSearchResult[] = [];
+        let registryError: string | undefined;
+        try {
+          registryResults = await searchSkillsRegistry(query, limit);
+        } catch (err) {
+          registryError = err instanceof Error ? err.message : String(err);
+        }
+
+        // ── Conflict detection ───────────────────────────────────────
+        const catalogIds = new Set(catalogMatches.map((s) => s.id));
+        const conflictIds = new Set(
+          registryResults
+            .filter((r) => catalogIds.has(r.skillId))
+            .map((r) => r.skillId),
+        );
+
+        if (catalogMatches.length === 0 && registryResults.length === 0) {
           if (json) {
-            console.log(JSON.stringify({ ok: true, results: [], audits: {} }));
+            console.log(
+              JSON.stringify({
+                ok: true,
+                catalog: [],
+                community: [],
+                audits: {},
+                ...(registryError ? { registryError } : {}),
+              }),
+            );
           } else {
             log.info(`No skills found for "${query}".`);
+            if (registryError) {
+              log.warn(`(skills.sh registry unavailable: ${registryError})`);
+            }
           }
           return;
         }
 
-        // Group skill slugs by source for batch audit lookups
-        const sourceToSlugs = new Map<string, string[]>();
-        for (const r of results) {
-          const slugs = sourceToSlugs.get(r.source) ?? [];
-          slugs.push(r.skillId);
-          sourceToSlugs.set(r.source, slugs);
-        }
-
-        // Fetch audits for each unique source, keyed by source/skillId
-        // to avoid collisions when different sources share the same slug.
+        // ── Fetch audits for community results ───────────────────────
         const allAudits: AuditResponse = {};
-        for (const [source, slugs] of sourceToSlugs) {
-          try {
-            const audits = await fetchSkillAudits(source, slugs);
-            for (const [skillId, auditData] of Object.entries(audits)) {
-              allAudits[`${source}/${skillId}`] = auditData;
+        if (registryResults.length > 0) {
+          const sourceToSlugs = new Map<string, string[]>();
+          for (const r of registryResults) {
+            const slugs = sourceToSlugs.get(r.source) ?? [];
+            slugs.push(r.skillId);
+            sourceToSlugs.set(r.source, slugs);
+          }
+          for (const [source, slugs] of sourceToSlugs) {
+            try {
+              const audits = await fetchSkillAudits(source, slugs);
+              for (const [skillId, auditData] of Object.entries(audits)) {
+                allAudits[`${source}/${skillId}`] = auditData;
+              }
+            } catch {
+              // Audit fetch failures are non-fatal
             }
-          } catch {
-            // Audit fetch failures are non-fatal; display results without audits
           }
         }
 
@@ -155,26 +208,68 @@ Examples:
           console.log(
             JSON.stringify({
               ok: true,
-              results,
+              catalog: catalogMatches,
+              community: registryResults,
               audits: allAudits,
+              ...(registryError ? { registryError } : {}),
             }),
           );
           return;
         }
 
-        log.info(`Search results for "${query}" (${results.length}):\n`);
-        for (const r of results) {
-          log.info(`  ${r.name}`);
-          log.info(`    ID: ${r.skillId}`);
-          log.info(`    Source: ${r.source}`);
-          log.info(`    Installs: ${r.installs}`);
-          const auditData = allAudits[`${r.source}/${r.skillId}`];
-          if (auditData) {
-            log.info(`    ${formatAuditBadges(auditData)}`);
-          } else {
-            log.info("    Security: no audit data");
+        // ── Installed-state detection ─────────────────────────────────
+        const skillsDir = getWorkspaceSkillsDir();
+        const isInstalled = (id: string) =>
+          existsSync(join(skillsDir, id, "SKILL.md"));
+
+        // ── Display catalog results ──────────────────────────────────
+        if (catalogMatches.length > 0) {
+          log.info(`Vellum catalog (${catalogMatches.length}):\n`);
+          for (const s of catalogMatches) {
+            const emoji = s.emoji ? `${s.emoji} ` : "";
+            const installed = isInstalled(s.id);
+            const badge = installed ? " [installed]" : "";
+            log.info(`  ${emoji}${s.name}${badge}`);
+            if (s.name !== s.id) {
+              log.info(`    ID: ${s.id}`);
+            }
+            log.info(`    Description: ${s.description}`);
+            log.info(`    Install: assistant skills install ${s.id}`);
+            if (conflictIds.has(s.id)) {
+              log.info(`    NOTE: Also found in community registry`);
+            }
+            log.info("");
           }
-          log.info("");
+        }
+
+        // ── Display community results ────────────────────────────────
+        if (registryResults.length > 0) {
+          log.info(`Community registry (${registryResults.length}):\n`);
+          for (const r of registryResults) {
+            const installed = isInstalled(r.skillId);
+            const badge = installed ? " [installed]" : "";
+            log.info(`  ${r.name}${badge}`);
+            if (r.name !== r.skillId) {
+              log.info(`    ID: ${r.skillId}`);
+            }
+            log.info(`    Source: ${r.source}`);
+            log.info(`    Installs: ${r.installs}`);
+            const auditData = allAudits[`${r.source}/${r.skillId}`];
+            if (auditData) {
+              log.info(`    ${formatAuditBadges(auditData)}`);
+            } else {
+              log.info("    Security: no audit data");
+            }
+            log.info(
+              `    Install: assistant skills add ${r.source}@${r.skillId}`,
+            );
+            if (conflictIds.has(r.skillId)) {
+              log.info(`    NOTE: Conflicts with Vellum catalog skill`);
+            }
+            log.info("");
+          }
+        } else if (registryError) {
+          log.warn(`\n(skills.sh registry unavailable: ${registryError})`);
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
