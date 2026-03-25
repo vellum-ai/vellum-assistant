@@ -104,7 +104,7 @@ Examples:
     )
     .option(
       "--client-id <id>",
-      "OAuth client ID (requires --provider). The client ID registered with the OAuth provider's developer console.",
+      "OAuth client ID (requires --provider). Find registered client IDs via 'assistant oauth apps list'.",
     )
     .addHelpText(
       "after",
