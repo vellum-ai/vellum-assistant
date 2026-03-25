@@ -198,7 +198,7 @@ Malformed tokens do not silently pass through — they are collected as errors a
 
 ### Feature flag
 
-Inline command expansion is gated by the `inline-skill-commands` feature flag (key: `feature_flags.inline-skill-commands.enabled`). The flag defaults to **enabled**.
+Inline command expansion is gated by the `inline-skill-commands` feature flag (key: `inline-skill-commands`). The flag defaults to **enabled**.
 
 When the flag is disabled and a skill contains inline command expansion tokens, `skill_load` returns an error rather than delivering unexpanded tokens to the model. This fail-closed behavior prevents the LLM from seeing raw expansion tokens and attempting to interpret them.
 
