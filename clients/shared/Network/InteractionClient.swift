@@ -32,9 +32,10 @@ public struct InteractionClient: InteractionClientProtocol {
             if let selectedScope { body["selectedScope"] = selectedScope }
 
             let path = try Self.approvalPath(endpoint: "confirm")
+            log.info("[confirm-flow] Sending POST /confirm: requestId=\(requestId, privacy: .public) decision=\(decision, privacy: .public)")
             let response = try await GatewayHTTPClient.post(path: path, json: body, timeout: 10)
             if !response.isSuccess {
-                log.error("sendConfirmationResponse failed (HTTP \(response.statusCode))")
+                log.error("[confirm-flow] POST /confirm failed: requestId=\(requestId, privacy: .public) decision=\(decision, privacy: .public) HTTP \(response.statusCode)")
                 return false
             }
             return true
