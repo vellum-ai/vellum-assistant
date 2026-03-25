@@ -2,6 +2,7 @@ import type { Command } from "commander";
 
 import { registerAppCommands } from "./apps.js";
 import { registerConnectionCommands } from "./connections.js";
+import { registerDisconnectCommand } from "./disconnect.js";
 import { registerPlatformCommands } from "./platform.js";
 import { registerProviderCommands } from "./providers.js";
 import { registerRequestCommand } from "./request.js";
@@ -67,4 +68,10 @@ Examples:
   // ---------------------------------------------------------------------------
 
   registerRequestCommand(oauth);
+
+  // ---------------------------------------------------------------------------
+  // disconnect — unified disconnect with auto-detected managed/BYO routing
+  // ---------------------------------------------------------------------------
+
+  registerDisconnectCommand(oauth);
 }
