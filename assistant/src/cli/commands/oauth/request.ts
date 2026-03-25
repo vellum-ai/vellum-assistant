@@ -86,7 +86,7 @@ export function registerRequestCommand(oauth: Command): void {
   oauth
     .command("request <url>")
     .description(
-      "Make an authenticated OAuth request (supports a curl-like interface)",
+      "The recommended way to make an authenticated request to an OAuth provider (supports a curl-like interface)",
     )
     .requiredOption(
       "--provider <key>",
@@ -114,9 +114,13 @@ export function registerRequestCommand(oauth: Command): void {
     .addHelpText(
       "after",
       `
-Make authenticated HTTP requests through an OAuth provider. Resolves the
-OAuth connection automatically (platform-managed or BYO) and injects
-tokens transparently.
+This is the first-class mechanism for making authenticated HTTP requests
+to an OAuth provider. By using this CLI, you follow security best-practices
+regarding how the OAuth token is used. This approach is preferred over retrieving
+the token (using \`assistant oauth token\`) and making the request directly.
+
+This command resolves the OAuth connection automatically (regardless of whether
+the provider's mode is set to "managed" or "your-own") and injects tokens transparently.
 
 URL can be absolute (https://api.twitter.com/2/tweets) or relative (/2/tweets).
 Absolute URLs have their host extracted as a baseUrl override; relative paths

@@ -31,7 +31,7 @@ export function registerTokenCommand(oauth: Command): void {
   oauth
     .command("token <provider>")
     .description(
-      'Print a valid OAuth access token for a provider (only supported for providers with mode set to "your-own")',
+      'An escape hatch to retrieve a valid OAuth access token for a provider whose mode is "your-own" for direct use.',
     )
     .option(
       "--account <account>",
@@ -56,6 +56,12 @@ Options:
                         shown in 'assistant oauth status <provider>'.
   --client-id <id>      Select a specific OAuth app when multiple apps exist
                         for the same provider.
+
+
+This command is discouraged from use and should be used sparingly. Only use
+if you need direct access to the token (i.e. \`assistant oauth request\` is
+insufficient for your use case) and you are comfortable with the potential
+security implications of exposing this token.
 
 Token retrieval is only supported for providers with mode set to "your-own".
 Platform-managed providers handle tokens internally — use
