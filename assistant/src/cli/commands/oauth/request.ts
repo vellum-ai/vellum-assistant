@@ -322,7 +322,24 @@ Examples:
               }
             }
           } else {
-            requestPath = url;
+            // Relative URL — extract embedded query params if present
+            const qIdx = url.indexOf("?");
+            if (qIdx !== -1) {
+              requestPath = url.slice(0, qIdx);
+              const embeddedParams = new URLSearchParams(url.slice(qIdx + 1));
+              for (const [key, value] of embeddedParams.entries()) {
+                const existing = queryFromUrl[key];
+                if (existing !== undefined) {
+                  queryFromUrl[key] = Array.isArray(existing)
+                    ? [...existing, value]
+                    : [existing, value];
+                } else {
+                  queryFromUrl[key] = value;
+                }
+              }
+            } else {
+              requestPath = url;
+            }
           }
 
           // -----------------------------------------------------------------
