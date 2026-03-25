@@ -98,7 +98,7 @@ function buildOAuthConnection(
 ): OAuthConnectionRecord {
   return {
     id: overrides.id ?? "conn-uuid-1",
-    providerKey: overrides.providerKey ?? "integration:google",
+    providerKey: overrides.providerKey ?? "google",
     accountInfo: overrides.accountInfo ?? "user@example.com",
     grantedScopes: overrides.grantedScopes ?? ["openid", "email"],
     accessTokenPath: overrides.accessTokenPath ??
@@ -227,10 +227,10 @@ describe("local OAuth subject resolution", () => {
   test("resolves a valid OAuth handle to an OAuth subject", () => {
     const conn = buildOAuthConnection({
       id: "conn-abc",
-      providerKey: "integration:google",
+      providerKey: "google",
     });
     const deps = createResolverDeps({ oauthConnections: [conn] });
-    const handle = localOAuthHandle("integration:google", "conn-abc");
+    const handle = localOAuthHandle("google", "conn-abc");
 
     const result = resolveLocalSubject(handle, deps);
 
@@ -239,12 +239,12 @@ describe("local OAuth subject resolution", () => {
     expect(result.subject.type).toBe(HandleType.LocalOAuth);
     if (result.subject.type !== HandleType.LocalOAuth) return;
     expect(result.subject.connection.id).toBe("conn-abc");
-    expect(result.subject.connection.providerKey).toBe("integration:google");
+    expect(result.subject.connection.providerKey).toBe("google");
   });
 
   test("fails when the connection does not exist", () => {
     const deps = createResolverDeps({ oauthConnections: [] });
-    const handle = localOAuthHandle("integration:google", "missing-conn");
+    const handle = localOAuthHandle("google", "missing-conn");
 
     const result = resolveLocalSubject(handle, deps);
 
@@ -257,19 +257,19 @@ describe("local OAuth subject resolution", () => {
   test("fails when provider key in handle does not match connection", () => {
     const conn = buildOAuthConnection({
       id: "conn-xyz",
-      providerKey: "integration:slack",
+      providerKey: "slack",
     });
     const deps = createResolverDeps({ oauthConnections: [conn] });
     // Handle says google but connection is slack
-    const handle = localOAuthHandle("integration:google", "conn-xyz");
+    const handle = localOAuthHandle("google", "conn-xyz");
 
     const result = resolveLocalSubject(handle, deps);
 
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toMatch(/providerKey/);
-    expect(result.error).toMatch(/integration:slack/);
-    expect(result.error).toMatch(/integration:google/);
+    expect(result.error).toMatch(/slack/);
+    expect(result.error).toMatch(/google/);
   });
 });
 
@@ -378,13 +378,13 @@ describe("OAuth token materialisation", () => {
   test("materialises a valid non-expired access token", async () => {
     const conn = buildOAuthConnection({
       id: "conn-1",
-      providerKey: "integration:google",
+      providerKey: "google",
       // Token expires in the future (1 hour from now)
       expiresAt: Date.now() + 60 * 60 * 1000,
       hasRefreshToken: true,
     });
     const deps = createResolverDeps({ oauthConnections: [conn] });
-    const handle = localOAuthHandle("integration:google", "conn-1");
+    const handle = localOAuthHandle("google", "conn-1");
 
     const resolved = resolveLocalSubject(handle, deps);
     expect(resolved.ok).toBe(true);
@@ -408,11 +408,11 @@ describe("OAuth token materialisation", () => {
   test("fails when no access token is stored (disconnected connection)", async () => {
     const conn = buildOAuthConnection({
       id: "conn-disconnected",
-      providerKey: "integration:slack",
+      providerKey: "slack",
       hasRefreshToken: false,
     });
     const deps = createResolverDeps({ oauthConnections: [conn] });
-    const handle = localOAuthHandle("integration:slack", "conn-disconnected");
+    const handle = localOAuthHandle("slack", "conn-disconnected");
 
     const resolved = resolveLocalSubject(handle, deps);
     expect(resolved.ok).toBe(true);
@@ -435,14 +435,14 @@ describe("OAuth token materialisation", () => {
   test("fails when token is expired and hasRefreshToken is false", async () => {
     const conn = buildOAuthConnection({
       id: "conn-expired-no-refresh",
-      providerKey: "integration:google",
+      providerKey: "google",
       // Token expired 10 minutes ago
       expiresAt: Date.now() - 10 * 60 * 1000,
       hasRefreshToken: false,
     });
     const deps = createResolverDeps({ oauthConnections: [conn] });
     const handle = localOAuthHandle(
-      "integration:google",
+      "google",
       "conn-expired-no-refresh",
     );
 
@@ -469,12 +469,12 @@ describe("OAuth token materialisation", () => {
   test("materialises a token with null expiresAt (no expiry info)", async () => {
     const conn = buildOAuthConnection({
       id: "conn-noexpiry",
-      providerKey: "integration:github",
+      providerKey: "github",
       expiresAt: null,
       hasRefreshToken: false,
     });
     const deps = createResolverDeps({ oauthConnections: [conn] });
-    const handle = localOAuthHandle("integration:github", "conn-noexpiry");
+    const handle = localOAuthHandle("github", "conn-noexpiry");
 
     const resolved = resolveLocalSubject(handle, deps);
     expect(resolved.ok).toBe(true);
@@ -504,13 +504,13 @@ describe("OAuth refresh-on-expiry", () => {
   test("refreshes an expired token and returns the new access token", async () => {
     const conn = buildOAuthConnection({
       id: "conn-expired",
-      providerKey: "integration:google",
+      providerKey: "google",
       // Token expired 10 minutes ago
       expiresAt: Date.now() - 10 * 60 * 1000,
       hasRefreshToken: true,
     });
     const deps = createResolverDeps({ oauthConnections: [conn] });
-    const handle = localOAuthHandle("integration:google", "conn-expired");
+    const handle = localOAuthHandle("google", "conn-expired");
 
     const resolved = resolveLocalSubject(handle, deps);
     expect(resolved.ok).toBe(true);
@@ -545,12 +545,12 @@ describe("OAuth refresh-on-expiry", () => {
   test("fails when token is expired but no refresh function is configured", async () => {
     const conn = buildOAuthConnection({
       id: "conn-no-refresh-fn",
-      providerKey: "integration:google",
+      providerKey: "google",
       expiresAt: Date.now() - 10 * 60 * 1000,
       hasRefreshToken: true,
     });
     const deps = createResolverDeps({ oauthConnections: [conn] });
-    const handle = localOAuthHandle("integration:google", "conn-no-refresh-fn");
+    const handle = localOAuthHandle("google", "conn-no-refresh-fn");
 
     const resolved = resolveLocalSubject(handle, deps);
     expect(resolved.ok).toBe(true);
@@ -577,13 +577,13 @@ describe("OAuth refresh-on-expiry", () => {
   test("fails when token is expired and no refresh token is stored", async () => {
     const conn = buildOAuthConnection({
       id: "conn-no-stored-refresh",
-      providerKey: "integration:google",
+      providerKey: "google",
       expiresAt: Date.now() - 10 * 60 * 1000,
       hasRefreshToken: true,
     });
     const deps = createResolverDeps({ oauthConnections: [conn] });
     const handle = localOAuthHandle(
-      "integration:google",
+      "google",
       "conn-no-stored-refresh",
     );
 
@@ -617,13 +617,13 @@ describe("OAuth refresh-on-expiry", () => {
   test("fails when refresh function returns a failure result", async () => {
     const conn = buildOAuthConnection({
       id: "conn-refresh-fail",
-      providerKey: "integration:google",
+      providerKey: "google",
       expiresAt: Date.now() - 10 * 60 * 1000,
       hasRefreshToken: true,
     });
     const deps = createResolverDeps({ oauthConnections: [conn] });
     const handle = localOAuthHandle(
-      "integration:google",
+      "google",
       "conn-refresh-fail",
     );
 
@@ -662,12 +662,12 @@ describe("refresh circuit breaker", () => {
   test("trips after repeated refresh failures and returns error", async () => {
     const conn = buildOAuthConnection({
       id: "conn-breaker",
-      providerKey: "integration:google",
+      providerKey: "google",
       expiresAt: Date.now() - 10 * 60 * 1000,
       hasRefreshToken: true,
     });
     const deps = createResolverDeps({ oauthConnections: [conn] });
-    const handle = localOAuthHandle("integration:google", "conn-breaker");
+    const handle = localOAuthHandle("google", "conn-breaker");
 
     const resolved = resolveLocalSubject(handle, deps);
     expect(resolved.ok).toBe(true);
@@ -724,7 +724,7 @@ describe("deterministic fail-closed behaviour", () => {
 
     // Missing OAuth connection
     const r3 = resolveLocalSubject(
-      localOAuthHandle("integration:x", "missing-conn"),
+      localOAuthHandle("x", "missing-conn"),
       deps,
     );
     expect(r3.ok).toBe(false);
@@ -765,10 +765,10 @@ describe("deterministic fail-closed behaviour", () => {
   test("OAuth disconnection detected before any refresh attempt", async () => {
     const conn = buildOAuthConnection({
       id: "conn-disco",
-      providerKey: "integration:slack",
+      providerKey: "slack",
     });
     const deps = createResolverDeps({ oauthConnections: [conn] });
-    const handle = localOAuthHandle("integration:slack", "conn-disco");
+    const handle = localOAuthHandle("slack", "conn-disco");
 
     const resolved = resolveLocalSubject(handle, deps);
     expect(resolved.ok).toBe(true);
@@ -831,12 +831,12 @@ describe("end-to-end local materialisation", () => {
   test("full pipeline: resolve OAuth handle -> materialise token", async () => {
     const conn = buildOAuthConnection({
       id: "conn-e2e",
-      providerKey: "integration:linear",
+      providerKey: "linear",
       expiresAt: Date.now() + 3600 * 1000,
       hasRefreshToken: true,
     });
     const deps = createResolverDeps({ oauthConnections: [conn] });
-    const handle = localOAuthHandle("integration:linear", "conn-e2e");
+    const handle = localOAuthHandle("linear", "conn-e2e");
 
     // Step 1: Resolve
     const resolved = resolveLocalSubject(handle, deps);

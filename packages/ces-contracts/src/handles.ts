@@ -13,7 +13,7 @@
  *
  * 2. **Local OAuth** — references a locally persisted OAuth connection.
  *    Format: `local_oauth:<providerKey>/<connectionId>` where providerKey
- *    uses the existing `integration:*` keys (e.g. `integration:google`).
+ *    is the bare provider name (e.g. `google`).
  *
  * 3. **Managed OAuth** — references an OAuth connection managed by the
  *    platform. Format: `platform_oauth:<connectionId>` where connectionId
@@ -50,7 +50,7 @@ export interface LocalStaticHandle {
 
 export interface LocalOAuthHandle {
   type: typeof HandleType.LocalOAuth;
-  /** Provider key (e.g. "integration:google", "integration:slack"). */
+  /** Provider key (e.g. "google", "slack"). */
   providerKey: string;
   /** Connection identifier. */
   connectionId: string;
@@ -146,8 +146,9 @@ export function parseHandle(raw: string): ParseHandleResult {
     }
 
     case HandleType.LocalOAuth: {
-      // providerKey may itself contain a colon (e.g. "integration:google"),
-      // so we split on the *last* "/" to separate providerKey from connectionId.
+      // providerKey is typically a bare name (e.g. "google"), but legacy handles
+      // may contain a colon (e.g. "integration:google"), so we split on the
+      // *last* "/" to separate providerKey from connectionId.
       const lastSlashIdx = rest.lastIndexOf("/");
       if (
         lastSlashIdx === -1 ||

@@ -71,19 +71,19 @@ describe("handles", () => {
 
   describe("localOAuthHandle", () => {
     test("constructs the expected format", () => {
-      expect(localOAuthHandle("integration:google", "conn-123")).toBe(
-        "local_oauth:integration:google/conn-123",
+      expect(localOAuthHandle("google", "conn-123")).toBe(
+        "local_oauth:google/conn-123",
       );
     });
 
-    test("roundtrips with integration: prefix in providerKey", () => {
-      const raw = localOAuthHandle("integration:slack", "conn-abc");
+    test("roundtrips through parseHandle", () => {
+      const raw = localOAuthHandle("slack", "conn-abc");
       const result = parseHandle(raw);
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(result.handle.type).toBe(HandleType.LocalOAuth);
       if (result.handle.type !== HandleType.LocalOAuth) return;
-      expect(result.handle.providerKey).toBe("integration:slack");
+      expect(result.handle.providerKey).toBe("slack");
       expect(result.handle.connectionId).toBe("conn-abc");
     });
   });
@@ -133,7 +133,7 @@ describe("handles", () => {
     });
 
     test("rejects local_oauth with no slash", () => {
-      const result = parseHandle("local_oauth:integration:google");
+      const result = parseHandle("local_oauth:google");
       expect(result.ok).toBe(false);
     });
 
@@ -150,7 +150,7 @@ describe("handles", () => {
       ).not.toThrow();
       expect(() =>
         CredentialHandleSchema.parse(
-          "local_oauth:integration:google/conn-1",
+          "local_oauth:google/conn-1",
         ),
       ).not.toThrow();
       expect(() =>
