@@ -14,6 +14,7 @@ import {
 import { withValidToken } from "../../../security/token-manager.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
+import { printDeprecationWarning } from "./shared.js";
 
 // ---------------------------------------------------------------------------
 // CES shell lockdown guard
