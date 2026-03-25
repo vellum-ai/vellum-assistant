@@ -204,18 +204,13 @@ export async function resolveCallbackUrl(
     }
     return url;
   } catch (err) {
-    log.warn(
-      { err, callbackPath, type },
-      "Failed to register platform callback route, falling back to direct URL",
+    // In managed/containerized mode there is no local-ingress fallback and
+    // ngrok is not applicable. Surface a clear error so callers (and the
+    // user) understand this is a platform-side issue, not a tunnel problem.
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Managed callback route registration failed: ${detail}. ` +
+        `Please contact support if this problem persists.`,
     );
-    try {
-      return directUrl();
-    } catch (fallbackErr) {
-      log.error(
-        { fallbackErr, callbackPath, type },
-        "Direct URL fallback also failed after platform registration failure",
-      );
-      throw err;
-    }
   }
 }

@@ -148,7 +148,21 @@ export async function reconcileTelegramWebhook(
     return;
   }
 
-  const expectedUrl = await resolveExpectedTelegramWebhookUrl(caches);
+  let expectedUrl: string | undefined;
+  try {
+    expectedUrl = await resolveExpectedTelegramWebhookUrl(caches);
+  } catch (err) {
+    // Managed callback route registration failed — this is a platform-side
+    // issue. Do not suggest ngrok or other tunnel options; they are not
+    // usable in containerized deployments.
+    const detail = err instanceof Error ? err.message : String(err);
+    log.error(
+      { err },
+      `Telegram webhook registration failed: managed platform callback route could not be registered. ` +
+        `Please contact support. (${detail})`,
+    );
+    return;
+  }
   if (!expectedUrl) {
     log.debug(
       "Skipping webhook reconciliation: no public ingress or managed callback route available",

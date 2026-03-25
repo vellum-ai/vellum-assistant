@@ -235,6 +235,10 @@ function hasNonNgrokIngressUrl(): boolean {
 export async function maybeStartNgrokTunnel(
   targetPort: number,
 ): Promise<ChildProcess | null> {
+  // Managed/containerized deployments route webhooks through the platform's
+  // callback proxy. ngrok is not needed and would not be reachable from the
+  // platform anyway — skip it entirely.
+  if (process.env.IS_CONTAINERIZED) return null;
   if (!hasWebhookIntegrationsConfigured()) return null;
   if (hasNonNgrokIngressUrl()) return null;
 
