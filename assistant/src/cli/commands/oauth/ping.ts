@@ -19,7 +19,7 @@ export function registerPingCommand(oauth: Command): void {
   oauth
     .command("ping <provider>")
     .description(
-      "Verify an OAuth token is valid by hitting the provider's health-check endpoint",
+      "Verify an OAuth token is valid by hitting the provider's configured health-check endpoint",
     )
     .option("--account <account>", "Account identifier for multi-account")
     .option("--client-id <id>", "BYO app client ID disambiguation")
@@ -37,11 +37,6 @@ Options:
   --client-id <id>      BYO-only: select a specific OAuth app when multiple
                         apps exist for the same provider. Ignored for
                         platform-managed providers.
-
-Mode detection:
-  The command auto-detects whether the provider runs in platform-managed or
-  BYO (bring-your-own credentials) mode via resolveOAuthConnection. Managed
-  mode routes through the platform proxy; BYO mode uses locally stored tokens.
 
 Examples:
   $ assistant oauth ping google

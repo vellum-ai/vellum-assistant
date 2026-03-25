@@ -178,11 +178,6 @@ Reads from the local LLM usage event ledger (llm_usage_events table) to
 display token consumption and cost data. Operates on the local SQLite
 database directly — does not require the assistant to be running.
 
-Subcommands:
-  totals       Aggregate totals for a time range (default when no subcommand given)
-  daily        Per-day token and cost breakdown
-  breakdown    Grouped breakdown by actor, provider, or model
-
 Time range can be specified with --range presets (today, week, month, all)
 or explicit --from / --to epoch-millisecond timestamps.
 

@@ -31,15 +31,15 @@ export function registerTokenCommand(oauth: Command): void {
   oauth
     .command("token <provider>")
     .description(
-      "Print a valid OAuth access token for a provider (BYO providers only)",
+      'Print a valid OAuth access token for a provider (only supported for providers with mode set to "your-own")',
     )
     .option(
       "--account <account>",
-      "Account identifier for BYO disambiguation (e.g. user@gmail.com)",
+      "Account identifier for account disambiguation (e.g. user@gmail.com)",
     )
     .option(
       "--client-id <id>",
-      "Filter by OAuth client ID when multiple apps exist for the provider",
+      "Filter by OAuth client ID when multiple OAuth apps exist for the provider",
     )
     .addHelpText(
       "after",
@@ -57,13 +57,13 @@ Options:
   --client-id <id>      Select a specific OAuth app when multiple apps exist
                         for the same provider.
 
-Token retrieval is only supported for BYO (bring-your-own credentials)
-providers. Platform-managed providers handle tokens internally — use
+Token retrieval is only supported for providers with mode set to "your-own".
+Platform-managed providers handle tokens internally — use
 'assistant oauth ping <provider>' to verify connectivity or
 'assistant oauth request --provider <provider> <url>' to make
 authenticated requests.
 
-CES shell lockdown: This command is blocked when running in an untrusted
+Shell lockdown: This command is blocked when running in an untrusted
 shell (VELLUM_UNTRUSTED_SHELL=1) to prevent token exfiltration.
 
 Examples:

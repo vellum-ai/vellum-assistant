@@ -86,7 +86,7 @@ export function registerRequestCommand(oauth: Command): void {
   oauth
     .command("request <url>")
     .description(
-      "Make an authenticated OAuth request (curl-like interface for LLM agents)",
+      "Make an authenticated OAuth request (supports a curl-like interface)",
     )
     .requiredOption(
       "--provider <key>",
