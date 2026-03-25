@@ -2,11 +2,6 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
-import { getConfig } from "../../../config/loader.js";
-import {
-  type Services,
-  ServicesSchema,
-} from "../../../config/schemas/services.js";
 import type { OAuthConnectionRequest } from "../../../oauth/connection.js";
 import {
   resolveOAuthConnection,
@@ -17,9 +12,9 @@ import {
   getAppByProviderAndClientId,
   getProvider,
 } from "../../../oauth/oauth-store.js";
-import { resolveService } from "../../../oauth/provider-behaviors.js";
 import { VellumPlatformClient } from "../../../platform/client.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
+import { isManagedMode, resolveService, toBareProvider } from "./shared.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -81,31 +76,6 @@ function readBodyData(data: string): unknown {
   }
 
   return tryJsonParse(data);
-}
-
-/**
- * Determine whether a provider is running in platform-managed mode.
- * Returns false if config is unavailable (e.g. in test environments).
- */
-function isManagedMode(providerKey: string): boolean {
-  const provider = getProvider(providerKey);
-  const managedKey = provider?.managedServiceConfigKey;
-  if (!managedKey || !(managedKey in ServicesSchema.shape)) return false;
-  try {
-    const services: Services = getConfig().services;
-    return services[managedKey as keyof Services].mode === "managed";
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Normalize a bare provider name into the canonical provider key.
- */
-function toBareProvider(provider: string): string {
-  return provider.startsWith("integration:")
-    ? provider.slice("integration:".length)
-    : provider;
 }
 
 // ---------------------------------------------------------------------------
