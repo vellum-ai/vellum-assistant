@@ -118,7 +118,7 @@ bash:
     assistant oauth apps upsert --provider hubspot --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "hubspot:oauth_secret"
+    ) --client-secret-credential-path "credential/hubspot/oauth_secret"
 ```
 
 ```

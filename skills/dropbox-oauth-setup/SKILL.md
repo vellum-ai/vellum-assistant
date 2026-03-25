@@ -144,7 +144,7 @@ bash:
     assistant oauth apps upsert --provider dropbox --client-id $(cat <<'EOF'
     <app-key>
     EOF
-    ) --client-secret-credential-path "dropbox:oauth_secret"
+    ) --client-secret-credential-path "credential/dropbox/oauth_secret"
 ```
 
 **Milestone (8 of 11):** "Credentials saved - just the authorization step left."

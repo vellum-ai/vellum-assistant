@@ -125,7 +125,7 @@ bash:
     assistant oauth apps upsert --provider figma --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "figma:oauth_secret"
+    ) --client-secret-credential-path "credential/figma/oauth_secret"
 ```
 
 **Milestone (6 of 7):** "Credentials saved - just the authorization step left."

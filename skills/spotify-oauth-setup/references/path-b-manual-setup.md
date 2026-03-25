@@ -95,7 +95,7 @@ bash:
     assistant oauth apps upsert --provider spotify --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "spotify:oauth_secret"
+    ) --client-secret-credential-path "credential/spotify/oauth_secret"
 ```
 
 ```

@@ -102,7 +102,7 @@ bash:
     assistant oauth apps upsert --provider todoist --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "todoist:app_secret"
+    ) --client-secret-credential-path "credential/todoist/app_secret"
 ```
 
 ```
