@@ -314,6 +314,22 @@ export function getConversation(id: string): ConversationRow | null {
   return row ? parseConversation(row) : null;
 }
 
+/**
+ * Count conversations that reference a given schedule job ID.
+ * Useful for determining whether a schedule can be safely deleted
+ * (i.e. no other conversations still reference it).
+ */
+export function countConversationsByScheduleJobId(
+  scheduleJobId: string,
+): number {
+  return (
+    rawGet<{ c: number }>(
+      "SELECT COUNT(*) AS c FROM conversations WHERE schedule_job_id = ?",
+      scheduleJobId,
+    )?.c ?? 0
+  );
+}
+
 export function getConversationType(
   conversationId: string,
 ): "standard" | "private" {
@@ -1745,9 +1761,10 @@ export function getTurnTimeBounds(
   // beyond any surviving message. Cap at 30 minutes to avoid sweeping in
   // logs from a much later turn.
   const MAX_TURN_DURATION_MS = 30 * 60 * 1000;
-  const hardCeiling = nextTurnStart != null && nextTurnStart > startTime
-    ? nextTurnStart - 1
-    : startTime + MAX_TURN_DURATION_MS;
+  const hardCeiling =
+    nextTurnStart != null && nextTurnStart > startTime
+      ? nextTurnStart - 1
+      : startTime + MAX_TURN_DURATION_MS;
 
   if (hardCeiling > endTime) {
     const latestLog = db

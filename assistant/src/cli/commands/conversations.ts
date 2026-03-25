@@ -12,6 +12,7 @@ import { ensureDaemonRunning } from "../../daemon/lifecycle.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import {
   clearAll as clearAllConversations,
+  countConversationsByScheduleJobId,
   createConversation,
   getConversation,
   getMessages,
@@ -29,6 +30,7 @@ import {
   loadOrCreateSigningKey,
   mintDaemonDeliveryToken,
 } from "../../runtime/auth/token-service.js";
+import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { timeAgo } from "../../util/time.js";
 import { initializeDb } from "../db.js";
 import { log } from "../logger.js";
@@ -351,6 +353,15 @@ Examples:
             `cancelled ${json.cancelledJobs} jobs.`,
         );
         return;
+      }
+
+      // Cancel the associated schedule job (if any) before wiping —
+      // but only when this is the last conversation referencing it.
+      if (
+        conversation.scheduleJobId &&
+        countConversationsByScheduleJobId(conversation.scheduleJobId) <= 1
+      ) {
+        deleteSchedule(conversation.scheduleJobId);
       }
 
       // Daemon not running — safe to wipe directly (no in-memory state).
