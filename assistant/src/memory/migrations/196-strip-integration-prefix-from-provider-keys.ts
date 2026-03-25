@@ -83,6 +83,14 @@ export function migrateStripIntegrationPrefixFromProviderKeys(
               .run(newKey, oldKey);
           }
         }
+
+        // Also update the watchers table — credential_service stores provider
+        // keys like "integration:google" that feed into resolveOAuthConnection().
+        raw
+          .prepare(
+            /*sql*/ `UPDATE watchers SET credential_service = REPLACE(credential_service, 'integration:', '') WHERE credential_service LIKE 'integration:%'`,
+          )
+          .run();
       } finally {
         raw.exec("PRAGMA foreign_keys = ON");
       }
@@ -154,6 +162,23 @@ export function migrateStripIntegrationPrefixFromProviderKeysDown(
           )
           .run(prefixedKey, bareKey);
       }
+    }
+
+    // Reverse the watchers table update — re-add the prefix for keys that
+    // aren't known bare-name providers.
+    const watcherRows = raw
+      .prepare(
+        /*sql*/ `SELECT DISTINCT credential_service FROM watchers WHERE credential_service NOT LIKE 'integration:%'`,
+      )
+      .all() as Array<{ credential_service: string }>;
+
+    for (const { credential_service: bareKey } of watcherRows) {
+      if (ALWAYS_BARE.has(bareKey)) continue;
+      raw
+        .prepare(
+          /*sql*/ `UPDATE watchers SET credential_service = ? WHERE credential_service = ?`,
+        )
+        .run(`integration:${bareKey}`, bareKey);
     }
   } finally {
     raw.exec("PRAGMA foreign_keys = ON");
