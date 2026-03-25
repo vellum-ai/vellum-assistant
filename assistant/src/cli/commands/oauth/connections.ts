@@ -31,6 +31,7 @@ import {
 } from "../../lib/daemon-credential-client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
+import { printDeprecationWarning } from "./shared.js";
 
 // ---------------------------------------------------------------------------
 // CES shell lockdown guard
@@ -477,7 +478,7 @@ Examples:
   // ---------------------------------------------------------------------------
 
   connections
-    .command("disconnect <provider-key>")
+    .command("disconnect <provider-key>", { hidden: true })
     .description(
       "Disconnect an OAuth integration and remove all associated credentials",
     )
@@ -510,6 +511,11 @@ Examples:
         cmd: Command,
       ) => {
         try {
+          printDeprecationWarning(
+            "assistant oauth connections disconnect",
+            "assistant oauth disconnect",
+            cmd,
+          );
           assertMetadataWritable();
 
           let cleanedUp = false;
@@ -574,7 +580,7 @@ Examples:
   // ---------------------------------------------------------------------------
 
   connections
-    .command("connect <provider-key>")
+    .command("connect <provider-key>", { hidden: true })
     .description("Initiate an OAuth2 authorization flow for a provider")
     .option(
       "--client-id <id>",
@@ -621,6 +627,11 @@ Examples:
         cmd: Command,
       ) => {
         try {
+          printDeprecationWarning(
+            "assistant oauth connections connect",
+            "assistant oauth connect",
+            cmd,
+          );
           // a. Resolve service alias
           const resolvedServiceKey = resolveService(providerKey);
 

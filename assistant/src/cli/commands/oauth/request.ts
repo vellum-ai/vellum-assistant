@@ -2,11 +2,6 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 import type { Command } from "commander";
 
-import { getConfig } from "../../../config/loader.js";
-import {
-  type Services,
-  ServicesSchema,
-} from "../../../config/schemas/services.js";
 import type { OAuthConnectionRequest } from "../../../oauth/connection.js";
 import {
   resolveOAuthConnection,
@@ -17,9 +12,9 @@ import {
   getAppByProviderAndClientId,
   getProvider,
 } from "../../../oauth/oauth-store.js";
-import { resolveService } from "../../../oauth/provider-behaviors.js";
 import { VellumPlatformClient } from "../../../platform/client.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
+import { isManagedMode, resolveService, toBareProvider } from "./shared.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -81,31 +76,6 @@ function readBodyData(data: string): unknown {
   }
 
   return tryJsonParse(data);
-}
-
-/**
- * Determine whether a provider is running in platform-managed mode.
- * Returns false if config is unavailable (e.g. in test environments).
- */
-function isManagedMode(providerKey: string): boolean {
-  const provider = getProvider(providerKey);
-  const managedKey = provider?.managedServiceConfigKey;
-  if (!managedKey || !(managedKey in ServicesSchema.shape)) return false;
-  try {
-    const services: Services = getConfig().services;
-    return services[managedKey as keyof Services].mode === "managed";
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Normalize a bare provider name into the canonical provider key.
- */
-function toBareProvider(provider: string): string {
-  return provider.startsWith("integration:")
-    ? provider.slice("integration:".length)
-    : provider;
 }
 
 // ---------------------------------------------------------------------------
@@ -277,8 +247,8 @@ Examples:
                   if (connections.length === 0) {
                     writeError(
                       `Error: No active platform connection found for "${providerKey}" with account "${opts.account}".\n\n` +
-                        `Run 'assistant oauth platform status ${providerKey}' to see connected accounts for this provider.\n` +
-                        `To connect a new account, run 'assistant oauth platform connect --help'.`,
+                        `Run 'assistant oauth status ${providerKey}' to see connected accounts for this provider.\n` +
+                        `To connect a new account, run 'assistant oauth connect --help'.`,
                     );
                     return;
                   }
@@ -296,8 +266,8 @@ Examples:
               if (!conn) {
                 writeError(
                   `Error: No active OAuth connection found for "${providerKey}" with account "${opts.account}"${opts.clientId ? ` and client ID "${opts.clientId}"` : ""}.\n\n` +
-                    `Run 'assistant oauth connections list' to see active connections.\n` +
-                    `To connect a new account, run 'assistant oauth connections connect --help'.`,
+                    `Run 'assistant oauth status ${providerKey}' to see active connections.\n` +
+                    `To connect a new account, run 'assistant oauth connect --help'.`,
                 );
                 return;
               }
@@ -464,14 +434,14 @@ Examples:
             if (managed) {
               writeError(
                 `Error: ${resolveMessage}\n\n` +
-                  `Run 'assistant oauth platform status ${providerKey}' to check connection status.\n` +
-                  `To connect, run 'assistant oauth platform connect --help'.`,
+                  `Run 'assistant oauth status ${providerKey}' to check connection status.\n` +
+                  `To connect, run 'assistant oauth connect --help'.`,
               );
             } else {
               writeError(
                 `Error: ${resolveMessage}\n\n` +
-                  `Run 'assistant oauth connections list' to see active connections.\n` +
-                  `To connect, run 'assistant oauth connections connect --help'.`,
+                  `Run 'assistant oauth status ${providerKey}' to see active connections.\n` +
+                  `To connect, run 'assistant oauth connect --help'.`,
               );
             }
             return;
@@ -503,13 +473,13 @@ Examples:
             if (managed) {
               authHint =
                 `Hint: Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth platform status ${providerKey}' to check connection health.\n` +
-                `To reconnect, run 'assistant oauth platform connect --help'.`;
+                `Run 'assistant oauth status ${providerKey}' to check connection health.\n` +
+                `To reconnect, run 'assistant oauth connect --help'.`;
             } else {
               authHint =
                 `Hint: Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth connections list --provider ${providerKey}' to check connection status.\n` +
-                `To reconnect, run 'assistant oauth connections connect --help'.`;
+                `Run 'assistant oauth status ${providerKey}' to check connection status.\n` +
+                `To reconnect, run 'assistant oauth connect --help'.`;
             }
             writeInfo(authHint);
           }
@@ -585,11 +555,11 @@ Examples:
             const managed = isManagedMode(providerKey);
             const authHint = managed
               ? `Hint: Request returned HTTP ${errStatus}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth platform status ${providerKey}' to check connection health.\n` +
-                `To reconnect, run 'assistant oauth platform connect --help'.`
+                `Run 'assistant oauth status ${providerKey}' to check connection health.\n` +
+                `To reconnect, run 'assistant oauth connect --help'.`
               : `Hint: Request returned HTTP ${errStatus}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth connections list --provider ${providerKey}' to check connection status.\n` +
-                `To reconnect, run 'assistant oauth connections connect --help'.`;
+                `Run 'assistant oauth status ${providerKey}' to check connection status.\n` +
+                `To reconnect, run 'assistant oauth connect --help'.`;
 
             writeError(`Error: ${message}`, authHint);
             writeInfo(authHint);
