@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { Command } from "commander";
 
+import { getWorkspaceDir } from "../../util/platform.js";
 import { log } from "../logger.js";
 
 // ---------------------------------------------------------------------------
@@ -33,8 +33,7 @@ const DEFAULT_AUTONOMY_CONFIG: AutonomyConfig = {
 // ---------------------------------------------------------------------------
 
 function getConfigPath(): string {
-  const root = join(process.env.BASE_DATA_DIR?.trim() || homedir(), ".vellum");
-  return join(root, "workspace", "autonomy.json");
+  return join(getWorkspaceDir(), "autonomy.json");
 }
 
 function isValidTier(value: unknown): value is AutonomyTier {
@@ -197,8 +196,7 @@ Resolution order (first match wins):
   3. Channel default    — per-channel tier set via --channel
   4. Global default     — the fallback tier set via --default
 
-Config is stored in <data-dir>/.vellum/workspace/autonomy.json, where
-<data-dir> is the BASE_DATA_DIR environment variable (defaults to $HOME).
+Config is stored in <workspace>/autonomy.json (resolved via getWorkspaceDir()).
 
 Examples:
   $ assistant autonomy get
