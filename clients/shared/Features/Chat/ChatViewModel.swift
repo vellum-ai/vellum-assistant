@@ -2635,13 +2635,17 @@ public final class ChatViewModel: ObservableObject {
 
     /// Respond to a tool confirmation request displayed inline in the chat.
     public func respondToConfirmation(requestId: String, decision: String) {
+        log.info("[confirm-flow] respondToConfirmation called: requestId=\(requestId, privacy: .public) decision=\(decision, privacy: .public)")
         markConfirmationInFlight(requestId: requestId, decision: decision)
+        inlineResponseHandledRequestIds.insert(requestId)
         Task {
             let success = await performConfirmationResponse(
                 requestId: requestId, decision: decision, selectedPattern: nil, selectedScope: nil
             )
             if !success {
+                log.error("[confirm-flow] respondToConfirmation POST failed (will show error banner): requestId=\(requestId, privacy: .public) decision=\(decision, privacy: .public)")
                 self.revertConfirmationInFlight(requestId: requestId)
+                self.inlineResponseHandledRequestIds.remove(requestId)
                 self.errorText = "Failed to send confirmation response."
             }
         }
@@ -2653,6 +2657,7 @@ public final class ChatViewModel: ObservableObject {
     /// fallback actually went through.
     public func respondToAlwaysAllow(requestId: String, selectedPattern: String, selectedScope: String, decision: String = "always_allow") {
         markConfirmationInFlight(requestId: requestId, decision: decision)
+        inlineResponseHandledRequestIds.insert(requestId)
         Task {
             let success = await interactionClient.sendConfirmationResponse(
                 requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope
@@ -2664,6 +2669,7 @@ public final class ChatViewModel: ObservableObject {
                 )
                 if !fallbackSuccess {
                     self.revertConfirmationInFlight(requestId: requestId)
+                    self.inlineResponseHandledRequestIds.remove(requestId)
                 }
                 if fallbackSuccess {
                     self.errorText = "Preference could not be saved. This action was allowed once."
