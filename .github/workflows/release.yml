@@ -2179,7 +2179,7 @@ jobs:
           # For staging releases, check that desktop app artifacts were successfully built
           STAGING_READY="true"
           if [ "$IS_STAGING" = "true" ]; then
-            if [ "${{ needs.build-macos-arm64.result }}" != "success" ] || [ "${{ needs.build-macos-x64.result }}" != "success" ]; then
+            if [ "${{ needs.build-macos-arm64.result }}" != "success" ]; then
               STAGING_READY="false"
             fi
           fi
