@@ -293,19 +293,14 @@ struct MessageInspectorView: View {
     }
 
     private var detailTabBar: some View {
-        VTabBar {
-            ForEach(MessageInspectorDetailTab.allCases, id: \.self) { tab in
-                VTab(
-                    label: tab.label,
-                    icon: tab.icon.rawValue,
-                    isSelected: viewState.selectedDetailTab == tab,
-                    isCloseable: false,
-                    style: .rectangular
-                ) {
-                    viewState.selectDetailTab(tab)
-                }
-            }
-        }
+        VTabs(
+            items: MessageInspectorDetailTab.allCases.map { (label: $0.label, icon: $0.icon.rawValue, tag: $0) },
+            selection: Binding(
+                get: { viewState.selectedDetailTab },
+                set: { viewState.selectDetailTab($0) }
+            ),
+            style: .underline
+        )
     }
 
     @ViewBuilder
@@ -327,7 +322,7 @@ struct MessageInspectorView: View {
     private func rawPayloadTab(for entry: LLMRequestLogEntry) -> some View {
         VStack(spacing: 0) {
             HStack {
-                VSegmentedControl(
+                VTabs(
                     items: RawPayloadPane.allCases.map { (label: $0.label, tag: $0) },
                     selection: rawPaneBinding,
                     style: .pill,

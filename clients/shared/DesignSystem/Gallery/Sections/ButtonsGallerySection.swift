@@ -23,7 +23,7 @@ struct ButtonsGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.xl) {
                         // Controls
                         HStack(spacing: VSpacing.xl) {
-                            VSegmentedControl(
+                            VTabs(
                                 items: [
                                     (label: "Primary", tag: VButton.Style.primary),
                                     (label: "Outlined", tag: VButton.Style.outlined),

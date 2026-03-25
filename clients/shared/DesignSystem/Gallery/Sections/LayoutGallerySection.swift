@@ -156,7 +156,7 @@ struct LayoutGallerySection: View {
 
                 VCard(padding: 0) {
                     VSidePanel(title: "Control", onClose: {}, pinnedContent: {
-                        VSegmentedControl(
+                        VTabs(
                             items: ["Profile", "Settings", "Channels", "Overview"],
                             selection: $pinnedTabSelection
                         )

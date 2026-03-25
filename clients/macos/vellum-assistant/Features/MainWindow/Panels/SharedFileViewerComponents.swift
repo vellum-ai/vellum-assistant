@@ -89,7 +89,7 @@ struct FileContentView: View {
                 fileName: fileName
             ) {
                 if modes.count > 1 {
-                    VSegmentedControl(
+                    VTabs(
                         items: modes.map { (label: viewModeLabel($0), tag: $0) },
                         selection: $viewMode,
                         style: .pill,

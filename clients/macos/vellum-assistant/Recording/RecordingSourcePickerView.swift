@@ -33,7 +33,7 @@ struct RecordingSourcePickerView: View {
                 .padding(.bottom, VSpacing.sm)
 
             // Scope picker (Display / Window)
-            VSegmentedControl(
+            VTabs(
                 items: CaptureScope.allCases.map { (label: $0.rawValue, tag: $0) },
                 selection: $viewModel.captureScope,
                 style: .pill

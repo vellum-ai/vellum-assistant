@@ -1,22 +1,22 @@
 import SwiftUI
 
-public enum VSegmentedControlStyle {
+public enum VTabsStyle {
     case underline
     case pill
 }
 
-public enum VSegmentedControlSize {
+public enum VTabsSize {
     case regular
     case compact
 }
 
-public struct VSegmentedControl<SelectionValue: Hashable>: View {
+public struct VTabs<SelectionValue: Hashable>: View {
     public let items: [(label: String, icon: String?, tag: SelectionValue)]
     @Binding public var selection: SelectionValue
-    public let style: VSegmentedControlStyle
-    public let size: VSegmentedControlSize
+    public let style: VTabsStyle
+    public let size: VTabsSize
 
-    public init(items: [(label: String, icon: String?, tag: SelectionValue)], selection: Binding<SelectionValue>, style: VSegmentedControlStyle = .underline, size: VSegmentedControlSize = .regular) {
+    public init(items: [(label: String, icon: String?, tag: SelectionValue)], selection: Binding<SelectionValue>, style: VTabsStyle = .underline, size: VTabsSize = .regular) {
         self.items = items
         self._selection = selection
         self.style = style
@@ -24,7 +24,7 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
     }
 
     /// Convenience init without icons.
-    public init(items: [(label: String, tag: SelectionValue)], selection: Binding<SelectionValue>, style: VSegmentedControlStyle = .underline, size: VSegmentedControlSize = .regular) {
+    public init(items: [(label: String, tag: SelectionValue)], selection: Binding<SelectionValue>, style: VTabsStyle = .underline, size: VTabsSize = .regular) {
         self.items = items.map { (label: $0.label, icon: nil, tag: $0.tag) }
         self._selection = selection
         self.style = style
@@ -100,8 +100,8 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
 
 // MARK: - Int convenience initializer
 
-public extension VSegmentedControl where SelectionValue == Int {
-    init(items: [String], selection: Binding<Int>, style: VSegmentedControlStyle = .underline, size: VSegmentedControlSize = .regular) {
+public extension VTabs where SelectionValue == Int {
+    init(items: [String], selection: Binding<Int>, style: VTabsStyle = .underline, size: VTabsSize = .regular) {
         self.init(
             items: items.enumerated().map { (label: $0.element, icon: nil as String?, tag: $0.offset) },
             selection: selection,
@@ -116,7 +116,7 @@ public extension VSegmentedControl where SelectionValue == Int {
 private struct PillSegment: View {
     let label: String
     var icon: String? = nil
-    let size: VSegmentedControlSize
+    let size: VTabsSize
     let isSelected: Bool
     let action: () -> Void
 
