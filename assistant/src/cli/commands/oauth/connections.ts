@@ -373,7 +373,11 @@ Examples:
         cmd: Command,
       ) => {
         try {
-          printDeprecationWarning("oauth connections ping", "oauth ping", cmd);
+          printDeprecationWarning(
+            "assistant oauth connections ping",
+            "assistant oauth ping",
+            cmd,
+          );
 
           const provider = getProvider(providerKey);
           if (!provider) {
