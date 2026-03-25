@@ -284,13 +284,20 @@ extension AppDelegate {
                     let task = Task { @MainActor in
                         defer { self.inFlightCuTasks.removeValue(forKey: msg.requestId) }
 
-                        guard !Task.isCancelled else { return }
+                        guard !Task.isCancelled else {
+                            HostCuActionRunner.clearSession(msg.conversationId)
+                            return
+                        }
                         let result = await HostCuActionRunner.perform(msg, overlayProxy: proxy)
 
-                        guard !Task.isCancelled else { return }
+                        guard !Task.isCancelled else {
+                            HostCuActionRunner.clearSession(msg.conversationId)
+                            return
+                        }
 
                         // Suppress stale POST if cancelled
                         if HostToolExecutor.isCancelledAndConsume(msg.requestId) {
+                            HostCuActionRunner.clearSession(msg.conversationId)
                             log.debug("Host CU result suppressed (cancelled) — requestId=\(msg.requestId, privacy: .public)")
                             return
                         }
