@@ -45,6 +45,8 @@ let mockPlatformFetchResults: Array<{
 let mockPlatformFetchCallIndex = 0;
 
 let mockIsManagedMode: (key: string) => boolean = () => false;
+/** Optional interceptor called with each platform fetch's parsed body. */
+let mockPlatformFetchInterceptor: ((path: string, body: unknown) => void) | null = null;
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -163,7 +165,16 @@ mock.module("../shared.js", () => ({
     return {
       platformAssistantId: (mockPlatformClientResult as Record<string, unknown>)
         .platformAssistantId,
-      fetch: async (_path: string, _init?: RequestInit): Promise<Response> => {
+      fetch: async (path: string, init?: RequestInit): Promise<Response> => {
+        // Allow tests to intercept and inspect the request body
+        if (mockPlatformFetchInterceptor && init?.body) {
+          try {
+            const parsed = JSON.parse(String(init.body));
+            mockPlatformFetchInterceptor(path, parsed);
+          } catch {
+            // non-JSON body, skip
+          }
+        }
         const idx = mockPlatformFetchCallIndex++;
         const result = mockPlatformFetchResults[idx] ?? {
           ok: false,
@@ -269,6 +280,7 @@ describe("assistant oauth connect", () => {
     mockPlatformFetchResults = [];
     mockPlatformFetchCallIndex = 0;
     mockIsManagedMode = () => false;
+    mockPlatformFetchInterceptor = null;
     process.exitCode = 0;
   });
 
@@ -368,7 +380,7 @@ describe("assistant oauth connect", () => {
   // Managed mode with --open-browser: opens browser and polls
   // -------------------------------------------------------------------------
 
-  test("managed mode with --open-browser: opens browser and polls for new connection", async () => {
+  test("managed mode with --open-browser: opens browser and waits for loopback callback", async () => {
     mockGetProvider = () => ({
       providerKey: "integration:google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -378,18 +390,34 @@ describe("assistant oauth connect", () => {
     mockIsManagedMode = () => true;
     mockPlatformClientResult = { platformAssistantId: "asst-123" };
 
-    // First call: /start/ endpoint returns connect_url
-    // Second call: fetchActiveConnections snapshot (before browser)
-    // Third call: fetchActiveConnections poll (new connection found)
+    let capturedRedirectUrl: string | undefined;
+
+    // When the platform start endpoint is called, capture the
+    // redirect_after_connect URL and simulate the platform redirecting
+    // back to our loopback server after a short delay.
+    mockPlatformFetchInterceptor = (_path, body) => {
+      const b = body as Record<string, unknown>;
+      if (b.redirect_after_connect) {
+        capturedRedirectUrl = b.redirect_after_connect as string;
+        setTimeout(async () => {
+          try {
+            await fetch(`${capturedRedirectUrl}?oauth_status=connected`);
+          } catch {
+            // Loopback may have closed
+          }
+        }, 50);
+      }
+    };
+
+    // Platform start endpoint returns connect_url.
+    // fetchActiveConnections returns the new connection after callback.
     mockPlatformFetchResults = [
       {
         ok: true,
         status: 200,
         body: { connect_url: "https://platform.example.com/oauth/connect" },
       },
-      // Snapshot — empty
-      { ok: true, status: 200, body: [] },
-      // Poll — new connection appeared
+      // fetchActiveConnections after successful callback
       {
         ok: true,
         status: 200,
@@ -415,6 +443,8 @@ describe("assistant oauth connect", () => {
     expect(parsed.connectionId).toBe("conn-new");
     expect(parsed.accountLabel).toBe("user@gmail.com");
     expect(parsed.scopesGranted).toEqual(["email"]);
+    expect(capturedRedirectUrl).toBeDefined();
+    expect(capturedRedirectUrl).toContain("localhost");
     expect(mockOpenInBrowserCalls.length).toBeGreaterThanOrEqual(1);
     expect(mockOpenInBrowserCalls[0]).toBe(
       "https://platform.example.com/oauth/connect",

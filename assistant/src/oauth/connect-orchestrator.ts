@@ -90,6 +90,12 @@ export interface OAuthConnectOptions {
   openUrl?: (url: string) => void;
   /** Send a message to the client (e.g. open_url). */
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
+  /**
+   * When set, the loopback server redirects to this URL after the OAuth
+   * callback instead of rendering an HTML page. Used by clients that
+   * listen for deep-link callbacks (e.g. `vellum-assistant://...`).
+   */
+  redirectAfterCallback?: string;
 
   /**
    * Called when the deferred (non-interactive) flow completes — either
@@ -266,7 +272,7 @@ export async function orchestrateOAuthConnect(
       const prepared = await prepareOAuth2Flow(
         oauthConfig,
         callbackTransport === "loopback"
-          ? { callbackTransport, loopbackPort }
+          ? { callbackTransport, loopbackPort, redirectAfterCallback: options.redirectAfterCallback }
           : callbackTransport === "gateway"
             ? { callbackTransport }
             : undefined,
@@ -384,7 +390,7 @@ export async function orchestrateOAuthConnect(
         },
       },
       callbackTransport === "loopback"
-        ? { callbackTransport, loopbackPort }
+        ? { callbackTransport, loopbackPort, redirectAfterCallback: options.redirectAfterCallback }
         : callbackTransport === "gateway"
           ? { callbackTransport }
           : undefined,

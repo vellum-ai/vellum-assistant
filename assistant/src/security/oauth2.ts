@@ -70,6 +70,13 @@ export interface OAuth2FlowOptions {
    *  instead of an OS-assigned random port. Required for providers like Slack that
    *  need pre-registered redirect URIs. */
   loopbackPort?: number;
+  /**
+   * When set, the loopback server redirects to this URL after the OAuth callback
+   * instead of rendering an HTML page. The URL receives query params:
+   * `oauth_status=connected` on success, or `oauth_status=error&oauth_code=<err>` on failure.
+   * Used by clients (e.g. macOS settings) that listen for deep-link callbacks.
+   */
+  redirectAfterCallback?: string;
 }
 
 export interface OAuth2FlowResult {
@@ -259,6 +266,7 @@ async function runLoopbackFlow(
   codeChallenge: string,
   state: string,
   loopbackPort?: number,
+  redirectAfterCallback?: string,
 ): Promise<OAuth2FlowResult> {
   const { code, redirectUri } = await startLoopbackServerAndWaitForCode(
     config,
@@ -266,6 +274,7 @@ async function runLoopbackFlow(
     codeChallenge,
     state,
     loopbackPort,
+    redirectAfterCallback,
   );
 
   return await exchangeCodeForTokens(config, code, redirectUri, codeVerifier);
@@ -283,10 +292,31 @@ function startLoopbackServerAndWaitForCode(
   codeChallenge: string,
   state: string,
   loopbackPort?: number,
+  redirectAfterCallback?: string,
 ): Promise<{ code: string; redirectUri: string }> {
   return new Promise((resolve, reject) => {
     let settled = false;
     let boundRedirectUri = "";
+
+    /** Respond with either a redirect (deep link) or an HTML page. */
+    function respond(
+      res: import("node:http").ServerResponse,
+      message: string,
+      success: boolean,
+      statusCode: number,
+      errorCode?: string,
+    ) {
+      if (redirectAfterCallback) {
+        const target = new URL(redirectAfterCallback);
+        target.searchParams.set("oauth_status", success ? "connected" : "error");
+        if (errorCode) target.searchParams.set("oauth_code", errorCode);
+        res.writeHead(302, { Location: target.toString() });
+        res.end();
+      } else {
+        res.writeHead(statusCode, { "Content-Type": "text/html" });
+        res.end(renderLoopbackPage(message, success));
+      }
+    }
 
     const server: Server = createServer((req, res) => {
       log.info(
@@ -299,8 +329,7 @@ function startLoopbackServerAndWaitForCode(
       );
 
       if (settled) {
-        res.writeHead(400, { "Content-Type": "text/html" });
-        res.end(renderLoopbackPage("Authorization already completed", false));
+        respond(res, "Authorization already completed", false, 400);
         return;
       }
 
@@ -322,8 +351,7 @@ function startLoopbackServerAndWaitForCode(
 
       if (callbackState !== state) {
         log.warn("oauth2 loopback: state mismatch in callback");
-        res.writeHead(400, { "Content-Type": "text/html" });
-        res.end(renderLoopbackPage("Invalid state parameter", false));
+        respond(res, "Invalid state parameter", false, 400);
         return;
       }
 
@@ -335,10 +363,7 @@ function startLoopbackServerAndWaitForCode(
           { error, errorDesc },
           "oauth2 loopback: authorization denied by user/provider",
         );
-        res.writeHead(200, { "Content-Type": "text/html" });
-        res.end(
-          renderLoopbackPage(`Authorization failed: ${errorDesc}`, false),
-        );
+        respond(res, `Authorization failed: ${errorDesc}`, false, 200, error);
         cleanup();
         reject(new Error(`OAuth2 authorization denied: ${error}`));
         return;
@@ -346,8 +371,7 @@ function startLoopbackServerAndWaitForCode(
 
       if (!code) {
         log.error("oauth2 loopback: callback missing authorization code");
-        res.writeHead(400, { "Content-Type": "text/html" });
-        res.end(renderLoopbackPage("Missing authorization code", false));
+        respond(res, "Missing authorization code", false, 400, "missing_code");
         cleanup();
         reject(new Error("OAuth2 callback missing authorization code"));
         return;
@@ -356,13 +380,7 @@ function startLoopbackServerAndWaitForCode(
       log.info(
         "oauth2 loopback: authorization code received, exchanging for tokens",
       );
-      res.writeHead(200, { "Content-Type": "text/html" });
-      res.end(
-        renderLoopbackPage(
-          "Authorization successful! You can close this tab.",
-          true,
-        ),
-      );
+      respond(res, "Authorization successful! You can close this tab.", true, 200);
       cleanup();
       resolve({ code, redirectUri: boundRedirectUri });
     });
@@ -478,7 +496,7 @@ export async function prepareOAuth2Flow(
   const transport = options?.callbackTransport ?? "loopback";
 
   if (transport === "loopback") {
-    return prepareLoopbackFlow(config, options?.loopbackPort);
+    return prepareLoopbackFlow(config, options?.loopbackPort, options?.redirectAfterCallback);
   }
 
   // Dynamic imports required here to avoid circular dependencies with
@@ -536,6 +554,7 @@ export async function prepareOAuth2Flow(
 async function prepareLoopbackFlow(
   config: OAuth2Config,
   loopbackPort?: number,
+  redirectAfterCallback?: string,
 ): Promise<OAuth2PreparedFlow> {
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = generateCodeChallenge(codeVerifier);
@@ -544,6 +563,7 @@ async function prepareLoopbackFlow(
   const { redirectUri, codePromise } = await startLoopbackServerForPreparedFlow(
     state,
     loopbackPort,
+    redirectAfterCallback,
   );
 
   const authParams = new URLSearchParams({
@@ -580,6 +600,7 @@ async function prepareLoopbackFlow(
 function startLoopbackServerForPreparedFlow(
   state: string,
   loopbackPort?: number,
+  redirectAfterCallback?: string,
 ): Promise<{ redirectUri: string; codePromise: Promise<string> }> {
   return new Promise((resolveSetup, rejectSetup) => {
     let settled = false;
@@ -591,10 +612,29 @@ function startLoopbackServerForPreparedFlow(
       codeReject = reject;
     });
 
+    /** Respond with either a redirect (deep link) or an HTML page. */
+    function respond(
+      res: import("node:http").ServerResponse,
+      message: string,
+      success: boolean,
+      statusCode: number,
+      errorCode?: string,
+    ) {
+      if (redirectAfterCallback) {
+        const target = new URL(redirectAfterCallback);
+        target.searchParams.set("oauth_status", success ? "connected" : "error");
+        if (errorCode) target.searchParams.set("oauth_code", errorCode);
+        res.writeHead(302, { Location: target.toString() });
+        res.end();
+      } else {
+        res.writeHead(statusCode, { "Content-Type": "text/html" });
+        res.end(renderLoopbackPage(message, success));
+      }
+    }
+
     const server: Server = createServer((req, res) => {
       if (settled) {
-        res.writeHead(400, { "Content-Type": "text/html" });
-        res.end(renderLoopbackPage("Authorization already completed", false));
+        respond(res, "Authorization already completed", false, 400);
         return;
       }
 
@@ -611,8 +651,7 @@ function startLoopbackServerForPreparedFlow(
       const error = url.searchParams.get("error");
 
       if (callbackState !== state) {
-        res.writeHead(400, { "Content-Type": "text/html" });
-        res.end(renderLoopbackPage("Invalid state parameter", false));
+        respond(res, "Invalid state parameter", false, 400);
         return;
       }
 
@@ -620,30 +659,20 @@ function startLoopbackServerForPreparedFlow(
 
       if (error) {
         const errorDesc = url.searchParams.get("error_description") ?? error;
-        res.writeHead(200, { "Content-Type": "text/html" });
-        res.end(
-          renderLoopbackPage(`Authorization failed: ${errorDesc}`, false),
-        );
+        respond(res, `Authorization failed: ${errorDesc}`, false, 200, error);
         cleanup();
         codeReject(new Error(`OAuth2 authorization denied: ${error}`));
         return;
       }
 
       if (!code) {
-        res.writeHead(400, { "Content-Type": "text/html" });
-        res.end(renderLoopbackPage("Missing authorization code", false));
+        respond(res, "Missing authorization code", false, 400, "missing_code");
         cleanup();
         codeReject(new Error("OAuth2 callback missing authorization code"));
         return;
       }
 
-      res.writeHead(200, { "Content-Type": "text/html" });
-      res.end(
-        renderLoopbackPage(
-          "Authorization successful! You can close this tab.",
-          true,
-        ),
-      );
+      respond(res, "Authorization successful! You can close this tab.", true, 200);
       cleanup();
       codeResolve(code);
     });
@@ -769,6 +798,7 @@ export async function startOAuth2Flow(
     codeChallenge,
     state,
     options?.loopbackPort,
+    options?.redirectAfterCallback,
   );
 }
 

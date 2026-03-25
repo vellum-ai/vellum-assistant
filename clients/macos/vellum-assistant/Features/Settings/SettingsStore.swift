@@ -227,6 +227,8 @@ public final class SettingsStore: ObservableObject {
     @Published var managedOAuthError: [String: String] = [:]
     /// Strong reference to prevent the auth session from being deallocated mid-flow.
     private var managedOAuthWebAuthSession: ASWebAuthenticationSession?
+    /// Strong reference for BYO OAuth auth session.
+    private var yourOwnOAuthWebAuthSession: ASWebAuthenticationSession?
 
     // MARK: - Your Own OAuth State
 
@@ -325,7 +327,6 @@ public final class SettingsStore: ObservableObject {
     private var pendingIngressEnabled: Bool?
     private var pendingIngressUrl: String?
     private var routingSourceRefreshTask: Task<Void, Never>?
-    private var yourOwnOAuthConnectPollingTask: Task<Void, Never>?
 
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle conversations.
@@ -2493,8 +2494,8 @@ public final class SettingsStore: ObservableObject {
     }
 
     func cancelYourOwnOAuthConnect() {
-        yourOwnOAuthConnectPollingTask?.cancel()
-        yourOwnOAuthConnectPollingTask = nil
+        yourOwnOAuthWebAuthSession?.cancel()
+        yourOwnOAuthWebAuthSession = nil
         yourOwnOAuthConnectingAppId = nil
     }
 
@@ -2503,8 +2504,20 @@ public final class SettingsStore: ObservableObject {
         let providerKey = yourOwnOAuthApps.first(where: { $0.value.contains(where: { $0.id == appId }) })?.key
         if let providerKey { yourOwnOAuthError[providerKey] = nil }
         Task {
+            defer { if self.yourOwnOAuthConnectingAppId == appId { self.yourOwnOAuthConnectingAppId = nil } }
+
             do {
-                let response = try await GatewayHTTPClient.post(path: "oauth/apps/\(appId)/connect", json: [:], timeout: 10)
+                let providerSlug = providerKey.map { key in
+                    key.hasPrefix("integration:") ? String(key.dropFirst("integration:".count)) : key
+                } ?? "oauth"
+                let callbackScheme = "vellum-assistant"
+                let redirectAfterCallback = "\(callbackScheme)://oauth/\(providerSlug)/byo-callback"
+
+                let response = try await GatewayHTTPClient.post(
+                    path: "oauth/apps/\(appId)/connect",
+                    json: ["redirect_after_callback": redirectAfterCallback],
+                    timeout: 10
+                )
                 guard response.isSuccess else {
                     let errorMsg: String
                     if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
@@ -2514,7 +2527,6 @@ public final class SettingsStore: ObservableObject {
                         errorMsg = "HTTP \(response.statusCode)"
                     }
                     if let providerKey { self.yourOwnOAuthError[providerKey] = "Failed to start connect: \(errorMsg)" }
-                    if self.yourOwnOAuthConnectingAppId == appId { self.yourOwnOAuthConnectingAppId = nil }
                     return
                 }
 
@@ -2523,46 +2535,40 @@ public final class SettingsStore: ObservableObject {
 
                 guard let authURL = URL(string: connectResponse.auth_url) else {
                     if let providerKey { self.yourOwnOAuthError[providerKey] = "Invalid auth URL" }
-                    if self.yourOwnOAuthConnectingAppId == appId { self.yourOwnOAuthConnectingAppId = nil }
                     return
                 }
 
-                NSWorkspace.shared.open(authURL)
-
-                // Start polling — detect new connections OR re-authed (updated) connections
-                let existingConnections = self.yourOwnOAuthConnectionsByApp[appId] ?? []
-                let initialCount = existingConnections.count
-                let maxUpdatedAt = existingConnections.map(\.updated_at).max() ?? 0
-                self.yourOwnOAuthConnectPollingTask?.cancel()
-                self.yourOwnOAuthConnectPollingTask = Task {
-                    let pollInterval: UInt64 = 3_000_000_000 // 3 seconds
-                    let timeout: UInt64 = 300_000_000_000 // 5 minutes
-                    let startTime = DispatchTime.now().uptimeNanoseconds
-
-                    while !Task.isCancelled {
-                        try? await Task.sleep(nanoseconds: pollInterval)
-                        guard !Task.isCancelled else { break }
-
-                        await self.fetchYourOwnOAuthConnections(appId: appId)
-                        let current = self.yourOwnOAuthConnectionsByApp[appId] ?? []
-
-                        // New connection added
-                        if current.count > initialCount { break }
-
-                        // Existing connection re-authed (updated_at changed)
-                        let currentMaxUpdatedAt = current.map(\.updated_at).max() ?? 0
-                        if currentMaxUpdatedAt > maxUpdatedAt { break }
-
-                        let elapsed = DispatchTime.now().uptimeNanoseconds - startTime
-                        if elapsed >= timeout { break }
+                let callbackURL: URL = try await withCheckedThrowingContinuation { continuation in
+                    let session = ASWebAuthenticationSession(url: authURL, callbackURLScheme: callbackScheme) { [weak self] callbackURL, error in
+                        self?.yourOwnOAuthWebAuthSession = nil
+                        if let error {
+                            continuation.resume(throwing: error)
+                        } else if let callbackURL {
+                            continuation.resume(returning: callbackURL)
+                        } else {
+                            continuation.resume(throwing: URLError(.badServerResponse))
+                        }
                     }
-
-                    if self.yourOwnOAuthConnectingAppId == appId { self.yourOwnOAuthConnectingAppId = nil }
+                    session.prefersEphemeralWebBrowserSession = false
+                    session.presentationContextProvider = WebAuthPresentationContext.shared
+                    self.yourOwnOAuthWebAuthSession = session
+                    session.start()
                 }
+
+                let components = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)
+                let oauthStatus = components?.queryItems?.first(where: { $0.name == "oauth_status" })?.value
+
+                if oauthStatus == "connected" {
+                    await self.fetchYourOwnOAuthConnections(appId: appId)
+                } else if oauthStatus == "error" {
+                    let errorCode = components?.queryItems?.first(where: { $0.name == "oauth_code" })?.value
+                    if let providerKey { self.yourOwnOAuthError[providerKey] = errorCode ?? "OAuth connection failed" }
+                }
+            } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
+                log.info("User cancelled BYO OAuth connect for app \(appId)")
             } catch {
                 log.error("Failed to start Your Own OAuth connect: \(error)")
                 if let providerKey { self.yourOwnOAuthError[providerKey] = "Failed to start connect: \(error.localizedDescription)" }
-                if self.yourOwnOAuthConnectingAppId == appId { self.yourOwnOAuthConnectingAppId = nil }
             }
         }
     }

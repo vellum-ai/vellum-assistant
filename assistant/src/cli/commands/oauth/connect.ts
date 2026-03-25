@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+
 import type { Command } from "commander";
 
 import { orchestrateOAuthConnect } from "../../../oauth/connect-orchestrator.js";
@@ -51,9 +53,8 @@ Options:
                          (use full scope URLs where required). In BYO mode,
                          scopes are appended to the provider's defaults.
   --open-browser         Open the authorization URL in your browser and wait
-                         for completion. In managed mode, polls for a new
-                         platform connection. In BYO mode, starts a local
-                         callback server and blocks until the OAuth redirect.
+                         for completion. Uses a local callback server to
+                         receive the redirect when authorization finishes.
   --client-id <id>       BYO-only: select a specific OAuth app when multiple
                          apps exist for the same provider. Ignored for
                          platform-managed providers.
@@ -123,9 +124,21 @@ Examples:
             // Call the platform's OAuth start endpoint
             const startPath = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/oauth/${encodeURIComponent(toBareProvider(providerKey))}/start/`;
 
+            // When --open-browser, start a loopback server first so we can
+            // pass its URL as redirect_after_connect in a single request.
+            let loopback:
+              | Awaited<ReturnType<typeof startManagedLoopbackServer>>
+              | undefined;
+            if (opts.openBrowser) {
+              loopback = await startManagedLoopbackServer();
+            }
+
             const body: Record<string, unknown> = {};
             if (opts.scopes && opts.scopes.length > 0) {
               body.requested_scopes = opts.scopes;
+            }
+            if (loopback) {
+              body.redirect_after_connect = loopback.redirectUrl;
             }
 
             const response = await client.fetch(startPath, {
@@ -153,19 +166,7 @@ Examples:
               return;
             }
 
-            if (opts.openBrowser) {
-              // Snapshot existing connection IDs before opening browser
-              const snapshotEntries = await fetchActiveConnections(
-                client,
-                providerKey,
-                cmd,
-              );
-              if (!snapshotEntries) {
-                // fetchActiveConnections already wrote the error output
-                return;
-              }
-              const snapshotIds = new Set(snapshotEntries.map((e) => e.id));
-
+            if (loopback) {
               openInBrowser(result.connect_url);
 
               if (!jsonMode) {
@@ -174,68 +175,43 @@ Examples:
                 );
               }
 
-              // Poll for a new connection every 2s for up to 5 minutes
-              const pollIntervalMs = 2000;
-              const timeoutMs = 5 * 60 * 1000;
-              const deadline = Date.now() + timeoutMs;
-              let newConnection: {
-                id: string;
-                account_label?: string;
-                scopes_granted?: string[];
-              } | null = null;
+              // Wait for the platform to redirect back to our loopback server
+              const callbackResult = await loopback.callbackPromise;
 
-              while (Date.now() < deadline) {
-                await new Promise((r) => setTimeout(r, pollIntervalMs));
-
+              if (callbackResult.status === "connected") {
+                // Fetch the new connection details
                 const currentEntries = await fetchActiveConnections(
                   client,
                   providerKey,
                   cmd,
-                  { silent: true },
                 );
-                if (!currentEntries) continue;
-
-                const found = currentEntries.find(
-                  (e) => !snapshotIds.has(e.id),
-                );
-                if (found) {
-                  newConnection = found;
-                  break;
-                }
-              }
-
-              if (newConnection) {
-                // Success — new connection found
+                // Best-effort: find the most recent connection
+                const newest = currentEntries?.[currentEntries.length - 1];
                 if (jsonMode) {
                   writeOutput(cmd, {
                     ok: true,
                     provider: providerKey,
-                    connectionId: newConnection.id,
-                    accountLabel: newConnection.account_label ?? null,
-                    scopesGranted: newConnection.scopes_granted ?? [],
+                    connectionId: newest?.id ?? null,
+                    accountLabel: newest?.account_label ?? null,
+                    scopesGranted: newest?.scopes_granted ?? [],
                   });
                 } else {
-                  const label = newConnection.account_label
-                    ? ` as ${newConnection.account_label}`
+                  const label = newest?.account_label
+                    ? ` as ${newest.account_label}`
                     : "";
                   process.stdout.write(`Connected to ${providerKey}${label}\n`);
                 }
               } else {
-                // Timeout — authorization may still be in progress
+                // Error or timeout
+                const errorDetail = callbackResult.error ?? "unknown error";
                 if (jsonMode) {
                   writeOutput(cmd, {
-                    ok: true,
-                    deferred: true,
+                    ok: false,
+                    error: `OAuth connection failed: ${errorDetail}`,
                     provider: providerKey,
-                    connectUrl: result.connect_url,
-                    message:
-                      "Authorization may still be in progress. Check with 'assistant oauth status <provider>'.",
                   });
                 } else {
-                  process.stdout.write(
-                    `Timed out waiting for authorization. It may still be in progress.\n` +
-                      `Check with: assistant oauth status ${providerKey}\n`,
-                  );
+                  writeError(`OAuth connection failed: ${errorDetail}`);
                 }
               }
             } else {
@@ -361,4 +337,125 @@ Examples:
         }
       },
     );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+interface ManagedLoopbackResult {
+  status: "connected" | "error" | "timeout";
+  error?: string;
+}
+
+/**
+ * Start a temporary loopback HTTP server that waits for the platform to
+ * redirect back after managed OAuth completes. Returns the redirect URL
+ * to pass as `redirect_after_connect` and a promise that resolves with
+ * the callback result.
+ */
+function startManagedLoopbackServer(): Promise<{
+  redirectUrl: string;
+  callbackPromise: Promise<ManagedLoopbackResult>;
+}> {
+  return new Promise((resolveSetup, rejectSetup) => {
+    const TIMEOUT_MS = 5 * 60 * 1000;
+    let settled = false;
+    let resultResolve: (result: ManagedLoopbackResult) => void;
+    const callbackPromise = new Promise<ManagedLoopbackResult>((resolve) => {
+      resultResolve = resolve;
+    });
+
+    const server = createServer((req, res) => {
+      if (settled) {
+        res.writeHead(200, { "Content-Type": "text/plain" });
+        res.end("Already handled.");
+        return;
+      }
+
+      const url = new URL(req.url ?? "/", "http://127.0.0.1");
+
+      if (url.pathname !== "/oauth/callback") {
+        res.writeHead(404, { "Content-Type": "text/plain" });
+        res.end("Not found");
+        return;
+      }
+
+      settled = true;
+
+      const oauthStatus = url.searchParams.get("oauth_status");
+      const oauthCode = url.searchParams.get("oauth_code");
+
+      if (oauthStatus === "connected") {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(renderCallbackPage(true));
+        cleanup();
+        resultResolve({ status: "connected" });
+      } else {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(renderCallbackPage(false, oauthCode ?? undefined));
+        cleanup();
+        resultResolve({
+          status: "error",
+          error: oauthCode ?? "OAuth connection failed",
+        });
+      }
+    });
+
+    const timeout = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        resultResolve({ status: "timeout", error: "Timed out waiting for authorization" });
+      }
+    }, TIMEOUT_MS);
+    if (typeof timeout === "object" && "unref" in timeout) timeout.unref();
+
+    function cleanup() {
+      clearTimeout(timeout);
+      server.close();
+    }
+
+    server.listen(0, "localhost", () => {
+      const addr = server.address() as { port: number };
+      const redirectUrl = `http://localhost:${addr.port}/oauth/callback`;
+      resolveSetup({ redirectUrl, callbackPromise });
+    });
+
+    server.on("error", (err) => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        rejectSetup(
+          new Error(`Failed to start loopback server: ${err.message}`),
+        );
+      }
+    });
+  });
+}
+
+function renderCallbackPage(success: boolean, errorCode?: string): string {
+  const title = success ? "Authorization Successful" : "Authorization Failed";
+  const color = success ? "#4CAF50" : "#f44336";
+  const icon = success ? "✓" : "✗";
+  const message = success
+    ? "Your account has been connected. You can return to the app."
+    : `Something went wrong${errorCode ? ` (${errorCode})` : ""}. Please return to the app and try again.`;
+  return `<!DOCTYPE html>
+<html><head>
+<title>${title}</title>
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #f5f5f5; color: #333; }
+  .card { text-align: center; padding: 3rem 2.5rem; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); max-width: 420px; }
+  .icon { font-size: 3rem; width: 64px; height: 64px; line-height: 64px; border-radius: 50%; margin: 0 auto 1.5rem; background: ${color}18; color: ${color}; }
+  h1 { color: ${color}; margin: 0 0 0.75rem; font-size: 1.5rem; }
+  p { margin: 0; color: #666; line-height: 1.5; }
+</style>
+</head><body>
+<div class="card">
+  <div class="icon">${icon}</div>
+  <h1>${title}</h1>
+  <p>${message}</p>
+</div>
+</body></html>`;
 }
