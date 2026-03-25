@@ -779,7 +779,7 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     _setStorePath(STORE_PATH);
     _resetBackend();
     _setMetadataPath(join(TEST_DIR, "metadata.json"));
-    // Return well-known provider rows so vault.ts knows gmail/slack are
+    // Return well-known provider rows so vault.ts knows google/slack are
     // registered, and custom providers return undefined.
     mockGetProvider.mockImplementation(
       (key: string) => wellKnownProviders[key] ?? undefined,
@@ -933,16 +933,16 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     const result = await credentialStoreTool.execute(
       {
         action: "oauth2_connect",
-        service: "gmail",
+        service: "google",
       },
       { ..._ctx, isInteractive: false },
     );
 
     // Should pass client_id and client_secret checks — the flow proceeds
-    // through the channel path (gmail uses loopback transport so no
+    // through the channel path (google uses loopback transport so no
     // public ingress URL is needed) and returns the authorization URL.
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("To connect gmail, open this link");
+    expect(result.content).toContain("To connect google, open this link");
     expect(result.content).not.toContain("client_id is required");
     expect(result.content).not.toContain("client_secret is required");
 
@@ -987,7 +987,7 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     const result = await credentialStoreTool.execute(
       {
         action: "oauth2_connect",
-        service: "gmail",
+        service: "google",
         client_id: "caller-supplied-client-id",
       },
       { ..._ctx, isInteractive: false },
@@ -995,7 +995,7 @@ describe("credential_store tool — oauth2_connect error paths", () => {
 
     // Should succeed — client_secret resolved from the matched app
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("To connect gmail, open this link");
+    expect(result.content).toContain("To connect google, open this link");
     // getMostRecentAppByProvider should NOT have been called since client_id was known
     expect(mockGetMostRecentAppByProvider).not.toHaveBeenCalled();
 
@@ -1031,13 +1031,13 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     const result = await credentialStoreTool.execute(
       {
         action: "oauth2_connect",
-        service: "gmail",
+        service: "google",
       },
       { ..._ctx, isInteractive: false },
     );
 
     expect(result.isError).toBe(false);
-    expect(result.content).toContain("To connect gmail, open this link");
+    expect(result.content).toContain("To connect google, open this link");
     // getAppByProviderAndClientId should NOT have been called since client_id was unknown
     expect(mockGetAppByProviderAndClientId).not.toHaveBeenCalled();
 
