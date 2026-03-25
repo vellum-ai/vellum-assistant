@@ -782,13 +782,13 @@ class IOSConversationStore: ObservableObject {
         }
     }
 
-    private func handleHistoryResponse(_ response: HistoryResponse) async {
+    private func handleHistoryResponse(_ response: HistoryResponse) {
         guard let conversationLocalId = pendingHistoryByConversationId.removeValue(forKey: response.conversationId) else { return }
         guard let vm = viewModels[conversationLocalId] else { return }
 
         let isPaginationLoad = vm.isHistoryLoaded && vm.isLoadingMoreMessages
 
-        await vm.populateFromHistory(
+        vm.populateFromHistory(
             response.messages,
             hasMore: response.hasMore,
             oldestTimestamp: response.oldestTimestamp,
@@ -821,7 +821,7 @@ class IOSConversationStore: ObservableObject {
             guard let self else { return }
             let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: nil, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
             if let response {
-                await self.handleHistoryResponse(response)
+                self.handleHistoryResponse(response)
             } else {
                 self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
             }
@@ -874,7 +874,7 @@ class IOSConversationStore: ObservableObject {
             guard let self else { return }
             let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
             if let response {
-                await self.handleHistoryResponse(response)
+                self.handleHistoryResponse(response)
             } else {
                 self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
                 if let vm = self.viewModels[conversation.id] {
@@ -960,7 +960,7 @@ class IOSConversationStore: ObservableObject {
                 guard let self else { return }
                 let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: nil, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
                 if let response {
-                    await self.handleHistoryResponse(response)
+                    self.handleHistoryResponse(response)
                 } else {
                     self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
                 }

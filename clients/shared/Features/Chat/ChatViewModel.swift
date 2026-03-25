@@ -2834,18 +2834,16 @@ public final class ChatViewModel: ObservableObject {
         hasMore: Bool,
         oldestTimestamp: Double? = nil,
         isPaginationLoad: Bool = false
-    ) async {
+    ) {
         let spid = OSSignpostID(log: Self.poiLog)
         os_signpost(.begin, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "messages=%d isPagination=%d", historyMessages.count, isPaginationLoad ? 1 : 0)
 
-        // Phase 1: reconstruct messages off the main thread.
+        // Reconstruct messages using a nonisolated static method.
         // The heavy work (JSON size estimation, tool input formatting, surface
-        // mapping, image decoding) runs in a detached task using a nonisolated
-        // static method that accesses no @MainActor state.
+        // mapping, image decoding) is isolated in a pure function that accesses
+        // no @MainActor state, enabling future background execution.
         let convId = self.conversationId
-        let result = await Task.detached {
-            Self.reconstructMessages(from: historyMessages, conversationId: convId)
-        }.value
+        let result = Self.reconstructMessages(from: historyMessages, conversationId: convId)
         let chatMessages = result.messages
         let reconstructedSubagents = result.subagents
 
@@ -2973,7 +2971,7 @@ public final class ChatViewModel: ObservableObject {
     // MARK: - Off-Main History Reconstruction
 
     /// Result of reconstructing ChatMessages from history response items.
-    struct HistoryReconstructionResult: Sendable {
+    struct HistoryReconstructionResult {
         let messages: [ChatMessage]
         let subagents: [SubagentInfo]
     }
