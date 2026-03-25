@@ -167,12 +167,14 @@ async function handleOAuthConnectStart(body: {
     return httpError("BAD_REQUEST", "Missing required field: service", 400);
   }
 
+  const service = body.service;
+
   // Resolve client_id and client_secret from oauth-store.
   let clientId: string | undefined;
   let clientSecret: string | undefined;
 
   // Try existing connection first (re-auth flow)
-  const conn = getConnectionByProvider(body.service);
+  const conn = getConnectionByProvider(service);
   if (conn) {
     const app = getApp(conn.oauthAppId);
     if (app) {
@@ -183,7 +185,7 @@ async function handleOAuthConnectStart(body: {
 
   // Fall back to most recent app for this provider (first-time connect with stored app)
   if (!clientId) {
-    const dbApp = getMostRecentAppByProvider(body.service);
+    const dbApp = getMostRecentAppByProvider(service);
     if (dbApp) {
       clientId = dbApp.clientId;
       if (!clientSecret) {
@@ -197,20 +199,20 @@ async function handleOAuthConnectStart(body: {
   if (!clientId) {
     return httpError(
       "BAD_REQUEST",
-      `No client_id found for "${body.service}". Store it first via the credential vault.`,
+      `No client_id found for "${service}". Store it first via the credential vault.`,
       400,
     );
   }
 
-  const behavior = getProviderBehavior(body.service);
-  const providerRow = getProvider(body.service);
+  const behavior = getProviderBehavior(service);
+  const providerRow = getProvider(service);
   const requiresSecret =
     behavior?.setup?.requiresClientSecret ??
     !!(providerRow?.tokenEndpointAuthMethod || providerRow?.extraParams);
   if (requiresSecret && !clientSecret) {
     return httpError(
       "BAD_REQUEST",
-      `client_secret is required for "${body.service}" but not found in the credential store. Store it first via the credential vault.`,
+      `client_secret is required for "${service}" but not found in the credential store. Store it first via the credential vault.`,
       400,
     );
   }
@@ -221,7 +223,7 @@ async function handleOAuthConnectStart(body: {
     let authUrl: string | undefined;
 
     const result = await orchestrateOAuthConnect({
-      service: body.service,
+      service,
       requestedScopes: body.requestedScopes,
       clientId,
       clientSecret,
@@ -233,7 +235,7 @@ async function handleOAuthConnectStart(body: {
         // Prefer accountInfo from oauth-store when available.
         let accountInfo = deferredResult.accountInfo;
         try {
-          const conn = getConnectionByProvider(body.service);
+          const conn = getConnectionByProvider(service);
           if (conn?.accountInfo) accountInfo = conn.accountInfo;
         } catch {
           // DB not ready — use orchestrator value
@@ -272,7 +274,7 @@ async function handleOAuthConnectStart(body: {
 
     if (!result.success) {
       log.error(
-        { err: result.error, service: body.service },
+        { err: result.error, service },
         "OAuth connect orchestrator returned error",
       );
       return httpError(
@@ -293,7 +295,7 @@ async function handleOAuthConnectStart(body: {
     // Prefer accountInfo from oauth-store when available.
     let responseAccountInfo = result.accountInfo;
     try {
-      const conn = getConnectionByProvider(body.service);
+      const conn = getConnectionByProvider(service);
       if (conn?.accountInfo) responseAccountInfo = conn.accountInfo;
     } catch {
       // DB not ready — use orchestrator value
@@ -307,7 +309,7 @@ async function handleOAuthConnectStart(body: {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, service: body.service }, "OAuth connect flow failed");
+    log.error({ err, service }, "OAuth connect flow failed");
     return httpError("INTERNAL_ERROR", sanitizeOAuthError(message), 500);
   }
 }
