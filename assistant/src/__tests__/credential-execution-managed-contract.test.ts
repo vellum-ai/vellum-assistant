@@ -453,7 +453,7 @@ describe("feature-flag rollback safety", () => {
 
   test("managed sidecar flag can be explicitly enabled", () => {
     _setOverridesForTesting({
-      "feature_flags.ces-managed-sidecar.enabled": true,
+      "ces-managed-sidecar": true,
     });
     const config = makeConfig();
     expect(isCesManagedSidecarEnabled(config)).toBe(true);
@@ -461,7 +461,7 @@ describe("feature-flag rollback safety", () => {
 
   test("managed sidecar flag can be explicitly disabled", () => {
     _setOverridesForTesting({
-      "feature_flags.ces-managed-sidecar.enabled": false,
+      "ces-managed-sidecar": false,
     });
     const config = makeConfig();
     expect(isCesManagedSidecarEnabled(config)).toBe(false);
@@ -469,7 +469,7 @@ describe("feature-flag rollback safety", () => {
 
   test("enabling managed sidecar does not enable CES tools", () => {
     _setOverridesForTesting({
-      "feature_flags.ces-managed-sidecar.enabled": true,
+      "ces-managed-sidecar": true,
     });
     const config = makeConfig();
     // CES tools flag should remain independently controlled
@@ -478,8 +478,8 @@ describe("feature-flag rollback safety", () => {
 
   test("disabling managed sidecar does not affect other CES flags", () => {
     _setOverridesForTesting({
-      "feature_flags.ces-managed-sidecar.enabled": false,
-      "feature_flags.ces-tools.enabled": true,
+      "ces-managed-sidecar": false,
+      "ces-tools": true,
     });
     const config = makeConfig();
     expect(isCesToolsEnabled(config)).toBe(true);
@@ -493,7 +493,7 @@ describe("feature-flag rollback safety", () => {
 describe("process manager config wiring", () => {
   test("CesProcessManagerConfig accepts assistantConfig for flag gating", () => {
     _setOverridesForTesting({
-      "feature_flags.ces-managed-sidecar.enabled": true,
+      "ces-managed-sidecar": true,
     });
     const config: CesProcessManagerConfig = {
       assistantConfig: makeConfig(),
@@ -511,7 +511,7 @@ describe("process manager config wiring", () => {
 
   test("when flag is off, managed discovery is skipped", () => {
     _setOverridesForTesting({
-      "feature_flags.ces-managed-sidecar.enabled": false,
+      "ces-managed-sidecar": false,
     });
     const config: CesProcessManagerConfig = {
       assistantConfig: makeConfig(),
@@ -528,7 +528,7 @@ describe("process manager config wiring", () => {
 describe("non-CES internal consumers intact when flag is off", () => {
   test("existing non-agent flows are unaffected by managed sidecar flag", () => {
     _setOverridesForTesting({
-      "feature_flags.ces-managed-sidecar.enabled": false,
+      "ces-managed-sidecar": false,
     });
     const config = makeConfig();
     expect(isCesManagedSidecarEnabled(config)).toBe(false);

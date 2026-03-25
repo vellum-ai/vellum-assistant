@@ -472,8 +472,7 @@ describe("seedCatalogSkillMemories", () => {
     mockResolveCatalog = async () => skills;
 
     // Disable the feature flag for the flagged skill
-    mockIsFeatureFlagEnabled = (key: string) =>
-      key !== "feature_flags.my_gated_feature.enabled";
+    mockIsFeatureFlagEnabled = (key: string) => key !== "my_gated_feature";
 
     await seedCatalogSkillMemories();
 
@@ -519,8 +518,7 @@ describe("seedCatalogSkillMemories", () => {
     expect(beforeItems.every((i) => i.status === "active")).toBe(true);
 
     // Now disable the flag — the flagged skill should be pruned
-    mockIsFeatureFlagEnabled = (key: string) =>
-      key !== "feature_flags.my_gated_feature.enabled";
+    mockIsFeatureFlagEnabled = (key: string) => key !== "my_gated_feature";
     await seedCatalogSkillMemories();
 
     const afterItems = db

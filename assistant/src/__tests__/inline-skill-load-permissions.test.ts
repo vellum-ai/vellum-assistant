@@ -2,7 +2,7 @@
  * Tests for inline-command skill load permission handling.
  *
  * When a skill contains inline command expansions (!\`...\`) and the
- * feature_flags.inline-skill-commands.enabled flag is on, the permission
+ * inline-skill-commands flag is on, the permission
  * system must:
  *
  * 1. Emit skill_load_dynamic:<id>@<hash> / skill_load_dynamic:<id> candidates
@@ -117,7 +117,7 @@ describe("inline-command skill_load permissions", () => {
     testConfig.permissions = { mode: "workspace" };
     testConfig.skills = { load: { extraDirs: [] } };
     _setOverridesForTesting({
-      "feature_flags.inline-skill-commands.enabled": true,
+      "inline-skill-commands": true,
     });
     try {
       rmSync(join(testDir, "protected", "trust.json"));
@@ -351,7 +351,7 @@ describe("inline-command skill_load permissions", () => {
 
       // Disable the feature flag
       _setOverridesForTesting({
-        "feature_flags.inline-skill-commands.enabled": false,
+        "inline-skill-commands": false,
       });
 
       const result = await check(
