@@ -95,6 +95,7 @@ import {
   migrateOAuthAppsClientSecretPath,
   migrateOAuthProvidersDisplayMetadata,
   migrateOAuthProvidersManagedServiceConfigKey,
+  migrateOAuthProvidersPingConfig,
   migrateOAuthProvidersPingUrl,
   migrateReminderRoutingIntent,
   migrateRemindersToSchedules,
@@ -511,6 +512,9 @@ export function initializeDb(): void {
 
   // 91. Memory recall logs table for inspector memory tab
   migrateCreateMemoryRecallLogs(database);
+
+  // 92. Add ping_method, ping_headers, ping_body columns to oauth_providers
+  migrateOAuthProvidersPingConfig(database);
 
   validateMigrationState(database);
 
