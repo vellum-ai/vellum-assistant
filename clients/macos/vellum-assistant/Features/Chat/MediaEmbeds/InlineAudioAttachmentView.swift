@@ -175,7 +175,7 @@ struct InlineAudioAttachmentView: View {
     }
 
     private var progressBar: some View {
-        TimelineView(isPlaying ? .periodic(from: .now, by: 0.1) : .everyMinute) { _ in
+        TimelineView(.periodic(from: .now, by: isPlaying ? 0.1 : 60)) { _ in
             GeometryReader { geo in
                 let dur = currentDuration
                 let prog = currentProgress
@@ -204,7 +204,7 @@ struct InlineAudioAttachmentView: View {
     }
 
     private var timeDisplay: some View {
-        TimelineView(isPlaying ? .periodic(from: .now, by: 0.1) : .everyMinute) { _ in
+        TimelineView(.periodic(from: .now, by: isPlaying ? 0.1 : 60)) { _ in
             let dur = currentDuration
             let prog = currentProgress
             Group {
