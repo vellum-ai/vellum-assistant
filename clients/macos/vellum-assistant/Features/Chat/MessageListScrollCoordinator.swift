@@ -75,11 +75,33 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// the view-owned `ScrollPosition` binding.
     var scrollTo: ((_ id: any Hashable, _ anchor: UnitPoint?) -> Void)?
 
+    /// Closure that scrolls to a given edge (e.g. `.bottom`). Used for
+    /// conversation switches where we need to position at the bottom
+    /// without relying on `.defaultScrollAnchor`.
+    var scrollToEdge: ((_ edge: Edge) -> Void)?
+
     /// Returns `true` when the user is within 20pt of the conversation bottom.
     /// Computed from scroll geometry in the onScrollGeometryChange handler.
     /// @Published so the "Scroll to latest" CTA button and avatar visibility
     /// react immediately when the user scrolls to/from the bottom.
     @Published var isAtBottom: Bool = true
+
+    /// The message ID whose top edge should be pinned to the viewport top
+    /// after the user sends a message (push-to-top pattern). `nil` when
+    /// push-to-top is inactive. `@Published` so the conditional tail spacer
+    /// in MessageListView re-renders when push-to-top starts/ends.
+    @Published var pushToTopMessageId: (any Hashable)?
+
+    /// Height of the tail spacer when it is visible during push-to-top.
+    /// Subtracted from content height for overflow and bottom detection
+    /// so those computations operate on effective content height.
+    var tailSpacerHeight: CGFloat {
+        guard pushToTopMessageId != nil else { return 0 }
+        let h = currentScrollViewportHeight
+        // Account for LazyVStack inter-item spacing so the spacer
+        // doesn't overshoot by one spacing unit.
+        return h.isFinite ? max(0, h - VSpacing.md) : 0
+    }
 
     // MARK: - Reactive State (@Published)
 
@@ -420,6 +442,7 @@ final class MessageListScrollCoordinator: ObservableObject {
         currentConversationId = newConversationId
         // Reset the coordinator for the new conversation.
         bottomPinCoordinator.reset(newConversationId: newConversationId)
+        pushToTopMessageId = nil
         isAtBottom = true
         hasReceivedScrollEvent = false
         // Hide scroll indicators during the conversation switch grace period
