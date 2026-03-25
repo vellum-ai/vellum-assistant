@@ -253,8 +253,7 @@ function expandCollapsedAssistantTurns(
 
     for (const block of content) {
       const type = (block as { type: string }).type;
-      const isThinking =
-        type === "thinking" || type === "redacted_thinking";
+      const isThinking = type === "thinking" || type === "redacted_thinking";
 
       if (isThinking && segmentHasToolUse) {
         segments.push(current);
@@ -310,10 +309,7 @@ function expandCollapsedAssistantTurns(
     // tool_results that were already distributed to intermediate segments.
     if (nextIsUser) {
       const remainingResults = Array.from(toolResultMap.values());
-      const rebuiltUserContent = [
-        ...remainingResults,
-        ...nonToolResultContent,
-      ];
+      const rebuiltUserContent = [...remainingResults, ...nonToolResultContent];
       // Replace the original user message with the rebuilt one
       result.push({
         role: "user" as const,
@@ -949,10 +945,6 @@ export class AnthropicProvider implements Provider {
           signal: timeoutSignal,
         }) as unknown as UnifiedStream;
 
-        // Track whether we've seen a text content block so we can insert a
-        // separator between consecutive text blocks in the same response.
-        let hasSeenTextBlock = false;
-
         stream.on("text", (text) => {
           onEvent?.({ type: "text_delta", text });
         });
@@ -969,29 +961,6 @@ export class AnthropicProvider implements Provider {
         let pendingInputJsonFlush: ReturnType<typeof setTimeout> | undefined;
 
         stream.on("streamEvent", (event) => {
-          // Insert a space separator when a new text content block starts
-          // after a previous one, so consecutive text blocks don't get
-          // concatenated without whitespace (e.g. "sentence.NextSentence").
-          // Uses a space instead of \n because the client's MarkdownRenderer
-          // can collapse soft line breaks (\n) within a paragraph.
-          if (
-            event.type === "content_block_start" &&
-            event.content_block.type === "text"
-          ) {
-            if (hasSeenTextBlock) {
-              onEvent?.({ type: "text_delta", text: " " });
-            }
-            hasSeenTextBlock = true;
-          } else if (
-            event.type === "content_block_start" &&
-            event.content_block.type === "tool_use"
-          ) {
-            // Reset only for client-side tool_use blocks, which create visual
-            // separators in the UI. Server-side tool blocks (server_tool_use,
-            // web_search_tool_result) are transparent in the text stream and
-            // need the space preserved between surrounding text blocks.
-            hasSeenTextBlock = false;
-          }
           if (
             event.type === "content_block_start" &&
             event.content_block.type === "tool_use"
