@@ -209,16 +209,28 @@ class HostShellTool implements Tool {
 
       const timer = setTimeout(() => {
         timedOut = true;
-        process.kill(-child.pid!, "SIGKILL");
+        try {
+          process.kill(-child.pid!, "SIGKILL");
+        } catch {
+          // Process group may have already exited.
+        }
       }, timeoutMs);
 
       // Cooperative cancellation via AbortSignal
       const onAbort = () => {
-        process.kill(-child.pid!, "SIGKILL");
+        try {
+          process.kill(-child.pid!, "SIGKILL");
+        } catch {
+          // Process group may have already exited.
+        }
       };
       if (context.signal) {
         if (context.signal.aborted) {
-          process.kill(-child.pid!, "SIGKILL");
+          try {
+            process.kill(-child.pid!, "SIGKILL");
+          } catch {
+            // Process group may have already exited.
+          }
         } else {
           context.signal.addEventListener("abort", onAbort, { once: true });
         }

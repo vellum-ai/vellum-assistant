@@ -143,7 +143,11 @@ export function handleBashSignal(filename: string): void {
 
   const timer = setTimeout(() => {
     timedOut = true;
-    process.kill(-child.pid!, "SIGKILL");
+    try {
+      process.kill(-child.pid!, "SIGKILL");
+    } catch {
+      // Process group may have already exited.
+    }
   }, effectiveTimeout);
 
   child.stdout.on("data", (data: Buffer) => {
