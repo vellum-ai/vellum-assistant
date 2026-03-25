@@ -1,3 +1,4 @@
+import Foundation
 import os
 
 /// Drop-in replacement for `os.Logger` that forwards error- and fault-level
@@ -19,10 +20,19 @@ public struct VLogger: Sendable {
 
     // MARK: - Error reporter hook
 
+    /// Lock protecting `_errorReporter` so concurrent reads (from log call
+    /// sites on arbitrary threads) and writes (from start/stop on the main
+    /// thread) don't race.
+    private static let _lock = NSLock()
+    private static var _errorReporter: (@Sendable (String, String) -> Void)?
+
     /// Called for every `error()` and `fault()` log. Set once at app startup
     /// to bridge error logs into Sentry or another crash reporter.
     /// Parameters: (message: String, category: String).
-    public nonisolated(unsafe) static var errorReporter: (@Sendable (String, String) -> Void)?
+    public static var errorReporter: (@Sendable (String, String) -> Void)? {
+        get { _lock.lock(); defer { _lock.unlock() }; return _errorReporter }
+        set { _lock.lock(); defer { _lock.unlock() }; _errorReporter = newValue }
+    }
 
     // MARK: - Initialisation
 
