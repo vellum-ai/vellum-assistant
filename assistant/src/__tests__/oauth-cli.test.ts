@@ -2,8 +2,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Command } from "commander";
 
-import { credentialKey } from "../security/credential-key.js";
-
 // ---------------------------------------------------------------------------
 // Mock state
 // ---------------------------------------------------------------------------
@@ -13,10 +11,9 @@ let mockWithValidToken: <T>(
   cb: (token: string) => Promise<T>,
 ) => Promise<T>;
 
-// Disconnect mock state
 let mockListProviders: () => Array<Record<string, unknown>> = () => [];
-let secureKeyStore = new Map<string, string>();
-let metadataStore: Array<{
+const secureKeyStore = new Map<string, string>();
+const metadataStore: Array<{
   credentialId: string;
   service: string;
   field: string;
@@ -25,10 +22,9 @@ let metadataStore: Array<{
   createdAt: number;
   updatedAt: number;
 }> = [];
-let disconnectOAuthProviderCalls: string[] = [];
-let disconnectOAuthProviderResult: "disconnected" | "not-found" | "error" =
+const disconnectOAuthProviderCalls: string[] = [];
+const disconnectOAuthProviderResult: "disconnected" | "not-found" | "error" =
   "not-found";
-let idCounter = 0;
 
 // App upsert mock state
 let mockUpsertAppCalls: Array<{
@@ -57,7 +53,7 @@ let mockUpsertAppImpl:
     ) => Promise<Record<string, unknown>>)
   | undefined;
 
-// Connect mock state
+// Transitive mock state (connect-orchestrator, provider-behaviors, etc.)
 let mockOrchestrateOAuthConnect: (
   opts: Record<string, unknown>,
 ) => Promise<Record<string, unknown>>;
@@ -79,11 +75,6 @@ let mockGetCredentialMetadata: (
   service: string,
   field: string,
 ) => Record<string, unknown> | undefined = () => undefined;
-
-function nextUUID(): string {
-  idCounter += 1;
-  return `00000000-0000-0000-0000-${String(idCounter).padStart(12, "0")}`;
-}
 
 // ---------------------------------------------------------------------------
 // Mock token-manager
@@ -107,7 +98,7 @@ mock.module("../security/token-manager.js", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Mock oauth-store (stateful for disconnect tests)
+// Mock oauth-store
 // ---------------------------------------------------------------------------
 
 mock.module("../oauth/oauth-store.js", () => ({
@@ -304,11 +295,6 @@ async function runCli(
 describe("assistant oauth connections token <provider-key>", () => {
   beforeEach(() => {
     mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
-    secureKeyStore = new Map();
-    metadataStore = [];
-    disconnectOAuthProviderCalls = [];
-    disconnectOAuthProviderResult = "not-found";
-    idCounter = 0;
   });
 
   test("prints bare token in human mode", async () => {
@@ -419,137 +405,6 @@ describe("assistant oauth connections token <provider-key>", () => {
 });
 
 // ---------------------------------------------------------------------------
-// disconnect
-// ---------------------------------------------------------------------------
-
-describe("assistant oauth connections disconnect <provider-key>", () => {
-  beforeEach(() => {
-    mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
-    secureKeyStore = new Map();
-    metadataStore = [];
-    disconnectOAuthProviderCalls = [];
-    disconnectOAuthProviderResult = "not-found";
-    idCounter = 0;
-  });
-
-  test("succeeds when an OAuth connection exists", async () => {
-    disconnectOAuthProviderResult = "disconnected";
-
-    const result = await runCli([
-      "connections",
-      "disconnect",
-      "integration:google",
-      "--json",
-    ]);
-    expect(result.exitCode).toBe(0);
-    const parsed = JSON.parse(result.stdout);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.service).toBe("integration:google");
-
-    // disconnectOAuthProvider should have been called with the full provider key
-    expect(disconnectOAuthProviderCalls).toEqual(["integration:google"]);
-  });
-
-  test("reports not-found when nothing exists", async () => {
-    const result = await runCli([
-      "connections",
-      "disconnect",
-      "integration:google",
-      "--json",
-    ]);
-    expect(result.exitCode).toBe(1);
-    const parsed = JSON.parse(result.stdout);
-    expect(parsed.ok).toBe(false);
-    expect(parsed.error).toContain("No OAuth connection or credentials");
-    expect(parsed.error).toContain("integration:google");
-  });
-
-  test("cleans up legacy credential keys if present", async () => {
-    // Seed legacy credential keys (no OAuth connection)
-    const legacyFields = [
-      "access_token",
-      "refresh_token",
-      "client_id",
-      "client_secret",
-    ];
-    for (const field of legacyFields) {
-      secureKeyStore.set(
-        credentialKey("integration:google", field),
-        `legacy_${field}_value`,
-      );
-      metadataStore.push({
-        credentialId: nextUUID(),
-        service: "integration:google",
-        field,
-        allowedTools: [],
-        allowedDomains: [],
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      });
-    }
-
-    const result = await runCli([
-      "connections",
-      "disconnect",
-      "integration:google",
-      "--json",
-    ]);
-    expect(result.exitCode).toBe(0);
-    const parsed = JSON.parse(result.stdout);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.service).toBe("integration:google");
-
-    // All legacy keys should be removed
-    for (const field of legacyFields) {
-      expect(
-        secureKeyStore.has(credentialKey("integration:google", field)),
-      ).toBe(false);
-      expect(
-        metadataStore.find(
-          (m) => m.service === "integration:google" && m.field === field,
-        ),
-      ).toBeUndefined();
-    }
-  });
-
-  test("cleans up both OAuth connection and legacy keys when both exist", async () => {
-    // Seed OAuth connection
-    disconnectOAuthProviderResult = "disconnected";
-
-    // Seed a legacy credential key
-    secureKeyStore.set(
-      credentialKey("integration:google", "access_token"),
-      "legacy_token",
-    );
-    metadataStore.push({
-      credentialId: nextUUID(),
-      service: "integration:google",
-      field: "access_token",
-      allowedTools: [],
-      allowedDomains: [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    });
-
-    const result = await runCli([
-      "connections",
-      "disconnect",
-      "integration:google",
-      "--json",
-    ]);
-    expect(result.exitCode).toBe(0);
-    const parsed = JSON.parse(result.stdout);
-    expect(parsed.ok).toBe(true);
-
-    // Both should be cleaned up
-    expect(disconnectOAuthProviderCalls).toEqual(["integration:google"]);
-    expect(
-      secureKeyStore.has(credentialKey("integration:google", "access_token")),
-    ).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
 // providers list
 // ---------------------------------------------------------------------------
 
@@ -600,11 +455,6 @@ describe("assistant oauth providers list", () => {
   beforeEach(() => {
     mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
     mockListProviders = () => fakeProviders;
-    secureKeyStore = new Map();
-    metadataStore = [];
-    disconnectOAuthProviderCalls = [];
-    disconnectOAuthProviderResult = "not-found";
-    idCounter = 0;
   });
 
   test("returns all providers when no --provider-key is given", async () => {
@@ -699,331 +549,12 @@ describe("assistant oauth providers list", () => {
 });
 
 // ---------------------------------------------------------------------------
-// connect
-// ---------------------------------------------------------------------------
-
-describe("assistant oauth connections connect <provider-key>", () => {
-  beforeEach(() => {
-    mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
-    secureKeyStore = new Map();
-    metadataStore = [];
-    disconnectOAuthProviderCalls = [];
-    disconnectOAuthProviderResult = "not-found";
-    idCounter = 0;
-    mockOrchestrateOAuthConnect = async () => ({
-      success: true,
-      deferred: false,
-      grantedScopes: [],
-    });
-    mockGetAppByProviderAndClientId = () => undefined;
-    mockGetMostRecentAppByProvider = () => undefined;
-    mockGetProvider = () => undefined;
-    mockGetProviderBehavior = () => undefined;
-    mockGetSecureKey = () => undefined;
-  });
-
-  test("completes interactive flow and prints success (human mode)", async () => {
-    mockGetAppByProviderAndClientId = () => ({
-      id: "app-1",
-      clientId: "test-id",
-      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:google",
-      createdAt: 0,
-      updatedAt: 0,
-    });
-    mockOrchestrateOAuthConnect = async () => ({
-      success: true,
-      deferred: false,
-      grantedScopes: ["read"],
-      accountInfo: "user@example.com",
-    });
-
-    const { exitCode, stdout } = await runCli([
-      "connections",
-      "connect",
-      "integration:google",
-      "--client-id",
-      "test-id",
-    ]);
-    expect(exitCode).toBe(0);
-    expect(stdout).toContain("Connected");
-  });
-
-  test("completes interactive flow and returns JSON with --json flag", async () => {
-    mockGetAppByProviderAndClientId = () => ({
-      id: "app-1",
-      clientId: "test-id",
-      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:google",
-      createdAt: 0,
-      updatedAt: 0,
-    });
-    mockOrchestrateOAuthConnect = async () => ({
-      success: true,
-      deferred: false,
-      grantedScopes: ["read"],
-      accountInfo: "user@example.com",
-    });
-
-    const { exitCode, stdout } = await runCli([
-      "connections",
-      "connect",
-      "integration:google",
-      "--client-id",
-      "test-id",
-      "--json",
-    ]);
-    expect(exitCode).toBe(0);
-    const parsed = JSON.parse(stdout);
-    expect(parsed).toEqual({
-      ok: true,
-      grantedScopes: ["read"],
-      accountInfo: "user@example.com",
-    });
-  });
-
-  test("returns auth URL in default (non-interactive) mode (JSON)", async () => {
-    mockGetAppByProviderAndClientId = () => ({
-      id: "app-1",
-      clientId: "test-id",
-      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:google",
-      createdAt: 0,
-      updatedAt: 0,
-    });
-    mockOrchestrateOAuthConnect = async () => ({
-      success: true,
-      deferred: true,
-      authUrl: "https://example.com/auth",
-      state: "abc",
-      service: "integration:google",
-    });
-
-    const { exitCode, stdout } = await runCli([
-      "connections",
-      "connect",
-      "integration:google",
-      "--client-id",
-      "test-id",
-      "--json",
-    ]);
-    expect(exitCode).toBe(0);
-    const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.deferred).toBe(true);
-    expect(parsed.authUrl).toBe("https://example.com/auth");
-  });
-
-  test("fails when no client_id available", async () => {
-    mockGetMostRecentAppByProvider = () => undefined;
-
-    const { exitCode, stdout } = await runCli([
-      "connections",
-      "connect",
-      "integration:google",
-      "--json",
-    ]);
-    expect(exitCode).toBe(1);
-    const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(false);
-    expect(parsed.error).toContain("client_id");
-  });
-
-  test("resolves client_id from DB when not provided", async () => {
-    mockGetMostRecentAppByProvider = () => ({
-      id: "app-1",
-      clientId: "db-client-id",
-      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:google",
-      createdAt: 0,
-      updatedAt: 0,
-    });
-
-    let capturedClientId: string | undefined;
-    mockOrchestrateOAuthConnect = async (opts) => {
-      capturedClientId = opts.clientId as string;
-      return {
-        success: true,
-        deferred: false,
-        grantedScopes: [],
-      };
-    };
-
-    await runCli(["connections", "connect", "integration:google"]);
-    expect(capturedClientId).toBe("db-client-id");
-  });
-
-  test("resolves client_secret from secure store when not provided", async () => {
-    mockGetMostRecentAppByProvider = () => ({
-      id: "app-1",
-      clientId: "db-client-id",
-      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:google",
-      createdAt: 0,
-      updatedAt: 0,
-    });
-
-    mockGetSecureKey = (account: string) =>
-      account === "oauth_app/app-1/client_secret" ? "db-secret" : undefined;
-
-    let capturedOpts: Record<string, unknown> | undefined;
-    mockOrchestrateOAuthConnect = async (opts) => {
-      capturedOpts = opts;
-      return {
-        success: true,
-        deferred: false,
-        grantedScopes: [],
-      };
-    };
-
-    await runCli(["connections", "connect", "integration:google"]);
-    expect(capturedOpts).toBeDefined();
-    expect(capturedOpts!.clientId).toBe("db-client-id");
-    expect(capturedOpts!.clientSecret).toBe("db-secret");
-  });
-
-  test("outputs error from orchestrator", async () => {
-    mockGetAppByProviderAndClientId = () => ({
-      id: "app-1",
-      clientId: "x",
-      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:google",
-      createdAt: 0,
-      updatedAt: 0,
-    });
-    mockOrchestrateOAuthConnect = async () => ({
-      success: false,
-      error: "Something went wrong",
-    });
-
-    const { exitCode, stdout } = await runCli([
-      "connections",
-      "connect",
-      "integration:google",
-      "--client-id",
-      "x",
-      "--json",
-    ]);
-    expect(exitCode).toBe(1);
-    const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(false);
-    expect(parsed.error).toBe("Something went wrong");
-  });
-
-  test("succeeds when callbackTransport is null (loopback default)", async () => {
-    // Provider row has callbackTransport: null — orchestrator should default
-    // to loopback and not require a public ingress URL.
-    mockGetMostRecentAppByProvider = () => ({
-      id: "app-loopback",
-      clientId: "loopback-client",
-      clientSecretCredentialPath: "oauth_app/app-loopback/client_secret",
-      providerKey: "integration:test-loopback",
-      createdAt: 0,
-      updatedAt: 0,
-    });
-
-    let capturedOpts: Record<string, unknown> | undefined;
-    mockOrchestrateOAuthConnect = async (opts) => {
-      capturedOpts = opts;
-      return {
-        success: true,
-        deferred: true,
-        authUrl: "https://example.com/auth?loopback",
-        state: "state-loopback",
-        service: "integration:test-loopback",
-      };
-    };
-
-    const { exitCode, stdout } = await runCli([
-      "connections",
-      "connect",
-      "integration:test-loopback",
-      "--json",
-    ]);
-    expect(exitCode).toBe(0);
-    const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.deferred).toBe(true);
-    expect(capturedOpts).toBeDefined();
-    expect(capturedOpts!.clientId).toBe("loopback-client");
-  });
-
-  test("returns ingress URL error when callbackTransport is explicitly gateway", async () => {
-    // Provider row has callbackTransport: "gateway" — orchestrator should
-    // require a public ingress URL, which is not configured in the test env.
-    mockGetMostRecentAppByProvider = () => ({
-      id: "app-gateway",
-      clientId: "gateway-client",
-      clientSecretCredentialPath: "oauth_app/app-gateway/client_secret",
-      providerKey: "integration:test-gateway",
-      createdAt: 0,
-      updatedAt: 0,
-    });
-
-    mockOrchestrateOAuthConnect = async () => ({
-      success: false,
-      error:
-        "oauth2_connect from a non-interactive session requires a public ingress URL. Configure ingress.publicBaseUrl first.",
-    });
-
-    const { exitCode, stdout } = await runCli([
-      "connections",
-      "connect",
-      "integration:test-gateway",
-      "--json",
-    ]);
-    expect(exitCode).toBe(1);
-    const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(false);
-    expect(parsed.error).toContain("requires a public ingress URL");
-  });
-
-  test("fails when client_secret is required but missing", async () => {
-    mockGetAppByProviderAndClientId = () => ({
-      id: "app-1",
-      clientId: "test-id",
-      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:google",
-      createdAt: 0,
-      updatedAt: 0,
-    });
-    mockGetProviderBehavior = () => ({
-      setup: {
-        requiresClientSecret: true,
-        displayName: "Test",
-        dashboardUrl: "https://example.com",
-        appType: "app",
-      },
-    });
-
-    const { exitCode, stdout } = await runCli([
-      "connections",
-      "connect",
-      "integration:google",
-      "--client-id",
-      "test-id",
-      "--json",
-    ]);
-    expect(exitCode).toBe(1);
-    const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(false);
-    expect(parsed.error).toContain("client_secret");
-    expect(parsed.error).toContain("apps upsert");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // apps upsert --client-secret-credential-path
 // ---------------------------------------------------------------------------
 
 describe("assistant oauth apps upsert --client-secret-credential-path", () => {
   beforeEach(() => {
     mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
-    secureKeyStore = new Map();
-    metadataStore = [];
-    disconnectOAuthProviderCalls = [];
-    disconnectOAuthProviderResult = "not-found";
-    idCounter = 0;
     mockUpsertAppCalls = [];
     mockUpsertAppResult = {
       id: "app-upsert-1",
@@ -1235,11 +766,6 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
 describe("assistant oauth connections ping <provider-key>", () => {
   beforeEach(() => {
     mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
-    secureKeyStore = new Map();
-    metadataStore = [];
-    disconnectOAuthProviderCalls = [];
-    disconnectOAuthProviderResult = "not-found";
-    idCounter = 0;
   });
 
   test("returns ok when ping endpoint returns 200", async () => {
