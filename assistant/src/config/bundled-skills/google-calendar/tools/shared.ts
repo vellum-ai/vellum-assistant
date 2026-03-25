@@ -13,5 +13,5 @@ export function ok(content: string): ToolExecutionResult {
 export async function getCalendarConnection(
   account?: string,
 ): Promise<OAuthConnection> {
-  return resolveOAuthConnection("integration:google", { account });
+  return resolveOAuthConnection("google", { account });
 }

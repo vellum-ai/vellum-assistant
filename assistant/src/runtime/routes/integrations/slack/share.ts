@@ -28,7 +28,7 @@ const log = getLogger("slack-share");
  * Resolve the Slack bot token from the OAuth connection store.
  */
 async function resolveSlackToken(): Promise<string | undefined> {
-  const conn = getConnectionByProvider("integration:slack");
+  const conn = getConnectionByProvider("slack");
   return conn
     ? await getSecureKeyAsync(`oauth_connection/${conn.id}/access_token`)
     : undefined;

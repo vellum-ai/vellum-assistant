@@ -58,7 +58,7 @@ export async function run(
   const inputPageToken = input.page_token as string | undefined;
 
   try {
-    const connection = await resolveOAuthConnection("integration:google", {
+    const connection = await resolveOAuthConnection("google", {
       account,
     });
     // Pipeline: fire metadata fetches for each page of IDs as they arrive,

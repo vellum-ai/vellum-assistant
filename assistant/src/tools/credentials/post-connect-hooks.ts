@@ -48,7 +48,7 @@ async function slackWelcomeDM(ctx: PostConnectHookContext): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const POST_CONNECT_HOOKS: Record<string, PostConnectHook> = {
-  "integration:slack": slackWelcomeDM,
+  slack: slackWelcomeDM,
 };
 
 /**

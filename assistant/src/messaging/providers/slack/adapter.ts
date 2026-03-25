@@ -113,7 +113,7 @@ function mapSearchMatch(match: SlackSearchMatch): Message {
 export const slackProvider: MessagingProvider = {
   id: "slack",
   displayName: "Slack",
-  credentialService: "integration:slack",
+  credentialService: "slack",
   capabilities: new Set(["reactions", "threads", "leave_channel"]),
 
   async isConnected(): Promise<boolean> {
@@ -124,8 +124,8 @@ export const slackProvider: MessagingProvider = {
       credentialKey("slack_channel", "bot_token"),
     );
     if (botToken) return true;
-    // Preserve existing OAuth path (integration:slack) for backwards compat.
-    return isProviderConnected("integration:slack");
+    // Preserve existing OAuth path for backwards compat.
+    return isProviderConnected("slack");
   },
 
   async resolveConnection(account?: string): Promise<OAuthConnection | string> {
@@ -135,8 +135,8 @@ export const slackProvider: MessagingProvider = {
       credentialKey("slack_channel", "bot_token"),
     );
     if (botToken) return botToken;
-    // Preserve existing OAuth path (integration:slack) for backwards compat.
-    return resolveOAuthConnection("integration:slack", { account });
+    // Preserve existing OAuth path for backwards compat.
+    return resolveOAuthConnection("slack", { account });
   },
 
   async testConnection(
