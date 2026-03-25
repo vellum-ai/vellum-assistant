@@ -50,12 +50,12 @@ public struct VTabs<SelectionValue: Hashable>: View {
                     VStack(spacing: 0) {
                         Text(item.label)
                             .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(selection == item.tag ? VColor.contentDefault : VColor.contentSecondary)
+                            .foregroundStyle(selection == item.tag ? VColor.primaryActive : VColor.contentSecondary)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 7)
 
                         Rectangle()
-                            .fill(selection == item.tag ? VColor.primaryBase : .clear)
+                            .fill(selection == item.tag ? VColor.borderActive : .clear)
                             .frame(height: 2)
                     }
                     .contentShape(Rectangle())
