@@ -183,10 +183,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:twitter --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:twitter
 ```
 
 ---

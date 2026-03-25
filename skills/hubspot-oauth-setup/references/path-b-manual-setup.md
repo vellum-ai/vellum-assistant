@@ -124,10 +124,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:hubspot --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:hubspot
 ```
 
 Send the returned auth URL to the user. Tell them to select their HubSpot account and click **Grant access** on the consent page.

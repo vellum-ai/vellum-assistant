@@ -110,10 +110,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:asana --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:asana
 ```
 
 Send the returned auth URL to the user. Tell them to click **Allow** on the Asana consent page.

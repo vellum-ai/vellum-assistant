@@ -124,10 +124,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:dropbox --client-id $(cat <<'EOF'
-    <app-key>
-    EOF
-    )
+    assistant oauth connect integration:dropbox
 ```
 
 Send the returned auth URL to the user. Tell them to click **Allow** on the Dropbox consent page.

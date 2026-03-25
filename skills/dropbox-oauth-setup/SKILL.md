@@ -160,10 +160,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:dropbox --client-id $(cat <<'EOF'
-    <app-key>
-    EOF
-    )
+    assistant oauth connect integration:dropbox
 ```
 
 ---

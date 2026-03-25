@@ -120,10 +120,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:asana --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:asana
 ```
 
 ---
