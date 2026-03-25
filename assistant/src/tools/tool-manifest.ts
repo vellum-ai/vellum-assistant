@@ -15,6 +15,7 @@ import { makeAuthenticatedRequestTool } from "./credential-execution/make-authen
 import { manageSecureCommandTool } from "./credential-execution/manage-secure-command-tool.js";
 import { runAuthenticatedCommandTool } from "./credential-execution/run-authenticated-command.js";
 import { credentialStoreTool } from "./credentials/vault.js";
+import { avatarReadTool } from "./filesystem/avatar-read.js";
 import { fileEditTool } from "./filesystem/edit.js";
 import { fileReadTool } from "./filesystem/read.js";
 import { fileWriteTool } from "./filesystem/write.js";
@@ -82,6 +83,7 @@ export const explicitTools: Tool[] = [
   skillLoadTool,
   requestSystemPermissionTool,
   // Always-explicit tools
+  avatarReadTool,
   memoryManageTool,
   memoryRecallTool,
   credentialStoreTool,

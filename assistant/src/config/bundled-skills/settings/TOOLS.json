@@ -124,23 +124,6 @@
       },
       "executor": "tools/avatar-remove.ts",
       "execution_target": "sandbox"
-    },
-    {
-      "name": "get_avatar",
-      "description": "Read and return the current avatar image so the user can see it. Use this when the user asks to see, view, or show their avatar. Returns the image inline — do NOT copy the file or use bash commands.",
-      "category": "system",
-      "risk": "low",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "activity": {
-            "type": "string",
-            "description": "Brief non-technical explanation of what you are doing, shown to the user as a status update."
-          }
-        }
-      },
-      "executor": "tools/avatar-get.ts",
-      "execution_target": "sandbox"
     }
   ]
 }
