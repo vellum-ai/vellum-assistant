@@ -90,12 +90,6 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
 }));
 
 mock.module("../../../../oauth/provider-behaviors.js", () => ({
-  resolveService: (service: string) => {
-    const aliases: Record<string, string> = {
-      gmail: "google",
-    };
-    return aliases[service] ?? service;
-  },
   getProviderBehavior: () => undefined,
 }));
 
@@ -127,12 +121,6 @@ mock.module("../../../lib/daemon-credential-client.js", () => ({
 
 // Mock shared.js helpers
 mock.module("../shared.js", () => ({
-  resolveService: (service: string) => {
-    const aliases: Record<string, string> = {
-      gmail: "google",
-    };
-    return aliases[service] ?? service;
-  },
   isManagedMode: () => false,
   getManagedServiceConfigKey: (key: string) =>
     mockGetManagedServiceConfigKey(key),
@@ -281,25 +269,6 @@ describe("assistant oauth mode", () => {
       expect(parsed.ok).toBe(false);
       expect(parsed.error).toContain("Unknown provider");
       expect(parsed.error).toContain("providers list");
-    });
-
-    test("provider alias resolution: gmail resolves to google", async () => {
-      let capturedProviderKey: string | undefined;
-
-      mockGetProvider = (key: string) => {
-        capturedProviderKey = key;
-        return {
-          providerKey: key,
-          managedServiceConfigKey: "google-oauth",
-        };
-      };
-      mockGetManagedServiceConfigKey = () => "google-oauth";
-      mockConfigServices = {
-        "google-oauth": { mode: "managed" },
-      };
-
-      await runCommand(["mode", "gmail", "--json"]);
-      expect(capturedProviderKey).toBe("google");
     });
 
     test("provider without managedServiceConfigKey returns your-own with managedModeSupported: false", async () => {
