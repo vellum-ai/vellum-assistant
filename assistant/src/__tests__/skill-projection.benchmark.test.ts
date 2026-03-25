@@ -66,9 +66,7 @@ mock.module("../config/skills.js", () => ({
 // only needs skillFlagKey and doesn't exercise resolveSkillStates.
 mock.module("../config/skill-state.js", () => ({
   skillFlagKey: (skill: { featureFlag?: string }) =>
-    skill.featureFlag
-      ? `feature_flags.${skill.featureFlag}.enabled`
-      : undefined,
+    skill.featureFlag || undefined,
   resolveSkillStates: () => [],
 }));
 
