@@ -228,8 +228,15 @@ export interface RuntimeHttpServerOptions {
   getRecordingDeps?: () => import("./routes/recording-routes.js").RecordingDeps;
   /** Accessor for the CES client, used to push API key updates to CES after hatch. */
   getCesClient?: () => CesClient | undefined;
+  /**
+   * Called after provider-affecting credentials reload so live conversations
+   * can be recreated with fresh provider instances.
+   */
+  onProviderCredentialsChanged?: () => void | Promise<void>;
   /** Accessor for the heartbeat service (for run-now and config routes). */
-  getHeartbeatService?: () => import("../heartbeat/heartbeat-service.js").HeartbeatService | undefined;
+  getHeartbeatService?: () =>
+    | import("../heartbeat/heartbeat-service.js").HeartbeatService
+    | undefined;
 }
 
 export interface RuntimeAttachmentMetadata {

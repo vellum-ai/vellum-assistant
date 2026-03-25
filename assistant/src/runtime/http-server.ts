@@ -251,6 +251,7 @@ export class RuntimeHttpServer {
   private getWatchDeps?: RuntimeHttpServerOptions["getWatchDeps"];
   private getRecordingDeps?: RuntimeHttpServerOptions["getRecordingDeps"];
   private getCesClient?: RuntimeHttpServerOptions["getCesClient"];
+  private onProviderCredentialsChanged?: RuntimeHttpServerOptions["onProviderCredentialsChanged"];
   private getHeartbeatService?: RuntimeHttpServerOptions["getHeartbeatService"];
   private router: HttpRouter;
 
@@ -274,6 +275,7 @@ export class RuntimeHttpServer {
     this.getWatchDeps = options.getWatchDeps;
     this.getRecordingDeps = options.getRecordingDeps;
     this.getCesClient = options.getCesClient;
+    this.onProviderCredentialsChanged = options.onProviderCredentialsChanged;
     this.getHeartbeatService = options.getHeartbeatService;
     this.router = new HttpRouter(this.buildRouteTable());
   }
@@ -944,6 +946,7 @@ export class RuntimeHttpServer {
       ...appManagementRouteDefinitions(),
       ...secretRouteDefinitions({
         getCesClient: this.getCesClient,
+        onProviderCredentialsChanged: this.onProviderCredentialsChanged,
       }),
       ...identityRouteDefinitions(),
       ...upgradeBroadcastRouteDefinitions(),

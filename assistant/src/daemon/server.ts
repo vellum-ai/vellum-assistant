@@ -702,6 +702,14 @@ export class DaemonServer {
     return changed;
   }
 
+  /**
+   * Provider instances are captured when conversations are created, so a key
+   * change must evict or mark them stale before the next turn.
+   */
+  refreshConversationsForProviderChange(): void {
+    this.evictConversationsForReload();
+  }
+
   private async getOrCreateConversation(
     conversationId: string,
     options?: ConversationCreateOptions,

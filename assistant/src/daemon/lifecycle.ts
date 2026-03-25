@@ -895,6 +895,8 @@ export async function runDaemon(): Promise<void> {
         getHandlerContext: () => server.getHandlerContext(),
       }),
       getCesClient: () => server.getCesClient(),
+      onProviderCredentialsChanged: () =>
+        server.refreshConversationsForProviderChange(),
       getHeartbeatService: () => server.getHeartbeatService(),
     });
 
