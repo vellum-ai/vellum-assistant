@@ -141,10 +141,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:figma --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:figma
 ```
 
 After authorization completes, verify the connection:

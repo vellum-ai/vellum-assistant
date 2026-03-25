@@ -158,10 +158,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect <provider-key> --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect <provider-key>
 ```
 
 The command prints an authorization URL. Send it to the user. Wait for completion.

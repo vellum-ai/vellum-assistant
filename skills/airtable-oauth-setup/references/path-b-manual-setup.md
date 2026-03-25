@@ -122,10 +122,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:airtable --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:airtable
 ```
 
 Send the returned auth URL to the user. Tell them to click **Grant access** on the Airtable consent page.

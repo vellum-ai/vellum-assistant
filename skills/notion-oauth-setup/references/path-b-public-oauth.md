@@ -82,10 +82,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:notion --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:notion
 ```
 
 ### Step 5: Verify Connection

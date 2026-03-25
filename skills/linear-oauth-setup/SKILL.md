@@ -137,10 +137,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:linear --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:linear
 ```
 
 ---

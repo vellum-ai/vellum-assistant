@@ -134,10 +134,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:spotify --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:spotify
 ```
 
 The scopes requested will include:

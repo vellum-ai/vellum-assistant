@@ -108,10 +108,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:todoist --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:todoist
 ```
 
 Send the returned auth URL to the user. Tell them to click **Agree** on the Todoist consent page.

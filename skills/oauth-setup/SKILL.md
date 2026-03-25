@@ -175,10 +175,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect <provider-key> --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect <provider-key>
 ```
 
 If the service shows an "unverified app" or consent warning, tell the user how to proceed.

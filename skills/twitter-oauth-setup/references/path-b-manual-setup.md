@@ -121,10 +121,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:twitter --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:twitter
 ```
 
 Send the returned auth URL to the user. Tell them to review the permissions and click **Authorize app**.

@@ -141,10 +141,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:discord --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --scopes identify guilds guilds.members.read messages.read
+    assistant oauth connect integration:discord --scopes identify guilds guilds.members.read messages.read
 ```
 
 ---

@@ -147,10 +147,7 @@ These scopes are passed during the authorization step below.
 ```
 bash:
   command: |
-    assistant oauth connect integration:github --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --scopes repo read:user notifications
+    assistant oauth connect integration:github --scopes repo read:user notifications
 ```
 
 **Milestone (7 of 8):** "Authorization complete - let's verify it works."
