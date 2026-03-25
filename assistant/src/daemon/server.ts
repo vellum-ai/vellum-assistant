@@ -319,7 +319,7 @@ export class DaemonServer {
   }
 
   private applyTransportMetadata(
-    _conversation: Conversation,
+    conversation: Conversation,
     options: ConversationCreateOptions | undefined,
   ): void {
     const transport = options?.transport;
@@ -328,6 +328,7 @@ export class DaemonServer {
       { channelId: transport.channelId },
       "Transport metadata received",
     );
+    conversation.setTransportHints(transport.hints);
   }
 
   constructor() {

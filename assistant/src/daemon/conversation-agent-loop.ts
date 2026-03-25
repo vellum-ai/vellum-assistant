@@ -245,6 +245,7 @@ export interface AgentLoopConversationContext {
   trustContext?: TrustContext;
   assistantId?: string;
   voiceCallControlPrompt?: string;
+  transportHints?: string[];
 
   readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
@@ -748,6 +749,7 @@ export async function runAgentLoopImpl(
       temporalContext,
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
+      transportHints: ctx.transportHints ?? null,
       isNonInteractive: !isInteractiveResolved,
     } as const;
 

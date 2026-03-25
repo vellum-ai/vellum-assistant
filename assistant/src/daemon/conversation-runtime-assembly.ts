@@ -1000,6 +1000,23 @@ export function stripInterfaceTurnContext(messages: Message[]): Message[] {
   ]);
 }
 
+// ---------------------------------------------------------------------------
+// Transport hints injection (e.g. Slack thread context from the gateway)
+// ---------------------------------------------------------------------------
+
+function injectTransportHints(message: Message, hints: string[]): Message {
+  const block = `<transport_hints>\n${hints.join("\n")}\n</transport_hints>`;
+  return {
+    ...message,
+    content: [{ type: "text", text: block }, ...message.content],
+  };
+}
+
+/** Strip `<transport_hints>` blocks injected by `injectTransportHints`. */
+export function stripTransportHints(messages: Message[]): Message[] {
+  return stripUserTextBlocksByPrefix(messages, ["<transport_hints>"]);
+}
+
 /** Prefixes stripped by the pipeline (order doesn't matter — single pass). */
 const RUNTIME_INJECTION_PREFIXES = [
   "<channel_capabilities>",
@@ -1018,6 +1035,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<active_dynamic_page>",
   "<non_interactive_context>",
   "<now_scratchpad>",
+  "<transport_hints>",
 ];
 
 /**
@@ -1064,6 +1082,7 @@ export function applyRuntimeInjections(
     voiceCallControlPrompt?: string | null;
     nowScratchpad?: string | null;
     isNonInteractive?: boolean;
+    transportHints?: string[] | null;
     mode?: InjectionMode;
   },
 ): Message[] {
@@ -1161,6 +1180,16 @@ export function applyRuntimeInjections(
       result = [
         ...result.slice(0, -1),
         injectInboundActorContext(userTail, options.inboundActorContext),
+      ];
+    }
+  }
+
+  if (options.transportHints && options.transportHints.length > 0) {
+    const userTail = result[result.length - 1];
+    if (userTail && userTail.role === "user") {
+      result = [
+        ...result.slice(0, -1),
+        injectTransportHints(userTail, options.transportHints),
       ];
     }
   }
