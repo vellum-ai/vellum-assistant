@@ -32,12 +32,12 @@ extension EnvironmentValues {
     /// events into a single snapshot capture per 150ms window.
     var snapshotDebounceTask: Task<Void, Never>?
 
-    // MARK: - PrecomputedState Cache
+    // MARK: - Layout Metadata Cache
 
-    /// Cache key for the last computed `PrecomputedMessageListState`.
-    var cachedPrecomputedKey: PrecomputedCacheKey?
-    /// Cached result for `precomputedState`, returned on cache hit.
-    var cachedPrecomputedState: PrecomputedMessageListState?
+    /// Cache key for the last computed `CachedMessageLayoutMetadata`.
+    var cachedLayoutKey: PrecomputedCacheKey?
+    /// Cached structural metadata, returned on cache hit.
+    var cachedLayoutMetadata: CachedMessageLayoutMetadata?
 
     // MARK: - Version Counter (O(1) fingerprint replacement)
 
@@ -207,7 +207,7 @@ struct MessageListView: View {
     /// states (typically 0–3 tool calls). `isSending` / `isThinking` transitions
     /// are handled via `PrecomputedCacheKey` fields directly.
     ///
-    /// Mutation paths that affect `PrecomputedMessageListState` inputs:
+    /// Mutation paths that affect `CachedMessageLayoutMetadata` inputs:
     /// - `messages.count` changes (append, pagination, deletion)
     /// - `messages.last?.isStreaming` transitions (end of streaming)
     /// - Tool call `isComplete` transitions — detected via the last message's
@@ -263,20 +263,16 @@ struct MessageListView: View {
         PendingConfirmationFocusSelector.activeRequestId(from: visibleMessages)
     }
 
-    /// Computes all expensive derived values once per body evaluation.
-    /// Moving these out of the LazyVStack closure ensures O(n) scans
-    /// (timestamp indices, subagent grouping, turn detection) run once
-    /// per body evaluation rather than being re-evaluated on layout passes.
+    /// Computes all derived values needed by the message list body.
     ///
-    /// Memoized behind a lightweight O(1) cache key stored on the
-    /// non-reactive `ScrollTrackingState`. The key uses a version counter
-    /// (incremented by `refreshMessageListVersionIfNeeded()`) instead of
-    /// an O(n) per-message hash, making cache key construction O(1).
-    /// Cache hit returns immediately; cache miss runs the full computation.
-    /// Storing on the class (not @State) ensures cache updates never
-    /// trigger additional body re-evaluations.
-    private var precomputedState: PrecomputedMessageListState {
-        os_signpost(.begin, log: stallLog, name: "PrecomputedState.resolve")
+    /// Structural metadata (IDs, timestamps, role-based indices, subagent
+    /// grouping) is memoized behind a lightweight O(1) cache key stored on
+    /// the non-reactive `ScrollTrackingState`. Content-derived state
+    /// (message data, confirmation placement, thinking indicators) is
+    /// always computed fresh from the live `visibleMessages` array so
+    /// SwiftUI's `.equatable()` diffing sees every mutation.
+    private var derivedState: MessageListDerivedState {
+        os_signpost(.begin, log: stallLog, name: "DerivedState.resolve")
         refreshMessageListVersionIfNeeded()
         let key = PrecomputedCacheKey(
             messageListVersion: scrollCoordinator.scrollTracking.messageListVersion,
@@ -288,56 +284,89 @@ struct MessageListView: View {
             displayedMessageCount: displayedMessageCount
         )
 
-        if key == scrollCoordinator.scrollTracking.cachedPrecomputedKey,
-           let cached = scrollCoordinator.scrollTracking.cachedPrecomputedState {
+        // Always compute live messages — cheap O(n) filter + dictionary.
+        let liveMessages = visibleMessages
+        let liveMessageById = Dictionary(
+            liveMessages.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        // --- Stage 1: Cached structural metadata ---
+        let layout: CachedMessageLayoutMetadata
+        if key == scrollCoordinator.scrollTracking.cachedLayoutKey,
+           let cached = scrollCoordinator.scrollTracking.cachedLayoutMetadata {
             #if DEBUG
-            // Spot-check cache correctness in debug builds.
-            let freshMessages = visibleMessages
+            let freshIds = liveMessages.map(\.id)
             assert(
-                cached.displayMessages.count == freshMessages.count,
-                "precomputedState cache stale: displayMessages count \(cached.displayMessages.count) vs \(freshMessages.count)"
+                cached.displayMessageIds == freshIds,
+                "layout cache stale: IDs \(cached.displayMessageIds.count) vs \(freshIds.count)"
             )
             #endif
-            os_signpost(.end, log: stallLog, name: "PrecomputedState.resolve", "hit")
-            return cached
+            os_signpost(.event, log: stallLog, name: "DerivedState.layoutCacheHit")
+            layout = cached
+        } else {
+            os_signpost(.event, log: stallLog, name: "DerivedState.layoutCacheMiss", "version=%d", scrollCoordinator.scrollTracking.messageListVersion)
+
+            let displayMessageIds: [UUID] = {
+                var seen = Set<UUID>()
+                return liveMessages.map(\.id).filter { seen.insert($0).inserted }
+            }()
+            let messageIndexById = Dictionary(liveMessages.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let showTimestamp = timestampIds(for: liveMessages)
+            let latestAssistantId = liveMessages.last(where: { $0.role == .assistant })?.id
+
+            var hasPrecedingAssistantByIndex = Set<Int>()
+            for i in liveMessages.indices where i > 0 {
+                if liveMessages[i - 1].role == .assistant {
+                    hasPrecedingAssistantByIndex.insert(i)
+                }
+            }
+
+            let hasUserMessage = liveMessages.contains { $0.role == .user }
+            let subagentsByParent: [UUID: [SubagentInfo]] = Dictionary(
+                grouping: activeSubagents.filter { $0.parentMessageId != nil },
+                by: { $0.parentMessageId! }
+            )
+            let orphanSubagents = activeSubagents.filter { $0.parentMessageId == nil }
+            let effectiveStatusText = isCompacting ? "Compacting context\u{2026}" : assistantStatusText
+
+            layout = CachedMessageLayoutMetadata(
+                displayMessageIds: displayMessageIds,
+                messageIndexById: messageIndexById,
+                showTimestamp: showTimestamp,
+                hasPrecedingAssistantByIndex: hasPrecedingAssistantByIndex,
+                hasUserMessage: hasUserMessage,
+                latestAssistantId: latestAssistantId,
+                subagentsByParent: subagentsByParent,
+                orphanSubagents: orphanSubagents,
+                effectiveStatusText: effectiveStatusText
+            )
+            scrollCoordinator.scrollTracking.cachedLayoutKey = key
+            scrollCoordinator.scrollTracking.cachedLayoutMetadata = layout
         }
 
-        os_signpost(.event, log: stallLog, name: "PrecomputedState.cacheMiss", "version=%d", scrollCoordinator.scrollTracking.messageListVersion)
+        // --- Stage 2: Live content-derived state (always fresh) ---
 
-        let displayMessages = visibleMessages
-        let displayMessageById = Dictionary(displayMessages.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        let displayMessageIds: [UUID] = {
-            var seen = Set<UUID>()
-            return displayMessages.map(\.id).filter { seen.insert($0).inserted }
-        }()
-        let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: displayMessages)
-        let latestAssistantId = displayMessages.last(where: { $0.role == .assistant })?.id
-        let anchoredThinkingIndex = resolvedThinkingAnchorIndex(for: displayMessages)
-        let subagentsByParent: [UUID: [SubagentInfo]] = Dictionary(
-            grouping: activeSubagents.filter { $0.parentMessageId != nil },
-            by: { $0.parentMessageId! }
-        )
-        let orphanSubagents = activeSubagents.filter { $0.parentMessageId == nil }
-        let showTimestamp = timestampIds(for: displayMessages)
-        let messageIndexById = Dictionary(displayMessages.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: liveMessages)
+        let anchoredThinkingIndex = resolvedThinkingAnchorIndex(for: liveMessages)
 
         var nextDecidedConfirmationByIndex: [Int: ToolConfirmationData] = [:]
-        for i in displayMessages.indices {
-            if i + 1 < displayMessages.count,
-               let conf = displayMessages[i + 1].confirmation,
+        for i in liveMessages.indices {
+            if i + 1 < liveMessages.count,
+               let conf = liveMessages[i + 1].confirmation,
                conf.state != .pending {
                 nextDecidedConfirmationByIndex[i] = conf
             }
         }
 
         var isConfirmationRenderedInlineByIndex = Set<Int>()
-        for i in displayMessages.indices {
-            guard let confirmation = displayMessages[i].confirmation,
+        for i in liveMessages.indices {
+            guard let confirmation = liveMessages[i].confirmation,
                   confirmation.state == .pending,
                   let confirmationToolUseId = confirmation.toolUseId,
                   !confirmationToolUseId.isEmpty else { continue }
             for j in (0..<i).reversed() {
-                let msg = displayMessages[j]
+                let msg = liveMessages[j]
                 guard msg.role == .assistant, msg.confirmation == nil else { continue }
                 if msg.toolCalls.contains(where: { $0.toolUseId == confirmationToolUseId && $0.pendingConfirmation != nil }) {
                     isConfirmationRenderedInlineByIndex.insert(i)
@@ -346,35 +375,27 @@ struct MessageListView: View {
             }
         }
 
-        var hasPrecedingAssistantByIndex = Set<Int>()
-        for i in displayMessages.indices where i > 0 {
-            if displayMessages[i - 1].role == .assistant {
-                hasPrecedingAssistantByIndex.insert(i)
-            }
-        }
-
-        let hasUserMessage = displayMessages.contains { $0.role == .user }
-        let lastVisible = displayMessages.last
+        let lastVisible = liveMessages.last
         let currentTurnMessages: ArraySlice<ChatMessage> = {
-            if isSending, let last = displayMessages.last, last.role == .user {
-                let lastNonUser = displayMessages.last(where: {
+            if isSending, let last = liveMessages.last, last.role == .user {
+                let lastNonUser = liveMessages.last(where: {
                     $0.role != .user
                 })
                 let isActivelyProcessing = lastNonUser?.isStreaming == true
                     || lastNonUser?.confirmation?.state == .pending
                 if !isActivelyProcessing {
-                    return displayMessages[displayMessages.endIndex...]
+                    return liveMessages[liveMessages.endIndex...]
                 }
             }
-            let lastTurnStart = displayMessages.indices.reversed().first(where: { idx in
-                displayMessages[idx].role == .user
-                    && displayMessages.index(after: idx) < displayMessages.endIndex
-                    && displayMessages[displayMessages.index(after: idx)].role != .user
+            let lastTurnStart = liveMessages.indices.reversed().first(where: { idx in
+                liveMessages[idx].role == .user
+                    && liveMessages.index(after: idx) < liveMessages.endIndex
+                    && liveMessages[liveMessages.index(after: idx)].role != .user
             })
             if let idx = lastTurnStart {
-                return displayMessages[displayMessages.index(after: idx)...]
+                return liveMessages[liveMessages.index(after: idx)...]
             }
-            return displayMessages[displayMessages.startIndex...]
+            return liveMessages[liveMessages.startIndex...]
         }()
         let hasActiveToolCall = currentTurnMessages.contains(where: {
             $0.toolCalls.contains(where: { !$0.isComplete })
@@ -385,36 +406,29 @@ struct MessageListView: View {
         let lastVisibleIsAssistant = lastVisible?.role == .assistant
         let canInlineProcessing = wouldShowThinking && lastVisibleIsAssistant
         let shouldShowThinkingIndicator = wouldShowThinking && !canInlineProcessing
-        let effectiveStatusText = isCompacting ? "Compacting context\u{2026}" : assistantStatusText
 
-        let result = PrecomputedMessageListState(
-            displayMessages: displayMessages,
-            displayMessageIds: displayMessageIds,
-            displayMessageById: displayMessageById,
-            messageIndexById: messageIndexById,
+        let result = MessageListDerivedState(
+            displayMessageIds: layout.displayMessageIds,
+            messageIndexById: layout.messageIndexById,
+            showTimestamp: layout.showTimestamp,
+            hasPrecedingAssistantByIndex: layout.hasPrecedingAssistantByIndex,
+            hasUserMessage: layout.hasUserMessage,
+            latestAssistantId: layout.latestAssistantId,
+            subagentsByParent: layout.subagentsByParent,
+            orphanSubagents: layout.orphanSubagents,
+            effectiveStatusText: layout.effectiveStatusText,
+            displayMessageById: liveMessageById,
             activePendingRequestId: activePendingRequestId,
-            latestAssistantId: latestAssistantId,
-            anchoredThinkingIndex: anchoredThinkingIndex,
-            subagentsByParent: subagentsByParent,
-            orphanSubagents: orphanSubagents,
-            showTimestamp: showTimestamp,
             nextDecidedConfirmationByIndex: nextDecidedConfirmationByIndex,
             isConfirmationRenderedInlineByIndex: isConfirmationRenderedInlineByIndex,
-            hasPrecedingAssistantByIndex: hasPrecedingAssistantByIndex,
-            hasUserMessage: hasUserMessage,
-            lastVisible: lastVisible,
-            currentTurnMessages: currentTurnMessages,
+            anchoredThinkingIndex: anchoredThinkingIndex,
             hasActiveToolCall: hasActiveToolCall,
-            wouldShowThinking: wouldShowThinking,
-            lastVisibleIsAssistant: lastVisibleIsAssistant,
             canInlineProcessing: canInlineProcessing,
             shouldShowThinkingIndicator: shouldShowThinkingIndicator,
-            effectiveStatusText: effectiveStatusText
+            hasMessages: !liveMessages.isEmpty
         )
 
-        scrollCoordinator.scrollTracking.cachedPrecomputedKey = key
-        scrollCoordinator.scrollTracking.cachedPrecomputedState = result
-        os_signpost(.end, log: stallLog, name: "PrecomputedState.resolve", "miss")
+        os_signpost(.end, log: stallLog, name: "DerivedState.resolve")
         return result
     }
 
@@ -659,7 +673,7 @@ struct MessageListView: View {
 
                     let _ = recordScrollLoopEvent(.bodyEvaluation)
                     let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
-                    let state = precomputedState
+                    let state = derivedState
                     let catalogHash = MessageCellView.hashCatalog(providerCatalog)
                     ForEach(state.displayMessageIds, id: \.self) { messageId in
                         if let message = state.displayMessageById[messageId] {
@@ -732,7 +746,7 @@ struct MessageListView: View {
                         compactingIndicatorRow()
                     }
 
-                    if !state.displayMessages.isEmpty && ConversationAvatarFollower.bottomInset > 0 {
+                    if state.hasMessages && ConversationAvatarFollower.bottomInset > 0 {
                         Color.clear
                             .frame(height: ConversationAvatarFollower.bottomInset)
                             .accessibilityHidden(true)
@@ -1017,6 +1031,7 @@ private struct MessageCellView: View, Equatable {
             && lhs.activePendingRequestId == rhs.activePendingRequestId
             && lhs.latestAssistantId == rhs.latestAssistantId
             && lhs.anchoredThinkingIndex == rhs.anchoredThinkingIndex
+            && lhs.subagentsByParent[lhs.message.id] == rhs.subagentsByParent[rhs.message.id]
             && lhs.canInlineProcessing == rhs.canInlineProcessing
             && lhs.shouldShowThinkingIndicator == rhs.shouldShowThinkingIndicator
             && lhs.assistantStatusText == rhs.assistantStatusText
@@ -1291,35 +1306,52 @@ private struct AvatarGlowModifier: ViewModifier {
     }
 }
 
-// MARK: - Precomputed Message List State
+// MARK: - Cached Message Layout Metadata
 
-/// Holds derived values computed once per body evaluation so they are not
-/// redundantly recalculated inside the LazyVStack ForEach body.
-/// Note: `LazyVStack` already gates child view evaluation, so each cell is
-/// only built when it scrolls into the prefetch window. The primary gain here
-/// is avoiding repeated O(n) scans (timestamp indices, subagent grouping,
-/// current-turn detection) on every layout pass.
-struct PrecomputedMessageListState {
-    let displayMessages: [ChatMessage]
+/// Structural metadata cached behind a version-counter key on
+/// `ScrollTrackingState`. Contains only fields derived from message IDs,
+/// roles, timestamps, and subagent identity — never mutable content like
+/// text segments or confirmation states. Cache invalidation is gated by
+/// `refreshMessageListVersionIfNeeded()` which tracks structural changes.
+struct CachedMessageLayoutMetadata {
     let displayMessageIds: [UUID]
-    let displayMessageById: [UUID: ChatMessage]
     let messageIndexById: [UUID: Int]
-    let activePendingRequestId: String?
-    let latestAssistantId: UUID?
-    let anchoredThinkingIndex: Int?
-    let subagentsByParent: [UUID: [SubagentInfo]]
-    let orphanSubagents: [SubagentInfo]
     let showTimestamp: Set<UUID>
-    let nextDecidedConfirmationByIndex: [Int: ToolConfirmationData]
-    let isConfirmationRenderedInlineByIndex: Set<Int>
     let hasPrecedingAssistantByIndex: Set<Int>
     let hasUserMessage: Bool
-    let lastVisible: ChatMessage?
-    let currentTurnMessages: ArraySlice<ChatMessage>
+    let latestAssistantId: UUID?
+    let subagentsByParent: [UUID: [SubagentInfo]]
+    let orphanSubagents: [SubagentInfo]
+    let effectiveStatusText: String?
+}
+
+// MARK: - Message List Derived State
+
+/// All derived values needed by the message list body. Combines cached
+/// structural metadata (from `CachedMessageLayoutMetadata`) with live
+/// content-derived state computed fresh each body evaluation. Content
+/// fields (message data, confirmation placement, thinking indicators)
+/// are always live so SwiftUI's `.equatable()` diffing sees every mutation.
+struct MessageListDerivedState {
+    // --- Cached structural metadata (from CachedMessageLayoutMetadata) ---
+    let displayMessageIds: [UUID]
+    let messageIndexById: [UUID: Int]
+    let showTimestamp: Set<UUID>
+    let hasPrecedingAssistantByIndex: Set<Int>
+    let hasUserMessage: Bool
+    let latestAssistantId: UUID?
+    let subagentsByParent: [UUID: [SubagentInfo]]
+    let orphanSubagents: [SubagentInfo]
+    let effectiveStatusText: String?
+
+    // --- Live content-derived state (always fresh) ---
+    let displayMessageById: [UUID: ChatMessage]
+    let activePendingRequestId: String?
+    let nextDecidedConfirmationByIndex: [Int: ToolConfirmationData]
+    let isConfirmationRenderedInlineByIndex: Set<Int>
+    let anchoredThinkingIndex: Int?
     let hasActiveToolCall: Bool
-    let wouldShowThinking: Bool
-    let lastVisibleIsAssistant: Bool
     let canInlineProcessing: Bool
     let shouldShowThinkingIndicator: Bool
-    let effectiveStatusText: String?
+    let hasMessages: Bool
 }

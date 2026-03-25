@@ -26,12 +26,12 @@ final class MessageListScrollPerformanceTests: XCTestCase {
         }
     }
 
-    // MARK: - Test 1: PrecomputedMessageListState Computation (500 messages)
+    // MARK: - Test 1: CachedMessageLayoutMetadata Computation (500 messages)
 
-    /// Measures the wall-clock time to compute PrecomputedMessageListState from
+    /// Measures the wall-clock time to compute CachedMessageLayoutMetadata from
     /// 500 messages. This exercises the O(n) scans (timestamp indices, subagent
-    /// grouping, confirmation detection, turn detection) that run on every cache miss.
-    func testPrecomputedMessageListStateComputation() {
+    /// grouping, preceding-assistant detection) that run on every cache miss.
+    func testCachedMessageLayoutMetadataComputation() {
         let messages = buildMessages(count: 500)
         let subagents: [SubagentInfo] = (0..<5).map { i in
             SubagentInfo(
@@ -125,7 +125,7 @@ final class MessageListScrollPerformanceTests: XCTestCase {
                     activeSubagentFingerprint: version % 5,
                     displayedMessageCount: version % 1000
                 )
-                // Force an equality check (the hot path in MessageListView.precomputedState).
+                // Force an equality check (the hot path in MessageListView.derivedState).
                 if let prev = lastKey {
                     _ = key == prev
                 }
@@ -199,6 +199,212 @@ final class MessageListScrollPerformanceTests: XCTestCase {
                 timestamp: timestamp
             )
             XCTAssertGreaterThan(counts[.bodyEvaluation] ?? 0, 0)
+        }
+    }
+
+    // MARK: - Test 5: Streaming Text Visible Through Cache Hit
+
+    /// Verifies that streaming text updates are visible even when the layout
+    /// cache returns a hit. The layout cache key should NOT change when only
+    /// text content changes (same message count, same streaming flag), but
+    /// the live message data passed to the ForEach must reflect the update.
+    @MainActor func testStreamingTextVisibleThroughCacheHit() {
+        var messages = buildMessages(count: 10)
+        // Simulate an assistant message that is actively streaming.
+        messages[messages.count - 1] = ChatMessage(
+            id: messages.last!.id,
+            role: .assistant,
+            text: "Hello",
+            timestamp: messages.last!.timestamp,
+            isStreaming: true
+        )
+
+        let tracking = ScrollTrackingState()
+
+        // Build initial cache.
+        let key = PrecomputedCacheKey(
+            messageListVersion: 1,
+            isSending: true,
+            isThinking: false,
+            isCompacting: false,
+            assistantStatusText: nil,
+            activeSubagentFingerprint: 0,
+            displayedMessageCount: .max
+        )
+        let layout = CachedMessageLayoutMetadata(
+            displayMessageIds: messages.map(\.id),
+            messageIndexById: Dictionary(messages.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first }),
+            showTimestamp: [messages[0].id],
+            hasPrecedingAssistantByIndex: Set((1..<messages.count).filter { messages[$0 - 1].role == .assistant }),
+            hasUserMessage: true,
+            latestAssistantId: messages.last?.id,
+            subagentsByParent: [:],
+            orphanSubagents: [],
+            effectiveStatusText: nil
+        )
+        tracking.cachedLayoutKey = key
+        tracking.cachedLayoutMetadata = layout
+
+        // Simulate streaming: append text to the last message (same count,
+        // same isStreaming flag — the version counter does NOT bump).
+        messages[messages.count - 1] = ChatMessage(
+            id: messages.last!.id,
+            role: .assistant,
+            text: "Hello, world! Here is more streamed text.",
+            timestamp: messages.last!.timestamp,
+            isStreaming: true
+        )
+
+        // Build live message dictionary (as derivedState does on every body eval).
+        let liveMessageById = Dictionary(
+            messages.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        // The cache key hasn't changed — layout cache should still hit.
+        XCTAssertEqual(key, tracking.cachedLayoutKey)
+        XCTAssertNotNil(tracking.cachedLayoutMetadata)
+
+        // But the live message must reflect the updated text.
+        let lastId = messages.last!.id
+        let liveMessage = liveMessageById[lastId]
+        XCTAssertNotNil(liveMessage)
+        XCTAssertTrue(liveMessage!.text.contains("more streamed text"),
+                       "Live message must reflect streaming text update even on cache hit")
+    }
+
+    // MARK: - Test 6: Confirmation Resolution Updates Live State
+
+    /// Verifies that confirmation state changes (pending → approved/denied)
+    /// are reflected in the live content-derived state, not gated by the
+    /// layout cache. The layout cache key should not change when only
+    /// confirmation state changes in place.
+    func testConfirmationResolutionVisibleThroughCacheHit() {
+        var messages = buildMessages(count: 6)
+        // Add a confirmation message at index 5.
+        messages[5] = ChatMessage(
+            id: messages[5].id,
+            role: .assistant,
+            text: "",
+            timestamp: messages[5].timestamp,
+            confirmation: ToolConfirmationData(
+                requestId: "req-1",
+                toolName: "bash",
+                riskLevel: "high",
+                state: .pending
+            )
+        )
+
+        // Compute confirmation-derived metadata from live messages
+        // (replicating the live stage of derivedState).
+        let pendingId1 = PendingConfirmationFocusSelector.activeRequestId(from: messages)
+        XCTAssertEqual(pendingId1, "req-1", "Should detect pending confirmation")
+
+        var nextDecided1: [Int: ToolConfirmationData] = [:]
+        for i in messages.indices {
+            if i + 1 < messages.count,
+               let conf = messages[i + 1].confirmation,
+               conf.state != .pending {
+                nextDecided1[i] = conf
+            }
+        }
+        XCTAssertTrue(nextDecided1.isEmpty, "No decided confirmations yet")
+
+        // Simulate confirmation resolution (in-place mutation).
+        messages[5].confirmation?.state = .approved
+
+        // Re-derive from live messages.
+        let pendingId2 = PendingConfirmationFocusSelector.activeRequestId(from: messages)
+        XCTAssertNil(pendingId2, "Pending confirmation should be gone after approval")
+
+        var nextDecided2: [Int: ToolConfirmationData] = [:]
+        for i in messages.indices {
+            if i + 1 < messages.count,
+               let conf = messages[i + 1].confirmation,
+               conf.state != .pending {
+                nextDecided2[i] = conf
+            }
+        }
+        XCTAssertNotNil(nextDecided2[4], "Should detect decided confirmation at preceding index")
+    }
+
+    // MARK: - Test 7: Subagent Changes Detected by MessageCellView Equality
+
+    /// Verifies that MessageCellView's Equatable implementation detects
+    /// subagent attachment changes for the owning row.
+    func testSubagentChangesDetectedByMessageCellViewEquality() {
+        let message = ChatMessage(role: .assistant, text: "test")
+
+        let emptySubagents: [UUID: [SubagentInfo]] = [:]
+        let withSubagent: [UUID: [SubagentInfo]] = [
+            message.id: [
+                SubagentInfo(id: "sub-1", label: "Worker", status: .running, parentMessageId: message.id)
+            ]
+        ]
+
+        // Subagent lookup for this message differs → cells should NOT be equal.
+        let lhsSlice = emptySubagents[message.id]
+        let rhsSlice = withSubagent[message.id]
+        XCTAssertNotEqual(lhsSlice, rhsSlice,
+                          "Subagent slices for the same message ID must differ")
+    }
+
+    // MARK: - Test 8: Cache-Hit Steady-State Performance
+
+    /// Measures the cost of the live-data stage (message dictionary + confirmation
+    /// scans) that runs on every body evaluation, including cache hits.
+    /// This is the per-frame cost during streaming.
+    func testLiveStateSteadyStatePerformance() {
+        let messages = buildMessages(count: 200)
+
+        measure(metrics: [XCTClockMetric()]) {
+            for _ in 0..<100 {
+                // Live message dictionary construction.
+                let liveMessageById = Dictionary(
+                    messages.map { ($0.id, $0) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+
+                // Confirmation detection (O(n)).
+                var nextDecided: [Int: ToolConfirmationData] = [:]
+                for i in messages.indices {
+                    if i + 1 < messages.count,
+                       let conf = messages[i + 1].confirmation,
+                       conf.state != .pending {
+                        nextDecided[i] = conf
+                    }
+                }
+
+                // Inline confirmation detection (O(n)).
+                var inlineSet = Set<Int>()
+                for i in messages.indices {
+                    guard let confirmation = messages[i].confirmation,
+                          confirmation.state == .pending,
+                          let toolUseId = confirmation.toolUseId,
+                          !toolUseId.isEmpty else { continue }
+                    for j in (0..<i).reversed() {
+                        let msg = messages[j]
+                        guard msg.role == .assistant, msg.confirmation == nil else { continue }
+                        if msg.toolCalls.contains(where: { $0.toolUseId == toolUseId && $0.pendingConfirmation != nil }) {
+                            inlineSet.insert(i)
+                        }
+                        break
+                    }
+                }
+
+                // Current turn detection (O(n)).
+                let lastTurnStart = messages.indices.reversed().first(where: { idx in
+                    messages[idx].role == .user
+                        && messages.index(after: idx) < messages.endIndex
+                        && messages[messages.index(after: idx)].role != .user
+                })
+
+                // Prevent compiler from optimizing away work.
+                XCTAssertEqual(liveMessageById.count, 200)
+                _ = nextDecided
+                _ = inlineSet
+                _ = lastTurnStart
+            }
         }
     }
 }

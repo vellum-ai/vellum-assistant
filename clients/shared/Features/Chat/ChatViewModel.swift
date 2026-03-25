@@ -146,7 +146,7 @@ public final class ChatViewModel: ObservableObject {
     /// this interval; subsequent changes within the window piggyback on the
     /// same notification, dramatically reducing view-tree invalidation rate
     /// during streaming bursts.
-    static let subManagerCoalesceInterval: TimeInterval = 0.1 // 100ms
+    static let subManagerCoalesceInterval: TimeInterval = 0.05 // 50ms
 
     /// Coalescing task: fires objectWillChange once per burst window, same
     /// pattern as SubagentDetailStore.scheduleFlush().
@@ -154,7 +154,7 @@ public final class ChatViewModel: ObservableObject {
 
     /// Schedule a single coalesced `objectWillChange` notification.
     /// The first sub-manager mutation in a burst schedules the publish;
-    /// subsequent mutations within the 100ms window piggyback on the same
+    /// subsequent mutations within the 50ms window piggyback on the same
     /// notification instead of firing individually.
     private func scheduleCoalescedPublish() {
         guard subManagerPublishTask == nil else { return }
@@ -168,7 +168,7 @@ public final class ChatViewModel: ObservableObject {
 
     /// Flush any pending coalesced publish immediately.
     /// Used after clearing `inputText` in `sendMessage()` so the TextField
-    /// binding updates without the 100ms delay — preventing the field editor
+    /// binding updates without the 50ms delay — preventing the field editor
     /// from writing stale text back through the binding.
     private func flushCoalescedPublish() {
         subManagerPublishTask?.cancel()
@@ -671,7 +671,7 @@ public final class ChatViewModel: ObservableObject {
     /// `@Published messages` array.  Coalescing multiple token deltas
     /// into a single array mutation dramatically reduces SwiftUI
     /// view-graph invalidation frequency during streaming.
-    static let streamingFlushInterval: TimeInterval = 0.1 // 100 ms
+    static let streamingFlushInterval: TimeInterval = 0.05 // 50 ms
 
     /// Buffered text that has not yet been flushed to `messages`.
     var streamingDeltaBuffer: String = ""
@@ -1093,7 +1093,7 @@ public final class ChatViewModel: ObservableObject {
         // objectWillChange events per second (each @Published property
         // mutation triggers one). Instead of forwarding each immediately —
         // which invalidates the entire view tree every time — we batch them
-        // into a single objectWillChange per 100ms window. Views still
+        // into a single objectWillChange per 50ms window. Views still
         // update promptly, but the SwiftUI diffing cost drops dramatically.
 
         // Keep displayedMessages in sync with messages via publisher subscription.
@@ -1105,11 +1105,11 @@ public final class ChatViewModel: ObservableObject {
         //    `self.messages` inside the sink. @Published fires during willSet, so
         //    the stored property still holds the OLD value when the subscriber runs
         //    — reading it caused displayedMessages to lag one mutation behind.
-        // 2. Throttle to 100ms so displayedMessages (and any SwiftUI views observing
-        //    it) only refresh at most every 100ms, matching the coalesced publish
+        // 2. Throttle to 50ms so displayedMessages (and any SwiftUI views observing
+        //    it) only refresh at most every 50ms, matching the coalesced publish
         //    window used for the rest of the view model.
         messageManager.$messages
-            .throttle(for: .milliseconds(100), scheduler: RunLoop.main, latest: true)
+            .throttle(for: .milliseconds(50), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] newMessages in
                 self?.displayedMessages = ChatVisibleMessageFilter.visibleMessages(from: newMessages)
             }

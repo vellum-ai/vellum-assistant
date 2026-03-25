@@ -147,8 +147,8 @@ See `ChatViewModel.observeErrorManager()` and `MainWindowState.observeNavigation
 
 ### High-Frequency Updates
 
-- **Coalesce high-frequency publishes.** When a Combine publisher or `@Observable` property fires at high frequency (for example per-token streaming), coalesce updates with `throttle`, `debounce`, or a manual coalescing window (100 ms minimum) to avoid render churn.
-- **Cache expensive derived values.** Never expose a frequently-read, O(n) property as a plain computed var. Convert it to a `@Published` stored var updated on write with a minimum 100 ms `throttle` or `debounce`. Move any heavy work (sorting, JSON sizing, filtering large collections) off the main thread before updating the stored var.
+- **Coalesce high-frequency publishes.** When a Combine publisher or `@Observable` property fires at high frequency (for example per-token streaming), coalesce updates with `throttle`, `debounce`, or a manual coalescing window to avoid render churn. Use **100 ms minimum** as the default. A **50 ms minimum** is acceptable when the body evaluation cost has been verified to be sub-millisecond (e.g. paths using the two-stage cache in `MessageListView` where only the cheap live-data stage runs per evaluation).
+- **Cache expensive derived values.** Never expose a frequently-read, O(n) property as a plain computed var. Convert it to a `@Published` stored var updated on write with a `throttle` or `debounce` (same minimums as above: 100 ms default, 50 ms for verified-cheap paths). Move any heavy work (sorting, JSON sizing, filtering large collections) off the main thread before updating the stored var.
 - **Scope `UserDefaults` observation with `publisher(for:)` + debounce.** Do not subscribe to `UserDefaults.didChangeNotification` (app-wide) to watch a single key — it fires on every defaults write across the whole app. Use `UserDefaults.publisher(for: \.myKey)` with a 100 ms `.debounce` to limit scope and frequency.
 
 ### Concurrency and Task Management
