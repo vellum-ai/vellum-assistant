@@ -12,7 +12,7 @@ import Foundation
 /// `os.Logger` and `ChatDiagnosticsStore`.
 ///
 /// **Thresholds:**
-/// - More than 40 `anchorPreferenceChange` events in 2 seconds
+/// - More than 150 `anchorPreferenceChange` events in 2 seconds
 /// - More than 15 `scrollToRequested` events in 2 seconds
 /// - More than 40 `bodyEvaluation` events in 2 seconds
 ///
@@ -47,7 +47,10 @@ final class ChatScrollLoopGuard {
     // MARK: - Thresholds (explicit constants)
 
     /// Maximum anchor preference change events allowed in the detection window.
-    static let anchorThreshold: Int = 40
+    /// 150 per 2-second window = 75/sec sustained. Normal fast scroll peaks at
+    /// ~60 accepted events/sec, giving ~2.5x headroom while still catching
+    /// runaway layout loops (400+/2s).
+    static let anchorThreshold: Int = 150
 
     /// Maximum scrollTo requests allowed in the detection window.
     static let scrollToThreshold: Int = 15
