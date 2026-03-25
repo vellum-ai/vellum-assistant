@@ -2814,6 +2814,22 @@ public struct GuardianActionDecisionResponseMessage: Decodable, Sendable {
     public let userText: String?
     /// Text from the resolver to display to the guardian (e.g. verification code for access requests).
     public let replyText: String?
+
+    public init(
+        applied: Bool,
+        reason: String? = nil,
+        resolverFailureReason: String? = nil,
+        requestId: String? = nil,
+        userText: String? = nil,
+        replyText: String? = nil
+    ) {
+        self.applied = applied
+        self.reason = reason
+        self.resolverFailureReason = resolverFailureReason
+        self.requestId = requestId
+        self.userText = userText
+        self.replyText = replyText
+    }
 }
 
 /// Client -> Server: request pending guardian actions for a conversation.

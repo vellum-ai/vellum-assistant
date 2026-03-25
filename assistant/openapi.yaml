@@ -3197,6 +3197,7 @@ paths:
                   requestId:
                     type: string
                   reason:
+                    description: Decline reason (present only when applied is false)
                     type: string
                   replyText:
                     description: Resolver reply text for the guardian (e.g. verification code)
@@ -3204,7 +3205,6 @@ paths:
                 required:
                   - applied
                   - requestId
-                  - reason
                 additionalProperties: false
       requestBody:
         required: true

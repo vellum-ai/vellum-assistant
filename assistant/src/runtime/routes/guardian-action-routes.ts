@@ -301,7 +301,10 @@ export function guardianActionRouteDefinitions(): RouteDefinition[] {
       responseBody: z.object({
         applied: z.boolean(),
         requestId: z.string(),
-        reason: z.string(),
+        reason: z
+          .string()
+          .optional()
+          .describe("Decline reason (present only when applied is false)"),
         replyText: z
           .string()
           .optional()
