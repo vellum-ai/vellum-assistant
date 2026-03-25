@@ -47,6 +47,7 @@ import {
   rebuildConversationDiskViewFromDbState,
   syncMessageToDisk,
 } from "../memory/conversation-disk-view.js";
+import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import {
   isReplaceableTitle,
   queueGenerateConversationTitle,
@@ -612,6 +613,32 @@ export async function runAgentLoopImpl(
     );
 
     const { recall } = memoryResult;
+
+    try {
+      recordMemoryRecallLog({
+        conversationId: ctx.conversationId,
+        enabled: recall.enabled,
+        degraded: recall.degraded,
+        provider: recall.provider,
+        model: recall.model,
+        degradationJson: recall.degradation,
+        semanticHits: recall.semanticHits,
+        mergedCount: recall.mergedCount,
+        selectedCount: recall.selectedCount,
+        tier1Count: recall.tier1Count ?? 0,
+        tier2Count: recall.tier2Count ?? 0,
+        hybridSearchLatencyMs: recall.hybridSearchMs ?? 0,
+        sparseVectorUsed: recall.sparseVectorUsed ?? false,
+        injectedTokens: recall.injectedTokens,
+        latencyMs: recall.latencyMs,
+        topCandidatesJson: recall.topCandidates,
+        injectedText: recall.injectedText || undefined,
+        reason: recall.reason,
+      });
+    } catch (err) {
+      log.warn({ err }, "Failed to persist memory recall log (non-fatal)");
+    }
+
     runMessages = memoryResult.runMessages;
 
     // Build active surface context
