@@ -5,43 +5,7 @@
  * and security invariants (auth enforcement, invite code validation,
  * identity verification, routing hijack prevention).
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Test isolation: in-memory SQLite via temp directory
-// ---------------------------------------------------------------------------
-
-const testDir = mkdtempSync(join(tmpdir(), "a2a-lifecycle-e2e-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => testDir,
-  getWorkspaceConfigPath: () => join(testDir, "config.json"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
-
-mock.module("../util/logger.js", () => ({
-  getLogger: () =>
-    new Proxy({} as Record<string, unknown>, {
-      get: (_target, prop: string) => {
-        if (prop === "child")
-          return () =>
-            new Proxy({} as Record<string, unknown>, {
-              get: () => () => {},
-            });
-        return () => {};
-      },
-    }),
-}));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Mock fetch for outbound HTTP calls
 const fetchCalls: { url: string; init: RequestInit }[] = [];
@@ -93,15 +57,6 @@ import {
 import { interceptA2AEnvelope } from "../runtime/routes/inbound-stages/a2a-interceptor.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 beforeEach(() => {
   resetDb();
