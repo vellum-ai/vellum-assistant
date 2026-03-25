@@ -70,7 +70,7 @@ Wait for the Client ID, then store it:
 
 ```
 credential_store store:
-  service: "integration:asana"
+  service: "asana"
   field: "client_id"
   value: "<the client id the user sent>"
 ```
@@ -83,7 +83,7 @@ Store the secret:
 
 ```
 credential_store store:
-  service: "integration:asana"
+  service: "asana"
   field: "oauth_secret"
   value: "<the app secret the user sent>"
 ```
@@ -101,16 +101,16 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:asana --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider asana --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "integration:asana:oauth_secret"
+    ) --client-secret-credential-path "asana:oauth_secret"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connect integration:asana
+    assistant oauth connect asana
 ```
 
 Send the returned auth URL to the user. Tell them to click **Allow** on the Asana consent page.

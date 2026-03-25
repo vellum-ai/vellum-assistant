@@ -55,7 +55,7 @@ After the user sends the secret:
 
 ```
 credential_store prompt:
-  service: "integration:notion"
+  service: "notion"
   field: "internal_secret"
   label: "Notion Internal Integration Secret"
   description: "Paste the Internal Integration Secret."
@@ -66,7 +66,7 @@ If using `credential_store store` instead (when the user sent it as plaintext):
 
 ```
 credential_store store:
-  service: "integration:notion"
+  service: "notion"
   field: "internal_secret"
   value: "<the secret the user sent>"
 ```
@@ -95,7 +95,7 @@ Verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant credentials reveal --service integration:notion --field internal_secret)" \
+    curl -s -H "Authorization: Bearer $(assistant credentials reveal --service notion --field internal_secret)" \
       -H "Notion-Version: 2022-06-28" \
       "https://api.notion.com/v1/users/me"
 ```

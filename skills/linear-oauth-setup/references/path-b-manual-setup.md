@@ -55,7 +55,7 @@ Wait for the Client ID, then store it:
 
 ```
 credential_store store:
-  service: "integration:linear"
+  service: "linear"
   field: "client_id"
   value: "<the client id the user sent>"
 ```
@@ -68,7 +68,7 @@ Store the secret:
 
 ```
 credential_store store:
-  service: "integration:linear"
+  service: "linear"
   field: "oauth_secret"
   value: "<the secret the user sent>"
 ```
@@ -86,16 +86,16 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:linear --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider linear --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "integration:linear:oauth_secret"
+    ) --client-secret-credential-path "linear:oauth_secret"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connect integration:linear
+    assistant oauth connect linear
 ```
 
 Send the returned auth URL to the user. Tell them to click **Authorize** on the Linear consent page.

@@ -16,7 +16,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 
 ## Provider Details
 
-- **Provider key:** `integration:asana`
+- **Provider key:** `asana`
 - **Dashboard:** `https://app.asana.com/0/my-apps`
 - **Ping URL:** `https://app.asana.com/api/1.0/users/me`
 - **Callback transport:** Loopback (port 17328)
@@ -89,7 +89,7 @@ Collect the app secret via secure prompt:
 
 ```
 credential_store prompt:
-  service: "integration:asana"
+  service: "asana"
   field: "oauth_secret"
   label: "Asana OAuth App Secret"
   description: "Copy the app secret from the OAuth section of your Asana app settings (you may need to click Show first) and paste it here."
@@ -101,10 +101,10 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:asana --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider asana --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "integration:asana:oauth_secret"
+    ) --client-secret-credential-path "asana:oauth_secret"
 ```
 
 **Milestone (5 of 7):** "Credentials saved - just the authorization step left."
@@ -120,7 +120,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:asana
+    assistant oauth connect asana
 ```
 
 ---
@@ -132,7 +132,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    assistant oauth ping integration:asana
+    assistant oauth ping asana
 ```
 
 **On success:** "Asana is connected! You can now ask me to check your Asana tasks, create projects, manage assignments, and track your work."

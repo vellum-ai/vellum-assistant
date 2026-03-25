@@ -81,7 +81,7 @@ Wait for the Client ID, then store it:
 
 ```
 credential_store store:
-  service: "integration:twitter"
+  service: "twitter"
   field: "client_id"
   value: "<the client id the user sent>"
 ```
@@ -94,7 +94,7 @@ Store the secret:
 
 ```
 credential_store store:
-  service: "integration:twitter"
+  service: "twitter"
   field: "client_secret"
   value: "<the client secret the user sent>"
 ```
@@ -112,16 +112,16 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:twitter --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider twitter --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "credential/integration:twitter/client_secret"
+    ) --client-secret-credential-path "credential/twitter/client_secret"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connect integration:twitter
+    assistant oauth connect twitter
 ```
 
 Send the returned auth URL to the user. Tell them to review the permissions and click **Authorize app**.

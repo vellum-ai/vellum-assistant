@@ -80,7 +80,7 @@ Wait for the Client ID, then store it:
 
 ```
 credential_store store:
-  service: "integration:discord"
+  service: "discord"
   field: "client_id"
   value: "<the client id the user sent>"
 ```
@@ -93,7 +93,7 @@ Store the secret:
 
 ```
 credential_store store:
-  service: "integration:discord"
+  service: "discord"
   field: "oauth_secret"
   value: "<the app secret the user sent>"
 ```
@@ -111,16 +111,16 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:discord --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider discord --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "integration:discord:oauth_secret"
+    ) --client-secret-credential-path "discord:oauth_secret"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connect integration:discord --scopes identify guilds guilds.members.read messages.read
+    assistant oauth connect discord --scopes identify guilds guilds.members.read messages.read
 ```
 
 Send the returned auth URL to the user. Tell them to click **Authorize** on the Discord consent page.

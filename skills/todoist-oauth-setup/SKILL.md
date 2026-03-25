@@ -16,7 +16,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 
 ## Provider Details
 
-- **Provider key:** `integration:todoist`
+- **Provider key:** `todoist`
 - **Dashboard:** `https://developer.todoist.com/appconsole.html`
 - **Scopes:** `data:read_write`
 - **Callback transport:** Loopback (port 17325)
@@ -77,7 +77,7 @@ Collect the app secret via secure prompt:
 
 ```
 credential_store prompt:
-  service: "integration:todoist"
+  service: "todoist"
   field: "app_secret"
   label: "Todoist OAuth App Secret"
   description: "Copy the app secret from the Todoist app settings page and paste it here."
@@ -89,10 +89,10 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:todoist --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider todoist --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "integration:todoist:app_secret"
+    ) --client-secret-credential-path "todoist:app_secret"
 ```
 
 **Milestone (5 of 7):** "Credentials saved - just the authorization step left."
@@ -108,7 +108,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:todoist
+    assistant oauth connect todoist
 ```
 
 ---
@@ -120,7 +120,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    assistant oauth ping integration:todoist
+    assistant oauth ping todoist
 ```
 
 **On success:** "Todoist is connected! You can now ask me to manage your tasks, create projects, and organize your to-do lists."

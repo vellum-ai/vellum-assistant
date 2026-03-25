@@ -8,7 +8,7 @@ metadata:
     display-name: "Notion"
 ---
 
-You have access to the Notion API via stored credentials for `integration:notion`. Both Internal integration secrets and OAuth access tokens are supported.
+You have access to the Notion API via stored credentials for `notion`. Both Internal integration secrets and OAuth access tokens are supported.
 
 ## Authentication
 
@@ -18,7 +18,7 @@ You have access to the Notion API via stored credentials for `integration:notion
 credential_store action=list
 ```
 
-Look for an entry with `service: "integration:notion"`. The credential may be stored under one of two fields depending on how the user set up the integration:
+Look for an entry with `service: "notion"`. The credential may be stored under one of two fields depending on how the user set up the integration:
 
 - `field: "internal_secret"` - Internal integration (new default setup)
 - `field: "access_token"` - OAuth/Public integration (legacy setup)
@@ -33,7 +33,7 @@ Use `bash` with `assistant credentials reveal` to inject the token into the Auth
 bash:
   command: |
     curl -s -X POST https://api.notion.com/v1/search \
-      -H "Authorization: Bearer $(assistant credentials reveal --service integration:notion --field internal_secret)" \
+      -H "Authorization: Bearer $(assistant credentials reveal --service notion --field internal_secret)" \
       -H "Notion-Version: 2022-06-28" \
       -H "Content-Type: application/json" \
       -d '{}'

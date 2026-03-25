@@ -84,7 +84,7 @@ Wait for the Client ID, then store it:
 
 ```
 credential_store store:
-  service: "integration:hubspot"
+  service: "hubspot"
   field: "client_id"
   value: "<the client id the user sent>"
 ```
@@ -97,7 +97,7 @@ Store the secret:
 
 ```
 credential_store store:
-  service: "integration:hubspot"
+  service: "hubspot"
   field: "oauth_secret"
   value: "<the app secret the user sent>"
 ```
@@ -115,16 +115,16 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:hubspot --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider hubspot --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "integration:hubspot:oauth_secret"
+    ) --client-secret-credential-path "hubspot:oauth_secret"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connect integration:hubspot
+    assistant oauth connect hubspot
 ```
 
 Send the returned auth URL to the user. Tell them to select their HubSpot account and click **Grant access** on the consent page.

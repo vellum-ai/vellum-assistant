@@ -15,7 +15,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 
 ## Provider Details
 
-- **Provider key:** `integration:google`
+- **Provider key:** `google`
 - **Provider search keys:** `gmail`, `google`
 - **Credential type (Path A):** Desktop app
 - **Credential type (Path B):** Web application (callback through public gateway)

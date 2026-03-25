@@ -16,7 +16,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 
 ## Provider Details
 
-- **Provider key:** `integration:linear`
+- **Provider key:** `linear`
 - **Auth URL:** `https://linear.app/oauth/authorize`
 - **Token URL:** `https://api.linear.app/oauth/token`
 - **Ping URL:** `https://api.linear.app/graphql`
@@ -86,7 +86,7 @@ Collect the secret via secure prompt:
 
 ```
 credential_store prompt:
-  service: "integration:linear"
+  service: "linear"
   field: "oauth_secret"
   label: "Linear OAuth App Secret"
   description: "Copy the app secret from the Linear OAuth application page and paste it here."
@@ -118,10 +118,10 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:linear --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider linear --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "integration:linear:oauth_secret"
+    ) --client-secret-credential-path "linear:oauth_secret"
 ```
 
 **Milestone (6 of 8):** "Credentials saved - just the authorization step left."
@@ -137,7 +137,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:linear
+    assistant oauth connect linear
 ```
 
 ---
@@ -149,7 +149,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    assistant oauth ping integration:linear
+    assistant oauth ping linear
 ```
 
 **On success:** "Linear is connected! You can now ask me to create issues, check your assignments, search across projects, and manage your Linear workflow."

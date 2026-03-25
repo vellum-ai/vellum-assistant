@@ -16,7 +16,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 
 ## Provider Details
 
-- **Provider key:** `integration:discord`
+- **Provider key:** `discord`
 - **Dashboard:** `https://discord.com/developers/applications`
 - **Ping URL:** `https://discord.com/api/v10/users/@me`
 - **Callback transport:** Loopback (port 17326)
@@ -110,7 +110,7 @@ Collect the app secret via secure prompt:
 
 ```
 credential_store prompt:
-  service: "integration:discord"
+  service: "discord"
   field: "oauth_secret"
   label: "Discord OAuth App Secret"
   description: "Paste the app secret you just copied from the OAuth2 page."
@@ -122,10 +122,10 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:discord --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider discord --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "integration:discord:oauth_secret"
+    ) --client-secret-credential-path "discord:oauth_secret"
 ```
 
 **Milestone (7 of 9):** "Credentials saved - just the authorization step left."
@@ -141,7 +141,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:discord --scopes identify guilds guilds.members.read messages.read
+    assistant oauth connect discord --scopes identify guilds guilds.members.read messages.read
 ```
 
 ---
@@ -153,7 +153,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    assistant oauth ping integration:discord
+    assistant oauth ping discord
 ```
 
 **On success:** "Discord is connected! You can now ask me to check your Discord servers, read messages, and look up server members."

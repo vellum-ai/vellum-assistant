@@ -16,7 +16,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 
 ## Provider Details
 
-- **Provider key:** `integration:notion`
+- **Provider key:** `notion`
 - **Default credential type:** Internal integration (API token)
 - **No OAuth flow required** for the default path - just copy the integration secret and grant page access
 
@@ -81,7 +81,7 @@ Collect the secret securely:
 
 ```
 credential_store prompt:
-  service: "integration:notion"
+  service: "notion"
   field: "internal_secret"
   label: "Notion Internal Integration Secret"
   description: "Paste the Internal Integration Secret you just copied."
@@ -111,7 +111,7 @@ Verify the connection works by calling the Notion API with the stored secret:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant credentials reveal --service integration:notion --field internal_secret)" \
+    curl -s -H "Authorization: Bearer $(assistant credentials reveal --service notion --field internal_secret)" \
       -H "Notion-Version: 2022-06-28" \
       "https://api.notion.com/v1/users/me"
 ```
