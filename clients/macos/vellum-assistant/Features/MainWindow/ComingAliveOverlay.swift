@@ -71,7 +71,9 @@ struct ComingAliveOverlay: View {
         }
 
         // 2. Glow pulse starts slightly after avatar begins
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            guard !Task.isCancelled else { return }
             withAnimation(.easeOut(duration: 0.8)) {
                 glowScale = 1.6
                 glowOpacity = 0.5
@@ -83,7 +85,9 @@ struct ComingAliveOverlay: View {
         }
 
         // 3. Notify completion
-        DispatchQueue.main.asyncAfter(deadline: .now() + completionDelay) {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(completionDelay * 1_000_000_000))
+            guard !Task.isCancelled else { return }
             onComplete()
         }
     }
