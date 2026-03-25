@@ -118,12 +118,13 @@ extension MessageListScrollCoordinator {
         }
 
         // --- Bottom-pin on new messages ---
-        if isNearBottom && !isSuppressed && anchorMessageId == nil {
+        // During the initial conversation load (before any user scroll event),
+        // `.defaultScrollAnchor(.bottom)` handles positioning declaratively.
+        // Firing animated programmatic scrolls here would compete with the
+        // declarative anchor and cause visible jitter/bounce. Only issue
+        // programmatic pins after the user has interacted with the scroll view.
+        if isNearBottom && !isSuppressed && anchorMessageId == nil && hasReceivedScrollEvent {
             requestBottomPin(reason: .messageCount, conversationId: conversationId, animated: true)
-        } else if !hasReceivedScrollEvent && anchorMessageId == nil && !messages.isEmpty {
-            // History just loaded but the coordinator's initial-restore session
-            // may have already expired. Force a fresh scroll-to-bottom.
-            requestBottomPin(reason: .initialRestore, conversationId: conversationId)
         } else if isSuppressed {
             scrollCoordinatorLog.debug("Auto-scroll suppressed (bottom-scroll suppression active)")
         }
@@ -198,11 +199,17 @@ extension MessageListScrollCoordinator {
         hasPlayedTailEntryAnimation = false
         // Reset confirmation focus tracking for the new conversation.
         lastAutoFocusedRequestId = nil
-        // Restore scroll to bottom for the new conversation.
-        scrollRestoreTask?.cancel()
-        if anchorMessageId.wrappedValue == nil {
-            requestBottomPin(reason: .initialRestore, conversationId: newConversationId)
+        // When switching to a conversation that is already actively sending,
+        // .onChange(of: isSending) won't fire (the value doesn't change), so
+        // hasReceivedScrollEvent stays false. Set it now so that messagesChanged()
+        // can issue programmatic pins for streaming messages in the new conversation.
+        if isSending {
+            hasReceivedScrollEvent = true
         }
+        // The ScrollView's `.defaultScrollAnchor(.bottom)` handles initial
+        // bottom positioning declaratively. restoreScrollToBottom provides
+        // a deferred safety-net check in case the anchor alone is insufficient.
+        scrollRestoreTask?.cancel()
         restoreScrollToBottom(
             conversationId: newConversationId,
             anchorMessageId: anchorMessageId

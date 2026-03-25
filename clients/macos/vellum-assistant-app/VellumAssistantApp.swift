@@ -74,6 +74,11 @@ struct VellumAssistantApp: App {
                     appDelegate.sendFeedback()
                 }
             }
+            CommandGroup(after: .newItem) {
+                Button("Pop Out Conversation") {
+                    appDelegate.popOutActiveConversation()
+                }
+            }
             // View menu: zoom shortcuts for discoverability.
             // The actual handling is done by event monitors (registerZoomMonitor)
             // which fire before the menu system. Zoom always applies so menu

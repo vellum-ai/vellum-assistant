@@ -647,6 +647,7 @@ struct ChatBubble: View {
                     // content truncation and footer overlap.
                     MarkdownSegmentView(
                         segments: segments,
+                        isStreaming: message.isStreaming,
                         maxContentWidth: isUser ? nil : VSpacing.chatBubbleMaxWidth,
                         textColor: isUser ? VColor.contentDefault : VColor.contentDefault,
                         secondaryTextColor: isUser ? VColor.contentSecondary : VColor.contentSecondary,

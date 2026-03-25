@@ -60,6 +60,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var navLocalMonitor: Any?
     var zoomLocalMonitor: Any?
     var sidebarToggleLocalMonitor: Any?
+    var popOutLocalMonitor: Any?
     public let services = AppServices()
     let vellumCli = VellumCli()
     public let updateManager = UpdateManager()
@@ -661,6 +662,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public func performZoomIn() { zoomManager.zoomIn() }
     public func performZoomOut() { zoomManager.zoomOut() }
     public func performZoomReset() { zoomManager.resetZoom() }
+
+    public func popOutActiveConversation() {
+        guard let mainWindow = mainWindow,
+              let id = mainWindow.conversationManager.activeConversationId,
+              mainWindow.conversationManager.activeConversation?.conversationId != nil else { return }
+        threadWindowManager?.openThread(
+            conversationLocalId: id,
+            conversationManager: mainWindow.conversationManager
+        )
+    }
 
     public func createNewConversation() {
         showMainWindow()

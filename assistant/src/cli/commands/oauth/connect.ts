@@ -1,3 +1,5 @@
+import { createServer, type Server } from "node:http";
+
 import type { Command } from "commander";
 
 import { orchestrateOAuthConnect } from "../../../oauth/connect-orchestrator.js";
@@ -7,6 +9,7 @@ import {
   getProvider,
 } from "../../../oauth/oauth-store.js";
 import { getProviderBehavior } from "../../../oauth/provider-behaviors.js";
+import { renderOAuthCompletionPage } from "../../../security/oauth-completion-page.js";
 import { openInBrowser } from "../../../util/browser.js";
 import { getSecureKeyViaDaemon } from "../../lib/daemon-credential-client.js";
 import { getCliLogger } from "../../logger.js";
@@ -18,6 +21,51 @@ import {
 } from "./shared.js";
 
 const log = getCliLogger("cli");
+
+/**
+ * Start a temporary loopback server to serve a nice completion page after the
+ * platform redirects the user's browser following a managed OAuth flow.
+ * Returns the base URL and a cleanup function.
+ */
+function startManagedRedirectServer(): Promise<{
+  redirectUrl: string;
+  cleanup: () => void;
+}> {
+  return new Promise((resolve, reject) => {
+    const server: Server = createServer((req, res) => {
+      const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      const error = url.searchParams.get("error");
+      const errorDesc = url.searchParams.get("error_description");
+
+      if (error) {
+        const message = errorDesc ?? error;
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(renderOAuthCompletionPage(message, false));
+      } else {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(
+          renderOAuthCompletionPage(
+            "You can close this tab and return to your terminal.",
+            true,
+          ),
+        );
+      }
+    });
+
+    server.listen(0, "localhost", () => {
+      const addr = server.address() as { port: number };
+      const redirectUrl = `http://localhost:${addr.port}/oauth/complete`;
+      resolve({
+        redirectUrl,
+        cleanup: () => server.close(),
+      });
+    });
+
+    server.on("error", (err) => {
+      reject(new Error(`Failed to start redirect server: ${err.message}`));
+    });
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Command registration
@@ -120,128 +168,146 @@ Examples:
               body.requested_scopes = opts.scopes;
             }
 
-            const response = await client.fetch(startPath, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(body),
-            });
-
-            if (!response.ok) {
-              const errorText = await response.text().catch(() => "");
-              writeError(
-                `Platform returned HTTP ${response.status}${errorText ? `: ${errorText}` : ""}`,
-              );
-              return;
-            }
-
-            const result = (await response.json()) as {
-              connect_url?: string;
-            };
-
-            if (!result.connect_url) {
-              writeError(
-                "Platform did not return a connect URL — the OAuth flow could not be started",
-              );
-              return;
-            }
-
+            // When opening the browser, start a local server to show a nice
+            // completion page instead of redirecting to the platform website.
+            let redirectServer:
+              | { redirectUrl: string; cleanup: () => void }
+              | undefined;
             if (opts.openBrowser) {
-              // Snapshot existing connection IDs before opening browser
-              const snapshotEntries = await fetchActiveConnections(
-                client,
-                provider,
-                cmd,
-              );
-              if (!snapshotEntries) {
-                // fetchActiveConnections already wrote the error output
+              try {
+                redirectServer = await startManagedRedirectServer();
+                body.redirect_after_connect = redirectServer.redirectUrl;
+              } catch {
+                // Non-fatal — fall back to platform default redirect
+              }
+            }
+
+            try {
+              const response = await client.fetch(startPath, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(body),
+              });
+
+              if (!response.ok) {
+                const errorText = await response.text().catch(() => "");
+                writeError(
+                  `Platform returned HTTP ${response.status}${errorText ? `: ${errorText}` : ""}`,
+                );
                 return;
               }
-              const snapshotIds = new Set(snapshotEntries.map((e) => e.id));
 
-              openInBrowser(result.connect_url);
+              const result = (await response.json()) as {
+                connect_url?: string;
+              };
 
-              if (!jsonMode) {
-                log.info(
-                  `Opening browser to connect ${provider}. Waiting for authorization...`,
+              if (!result.connect_url) {
+                writeError(
+                  "Platform did not return a connect URL — the OAuth flow could not be started",
                 );
+                return;
               }
 
-              // Poll for a new connection every 2s for up to 5 minutes
-              const pollIntervalMs = 2000;
-              const timeoutMs = 5 * 60 * 1000;
-              const deadline = Date.now() + timeoutMs;
-              let newConnection: {
-                id: string;
-                account_label?: string;
-                scopes_granted?: string[];
-              } | null = null;
-
-              while (Date.now() < deadline) {
-                await new Promise((r) => setTimeout(r, pollIntervalMs));
-
-                const currentEntries = await fetchActiveConnections(
+              if (opts.openBrowser) {
+                // Snapshot existing connection IDs before opening browser
+                const snapshotEntries = await fetchActiveConnections(
                   client,
                   provider,
                   cmd,
-                  { silent: true },
                 );
-                if (!currentEntries) continue;
-
-                const found = currentEntries.find(
-                  (e) => !snapshotIds.has(e.id),
-                );
-                if (found) {
-                  newConnection = found;
-                  break;
+                if (!snapshotEntries) {
+                  // fetchActiveConnections already wrote the error output
+                  return;
                 }
-              }
+                const snapshotIds = new Set(snapshotEntries.map((e) => e.id));
 
-              if (newConnection) {
-                // Success — new connection found
-                if (jsonMode) {
-                  writeOutput(cmd, {
-                    ok: true,
-                    provider: provider,
-                    connectionId: newConnection.id,
-                    accountLabel: newConnection.account_label ?? null,
-                    scopesGranted: newConnection.scopes_granted ?? [],
-                  });
+                openInBrowser(result.connect_url);
+
+                if (!jsonMode) {
+                  log.info(
+                    `Opening browser to connect ${provider}. Waiting for authorization...`,
+                  );
+                }
+
+                // Poll for a new connection every 2s for up to 5 minutes
+                const pollIntervalMs = 2000;
+                const timeoutMs = 5 * 60 * 1000;
+                const deadline = Date.now() + timeoutMs;
+                let newConnection: {
+                  id: string;
+                  account_label?: string;
+                  scopes_granted?: string[];
+                } | null = null;
+
+                while (Date.now() < deadline) {
+                  await new Promise((r) => setTimeout(r, pollIntervalMs));
+
+                  const currentEntries = await fetchActiveConnections(
+                    client,
+                    provider,
+                    cmd,
+                    { silent: true },
+                  );
+                  if (!currentEntries) continue;
+
+                  const found = currentEntries.find(
+                    (e) => !snapshotIds.has(e.id),
+                  );
+                  if (found) {
+                    newConnection = found;
+                    break;
+                  }
+                }
+
+                if (newConnection) {
+                  // Success — new connection found
+                  if (jsonMode) {
+                    writeOutput(cmd, {
+                      ok: true,
+                      provider: provider,
+                      connectionId: newConnection.id,
+                      accountLabel: newConnection.account_label ?? null,
+                      scopesGranted: newConnection.scopes_granted ?? [],
+                    });
+                  } else {
+                    const label = newConnection.account_label
+                      ? ` as ${newConnection.account_label}`
+                      : "";
+                    process.stdout.write(`Connected to ${provider}${label}\n`);
+                  }
                 } else {
-                  const label = newConnection.account_label
-                    ? ` as ${newConnection.account_label}`
-                    : "";
-                  process.stdout.write(`Connected to ${provider}${label}\n`);
+                  // Timeout — authorization may still be in progress
+                  if (jsonMode) {
+                    writeOutput(cmd, {
+                      ok: true,
+                      deferred: true,
+                      provider: provider,
+                      connectUrl: result.connect_url,
+                      message:
+                        "Authorization may still be in progress. Check with 'assistant oauth status <provider>'.",
+                    });
+                  } else {
+                    process.stdout.write(
+                      `Timed out waiting for authorization. It may still be in progress.\n` +
+                        `Check with: assistant oauth status ${provider}\n`,
+                    );
+                  }
                 }
               } else {
-                // Timeout — authorization may still be in progress
+                // No --open-browser: output the connect URL
                 if (jsonMode) {
                   writeOutput(cmd, {
                     ok: true,
                     deferred: true,
-                    provider: provider,
                     connectUrl: result.connect_url,
-                    message:
-                      "Authorization may still be in progress. Check with 'assistant oauth status <provider>'.",
+                    provider: provider,
                   });
                 } else {
-                  process.stdout.write(
-                    `Timed out waiting for authorization. It may still be in progress.\n` +
-                      `Check with: assistant oauth status ${provider}\n`,
-                  );
+                  process.stdout.write(result.connect_url + "\n");
                 }
               }
-            } else {
-              // No --open-browser: output the connect URL
-              if (jsonMode) {
-                writeOutput(cmd, {
-                  ok: true,
-                  deferred: true,
-                  connectUrl: result.connect_url,
-                  provider: provider,
-                });
-              } else {
-                process.stdout.write(result.connect_url + "\n");
-              }
+            } finally {
+              redirectServer?.cleanup();
             }
           } else {
             // =============================================================

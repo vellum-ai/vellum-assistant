@@ -64,6 +64,7 @@ There is no Type selector on the creation form - integrations are created as **I
 **Known issues:**
 
 - If they already have an integration named "Vellum Assistant", ask if they'd like to reuse it - skip ahead to Step 3
+- **Missing admin permissions:** Only workspace **admins** can create integrations. If the user can't find the "New integration" button, sees a disabled/grayed-out option, gets a permissions error, or tells you they aren't an admin — see [references/non-admin-alternatives.md](references/non-admin-alternatives.md).
 
 **Milestone (2 of 4):** "Integration created - now let's grab the secret and grant page access."
 

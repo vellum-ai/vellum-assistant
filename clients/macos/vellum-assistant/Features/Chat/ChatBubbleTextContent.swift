@@ -18,7 +18,7 @@ extension ChatBubble {
             // Switching between Text and MarkdownSegmentView caused
             // LazyVStack to use stale height measurements, resulting in
             // content truncation and footer overlap.
-            MarkdownSegmentView(segments: segments)
+            MarkdownSegmentView(segments: segments, isStreaming: streaming)
                 .equatable()
         }
         .task(id: "\(segmentText)|\(streaming)") {
