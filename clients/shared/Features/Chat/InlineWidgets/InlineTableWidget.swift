@@ -1,13 +1,10 @@
 import SwiftUI
 
-private extension View {
-    @ViewBuilder
-    func columnFrame(_ width: Int?) -> some View {
-        if let w = width {
-            self.frame(width: CGFloat(w), alignment: .leading)
-        } else {
-            self.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-        }
+/// Preference key for measuring the available table width.
+private struct TableWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
     }
 }
 
@@ -17,6 +14,7 @@ public struct InlineTableWidget: View {
     public let onAction: (String, [String: AnyCodable]?) -> Void
 
     @State private var selectedIds: Set<String> = []
+    @State private var tableWidth: CGFloat = 0
 
     public init(data: TableSurfaceData, onAction: @escaping (String, [String: AnyCodable]?) -> Void) {
         self.data = data
@@ -30,6 +28,25 @@ public struct InlineTableWidget: View {
     private var allSelected: Bool {
         let ids = selectableIds
         return !ids.isEmpty && ids.isSubset(of: selectedIds)
+    }
+
+    /// Width reserved for the selection checkbox / spacer column.
+    private var selectionColumnWidth: CGFloat {
+        data.selectionMode != .none ? 28 : 0
+    }
+
+    /// Calculate the explicit width for a column based on the measured table width.
+    /// Fixed-width columns get their specified size; flexible columns share the remainder equally.
+    private func resolvedColumnWidth(for column: TableColumn) -> CGFloat {
+        if let w = column.width {
+            return CGFloat(w)
+        }
+        guard tableWidth > 0 else { return 100 }
+        let fixedTotal = CGFloat(data.columns.compactMap(\.width).reduce(0, +))
+        let flexCount = data.columns.filter({ $0.width == nil }).count
+        guard flexCount > 0 else { return 100 }
+        let remaining = tableWidth - fixedTotal - selectionColumnWidth
+        return max(40, remaining / CGFloat(flexCount))
     }
 
     public var body: some View {
@@ -54,7 +71,7 @@ public struct InlineTableWidget: View {
                     Text(column.label)
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
-                        .columnFrame(column.width)
+                        .frame(width: resolvedColumnWidth(for: column), alignment: .leading)
                         .textSelection(.enabled)
                 }
             }
@@ -74,6 +91,14 @@ public struct InlineTableWidget: View {
                     .foregroundStyle(VColor.contentTertiary)
                     .padding(.top, VSpacing.xs)
             }
+        }
+        .background(
+            GeometryReader { geometry in
+                Color.clear.preference(key: TableWidthKey.self, value: geometry.size.width)
+            }
+        )
+        .onPreferenceChange(TableWidthKey.self) { width in
+            tableWidth = width
         }
         .onAppear {
             // Initialize selection from data and notify the parent so action
@@ -104,7 +129,7 @@ public struct InlineTableWidget: View {
             }
 
             ForEach(data.columns) { column in
-                cellView(row.cells[column.id], width: column.width)
+                cellView(row.cells[column.id], width: resolvedColumnWidth(for: column))
             }
         }
         .padding(.vertical, VSpacing.xs)
@@ -121,7 +146,7 @@ public struct InlineTableWidget: View {
     }
 
     @ViewBuilder
-    private func cellView(_ value: TableCellValue?, width: Int?) -> some View {
+    private func cellView(_ value: TableCellValue?, width: CGFloat) -> some View {
         HStack(spacing: VSpacing.xs) {
             if let icon = value?.icon,
                let vIcon = SFSymbolMapping.icon(forSFSymbol: icon) {
@@ -134,7 +159,7 @@ public struct InlineTableWidget: View {
                 .lineLimit(nil)
                 .textSelection(.enabled)
         }
-        .columnFrame(width)
+        .frame(width: width, alignment: .leading)
     }
 
     private func resolveIconColor(_ token: String?) -> Color {
