@@ -59,13 +59,25 @@ export function toBareProvider(provider: string): string {
 }
 
 /**
+ * Return the provider's `managedServiceConfigKey` if it exists and is a valid
+ * key in `ServicesSchema.shape`, or `null` otherwise. This centralises the
+ * lookup so that callers (e.g. `isManagedMode`, `mode.ts`) don't duplicate the
+ * validation.
+ */
+export function getManagedServiceConfigKey(providerKey: string): string | null {
+  const provider = getProvider(providerKey);
+  const managedKey = provider?.managedServiceConfigKey;
+  if (!managedKey || !(managedKey in ServicesSchema.shape)) return null;
+  return managedKey;
+}
+
+/**
  * Determine whether a provider is running in platform-managed mode.
  * Returns false if config is unavailable (e.g. in test environments).
  */
 export function isManagedMode(providerKey: string): boolean {
-  const provider = getProvider(providerKey);
-  const managedKey = provider?.managedServiceConfigKey;
-  if (!managedKey || !(managedKey in ServicesSchema.shape)) return false;
+  const managedKey = getManagedServiceConfigKey(providerKey);
+  if (!managedKey) return false;
   try {
     const services: Services = getConfig().services;
     return services[managedKey as keyof Services].mode === "managed";

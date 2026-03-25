@@ -4,6 +4,7 @@ import { registerAppCommands } from "./apps.js";
 import { registerConnectCommand } from "./connect.js";
 import { registerConnectionCommands } from "./connections.js";
 import { registerDisconnectCommand } from "./disconnect.js";
+import { registerModeCommand } from "./mode.js";
 import { registerPingCommand } from "./ping.js";
 import { registerProviderCommands } from "./providers.js";
 import { registerRequestCommand } from "./request.js";
@@ -24,6 +25,7 @@ The oauth command group manages the full OAuth lifecycle:
   connect     Initiate an OAuth flow for a provider (managed or BYO)
   disconnect  Disconnect an OAuth provider
   status      Show OAuth connection status for a provider
+  mode        Get or set OAuth mode (managed vs your-own) for a provider
   token       Print a valid OAuth access token (BYO providers only)
   ping        Verify an OAuth token is valid by hitting the provider's health-check endpoint
   request     Make authenticated HTTP requests (curl-like interface)
@@ -89,6 +91,12 @@ Examples:
   // ---------------------------------------------------------------------------
 
   registerStatusCommand(oauth);
+
+  // ---------------------------------------------------------------------------
+  // mode — get or set OAuth mode (managed vs your-own) for a provider
+  // ---------------------------------------------------------------------------
+
+  registerModeCommand(oauth);
 
   // ---------------------------------------------------------------------------
   // ping — unified ping command (auto-detects managed vs BYO)
