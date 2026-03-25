@@ -35,6 +35,7 @@ import {
   createTasksAndWorkItemsTables,
   createWatchersAndLogsTables,
   migrateAddSourceTypeColumns,
+  migrateCreateMemoryRecallLogs,
   migrateAssistantContactMetadata,
   migrateBackfillAudioAttachmentMimeTypes,
   migrateBackfillContactInteractionStats,
@@ -507,6 +508,9 @@ export function initializeDb(): void {
 
   // 90. Add source_type and source_message_role columns to memory_items
   migrateAddSourceTypeColumns(database);
+
+  // 91. Memory recall logs table for inspector memory tab
+  migrateCreateMemoryRecallLogs(database);
 
   validateMigrationState(database);
 
