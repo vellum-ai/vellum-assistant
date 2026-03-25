@@ -30,7 +30,11 @@ extension MainWindowView {
     }
 
     var regularConversations: [ConversationModel] {
-        conversationManager.visibleConversations.filter { !$0.isScheduleConversation }
+        conversationManager.visibleConversations.filter { !$0.isScheduleConversation && !$0.isBackgroundConversation }
+    }
+
+    var backgroundConversations: [ConversationModel] {
+        conversationManager.visibleConversations.filter { $0.isBackgroundConversation }
     }
 
     var scheduleConversations: [ConversationModel] {
@@ -45,6 +49,18 @@ extension MainWindowView {
     var displayedScheduleConversations: [ConversationModel] {
         let all = scheduleConversations
         return sidebar.showAllScheduleConversations ? all : Array(all.prefix(3))
+    }
+
+    var displayedBackgroundConversations: [ConversationModel] {
+        let all = backgroundConversations
+        if sidebar.showAllBackgroundConversations { return all }
+        // Auto-expand if any hidden conversation has unread messages.
+        let visible = Array(all.prefix(3))
+        let hidden = all.dropFirst(3)
+        if hidden.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
+            return all
+        }
+        return visible
     }
 
     /// Groups schedule conversations by their scheduleJobId.
@@ -477,6 +493,42 @@ extension MainWindowView {
                                     size: .compact
                                 ) {
                                     withAnimation(VAnimation.fast) { sidebar.showAllScheduleConversations.toggle() }
+                                }
+                                Spacer()
+                            }
+                            .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
+                            .padding(.top, VSpacing.sm)
+                            .padding(.bottom, VSpacing.xs)
+                        }
+                    }
+
+                    if !backgroundConversations.isEmpty {
+                        // Background conversations section
+                        HStack {
+                            Text("Background")
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                            Spacer()
+                        }
+                        .padding(.leading, SidebarLayoutMetrics.iconSlotSize)
+                        .padding(.trailing, VSpacing.md)
+                        .padding(.top, SidebarLayoutMetrics.scheduledHeaderTopGap)
+                        .padding(.bottom, SidebarLayoutMetrics.scheduledHeaderBottomGap)
+
+                        ForEach(displayedBackgroundConversations) { conversation in
+                            makeSidebarRow(conversation: conversation)
+                                .equatable()
+                                .padding(.bottom, SidebarLayoutMetrics.listRowGap)
+                        }
+
+                        if backgroundConversations.count > 3 {
+                            HStack {
+                                VButton(
+                                    label: sidebar.showAllBackgroundConversations ? "Show less" : "Show more",
+                                    style: .ghost,
+                                    size: .compact
+                                ) {
+                                    withAnimation(VAnimation.fast) { sidebar.showAllBackgroundConversations.toggle() }
                                 }
                                 Spacer()
                             }
