@@ -35,7 +35,7 @@ export async function run(
     }
 
     try {
-      const connection = await resolveOAuthConnection("integration:google", {
+      const connection = await resolveOAuthConnection("google", {
         account,
       });
       const allMessageIds: string[] = [];
@@ -106,7 +106,7 @@ export async function run(
   } else if (messageId) {
     // Single message path
     try {
-      const connection = await resolveOAuthConnection("integration:google", {
+      const connection = await resolveOAuthConnection("google", {
         account,
       });
       await modifyMessage(connection, messageId, { removeLabelIds: ["INBOX"] });
@@ -126,7 +126,7 @@ export async function run(
   }
 
   try {
-    const connection = await resolveOAuthConnection("integration:google", {
+    const connection = await resolveOAuthConnection("google", {
       account,
     });
     if (messageIds.length === 1) {

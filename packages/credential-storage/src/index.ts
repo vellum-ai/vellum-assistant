@@ -98,7 +98,7 @@ export interface SecureKeyBackend {
 export interface OAuthConnectionRecord {
   /** Unique identifier for this connection. */
   id: string;
-  /** Provider key (e.g. "integration:google", "integration:slack"). */
+  /** Provider key (e.g. "google", "slack"). */
   providerKey: string;
   /** Account identifier (e.g. email address). */
   accountInfo: string | null;

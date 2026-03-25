@@ -22,7 +22,7 @@ export async function run(
   }
 
   try {
-    const connection = await resolveOAuthConnection("integration:google", {
+    const connection = await resolveOAuthConnection("google", {
       account,
     });
     switch (action) {
