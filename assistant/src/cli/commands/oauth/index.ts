@@ -8,6 +8,7 @@ import { registerPingCommand } from "./ping.js";
 import { registerProviderCommands } from "./providers.js";
 import { registerRequestCommand } from "./request.js";
 import { registerStatusCommand } from "./status.js";
+import { registerTokenCommand } from "./token.js";
 
 export function registerOAuthCommand(program: Command): void {
   const oauth = program
@@ -23,6 +24,7 @@ The oauth command group manages the full OAuth lifecycle:
   connect     Initiate an OAuth flow for a provider (managed or BYO)
   disconnect  Disconnect an OAuth provider
   status      Show OAuth connection status for a provider
+  token       Print a valid OAuth access token (BYO providers only)
   ping        Verify an OAuth token is valid by hitting the provider's health-check endpoint
   request     Make authenticated HTTP requests (curl-like interface)
   providers   Protocol-level configurations (auth URLs, scopes, endpoints)
@@ -40,6 +42,7 @@ Examples:
   $ assistant oauth disconnect google
   $ assistant oauth request --provider integration:google /gmail/v1/users/me/messages
   $ assistant oauth request --provider integration:twitter -X POST -d '{"text":"Hello"}' https://api.x.com/2/tweets
+  $ assistant oauth token integration:twitter
   $ assistant oauth connections token integration:twitter
   $ assistant oauth providers list
   $ assistant oauth providers get integration:google`,
@@ -92,4 +95,10 @@ Examples:
   // ---------------------------------------------------------------------------
 
   registerPingCommand(oauth);
+
+  // ---------------------------------------------------------------------------
+  // token — unified token retrieval (BYO only, managed-mode guard)
+  // ---------------------------------------------------------------------------
+
+  registerTokenCommand(oauth);
 }
