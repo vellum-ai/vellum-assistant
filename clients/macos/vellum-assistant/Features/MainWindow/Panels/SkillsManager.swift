@@ -18,6 +18,13 @@ final class SkillsManager {
     var isLoadingSkillFiles = false
     var skillFilesError: String?
 
+    // Draft / create state
+    var isDrafting = false
+    var draftResult: SkillsStore.SkillDraftResult?
+    var draftError: String?
+    var isCreating = false
+    var createError: String?
+
     @ObservationIgnored private var cancellables = Set<AnyCancellable>()
 
     // Kept for source compatibility with existing macOS views.
@@ -38,6 +45,11 @@ final class SkillsManager {
         skillsStore.$selectedSkillFiles.sink { [weak self] in self?.selectedSkillFiles = $0 }.store(in: &cancellables)
         skillsStore.$isLoadingSkillFiles.sink { [weak self] in self?.isLoadingSkillFiles = $0 }.store(in: &cancellables)
         skillsStore.$skillFilesError.sink { [weak self] in self?.skillFilesError = $0 }.store(in: &cancellables)
+        skillsStore.$isDrafting.sink { [weak self] in self?.isDrafting = $0 }.store(in: &cancellables)
+        skillsStore.$draftResult.sink { [weak self] in self?.draftResult = $0 }.store(in: &cancellables)
+        skillsStore.$draftError.sink { [weak self] in self?.draftError = $0 }.store(in: &cancellables)
+        skillsStore.$isCreating.sink { [weak self] in self?.isCreating = $0 }.store(in: &cancellables)
+        skillsStore.$createError.sink { [weak self] in self?.createError = $0 }.store(in: &cancellables)
     }
 
     // MARK: - Delegated Operations
@@ -60,5 +72,17 @@ final class SkillsManager {
 
     func clearSkillDetail() {
         skillsStore.clearSkillDetail()
+    }
+
+    func draftSkill(sourceText: String) {
+        skillsStore.draftSkill(sourceText: sourceText)
+    }
+
+    func createSkillFromDraft(skillId: String, name: String, description: String, emoji: String?, bodyMarkdown: String) {
+        skillsStore.createSkillFromDraft(skillId: skillId, name: name, description: description, emoji: emoji, bodyMarkdown: bodyMarkdown)
+    }
+
+    func resetDraftState() {
+        skillsStore.resetDraftState()
     }
 }
