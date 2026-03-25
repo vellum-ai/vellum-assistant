@@ -465,6 +465,94 @@ struct MessageListView: View {
         return result
     }
 
+    // MARK: - Content Height Estimation
+
+    /// Estimates the rendered height of a single message cell from its data
+    /// properties alone. The estimate is deterministic and never depends on
+    /// actual layout, so it produces a consistent value regardless of whether
+    /// LazyVStack has materialized the cell.
+    private static func estimatedCellHeight(
+        for message: ChatMessage,
+        showTimestamp: Bool,
+        subagentCount: Int
+    ) -> CGFloat {
+        var height: CGFloat = 0
+
+        // Timestamp divider: label text + vertical padding
+        if showTimestamp {
+            height += 28
+        }
+
+        // Message-type branching (mirrors MessageCellView.body)
+        if message.confirmation != nil {
+            height += 120
+        } else if message.modelList != nil {
+            height += 200
+        } else if message.commandList != nil {
+            height += 200
+        } else if message.guardianDecision != nil {
+            height += 140
+        } else {
+            // ChatBubble: estimate from text length, tool calls, attachments, surfaces
+            let textLength = message.textSegments.reduce(0) { $0 + $1.count }
+            if textLength > 0 {
+                // ~90 characters per line at chatBubbleMaxWidth; ~20pt per line
+                let estimatedLines = max(1, ceil(CGFloat(textLength) / 90))
+                height += estimatedLines * 20
+            }
+
+            // User and error bubbles have vertical chrome padding
+            if message.role == .user || message.isError {
+                height += 2 * VSpacing.md
+            }
+
+            // Collapsed tool call chips
+            height += CGFloat(message.toolCalls.count) * 40
+
+            // Attachment thumbnails
+            height += CGFloat(message.attachments.count) * 80
+
+            // Inline surfaces (rendered as full-width cards)
+            height += CGFloat(message.inlineSurfaces.count) * 200
+
+            height = max(height, 24)
+        }
+
+        // Subagent event chips rendered below the message
+        height += CGFloat(subagentCount) * 44
+
+        return height
+    }
+
+    /// Total estimated content height for all visible messages plus
+    /// inter-item spacing. Provides a stable `minHeight` for the LazyVStack
+    /// so the ScrollView knows the approximate content size before cells
+    /// materialize — preventing scrollbar thumb resizing as LazyVStack
+    /// loads off-screen items with varying heights.
+    private var estimatedContentHeight: CGFloat {
+        let msgs = visibleMessages
+        guard !msgs.isEmpty else { return 0 }
+        let timestamps = timestampIds(for: msgs)
+        let subagentCounts = Dictionary(
+            activeSubagents.compactMap { info -> (UUID, Int)? in
+                guard let parentId = info.parentMessageId else { return nil }
+                return (parentId, 1)
+            },
+            uniquingKeysWith: +
+        )
+        var total: CGFloat = 0
+        for msg in msgs {
+            total += Self.estimatedCellHeight(
+                for: msg,
+                showTimestamp: timestamps.contains(msg.id),
+                subagentCount: subagentCounts[msg.id] ?? 0
+            )
+        }
+        // Inter-item spacing (LazyVStack spacing: VSpacing.md between cells)
+        total += CGFloat(max(0, msgs.count - 1)) * VSpacing.md
+        return total
+    }
+
     /// Whether the floating avatar should be visible. Derived from scroll
     /// proximity to the bottom — the avatar appears when the user is near
     /// the bottom of the conversation and disappears when scrolled up.
@@ -792,6 +880,7 @@ struct MessageListView: View {
                             }
                         }
                 }
+                .frame(minHeight: estimatedContentHeight)
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.md)
