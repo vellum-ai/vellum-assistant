@@ -310,7 +310,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
 
         // Edit animator — DOM morphing with animation (runs at document end so window.vellum exists).
         if let animatorURL = ResourceBundle.bundle.url(forResource: "vellum-edit-animator", withExtension: "js"),
-           let animatorJS = try? String(contentsOf: animatorURL) {
+           let animatorJS = try? String(contentsOf: animatorURL, encoding: .utf8) {
             let animatorScript = WKUserScript(source: animatorJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
             contentController.addUserScript(animatorScript)
         }
