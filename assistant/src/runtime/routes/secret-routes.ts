@@ -106,7 +106,7 @@ async function queueApiKeyPropagation(
 
 export async function handleAddSecret(
   req: Request,
-  getCesClient?: () => CesClient | undefined,
+  deps?: SecretRouteDeps,
 ): Promise<Response> {
   let body: { type?: string; name?: string; value?: string };
   try {
@@ -192,9 +192,7 @@ export async function handleAddSecret(
           500,
         );
       }
-      clearEmbeddingBackendCache();
-      invalidateConfigCache();
-      await initializeProviders(getConfig());
+      await refreshProvidersAfterSecretChange(deps);
       log.info({ provider: name }, "API key updated via HTTP");
       return Response.json({ success: true, type, name }, { status: 201 });
     }
@@ -275,12 +273,12 @@ export async function handleAddSecret(
         }
       }
       if (isManagedProxyCredential(service, field)) {
-        await initializeProviders(getConfig());
+        await refreshProvidersAfterSecretChange(deps);
         if (service === "vellum" && field === "assistant_api_key") {
           // Push the API key to CES so managed credential materialization
           // works even though the handshake ran before the key was available.
           const generation = ++apiKeyGeneration;
-          const cesClient = getCesClient?.();
+          const cesClient = deps?.getCesClient?.();
           if (cesClient) {
             if (cesClient.isReady()) {
               try {
@@ -394,7 +392,10 @@ export async function handleReadSecret(req: Request): Promise<Response> {
   }
 }
 
-export async function handleDeleteSecret(req: Request): Promise<Response> {
+export async function handleDeleteSecret(
+  req: Request,
+  deps?: SecretRouteDeps,
+): Promise<Response> {
   let body: { type?: string; name?: string };
   try {
     body = (await req.json()) as { type?: string; name?: string };
@@ -438,9 +439,7 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
           500,
         );
       }
-      clearEmbeddingBackendCache();
-      invalidateConfigCache();
-      await initializeProviders(getConfig());
+      await refreshProvidersAfterSecretChange(deps);
       log.info({ provider: name }, "API key deleted via HTTP");
       return Response.json({ success: true, type, name });
     }
@@ -488,7 +487,7 @@ export async function handleDeleteSecret(req: Request): Promise<Response> {
         setSentryUserId(undefined);
       }
       if (isManagedProxyCredential(service, field)) {
-        await initializeProviders(getConfig());
+        await refreshProvidersAfterSecretChange(deps);
       }
       log.info({ service, field }, "Credential deleted via HTTP");
       return Response.json({ success: true, type, name });
@@ -548,6 +547,30 @@ export async function handleListSecrets(): Promise<Response> {
 export interface SecretRouteDeps {
   /** Accessor for the CES client, used to push API key updates after hatch. */
   getCesClient?: () => CesClient | undefined;
+  /**
+   * Called after provider-affecting credentials change so live conversations
+   * can be reloaded with fresh provider instances.
+   */
+  onProviderCredentialsChanged?: () => void | Promise<void>;
+}
+
+async function refreshProvidersAfterSecretChange(
+  deps?: SecretRouteDeps,
+): Promise<void> {
+  clearEmbeddingBackendCache();
+  invalidateConfigCache();
+  await initializeProviders(getConfig());
+
+  if (!deps?.onProviderCredentialsChanged) return;
+
+  try {
+    await deps.onProviderCredentialsChanged();
+  } catch (err) {
+    log.warn(
+      { error: err instanceof Error ? err.message : String(err) },
+      "Failed to refresh live conversations after provider credential change",
+    );
+  }
 }
 
 export function secretRouteDefinitions(
@@ -557,7 +580,7 @@ export function secretRouteDefinitions(
     {
       endpoint: "secrets",
       method: "POST",
-      handler: async ({ req }) => handleAddSecret(req, deps?.getCesClient),
+      handler: async ({ req }) => handleAddSecret(req, deps),
       summary: "Add a secret",
       description:
         "Store a new secret (API key, OAuth token, etc.) in the credential vault.",
@@ -576,7 +599,7 @@ export function secretRouteDefinitions(
     {
       endpoint: "secrets",
       method: "DELETE",
-      handler: async ({ req }) => handleDeleteSecret(req),
+      handler: async ({ req }) => handleDeleteSecret(req, deps),
       summary: "Delete a secret",
       description: "Remove a secret from the credential vault by name.",
       tags: ["secrets"],
