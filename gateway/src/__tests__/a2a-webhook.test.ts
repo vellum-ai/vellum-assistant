@@ -416,4 +416,199 @@ describe("POST /webhook/a2a", () => {
       encodeURIComponent("http://alice-pairing.test"),
     );
   });
+
+  // ── Security-focused regression tests ───────────────────────────────
+
+  test("unauthenticated pairing_finalize is rejected (401)", async () => {
+    const creds = makeCredentialCache({
+      "a2a:inbound:alice": "secret-token",
+    });
+    const handler = createA2AWebhookHandler(makeConfig(), {
+      credentials: creds,
+    });
+
+    // pairing_finalize without Bearer token should be rejected
+    const res = await handler(
+      makeRequest({
+        version: "v1",
+        type: "pairing_finalize",
+        senderAssistantId: "alice",
+        inviteCode: "inv-1",
+        inboundToken: "token-for-bob",
+      }),
+    );
+    expect(res.status).toBe(401);
+    expect(forwardToRuntimeMock).not.toHaveBeenCalled();
+  });
+
+  test("message with no stored inbound token for sender is rejected (401)", async () => {
+    // Credential cache has no token for this sender
+    const creds = makeCredentialCache({});
+    const handler = createA2AWebhookHandler(makeConfig(), {
+      credentials: creds,
+    });
+
+    const res = await handler(
+      makeRequest(
+        {
+          version: "v1",
+          type: "message",
+          senderAssistantId: "unknown-sender",
+          messageId: "msg-1",
+          content: "hello",
+        },
+        {
+          headers: { Authorization: "Bearer some-token" },
+        },
+      ),
+    );
+
+    expect(res.status).toBe(401);
+    expect(forwardToRuntimeMock).not.toHaveBeenCalled();
+  });
+
+  test("conversationExternalId is always server-derived (sender cannot control routing)", async () => {
+    const creds = makeCredentialCache({
+      "a2a:inbound:mallory": "secret-token",
+      "a2a:gateway:mallory": "http://mallory.test",
+    });
+    const handler = createA2AWebhookHandler(makeConfig(), {
+      credentials: creds,
+    });
+
+    // Even if the sender tries to inject a different conversationExternalId,
+    // the gateway always derives it from senderAssistantId.
+    const res = await handler(
+      makeRequest(
+        {
+          version: "v1",
+          type: "message",
+          senderAssistantId: "mallory",
+          messageId: "msg-hijack",
+          content: "trying to hijack routing",
+          // Extra fields are silently ignored by parseA2AEnvelope
+          conversationExternalId: "victim-conversation",
+        },
+        {
+          headers: { Authorization: "Bearer secret-token" },
+        },
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    const payload = getForwardedPayload();
+    // conversationExternalId must equal senderAssistantId, not the injected value
+    expect(payload.conversationExternalId).toBe("mallory");
+    expect(payload.conversationExternalId).not.toBe("victim-conversation");
+  });
+
+  test("disabled feature flag returns 404 on pairing_request", async () => {
+    featureFlagEnabled = false;
+    const handler = createA2AWebhookHandler(makeConfig());
+    const res = await handler(
+      makeRequest({
+        version: "v1",
+        type: "pairing_request",
+        senderAssistantId: "alice",
+        senderGatewayUrl: "http://alice.test",
+        inviteCode: "inv-1",
+      }),
+    );
+    expect(res.status).toBe(404);
+    expect(forwardToRuntimeMock).not.toHaveBeenCalled();
+  });
+
+  test("disabled feature flag returns 404 on message", async () => {
+    featureFlagEnabled = false;
+    const handler = createA2AWebhookHandler(makeConfig());
+    const res = await handler(
+      makeRequest(
+        {
+          version: "v1",
+          type: "message",
+          senderAssistantId: "alice",
+          messageId: "msg-1",
+          content: "hello",
+        },
+        {
+          headers: { Authorization: "Bearer some-token" },
+        },
+      ),
+    );
+    expect(res.status).toBe(404);
+    expect(forwardToRuntimeMock).not.toHaveBeenCalled();
+  });
+
+  test("disabled feature flag returns 404 on pairing_accepted", async () => {
+    featureFlagEnabled = false;
+    const handler = createA2AWebhookHandler(makeConfig());
+    const res = await handler(
+      makeRequest({
+        version: "v1",
+        type: "pairing_accepted",
+        senderAssistantId: "bob",
+        inviteCode: "inv-1",
+        inboundToken: "token-1",
+      }),
+    );
+    expect(res.status).toBe(404);
+    expect(forwardToRuntimeMock).not.toHaveBeenCalled();
+  });
+
+  test("disabled feature flag returns 404 on pairing_finalize", async () => {
+    featureFlagEnabled = false;
+    const handler = createA2AWebhookHandler(makeConfig());
+    const res = await handler(
+      makeRequest(
+        {
+          version: "v1",
+          type: "pairing_finalize",
+          senderAssistantId: "alice",
+          inviteCode: "inv-1",
+          inboundToken: "token-1",
+        },
+        {
+          headers: { Authorization: "Bearer some-token" },
+        },
+      ),
+    );
+    expect(res.status).toBe(404);
+    expect(forwardToRuntimeMock).not.toHaveBeenCalled();
+  });
+
+  test("rejects GET method (405)", async () => {
+    const handler = createA2AWebhookHandler(makeConfig());
+    const req = new Request("http://gateway.test/webhook/a2a", {
+      method: "GET",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(405);
+  });
+
+  test("rejects wrong content-type (415)", async () => {
+    const handler = createA2AWebhookHandler(makeConfig());
+    const req = new Request("http://gateway.test/webhook/a2a", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: "not json",
+    });
+    const res = await handler(req);
+    expect(res.status).toBe(415);
+  });
+
+  test("rejects unsupported version (400)", async () => {
+    const handler = createA2AWebhookHandler(makeConfig());
+    const res = await handler(
+      makeRequest({
+        version: "v2",
+        type: "message",
+        senderAssistantId: "alice",
+        messageId: "msg-1",
+        content: "hello",
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toContain("Invalid envelope");
+  });
 });
