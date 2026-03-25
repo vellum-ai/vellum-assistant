@@ -18,7 +18,7 @@ You have access to the Notion API via stored credentials for `notion`. Both Inte
 credential_store action=list
 ```
 
-Look for an entry with `service: "notion"`. The credential may be stored under one of two fields depending on how the user set up the 
+Look for an entry with `service: "notion"`. The credential may be stored under one of two fields depending on how the user set up the integration:
 
 - `field: "internal_secret"` - Internal integration (new default setup)
 - `field: "access_token"` - OAuth/Public integration (legacy setup)

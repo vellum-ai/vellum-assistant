@@ -77,7 +77,7 @@ Tell the user:
 
 > **Step 3: Grant page access**
 >
-> Now you need to share your Notion pages with the 
+> Now you need to share your Notion pages with the integration:
 >
 > 1. Open any Notion page you want to connect
 > 2. Click the **"..."** menu (top-right) or the **Share** button
