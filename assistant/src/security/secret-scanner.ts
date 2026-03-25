@@ -6,6 +6,7 @@
 
 import { getLogger } from "../util/logger.js";
 import { isAllowlisted } from "./secret-allowlist.js";
+import { PREFIX_PATTERNS } from "./secret-patterns.js";
 
 const log = getLogger("secret-scanner");
 
@@ -29,12 +30,29 @@ export interface SecretPattern {
 // Known-format patterns
 // ---------------------------------------------------------------------------
 
-const PATTERNS: SecretPattern[] = [
-  // -- AWS --
-  {
-    type: "AWS Access Key",
-    regex: /\b(AKIA[0-9A-Z]{16})\b/g,
-  },
+// Patterns that need custom boundary handling instead of simple \b wrapping.
+// Telegram: last char can be '-' (not a word char), so \b fails.
+// Private Key: starts with '-----' (not word chars), so \b fails.
+const CUSTOM_BOUNDARY: Record<string, (src: string) => string> = {
+  "Telegram Bot Token": (src) => `\\b(${src})(?=[^A-Za-z0-9_-]|$)`,
+  "Private Key": (src) => `(${src})`,
+};
+
+// Derive prefix-based patterns from the shared source of truth, adding
+// capture groups and the global flag that scanText() expects.
+const PREFIX_DERIVED: SecretPattern[] = PREFIX_PATTERNS.map((p) => {
+  const src = p.regex.source;
+  const custom = CUSTOM_BOUNDARY[p.label];
+  const pattern = custom ? custom(src) : `\\b(${src})\\b`;
+  return {
+    type: p.label,
+    regex: new RegExp(pattern, "g"),
+  };
+});
+
+// Scanner-only patterns that require surrounding context or are not
+// simple prefix matches — these stay defined here.
+const SCANNER_ONLY_PATTERNS: SecretPattern[] = [
   {
     type: "AWS Secret Key",
     // 40 chars of base-64 alphabet, preceded by a key-value separator.
@@ -43,112 +61,12 @@ const PATTERNS: SecretPattern[] = [
     regex: /(?<=['"=:\s])([A-Za-z0-9+/]{40})(?=\s|['"]|$)/g,
   },
 
-  // -- GitHub --
-  {
-    type: "GitHub Token",
-    // ghp_ (PAT), gho_ (OAuth), ghu_ (user-to-server), ghs_ (server-to-server), ghr_ (refresh)
-    regex: /\b(gh[pousr]_[A-Za-z0-9_]{36,255})\b/g,
-  },
-  {
-    type: "GitHub Fine-Grained PAT",
-    regex: /\b(github_pat_[A-Za-z0-9_]{22,255})\b/g,
-  },
-
-  // -- GitLab --
-  {
-    type: "GitLab Token",
-    regex: /\b(glpat-[A-Za-z0-9\-_]{20,})\b/g,
-  },
-
-  // -- Stripe --
-  {
-    type: "Stripe Secret Key",
-    regex: /\b(sk_live_[A-Za-z0-9]{24,})\b/g,
-  },
-  {
-    type: "Stripe Restricted Key",
-    regex: /\b(rk_live_[A-Za-z0-9]{24,})\b/g,
-  },
-
-  // -- Slack --
-  {
-    type: "Slack Bot Token",
-    regex: /\b(xoxb-[0-9]{10,}-[0-9]{10,}-[A-Za-z0-9]{24,})\b/g,
-  },
-  {
-    type: "Slack User Token",
-    regex: /\b(xoxp-[0-9]{10,}-[0-9]{10,}-[0-9]{10,}-[a-f0-9]{32})\b/g,
-  },
   {
     type: "Slack Webhook",
     regex:
       /(https:\/\/hooks\.slack\.com\/services\/T[A-Z0-9]+\/B[A-Z0-9]+\/[A-Za-z0-9]+)/g,
   },
 
-  // -- Telegram --
-  {
-    type: "Telegram Bot Token",
-    // Format: <bot_id>:<secret> where bot_id is 8-10 digits and secret is 35 alphanumeric/dash/underscore chars
-    regex: /\b([0-9]{8,10}:[A-Za-z0-9_-]{35})(?=[^A-Za-z0-9_-]|$)/g,
-  },
-
-  // -- Anthropic --
-  {
-    type: "Anthropic API Key",
-    regex: /\b(sk-ant-[A-Za-z0-9\-_]{80,})\b/g,
-  },
-
-  // -- OpenAI --
-  {
-    type: "OpenAI API Key",
-    regex: /\b(sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20})\b/g,
-  },
-  {
-    type: "OpenAI Project Key",
-    regex: /\b(sk-proj-[A-Za-z0-9\-_]{40,})\b/g,
-  },
-
-  // -- Google --
-  {
-    type: "Google API Key",
-    regex: /\b(AIza[A-Za-z0-9\-_]{35})\b/g,
-  },
-  {
-    type: "Google OAuth Client Secret",
-    regex: /\b(GOCSPX-[A-Za-z0-9\-_]{28})\b/g,
-  },
-
-  // -- Twilio --
-  {
-    type: "Twilio API Key",
-    regex: /\b(SK[0-9a-f]{32})\b/g,
-  },
-
-  // -- SendGrid --
-  {
-    type: "SendGrid API Key",
-    regex: /\b(SG\.[A-Za-z0-9\-_]{22}\.[A-Za-z0-9\-_]{43})\b/g,
-  },
-
-  // -- Mailgun --
-  {
-    type: "Mailgun API Key",
-    regex: /\b(key-[A-Za-z0-9]{32})\b/g,
-  },
-
-  // -- npm --
-  {
-    type: "npm Token",
-    regex: /\b(npm_[A-Za-z0-9]{36})\b/g,
-  },
-
-  // -- PyPI --
-  {
-    type: "PyPI API Token",
-    regex: /\b(pypi-[A-Za-z0-9\-_]{50,})\b/g,
-  },
-
-  // -- Heroku --
   {
     type: "Heroku API Key",
     // Require a heroku-related keyword prefix to avoid flagging every UUID
@@ -156,39 +74,32 @@ const PATTERNS: SecretPattern[] = [
       /(?:heroku[_-]?api[_-]?key|HEROKU[_-]?API[_-]?KEY|heroku[_-]?auth[_-]?token)\s*[:=]\s*['"]?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})['"]?/gi,
   },
 
-  // -- Private keys --
-  {
-    type: "Private Key",
-    regex:
-      /(-----BEGIN (?:RSA |DSA |EC |OPENSSH |PGP )?PRIVATE KEY(?:\s+BLOCK)?-----)/g,
-  },
-
-  // -- JWT --
   {
     type: "JSON Web Token",
     regex: /\b(eyJ[A-Za-z0-9\-_]+\.eyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_.+/=]+)/g,
   },
 
-  // -- Connection strings --
   {
     type: "Database Connection String",
     regex:
       /((?:mongodb(?:\+srv)?|postgres(?:ql)?|mysql|mssql|redis|amqp|amqps):\/\/[^\s'"]+)/g,
   },
 
-  // -- Generic "password" / "secret" / "token" assignments (quoted) --
+  // Generic "password" / "secret" / "token" assignments (quoted)
   {
     type: "Generic Secret Assignment",
     regex:
       /(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|auth[_-]?token|credentials)\s*[:=]\s*['"]([^'"]{8,})['"]/gi,
   },
-  // -- Generic assignments (unquoted, e.g. .env files) --
+  // Generic assignments (unquoted, e.g. .env files)
   {
     type: "Generic Secret Assignment",
     regex:
       /(?:password|passwd|secret|token|api[_-]?key|access[_-]?key|auth[_-]?token|credentials)\s*=\s*([^\s'"]{8,})/gi,
   },
 ];
+
+const PATTERNS: SecretPattern[] = [...PREFIX_DERIVED, ...SCANNER_ONLY_PATTERNS];
 
 // ---------------------------------------------------------------------------
 // Known placeholder values that should NOT be flagged

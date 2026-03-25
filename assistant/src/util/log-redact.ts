@@ -3,47 +3,22 @@
  * authorization headers) from logged values.  Applied to every pino instance
  * so secrets never reach log files even when errors bubble up opaque objects.
  *
- * API-key patterns are intentionally duplicated from security/secret-scanner.ts
- * rather than imported — the scanner carries entropy analysis, encoded-secret
- * detection, and other heavyweight logic that a hot-path serializer should not
- * pull in.
+ * API-key patterns are imported from security/secret-patterns.ts — the shared
+ * source of truth.  That module is data-only (no entropy, encoding, or config
+ * logic) so it is safe for this hot-path serializer.
  */
 
+import { PREFIX_PATTERNS } from "../security/secret-patterns.js";
+
 // ---------------------------------------------------------------------------
-// Sensitive-value patterns (subset of secret-scanner PATTERNS)
+// Sensitive-value patterns (derived from shared PREFIX_PATTERNS)
 // ---------------------------------------------------------------------------
 
 const BEARER_RE = /Bearer [A-Za-z0-9._\-]+/g;
 
-const API_KEY_PATTERNS: RegExp[] = [
-  // AWS
-  /AKIA[0-9A-Z]{16}/g,
-  // GitHub
-  /gh[pousr]_[A-Za-z0-9_]{36,255}/g,
-  /github_pat_[A-Za-z0-9_]{22,255}/g,
-  // GitLab
-  /glpat-[A-Za-z0-9\-_]{20,}/g,
-  // Stripe
-  /sk_live_[A-Za-z0-9]{24,}/g,
-  /rk_live_[A-Za-z0-9]{24,}/g,
-  // Slack
-  /xoxb-[0-9]{10,}-[0-9]{10,}-[A-Za-z0-9]{24,}/g,
-  /xoxp-[0-9]{10,}-[0-9]{10,}-[0-9]{10,}-[a-f0-9]{32}/g,
-  // Anthropic
-  /sk-ant-[A-Za-z0-9\-_]{80,}/g,
-  // OpenAI
-  /sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}/g,
-  /sk-proj-[A-Za-z0-9\-_]{40,}/g,
-  // Google
-  /AIza[A-Za-z0-9\-_]{35}/g,
-  /GOCSPX-[A-Za-z0-9\-_]{28}/g,
-  // SendGrid
-  /SG\.[A-Za-z0-9\-_]{22}\.[A-Za-z0-9\-_]{43}/g,
-  // Telegram bot token
-  /[0-9]{8,10}:[A-Za-z0-9_-]{35}/g,
-  // npm
-  /npm_[A-Za-z0-9]{36}/g,
-];
+const API_KEY_PATTERNS: RegExp[] = PREFIX_PATTERNS.map(
+  (p) => new RegExp(p.regex.source, "g"),
+);
 
 // Header names whose values should always be fully redacted
 const SENSITIVE_HEADERS = new Set([
