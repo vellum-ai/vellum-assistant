@@ -62,7 +62,7 @@ Examples:
   registerAppCommands(oauth);
 
   // ---------------------------------------------------------------------------
-  // connections — subcommand group (includes token)
+  // connections — subcommand group (list, get)
   // ---------------------------------------------------------------------------
 
   registerConnectionCommands(oauth);

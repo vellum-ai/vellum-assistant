@@ -118,7 +118,6 @@ mock.module("../shared.js", () => ({
     provider.startsWith("integration:")
       ? provider.slice("integration:".length)
       : provider,
-  printDeprecationWarning: () => {},
 }));
 
 // ---------------------------------------------------------------------------
