@@ -903,7 +903,7 @@ public final class ChatViewModel: ObservableObject {
             guard let self, !Task.isCancelled, self.isLoadingMoreMessages else { return }
             log.warning("Pagination request still pending after 30s — daemon may be unresponsive")
             try? await Task.sleep(nanoseconds: 30_000_000_000) // +30s = 60s total
-            guard let self, !Task.isCancelled, self.isLoadingMoreMessages else { return }
+            guard !Task.isCancelled, self.isLoadingMoreMessages else { return }
             log.error("Pagination request timed out after 60s — resetting pagination state")
             self.isLoadingMoreMessages = false
             self.loadMoreTimeoutTask = nil
