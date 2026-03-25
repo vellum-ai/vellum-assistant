@@ -417,6 +417,15 @@ export function workItemRouteDefinitions(
       endpoint: "work-items",
       method: "GET",
       policyKey: "work-items",
+      summary: "List work items",
+      description: "Return work items, optionally filtered by status.",
+      tags: ["work-items"],
+      responseBody: {
+        type: "object",
+        properties: {
+          items: { type: "array" },
+        },
+      },
       handler: ({ url }) => {
         const status = url.searchParams.get("status") ?? undefined;
         const items = listWorkItems(
@@ -431,6 +440,9 @@ export function workItemRouteDefinitions(
       endpoint: "work-items/:id",
       method: "GET",
       policyKey: "work-items",
+      summary: "Get a work item",
+      description: "Return a single work item by ID.",
+      tags: ["work-items"],
       handler: ({ params }) => {
         const item = getWorkItem(params.id) ?? null;
         if (!item) {
@@ -445,6 +457,20 @@ export function workItemRouteDefinitions(
       endpoint: "work-items/:id",
       method: "PATCH",
       policyKey: "work-items",
+      summary: "Update a work item",
+      description:
+        "Partially update a work item's title, notes, status, or priority.",
+      tags: ["work-items"],
+      requestBody: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          notes: { type: "string" },
+          status: { type: "string" },
+          priorityTier: { type: "integer" },
+          sortIndex: { type: "integer" },
+        },
+      },
       handler: async ({ req, params }) => {
         const body = (await req.json()) as {
           title?: string;
@@ -490,6 +516,9 @@ export function workItemRouteDefinitions(
       endpoint: "work-items/:id/complete",
       method: "POST",
       policyKey: "work-items/complete",
+      summary: "Complete a work item",
+      description: "Transition a work item from awaiting_review to done.",
+      tags: ["work-items"],
       handler: ({ params }) => {
         const existing = getWorkItem(params.id);
         if (!existing) {
@@ -521,6 +550,9 @@ export function workItemRouteDefinitions(
       endpoint: "work-items/:id",
       method: "DELETE",
       policyKey: "work-items",
+      summary: "Delete a work item",
+      description: "Permanently remove a work item.",
+      tags: ["work-items"],
       handler: ({ params }) => {
         const existing = getWorkItem(params.id);
         if (!existing) {
@@ -537,6 +569,9 @@ export function workItemRouteDefinitions(
       endpoint: "work-items/:id/cancel",
       method: "POST",
       policyKey: "work-items/cancel",
+      summary: "Cancel a running work item",
+      description: "Abort a running work item and set its status to cancelled.",
+      tags: ["work-items"],
       handler: ({ params }) => {
         const workItem = getWorkItem(params.id);
         if (!workItem) {
@@ -577,6 +612,19 @@ export function workItemRouteDefinitions(
       endpoint: "work-items/:id/approve-permissions",
       method: "POST",
       policyKey: "work-items/approve-permissions",
+      summary: "Approve tool permissions",
+      description: "Pre-approve a set of tools for a work item before it runs.",
+      tags: ["work-items"],
+      requestBody: {
+        type: "object",
+        properties: {
+          approvedTools: {
+            type: "array",
+            description: "Array of tool names to approve",
+          },
+        },
+        required: ["approvedTools"],
+      },
       handler: async ({ req, params }) => {
         const body = (await req.json()) as { approvedTools?: string[] };
         if (!Array.isArray(body.approvedTools)) {
@@ -602,6 +650,17 @@ export function workItemRouteDefinitions(
       endpoint: "work-items/:id/preflight",
       method: "POST",
       policyKey: "work-items/preflight",
+      summary: "Preflight check",
+      description: "Check tool permissions needed before running a work item.",
+      tags: ["work-items"],
+      responseBody: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          success: { type: "boolean" },
+          permissions: { type: "object" },
+        },
+      },
       handler: async ({ params }) => {
         const result = await preflightWorkItem(params.id);
         if (!result.success) {
@@ -620,6 +679,10 @@ export function workItemRouteDefinitions(
       endpoint: "work-items/:id/run",
       method: "POST",
       policyKey: "work-items/run",
+      summary: "Run a work item",
+      description:
+        "Execute the task associated with a work item. Returns immediately; execution happens in the background.",
+      tags: ["work-items"],
       handler: async ({ params }) => {
         const workItem = getWorkItem(params.id);
         if (!workItem) {
@@ -782,6 +845,17 @@ export function workItemRouteDefinitions(
       endpoint: "work-items/:id/output",
       method: "GET",
       policyKey: "work-items/output",
+      summary: "Get work item output",
+      description: "Return the final output of a completed work item run.",
+      tags: ["work-items"],
+      responseBody: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          success: { type: "boolean" },
+          output: { type: "object" },
+        },
+      },
       handler: ({ params }) => {
         try {
           const result = getWorkItemOutput(params.id);

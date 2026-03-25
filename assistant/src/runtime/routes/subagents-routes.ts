@@ -121,11 +121,28 @@ export function getSubagentDetail(
 
 export function subagentRouteDefinitions(): RouteDefinition[] {
   return [
-    // GET /v1/subagents/:id — get subagent detail
     {
       endpoint: "subagents/:id",
       method: "GET",
       policyKey: "subagents",
+      summary: "Get subagent detail",
+      description: "Return subagent objective and event history.",
+      tags: ["subagents"],
+      queryParams: [
+        {
+          name: "conversationId",
+          schema: { type: "string" },
+          description: "Parent conversation ID (required)",
+        },
+      ],
+      responseBody: {
+        type: "object",
+        properties: {
+          subagentId: { type: "string" },
+          objective: { type: "string" },
+          events: { type: "array", description: "Subagent event objects" },
+        },
+      },
       handler: ({ url, params }) => {
         const conversationId = url.searchParams.get("conversationId");
         if (!conversationId) {
@@ -152,11 +169,27 @@ export function subagentRouteDefinitions(): RouteDefinition[] {
       },
     },
 
-    // POST /v1/subagents/:id/abort — abort subagent
     {
       endpoint: "subagents/:id/abort",
       method: "POST",
       policyKey: "subagents/abort",
+      summary: "Abort subagent",
+      description: "Abort a running subagent.",
+      tags: ["subagents"],
+      requestBody: {
+        type: "object",
+        properties: {
+          conversationId: { type: "string" },
+        },
+        required: ["conversationId"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          subagentId: { type: "string" },
+          aborted: { type: "boolean" },
+        },
+      },
       handler: async ({ req, params }) => {
         const body = (await req.json()) as { conversationId?: string };
         const conversationId = body.conversationId;
@@ -187,11 +220,28 @@ export function subagentRouteDefinitions(): RouteDefinition[] {
       },
     },
 
-    // POST /v1/subagents/:id/message — send message to subagent
     {
       endpoint: "subagents/:id/message",
       method: "POST",
       policyKey: "subagents/message",
+      summary: "Send message to subagent",
+      description: "Send a text message to a running subagent.",
+      tags: ["subagents"],
+      requestBody: {
+        type: "object",
+        properties: {
+          conversationId: { type: "string" },
+          content: { type: "string" },
+        },
+        required: ["conversationId", "content"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          subagentId: { type: "string" },
+          sent: { type: "boolean" },
+        },
+      },
       handler: async ({ req, params }) => {
         const body = (await req.json()) as {
           conversationId?: string;

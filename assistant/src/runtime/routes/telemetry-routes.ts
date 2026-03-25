@@ -47,6 +47,26 @@ export function telemetryRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "telemetry/lifecycle",
       method: "POST",
+      summary: "Record lifecycle event",
+      description: "Record a telemetry lifecycle event (app_open, hatch).",
+      tags: ["telemetry"],
+      requestBody: {
+        type: "object",
+        properties: {
+          event_name: {
+            type: "string",
+            description: "Event name: app_open or hatch",
+          },
+        },
+        required: ["event_name"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Event ID" },
+          event_name: { type: "string" },
+        },
+      },
       handler: async ({ req }) => handleRecordLifecycleEvent(req),
     },
   ];

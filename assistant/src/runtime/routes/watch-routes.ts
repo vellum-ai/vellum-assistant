@@ -122,7 +122,56 @@ export function watchRouteDefinitions(deps: {
       endpoint: "computer-use/watch",
       method: "POST",
       policyKey: "computer-use/watch",
+      summary: "Submit watch observation",
+      description: "Send a screen observation from ambient watch mode.",
+      tags: ["computer-use"],
       handler: async ({ req }) => handleWatchObservationRoute(req, getDeps()),
+      requestBody: {
+        type: "object",
+        properties: {
+          watchId: { type: "string", description: "Watch session ID" },
+          conversationId: {
+            type: "string",
+            description: "Conversation to associate with",
+          },
+          ocrText: {
+            type: "string",
+            description: "OCR text from screen capture",
+          },
+          appName: { type: "string", description: "Active application name" },
+          windowTitle: { type: "string", description: "Active window title" },
+          bundleIdentifier: {
+            type: "string",
+            description: "Application bundle identifier",
+          },
+          timestamp: {
+            type: "number",
+            description: "Capture timestamp (epoch ms)",
+          },
+          captureIndex: {
+            type: "integer",
+            description: "Index of this capture in the batch",
+          },
+          totalExpected: {
+            type: "integer",
+            description: "Total captures expected in the batch",
+          },
+        },
+        required: [
+          "watchId",
+          "conversationId",
+          "ocrText",
+          "timestamp",
+          "captureIndex",
+          "totalExpected",
+        ],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+        },
+      },
     },
   ];
 }

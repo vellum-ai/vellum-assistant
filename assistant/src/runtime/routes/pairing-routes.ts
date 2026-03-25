@@ -417,6 +417,26 @@ export function pairingRouteDefinitions(deps: {
     {
       endpoint: "pairing/register",
       method: "POST",
+      summary: "Register pairing request",
+      description:
+        "Pre-register a pairing request when the QR code is displayed.",
+      tags: ["pairing"],
+      requestBody: {
+        type: "object",
+        properties: {
+          pairingRequestId: { type: "string" },
+          pairingSecret: { type: "string" },
+          gatewayUrl: { type: "string" },
+          localLanUrl: { type: "string" },
+        },
+        required: ["pairingRequestId", "pairingSecret", "gatewayUrl"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+        },
+      },
       handler: async ({ req }) =>
         handlePairingRegister(req, deps.getPairingContext()),
     },

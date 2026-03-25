@@ -38,6 +38,8 @@ export interface RouteQueryParam {
   type?: string;
   required?: boolean;
   description?: string;
+  /** Inline JSON Schema for the parameter (overrides `type` when present). */
+  schema?: Record<string, unknown>;
 }
 
 /** Inline JSON-Schema-style object for request/response bodies. */

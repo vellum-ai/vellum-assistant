@@ -406,22 +406,134 @@ export function approvalRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "confirm",
       method: "POST",
+      summary: "Resolve a pending confirmation",
+      description: "Approve or deny a pending tool confirmation by requestId.",
+      tags: ["approvals"],
+      requestBody: {
+        type: "object",
+        properties: {
+          requestId: {
+            type: "string",
+            description: "Pending interaction request ID",
+          },
+          decision: {
+            type: "string",
+            description:
+              "One of: allow, allow_10m, allow_conversation, deny, always_allow, always_deny, always_allow_high_risk",
+          },
+          selectedPattern: {
+            type: "string",
+            description: "Allowlist pattern for persistent decisions",
+          },
+          selectedScope: {
+            type: "string",
+            description: "Scope for persistent decisions",
+          },
+        },
+        required: ["requestId", "decision"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          accepted: { type: "boolean" },
+        },
+      },
       handler: async ({ req, authContext }) => handleConfirm(req, authContext),
     },
     {
       endpoint: "secret",
       method: "POST",
+      summary: "Resolve a pending secret request",
+      description: "Provide a secret value for a pending secret request.",
+      tags: ["approvals"],
+      requestBody: {
+        type: "object",
+        properties: {
+          requestId: {
+            type: "string",
+            description: "Pending interaction request ID",
+          },
+          value: { type: "string", description: "Secret value" },
+          delivery: {
+            type: "string",
+            description: "Delivery mode: store or transient_send",
+          },
+        },
+        required: ["requestId"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          accepted: { type: "boolean" },
+        },
+      },
       handler: async ({ req, authContext }) => handleSecret(req, authContext),
     },
     {
       endpoint: "trust-rules",
       method: "POST",
+      summary: "Add a trust rule for a pending confirmation",
+      description:
+        "Add a trust rule bound to a pending confirmation without resolving it.",
+      tags: ["approvals"],
+      requestBody: {
+        type: "object",
+        properties: {
+          requestId: {
+            type: "string",
+            description: "Pending confirmation request ID",
+          },
+          pattern: { type: "string", description: "Allowlist pattern" },
+          scope: { type: "string", description: "Scope for the rule" },
+          decision: { type: "string", description: "allow or deny" },
+          allowHighRisk: {
+            type: "boolean",
+            description: "Allow high-risk invocations",
+          },
+        },
+        required: ["requestId", "pattern", "scope", "decision"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          accepted: { type: "boolean" },
+        },
+      },
       handler: async ({ req, authContext }) =>
         handleTrustRule(req, authContext),
     },
     {
       endpoint: "pending-interactions",
       method: "GET",
+      summary: "List pending interactions",
+      description:
+        "Return pending confirmations and secrets for a conversation.",
+      tags: ["approvals"],
+      queryParams: [
+        {
+          name: "conversationKey",
+          schema: { type: "string" },
+          description: "Conversation key",
+        },
+        {
+          name: "conversationId",
+          schema: { type: "string" },
+          description: "Conversation ID",
+        },
+      ],
+      responseBody: {
+        type: "object",
+        properties: {
+          pendingConfirmation: {
+            type: "object",
+            description: "Pending confirmation details or null",
+          },
+          pendingSecret: {
+            type: "object",
+            description: "Pending secret request or null",
+          },
+        },
+      },
       handler: ({ url, authContext }) =>
         handleListPendingInteractions(url, authContext),
     },

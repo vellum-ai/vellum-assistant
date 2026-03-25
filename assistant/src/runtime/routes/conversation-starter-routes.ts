@@ -199,7 +199,45 @@ export function conversationStarterRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "conversation-starters",
       method: "GET",
+      summary: "List conversation starters",
+      description:
+        "Return conversation starter chips, ordered for category diversity.",
+      tags: ["conversation-starters"],
       handler: (ctx) => handleListConversationStarters(ctx.url),
+      queryParams: [
+        {
+          name: "limit",
+          schema: { type: "integer" },
+          description: "Max starters to return (1–20, default 4)",
+        },
+        {
+          name: "offset",
+          schema: { type: "integer" },
+          description: "Pagination offset (default 0)",
+        },
+        {
+          name: "scope_id",
+          schema: { type: "string" },
+          description: 'Scope ID (default "default")',
+        },
+      ],
+      responseBody: {
+        type: "object",
+        properties: {
+          starters: {
+            type: "array",
+            description: "Ordered list of starter chips",
+          },
+          total: {
+            type: "integer",
+            description: "Total number of available starters",
+          },
+          status: {
+            type: "string",
+            description: "One of: ready, empty, generating",
+          },
+        },
+      },
     },
   ];
 }

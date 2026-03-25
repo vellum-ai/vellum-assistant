@@ -378,6 +378,15 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps",
       method: "GET",
       policyKey: "apps",
+      summary: "List apps",
+      description: "Return all locally installed apps.",
+      tags: ["apps"],
+      responseBody: {
+        type: "object",
+        properties: {
+          apps: { type: "array", description: "Array of app summary objects" },
+        },
+      },
       handler: () => {
         try {
           const apps = listAppsFiltered();
@@ -400,6 +409,20 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/open-bundle",
       method: "POST",
       policyKey: "apps/open-bundle",
+      summary: "Open a .vbundle file",
+      description:
+        "Scan and validate a .vbundle file from disk and return its manifest.",
+      tags: ["apps"],
+      requestBody: {
+        type: "object",
+        properties: {
+          filePath: {
+            type: "string",
+            description: "Absolute path to the .vbundle file",
+          },
+        },
+        required: ["filePath"],
+      },
       handler: async ({ req }) => {
         try {
           const body = (await req.json()) as { filePath?: string };
@@ -429,6 +452,15 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/shared",
       method: "GET",
       policyKey: "apps/shared-list",
+      summary: "List shared apps",
+      description: "Return all apps available via cloud share links.",
+      tags: ["apps"],
+      responseBody: {
+        type: "object",
+        properties: {
+          apps: { type: "array", description: "Array of shared app objects" },
+        },
+      },
       handler: () => {
         try {
           const apps = listSharedApps();
@@ -451,6 +483,19 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/fork",
       method: "POST",
       policyKey: "apps/fork",
+      summary: "Fork a shared app",
+      description: "Create a local copy of a shared app by its UUID.",
+      tags: ["apps"],
+      requestBody: {
+        type: "object",
+        properties: {
+          uuid: {
+            type: "string",
+            description: "UUID of the shared app to fork",
+          },
+        },
+        required: ["uuid"],
+      },
       handler: async ({ req }) => {
         try {
           const body = (await req.json()) as { uuid?: string };
@@ -479,6 +524,16 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/gallery/install",
       method: "POST",
       policyKey: "apps/gallery/install",
+      summary: "Install a gallery app",
+      description: "Install an app from the built-in gallery by its ID.",
+      tags: ["apps"],
+      requestBody: {
+        type: "object",
+        properties: {
+          galleryAppId: { type: "string" },
+        },
+        required: ["galleryAppId"],
+      },
       handler: async ({ req }) => {
         try {
           const body = (await req.json()) as { galleryAppId?: string };
@@ -505,6 +560,15 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/gallery",
       method: "GET",
       policyKey: "apps/gallery",
+      summary: "List gallery apps",
+      description: "Return the built-in app gallery catalog.",
+      tags: ["apps"],
+      responseBody: {
+        type: "object",
+        properties: {
+          gallery: { type: "array", description: "Gallery app entries" },
+        },
+      },
       handler: () => {
         return Response.json({ gallery: defaultGallery });
       },
@@ -516,6 +580,26 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/sign-bundle",
       method: "POST",
       policyKey: "apps/sign-bundle",
+      summary: "Sign an app bundle",
+      description:
+        "Return a signing payload or complete the signing step when signature fields are provided.",
+      tags: ["apps"],
+      requestBody: {
+        type: "object",
+        properties: {
+          payload: {
+            type: "string",
+            description: "Canonical JSON payload to sign",
+          },
+          signature: {
+            type: "string",
+            description: "Ed25519 signature (optional, completes signing)",
+          },
+          keyId: { type: "string" },
+          publicKey: { type: "string" },
+        },
+        required: ["payload"],
+      },
       handler: async ({ req }) => {
         try {
           const body = (await req.json()) as {
@@ -576,6 +660,10 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/signing-identity",
       method: "GET",
       policyKey: "apps/signing-identity",
+      summary: "Get signing identity",
+      description:
+        "Return signing identity info. Signing is managed client-side over HTTP.",
+      tags: ["apps"],
       handler: () => {
         // Signing identity is a client-side concept. Over HTTP, the
         // client already holds its own keys. Return a placeholder
@@ -597,6 +685,9 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/:id/data",
       method: "GET",
       policyKey: "apps/data",
+      summary: "Query app data",
+      description: "Read records from an app's local data store.",
+      tags: ["apps"],
       handler: ({ params, url }) => {
         try {
           const method = url.searchParams.get("method") ?? "query";
@@ -627,6 +718,21 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/:id/data",
       method: "POST",
       policyKey: "apps/data",
+      summary: "Mutate app data",
+      description:
+        "Create, update, or delete records in an app's local data store.",
+      tags: ["apps"],
+      requestBody: {
+        type: "object",
+        properties: {
+          method: {
+            type: "string",
+            description: "'create', 'update', or 'delete'",
+          },
+          recordId: { type: "string" },
+          data: { type: "object" },
+        },
+      },
       handler: async ({ params, req }) => {
         try {
           const body = (await req.json()) as {
@@ -662,6 +768,19 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/:id/open",
       method: "POST",
       policyKey: "apps/open",
+      summary: "Open an app",
+      description:
+        "Compile (if needed) and return the app's HTML for rendering.",
+      tags: ["apps"],
+      responseBody: {
+        type: "object",
+        properties: {
+          appId: { type: "string" },
+          dirName: { type: "string" },
+          name: { type: "string" },
+          html: { type: "string" },
+        },
+      },
       handler: async ({ params }) => {
         try {
           const appId = params.id;
@@ -719,6 +838,9 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/:id/delete",
       method: "POST",
       policyKey: "apps/delete",
+      summary: "Delete an app",
+      description: "Permanently remove an app and its data.",
+      tags: ["apps"],
       handler: ({ params }) => {
         try {
           deleteApp(params.id);
@@ -736,6 +858,9 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/:id/preview",
       method: "GET",
       policyKey: "apps/preview",
+      summary: "Get app preview",
+      description: "Return the preview image or HTML for an app.",
+      tags: ["apps"],
       handler: ({ params }) => {
         try {
           const preview = getAppPreview(params.id);
@@ -759,6 +884,19 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/:id/preview",
       method: "PUT",
       policyKey: "apps/preview",
+      summary: "Update app preview",
+      description: "Set a new preview image or HTML for an app.",
+      tags: ["apps"],
+      requestBody: {
+        type: "object",
+        properties: {
+          preview: {
+            type: "string",
+            description: "Base64-encoded image or HTML string",
+          },
+        },
+        required: ["preview"],
+      },
       handler: async ({ params, req }) => {
         try {
           const body = (await req.json()) as { preview?: string };
@@ -785,6 +923,16 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/:id/history",
       method: "GET",
       policyKey: "apps/history",
+      summary: "Get app version history",
+      description: "Return the git commit history of an app.",
+      tags: ["apps"],
+      responseBody: {
+        type: "object",
+        properties: {
+          appId: { type: "string" },
+          versions: { type: "array" },
+        },
+      },
       handler: async ({ params, url }) => {
         try {
           const limit = url.searchParams.get("limit")
@@ -808,6 +956,9 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/:id/diff",
       method: "GET",
       policyKey: "apps/diff",
+      summary: "Get app diff",
+      description: "Return a git diff between two commits for an app.",
+      tags: ["apps"],
       handler: async ({ params, url }) => {
         try {
           const fromCommit = url.searchParams.get("fromCommit");
@@ -837,6 +988,16 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/:id/restore",
       method: "POST",
       policyKey: "apps/restore",
+      summary: "Restore app version",
+      description: "Restore an app to a previous git commit.",
+      tags: ["apps"],
+      requestBody: {
+        type: "object",
+        properties: {
+          commitHash: { type: "string" },
+        },
+        required: ["commitHash"],
+      },
       handler: async ({ params, req }) => {
         try {
           const body = (await req.json()) as { commitHash?: string };
@@ -862,6 +1023,18 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/:id/bundle",
       method: "POST",
       policyKey: "apps/bundle",
+      summary: "Bundle an app",
+      description: "Package an app into a distributable .vbundle archive.",
+      tags: ["apps"],
+      responseBody: {
+        type: "object",
+        properties: {
+          type: { type: "string" },
+          bundlePath: { type: "string" },
+          iconImageBase64: { type: "string" },
+          manifest: { type: "object" },
+        },
+      },
       handler: async ({ params }) => {
         try {
           const result = await packageApp(params.id);
@@ -889,6 +1062,17 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/:id/share-cloud",
       method: "POST",
       policyKey: "apps/share-cloud",
+      summary: "Share app to cloud",
+      description: "Package and upload an app to the cloud share service.",
+      tags: ["apps"],
+      responseBody: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+          shareToken: { type: "string" },
+          shareUrl: { type: "string" },
+        },
+      },
       handler: async ({ params }) => {
         try {
           // Package without signing callback (HTTP clients handle signing

@@ -46,10 +46,13 @@ function handleUpdateConfig(
   const heartbeat = { ...config.heartbeat };
 
   if (typeof body.enabled === "boolean") heartbeat.enabled = body.enabled;
-  if (typeof body.intervalMs === "number") heartbeat.intervalMs = body.intervalMs;
+  if (typeof body.intervalMs === "number")
+    heartbeat.intervalMs = body.intervalMs;
   if ("activeHoursStart" in body) {
     heartbeat.activeHoursStart =
-      typeof body.activeHoursStart === "number" ? body.activeHoursStart : undefined;
+      typeof body.activeHoursStart === "number"
+        ? body.activeHoursStart
+        : undefined;
   }
   if ("activeHoursEnd" in body) {
     heartbeat.activeHoursEnd =
@@ -154,12 +157,61 @@ export function heartbeatRouteDefinitions(deps: {
       endpoint: "heartbeat/config",
       method: "GET",
       policyKey: "heartbeat",
+      summary: "Get heartbeat config",
+      description: "Return the current heartbeat schedule configuration.",
+      tags: ["heartbeat"],
+      responseBody: {
+        type: "object",
+        properties: {
+          enabled: { type: "boolean" },
+          intervalMs: { type: "number" },
+          activeHoursStart: { type: "number" },
+          activeHoursEnd: { type: "number" },
+          nextRunAt: { type: "string" },
+          success: { type: "boolean" },
+        },
+      },
       handler: () => handleGetConfig(deps.getHeartbeatService?.()),
     },
     {
       endpoint: "heartbeat/config",
       method: "PUT",
       policyKey: "heartbeat",
+      summary: "Update heartbeat config",
+      description: "Update the heartbeat schedule configuration.",
+      tags: ["heartbeat"],
+      requestBody: {
+        type: "object",
+        properties: {
+          enabled: {
+            type: "boolean",
+            description: "Enable or disable heartbeat",
+          },
+          intervalMs: {
+            type: "number",
+            description: "Heartbeat interval in ms",
+          },
+          activeHoursStart: {
+            type: "number",
+            description: "Active hours start (0–23)",
+          },
+          activeHoursEnd: {
+            type: "number",
+            description: "Active hours end (0–23)",
+          },
+        },
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          enabled: { type: "boolean" },
+          intervalMs: { type: "number" },
+          activeHoursStart: { type: "number" },
+          activeHoursEnd: { type: "number" },
+          nextRunAt: { type: "string" },
+          success: { type: "boolean" },
+        },
+      },
       handler: async ({ req }) => {
         const body: unknown = await req.json();
         if (typeof body !== "object" || !body || Array.isArray(body)) {
@@ -179,6 +231,22 @@ export function heartbeatRouteDefinitions(deps: {
       endpoint: "heartbeat/runs",
       method: "GET",
       policyKey: "heartbeat",
+      summary: "List heartbeat runs",
+      description: "Return recent heartbeat conversation runs.",
+      tags: ["heartbeat"],
+      queryParams: [
+        {
+          name: "limit",
+          schema: { type: "integer" },
+          description: "Max runs to return (default 20)",
+        },
+      ],
+      responseBody: {
+        type: "object",
+        properties: {
+          runs: { type: "array", description: "Heartbeat run records" },
+        },
+      },
       handler: ({ url }) => {
         const limit = Number(url.searchParams.get("limit") ?? 20);
         return handleListRuns(limit);
@@ -188,18 +256,66 @@ export function heartbeatRouteDefinitions(deps: {
       endpoint: "heartbeat/run-now",
       method: "POST",
       policyKey: "heartbeat",
+      summary: "Run heartbeat now",
+      description: "Trigger an immediate heartbeat run.",
+      tags: ["heartbeat"],
+      responseBody: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+          ran: {
+            type: "boolean",
+            description: "Whether the heartbeat actually ran",
+          },
+        },
+      },
       handler: () => handleRunNow(deps.getHeartbeatService?.()),
     },
     {
       endpoint: "heartbeat/checklist",
       method: "GET",
       policyKey: "heartbeat",
+      summary: "Get heartbeat checklist",
+      description: "Return the HEARTBEAT.md checklist content.",
+      tags: ["heartbeat"],
+      responseBody: {
+        type: "object",
+        properties: {
+          content: {
+            type: "string",
+            description: "Checklist markdown content",
+          },
+          isDefault: {
+            type: "boolean",
+            description: "True when no custom checklist exists",
+          },
+        },
+      },
       handler: () => handleGetChecklist(),
     },
     {
       endpoint: "heartbeat/checklist",
       method: "PUT",
       policyKey: "heartbeat",
+      summary: "Write heartbeat checklist",
+      description: "Overwrite the HEARTBEAT.md checklist content.",
+      tags: ["heartbeat"],
+      requestBody: {
+        type: "object",
+        properties: {
+          content: {
+            type: "string",
+            description: "Checklist markdown content",
+          },
+        },
+        required: ["content"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+        },
+      },
       handler: async ({ req }) => {
         const body = (await req.json()) as { content?: string };
         if (typeof body.content !== "string") {

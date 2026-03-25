@@ -218,6 +218,29 @@ export function surfaceActionRouteDefinitions(deps: {
     {
       endpoint: "surface-actions",
       method: "POST",
+      summary: "Trigger a surface action",
+      description:
+        "Execute an interactive action on a surface (e.g. button click, form submit).",
+      tags: ["surfaces"],
+      requestBody: {
+        type: "object",
+        properties: {
+          conversationId: {
+            type: "string",
+            description: "Conversation that owns the surface",
+          },
+          surfaceId: { type: "string", description: "Surface to act on" },
+          actionId: { type: "string", description: "Action identifier" },
+          data: { type: "object", description: "Action-specific payload" },
+        },
+        required: ["surfaceId", "actionId"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+        },
+      },
       handler: async ({ req, authContext }) => {
         if (!deps.findConversation) {
           return httpError(
@@ -237,6 +260,24 @@ export function surfaceActionRouteDefinitions(deps: {
     {
       endpoint: "surfaces/:id/undo",
       method: "POST",
+      summary: "Undo last surface action",
+      description: "Revert the most recent action on a surface.",
+      tags: ["surfaces"],
+      requestBody: {
+        type: "object",
+        properties: {
+          conversationId: {
+            type: "string",
+            description: "Conversation that owns the surface",
+          },
+        },
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+        },
+      },
       handler: async ({ req, params }) => {
         if (!deps.findConversation) {
           return httpError(

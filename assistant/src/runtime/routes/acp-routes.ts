@@ -17,11 +17,31 @@ const log = getLogger("acp-routes");
 
 export function acpRouteDefinitions(): RouteDefinition[] {
   return [
-    // POST /v1/acp/spawn
     {
       endpoint: "acp/spawn",
       method: "POST",
       policyKey: "acp/spawn",
+      summary: "Spawn ACP session",
+      description: "Start a new Agent Communication Protocol session.",
+      tags: ["acp"],
+      requestBody: {
+        type: "object",
+        properties: {
+          agent: { type: "string", description: "Agent name" },
+          task: { type: "string", description: "Task description" },
+          conversationId: { type: "string" },
+          cwd: { type: "string", description: "Working directory" },
+        },
+        required: ["agent", "task", "conversationId"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          acpSessionId: { type: "string" },
+          protocolSessionId: { type: "string" },
+          agent: { type: "string" },
+        },
+      },
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           agent?: string;
@@ -80,11 +100,27 @@ export function acpRouteDefinitions(): RouteDefinition[] {
       },
     },
 
-    // POST /v1/acp/:id/steer
     {
       endpoint: "acp/:id/steer",
       method: "POST",
       policyKey: "acp/steer",
+      summary: "Steer ACP session",
+      description: "Send a steering instruction to an active ACP session.",
+      tags: ["acp"],
+      requestBody: {
+        type: "object",
+        properties: {
+          instruction: { type: "string" },
+        },
+        required: ["instruction"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          acpSessionId: { type: "string" },
+          steered: { type: "boolean" },
+        },
+      },
       handler: async ({ req, params }) => {
         const body = (await req.json()) as { instruction?: string };
         if (!body.instruction) {
@@ -100,11 +136,20 @@ export function acpRouteDefinitions(): RouteDefinition[] {
       },
     },
 
-    // POST /v1/acp/:id/cancel
     {
       endpoint: "acp/:id/cancel",
       method: "POST",
       policyKey: "acp/cancel",
+      summary: "Cancel ACP session",
+      description: "Cancel an active ACP session.",
+      tags: ["acp"],
+      responseBody: {
+        type: "object",
+        properties: {
+          acpSessionId: { type: "string" },
+          cancelled: { type: "boolean" },
+        },
+      },
       handler: async ({ params }) => {
         const manager = getAcpSessionManager();
         try {
@@ -116,11 +161,20 @@ export function acpRouteDefinitions(): RouteDefinition[] {
       },
     },
 
-    // POST /v1/acp/:id/close
     {
       endpoint: "acp/:id/close",
       method: "POST",
       policyKey: "acp/close",
+      summary: "Close ACP session",
+      description: "Close a completed ACP session.",
+      tags: ["acp"],
+      responseBody: {
+        type: "object",
+        properties: {
+          acpSessionId: { type: "string" },
+          closed: { type: "boolean" },
+        },
+      },
       handler: async ({ params }) => {
         const manager = getAcpSessionManager();
         try {
@@ -132,11 +186,22 @@ export function acpRouteDefinitions(): RouteDefinition[] {
       },
     },
 
-    // GET /v1/acp/sessions
     {
       endpoint: "acp/sessions",
       method: "GET",
       policyKey: "acp",
+      summary: "List ACP sessions",
+      description: "Return all active ACP sessions.",
+      tags: ["acp"],
+      responseBody: {
+        type: "object",
+        properties: {
+          sessions: {
+            type: "array",
+            description: "ACP session status objects",
+          },
+        },
+      },
       handler: () => {
         const manager = getAcpSessionManager();
         const sessions = manager.getStatus();

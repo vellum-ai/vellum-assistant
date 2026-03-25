@@ -169,28 +169,150 @@ export function inviteRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "contacts/invites",
       method: "GET",
+      summary: "List invites",
+      description:
+        "Return all invites, optionally filtered by sourceChannel or status.",
+      tags: ["contacts"],
+      queryParams: [
+        {
+          name: "sourceChannel",
+          schema: { type: "string" },
+          description: "Filter by source channel",
+        },
+        {
+          name: "status",
+          schema: { type: "string" },
+          description: "Filter by invite status",
+        },
+      ],
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          invites: { type: "array", description: "Invite objects" },
+        },
+      },
       handler: ({ url }) => handleListInvites(url),
     },
     {
       endpoint: "contacts/invites",
       method: "POST",
+      summary: "Create an invite",
+      description:
+        'Create a new invite. Supports voice invites when sourceChannel is "phone".',
+      tags: ["contacts"],
+      requestBody: {
+        type: "object",
+        properties: {
+          contactId: { type: "string", description: "Contact to invite" },
+          sourceChannel: {
+            type: "string",
+            description: "Source channel (e.g. phone)",
+          },
+          note: { type: "string", description: "Optional note" },
+          maxUses: { type: "number", description: "Max redemptions" },
+          expiresInMs: { type: "number", description: "Expiry duration in ms" },
+          contactName: { type: "string", description: "Contact display name" },
+          expectedExternalUserId: {
+            type: "string",
+            description: "Expected user ID (E.164 for phone)",
+          },
+          friendName: {
+            type: "string",
+            description: "Friend name for the invite",
+          },
+          guardianName: { type: "string", description: "Guardian name" },
+        },
+        required: ["contactId"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          invite: { type: "object", description: "Created invite" },
+        },
+      },
       handler: async ({ req }) => handleCreateInvite(req),
     },
     {
       endpoint: "contacts/invites/redeem",
       method: "POST",
+      summary: "Redeem an invite",
+      description: "Redeem an invite by token or voice code.",
+      tags: ["contacts"],
+      requestBody: {
+        type: "object",
+        properties: {
+          token: {
+            type: "string",
+            description: "Invite token (token-based redemption)",
+          },
+          code: {
+            type: "string",
+            description: "Voice code (voice-code redemption)",
+          },
+          callerExternalUserId: {
+            type: "string",
+            description: "Caller E.164 phone (voice-code)",
+          },
+          externalUserId: {
+            type: "string",
+            description: "External user ID (token-based)",
+          },
+          externalChatId: {
+            type: "string",
+            description: "External chat ID (token-based)",
+          },
+          sourceChannel: {
+            type: "string",
+            description: "Source channel (token-based)",
+          },
+          assistantId: {
+            type: "string",
+            description: "Assistant ID (voice-code)",
+          },
+        },
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          invite: {
+            type: "object",
+            description: "Redeemed invite (token path)",
+          },
+          type: { type: "string", description: "Redemption type (voice path)" },
+          memberId: { type: "string", description: "Member ID (voice path)" },
+        },
+      },
       handler: async ({ req }) => handleRedeemInvite(req),
     },
     {
       endpoint: "contacts/invites/:id",
       method: "DELETE",
       policyKey: "contacts/invites",
+      summary: "Revoke an invite",
+      description: "Revoke an invite by ID.",
+      tags: ["contacts"],
       handler: ({ params }) => handleRevokeInvite(params.id),
     },
     {
       endpoint: "contacts/invites/:id/call",
       method: "POST",
       policyKey: "contacts/invites",
+      summary: "Trigger invite call",
+      description: "Trigger an outbound call for a phone invite.",
+      tags: ["contacts"],
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          callSid: {
+            type: "string",
+            description: "Call SID from the provider",
+          },
+        },
+      },
       handler: async ({ params }) => handleTriggerInviteCall(params.id),
     },
   ];

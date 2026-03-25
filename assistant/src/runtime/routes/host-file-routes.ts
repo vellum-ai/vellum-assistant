@@ -72,8 +72,33 @@ export function hostFileRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "host-file-result",
       method: "POST",
+      summary: "Submit host file result",
+      description:
+        "Resolve a pending host file proxy request by requestId when the desktop client returns execution results.",
+      tags: ["host-file"],
       handler: async ({ req, authContext }) =>
         handleHostFileResult(req, authContext),
+      requestBody: {
+        type: "object",
+        properties: {
+          requestId: {
+            type: "string",
+            description: "Pending request ID to resolve",
+          },
+          content: { type: "string", description: "File content result" },
+          isError: {
+            type: "boolean",
+            description: "Whether the result is an error",
+          },
+        },
+        required: ["requestId"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          accepted: { type: "boolean" },
+        },
+      },
     },
   ];
 }

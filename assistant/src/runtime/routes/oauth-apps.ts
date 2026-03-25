@@ -21,9 +21,13 @@ import {
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
-function parseGrantedScopes(grantedScopes: string | string[] | null | undefined): string[] {
+function parseGrantedScopes(
+  grantedScopes: string | string[] | null | undefined,
+): string[] {
   if (Array.isArray(grantedScopes)) {
-    return grantedScopes.filter((scope): scope is string => typeof scope === "string");
+    return grantedScopes.filter(
+      (scope): scope is string => typeof scope === "string",
+    );
   }
 
   if (typeof grantedScopes !== "string" || grantedScopes.trim() === "") {
@@ -159,7 +163,11 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
       handler: async ({ params }) => {
         const app = getApp(params.id);
         if (!app) {
-          return httpError("NOT_FOUND", `OAuth app not found: ${params.id}`, 404);
+          return httpError(
+            "NOT_FOUND",
+            `OAuth app not found: ${params.id}`,
+            404,
+          );
         }
 
         // Disconnect all connections for this app first to clean up tokens.

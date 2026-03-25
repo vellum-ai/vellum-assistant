@@ -273,6 +273,48 @@ export function globalSearchRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "search/global",
       method: "GET",
+      summary: "Global search",
+      description:
+        "Federated search across conversations, memories, schedules, and contacts.",
+      tags: ["search"],
+      queryParams: [
+        {
+          name: "q",
+          schema: { type: "string" },
+          description: "Search query (required)",
+        },
+        {
+          name: "limit",
+          schema: { type: "integer" },
+          description: "Max results per category (1–100, default 20)",
+        },
+        {
+          name: "categories",
+          schema: { type: "string" },
+          description: "Comma-separated categories to search",
+        },
+        {
+          name: "deep",
+          schema: { type: "string" },
+          description: "Enable semantic search for memories (true/false)",
+        },
+      ],
+      responseBody: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          results: {
+            type: "object",
+            description: "Results grouped by category",
+            properties: {
+              conversations: { type: "array" },
+              memories: { type: "array" },
+              schedules: { type: "array" },
+              contacts: { type: "array" },
+            },
+          },
+        },
+      },
       handler: async ({ url }) => handleGlobalSearch(url),
     },
   ];

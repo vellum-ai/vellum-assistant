@@ -39,11 +39,32 @@ export function avatarRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "avatar/character-components",
       method: "GET",
+      summary: "Get character components",
+      description: "Return available avatar character components.",
+      tags: ["avatar"],
       handler: () => Response.json(getCharacterComponents()),
     },
     {
       endpoint: "avatar/render-from-traits",
       method: "POST",
+      summary: "Render avatar from traits",
+      description: "Write character traits and render an avatar PNG.",
+      tags: ["avatar"],
+      requestBody: {
+        type: "object",
+        properties: {
+          bodyShape: { type: "string" },
+          eyeStyle: { type: "string" },
+          color: { type: "string" },
+        },
+        required: ["bodyShape", "eyeStyle", "color"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+        },
+      },
       handler: async ({ req }) => {
         let body: CharacterTraits;
         try {

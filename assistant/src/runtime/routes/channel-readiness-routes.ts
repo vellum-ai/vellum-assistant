@@ -128,12 +128,63 @@ export function channelReadinessRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "channels/readiness",
       method: "GET",
+      summary: "Get channel readiness",
+      description: "Return readiness snapshots for one or all channels.",
+      tags: ["channels"],
       handler: async ({ url }) => handleGetChannelReadiness(url),
+      queryParams: [
+        {
+          name: "channel",
+          schema: { type: "string" },
+          description: "Optional channel ID filter",
+        },
+        {
+          name: "includeRemote",
+          schema: { type: "string" },
+          description: "Include remote checks (default true)",
+        },
+      ],
+      responseBody: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+          snapshots: {
+            type: "array",
+            description: "Channel readiness snapshots",
+          },
+        },
+      },
     },
     {
       endpoint: "channels/readiness/refresh",
       method: "POST",
+      summary: "Refresh channel readiness",
+      description: "Invalidate cache and re-evaluate channel readiness.",
+      tags: ["channels"],
       handler: async ({ req }) => handleRefreshChannelReadiness(req),
+      requestBody: {
+        type: "object",
+        properties: {
+          channel: {
+            type: "string",
+            description: "Optional channel ID to refresh",
+          },
+          includeRemote: {
+            type: "boolean",
+            description: "Include remote checks (default true)",
+          },
+        },
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+          snapshots: {
+            type: "array",
+            description: "Refreshed readiness snapshots",
+          },
+        },
+      },
     },
   ];
 }

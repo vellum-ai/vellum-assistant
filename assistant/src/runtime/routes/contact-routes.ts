@@ -417,22 +417,110 @@ export function contactRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "contacts",
       method: "GET",
+      summary: "List contacts",
+      description:
+        "Return all contacts, optionally filtered by type or channel status.",
+      tags: ["contacts"],
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          contacts: {
+            type: "array",
+            description: "Contact objects with channels and metadata",
+          },
+        },
+      },
       handler: ({ url }) => handleListContacts(url),
     },
     {
       endpoint: "contacts",
       method: "POST",
+      summary: "Create or update a contact",
+      description:
+        "Create a new contact or update an existing one. Supports upsert by contactId or channel handle.",
+      tags: ["contacts"],
+      requestBody: {
+        type: "object",
+        properties: {
+          contactId: {
+            type: "string",
+            description: "Existing contact ID (for update)",
+          },
+          displayName: { type: "string", description: "Display name" },
+          channels: {
+            type: "array",
+            description: "Channel objects with channelId, handle, displayName",
+          },
+          assistantMetadata: {
+            type: "object",
+            description: "Assistant-side metadata",
+          },
+        },
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          contact: {
+            type: "object",
+            description: "Created or updated contact",
+          },
+        },
+      },
       handler: async ({ req }) => handleUpsertContact(req),
     },
     {
       endpoint: "contacts/merge",
       method: "POST",
+      summary: "Merge two contacts",
+      description: "Merge two contacts, keeping one and absorbing the other.",
+      tags: ["contacts"],
+      requestBody: {
+        type: "object",
+        properties: {
+          keepId: { type: "string", description: "ID of the contact to keep" },
+          mergeId: {
+            type: "string",
+            description: "ID of the contact to merge into the kept one",
+          },
+        },
+        required: ["keepId", "mergeId"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          contact: { type: "object", description: "Merged contact" },
+        },
+      },
       handler: async ({ req }) => handleMergeContacts(req),
     },
     {
       endpoint: "contact-channels/:contactChannelId",
       method: "PATCH",
       policyKey: "contact-channels",
+      summary: "Update a contact channel",
+      description: "Update status, policy, or reason on a contact's channel.",
+      tags: ["contacts"],
+      requestBody: {
+        type: "object",
+        properties: {
+          status: { type: "string", description: "Channel status" },
+          policy: { type: "string", description: "Channel policy" },
+          reason: { type: "string", description: "Reason for the change" },
+        },
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          contact: {
+            type: "object",
+            description: "Updated contact (if applicable)",
+          },
+        },
+      },
       handler: async ({ req, params }) =>
         handleUpdateContactChannel(req, params.contactChannelId),
     },
@@ -450,12 +538,30 @@ export function contactCatchAllRouteDefinitions(): RouteDefinition[] {
       endpoint: "contacts/:id",
       method: "GET",
       policyKey: "contacts",
+      summary: "Get a contact",
+      description:
+        "Return a single contact with its channels and assistant metadata.",
+      tags: ["contacts"],
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          contact: { type: "object", description: "Contact details" },
+          assistantMetadata: {
+            type: "object",
+            description: "Assistant-side metadata",
+          },
+        },
+      },
       handler: ({ params }) => handleGetContact(params.id),
     },
     {
       endpoint: "contacts/:id",
       method: "DELETE",
       policyKey: "contacts",
+      summary: "Delete a contact",
+      description: "Delete a contact by ID.",
+      tags: ["contacts"],
       handler: ({ params }) => handleDeleteContact(params.id),
     },
   ];

@@ -298,36 +298,140 @@ export function recordingRouteDefinitions(deps: {
       endpoint: "recordings/start",
       method: "POST",
       policyKey: "recordings/start",
+      summary: "Start recording",
+      description: "Start a screen recording for a conversation.",
+      tags: ["recordings"],
+      requestBody: {
+        type: "object",
+        properties: {
+          conversationId: { type: "string" },
+          options: { type: "object", description: "Recording options" },
+        },
+        required: ["conversationId"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          recordingId: { type: "string" },
+        },
+      },
       handler: async ({ req }) => handleStartRecording(req, getDeps()),
     },
     {
       endpoint: "recordings/stop",
       method: "POST",
       policyKey: "recordings/stop",
+      summary: "Stop recording",
+      description: "Stop the active screen recording.",
+      tags: ["recordings"],
+      requestBody: {
+        type: "object",
+        properties: {
+          conversationId: { type: "string" },
+        },
+        required: ["conversationId"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          recordingId: { type: "string" },
+          stopped: { type: "boolean" },
+        },
+      },
       handler: async ({ req }) => handleStopRecording(req, getDeps()),
     },
     {
       endpoint: "recordings/pause",
       method: "POST",
       policyKey: "recordings/pause",
+      summary: "Pause recording",
+      description: "Pause the active screen recording.",
+      tags: ["recordings"],
+      requestBody: {
+        type: "object",
+        properties: {
+          conversationId: { type: "string" },
+        },
+        required: ["conversationId"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          recordingId: { type: "string" },
+          paused: { type: "boolean" },
+        },
+      },
       handler: async ({ req }) => handlePauseRecording(req, getDeps()),
     },
     {
       endpoint: "recordings/resume",
       method: "POST",
       policyKey: "recordings/resume",
+      summary: "Resume recording",
+      description: "Resume a paused screen recording.",
+      tags: ["recordings"],
+      requestBody: {
+        type: "object",
+        properties: {
+          conversationId: { type: "string" },
+        },
+        required: ["conversationId"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          recordingId: { type: "string" },
+          resumed: { type: "boolean" },
+        },
+      },
       handler: async ({ req }) => handleResumeRecording(req, getDeps()),
     },
     {
       endpoint: "recordings/status",
       method: "GET",
       policyKey: "recordings/status",
+      summary: "Get recording status",
+      description: "Return the current recording state.",
+      tags: ["recordings"],
+      responseBody: {
+        type: "object",
+        properties: {
+          idle: { type: "boolean" },
+          restartInProgress: { type: "boolean" },
+        },
+      },
       handler: () => handleGetRecordingStatus(),
     },
     {
       endpoint: "recordings/status",
       method: "POST",
       policyKey: "recordings/status:POST",
+      summary: "Post recording status",
+      description: "Recording lifecycle callback from the client.",
+      tags: ["recordings"],
+      requestBody: {
+        type: "object",
+        properties: {
+          conversationId: { type: "string" },
+          status: {
+            type: "string",
+            description:
+              "started, stopped, failed, restart_cancelled, paused, resumed",
+          },
+          filePath: { type: "string" },
+          durationMs: { type: "number" },
+          error: { type: "string" },
+          attachToConversationId: { type: "string" },
+          operationToken: { type: "string" },
+        },
+        required: ["conversationId", "status"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+        },
+      },
       handler: async ({ req }) => handlePostRecordingStatus(req, getDeps()),
     },
   ];

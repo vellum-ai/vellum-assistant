@@ -25,6 +25,37 @@ export function migrationRollbackRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "admin/rollback-migrations",
       method: "POST",
+      summary: "Rollback migrations",
+      description:
+        "Roll back DB and/or workspace migrations to a specified target version. Restricted to gateway service principals.",
+      tags: ["admin"],
+      requestBody: {
+        type: "object",
+        properties: {
+          targetDbVersion: {
+            type: "integer",
+            description: "Target DB migration version",
+          },
+          targetWorkspaceMigrationId: {
+            type: "string",
+            description: "Target workspace migration ID",
+          },
+          rollbackToRegistryCeiling: {
+            type: "boolean",
+            description: "Auto-determine targets from daemon registry ceilings",
+          },
+        },
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          rolledBack: {
+            type: "object",
+            description: "Lists of rolled-back DB and workspace migrations",
+          },
+        },
+      },
       handler: async ({ req }) => {
         let body: unknown;
         try {

@@ -612,6 +612,16 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       endpoint: "settings/voice",
       method: "PUT",
       policyKey: "settings/voice",
+      summary: "Update voice activation key",
+      description: "Validate and normalize a voice activation key.",
+      tags: ["settings"],
+      requestBody: {
+        type: "object",
+        properties: {
+          activationKey: { type: "string" },
+        },
+        required: ["activationKey"],
+      },
       handler: async ({ req }) => {
         const body = (await req.json()) as { activationKey?: string };
         if (!body.activationKey) {
@@ -626,6 +636,15 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       endpoint: "settings/avatar/generate",
       method: "POST",
       policyKey: "settings/avatar/generate",
+      summary: "Generate avatar",
+      description: "Generate an AI avatar image from a text description.",
+      tags: ["settings"],
+      requestBody: {
+        type: "object",
+        properties: {
+          description: { type: "string" },
+        },
+      },
       handler: async ({ req }) => {
         const body = (await req.json()) as { description?: string };
         return handleGenerateAvatar(body.description ?? "");
@@ -637,6 +656,17 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       endpoint: "settings/client",
       method: "PUT",
       policyKey: "settings/client",
+      summary: "Update client setting",
+      description: "Set a single client-side setting key/value pair.",
+      tags: ["settings"],
+      requestBody: {
+        type: "object",
+        properties: {
+          key: { type: "string" },
+          value: { type: "string" },
+        },
+        required: ["key", "value"],
+      },
       handler: async ({ req }) => {
         const body = (await req.json()) as { key?: string; value?: string };
         if (!body.key || body.value === undefined) {
@@ -651,6 +681,17 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       endpoint: "oauth/start",
       method: "POST",
       policyKey: "oauth/start",
+      summary: "Start OAuth flow",
+      description:
+        "Initiate an OAuth authorization flow for a third-party service.",
+      tags: ["oauth"],
+      requestBody: {
+        type: "object",
+        properties: {
+          service: { type: "string" },
+          requestedScopes: { type: "array" },
+        },
+      },
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           service?: string;
@@ -665,6 +706,16 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       endpoint: "integrations/oauth/start",
       method: "POST",
       policyKey: "integrations/oauth/start",
+      summary: "Start OAuth flow (legacy)",
+      description: "Legacy alias for oauth/start.",
+      tags: ["oauth"],
+      requestBody: {
+        type: "object",
+        properties: {
+          service: { type: "string" },
+          requestedScopes: { type: "array" },
+        },
+      },
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           service?: string;
@@ -679,12 +730,18 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       endpoint: "workspace-files",
       method: "GET",
       policyKey: "workspace-files",
+      summary: "List workspace files",
+      description: "Return an array of files in the workspace directory.",
+      tags: ["workspace"],
       handler: () => handleWorkspaceFilesList(),
     },
     {
       endpoint: "workspace-files/read",
       method: "GET",
       policyKey: "workspace-files/read",
+      summary: "Read a workspace file",
+      description: "Return the contents of a single file by path.",
+      tags: ["workspace"],
       handler: ({ url }) => {
         const filePath = url.searchParams.get("path") ?? "";
         if (!filePath) {
@@ -703,6 +760,10 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       endpoint: "tools",
       method: "GET",
       policyKey: "tools",
+      summary: "List tools",
+      description:
+        "Return available tool names with their descriptions, risk levels, and categories.",
+      tags: ["tools"],
       handler: () => handleToolNamesList(),
     },
 
@@ -711,6 +772,20 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       endpoint: "tools/simulate-permission",
       method: "POST",
       policyKey: "tools/simulate-permission",
+      summary: "Simulate tool permission check",
+      description:
+        "Dry-run a permission check for a tool invocation without executing it.",
+      tags: ["tools"],
+      requestBody: {
+        type: "object",
+        properties: {
+          toolName: { type: "string" },
+          input: { type: "object" },
+          workingDir: { type: "string" },
+          forcePromptSideEffects: { type: "boolean" },
+          isInteractive: { type: "boolean" },
+        },
+      },
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           toolName?: string;
@@ -728,6 +803,10 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       endpoint: "diagnostics/env-vars",
       method: "GET",
       policyKey: "diagnostics/env-vars",
+      summary: "List safe environment variables",
+      description:
+        "Return environment variable names and values that are safe to expose (no secrets).",
+      tags: ["diagnostics"],
       handler: () => handleEnvVars(),
     },
 
@@ -736,6 +815,16 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       endpoint: "config/platform",
       method: "GET",
       policyKey: "config/platform:GET",
+      summary: "Get platform config",
+      description: "Return the platform base URL configuration.",
+      tags: ["config"],
+      responseBody: {
+        type: "object",
+        properties: {
+          baseUrl: { type: "string" },
+          success: { type: "boolean" },
+        },
+      },
       handler: () => {
         const raw = loadRawConfig();
         const platform = (raw?.platform ?? {}) as Record<string, unknown>;
@@ -748,6 +837,15 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       endpoint: "config/platform",
       method: "PUT",
       policyKey: "config/platform",
+      summary: "Update platform config",
+      description: "Set the platform base URL.",
+      tags: ["config"],
+      requestBody: {
+        type: "object",
+        properties: {
+          baseUrl: { type: "string" },
+        },
+      },
       handler: async ({ req }) => {
         try {
           const body = (await req.json()) as { baseUrl?: string };
@@ -773,12 +871,34 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       endpoint: "integrations/ingress/config",
       method: "GET",
       policyKey: "integrations/ingress/config:GET",
+      summary: "Get ingress config",
+      description: "Return the current ingress tunnel configuration.",
+      tags: ["config"],
       handler: () => Response.json(getIngressConfigResult()),
     },
     {
       endpoint: "integrations/ingress/config",
       method: "PUT",
       policyKey: "integrations/ingress/config",
+      summary: "Update ingress config",
+      description: "Set the ingress public base URL and enabled state.",
+      tags: ["config"],
+      requestBody: {
+        type: "object",
+        properties: {
+          publicBaseUrl: { type: "string" },
+          enabled: { type: "boolean" },
+        },
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          enabled: { type: "boolean" },
+          publicBaseUrl: { type: "string" },
+          localGatewayTarget: { type: "string" },
+          success: { type: "boolean" },
+        },
+      },
       handler: async ({ req }) => {
         try {
           const body = (await req.json()) as {

@@ -17,6 +17,23 @@ export function workspaceCommitRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "admin/workspace-commit",
       method: "POST",
+      summary: "Commit workspace changes",
+      description:
+        "Create a git commit in the workspace directory with all pending changes.",
+      tags: ["admin"],
+      requestBody: {
+        type: "object",
+        properties: {
+          message: { type: "string", description: "Commit message" },
+        },
+        required: ["message"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+        },
+      },
       handler: async ({ req }) => {
         let body: unknown;
         try {

@@ -19,6 +19,38 @@ export function notificationRouteDefinitions(): RouteDefinition[] {
       endpoint: "notification-intent-result",
       method: "POST",
       policyKey: "notification-intent-result",
+      summary: "Report notification delivery result",
+      description:
+        "Client acknowledgment for local notification delivery outcome.",
+      tags: ["notifications"],
+      requestBody: {
+        type: "object",
+        properties: {
+          deliveryId: {
+            type: "string",
+            description: "Notification delivery ID",
+          },
+          success: {
+            type: "boolean",
+            description: "Whether delivery succeeded",
+          },
+          errorMessage: {
+            type: "string",
+            description: "Error message if delivery failed",
+          },
+          errorCode: {
+            type: "string",
+            description: "Error code if delivery failed",
+          },
+        },
+        required: ["deliveryId"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+        },
+      },
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           deliveryId?: string;

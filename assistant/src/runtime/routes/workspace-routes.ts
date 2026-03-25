@@ -382,36 +382,170 @@ export function workspaceRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "workspace/tree",
       method: "GET",
+      summary: "List workspace directory",
+      description: "Return directory entries for a workspace path.",
+      tags: ["workspace"],
+      queryParams: [
+        {
+          name: "path",
+          schema: { type: "string" },
+          description: "Relative path (default root)",
+        },
+        {
+          name: "showHidden",
+          schema: { type: "string" },
+          description: "Include dotfiles (true/false)",
+        },
+      ],
+      responseBody: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+          entries: { type: "array", description: "Directory entry objects" },
+        },
+      },
       handler: (ctx) => handleWorkspaceTree(ctx),
     },
     {
       endpoint: "workspace/file/content",
       method: "GET",
+      summary: "Get workspace file content",
+      description: "Return raw file bytes with HTTP range support.",
+      tags: ["workspace"],
+      queryParams: [
+        {
+          name: "path",
+          schema: { type: "string" },
+          description: "Relative file path (required)",
+        },
+        {
+          name: "showHidden",
+          schema: { type: "string" },
+          description: "Allow hidden files (true/false)",
+        },
+      ],
       handler: (ctx) => handleWorkspaceFileContent(ctx),
     },
     {
       endpoint: "workspace/file",
       method: "GET",
+      summary: "Get workspace file metadata",
+      description:
+        "Return file metadata and inline text content (if small enough).",
+      tags: ["workspace"],
+      queryParams: [
+        {
+          name: "path",
+          schema: { type: "string" },
+          description: "Relative file path (required)",
+        },
+        {
+          name: "showHidden",
+          schema: { type: "string" },
+          description: "Allow hidden files (true/false)",
+        },
+      ],
+      responseBody: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+          name: { type: "string" },
+          size: { type: "number" },
+          mimeType: { type: "string" },
+          modifiedAt: { type: "string" },
+          content: {
+            type: "string",
+            description: "Inline text content or null",
+          },
+          isBinary: { type: "boolean" },
+        },
+      },
       handler: (ctx) => handleWorkspaceFile(ctx),
     },
     {
       endpoint: "workspace/write",
       method: "POST",
+      summary: "Write workspace file",
+      description: "Create or overwrite a file in the workspace.",
+      tags: ["workspace"],
+      requestBody: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Relative file path" },
+          content: { type: "string", description: "File content" },
+          encoding: {
+            type: "string",
+            description: "Content encoding (base64 or utf-8)",
+          },
+        },
+        required: ["path"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+          size: { type: "number" },
+        },
+      },
       handler: (ctx) => handleWorkspaceWrite(ctx),
     },
     {
       endpoint: "workspace/mkdir",
       method: "POST",
+      summary: "Create workspace directory",
+      description: "Create directories recursively in the workspace.",
+      tags: ["workspace"],
+      requestBody: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Relative directory path" },
+        },
+        required: ["path"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+        },
+      },
       handler: (ctx) => handleWorkspaceMkdir(ctx),
     },
     {
       endpoint: "workspace/rename",
       method: "POST",
+      summary: "Rename workspace entry",
+      description: "Rename or move a file or directory in the workspace.",
+      tags: ["workspace"],
+      requestBody: {
+        type: "object",
+        properties: {
+          oldPath: { type: "string", description: "Current relative path" },
+          newPath: { type: "string", description: "New relative path" },
+        },
+        required: ["oldPath", "newPath"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          oldPath: { type: "string" },
+          newPath: { type: "string" },
+        },
+      },
       handler: (ctx) => handleWorkspaceRename(ctx),
     },
     {
       endpoint: "workspace/delete",
       method: "POST",
+      summary: "Delete workspace entry",
+      description: "Delete a file or directory from the workspace.",
+      tags: ["workspace"],
+      requestBody: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Relative path to delete" },
+        },
+        required: ["path"],
+      },
       handler: (ctx) => handleWorkspaceDelete(ctx),
     },
   ];

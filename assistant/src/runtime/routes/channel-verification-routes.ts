@@ -243,31 +243,97 @@ export async function handleRevokeVerificationBinding(
 
 export function channelVerificationRouteDefinitions(): RouteDefinition[] {
   return [
-    // Channel verification (unified session API)
     {
       endpoint: "channel-verification-sessions",
       method: "POST",
+      summary: "Create verification session",
+      description:
+        "Create a channel verification session (inbound challenge, outbound, or trusted contact).",
+      tags: ["channel-verification"],
+      requestBody: {
+        type: "object",
+        properties: {
+          channel: { type: "string", description: "Channel ID" },
+          destination: { type: "string", description: "Outbound destination" },
+          rebind: { type: "boolean" },
+          conversationId: { type: "string" },
+          originConversationId: { type: "string" },
+          purpose: {
+            type: "string",
+            description: "guardian or trusted_contact",
+          },
+          contactChannelId: { type: "string" },
+        },
+      },
       handler: async ({ req, authContext }) =>
         handleCreateVerificationSession(req, authContext.assistantId),
     },
     {
       endpoint: "channel-verification-sessions/resend",
       method: "POST",
+      summary: "Resend verification code",
+      description: "Resend the outbound verification code.",
+      tags: ["channel-verification"],
+      requestBody: {
+        type: "object",
+        properties: {
+          channel: { type: "string" },
+          originConversationId: { type: "string" },
+        },
+        required: ["channel"],
+      },
       handler: async ({ req }) => handleResendVerificationSession(req),
     },
     {
       endpoint: "channel-verification-sessions",
       method: "DELETE",
+      summary: "Cancel verification sessions",
+      description:
+        "Cancel all active inbound and outbound verification sessions.",
+      tags: ["channel-verification"],
+      requestBody: {
+        type: "object",
+        properties: {
+          channel: { type: "string" },
+        },
+        required: ["channel"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+          channel: { type: "string" },
+        },
+      },
       handler: async ({ req }) => handleCancelVerificationSession(req),
     },
     {
       endpoint: "channel-verification-sessions/revoke",
       method: "POST",
+      summary: "Revoke verification binding",
+      description: "Cancel all sessions and revoke the guardian binding.",
+      tags: ["channel-verification"],
+      requestBody: {
+        type: "object",
+        properties: {
+          channel: { type: "string" },
+        },
+      },
       handler: async ({ req }) => handleRevokeVerificationBinding(req),
     },
     {
       endpoint: "channel-verification-sessions/status",
       method: "GET",
+      summary: "Get verification status",
+      description: "Check guardian binding and verification session status.",
+      tags: ["channel-verification"],
+      queryParams: [
+        {
+          name: "channel",
+          schema: { type: "string" },
+          description: "Optional channel ID filter",
+        },
+      ],
       handler: ({ url }) => handleGetVerificationStatus(url),
     },
   ];

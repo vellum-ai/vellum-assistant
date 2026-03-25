@@ -435,6 +435,51 @@ export function diagnosticsRouteDefinitions(): RouteDefinition[] {
       endpoint: "dictation",
       method: "POST",
       policyKey: "dictation",
+      summary: "Process dictation",
+      description:
+        "Classify voice input as dictation or action, clean up text, and apply user style preferences.",
+      tags: ["diagnostics"],
+      requestBody: {
+        type: "object",
+        properties: {
+          transcription: {
+            type: "string",
+            description: "Raw speech transcription",
+          },
+          context: {
+            type: "object",
+            description:
+              "Dictation context (app name, window title, bundle ID, cursor state, selected text)",
+          },
+          profileId: {
+            type: "string",
+            description: "Optional dictation profile ID",
+          },
+        },
+        required: ["transcription", "context"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "Processed text output" },
+          mode: {
+            type: "string",
+            description: "Detected mode: dictation, command, or action",
+          },
+          actionPlan: {
+            type: "string",
+            description: "Action plan (only when mode is action)",
+          },
+          resolvedProfileId: {
+            type: "string",
+            description: "Resolved dictation profile ID",
+          },
+          profileSource: {
+            type: "string",
+            description: "How the profile was resolved",
+          },
+        },
+      },
       handler: async ({ req }) => {
         const body = (await req.json()) as DictationBody;
         if (!body.transcription) {

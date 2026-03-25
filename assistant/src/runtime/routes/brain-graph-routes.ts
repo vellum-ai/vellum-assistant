@@ -136,11 +136,32 @@ export function brainGraphRouteDefinitions(deps: {
     {
       endpoint: "brain-graph",
       method: "GET",
+      summary: "Get brain graph data",
+      description:
+        "Return a knowledge-graph shaped for brain-lobe visualization, with memory items mapped to brain regions.",
+      tags: ["brain-graph"],
+      responseBody: {
+        type: "object",
+        properties: {
+          entities: { type: "array", description: "Graph entity nodes" },
+          relations: { type: "array", description: "Graph relation edges" },
+          memorySummary: {
+            type: "array",
+            description: "Memory kind counts and colors",
+          },
+          totalKnowledgeCount: { type: "integer" },
+          generatedAt: { type: "string", description: "ISO 8601 timestamp" },
+        },
+      },
       handler: () => handleGetBrainGraph(),
     },
     {
       endpoint: "brain-graph-ui",
       method: "GET",
+      summary: "Serve brain graph UI",
+      description:
+        "Return the brain-graph HTML visualization page with an embedded auth token.",
+      tags: ["brain-graph"],
       handler: () => handleServeBrainGraphUI(deps.mintUiPageToken()),
     },
   ];

@@ -288,31 +288,150 @@ export function callRouteDefinitions(deps: {
     {
       endpoint: "calls/start",
       method: "POST",
+      summary: "Start a call",
+      description:
+        "Initiate a new outbound phone call. Supports idempotency keys to prevent duplicate calls.",
+      tags: ["calls"],
       handler: async ({ req }) => handleStartCall(req, deps.assistantId),
+      requestBody: {
+        type: "object",
+        properties: {
+          phoneNumber: { type: "string", description: "Phone number to call" },
+          task: {
+            type: "string",
+            description: "Task description for the call",
+          },
+          context: {
+            type: "string",
+            description: "Additional context for the call",
+          },
+          conversationId: {
+            type: "string",
+            description: "Conversation to associate with",
+          },
+          callerIdentityMode: {
+            type: "string",
+            description: "Caller identity: 'assistant_number' or 'user_number'",
+          },
+          idempotencyKey: {
+            type: "string",
+            description: "Idempotency key to prevent duplicate calls",
+          },
+        },
+        required: ["conversationId"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          callSessionId: { type: "string" },
+          callSid: { type: "string" },
+          status: { type: "string" },
+          toNumber: { type: "string" },
+          fromNumber: { type: "string" },
+          callerIdentityMode: { type: "string" },
+        },
+      },
     },
     {
       endpoint: "calls/:id/cancel",
       method: "POST",
       policyKey: "calls/cancel",
+      summary: "Cancel a call",
+      description: "Cancel an active or pending call.",
+      tags: ["calls"],
       handler: async ({ req, params }) => handleCancelCall(req, params.id),
+      requestBody: {
+        type: "object",
+        properties: {
+          reason: { type: "string", description: "Cancellation reason" },
+        },
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          callSessionId: { type: "string" },
+          status: { type: "string" },
+        },
+      },
     },
     {
       endpoint: "calls/:id/answer",
       method: "POST",
       policyKey: "calls/answer",
+      summary: "Answer a pending call question",
+      description:
+        "Provide an answer to a pending question during an active call.",
+      tags: ["calls"],
       handler: async ({ req, params }) => handleAnswerCall(req, params.id),
+      requestBody: {
+        type: "object",
+        properties: {
+          answer: { type: "string", description: "Answer text" },
+          pendingQuestionId: {
+            type: "string",
+            description: "ID of the pending question",
+          },
+        },
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+          questionId: { type: "string" },
+        },
+      },
     },
     {
       endpoint: "calls/:id/instruction",
       method: "POST",
       policyKey: "calls/instruction",
+      summary: "Relay instruction to active call",
+      description: "Send a real-time instruction to an active call.",
+      tags: ["calls"],
       handler: async ({ req, params }) => handleInstructionCall(req, params.id),
+      requestBody: {
+        type: "object",
+        properties: {
+          instruction: {
+            type: "string",
+            description: "Instruction text to relay",
+          },
+        },
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+        },
+      },
     },
     {
       endpoint: "calls/:id",
       method: "GET",
       policyKey: "calls",
+      summary: "Get call status",
+      description: "Return the current status and details of a call session.",
+      tags: ["calls"],
       handler: ({ params }) => handleGetCallStatus(params.id),
+      responseBody: {
+        type: "object",
+        properties: {
+          callSessionId: { type: "string" },
+          conversationId: { type: "string" },
+          status: { type: "string" },
+          toNumber: { type: "string" },
+          fromNumber: { type: "string" },
+          provider: { type: "string" },
+          providerCallSid: { type: "string" },
+          task: { type: "string" },
+          startedAt: { type: "string" },
+          endedAt: { type: "string" },
+          lastError: { type: "string" },
+          pendingQuestion: { type: "object" },
+          createdAt: { type: "string" },
+          updatedAt: { type: "string" },
+        },
+      },
     },
   ];
 }

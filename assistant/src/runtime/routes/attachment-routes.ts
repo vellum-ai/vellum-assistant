@@ -261,23 +261,80 @@ export function attachmentRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "attachments",
       method: "POST",
+      summary: "Upload attachment",
+      description:
+        "Upload an attachment as base64 data or file path reference.",
+      tags: ["attachments"],
+      requestBody: {
+        type: "object",
+        properties: {
+          filename: { type: "string" },
+          mimeType: { type: "string" },
+          data: { type: "string", description: "Base64-encoded file data" },
+          filePath: {
+            type: "string",
+            description: "On-disk file path (file-backed upload)",
+          },
+        },
+        required: ["filename", "mimeType"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          original_filename: { type: "string" },
+          mime_type: { type: "string" },
+          size_bytes: { type: "number" },
+          kind: { type: "string" },
+        },
+      },
       handler: async ({ req }) => handleUploadAttachment(req),
     },
     {
       endpoint: "attachments",
       method: "DELETE",
+      summary: "Delete attachment",
+      description: "Delete an attachment by ID.",
+      tags: ["attachments"],
+      requestBody: {
+        type: "object",
+        properties: {
+          attachmentId: { type: "string" },
+        },
+        required: ["attachmentId"],
+      },
       handler: async ({ req }) => handleDeleteAttachment(req),
     },
     {
       endpoint: "attachments/:id/content",
       method: "GET",
       policyKey: "attachments/content",
+      summary: "Get attachment content",
+      description:
+        "Serve raw file bytes for an attachment. Supports Range headers.",
+      tags: ["attachments"],
       handler: ({ req, params }) => handleGetAttachmentContent(params.id, req),
     },
     {
       endpoint: "attachments/:id",
       method: "GET",
       policyKey: "attachments",
+      summary: "Get attachment metadata",
+      description:
+        "Return metadata and optional base64 data for an attachment.",
+      tags: ["attachments"],
+      responseBody: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          filename: { type: "string" },
+          mimeType: { type: "string" },
+          sizeBytes: { type: "number" },
+          kind: { type: "string" },
+          data: { type: "string", description: "Base64-encoded content" },
+          fileBacked: { type: "boolean" },
+        },
+      },
       handler: ({ params }) => handleGetAttachment(params.id),
     },
   ];

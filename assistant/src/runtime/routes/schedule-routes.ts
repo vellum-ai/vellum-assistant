@@ -112,11 +112,27 @@ function handleUpdateSchedule(
 ): Response {
   const updates: Record<string, unknown> = {};
 
-  if ("mode" in body && !VALID_MODES.includes(body.mode as (typeof VALID_MODES)[number])) {
-    return httpError("BAD_REQUEST", `Invalid mode: must be one of ${VALID_MODES.join(", ")}`, 400);
+  if (
+    "mode" in body &&
+    !VALID_MODES.includes(body.mode as (typeof VALID_MODES)[number])
+  ) {
+    return httpError(
+      "BAD_REQUEST",
+      `Invalid mode: must be one of ${VALID_MODES.join(", ")}`,
+      400,
+    );
   }
-  if ("routingIntent" in body && !VALID_ROUTING_INTENTS.includes(body.routingIntent as (typeof VALID_ROUTING_INTENTS)[number])) {
-    return httpError("BAD_REQUEST", `Invalid routingIntent: must be one of ${VALID_ROUTING_INTENTS.join(", ")}`, 400);
+  if (
+    "routingIntent" in body &&
+    !VALID_ROUTING_INTENTS.includes(
+      body.routingIntent as (typeof VALID_ROUTING_INTENTS)[number],
+    )
+  ) {
+    return httpError(
+      "BAD_REQUEST",
+      `Invalid routingIntent: must be one of ${VALID_ROUTING_INTENTS.join(", ")}`,
+      400,
+    );
   }
 
   for (const key of [
@@ -276,12 +292,37 @@ export function scheduleRouteDefinitions(deps: {
       endpoint: "schedules",
       method: "GET",
       policyKey: "schedules",
+      summary: "List schedules",
+      description: "Return all scheduled jobs.",
+      tags: ["schedules"],
+      responseBody: {
+        type: "object",
+        properties: {
+          schedules: { type: "array", description: "Schedule objects" },
+        },
+      },
       handler: () => handleListSchedules(),
     },
     {
       endpoint: "schedules/:id/toggle",
       method: "POST",
       policyKey: "schedules/toggle",
+      summary: "Toggle schedule",
+      description: "Enable or disable a schedule.",
+      tags: ["schedules"],
+      requestBody: {
+        type: "object",
+        properties: {
+          enabled: { type: "boolean", description: "New enabled state" },
+        },
+        required: ["enabled"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          schedules: { type: "array", description: "Updated schedule list" },
+        },
+      },
       handler: async ({ req, params }) => {
         const body = (await req.json()) as { enabled?: boolean };
         if (body.enabled === undefined) {
@@ -294,16 +335,53 @@ export function scheduleRouteDefinitions(deps: {
       endpoint: "schedules/:id",
       method: "DELETE",
       policyKey: "schedules",
+      summary: "Delete schedule",
+      description: "Remove a schedule by ID.",
+      tags: ["schedules"],
+      responseBody: {
+        type: "object",
+        properties: {
+          schedules: { type: "array", description: "Updated schedule list" },
+        },
+      },
       handler: ({ params }) => handleDeleteSchedule(params.id),
     },
     {
       endpoint: "schedules/:id",
       method: "PATCH",
       policyKey: "schedules",
+      summary: "Update schedule",
+      description: "Partially update fields on a schedule.",
+      tags: ["schedules"],
+      requestBody: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          expression: { type: "string" },
+          timezone: { type: "string" },
+          message: { type: "string" },
+          mode: { type: "string", description: "notify or execute" },
+          routingIntent: {
+            type: "string",
+            description: "single_channel, multi_channel, or all_channels",
+          },
+          quiet: { type: "boolean" },
+        },
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          schedules: { type: "array", description: "Updated schedule list" },
+        },
+      },
       handler: async ({ req, params }) => {
         const body: unknown = await req.json();
         if (typeof body !== "object" || !body || Array.isArray(body)) {
-          return httpError("BAD_REQUEST", "Request body must be a JSON object", 400);
+          return httpError(
+            "BAD_REQUEST",
+            "Request body must be a JSON object",
+            400,
+          );
         }
         return handleUpdateSchedule(params.id, body as Record<string, unknown>);
       },
@@ -312,6 +390,15 @@ export function scheduleRouteDefinitions(deps: {
       endpoint: "schedules/:id/run",
       method: "POST",
       policyKey: "schedules/run",
+      summary: "Run schedule now",
+      description: "Trigger an immediate execution of a schedule.",
+      tags: ["schedules"],
+      responseBody: {
+        type: "object",
+        properties: {
+          schedules: { type: "array", description: "Updated schedule list" },
+        },
+      },
       handler: async ({ params }) =>
         handleRunScheduleNow(params.id, deps.sendMessageDeps),
     },
@@ -319,6 +406,15 @@ export function scheduleRouteDefinitions(deps: {
       endpoint: "schedules/:id/cancel",
       method: "POST",
       policyKey: "schedules/cancel",
+      summary: "Cancel schedule",
+      description: "Cancel a pending schedule.",
+      tags: ["schedules"],
+      responseBody: {
+        type: "object",
+        properties: {
+          schedules: { type: "array", description: "Updated schedule list" },
+        },
+      },
       handler: ({ params }) => handleCancelSchedule(params.id),
     },
   ];

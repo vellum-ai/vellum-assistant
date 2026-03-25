@@ -474,21 +474,74 @@ export function migrationRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "migrations/validate",
       method: "POST",
+      summary: "Validate a .vbundle archive",
+      description:
+        "Upload a .vbundle archive for validation. Accepts raw binary or multipart form data.",
+      tags: ["migrations"],
+      responseBody: {
+        type: "object",
+        properties: {
+          is_valid: { type: "boolean" },
+          errors: { type: "array" },
+          manifest: { type: "object" },
+        },
+      },
       handler: async ({ req }) => handleMigrationValidate(req),
     },
     {
       endpoint: "migrations/export",
       method: "POST",
+      summary: "Export a .vbundle archive",
+      description:
+        "Generate and download a .vbundle archive of the assistant's data. Optional JSON body for metadata.",
+      tags: ["migrations"],
+      requestBody: {
+        type: "object",
+        properties: {
+          description: {
+            type: "string",
+            description: "Human-readable export description",
+          },
+        },
+      },
       handler: async ({ req }) => handleMigrationExport(req),
     },
     {
       endpoint: "migrations/import-preflight",
       method: "POST",
+      summary: "Dry-run import analysis",
+      description:
+        "Validate a .vbundle archive and return a report of what would change on import without modifying data.",
+      tags: ["migrations"],
+      responseBody: {
+        type: "object",
+        properties: {
+          can_import: { type: "boolean" },
+          summary: { type: "object" },
+          files: { type: "array" },
+          conflicts: { type: "array" },
+          manifest: { type: "object" },
+        },
+      },
       handler: async ({ req }) => handleMigrationImportPreflight(req),
     },
     {
       endpoint: "migrations/import",
       method: "POST",
+      summary: "Import a .vbundle archive",
+      description:
+        "Commit a .vbundle archive import to disk — destructive. Backs up existing files before overwriting.",
+      tags: ["migrations"],
+      responseBody: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+          summary: { type: "object" },
+          files: { type: "array" },
+          manifest: { type: "object" },
+          warnings: { type: "array" },
+        },
+      },
       handler: async ({ req }) => handleMigrationImport(req),
     },
   ];

@@ -176,21 +176,84 @@ export function trustRulesRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "trust-rules/manage",
       method: "GET",
+      summary: "List all trust rules",
+      description: "Return all persistent trust rules.",
+      tags: ["trust-rules"],
+      responseBody: {
+        type: "object",
+        properties: {
+          type: { type: "string" },
+          rules: { type: "array", description: "Trust rule objects" },
+        },
+      },
       handler: () => handleListTrustRules(),
     },
     {
       endpoint: "trust-rules/manage",
       method: "POST",
+      summary: "Add a trust rule",
+      description:
+        "Create a new persistent trust rule (standalone, not approval-flow).",
+      tags: ["trust-rules"],
+      requestBody: {
+        type: "object",
+        properties: {
+          toolName: { type: "string", description: "Tool name" },
+          pattern: { type: "string", description: "Allowlist pattern" },
+          scope: { type: "string", description: "Scope" },
+          decision: { type: "string", description: "allow, deny, or ask" },
+          allowHighRisk: {
+            type: "boolean",
+            description: "Allow high-risk invocations",
+          },
+          executionTarget: { type: "string", description: "Execution target" },
+        },
+        required: ["toolName", "pattern", "scope", "decision"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+        },
+      },
       handler: async ({ req }) => handleAddTrustRuleManage(req),
     },
     {
       endpoint: "trust-rules/manage/:id",
       method: "DELETE",
+      summary: "Remove a trust rule",
+      description: "Delete a trust rule by ID.",
+      tags: ["trust-rules"],
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+        },
+      },
       handler: ({ params }) => handleRemoveTrustRuleManage(params.id),
     },
     {
       endpoint: "trust-rules/manage/:id",
       method: "PATCH",
+      summary: "Update a trust rule",
+      description: "Partially update fields on an existing trust rule.",
+      tags: ["trust-rules"],
+      requestBody: {
+        type: "object",
+        properties: {
+          tool: { type: "string", description: "Tool name" },
+          pattern: { type: "string", description: "Allowlist pattern" },
+          scope: { type: "string", description: "Scope" },
+          decision: { type: "string", description: "allow, deny, or ask" },
+          priority: { type: "number", description: "Rule priority" },
+        },
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+        },
+      },
       handler: async ({ req, params }) =>
         handleUpdateTrustRuleManage(req, params.id),
     },

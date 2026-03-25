@@ -76,6 +76,26 @@ export function hostBashRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "host-bash-result",
       method: "POST",
+      summary: "Submit host bash result",
+      description: "Resolve a pending host bash request by requestId.",
+      tags: ["host"],
+      requestBody: {
+        type: "object",
+        properties: {
+          requestId: { type: "string", description: "Pending bash request ID" },
+          stdout: { type: "string" },
+          stderr: { type: "string" },
+          exitCode: { type: "number" },
+          timedOut: { type: "boolean" },
+        },
+        required: ["requestId"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          accepted: { type: "boolean" },
+        },
+      },
       handler: async ({ req, authContext }) =>
         handleHostBashResult(req, authContext),
     },

@@ -90,6 +90,33 @@ export function hostCuRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "host-cu-result",
       method: "POST",
+      summary: "Submit host CU result",
+      description: "Resolve a pending host computer-use request by requestId.",
+      tags: ["host"],
+      requestBody: {
+        type: "object",
+        properties: {
+          requestId: { type: "string", description: "Pending CU request ID" },
+          axTree: { type: "string", description: "Accessibility tree" },
+          axDiff: { type: "string", description: "Accessibility tree diff" },
+          screenshot: { type: "string", description: "Base64 screenshot" },
+          screenshotWidthPx: { type: "number" },
+          screenshotHeightPx: { type: "number" },
+          screenWidthPt: { type: "number" },
+          screenHeightPt: { type: "number" },
+          executionResult: { type: "string" },
+          executionError: { type: "string" },
+          secondaryWindows: { type: "string" },
+          userGuidance: { type: "string" },
+        },
+        required: ["requestId"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          accepted: { type: "boolean" },
+        },
+      },
       handler: async ({ req, authContext }) =>
         handleHostCuResult(req, authContext),
     },

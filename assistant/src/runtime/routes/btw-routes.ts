@@ -230,6 +230,21 @@ export function btwRouteDefinitions(deps: {
       endpoint: "btw",
       method: "POST",
       policyKey: "btw",
+      summary: "Run ephemeral LLM side-chain",
+      description:
+        "Stream an ephemeral LLM call reusing the conversation's provider and message history. Response is SSE (btw_text_delta, btw_complete, btw_error).",
+      tags: ["btw"],
+      requestBody: {
+        type: "object",
+        properties: {
+          conversationKey: {
+            type: "string",
+            description: "Conversation key to scope the call",
+          },
+          content: { type: "string", description: "User prompt content" },
+        },
+        required: ["conversationKey", "content"],
+      },
       handler: async ({ req, authContext }) =>
         handleBtw(req, deps, authContext),
     },

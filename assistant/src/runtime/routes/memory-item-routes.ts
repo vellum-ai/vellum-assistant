@@ -721,29 +721,145 @@ export function memoryItemRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "memory-items",
       method: "GET",
+      summary: "List memory items",
+      description:
+        "Return memory items with filtering, search, sorting, and pagination.",
+      tags: ["memory"],
+      queryParams: [
+        {
+          name: "kind",
+          schema: { type: "string" },
+          description: "Filter by kind",
+        },
+        {
+          name: "status",
+          schema: { type: "string" },
+          description: "Filter by status (default active)",
+        },
+        {
+          name: "search",
+          schema: { type: "string" },
+          description: "Full-text search query",
+        },
+        {
+          name: "sort",
+          schema: { type: "string" },
+          description: "Sort field (default lastSeenAt)",
+        },
+        {
+          name: "order",
+          schema: { type: "string" },
+          description: "asc or desc (default desc)",
+        },
+        {
+          name: "limit",
+          schema: { type: "integer" },
+          description: "Max results (default 100)",
+        },
+        {
+          name: "offset",
+          schema: { type: "integer" },
+          description: "Pagination offset",
+        },
+      ],
+      responseBody: {
+        type: "object",
+        properties: {
+          items: { type: "array", description: "Memory item objects" },
+          total: { type: "number" },
+        },
+      },
       handler: (ctx) => handleListMemoryItems(ctx.url),
     },
     {
       endpoint: "memory-items/:id",
       method: "GET",
       policyKey: "memory-items",
+      summary: "Get a memory item",
+      description:
+        "Return a single memory item by ID with supersession metadata.",
+      tags: ["memory"],
+      responseBody: {
+        type: "object",
+        properties: {
+          item: {
+            type: "object",
+            description: "Memory item with scopeLabel and supersession info",
+          },
+        },
+      },
       handler: (ctx) => handleGetMemoryItem(ctx),
     },
     {
       endpoint: "memory-items",
       method: "POST",
+      summary: "Create a memory item",
+      description: "Create a new memory item and enqueue embedding.",
+      tags: ["memory"],
+      requestBody: {
+        type: "object",
+        properties: {
+          kind: {
+            type: "string",
+            description: "Memory kind (identity, preference, project, etc.)",
+          },
+          subject: { type: "string", description: "Subject line" },
+          statement: { type: "string", description: "Statement content" },
+          importance: {
+            type: "number",
+            description: "Importance score (default 0.8)",
+          },
+        },
+        required: ["kind", "subject", "statement"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          item: { type: "object", description: "Created memory item" },
+        },
+      },
       handler: (ctx) => handleCreateMemoryItem(ctx),
     },
     {
       endpoint: "memory-items/:id",
       method: "PATCH",
       policyKey: "memory-items",
+      summary: "Update a memory item",
+      description: "Partially update fields on an existing memory item.",
+      tags: ["memory"],
+      requestBody: {
+        type: "object",
+        properties: {
+          subject: { type: "string" },
+          statement: { type: "string" },
+          kind: { type: "string" },
+          status: { type: "string" },
+          importance: { type: "number" },
+          sourceType: { type: "string" },
+          verificationState: { type: "string" },
+        },
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          item: { type: "object", description: "Updated memory item" },
+        },
+      },
       handler: (ctx) => handleUpdateMemoryItem(ctx),
     },
     {
       endpoint: "memory-items/:id",
       method: "DELETE",
       policyKey: "memory-items",
+      summary: "Delete a memory item",
+      description: "Delete a memory item and its embeddings.",
+      tags: ["memory"],
+      responseBody: {
+        type: "object",
+        properties: {
+          ok: { type: "boolean" },
+        },
+      },
       handler: (ctx) => handleDeleteMemoryItem(ctx),
     },
   ];

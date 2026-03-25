@@ -45,6 +45,27 @@ export function surfaceContentRouteDefinitions(deps: {
     {
       endpoint: "surfaces/:surfaceId",
       method: "GET",
+      summary: "Get surface content",
+      description:
+        "Return the full surface payload from the conversation's in-memory surface state.",
+      tags: ["surfaces"],
+      queryParams: [
+        {
+          name: "conversationId",
+          schema: { type: "string" },
+          required: true,
+          description: "Conversation that owns the surface",
+        },
+      ],
+      responseBody: {
+        type: "object",
+        properties: {
+          surfaceId: { type: "string" },
+          surfaceType: { type: "string" },
+          title: { type: "string" },
+          data: { type: "object", description: "Surface data payload" },
+        },
+      },
       handler: ({ url, params }) => {
         if (!deps.findConversation) {
           return httpError(

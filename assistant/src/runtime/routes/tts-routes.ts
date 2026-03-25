@@ -30,6 +30,17 @@ export function ttsRouteDefinitions(): RouteDefinition[] {
       endpoint: "messages/:id/tts",
       method: "POST",
       policyKey: "messages/tts",
+      summary: "Synthesize message to speech",
+      description:
+        "Synthesize a message's text content to audio using Fish Audio TTS.",
+      tags: ["messages"],
+      queryParams: [
+        {
+          name: "conversationId",
+          schema: { type: "string" },
+          description: "Conversation that contains the message",
+        },
+      ],
       handler: async ({ url, params }) => {
         const config = getConfig();
 

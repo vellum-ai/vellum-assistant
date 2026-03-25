@@ -670,6 +670,25 @@ export function logExportRouteDefinitions(): RouteDefinition[] {
       endpoint: "export",
       method: "POST",
       policyKey: "export",
+      summary: "Export logs and audit data",
+      description:
+        "Export audit records, daemon logs, workspace contents, and config as a tar.gz archive.",
+      tags: ["export"],
+      requestBody: {
+        type: "object",
+        properties: {
+          auditLimit: {
+            type: "integer",
+            description: "Max audit records (default 1000)",
+          },
+          conversationId: {
+            type: "string",
+            description: "Scope to a single conversation",
+          },
+          startTime: { type: "number", description: "Lower bound epoch ms" },
+          endTime: { type: "number", description: "Upper bound epoch ms" },
+        },
+      },
       handler: async ({ req }) => {
         const body = (await req.json()) as ExportRequestBody;
         return handleExport(body);

@@ -73,6 +73,30 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations",
       method: "POST",
       policyKey: "conversations",
+      summary: "Create a conversation",
+      description: "Create or get an existing conversation by key.",
+      tags: ["conversations"],
+      requestBody: {
+        type: "object",
+        properties: {
+          conversationKey: {
+            type: "string",
+            description: "Idempotency key for the conversation",
+          },
+          conversationType: {
+            type: "string",
+            description: "'standard' (default) or 'private'",
+          },
+        },
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          id: { type: "string" },
+          conversationKey: { type: "string" },
+          conversationType: { type: "string" },
+        },
+      },
       handler: async ({ req }) => {
         let body: { conversationKey?: string; conversationType?: string } = {};
         try {
@@ -111,6 +135,21 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/fork",
       method: "POST",
       policyKey: "conversations/fork",
+      summary: "Fork a conversation",
+      description:
+        "Create a copy of a conversation, optionally truncated at a specific message.",
+      tags: ["conversations"],
+      requestBody: {
+        type: "object",
+        properties: {
+          conversationId: { type: "string" },
+          throughMessageId: {
+            type: "string",
+            description: "Truncate the fork at this message",
+          },
+        },
+        required: ["conversationId"],
+      },
       handler: async ({ req }) => {
         if (!deps.forkConversation) {
           return httpError(
@@ -172,6 +211,28 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/switch",
       method: "POST",
       policyKey: "conversations/switch",
+      summary: "Switch active conversation",
+      description: "Set the active conversation for the current session.",
+      tags: ["conversations"],
+      requestBody: {
+        type: "object",
+        properties: {
+          conversationId: { type: "string" },
+          conversationKey: {
+            type: "string",
+            description: "Optional key to register for this conversation",
+          },
+        },
+        required: ["conversationId"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          conversationId: { type: "string" },
+          title: { type: "string" },
+          conversationType: { type: "string" },
+        },
+      },
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           conversationId?: string;
@@ -206,6 +267,16 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/:id/name",
       method: "PATCH",
       policyKey: "conversations/name",
+      summary: "Rename a conversation",
+      description: "Update the display name of a conversation.",
+      tags: ["conversations"],
+      requestBody: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+        },
+        required: ["name"],
+      },
       handler: async ({ req, params }) => {
         const body = (await req.json()) as { name?: string };
         const name = body.name;
@@ -227,6 +298,10 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations",
       method: "DELETE",
       policyKey: "conversations/clear-all",
+      summary: "Clear all conversations",
+      description:
+        "Permanently delete ALL conversations, messages, and memory. Requires X-Confirm-Destructive header.",
+      tags: ["conversations"],
       handler: ({ req }) => {
         const confirm = req.headers.get("x-confirm-destructive");
         if (confirm !== "clear-all-conversations") {
@@ -245,6 +320,19 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/:id/wipe",
       method: "POST",
       policyKey: "conversations/wipe",
+      summary: "Wipe a conversation",
+      description:
+        "Delete all messages in a conversation and revert associated memory changes.",
+      tags: ["conversations"],
+      responseBody: {
+        type: "object",
+        properties: {
+          wiped: { type: "boolean" },
+          unsupersededItems: { type: "integer" },
+          deletedSummaries: { type: "integer" },
+          cancelledJobs: { type: "integer" },
+        },
+      },
       handler: async ({ params }) => {
         const resolvedId = resolveConversationId(params.id);
         if (!resolvedId) {
@@ -296,6 +384,9 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/:id",
       method: "DELETE",
       policyKey: "conversations",
+      summary: "Delete a conversation",
+      description: "Permanently delete a single conversation and its messages.",
+      tags: ["conversations"],
       handler: async ({ params }) => {
         const resolvedId = resolveConversationId(params.id);
         if (!resolvedId) {
@@ -339,6 +430,10 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/:id/cancel",
       method: "POST",
       policyKey: "conversations/cancel",
+      summary: "Cancel generation",
+      description:
+        "Abort the in-progress assistant response for a conversation.",
+      tags: ["conversations"],
       handler: ({ params }) => {
         const resolvedId = resolveConversationId(params.id) ?? params.id;
         deps.cancelGeneration(resolvedId);
@@ -349,6 +444,17 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/:id/undo",
       method: "POST",
       policyKey: "conversations/undo",
+      summary: "Undo last message",
+      description:
+        "Remove the most recent user+assistant message pair from the conversation.",
+      tags: ["conversations"],
+      responseBody: {
+        type: "object",
+        properties: {
+          removedCount: { type: "integer" },
+          conversationId: { type: "string" },
+        },
+      },
       handler: async ({ params }) => {
         const result = await deps.undoLastMessage(params.id);
         if (!result) {
@@ -368,6 +474,10 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/:id/regenerate",
       method: "POST",
       policyKey: "conversations/regenerate",
+      summary: "Regenerate response",
+      description:
+        "Re-run the assistant for the last user message in a conversation.",
+      tags: ["conversations"],
       handler: async ({ params }) => {
         try {
           const result = await deps.regenerateResponse(params.id);
@@ -397,6 +507,21 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/reorder",
       method: "POST",
       policyKey: "conversations/reorder",
+      summary: "Reorder conversations",
+      description:
+        "Batch-update display order and pin state for conversations.",
+      tags: ["conversations"],
+      requestBody: {
+        type: "object",
+        properties: {
+          updates: {
+            type: "array",
+            description:
+              "Array of { conversationId, displayOrder?, isPinned? } objects",
+          },
+        },
+        required: ["updates"],
+      },
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           updates?: Array<{

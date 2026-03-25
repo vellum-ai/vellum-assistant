@@ -261,12 +261,53 @@ export function guardianActionRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "guardian-actions/pending",
       method: "GET",
+      summary: "List pending guardian actions",
+      description:
+        "Return pending guardian decision prompts for a conversation.",
+      tags: ["guardian"],
+      queryParams: [
+        {
+          name: "conversationId",
+          schema: { type: "string" },
+          description: "Conversation ID (required)",
+        },
+      ],
+      responseBody: {
+        type: "object",
+        properties: {
+          conversationId: { type: "string" },
+          prompts: {
+            type: "array",
+            description: "Guardian decision prompt objects",
+          },
+        },
+      },
       handler: ({ url, authContext }) =>
         handleGuardianActionsPending(url, authContext),
     },
     {
       endpoint: "guardian-actions/decision",
       method: "POST",
+      summary: "Submit guardian decision",
+      description: "Submit a guardian action decision (approve/reject).",
+      tags: ["guardian"],
+      requestBody: {
+        type: "object",
+        properties: {
+          requestId: { type: "string", description: "Guardian request ID" },
+          action: { type: "string", description: "Decision action" },
+          conversationId: { type: "string", description: "Conversation ID" },
+        },
+        required: ["requestId", "action"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          applied: { type: "boolean" },
+          requestId: { type: "string" },
+          reason: { type: "string" },
+        },
+      },
       handler: async ({ req, authContext }) =>
         handleGuardianActionDecision(req, authContext),
     },

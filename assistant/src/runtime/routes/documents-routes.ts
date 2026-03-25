@@ -161,6 +161,22 @@ export function documentRouteDefinitions(): RouteDefinition[] {
       endpoint: "documents",
       method: "GET",
       policyKey: "documents",
+      summary: "List documents",
+      description: "Return all documents, optionally filtered by conversation.",
+      tags: ["documents"],
+      queryParams: [
+        {
+          name: "conversationId",
+          schema: { type: "string" },
+          description: "Filter by conversation ID",
+        },
+      ],
+      responseBody: {
+        type: "object",
+        properties: {
+          documents: { type: "array", description: "Document summary objects" },
+        },
+      },
       handler: ({ url }) => {
         const conversationId =
           url.searchParams.get("conversationId") ?? undefined;
@@ -172,6 +188,22 @@ export function documentRouteDefinitions(): RouteDefinition[] {
       endpoint: "documents/:id",
       method: "GET",
       policyKey: "documents",
+      summary: "Get a document",
+      description: "Return a single document by surface ID.",
+      tags: ["documents"],
+      responseBody: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+          surfaceId: { type: "string" },
+          conversationId: { type: "string" },
+          title: { type: "string" },
+          content: { type: "string" },
+          wordCount: { type: "number" },
+          createdAt: { type: "number" },
+          updatedAt: { type: "number" },
+        },
+      },
       handler: ({ params }) => {
         const result = loadDocument(params.id);
         if (!result.success) {
@@ -184,6 +216,36 @@ export function documentRouteDefinitions(): RouteDefinition[] {
       endpoint: "documents",
       method: "POST",
       policyKey: "documents",
+      summary: "Save a document",
+      description: "Create or upsert a document (by surfaceId).",
+      tags: ["documents"],
+      requestBody: {
+        type: "object",
+        properties: {
+          surfaceId: { type: "string", description: "Surface ID (unique key)" },
+          conversationId: {
+            type: "string",
+            description: "Owning conversation",
+          },
+          title: { type: "string", description: "Document title" },
+          content: { type: "string", description: "Document content" },
+          wordCount: { type: "number", description: "Word count" },
+        },
+        required: [
+          "surfaceId",
+          "conversationId",
+          "title",
+          "content",
+          "wordCount",
+        ],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+          surfaceId: { type: "string" },
+        },
+      },
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           surfaceId?: string;

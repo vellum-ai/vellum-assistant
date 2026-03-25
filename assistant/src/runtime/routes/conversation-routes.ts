@@ -1494,11 +1494,43 @@ export function conversationRouteDefinitions(deps: {
     {
       endpoint: "messages",
       method: "GET",
+      summary: "List messages",
+      description:
+        "Return messages for a conversation, including attachments and interface file metadata.",
+      tags: ["messages"],
+      responseBody: {
+        type: "object",
+        properties: {
+          messages: { type: "array", description: "Array of message objects" },
+          interfaceFiles: {
+            type: "array",
+            description: "Interface file paths with modification timestamps",
+          },
+        },
+      },
       handler: ({ url }) => handleListMessages(url, deps.interfacesDir),
     },
     {
       endpoint: "messages",
       method: "POST",
+      summary: "Send a message",
+      description:
+        "Send a user message to a conversation and trigger the assistant response.",
+      tags: ["messages"],
+      requestBody: {
+        type: "object",
+        properties: {
+          conversationKey: { type: "string" },
+          content: { type: "string", description: "Message text content" },
+          attachments: {
+            type: "array",
+            description: "Optional file attachments",
+          },
+          conversationType: { type: "string" },
+          slashCommand: { type: "string" },
+        },
+        required: ["conversationKey", "content"],
+      },
       handler: async ({ req, authContext }) =>
         handleSendMessage(
           req,
@@ -1513,11 +1545,33 @@ export function conversationRouteDefinitions(deps: {
     {
       endpoint: "search",
       method: "GET",
+      summary: "Search conversations",
+      description: "Full-text search across all conversations.",
+      tags: ["conversations"],
+      responseBody: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          results: { type: "array" },
+        },
+      },
       handler: ({ url }) => handleSearchConversations(url),
     },
     {
       endpoint: "suggestion",
       method: "GET",
+      summary: "Get reply suggestion",
+      description:
+        "Return an LLM-generated follow-up suggestion for the most recent assistant message.",
+      tags: ["messages"],
+      responseBody: {
+        type: "object",
+        properties: {
+          suggestion: { type: "string" },
+          messageId: { type: "string" },
+          source: { type: "string" },
+        },
+      },
       handler: async ({ url }) =>
         handleGetSuggestion(url, {
           suggestionCache: deps.suggestionCache,

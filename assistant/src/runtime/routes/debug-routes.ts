@@ -93,7 +93,34 @@ export function debugRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "debug",
       method: "GET",
+      summary: "Debug introspection",
+      description:
+        "Return runtime diagnostics: uptime, provider info, memory stats, job counts, and schedule counts.",
+      tags: ["debug"],
       handler: () => handleDebug(),
+      responseBody: {
+        type: "object",
+        properties: {
+          session: { type: "object", description: "Uptime and start time" },
+          provider: {
+            type: "object",
+            description: "Inference provider configuration",
+          },
+          memory: {
+            type: "object",
+            description: "Conversation and memory item counts",
+          },
+          jobs: { type: "object", description: "Background job counts" },
+          schedules: {
+            type: "object",
+            description: "Schedule counts (total, enabled)",
+          },
+          timestamp: {
+            type: "string",
+            description: "Current server timestamp (ISO 8601)",
+          },
+        },
+      },
     },
   ];
 }
