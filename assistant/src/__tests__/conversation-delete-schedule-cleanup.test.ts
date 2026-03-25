@@ -1,8 +1,6 @@
 /**
- * Tests that deleting a conversation with an associated schedule job
- * also deletes the schedule, preventing orphaned scheduled automations.
- *
- * Covers LUM-380: "Deleting a scheduled thread does not cancel its scheduled runs"
+ * Tests that deleting or wiping a conversation with an associated schedule
+ * job also deletes the schedule, preventing orphaned scheduled automations.
  */
 
 import { mkdtempSync, rmSync } from "node:fs";
@@ -94,7 +92,7 @@ function getWipeHandler() {
   return wipeRoute.handler;
 }
 
-describe("DELETE /conversations/:id — schedule cleanup (LUM-380)", () => {
+describe("DELETE /conversations/:id — schedule cleanup", () => {
   beforeEach(() => {
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
@@ -319,7 +317,7 @@ describe("DELETE /conversations/:id — schedule cleanup (LUM-380)", () => {
   });
 });
 
-describe("POST /conversations/:id/wipe — schedule cleanup (LUM-380)", () => {
+describe("POST /conversations/:id/wipe — schedule cleanup", () => {
   beforeEach(() => {
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
