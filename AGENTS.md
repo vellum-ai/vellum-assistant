@@ -195,6 +195,16 @@ sentry api '/sentry-app-installations/d72b980e-5340-4284-a381-095feeb37905/exter
 
 For the reverse direction (Linear → Sentry), use `mcp__linear-server__save_issue` with a `links` attachment containing the Sentry issue URL.
 
+## A2A (Assistant-to-Assistant) Invariants
+
+- All A2A ingress must go through the gateway webhook (`/webhook/a2a`). No parallel runtime ingress for A2A traffic.
+- A2A uses the `"vellum"` channel — do not introduce a new channel type.
+- `conversationExternalId` must be server-derived by the gateway (set to `senderAssistantId`), never from the request body.
+- Pairing envelopes (`pairing_request`, `pairing_accepted`, `pairing_finalize`) must be intercepted by the A2A interceptor before the conversation pipeline. Only `message` type envelopes pass through to normal inbound processing.
+- Unauthenticated envelopes can only reach `pairing_request` and `pairing_accepted` handlers. The interceptor rejects any other unauthenticated envelope type with HTTP 403.
+- A2A is gated behind `feature_flags.assistant-a2a.enabled` (default: off). The gateway returns 404 when the flag is disabled.
+- See [`assistant/docs/architecture/a2a.md`](assistant/docs/architecture/a2a.md) for the full architecture, security model, and threat mitigations.
+
 ## See Also
 
 - **HTTP API patterns & new endpoints**: `assistant/src/runtime/AGENTS.md`
