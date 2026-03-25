@@ -552,17 +552,22 @@ export function createSlackDeliverHandler(
     // (not already an update) to a thread with a pending approval replacement,
     // convert it to an update of the approval message so the follow-up content
     // replaces the original approval prompt.
+    let isApprovalReplacement = false;
     if (threadTs && !isUpdate && !isEphemeral && !chatAction && text) {
       const replacementKey = `${chatId}:${threadTs}`;
       const pending = pendingApprovalReplacements?.get(replacementKey);
-      if (pending) {
+      if (pending && pending.expiresAt > Date.now()) {
         messageTs = pending.messageTs;
         isUpdate = true;
+        isApprovalReplacement = true;
         pendingApprovalReplacements!.delete(replacementKey);
         tlog.info(
           { chatId, threadTs, approvalMessageTs: messageTs },
           "Converting delivery to approval message replacement",
         );
+      } else if (pending) {
+        // Expired — clean up stale entry
+        pendingApprovalReplacements!.delete(replacementKey);
       }
     }
 
@@ -826,7 +831,7 @@ export function createSlackDeliverHandler(
             text,
             ts: messageTs,
           };
-          if (blocks.length > 0) {
+          if (blocks.length > 0 || isApprovalReplacement) {
             updateBody.blocks = blocks;
           }
           result = await callSlackApiWithRetries(
