@@ -45,7 +45,7 @@ let currentConfig: Record<string, unknown> = {
 };
 
 const DECLARED_FLAG_ID = "contacts";
-const DECLARED_FLAG_KEY = `feature_flags.${DECLARED_FLAG_ID}.enabled`;
+const DECLARED_FLAG_KEY = DECLARED_FLAG_ID;
 const DECLARED_SKILL_ID = "contacts";
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -201,7 +201,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     _setOverridesForTesting({
       [DECLARED_FLAG_KEY]: false,
-      "feature_flags.browser.enabled": true,
+      browser: true,
     });
 
     currentConfig = {
@@ -286,7 +286,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
 
     _setOverridesForTesting({
       [DECLARED_FLAG_KEY]: false,
-      "feature_flags.email-channel.enabled": false,
+      "email-channel": false,
     });
 
     currentConfig = {
@@ -356,7 +356,7 @@ describe("buildSystemPrompt assistant feature flag filtering", () => {
       "browser",
     );
 
-    _setOverridesForTesting({ "feature_flags.browser.enabled": false });
+    _setOverridesForTesting({ browser: false });
 
     currentConfig = {
       services: {
@@ -478,21 +478,14 @@ describe("isAssistantFeatureFlagEnabled", () => {
   test("unknown flag defaults to true when no persisted override", () => {
     const config = {} as any;
 
-    expect(
-      isAssistantFeatureFlagEnabled(
-        "feature_flags.unknown-skill.enabled",
-        config,
-      ),
-    ).toBe(true);
+    expect(isAssistantFeatureFlagEnabled("unknown-skill", config)).toBe(true);
   });
 
   test("undeclared flag respects persisted override", () => {
-    _setOverridesForTesting({ "feature_flags.browser.enabled": false });
+    _setOverridesForTesting({ browser: false });
     const config = {} as any;
 
-    expect(
-      isAssistantFeatureFlagEnabled("feature_flags.browser.enabled", config),
-    ).toBe(false);
+    expect(isAssistantFeatureFlagEnabled("browser", config)).toBe(false);
   });
 });
 

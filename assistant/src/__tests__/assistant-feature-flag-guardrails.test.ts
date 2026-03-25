@@ -110,8 +110,8 @@ describe("assistant feature flag key format guard", () => {
     if (violations.length > 0) {
       const message = [
         "Found production TypeScript files using legacy `skills.<id>.enabled` key format.",
-        "Use the canonical `feature_flags.<id>.enabled` format instead.",
-        "Call `isAssistantFeatureFlagEnabled(`feature_flags.${skillId}.enabled`, config)` to check skill flags.",
+        "Use simple kebab-case keys instead (e.g., `contacts`, `browser`).",
+        "Call `isAssistantFeatureFlagEnabled(skillId, config)` to check skill flags.",
         "",
         "Violations:",
         ...violations.map((f) => `  - ${f}`),
@@ -144,7 +144,7 @@ describe("assistant feature flag declaration coverage guard", () => {
     // multiline regex so that calls split across lines are still caught:
     //
     //   isAssistantFeatureFlagEnabled(
-    //     'feature_flags.foo.enabled',
+    //     'browser',
     //     config,
     //   )
     //

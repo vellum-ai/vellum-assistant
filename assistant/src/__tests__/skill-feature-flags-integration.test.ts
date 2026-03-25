@@ -137,7 +137,7 @@ describe("frontmatter feature-flag integration", () => {
     expect(skill!.featureFlag).toBe("contacts");
 
     const key = skillFlagKey(skill!);
-    expect(key).toBe("feature_flags.contacts.enabled");
+    expect(key).toBe("contacts");
   });
 
   test("skillFlagKey returns undefined for skill without feature-flag", () => {
@@ -162,7 +162,7 @@ describe("frontmatter feature-flag integration", () => {
 
   test("resolveSkillStates includes skill with featureFlag when flag is ON", () => {
     _setOverridesForTesting({
-      "feature_flags.contacts.enabled": true,
+      contacts: true,
     });
     const skill = buildSkillSummary("contacts", SKILL_MD_WITH_FLAG)!;
     const config = makeConfig();
@@ -176,7 +176,7 @@ describe("frontmatter feature-flag integration", () => {
     const skill = buildSkillSummary("plain-skill", SKILL_MD_WITHOUT_FLAG)!;
     // Even with an explicit false override for this skill ID, it should pass through
     _setOverridesForTesting({
-      "feature_flags.plain-skill.enabled": false,
+      "plain-skill": false,
     });
     const config = makeConfig();
 
@@ -200,7 +200,7 @@ describe("frontmatter feature-flag integration", () => {
 
     // Step 3: Derive the flag key
     const key = skillFlagKey(skill);
-    expect(key).toBe("feature_flags.contacts.enabled");
+    expect(key).toBe("contacts");
 
     // Step 4: Check flag state — "contacts" has defaultEnabled: true in registry
     const configDefault = makeConfig();
