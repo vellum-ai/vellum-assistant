@@ -148,7 +148,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth token integration:airtable)" "https://api.airtable.com/v0/meta/whoami" | python3 -m json.tool
+    assistant oauth ping integration:airtable
 ```
 
 **On success:** "Airtable is connected! You can now ask me to read and update records in your Airtable bases."

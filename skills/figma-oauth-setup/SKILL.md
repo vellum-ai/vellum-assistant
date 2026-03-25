@@ -149,7 +149,7 @@ After authorization completes, verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth token integration:figma)" "https://api.figma.com/v1/me" | python3 -m json.tool
+    assistant oauth ping integration:figma
 ```
 
 **On success:** "Figma is connected! You can now ask me to browse your design files, inspect components, and post comments."
