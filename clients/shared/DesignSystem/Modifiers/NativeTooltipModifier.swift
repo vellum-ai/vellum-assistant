@@ -169,7 +169,9 @@ private final class VTooltipTrackerView: NSView {
         ) { _ in
             // Brief delay so tracking-area recalculation settles before
             // we accept mouseEntered again.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                guard !Task.isCancelled else { return }
                 Self.isScrolling = false
             }
         }

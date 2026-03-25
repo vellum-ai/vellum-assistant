@@ -33,7 +33,9 @@ final class DictationTextInserter {
 
         // Restore clipboard after delay
         let itemsToRestore = savedItems
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            guard !Task.isCancelled else { return }
             restorePasteboardItems(itemsToRestore, to: NSPasteboard.general)
         }
 

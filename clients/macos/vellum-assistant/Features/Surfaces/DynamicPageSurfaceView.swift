@@ -889,7 +889,9 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             guard let onSnapshotCaptured else { return }
             logPhase("captureSnapshotAfterMorph:start")
             hasCapturedSnapshot = false
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled else { return }
                 guard let self, self.morphGeneration == generation else { return }
                 self.logPhase("captureSnapshotAfterMorph:takeSnapshot")
                 self.captureSnapshot { [weak self] base64 in
@@ -1040,7 +1042,9 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             if !hasCapturedSnapshot, let onSnapshotCaptured {
                 hasCapturedSnapshot = true
                 logPhase("onSnapshotCaptured:scheduled")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    guard !Task.isCancelled else { return }
                     self?.logPhase("onSnapshotCaptured:takeSnapshot")
                     self?.captureSnapshot { base64 in
                         if let base64 {

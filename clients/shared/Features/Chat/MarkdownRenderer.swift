@@ -57,7 +57,9 @@ private struct CodeBlockView: View {
         UIPasteboard.general.string = code
         #endif
         showCopied = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
             showCopied = false
         }
     }
