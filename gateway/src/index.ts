@@ -1301,9 +1301,7 @@ async function main() {
   featureFlagWatcher.start();
 
   const remoteFeatureFlagSync = new RemoteFeatureFlagSync({
-    platformUrl: process.env.VELLUM_PLATFORM_URL?.trim() ?? "",
-    assistantId: config.defaultAssistantId ?? "",
-    platformApiKey: process.env.VELLUM_PLATFORM_API_KEY?.trim() ?? "",
+    credentials: credentialCache,
   });
   // Intentionally fire-and-forget: remote flag fetch is best-effort;
   // the gateway continues with registry defaults if it fails.
