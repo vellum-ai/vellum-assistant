@@ -523,14 +523,20 @@ export class RuntimeHttpServer {
     const twilioResponse = await this.handleTwilioWebhook(req, path);
     if (twilioResponse) return twilioResponse;
 
-    // Audio serving endpoint — before auth check because Twilio
-    // fetches these URLs directly. The audioId is an unguessable UUID.
+    // -----------------------------------------------------------------------
+    // Pre-auth /v1/ routes — dispatched before the JWT check.
+    // The canonical list lives in route-metadata.ts (PRE_AUTH_V1_ROUTES).
+    // If you add a new pre-auth route here, add a matching entry there and
+    // regenerate the OpenAPI spec: bun run generate:openapi
+    // -----------------------------------------------------------------------
+
+    // Audio — Twilio fetches these URLs directly; audioId is unguessable.
     const audioMatch = path.match(/^\/v1\/audio\/([^/]+)$/);
     if (audioMatch && req.method === "GET") {
       return handleGetAudio(audioMatch[1]);
     }
 
-    // Pairing endpoints (unauthenticated, secret-gated)
+    // Pairing (unauthenticated, secret-gated)
     if (path === "/v1/pairing/request" && req.method === "POST") {
       return await handlePairingRequest(req, this.pairingContext);
     }
@@ -538,11 +544,9 @@ export class RuntimeHttpServer {
       return handlePairingStatus(url, this.pairingContext);
     }
 
-    // Guardian bootstrap and refresh endpoints — before JWT auth because
-    // bootstrap is the first endpoint called to obtain a JWT, and refresh
-    // needs to work when the access token is expired. Bootstrap has its
-    // own loopback IP validation; refresh is secured by the refresh token
-    // in the request body (32 random bytes, hash-only storage).
+    // Guardian bootstrap (loopback-gated) and refresh (refresh-token-gated).
+    // Before JWT auth because bootstrap obtains the initial JWT, and refresh
+    // must work when the access token is expired.
     if (path === "/v1/guardian/init" && req.method === "POST") {
       return await handleGuardianBootstrap(req, server);
     }

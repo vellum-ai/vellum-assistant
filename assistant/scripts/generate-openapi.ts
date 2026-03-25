@@ -24,6 +24,11 @@ import { join, resolve } from "node:path";
 import { stringify } from "yaml";
 import { z } from "zod";
 
+import {
+  NON_V1_ROUTES,
+  PRE_AUTH_V1_ROUTES,
+} from "../src/runtime/route-metadata.js";
+
 const ROOT = resolve(import.meta.dir, "..");
 const ROUTES_DIR = join(ROOT, "src/runtime/routes");
 const OUTPUT_PATH = join(ROOT, "openapi.yaml");
@@ -225,28 +230,9 @@ const INLINE_ROUTES: RouteEntry[] = [
   { endpoint: "internal/oauth/callback", method: "POST" },
 ];
 
-/**
- * Pre-auth routes handled directly in routeRequest() before the router.
- * These are a small, stable set that bypass JWT authentication and are
- * not part of the declarative route table.
- */
-const PRE_AUTH_ROUTES: RouteEntry[] = [
-  { method: "GET", endpoint: "audio/:id" },
-  { method: "POST", endpoint: "guardian/init" },
-  { method: "POST", endpoint: "guardian/refresh" },
-  { method: "POST", endpoint: "pairing/request" },
-  { method: "GET", endpoint: "pairing/status" },
-];
-
-/**
- * Top-level routes outside the /v1/ namespace.
- * These are added to the spec separately.
- */
-const NON_V1_ROUTES: Array<{ method: string; path: string }> = [
-  { method: "GET", path: "/healthz" },
-  { method: "GET", path: "/readyz" },
-  { method: "GET", path: "/pages/{id}" },
-];
+// PRE_AUTH_V1_ROUTES and NON_V1_ROUTES are imported from
+// src/runtime/route-metadata.ts — the single source of truth shared
+// with http-server.ts. See that file for details.
 
 // ---------------------------------------------------------------------------
 // OpenAPI helpers
@@ -496,9 +482,13 @@ async function main() {
   // Collect routes programmatically from route modules
   const moduleRoutes = await collectRoutesFromModules();
 
-  // Combine all route sources
+  // Combine all route sources.
+  // PRE_AUTH_V1_ROUTES comes from the shared route-metadata module.
   const allRoutes: RouteEntry[] = [
-    ...PRE_AUTH_ROUTES,
+    ...PRE_AUTH_V1_ROUTES.map((r) => ({
+      method: r.method,
+      endpoint: r.endpoint,
+    })),
     ...INLINE_ROUTES,
     ...moduleRoutes,
   ];
