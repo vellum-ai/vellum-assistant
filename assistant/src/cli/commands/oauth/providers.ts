@@ -71,7 +71,7 @@ export function registerProviderCommands(oauth: Command): void {
   const providers = oauth
     .command("providers")
     .description(
-      "Manage OAuth provider configurations (auth URLs, scopes, endpoints)",
+      "Fetch configured OAuth providers and register custom providers of your own",
     );
 
   providers.addHelpText(

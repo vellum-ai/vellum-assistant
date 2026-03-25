@@ -59,6 +59,46 @@ does and how to use it.
 4. **Use Commander's `.addHelpText("after", ...)`** for extended help. Don't
    cram everything into `.description()`.
 
+### No Redundant Command Lists in `addHelpText`
+
+Commander already renders a `Commands:` section from registered subcommands.
+Never duplicate that list in `.addHelpText("after", ...)`. The `addHelpText`
+block is for **supplementary context only** — domain notes, key concepts, and
+examples. Repeating command names and descriptions wastes vertical space and
+creates a maintenance burden (two places to update when a subcommand changes).
+
+**Bad:**
+
+```ts
+oauth.addHelpText(
+  "after",
+  `
+The oauth command group manages the full OAuth lifecycle:
+
+  connect     Initiate an OAuth flow for a provider
+  disconnect  Disconnect an OAuth provider
+  ...
+`,
+);
+```
+
+**Good:**
+
+```ts
+oauth.addHelpText(
+  "after",
+  `
+Providers are seeded on startup for built-in integrations. Apps and connections
+are created during the OAuth authorization flow or can be managed manually via
+their respective subcommands.
+
+Examples:
+  $ assistant oauth connect google --open-browser
+  $ assistant oauth status google
+`,
+);
+```
+
 ### ID and Key Arguments
 
 Options that accept IDs, keys, or opaque identifiers must include a short note
@@ -79,12 +119,12 @@ users and AI agents have no way to know what to pass.
 
 Common discovery patterns:
 
-| Argument type | Discovery command                                                         |
-| ------------- | ------------------------------------------------------------------------- |
-| Provider key  | `assistant oauth providers list`                                          |
-| Connection ID | `assistant oauth connections list` or `assistant oauth status <provider>` |
-| OAuth app ID  | `assistant oauth apps list`                                               |
-| Contact ID    | `assistant contacts list`                                                 |
+| Argument type | Discovery command                   |
+| ------------- | ----------------------------------- |
+| Provider key  | `assistant oauth providers list`    |
+| Connection ID | `assistant oauth status <provider>` |
+| OAuth app ID  | `assistant oauth apps list`         |
+| Contact ID    | `assistant contacts list`           |
 
 ### Error Messages
 
@@ -104,7 +144,7 @@ throw new Error("Connection not found");
 
 ```ts
 throw new Error(
-  `Connection "${id}" not found. Run 'assistant oauth connections list' to see available connections.`,
+  `Connection "${id}" not found. Run 'assistant oauth status <provider>' to see available connections.`,
 );
 ```
 

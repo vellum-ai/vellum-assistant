@@ -35,14 +35,15 @@ function formatAppRow(row: {
 export function registerAppCommands(oauth: Command): void {
   const apps = oauth
     .command("apps")
-    .description("Manage OAuth app registrations (client IDs and secrets)");
+    .description("Manage custom OAuth app registrations");
 
   apps.addHelpText(
     "after",
     `
-Apps represent OAuth client registrations — a client_id and optional
+Apps represent custom OAuth client registrations — a client_id and optional
 client_secret linked to a provider. Each provider can have multiple apps
-(e.g. different client IDs for different environments).
+(e.g. different client IDs for different environments). Only needed if using
+a provider with a mode of "your-own" set.
 
 Examples:
   $ assistant oauth apps list

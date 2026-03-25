@@ -124,12 +124,6 @@ uses a dedicated user data directory at ~/Library/Application Support/Google/Chr
 and defaults to port 9222. Commands are routed through a Chrome extension
 relay that bridges the assistant to open Chrome tabs.
 
-Subgroups:
-  relay     Send commands to Chrome tabs via the browser extension relay
-  launch    Launch or connect to a Chrome CDP instance
-  minimize  Minimize the Chrome CDP window
-  restore   Restore the Chrome CDP window
-
 Examples:
   $ assistant browser chrome launch
   $ assistant browser chrome launch --start-url "https://example.com" --port 9333
@@ -150,17 +144,8 @@ Examples:
     `
 Routes commands to Chrome tabs through the browser extension relay. The relay
 connects the assistant to a Chrome extension that can inspect and control
-browser tabs.
-
-Available subcommands:
-  find-tab      Find a tab matching a URL pattern
-  new-tab       Open a new tab with a URL
-  navigate      Navigate an existing tab to a new URL
-  evaluate      Execute JavaScript in a tab
-  get-cookies   Fetch cookies for a domain
-  set-cookie    Set a cookie
-  screenshot    Capture a screenshot of a tab
-  status        Check browser extension relay connection status
+browser tabs. Commands support URL glob patterns for tab discovery and
+JavaScript evaluation with stdin piping for long scripts.
 
 Examples:
   $ assistant browser chrome relay find-tab --url "*://*.amazon.com/*"

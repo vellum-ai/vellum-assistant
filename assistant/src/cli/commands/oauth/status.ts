@@ -19,9 +19,7 @@ const log = getCliLogger("cli");
 export function registerStatusCommand(oauth: Command): void {
   oauth
     .command("status <provider>")
-    .description(
-      "Show OAuth connection status for a provider (auto-detects managed vs BYO mode)",
-    )
+    .description("Show OAuth connection status for a specified provider")
     .addHelpText(
       "after",
       `
@@ -35,12 +33,6 @@ as inputs to other commands:
   - 'assistant oauth disconnect <provider>' to remove a connection
   - 'assistant oauth request --provider <provider> --account <account>' to
     make authenticated requests as a specific account
-
-Mode detection:
-  The command automatically detects whether the provider is configured in
-  platform-managed mode or bring-your-own (BYO) mode based on the assistant's
-  services config. Managed mode delegates OAuth to the Vellum platform; BYO
-  mode uses locally stored tokens.
 
 Examples:
   $ assistant oauth status google

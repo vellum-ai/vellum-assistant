@@ -29,7 +29,7 @@ export function registerDisconnectCommand(oauth: Command): void {
   oauth
     .command("disconnect <provider>")
     .description(
-      "Disconnect an OAuth provider and remove associated credentials (auto-detects managed vs BYO mode)",
+      "Disconnect an OAuth provider and remove associated credentials",
     )
     .option(
       "--account <identifier>",

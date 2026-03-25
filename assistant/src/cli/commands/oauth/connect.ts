@@ -29,7 +29,7 @@ export function registerConnectCommand(oauth: Command): void {
   oauth
     .command("connect <provider>")
     .description(
-      "Initiate an OAuth authorization flow for a provider (auto-detects managed vs BYO mode)",
+      "Initiate an OAuth authorization flow for a specified provider",
     )
     .option("--scopes <scopes...>", "Scopes to request for the authorization")
     .option(
@@ -57,15 +57,6 @@ Options:
   --client-id <id>       BYO-only: select a specific OAuth app when multiple
                          apps exist for the same provider. Ignored for
                          platform-managed providers.
-
-Mode detection:
-  The command checks the services config to determine whether the provider
-  runs in platform-managed or BYO (bring-your-own credentials) mode.
-
-  Managed mode: Calls the platform /start/ endpoint, returns a connect URL.
-    With --open-browser, opens the URL and polls for a new connection.
-  BYO mode: Resolves local client credentials from the OAuth app store and
-    runs the OAuth2 authorization code flow via the local orchestrator.
 
 Examples:
   $ assistant oauth connect google
