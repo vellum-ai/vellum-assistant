@@ -92,37 +92,12 @@ extension ChatViewModel {
     /// Extract the most relevant tool input value as a full string (no truncation).
     /// Redacts values for sensitive keys to prevent credential leakage into inputSummary.
     func extractToolInput(_ input: [String: AnyCodable]) -> String {
-        // Pick the first matching priority key, falling back to the first sorted key.
-        let key: String
-        let value: AnyCodable
-        if let match = Self.toolInputPriorityKeys.first(where: { input[$0] != nil }),
-           let v = input[match] {
-            key = match
-            value = v
-        } else if let firstKey = input.keys.sorted().first, let v = input[firstKey] {
-            key = firstKey
-            value = v
-        } else {
-            return ""
-        }
-        // Redact sensitive keys before returning
-        if Self.isSensitiveKey(key) {
-            return "[redacted]"
-        }
-        if let s = value.value as? String {
-            return s
-        } else if let encoder = try? JSONEncoder().encode(value),
-                  let json = String(data: encoder, encoding: .utf8) {
-            return json
-        } else {
-            return String(describing: value.value ?? "")
-        }
+        Self.extractToolInputStatic(input)
     }
 
     /// Summarize tool input for display, picking the most relevant value truncated to 80 chars.
     func summarizeToolInput(_ input: [String: AnyCodable]) -> String {
-        let str = extractToolInput(input)
-        return str.count > 80 ? String(str.prefix(77)) + "..." : str
+        Self.summarizeToolInputStatic(input)
     }
 
     /// Argument keys whose values may contain credentials and must be redacted.
@@ -322,51 +297,7 @@ extension ChatViewModel {
 
     /// Map attachment DTOs to ChatAttachment values, generating thumbnails for images.
     func mapMessageAttachments(_ attachments: [UserMessageAttachment]) -> [ChatAttachment] {
-        attachments.compactMap { attachment in
-            let id = attachment.id ?? UUID().uuidString
-            let base64 = attachment.data
-            let dataLength = base64.count
-            let sizeBytes: Int? = attachment.sizeBytes.flatMap { Int(exactly: $0) }
-
-            var thumbnailData: Data?
-            #if os(macOS)
-            var thumbnailImage: NSImage?
-            #elseif os(iOS)
-            var thumbnailImage: UIImage?
-            #else
-            #error("Unsupported platform")
-            #endif
-
-            if attachment.mimeType.hasPrefix("image/"), !base64.isEmpty, let rawData = Data(base64Encoded: base64) {
-                thumbnailData = Self.generateThumbnail(from: rawData, maxDimension: 120)
-                #if os(macOS)
-                thumbnailImage = thumbnailData.flatMap { NSImage(data: $0) }
-                #elseif os(iOS)
-                thumbnailImage = thumbnailData.flatMap { UIImage(data: $0) }
-                #endif
-            } else if let serverThumb = attachment.thumbnailData, !serverThumb.isEmpty,
-                      let thumbData = Data(base64Encoded: serverThumb) {
-                thumbnailData = thumbData
-                #if os(macOS)
-                thumbnailImage = NSImage(data: thumbData)
-                #elseif os(iOS)
-                thumbnailImage = UIImage(data: thumbData)
-                #endif
-            }
-
-            return ChatAttachment(
-                id: id,
-                filename: attachment.filename,
-                mimeType: attachment.mimeType,
-                data: base64,
-                thumbnailData: thumbnailData,
-                dataLength: dataLength,
-                sizeBytes: sizeBytes,
-                thumbnailImage: thumbnailImage,
-                filePath: attachment.filePath,
-                sourceType: attachment.sourceType
-            )
-        }
+        Self.mapMessageAttachmentsStatic(attachments)
     }
 
     /// Ingest attachments from a completion/handoff event into the current or new assistant message.

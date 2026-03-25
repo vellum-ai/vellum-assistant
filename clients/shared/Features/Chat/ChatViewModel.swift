@@ -2838,11 +2838,11 @@ public final class ChatViewModel: ObservableObject {
         let spid = OSSignpostID(log: Self.poiLog)
         os_signpost(.begin, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "messages=%d isPagination=%d", historyMessages.count, isPaginationLoad ? 1 : 0)
 
-        // Phase 1 runs synchronously but the heavy work (JSON size estimation,
-        // tool input formatting, surface mapping) uses no @MainActor state —
-        // only the conversationId is captured. Image decoding is deferred:
-        // raw imageData is stored on ToolCallData and decoded lazily via
-        // resolvedImage() when the cell becomes visible.
+        // Phase 1: reconstruct messages using a nonisolated static method.
+        // The heavy work (JSON size estimation, tool input formatting, surface
+        // mapping, image decoding) uses no @MainActor state — only the
+        // conversationId is captured. Currently called synchronously from
+        // @MainActor; a future optimization could wrap this in Task.detached.
         let convId = self.conversationId
         let result = Self.reconstructMessages(from: historyMessages, conversationId: convId)
         let chatMessages = result.messages
@@ -2979,8 +2979,8 @@ public final class ChatViewModel: ObservableObject {
 
     /// Reconstructs ChatMessage and SubagentInfo arrays from raw history items.
     /// This method is nonisolated and accesses no @MainActor state, so it can
-    /// be called from a background context. Image decoding is deferred — raw
-    /// imageData is stored on ToolCallData for lazy decode via resolvedImage().
+    /// be called from a background context. Images are decoded eagerly via
+    /// `ToolCallData.decodeImage` and stored in `cachedImage` for display.
     nonisolated static func reconstructMessages(
         from historyMessages: [HistoryResponseMessage],
         conversationId: String?
@@ -2995,8 +2995,8 @@ public final class ChatViewModel: ObservableObject {
             let toolsBeforeText = item.toolCallsBeforeText ?? true
             if let historyToolCalls = item.toolCalls {
                 toolCalls = historyToolCalls.map { tc in
-                    // Defer image decoding — store raw imageData for lazy decode
-                    // via resolvedImage() when the cell becomes visible.
+                    // Decode image eagerly — pass imageData:nil to init to skip
+                    // its internal decode, then set cachedImage directly below.
                     var toolCall = ToolCallData(
                         toolName: tc.name,
                         inputSummary: Self.summarizeToolInputStatic(tc.input),

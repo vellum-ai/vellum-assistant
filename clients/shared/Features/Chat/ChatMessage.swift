@@ -773,36 +773,13 @@ public struct ToolCallData: Identifiable, Equatable {
     /// Live pending confirmation attached to this tool call for inline rendering.
     /// Set when a `confirmation_request` arrives, cleared when approved/denied.
     public var pendingConfirmation: ToolConfirmationData?
-    /// Pre-decoded image cached to avoid repeated base64 decoding in SwiftUI body.
-    /// Access via `resolvedImage` which lazily decodes from `imageData` on first use.
+    /// Pre-decoded NSImage cached to avoid repeated base64 decoding in SwiftUI body.
     #if os(macOS)
     public var cachedImage: NSImage?
     #elseif os(iOS)
     public var cachedImage: UIImage?
     #else
     #error("Unsupported platform")
-    #endif
-
-    /// Returns the cached image if available, otherwise lazily decodes from `imageData`.
-    /// Mutating so it can cache the result for subsequent accesses.
-    #if os(macOS)
-    public mutating func resolvedImage() -> NSImage? {
-        if let cachedImage { return cachedImage }
-        guard let imageData, !imageData.isEmpty else { return nil }
-        let decoded = Self.decodeImage(from: imageData)
-        cachedImage = decoded
-        if decoded != nil { self.imageData = nil }
-        return decoded
-    }
-    #elseif os(iOS)
-    public mutating func resolvedImage() -> UIImage? {
-        if let cachedImage { return cachedImage }
-        guard let imageData, !imageData.isEmpty else { return nil }
-        let decoded = Self.decodeImage(from: imageData)
-        cachedImage = decoded
-        if decoded != nil { self.imageData = nil }
-        return decoded
-    }
     #endif
 
     public static func == (lhs: ToolCallData, rhs: ToolCallData) -> Bool {
