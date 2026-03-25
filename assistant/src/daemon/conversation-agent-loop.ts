@@ -47,13 +47,13 @@ import {
   rebuildConversationDiskViewFromDbState,
   syncMessageToDisk,
 } from "../memory/conversation-disk-view.js";
-import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import {
   isReplaceableTitle,
   queueGenerateConversationTitle,
   queueRegenerateConversationTitle,
   UNTITLED_FALLBACK,
 } from "../memory/conversation-title-service.js";
+import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
