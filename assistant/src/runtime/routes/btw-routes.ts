@@ -15,6 +15,10 @@
 import { existsSync, readFileSync } from "node:fs";
 
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
+import {
+  resolveChannelPersona,
+  resolveGuardianPersona,
+} from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 import type { AuthContext } from "../auth/types.js";
@@ -144,10 +148,14 @@ async function handleBtw(
       (async () => {
         try {
           const isIntroRequest = conversationKey === IDENTITY_INTRO_KEY;
+          const userPersona = resolveGuardianPersona();
+          const channelPersona = resolveChannelPersona(undefined);
           const result = await runBtwSidechain({
             content: trimmedContent,
             conversation,
             signal: req.signal,
+            userPersona,
+            channelPersona,
             onEvent: (event) => {
               if (event.type === "text_delta") {
                 controller.enqueue(
