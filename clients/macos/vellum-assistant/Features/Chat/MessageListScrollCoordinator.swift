@@ -129,6 +129,15 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// the current conversation loaded.
     var hasReceivedScrollEvent: Bool = false
 
+    /// Whether scroll indicators should be temporarily hidden during a
+    /// conversation switch. LazyVStack content size estimation causes the
+    /// scrollbar to visibly resize as views materialize with varying heights;
+    /// hiding the indicators during the initial layout window masks this.
+    @Published var hideScrollIndicators: Bool = false
+
+    /// Task that restores scroll indicator visibility after the grace period.
+    var scrollIndicatorRestoreTask: Task<Void, Never>?
+
     /// Tracks whether the pagination sentinel was previously inside the trigger band.
     var wasPaginationTriggerInRange: Bool = false
 
@@ -370,6 +379,8 @@ final class MessageListScrollCoordinator: ObservableObject {
         anchorTimeoutTask = nil
         highlightDismissTask?.cancel()
         highlightDismissTask = nil
+        scrollIndicatorRestoreTask?.cancel()
+        scrollIndicatorRestoreTask = nil
         isPaginationInFlight = false
         scrollTracking.snapshotDebounceTask?.cancel()
         scrollTracking.snapshotDebounceTask = nil
@@ -398,6 +409,16 @@ final class MessageListScrollCoordinator: ObservableObject {
         bottomPinCoordinator.reset(newConversationId: newConversationId)
         isAtBottom = true
         hasReceivedScrollEvent = false
+        // Hide scroll indicators during the conversation switch grace period
+        // to mask LazyVStack content size estimation changes.
+        scrollIndicatorRestoreTask?.cancel()
+        hideScrollIndicators = true
+        scrollIndicatorRestoreTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
+            guard !Task.isCancelled, let self else { return }
+            self.hideScrollIndicators = false
+            self.scrollIndicatorRestoreTask = nil
+        }
         // Reset the OLD conversation's scroll-loop guard state.
         if let oldConvId = oldConversationId {
             scrollLoopGuard.reset(conversationId: oldConvId.uuidString)

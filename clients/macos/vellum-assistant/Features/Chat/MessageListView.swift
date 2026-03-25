@@ -872,7 +872,7 @@ struct MessageListView: View {
                     }
                 }
             }
-            .scrollIndicators(.automatic)
+            .scrollIndicators(scrollCoordinator.hideScrollIndicators ? .hidden : .automatic)
             .onPreferenceChange(PaginationSentinelMinYKey.self) { sentinelMinY in
                 scrollCoordinator.handlePaginationSentinel(
                     sentinelMinY: sentinelMinY,

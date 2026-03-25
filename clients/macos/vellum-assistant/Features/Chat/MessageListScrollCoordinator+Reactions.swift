@@ -118,12 +118,13 @@ extension MessageListScrollCoordinator {
         }
 
         // --- Bottom-pin on new messages ---
-        if isNearBottom && !isSuppressed && anchorMessageId == nil {
+        // During the initial conversation load (before any user scroll event),
+        // `.defaultScrollAnchor(.bottom)` handles positioning declaratively.
+        // Firing animated programmatic scrolls here would compete with the
+        // declarative anchor and cause visible jitter/bounce. Only issue
+        // programmatic pins after the user has interacted with the scroll view.
+        if isNearBottom && !isSuppressed && anchorMessageId == nil && hasReceivedScrollEvent {
             requestBottomPin(reason: .messageCount, conversationId: conversationId, animated: true)
-        } else if !hasReceivedScrollEvent && anchorMessageId == nil && !messages.isEmpty {
-            // History just loaded but the coordinator's initial-restore session
-            // may have already expired. Force a fresh scroll-to-bottom.
-            requestBottomPin(reason: .initialRestore, conversationId: conversationId)
         } else if isSuppressed {
             scrollCoordinatorLog.debug("Auto-scroll suppressed (bottom-scroll suppression active)")
         }
