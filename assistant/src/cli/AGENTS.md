@@ -79,12 +79,12 @@ users and AI agents have no way to know what to pass.
 
 Common discovery patterns:
 
-| Argument type | Discovery command                                              |
-| ------------- | -------------------------------------------------------------- |
-| Provider key  | `assistant providers list`                                     |
-| Connection ID | `assistant connections list` or `assistant connections status` |
-| OAuth app ID  | `assistant oauth apps list`                                    |
-| Contact ID    | `assistant contacts list`                                      |
+| Argument type | Discovery command                                                         |
+| ------------- | ------------------------------------------------------------------------- |
+| Provider key  | `assistant oauth providers list`                                          |
+| Connection ID | `assistant oauth connections list` or `assistant oauth status <provider>` |
+| OAuth app ID  | `assistant oauth apps list`                                               |
+| Contact ID    | `assistant contacts list`                                                 |
 
 ### Error Messages
 
@@ -104,7 +104,7 @@ throw new Error("Connection not found");
 
 ```ts
 throw new Error(
-  `Connection "${id}" not found. Run 'assistant connections list' to see available connections.`,
+  `Connection "${id}" not found. Run 'assistant oauth connections list' to see available connections.`,
 );
 ```
 
