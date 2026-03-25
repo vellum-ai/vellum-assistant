@@ -40,6 +40,8 @@ struct ChatBubble: View {
     var processingStatusText: String?
     /// Whether the message-tts feature flag is enabled. Passed from the parent.
     var isTTSEnabled: Bool = false
+    /// When true, hide the inline avatar (e.g. thinking indicator is showing it instead).
+    var hideInlineAvatar: Bool = false
     @State private var audioPlayer = MessageAudioPlayer()
     @State private var isHovered = false
     /// Stores async-parsed segments for large messages (>500 chars) that missed the
@@ -82,7 +84,8 @@ struct ChatBubble: View {
         isLatestAssistantMessage: Bool = false,
         isProcessingAfterTools: Bool = false,
         processingStatusText: String? = nil,
-        activeSurfaceId: String? = nil
+        activeSurfaceId: String? = nil,
+        hideInlineAvatar: Bool = false
     ) {
         self.message = message
         self.decidedConfirmation = decidedConfirmation
@@ -107,6 +110,7 @@ struct ChatBubble: View {
         self.isProcessingAfterTools = isProcessingAfterTools
         self.processingStatusText = processingStatusText
         self.activeSurfaceId = activeSurfaceId
+        self.hideInlineAvatar = hideInlineAvatar
 
         // Eagerly compute interleaved content cache so the first body
         // evaluation uses the correct layout path (no flash).
@@ -403,10 +407,13 @@ struct ChatBubble: View {
             mediaEmbedIntents = resolved
         }
 
-        // Avatar below the latest assistant message
-        if isLatestAssistantMessage && !isUser {
-            inlineAvatar
-                .padding(.top, VSpacing.sm)
+        // Avatar below the latest assistant message, left-aligned
+        if isLatestAssistantMessage && !isUser && !hideInlineAvatar {
+            HStack {
+                inlineAvatar
+                Spacer()
+            }
+            .padding(.top, VSpacing.sm)
         }
     }
 

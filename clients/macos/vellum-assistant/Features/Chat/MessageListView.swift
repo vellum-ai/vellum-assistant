@@ -640,6 +640,35 @@ struct MessageListView: View {
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
+    @ViewBuilder
+    private var thinkingAvatarRow: some View {
+        let avatarSize = ConversationAvatarFollower.avatarSize
+        if appearance.customAvatarImage != nil {
+            HStack {
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+                Spacer()
+            }
+            .accessibilityHidden(true)
+        } else if let body = appearance.characterBodyShape,
+                  let eyes = appearance.characterEyeStyle,
+                  let color = appearance.characterColor {
+            HStack {
+                AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
+                                   size: avatarSize, blinkEnabled: true, pokeEnabled: true)
+                    .frame(width: avatarSize, height: avatarSize)
+                    .modifier(AvatarWiggleModifier(isActive: true))
+                Spacer()
+            }
+            .accessibilityHidden(true)
+        } else {
+            HStack {
+                VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+                Spacer()
+            }
+            .accessibilityHidden(true)
+        }
+    }
+
     var body: some View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: VSpacing.md) {
@@ -742,6 +771,9 @@ struct MessageListView: View {
                         } else {
                             thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
                         }
+                        // Show avatar below thinking indicator so it moves
+                        // immediately when the user sends a message.
+                        thinkingAvatarRow
                     } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
                         compactingIndicatorRow()
                     }
@@ -1133,7 +1165,8 @@ private struct MessageCellView: View, Equatable {
                 isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
                 isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
                 processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
-                activeSurfaceId: activeSurfaceId
+                activeSurfaceId: activeSurfaceId,
+                hideInlineAvatar: shouldShowThinkingIndicator && anchoredThinkingIndex == nil
             )
         }
     }
@@ -1220,7 +1253,8 @@ private struct MessageCellView: View, Equatable {
                 isLatestAssistantMessage: message.role == .assistant && message.id == latestAssistantId,
                 isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
                 processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
-                activeSurfaceId: activeSurfaceId
+                activeSurfaceId: activeSurfaceId,
+                hideInlineAvatar: shouldShowThinkingIndicator && anchoredThinkingIndex == nil
             )
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
