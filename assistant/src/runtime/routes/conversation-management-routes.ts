@@ -19,6 +19,7 @@ import { z } from "zod";
 import {
   batchSetDisplayOrders,
   deleteConversation,
+  getConversation,
   PRIVATE_CONVERSATION_FORK_ERROR,
   wipeConversation,
 } from "../../memory/conversation-crud.js";
@@ -29,6 +30,7 @@ import {
   setConversationKeyIfAbsent,
 } from "../../memory/conversation-key-store.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
+import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
@@ -372,6 +374,14 @@ export function conversationManagementRouteDefinitions(
             404,
           );
         }
+
+        // Cancel the associated schedule job (if any) before deleting the
+        // conversation so that orphaned schedules don't continue to fire.
+        const conv = getConversation(resolvedId);
+        if (conv?.scheduleJobId) {
+          deleteSchedule(conv.scheduleJobId);
+        }
+
         // Tear down the in-memory conversation (abort + dispose) before removing
         // persistence so that a running agent loop doesn't write to a deleted
         // conversation row, tripping FK constraints.
