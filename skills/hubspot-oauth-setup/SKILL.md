@@ -16,7 +16,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 
 ## Provider Details
 
-- **Provider key:** `integration:hubspot`
+- **Provider key:** `hubspot`
 - **Dashboard:** `https://app.hubspot.com/developer`
 - **Ping URL:** `https://api.hubapi.com/crm/v3/objects/contacts?limit=1`
 - **Callback transport:** Loopback (port 17330)
@@ -123,7 +123,7 @@ Collect the app secret via secure prompt:
 
 ```
 credential_store prompt:
-  service: "integration:hubspot"
+  service: "hubspot"
   field: "oauth_secret"
   label: "HubSpot OAuth App Secret"
   description: "Copy the App Secret from the Auth tab and paste it here."
@@ -135,10 +135,10 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:hubspot --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider hubspot --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "integration:hubspot:oauth_secret"
+    ) --client-secret-credential-path "hubspot:oauth_secret"
 ```
 
 Then authorize:
@@ -150,7 +150,7 @@ Then authorize:
 ```
 bash:
   command: |
-    assistant oauth connect integration:hubspot
+    assistant oauth connect hubspot
 ```
 
 **Milestone (9 of 10):** "Credentials saved and authorized - let's verify."
@@ -164,7 +164,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    assistant oauth ping integration:hubspot
+    assistant oauth ping hubspot
 ```
 
 **On success:** "HubSpot is connected! You can now ask me to look up contacts, manage deals, and browse company records in your HubSpot CRM."

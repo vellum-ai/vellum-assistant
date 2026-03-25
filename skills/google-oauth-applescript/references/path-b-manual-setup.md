@@ -130,7 +130,7 @@ After the user sends it:
 
 ```
 credential_store store:
-  service: "integration:google"
+  service: "google"
   field: "client_id"
   value: "<the client id the user sent>"
 ```
@@ -149,7 +149,7 @@ After the user sends the suffix, reconstruct and store the full secret:
 
 ```
 credential_store store:
-  service: "integration:google"
+  service: "google"
   field: "client_secret"
   value: "GOCSPX-<the suffix the user sent>"
 ```
@@ -165,7 +165,7 @@ Tell the user:
 ```
 credential_store:
   action: "oauth2_connect"
-  service: "integration:google"
+  service: "google"
 ```
 
 Send the returned auth URL to the user. If they see **This app isn't verified**, tell them to click **Advanced** and continue to **Vellum Assistant**.

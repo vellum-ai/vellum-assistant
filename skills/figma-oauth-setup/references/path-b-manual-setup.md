@@ -73,7 +73,7 @@ Wait for the Client ID, then store it:
 
 ```
 credential_store store:
-  service: "integration:figma"
+  service: "figma"
   field: "client_id"
   value: "<the client id the user sent>"
 ```
@@ -86,7 +86,7 @@ Store the secret:
 
 ```
 credential_store store:
-  service: "integration:figma"
+  service: "figma"
   field: "oauth_secret"
   value: "<the app secret the user sent>"
 ```
@@ -104,16 +104,16 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:figma --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider figma --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "integration:figma:oauth_secret"
+    ) --client-secret-credential-path "figma:oauth_secret"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connect integration:figma
+    assistant oauth connect figma
 ```
 
 Send the returned auth URL to the user. Tell them to click **Allow access** on the Figma consent page.

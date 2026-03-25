@@ -16,7 +16,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 
 ## Provider Details
 
-- **Provider key:** `integration:github`
+- **Provider key:** `github`
 - **Dashboard:** `https://github.com/settings/developers`
 - **Ping URL:** `https://api.github.com/user`
 - **Callback transport:** Loopback
@@ -58,7 +58,7 @@ Resolve the callback URL:
 
 ```
 bash:
-  command: assistant oauth providers get integration:github --json
+  command: assistant oauth providers get github --json
 ```
 
 Use the `redirectUri` from the JSON response:
@@ -102,7 +102,7 @@ Collect the app secret via secure prompt:
 
 ```
 credential_store prompt:
-  service: "integration:github"
+  service: "github"
   field: <secret-field>
   label: "GitHub OAuth App Secret"
   description: "Paste the app secret you just generated from the GitHub OAuth App page."
@@ -116,10 +116,10 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:github --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider github --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "integration:github:<secret-field>"
+    ) --client-secret-credential-path "github:<secret-field>"
 ```
 
 **Milestone (5 of 8):** "Credentials saved - just the authorization step left."
@@ -147,7 +147,7 @@ These scopes are passed during the authorization step below.
 ```
 bash:
   command: |
-    assistant oauth connect integration:github --scopes repo read:user notifications
+    assistant oauth connect github --scopes repo read:user notifications
 ```
 
 **Milestone (7 of 8):** "Authorization complete - let's verify it works."
@@ -161,7 +161,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    assistant oauth ping integration:github
+    assistant oauth ping github
 ```
 
 **On success:** "GitHub is connected! You can now ask me to check your repositories, notifications, pull requests, and issues."
