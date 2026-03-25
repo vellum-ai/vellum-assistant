@@ -101,7 +101,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:spotify --client-id $(cat <<'EOF'
+    assistant oauth connect integration:spotify --client-id $(cat <<'EOF'
     <client-id>
     EOF
     )

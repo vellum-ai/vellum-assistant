@@ -108,59 +108,28 @@ let draining = false;
  * trigger side effects (e.g. Telegram webhook reconciliation,
  * Slack socket restart).
  */
+const SERVICE_DISPLAY_NAMES: Record<string, string> = {
+  telegram: "Telegram",
+  twilio: "Twilio",
+  whatsapp: "WhatsApp",
+  slack_channel: "Slack channel",
+};
+
 function detectCredentialChanges(
   event: CredentialChangeEvent,
   logTarget: { info: (msg: string) => void },
 ): Set<string> {
   const changed = new Set<string>();
-  const checks: Array<{
-    changedKey: keyof CredentialChangeEvent & `${string}Changed`;
-    credentialsKey: keyof CredentialChangeEvent;
-    displayName: string;
-    serviceName: string;
-  }> = [
-    {
-      changedKey: "telegramChanged",
-      credentialsKey: "telegramCredentials",
-      displayName: "Telegram",
-      serviceName: "telegram",
-    },
-    {
-      changedKey: "twilioChanged",
-      credentialsKey: "twilioCredentials",
-      displayName: "Twilio",
-      serviceName: "twilio",
-    },
-    {
-      changedKey: "whatsappChanged",
-      credentialsKey: "whatsappCredentials",
-      displayName: "WhatsApp",
-      serviceName: "whatsapp",
-    },
-    {
-      changedKey: "slackChannelChanged",
-      credentialsKey: "slackChannelCredentials",
-      displayName: "Slack channel",
-      serviceName: "slackChannel",
-    },
-  ];
-
-  for (const {
-    changedKey,
-    credentialsKey,
-    displayName,
-    serviceName,
-  } of checks) {
-    if (!event[changedKey]) continue;
-    const creds = event[credentialsKey];
+  for (const service of event.changedServices) {
+    const displayName = SERVICE_DISPLAY_NAMES[service] ?? service;
+    const creds = event.credentials.get(service);
     logTarget.info(
       creds
         ? `${displayName} credentials loaded from credential vault`
         : `${displayName} credentials cleared`,
     );
-    changed.add(serviceName);
+    changed.add(service);
   }
-
   return changed;
 }
 
@@ -1242,18 +1211,18 @@ async function main() {
     }
 
     // Update integration readiness flags from the credential event
+    const telegramCreds = event.credentials.get("telegram");
     telegramReady = !!(
-      event.telegramCredentials?.botToken &&
-      event.telegramCredentials?.webhookSecret
+      telegramCreds?.bot_token && telegramCreds?.webhook_secret
     );
+
+    const whatsappCreds = event.credentials.get("whatsapp");
     whatsappReady = !!(
-      event.whatsappCredentials?.phoneNumberId &&
-      event.whatsappCredentials?.accessToken
+      whatsappCreds?.phone_number_id && whatsappCreds?.access_token
     );
-    slackReady = !!(
-      event.slackChannelCredentials?.botToken &&
-      event.slackChannelCredentials?.appToken
-    );
+
+    const slackCreds = event.credentials.get("slack_channel");
+    slackReady = !!(slackCreds?.bot_token && slackCreds?.app_token);
 
     // Side effects keyed by service name
     if (changed.has("telegram") && telegramReady) {
@@ -1265,7 +1234,7 @@ async function main() {
         );
       });
     }
-    if (changed.has("slackChannel")) {
+    if (changed.has("slack_channel")) {
       startSlackSocket().catch((err) => {
         log.error(
           { err },

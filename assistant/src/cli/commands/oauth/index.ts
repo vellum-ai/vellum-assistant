@@ -4,7 +4,7 @@ import { registerAppCommands } from "./apps.js";
 import { registerConnectCommand } from "./connect.js";
 import { registerConnectionCommands } from "./connections.js";
 import { registerDisconnectCommand } from "./disconnect.js";
-import { registerPlatformCommands } from "./platform.js";
+import { registerPingCommand } from "./ping.js";
 import { registerProviderCommands } from "./providers.js";
 import { registerRequestCommand } from "./request.js";
 import { registerStatusCommand } from "./status.js";
@@ -25,11 +25,11 @@ The oauth command group manages the full OAuth lifecycle:
   disconnect  Disconnect an OAuth provider
   status      Show OAuth connection status for a provider
   token       Print a valid OAuth access token (BYO providers only)
+  ping        Verify an OAuth token is valid by hitting the provider's health-check endpoint
   request     Make authenticated HTTP requests (curl-like interface)
   providers   Protocol-level configurations (auth URLs, scopes, endpoints)
   apps        Client credentials (client ID / secret pairs)
   connections Active token grants per provider (deprecated)
-  platform    Platform-managed OAuth provider status and connections (deprecated)
 
 Providers are seeded on startup for built-in integrations. Apps and connections
 are created during the OAuth authorization flow or can be managed manually via
@@ -38,6 +38,7 @@ their respective subcommands.
 Examples:
   $ assistant oauth connect google --open-browser
   $ assistant oauth status google
+  $ assistant oauth ping google
   $ assistant oauth disconnect google
   $ assistant oauth request --provider integration:google /gmail/v1/users/me/messages
   $ assistant oauth request --provider integration:twitter -X POST -d '{"text":"Hello"}' https://api.x.com/2/tweets
@@ -66,12 +67,6 @@ Examples:
   registerConnectionCommands(oauth);
 
   // ---------------------------------------------------------------------------
-  // platform — subcommand group
-  // ---------------------------------------------------------------------------
-
-  registerPlatformCommands(oauth);
-
-  // ---------------------------------------------------------------------------
   // request — curl-like authenticated request command
   // ---------------------------------------------------------------------------
 
@@ -94,6 +89,12 @@ Examples:
   // ---------------------------------------------------------------------------
 
   registerStatusCommand(oauth);
+
+  // ---------------------------------------------------------------------------
+  // ping — unified ping command (auto-detects managed vs BYO)
+  // ---------------------------------------------------------------------------
+
+  registerPingCommand(oauth);
 
   // ---------------------------------------------------------------------------
   // token — unified token retrieval (BYO only, managed-mode guard)

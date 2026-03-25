@@ -361,7 +361,7 @@ Examples:
   // ---------------------------------------------------------------------------
 
   connections
-    .command("ping <provider-key>")
+    .command("ping <provider-key>", { hidden: true })
     .description(
       "Verify that a stored OAuth token is still valid by hitting the provider's health-check endpoint",
     )
@@ -393,6 +393,8 @@ Examples:
         cmd: Command,
       ) => {
         try {
+          printDeprecationWarning("oauth connections ping", "oauth ping", cmd);
+
           const provider = getProvider(providerKey);
           if (!provider) {
             writeOutput(cmd, {
