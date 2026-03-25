@@ -12,7 +12,7 @@ function makeProfile(
   overrides: Partial<ScopeResolverInput> = {},
 ): ScopeResolverInput {
   return {
-    service: "integration:test-service",
+    service: "test-service",
     defaultScopes: ["read", "write"],
     scopePolicy: {
       allowAdditionalScopes: false,
@@ -57,9 +57,7 @@ describe("resolveScopes", () => {
     const result = resolveScopes(profile, ["delete"]);
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.error).toBe(
-        "Scope 'delete' is forbidden for integration:test-service",
-      );
+      expect(result.error).toBe("Scope 'delete' is forbidden for test-service");
     }
   });
 
@@ -76,7 +74,7 @@ describe("resolveScopes", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toContain(
-        "Additional scopes are not allowed for integration:test-service",
+        "Additional scopes are not allowed for test-service",
       );
       expect(result.allowedScopes).toEqual(["read", "write"]);
     }
@@ -95,7 +93,7 @@ describe("resolveScopes", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toBe(
-        "Scope 'admin' is not in the allowed optional scopes for integration:test-service",
+        "Scope 'admin' is not in the allowed optional scopes for test-service",
       );
       expect(result.allowedScopes).toEqual(["read", "write"]);
     }

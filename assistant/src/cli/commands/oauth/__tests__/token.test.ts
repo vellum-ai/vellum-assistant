@@ -57,13 +57,9 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
 mock.module("../../../../oauth/provider-behaviors.js", () => ({
   resolveService: (service: string) => {
     const aliases: Record<string, string> = {
-      gmail: "integration:google",
-      google: "integration:google",
-      slack: "integration:slack",
+      gmail: "google",
     };
-    if (aliases[service]) return aliases[service];
-    if (!service.includes(":")) return `integration:${service}`;
-    return service;
+    return aliases[service] ?? service;
   },
   getProviderBehavior: () => undefined,
 }));
@@ -100,19 +96,11 @@ mock.module("../../../lib/daemon-credential-client.js", () => ({
 mock.module("../shared.js", () => ({
   resolveService: (service: string) => {
     const aliases: Record<string, string> = {
-      gmail: "integration:google",
-      google: "integration:google",
-      slack: "integration:slack",
+      gmail: "google",
     };
-    if (aliases[service]) return aliases[service];
-    if (!service.includes(":")) return `integration:${service}`;
-    return service;
+    return aliases[service] ?? service;
   },
   isManagedMode: (key: string) => mockIsManagedMode(key),
-  toBareProvider: (provider: string): string =>
-    provider.startsWith("integration:")
-      ? provider.slice("integration:".length)
-      : provider,
 }));
 
 // ---------------------------------------------------------------------------
@@ -219,7 +207,7 @@ describe("assistant oauth token", () => {
     test("no active connection returns error", async () => {
       mockWithValidToken = async () => {
         throw new Error(
-          'No access token found for "integration:google". Authorization required.',
+          'No access token found for "google". Authorization required.',
         );
       };
 
@@ -239,7 +227,7 @@ describe("assistant oauth token", () => {
   // Provider alias resolution
   // =========================================================================
 
-  test("resolves provider alias (gmail -> integration:google)", async () => {
+  test("resolves provider alias (gmail -> google)", async () => {
     let calledWithService = "";
     mockWithValidToken = async (service, callback) => {
       calledWithService = service;
@@ -248,7 +236,7 @@ describe("assistant oauth token", () => {
 
     const { exitCode, stdout } = await runCommand(["token", "gmail", "--json"]);
     expect(exitCode).toBe(0);
-    expect(calledWithService).toBe("integration:google");
+    expect(calledWithService).toBe("google");
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(true);
     expect(parsed.token).toBe("alias-token");
@@ -316,7 +304,7 @@ describe("assistant oauth token", () => {
         if (options?.account === "user@gmail.com") {
           return {
             id: "conn-abc-123",
-            providerKey: "integration:google",
+            providerKey: "google",
             accountInfo: "user@gmail.com",
             status: "active",
           };
@@ -373,7 +361,7 @@ describe("assistant oauth token", () => {
         if (options?.clientId === "my-client-id") {
           return {
             id: "conn-client-456",
-            providerKey: "integration:google",
+            providerKey: "google",
             accountInfo: null,
             status: "active",
           };

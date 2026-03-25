@@ -736,7 +736,7 @@ describe("credential_store tool", () => {
       await credentialStoreTool.execute(
         {
           action: "store",
-          service: "integration:google",
+          service: "google",
           field: "api_key",
           value: "test-value",
         },
@@ -744,9 +744,9 @@ describe("credential_store tool", () => {
       );
 
       // Simulate an active OAuth connection for this service
-      mockConnections.set("integration:google", {
+      mockConnections.set("google", {
         id: "conn-gmail",
-        providerKey: "integration:google",
+        providerKey: "google",
         oauthAppId: "app-gmail",
         expiresAt: Date.now() + 3600_000,
       });
@@ -754,7 +754,7 @@ describe("credential_store tool", () => {
       const result = await credentialStoreTool.execute(
         {
           action: "delete",
-          service: "integration:google",
+          service: "google",
           field: "api_key",
         },
         _ctx,
@@ -764,9 +764,7 @@ describe("credential_store tool", () => {
       expect(result.content).toContain("Deleted credential");
       // Verify disconnectOAuthProvider was called with the service name
       expect(mockDisconnectOAuthProvider).toHaveBeenCalledTimes(1);
-      expect(mockDisconnectOAuthProvider).toHaveBeenCalledWith(
-        "integration:google",
-      );
+      expect(mockDisconnectOAuthProvider).toHaveBeenCalledWith("google");
     });
   });
 
@@ -1354,7 +1352,7 @@ describe("withValidToken refresh deduplication", () => {
   }
 
   test("3 concurrent 401 refreshes for the same service call doRefresh exactly once", async () => {
-    await setupService("integration:google");
+    await setupService("google");
 
     let resolveRefresh!: (value: {
       accessToken: string;
@@ -1378,9 +1376,9 @@ describe("withValidToken refresh deduplication", () => {
 
     // Launch 3 concurrent withValidToken calls — all will get a non-expired
     // token first, call the callback, get a 401, and then try to refresh.
-    const p1 = withValidToken("integration:google", callback);
-    const p2 = withValidToken("integration:google", callback);
-    const p3 = withValidToken("integration:google", callback);
+    const p1 = withValidToken("google", callback);
+    const p2 = withValidToken("google", callback);
+    const p3 = withValidToken("google", callback);
 
     // Let the event loop tick so all 3 calls enter the 401 retry path
     await new Promise((r) => setTimeout(r, 10));
@@ -1402,8 +1400,8 @@ describe("withValidToken refresh deduplication", () => {
   });
 
   test("concurrent refreshes for different services proceed independently", async () => {
-    await setupService("integration:google");
-    await setupService("integration:slack");
+    await setupService("google");
+    await setupService("slack");
 
     let resolveGmail!: (value: {
       accessToken: string;
@@ -1447,8 +1445,8 @@ describe("withValidToken refresh deduplication", () => {
       return `slack-${token}`;
     };
 
-    const p1 = withValidToken("integration:google", gmailCallback);
-    const p2 = withValidToken("integration:slack", slackCallback);
+    const p1 = withValidToken("google", gmailCallback);
+    const p2 = withValidToken("slack", slackCallback);
 
     await new Promise((r) => setTimeout(r, 10));
 
@@ -1466,7 +1464,7 @@ describe("withValidToken refresh deduplication", () => {
   });
 
   test("deduplication cleans up after refresh completes, allowing subsequent refreshes", async () => {
-    await setupService("integration:google");
+    await setupService("google");
 
     let refreshCount = 0;
     mockRefreshOAuth2Token.mockImplementation(() => {
@@ -1480,25 +1478,19 @@ describe("withValidToken refresh deduplication", () => {
     const err401 = Object.assign(new Error("Unauthorized"), { status: 401 });
 
     // First call triggers a refresh (old token → 401 → refresh → token-1)
-    const r1 = await withValidToken(
-      "integration:google",
-      async (token: string) => {
-        if (token !== "token-1") throw err401;
-        return token;
-      },
-    );
+    const r1 = await withValidToken("google", async (token: string) => {
+      if (token !== "token-1") throw err401;
+      return token;
+    });
     expect(r1).toBe("token-1");
     expect(refreshCount).toBe(1);
 
     // Second call also triggers a 401 to verify dedup state was cleaned up
     // and a new refresh is allowed (not deduplicated with the first).
-    const r2 = await withValidToken(
-      "integration:google",
-      async (token: string) => {
-        if (token !== "token-2") throw err401;
-        return token;
-      },
-    );
+    const r2 = await withValidToken("google", async (token: string) => {
+      if (token !== "token-2") throw err401;
+      return token;
+    });
     expect(r2).toBe("token-2");
     // Second refresh should have happened (not deduplicated with the first,
     // since the first already completed)
@@ -1506,7 +1498,7 @@ describe("withValidToken refresh deduplication", () => {
   });
 
   test("deduplication propagates refresh errors to all waiting callers", async () => {
-    await setupService("integration:google");
+    await setupService("google");
 
     mockRefreshOAuth2Token.mockImplementation(() =>
       Promise.reject(
@@ -1524,8 +1516,8 @@ describe("withValidToken refresh deduplication", () => {
     };
 
     // Launch 2 concurrent calls — both should fail with the same error
-    const p1 = withValidToken("integration:google", callback);
-    const p2 = withValidToken("integration:google", callback);
+    const p1 = withValidToken("google", callback);
+    const p2 = withValidToken("google", callback);
 
     const results = await Promise.allSettled([p1, p2]);
 

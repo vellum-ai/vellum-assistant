@@ -54,13 +54,9 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
 mock.module("../../../../oauth/provider-behaviors.js", () => ({
   resolveService: (service: string) => {
     const aliases: Record<string, string> = {
-      gmail: "integration:google",
-      google: "integration:google",
-      slack: "integration:slack",
+      gmail: "google",
     };
-    if (aliases[service]) return aliases[service];
-    if (!service.includes(":")) return `integration:${service}`;
-    return service;
+    return aliases[service] ?? service;
   },
   getProviderBehavior: () => undefined,
 }));
@@ -103,21 +99,13 @@ mock.module("../../../../util/logger.js", () => ({
 mock.module("../shared.js", () => ({
   resolveService: (service: string) => {
     const aliases: Record<string, string> = {
-      gmail: "integration:google",
-      google: "integration:google",
-      slack: "integration:slack",
+      gmail: "google",
     };
-    if (aliases[service]) return aliases[service];
-    if (!service.includes(":")) return `integration:${service}`;
-    return service;
+    return aliases[service] ?? service;
   },
   isManagedMode: () => false,
   requirePlatformClient: async () => null,
   fetchActiveConnections: async () => [],
-  toBareProvider: (provider: string): string =>
-    provider.startsWith("integration:")
-      ? provider.slice("integration:".length)
-      : provider,
 }));
 
 // ---------------------------------------------------------------------------
@@ -214,7 +202,7 @@ describe("assistant oauth ping", () => {
 
   test("no ping URL configured returns error", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       pingUrl: null,
     });
 
@@ -230,9 +218,9 @@ describe("assistant oauth ping", () => {
   // Provider alias resolution
   // -------------------------------------------------------------------------
 
-  test("resolves provider alias (gmail -> integration:google)", async () => {
+  test("resolves provider alias (gmail -> google)", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       pingUrl: "https://www.googleapis.com/oauth2/v1/tokeninfo",
     });
 
@@ -248,13 +236,11 @@ describe("assistant oauth ping", () => {
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(true);
-    expect(parsed.provider).toBe("integration:google");
+    expect(parsed.provider).toBe("google");
 
     // Verify resolveOAuthConnection was called with resolved key
     expect(mockResolveOAuthConnectionCalls).toHaveLength(1);
-    expect(mockResolveOAuthConnectionCalls[0].providerKey).toBe(
-      "integration:google",
-    );
+    expect(mockResolveOAuthConnectionCalls[0].providerKey).toBe("google");
   });
 
   // =========================================================================
@@ -264,7 +250,7 @@ describe("assistant oauth ping", () => {
   describe("BYO mode", () => {
     beforeEach(() => {
       mockGetProvider = () => ({
-        providerKey: "integration:google",
+        providerKey: "google",
         pingUrl: "https://www.googleapis.com/oauth2/v1/tokeninfo",
         managedServiceConfigKey: null,
       });
@@ -287,7 +273,7 @@ describe("assistant oauth ping", () => {
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
-      expect(parsed.provider).toBe("integration:google");
+      expect(parsed.provider).toBe("google");
       expect(parsed.status).toBe(200);
     });
 
@@ -308,7 +294,7 @@ describe("assistant oauth ping", () => {
       expect(exitCode).toBe(1);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(false);
-      expect(parsed.provider).toBe("integration:google");
+      expect(parsed.provider).toBe("google");
       expect(parsed.status).toBe(500);
       expect(parsed.error).toContain("Ping failed with HTTP 500");
     });
@@ -366,7 +352,7 @@ describe("assistant oauth ping", () => {
   describe("managed mode", () => {
     beforeEach(() => {
       mockGetProvider = () => ({
-        providerKey: "integration:google",
+        providerKey: "google",
         pingUrl: "https://www.googleapis.com/oauth2/v1/tokeninfo",
         managedServiceConfigKey: "google-oauth",
       });
@@ -389,7 +375,7 @@ describe("assistant oauth ping", () => {
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
-      expect(parsed.provider).toBe("integration:google");
+      expect(parsed.provider).toBe("google");
       expect(parsed.status).toBe(200);
     });
 
@@ -410,7 +396,7 @@ describe("assistant oauth ping", () => {
       expect(exitCode).toBe(1);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(false);
-      expect(parsed.provider).toBe("integration:google");
+      expect(parsed.provider).toBe("google");
       expect(parsed.status).toBe(502);
       expect(parsed.error).toContain("Ping failed with HTTP 502");
     });
@@ -422,12 +408,12 @@ describe("assistant oauth ping", () => {
 
   test("connection resolution failure (no active connection) with recovery hint", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       pingUrl: "https://www.googleapis.com/oauth2/v1/tokeninfo",
     });
 
     mockResolveOAuthConnectionResult = new Error(
-      'No active OAuth connection found for "integration:google". Connect the service first with oauth2_connect.',
+      'No active OAuth connection found for "google". Connect the service first with oauth2_connect.',
     );
 
     const { exitCode, stdout } = await runCommand(["ping", "google", "--json"]);
@@ -445,7 +431,7 @@ describe("assistant oauth ping", () => {
 
   test("--account option passed through to connection resolution", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       pingUrl: "https://www.googleapis.com/oauth2/v1/tokeninfo",
     });
 
@@ -478,7 +464,7 @@ describe("assistant oauth ping", () => {
 
   test("--client-id option passed through to connection resolution", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       pingUrl: "https://www.googleapis.com/oauth2/v1/tokeninfo",
     });
 
@@ -511,7 +497,7 @@ describe("assistant oauth ping", () => {
 
   test("JSON output mode returns structured response", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       pingUrl: "https://www.googleapis.com/oauth2/v1/tokeninfo",
     });
 
@@ -529,7 +515,7 @@ describe("assistant oauth ping", () => {
 
     // Verify JSON structure
     expect(parsed).toHaveProperty("ok", true);
-    expect(parsed).toHaveProperty("provider", "integration:google");
+    expect(parsed).toHaveProperty("provider", "google");
     expect(parsed).toHaveProperty("status", 200);
   });
 
@@ -539,7 +525,7 @@ describe("assistant oauth ping", () => {
 
   test("human output mode logs to stderr on success", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       pingUrl: "https://www.googleapis.com/oauth2/v1/tokeninfo",
     });
 
@@ -558,7 +544,7 @@ describe("assistant oauth ping", () => {
     // In human mode, output is still written via writeOutput
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(true);
-    expect(parsed.provider).toBe("integration:google");
+    expect(parsed.provider).toBe("google");
   });
 
   // =========================================================================
@@ -567,7 +553,7 @@ describe("assistant oauth ping", () => {
 
   test("uses configured pingMethod for POST providers", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:dropbox",
+      providerKey: "dropbox",
       pingUrl: "https://api.dropboxapi.com/2/users/get_current_account",
       pingMethod: "POST",
       pingHeaders: null,
@@ -589,7 +575,7 @@ describe("assistant oauth ping", () => {
 
   test("uses configured pingHeaders", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:notion",
+      providerKey: "notion",
       pingUrl: "https://api.notion.com/v1/users/me",
       pingMethod: null,
       pingHeaders: '{"Notion-Version":"2022-06-28"}',
@@ -613,7 +599,7 @@ describe("assistant oauth ping", () => {
 
   test("uses configured pingBody for GraphQL providers", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:linear",
+      providerKey: "linear",
       pingUrl: "https://api.linear.app/graphql",
       pingMethod: "POST",
       pingHeaders: '{"Content-Type":"application/json"}',
@@ -641,7 +627,7 @@ describe("assistant oauth ping", () => {
 
   test("defaults to GET with no extra headers/body when ping config is null", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       pingUrl: "https://www.googleapis.com/oauth2/v1/tokeninfo",
       pingMethod: null,
       pingHeaders: null,
@@ -669,7 +655,7 @@ describe("assistant oauth ping", () => {
 
   test("network failure returns error with recovery hint", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       pingUrl: "https://www.googleapis.com/oauth2/v1/tokeninfo",
     });
 
