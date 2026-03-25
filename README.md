@@ -1,85 +1,93 @@
-# Vellum Assistant
+<p align="center">
+  <img src="assets/banner.svg" alt="Vellum Assistant" width="100%">
+</p>
 
-[![CI Assistant](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-assistant.yaml/badge.svg)](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-assistant.yaml)
-[![CI Gateway](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-gateway.yaml/badge.svg)](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-gateway.yaml)
-[![CI CLI](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-cli.yaml/badge.svg)](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-cli.yaml)
-[![CI macOS](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-macos.yaml/badge.svg)](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-macos.yaml)
-[![CI iOS](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-ios.yaml/badge.svg)](https://github.com/vellum-ai/vellum-assistant/actions/workflows/ci-main-ios.yaml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+<p align="center">
+  <a href="https://vellum.ai/docs"><img src="https://img.shields.io/badge/Docs-vellum.ai%2Fdocs-FFD700?style=for-the-badge" alt="Documentation"></a>
+  <a href="https://vellum.ai/community"><img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"></a>
+  <a href="https://github.com/vellum-ai/vellum-assistant/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License: MIT"></a>
+  <a href="https://vellum.ai"><img src="https://img.shields.io/badge/Built%20by-Vellum-blueviolet?style=for-the-badge" alt="Built by Vellum"></a>
+</p>
 
-A personal AI assistant that lives on your machine, has its own identity, and actually does things in the world.
+<p align="center"><b>An AI assistant that lives on your machine.</b><br>Native macOS & iOS apps, a Bun + TypeScript runtime, and a multi-channel gateway — so your assistant can manage your tools, automate your workflows, and talk to you from anywhere.</p>
 
-Vellum Assistant is an open-source AI assistant platform built with TypeScript and Swift. It runs locally, owns its own credentials, and can browse the web, manage email, run code in sandboxed environments, and integrate with services like Gmail, Slack, and Telegram. Designed around four principles: it is inviting, it is yours, it is not you, and it needs to earn your trust.
+---
 
-## Features
+## Highlights
 
-- macOS menu bar app + iOS chat app
-- Sandboxed code execution (native OS sandboxing via sandbox-exec/bwrap)
-- Credential vault — secrets never exposed to the LLM
-- Browser automation (Playwright-based)
-- OAuth integrations (Gmail, Slack, Telegram)
-- Dynamic skill authoring — create new skills at runtime
-- Multi-instance support — run multiple assistants side by side
-- Multi-provider LLM support (Anthropic, OpenAI, Google, Ollama)
-- Real-time event streaming API (SSE)
+<table>
+<tr><td>🖥️ <b>Native Clients</b></td><td>macOS menu bar app with computer-use (accessibility + CGEvent) and iOS chat client. ~50% shared code via Swift Package. Standalone or connected-to-Mac.</td></tr>
+<tr><td>🔧 <b>Extensible Skills</b></td><td>40+ bundled skills. The assistant can author, test, and persist new skills at runtime. Version-bound approvals and mutation protection.</td></tr>
+<tr><td>💬 <b>Multi-Channel</b></td><td>Desktop, Telegram, Slack, Gmail, SMS, phone calls — one gateway, one conversation. OAuth2 integrations and unified messaging.</td></tr>
+<tr><td>🔒 <b>Security-First</b></td><td>OS-level sandboxing (sandbox-exec / bwrap). Keychain-backed credential vault. Secret ingress blocking. Scoped trust rules.</td></tr>
+<tr><td>🌐 <b>Browser & Computer Use</b></td><td>Headless browser automation (navigate, click, type, screenshot, extract). macOS computer-use via accessibility APIs. Credential-aware form filling.</td></tr>
+<tr><td>📡 <b>Real-Time Streaming</b></td><td>SSE event stream with JWT auth. Streaming deltas for text, thinking, tool use, and attachments. Up to 100 concurrent connections.</td></tr>
+<tr><td>🚀 <b>Agent-Driven Dev</b></td><td>Claude Code slash commands for parallel PRs, automated review loops, swarm workflows, and one-shot feature delivery (<code>/blitz</code>).</td></tr>
+</table>
 
-## Quick Start
+---
 
-### Prerequisites
+## Get Started
 
-- [Bun](https://bun.sh/) v1.3.9+
-- [Docker](https://docs.docker.com/get-docker/) (for sandboxed execution)
-- An Anthropic API key (or other supported LLM provider)
-
-### Install and run
+### Install
 
 ```bash
-# Install the CLI
-npm install -g @vellumai/cli
-
-# Create an assistant
-vellum hatch
-
-# Start the assistant
-vellum wake
-
-# Check status
-vellum ps
+git clone https://github.com/vellum-ai/vellum-assistant.git
+cd vellum-assistant
+./setup.sh              # installs deps, links packages, registers the global `vellum` CLI
+vellum hatch            # first-time assistant setup
+vellum wake             # start assistant + gateway
 ```
 
-Or download the [macOS app](https://github.com/vellum-ai/velly/releases/latest) for a native menu bar experience.
+> **Prerequisites:** [Bun](https://bun.sh) is the only requirement. The setup script handles everything else — package dependencies, git hooks, local package linking, and the global `vellum` command.
 
-## Architecture
+### Vellum CLI
 
-The platform has three main domains:
-
-- **Assistant runtime** (`assistant/`): Bun + TypeScript assistant runtime that owns conversation history, attachment storage, and channel delivery state in a local SQLite database. Exposes a Unix domain socket (macOS) and optional TCP listener (iOS) for native clients, plus an HTTP API consumed by the gateway.
-- **Native clients** (`clients/`): Swift Package with macOS and iOS apps sharing ~45-50% of code via `VellumAssistantShared`. The macOS app is a menu bar assistant with computer-use (accessibility + CGEvent). The iOS app is a chat client supporting standalone mode (direct Anthropic API) and connected-to-Mac mode (TCP proxy through the assistant).
-- **Gateway** (`gateway/`): Standalone Bun + TypeScript service that serves as the public ingress boundary for all external webhooks and callbacks. Owns Telegram integration end-to-end, routes Twilio voice webhooks, handles OAuth callbacks, and optionally acts as an authenticated reverse proxy for the assistant runtime API.
-
-### Repository Structure
-
-```
-/
-├── assistant/         # Bun-based assistant runtime (runtime, CLI, HTTP API)
-├── clients/           # Native clients (macOS menu bar app + iOS chat app)
-├── gateway/           # Telegram gateway service
-├── benchmarking/      # Load testing scripts (gateway webhook/proxy benchmarks)
-├── scripts/           # Utility scripts (publishing, tunneling)
-├── .claude/           # Claude Code slash commands and workflow tools
-└── .github/           # GitHub Actions workflows
+```bash
+vellum hatch       # first-time assistant setup
+vellum wake        # start assistant + gateway
+vellum retire      # shut down an assistant instance
+vellum sleep       # stop everything
+vellum upgrade     # upgrade to the latest version
 ```
 
-See [`ARCHITECTURE.md`](ARCHITECTURE.md) for full details.
+> **Managed mode:** The macOS app also supports signing in via the Vellum platform and connecting to a hosted assistant — no local runtime required.
+
+---
 
 ## Documentation
 
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — System architecture
-- [`docs/internal-reference.md`](docs/internal-reference.md) — Detailed reference (security, permissions, API, features, development workflow)
-- [`assistant/docs/architecture/security.md`](assistant/docs/architecture/security.md) — Security architecture deep dive
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — Contributing guidelines
-- [`SECURITY.md`](SECURITY.md) — Security vulnerability reporting
+| Section | What's Covered |
+|---------|---------------|
+| [Architecture](https://vellum.ai/docs/developer-guide/architecture) | Platform domains, repo structure, runtime · clients · gateway |
+| [Security & Permissions](https://vellum.ai/docs/developer-guide/security) | Sandbox, credentials, trust rules, permission modes |
+| [Features & Capabilities](https://vellum.ai/docs/developer-guide/features) | Integrations, dynamic skills, browser, attachments, media embeds |
+| [API & Communication](https://vellum.ai/docs/developer-guide/api) | SSE event stream, event payloads, remote access |
+| [Development Workflow](https://vellum.ai/docs/developer-guide/development-workflow) | Claude Code commands, parallel PRs, review loops, release pipeline |
+
+📖 **[Full documentation →](https://vellum.ai/docs)**
+
+---
+
+## Contributing
+
+We are not currently accepting external contributions. See the [Contributing](https://github.com/vellum-ai/vellum-assistant?tab=contributing-ov-file) tab for updates.
+
+---
+
+## Community
+
+- 💬 [Discord](https://vellum.ai/community)
+- 🐛 [Issues](https://github.com/vellum-ai/vellum-assistant/issues)
+
+---
 
 ## License
 
-MIT — see [LICENSE](LICENSE) for details.
+MIT — see [License](https://github.com/vellum-ai/vellum-assistant?tab=MIT-1-ov-file).
+
+Vellum Assistant is open-source software built by [Vellum AI](https://vellum.ai), a for-profit company. We also offer a managed product — the [Vellum Platform](https://vellum.ai/platform) — which sustains the business. This project is free to use, modify, and contribute to under the MIT license, and we're committed to keeping it that way.
+
+---
+
+<p align="center">Built with 💚 by <a href="https://vellum.ai">Vellum</a></p>
