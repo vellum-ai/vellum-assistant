@@ -50,7 +50,7 @@ describe("MCP AbortSignal threading", () => {
 
       expect(callToolSpy).toHaveBeenCalledTimes(1);
       const [_params, _resultSchema, options] = callToolSpy.mock.calls[0];
-      expect(options).toEqual({ signal: undefined });
+      expect(options).toBeUndefined();
     });
 
     test("already-aborted signal causes the SDK call to reject", async () => {
