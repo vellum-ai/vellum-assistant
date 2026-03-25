@@ -122,12 +122,21 @@ final class ConversationRestorer {
 
         Task { [weak self] in
             guard let self else { return }
-            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: nil, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
-            if let response {
-                self.handleHistoryResponse(response)
-            } else {
-                self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
+            let maxAttempts = 3
+            for attempt in 1...maxAttempts {
+                let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: nil, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
+                if let response {
+                    self.handleHistoryResponse(response)
+                    return
+                }
+                if attempt < maxAttempts {
+                    log.warning("History fetch attempt \(attempt) of \(maxAttempts) for conversation \(conversationId) failed, retrying in 1 second...")
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    guard !Task.isCancelled else { return }
+                }
             }
+            log.warning("All \(maxAttempts) history fetch attempts failed for conversation \(conversationId)")
+            self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
         }
     }
 
