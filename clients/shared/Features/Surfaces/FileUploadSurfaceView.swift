@@ -367,6 +367,12 @@ public struct FileUploadSurfaceView: View {
 
         isSubmitted = true
         onSubmit(filesPayload)
+
+        // Release heavy file data from memory — the success state only needs
+        // filename and size for display.
+        selectedFiles = selectedFiles.map {
+            SelectedFile(filename: $0.filename, mimeType: $0.mimeType, data: Data(), size: $0.size)
+        }
     }
 
     // MARK: - Helpers
