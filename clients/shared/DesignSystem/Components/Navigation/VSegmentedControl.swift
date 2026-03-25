@@ -47,12 +47,12 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
             ForEach(items.indices, id: \.self) { index in
                 let item = items[index]
                 Button(action: { selection = item.tag }) {
-                    VStack(spacing: VSpacing.xs) {
+                    VStack(spacing: 0) {
                         Text(item.label)
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(selection == item.tag ? VColor.contentDefault : VColor.contentTertiary)
-                            .padding(.horizontal, VSpacing.xl)
-                            .padding(.vertical, VSpacing.xs)
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(selection == item.tag ? VColor.contentDefault : VColor.contentSecondary)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
 
                         Rectangle()
                             .fill(selection == item.tag ? VColor.primaryBase : .clear)
@@ -67,7 +67,11 @@ public struct VSegmentedControl<SelectionValue: Hashable>: View {
             }
         }
         .fixedSize(horizontal: true, vertical: false)
-        .padding(.horizontal, VSpacing.sm)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(VColor.borderDisabled)
+                .frame(height: 2)
+        }
     }
 
     // MARK: - Pill Style
