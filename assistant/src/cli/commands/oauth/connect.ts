@@ -1,3 +1,5 @@
+import { createServer, type Server } from "node:http";
+
 import type { Command } from "commander";
 
 import { orchestrateOAuthConnect } from "../../../oauth/connect-orchestrator.js";
@@ -19,6 +21,71 @@ import {
 } from "./shared.js";
 
 const log = getCliLogger("cli");
+
+// ---------------------------------------------------------------------------
+// Managed OAuth redirect page
+// ---------------------------------------------------------------------------
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderOAuthCompletePage(message: string, success: boolean): string {
+  const title = success ? "Authorization Successful" : "Authorization Failed";
+  const color = success ? "#4CAF50" : "#f44336";
+  const icon = success ? "&#10003;" : "&#10007;";
+  return `<!DOCTYPE html><html><head><title>${escapeHtml(title)}</title><style>body{font-family:system-ui,-apple-system,sans-serif;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;background:#f5f5f5}div{text-align:center;padding:2.5rem;background:white;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.1);max-width:420px}.icon{font-size:3rem;color:${color};margin-bottom:0.5rem}h1{color:#333;font-size:1.4rem;margin:0.5rem 0}p{color:#666;font-size:0.95rem;line-height:1.5}</style></head><body><div><div class="icon">${icon}</div><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></div></body></html>`;
+}
+
+/**
+ * Start a temporary loopback server to serve a nice completion page after the
+ * platform redirects the user's browser following a managed OAuth flow.
+ * Returns the base URL and a cleanup function.
+ */
+function startManagedRedirectServer(): Promise<{
+  redirectUrl: string;
+  cleanup: () => void;
+}> {
+  return new Promise((resolve, reject) => {
+    const server: Server = createServer((req, res) => {
+      const url = new URL(req.url ?? "/", "http://127.0.0.1");
+      const error = url.searchParams.get("error");
+      const errorDesc = url.searchParams.get("error_description");
+
+      if (error) {
+        const message = errorDesc ?? error;
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(renderOAuthCompletePage(message, false));
+      } else {
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(
+          renderOAuthCompletePage(
+            "You can close this tab and return to your terminal.",
+            true,
+          ),
+        );
+      }
+    });
+
+    server.listen(0, "localhost", () => {
+      const addr = server.address() as { port: number };
+      const redirectUrl = `http://localhost:${addr.port}/oauth/complete`;
+      resolve({
+        redirectUrl,
+        cleanup: () => server.close(),
+      });
+    });
+
+    server.on("error", (err) => {
+      reject(new Error(`Failed to start redirect server: ${err.message}`));
+    });
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Command registration
@@ -126,6 +193,20 @@ Examples:
               body.requested_scopes = opts.scopes;
             }
 
+            // When opening the browser, start a local server to show a nice
+            // completion page instead of redirecting to the platform website.
+            let redirectServer:
+              | { redirectUrl: string; cleanup: () => void }
+              | undefined;
+            if (opts.openBrowser) {
+              try {
+                redirectServer = await startManagedRedirectServer();
+                body.redirect_after_connect = redirectServer.redirectUrl;
+              } catch {
+                // Non-fatal — fall back to platform default redirect
+              }
+            }
+
             const response = await client.fetch(startPath, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -133,6 +214,7 @@ Examples:
             });
 
             if (!response.ok) {
+              redirectServer?.cleanup();
               const errorText = await response.text().catch(() => "");
               writeError(
                 `Platform returned HTTP ${response.status}${errorText ? `: ${errorText}` : ""}`,
@@ -145,6 +227,7 @@ Examples:
             };
 
             if (!result.connect_url) {
+              redirectServer?.cleanup();
               writeError(
                 "Platform did not return a connect URL — the OAuth flow could not be started",
               );
@@ -159,6 +242,7 @@ Examples:
                 cmd,
               );
               if (!snapshotEntries) {
+                redirectServer?.cleanup();
                 // fetchActiveConnections already wrote the error output
                 return;
               }
@@ -201,6 +285,9 @@ Examples:
                   break;
                 }
               }
+
+              // Clean up the redirect server now that polling is done
+              redirectServer?.cleanup();
 
               if (newConnection) {
                 // Success — new connection found
