@@ -327,7 +327,7 @@ struct OnboardingFlowView: View {
                         .frame(maxWidth: 280)
                 }
 
-                OnboardingButton(title: "Try again", style: .primary) {
+                VButton(label: "Try again", style: .primary, isFullWidth: true) {
                     Task {
                         await performManagedBootstrap()
                     }

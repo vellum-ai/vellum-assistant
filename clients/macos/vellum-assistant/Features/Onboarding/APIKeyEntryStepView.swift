@@ -85,22 +85,18 @@ struct APIKeyEntryStepView: View {
                     apiKeyField
                 }
 
-                OnboardingButton(
-                    title: "Continue",
-                    style: .primary,
-                    disabled: providerRequiresKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ) {
+                VButton(label: "Continue", style: .primary, isFullWidth: true, isDisabled: providerRequiresKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                     saveAndHatch()
                 }
 
                 if let apiKeyUrl = currentProviderEntry?.apiKeyUrl,
                    let url = URL(string: apiKeyUrl) {
-                    OnboardingButton(title: "Get an API key", style: .ghostPrimary) {
+                    VButton(label: "Get an API key", style: .ghost) {
                         NSWorkspace.shared.open(url)
                     }
                 }
 
-                OnboardingButton(title: "Back", style: .ghost) {
+                VButton(label: "Back", style: .ghost) {
                     goBack()
                 }
             }
