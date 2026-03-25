@@ -283,6 +283,10 @@ Examples:
                     return;
                   }
                 }
+              } else {
+                writeInfo(
+                  `Warning: Could not validate account "${opts.account}" — platform client not available. Proceeding without account validation.`,
+                );
               }
             } else {
               const conn = getActiveConnection(providerKey, {
