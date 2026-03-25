@@ -238,7 +238,10 @@ export async function maybeStartNgrokTunnel(
   // Managed/containerized deployments route webhooks through the platform's
   // callback proxy. ngrok is not needed and would not be reachable from the
   // platform anyway — skip it entirely.
-  if (process.env.IS_CONTAINERIZED) return null;
+  const isContainerized =
+    process.env.IS_CONTAINERIZED === "true" ||
+    process.env.IS_CONTAINERIZED === "1";
+  if (isContainerized) return null;
   if (!hasWebhookIntegrationsConfigured()) return null;
   if (hasNonNgrokIngressUrl()) return null;
 
