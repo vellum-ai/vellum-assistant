@@ -361,6 +361,14 @@ extension ChatBubble {
             return map
         }()
 
+        // Identify the last text group so attachments render right after it
+        // (inline with text) instead of at the very bottom after tool calls.
+        let lastTextGroupId: String? = groups.last(where: {
+            if case .texts = $0 { return true }
+            return false
+        })?.stableId
+
+
         // Render all content groups in order: text, tool calls, and surfaces.
         // Uses \.stableId (based on the first index in each group) so SwiftUI
         // preserves @State (like isExpanded) when new items are appended to a
@@ -388,6 +396,12 @@ extension ChatBubble {
                         return message.toolCalls[tcIdx]
                     }
                     inlineToolCallImages(from: deferredCalls)
+                }
+                // Render attachments right after the last text group so they
+                // appear inline with the text (like "Here's your SVG:" + image)
+                // instead of buried below tool call progress views.
+                if group.stableId == lastTextGroupId {
+                    inlineAttachments
                 }
             case .toolCalls(let indices):
                 if shouldRenderToolProgressInline {
@@ -417,9 +431,17 @@ extension ChatBubble {
             }
         }
 
-        // Attachments are not part of contentOrder but must still be rendered.
-        // Hide only the tool-block image attachments that are already shown
-        // inline by completed tool calls; keep directive/host images visible.
+        // Fallback: if there are no text groups, render attachments after all content groups.
+        if lastTextGroupId == nil {
+            inlineAttachments
+        }
+        attachmentWarningBanners(message.attachmentWarnings)
+    }
+
+    /// Renders all non-tool-block attachments (images, videos, audios, files)
+    /// inline at the current position in the content flow.
+    @ViewBuilder
+    private var inlineAttachments: some View {
         let partitioned = partitionedAttachments
         let visibleImages = visibleAttachmentImages(partitioned.images)
         if !visibleImages.isEmpty {
@@ -446,6 +468,5 @@ extension ChatBubble {
                 }
             }
         }
-        attachmentWarningBanners(message.attachmentWarnings)
     }
 }

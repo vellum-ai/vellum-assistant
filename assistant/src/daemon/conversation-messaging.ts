@@ -296,6 +296,15 @@ export async function persistUserMessage(
     cleanMessage,
     attachmentInputs,
   );
+  log.info(
+    {
+      contentBlockTypes: Array.isArray(llmMessage.content)
+        ? llmMessage.content.map((b) => b.type)
+        : typeof llmMessage.content,
+      attachmentCount: attachments.length,
+    },
+    "persistUserMessage: content blocks being sent to model",
+  );
   ctx.messages.push(llmMessage);
 
   try {

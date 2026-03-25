@@ -26,6 +26,7 @@ import type {
   UiSurfaceShow,
 } from "./message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
+import type { UserMessageAttachment } from "./message-types/shared.js";
 
 const log = getLogger("conversation-surfaces");
 
@@ -217,7 +218,7 @@ export interface SurfaceConversationContext {
   isProcessing(): boolean;
   enqueueMessage(
     content: string,
-    attachments: never[],
+    attachments: UserMessageAttachment[],
     onEvent: (msg: ServerMessage) => void,
     requestId: string,
     activeSurfaceId?: string,
@@ -229,7 +230,7 @@ export interface SurfaceConversationContext {
   getQueueDepth(): number;
   processMessage(
     content: string,
-    attachments: never[],
+    attachments: UserMessageAttachment[],
     onEvent: (msg: ServerMessage) => void,
     requestId?: string,
     activeSurfaceId?: string,
@@ -625,6 +626,36 @@ export function handleSurfaceAction(
     const accState = ctx.accumulatedSurfaceState.get(surfaceId);
     const hasAccState = accState && Object.keys(accState).length > 0;
 
+    // Extract file attachments from action data so they are sent as proper
+    // image/file content blocks instead of dumping base64 into the text.
+    let attachments: UserMessageAttachment[] = [];
+    let actionDataForText = data;
+    if (data && Array.isArray(data.files)) {
+      const files = data.files as Array<Record<string, unknown>>;
+      attachments = files
+        .filter(
+          (f) =>
+            typeof f.filename === "string" &&
+            typeof f.mimeType === "string" &&
+            typeof f.data === "string",
+        )
+        .map((f) => ({
+          filename: f.filename as string,
+          mimeType: f.mimeType as string,
+          data: f.data as string,
+          ...(typeof f.extractedText === "string"
+            ? { extractedText: f.extractedText }
+            : {}),
+        }));
+      // Only remove files from the text payload when we successfully parsed
+      // attachments — otherwise preserve the original data so the model still
+      // sees the files field (e.g. IDs/paths from dynamic app actions).
+      if (attachments.length > 0) {
+        const { files: _files, ...rest } = data;
+        actionDataForText = Object.keys(rest).length > 0 ? rest : undefined;
+      }
+    }
+
     let content: string;
     let displayContent: string | undefined;
     if (prompt) {
@@ -639,14 +670,35 @@ export function handleSurfaceAction(
         .replace(/_/g, " ")
         .replace(/\b\w/g, (c) => c.toUpperCase());
       content = `[User action on app: ${summary}]`;
-      if (data && Object.keys(data).length > 0) {
-        content += `\n\nAction data: ${JSON.stringify(data)}`;
+      if (attachments.length > 0) {
+        const names = attachments.map((a) => a.filename).join(", ");
+        content += `\n\nUploaded files: ${names}`;
+      }
+      if (actionDataForText && Object.keys(actionDataForText).length > 0) {
+        content += `\n\nAction data: ${JSON.stringify(actionDataForText)}`;
       }
       if (hasAccState) {
         content += `\n\nAccumulated surface state: ${JSON.stringify(accState)}`;
       }
       displayContent = summary;
     }
+
+    log.info(
+      {
+        surfaceId,
+        actionId,
+        contentLength: content.length,
+        contentPreview: content.slice(0, 200),
+        attachmentCount: attachments.length,
+        attachments: attachments.map((a) => ({
+          filename: a.filename,
+          mimeType: a.mimeType,
+          dataLength: a.data?.length ?? 0,
+          hasExtractedText: !!a.extractedText,
+        })),
+      },
+      "Surface action: preparing to send message to model",
+    );
 
     const requestId = uuid();
     ctx.surfaceActionRequestIds.add(requestId);
@@ -665,7 +717,7 @@ export function handleSurfaceAction(
 
     const result = ctx.enqueueMessage(
       content,
-      [],
+      attachments,
       onEvent,
       requestId,
       surfaceId,
@@ -706,13 +758,13 @@ export function handleSurfaceAction(
 
     // Conversation is idle — process the message immediately.
     log.info(
-      { surfaceId, actionId, requestId },
-      "Processing surface action immediately (history-restored)",
+      { surfaceId, actionId, requestId, attachmentCount: attachments.length },
+      "Processing surface action immediately (history-restored) with attachments",
     );
     ctx
       .processMessage(
         content,
-        [],
+        attachments,
         onEvent,
         requestId,
         surfaceId,
@@ -807,11 +859,45 @@ export function handleSurfaceAction(
     });
   }
 
+  // Extract file attachments from action data so they are sent as proper
+  // image/file content blocks instead of dumping base64 into the text.
+  let pendingAttachments: UserMessageAttachment[] = [];
+  let mergedDataForText = mergedData;
+  if (mergedData && Array.isArray(mergedData.files)) {
+    const files = mergedData.files as Array<Record<string, unknown>>;
+    pendingAttachments = files
+      .filter(
+        (f) =>
+          typeof f.filename === "string" &&
+          typeof f.mimeType === "string" &&
+          typeof f.data === "string",
+      )
+      .map((f) => ({
+        filename: f.filename as string,
+        mimeType: f.mimeType as string,
+        data: f.data as string,
+        ...(typeof f.extractedText === "string"
+          ? { extractedText: f.extractedText }
+          : {}),
+      }));
+    // Only remove files from the text payload when we successfully parsed
+    // attachments — otherwise preserve the original data so the model still
+    // sees the files field.
+    if (pendingAttachments.length > 0) {
+      const { files: _files, ...rest } = mergedData;
+      mergedDataForText = Object.keys(rest).length > 0 ? rest : undefined;
+    }
+  }
+
   let fallbackContent = `[User action on ${pending.surfaceType} surface: ${summary}]`;
+  if (pendingAttachments.length > 0) {
+    const names = pendingAttachments.map((a) => a.filename).join(", ");
+    fallbackContent += `\n\nUploaded files: ${names}`;
+  }
   // Append structured data so the LLM has access to IDs/values it needs
   // to act on (e.g. selectedIds for archiving).
-  if (mergedData && Object.keys(mergedData).length > 0) {
-    fallbackContent += `\n\nAction data: ${JSON.stringify(mergedData)}`;
+  if (mergedDataForText && Object.keys(mergedDataForText).length > 0) {
+    fallbackContent += `\n\nAction data: ${JSON.stringify(mergedDataForText)}`;
   }
   // Append deselection context for table/list surfaces so the LLM knows what the user chose to keep.
   const selectedIds = mergedData?.selectedIds as string[] | undefined;
@@ -867,9 +953,24 @@ export function handleSurfaceAction(
     attributes: { source: "surface_action", surfaceId, actionId },
   });
 
+  log.info(
+    {
+      surfaceId,
+      actionId,
+      attachmentCount: pendingAttachments.length,
+      attachments: pendingAttachments.map((a) => ({
+        filename: a.filename,
+        mimeType: a.mimeType,
+        dataLength: a.data?.length ?? 0,
+      })),
+      contentPreview: content.slice(0, 200),
+    },
+    "Surface action follow-up: preparing to send message to model",
+  );
+
   const result = ctx.enqueueMessage(
     content,
-    [],
+    pendingAttachments,
     onEvent,
     requestId,
     surfaceId,
@@ -929,13 +1030,18 @@ export function handleSurfaceAction(
     ctx.pendingSurfaceActions.delete(surfaceId);
   }
   log.info(
-    { surfaceId, actionId, requestId },
-    "Processing surface action as follow-up",
+    {
+      surfaceId,
+      actionId,
+      requestId,
+      attachmentCount: pendingAttachments.length,
+    },
+    "Processing surface action as follow-up with attachments",
   );
   ctx
     .processMessage(
       content,
-      [],
+      pendingAttachments,
       onEvent,
       requestId,
       surfaceId,
