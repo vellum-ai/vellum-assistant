@@ -135,36 +135,27 @@ final class MessageListScrollPerformanceTests: XCTestCase {
         }
     }
 
-    // MARK: - Test 3: ChatBottomPinCoordinator Session Lifecycle
+    // MARK: - Test 3: ChatBottomPinCoordinator Pin Request
 
-    /// Measures a complete ChatBottomPinCoordinator session lifecycle:
-    /// create coordinator, start a session, record 5 retry attempts, then
-    /// let the session exhaust. This benchmarks the synchronous hot path
-    /// (no async retry loop) to keep the test deterministic.
+    /// Measures the synchronous hot path of ChatBottomPinCoordinator:
+    /// create coordinator, request a pin, reset — repeated 100 times.
+    /// With sessions removed, each requestPin is a single-attempt call.
     @MainActor
-    func testChatBottomPinCoordinatorSessionLifecycle() {
+    func testChatBottomPinCoordinatorPinRequest() {
         measure(metrics: [XCTClockMetric()]) {
             let coordinator = ChatBottomPinCoordinator()
             var pinCallCount = 0
 
             coordinator.onPinRequested = { _, _ in
                 pinCallCount += 1
-                return false // Simulate geometry unavailable
+                return true
             }
 
             let convId = UUID()
 
-            // Run 100 session lifecycles to get a stable measurement.
+            // Run 100 pin request cycles to get a stable measurement.
             for _ in 0..<100 {
-                pinCallCount = 0
-
-                // Start a session (triggers immediate first attempt).
                 coordinator.requestPin(reason: .initialRestore, conversationId: convId)
-
-                // The session is active with 1 attempt recorded.
-                // Manually exhaust it by sending requests that coalesce,
-                // then cancel and reset for the next iteration.
-                coordinator.cancelActiveSession(reason: .conversationSwitch)
                 coordinator.reset(newConversationId: convId)
             }
 

@@ -248,14 +248,15 @@ extension MessageListScrollCoordinator {
             self.suppressionTimeoutTasks[ScrollSuppression.resize.rawValue]?.cancel()
             self.suppressionTimeoutTasks[ScrollSuppression.resize.rawValue] = nil
             defer {
-                if !Task.isCancelled {
-                    self.removeSuppression(.resize)
-                    onComplete()
-                }
+                if !Task.isCancelled { onComplete() }
             }
             try? await Task.sleep(nanoseconds: 100_000_000)
-            guard !Task.isCancelled else { return }
-
+            guard !Task.isCancelled else {
+                self.removeSuppression(.resize)
+                return
+            }
+            // Remove suppression BEFORE the pin request so it isn't rejected.
+            self.removeSuppression(.resize)
             if isNearBottom && anchorMessageId == nil && !self.isAtBottom {
                 self.requestBottomPin(reason: .resize, conversationId: conversationId)
             }
