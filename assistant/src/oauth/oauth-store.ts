@@ -175,6 +175,9 @@ export function registerProvider(params: {
   dashboardUrl?: string;
   clientIdPlaceholder?: string;
   requiresClientSecret?: number;
+  pingMethod?: string;
+  pingHeaders?: string;
+  pingBody?: string;
 }): OAuthProviderRow {
   const db = getDb();
   const now = Date.now();
@@ -196,6 +199,9 @@ export function registerProvider(params: {
     extraParams: params.extraParams ? JSON.stringify(params.extraParams) : null,
     callbackTransport: params.callbackTransport ?? null,
     pingUrl: params.pingUrl ?? null,
+    pingMethod: params.pingMethod ?? null,
+    pingHeaders: params.pingHeaders ?? null,
+    pingBody: params.pingBody ?? null,
     managedServiceConfigKey: params.managedServiceConfigKey ?? null,
     displayName: params.displayName ?? null,
     description: params.description ?? null,
