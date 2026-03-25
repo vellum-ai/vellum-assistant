@@ -373,6 +373,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 options.maxAttachmentSize = MetricKitManager.sentryMaxAttachmentSize
             }
             SentryDeviceInfo.configureSentryScope()
+            SentryLogReporter.start()
         }
 
         // Surface any crash log from the previous session so the user can send

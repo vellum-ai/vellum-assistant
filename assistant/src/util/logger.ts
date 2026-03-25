@@ -18,6 +18,7 @@ import {
 } from "../config/env-registry.js";
 import { logSerializers } from "./log-redact.js";
 import { getLogPath } from "./platform.js";
+import { createSentryLogStream } from "./sentry-log-stream.js";
 
 /** Common pino-pretty options that inline [module] into the message prefix. */
 function prettyOpts(extra?: PrettyOptions): PrettyOptions {
@@ -133,6 +134,11 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   activeLogDate = today;
   activeLogFileConfig = { ...config, dir };
 
+  const sentryStream = {
+    stream: createSentryLogStream(),
+    level: "error" as const,
+  };
+
   // When stdout is not a TTY (e.g. desktop app redirects to a hatch log file),
   // write to the rotating file only — the hatch log already captured early
   // startup output and echoing pino output there is unnecessary duplication.
@@ -141,7 +147,10 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
   if (!process.stdout.isTTY && !getIsContainerized()) {
     return pino(
       { name: "assistant", level: "info", serializers: logSerializers },
-      fileStream,
+      pino.multistream([
+        { stream: fileStream, level: "info" as const },
+        sentryStream,
+      ]),
     );
   }
 
@@ -153,6 +162,7 @@ function buildRotatingLogger(config: LogFileConfig): pino.Logger {
         stream: pinoPretty(prettyOpts({ destination: 1 })),
         level: "info" as const,
       },
+      sentryStream,
     ]),
   );
 }

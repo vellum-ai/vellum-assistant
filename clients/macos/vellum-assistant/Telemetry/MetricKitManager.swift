@@ -195,6 +195,7 @@ import os
     /// `nonisolated` so AppDelegate and Settings code can call it without
     /// crossing the @MainActor boundary.
     nonisolated static func closeSentry() {
+        SentryLogReporter.stop()
         sentrySerialQueue.async {
             SentrySDK.close()
         }
@@ -209,6 +210,7 @@ import os
         sentrySerialQueue.async {
             restartSentryInline()
         }
+        SentryLogReporter.start()
     }
 
     /// Synchronous Sentry restart — must be called from `sentrySerialQueue`.
