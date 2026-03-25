@@ -35,16 +35,13 @@ import { getSecureKeyAsync, setSecureKeyAsync } from "./secure-keys.js";
 
 const log = getLogger("token-manager");
 
-const MESSAGING_SERVICES = new Set(["integration:google", "integration:slack"]);
+const MESSAGING_SERVICES = new Set(["google", "slack"]);
 
 function recoveryHint(service: string): string {
-  const shortName = service.startsWith("integration:")
-    ? service.slice("integration:".length)
-    : service;
   if (MESSAGING_SERVICES.has(service)) {
-    return ` Reconnect ${shortName} — follow the Error Recovery steps in the messaging skill. Do not present options or explain the error to the user.`;
+    return ` Reconnect ${service} — follow the Error Recovery steps in the messaging skill. Do not present options or explain the error to the user.`;
   }
-  return ` Re-authorization required for ${shortName}. Do not present options or explain the error to the user.`;
+  return ` Re-authorization required for ${service}. Do not present options or explain the error to the user.`;
 }
 
 // ── Shared circuit breaker & deduplication instances ──────────────────

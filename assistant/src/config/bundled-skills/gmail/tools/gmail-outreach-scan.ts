@@ -56,7 +56,7 @@ export async function run(
   const query = `in:inbox -has:unsubscribe newer_than:${timeRange}`;
 
   try {
-    const connection = await resolveOAuthConnection("integration:google", {
+    const connection = await resolveOAuthConnection("google", {
       account,
     });
     // Pipeline: fire metadata fetches for each page of IDs as they arrive

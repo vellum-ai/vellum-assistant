@@ -56,8 +56,8 @@ describe("integration-status", () => {
     });
 
     test("returns all connected when all keys are set", async () => {
-      setOAuthConnected("integration:google");
-      setOAuthConnected("integration:slack");
+      setOAuthConnected("google");
+      setOAuthConnected("slack");
       mockTwilioAccountSid = "sid";
       secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
       setOAuthConnected("telegram");
@@ -129,8 +129,8 @@ describe("integration-status", () => {
     });
 
     test("all connected", async () => {
-      setOAuthConnected("integration:google");
-      setOAuthConnected("integration:slack");
+      setOAuthConnected("google");
+      setOAuthConnected("slack");
       mockTwilioAccountSid = "sid";
       secureKeyValues.set(credentialKey("twilio", "auth_token"), "auth");
       setOAuthConnected("telegram");
@@ -163,7 +163,7 @@ describe("integration-status", () => {
     });
 
     test("email category checks Gmail", async () => {
-      setOAuthConnected("integration:google");
+      setOAuthConnected("google");
       expect(await hasCapability("email")).toBe(true);
     });
   });

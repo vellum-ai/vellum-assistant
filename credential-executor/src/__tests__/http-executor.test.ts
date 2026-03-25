@@ -102,7 +102,7 @@ function buildOAuthConnection(
 ): OAuthConnectionRecord {
   return {
     id: overrides.id ?? "conn-uuid-1",
-    providerKey: overrides.providerKey ?? "integration:google",
+    providerKey: overrides.providerKey ?? "google",
     accountInfo: overrides.accountInfo ?? "user@example.com",
     grantedScopes: overrides.grantedScopes ?? ["openid", "email"],
     accessTokenPath: overrides.accessTokenPath ??
@@ -434,7 +434,7 @@ describe("HTTP executor: local OAuth", () => {
   beforeEach(() => {
     connection = buildOAuthConnection({
       id: "conn-google-1",
-      providerKey: "integration:google",
+      providerKey: "google",
       expiresAt: Date.now() + 3600000, // valid for 1 hour
     });
 
@@ -451,7 +451,7 @@ describe("HTTP executor: local OAuth", () => {
   });
 
   test("successful OAuth request with matching grant", async () => {
-    const handle = localOAuthHandle("integration:google", "conn-google-1");
+    const handle = localOAuthHandle("google", "conn-google-1");
 
     fixture.persistentStore.add({
       id: "grant-google-calendar",
@@ -492,7 +492,7 @@ describe("HTTP executor: local OAuth", () => {
   });
 
   test("OAuth token scrubbed from response body", async () => {
-    const handle = localOAuthHandle("integration:google", "conn-google-1");
+    const handle = localOAuthHandle("google", "conn-google-1");
 
     fixture.persistentStore.add({
       id: "grant-google-debug",

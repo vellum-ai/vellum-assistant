@@ -32,7 +32,7 @@ export async function run(
   }
 
   try {
-    const connection = await resolveOAuthConnection("integration:google", {
+    const connection = await resolveOAuthConnection("google", {
       account,
     });
     const message = await getMessage(connection, messageId, "metadata", [

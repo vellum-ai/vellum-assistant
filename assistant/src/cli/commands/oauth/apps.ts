@@ -46,8 +46,8 @@ a provider with a mode of "your-own" set.
 Examples:
   $ assistant oauth apps list
   $ assistant oauth apps get --id <uuid>
-  $ assistant oauth apps get --provider integration:google
-  $ assistant oauth apps upsert --provider integration:google --client-id abc123
+  $ assistant oauth apps get --provider google
+  $ assistant oauth apps upsert --provider google --client-id abc123
   $ assistant oauth apps delete <id>`,
   );
 
@@ -99,7 +99,7 @@ Examples:
     .option("--id <id>", "App ID (UUID) from 'assistant oauth apps list'")
     .option(
       "--provider <key>",
-      "Provider key (e.g. integration:google) from 'assistant oauth providers list'",
+      "Provider key (e.g. google) from 'assistant oauth providers list'",
     )
     .option(
       "--client-id <id>",
@@ -114,10 +114,10 @@ Three lookup modes are supported:
      $ assistant oauth apps get --id <uuid>
 
   2. By provider + client ID (exact match):
-     $ assistant oauth apps get --provider integration:google --client-id abc123
+     $ assistant oauth apps get --provider google --client-id abc123
 
   3. By provider only (returns the most recently created app):
-     $ assistant oauth apps get --provider integration:google
+     $ assistant oauth apps get --provider google
 
 At least --id or --provider must be specified.`,
     )
@@ -177,7 +177,7 @@ At least --id or --provider must be specified.`,
     .description("Create or return an existing OAuth app registration")
     .requiredOption(
       "--provider <key>",
-      "Provider key (e.g. integration:google) from 'assistant oauth providers list'",
+      "Provider key (e.g. google) from 'assistant oauth providers list'",
     )
     .requiredOption(
       "--client-id <id>",
@@ -206,13 +206,13 @@ existing credential in the store via --client-secret-credential-path. These two
 options are mutually exclusive — providing both is an error.
 
 The --client-secret-credential-path must be a full credential path
-(e.g. "credential/integration:google/client_secret").
+(e.g. "credential/google/client_secret").
 
 Examples:
-  $ assistant oauth apps upsert --provider integration:google --client-id abc123
-  $ assistant oauth apps upsert --provider integration:slack --client-id def456 --client-secret s3cret
-  $ assistant oauth apps upsert --provider integration:slack --client-id def456 --client-secret-credential-path "credential/integration:slack/client_secret"
-  $ assistant oauth apps upsert --provider integration:google --client-id abc123 --json`,
+  $ assistant oauth apps upsert --provider google --client-id abc123
+  $ assistant oauth apps upsert --provider slack --client-id def456 --client-secret s3cret
+  $ assistant oauth apps upsert --provider slack --client-id def456 --client-secret-credential-path "credential/slack/client_secret"
+  $ assistant oauth apps upsert --provider google --client-id abc123 --json`,
     )
     .action(
       async (

@@ -24,8 +24,7 @@ export function registerStatusCommand(oauth: Command): void {
       "after",
       `
 Arguments:
-  provider   Provider name or key. Accepts bare names (google, slack),
-             canonical keys (integration:google), or aliases (gmail).
+  provider   Provider name (e.g. google, slack).
              Run 'assistant oauth providers list' to see all available providers.
 
 The output includes connection IDs and account identifiers that can be used
@@ -36,7 +35,7 @@ as inputs to other commands:
 
 Examples:
   $ assistant oauth status google
-  $ assistant oauth status integration:google --json`,
+  $ assistant oauth status google --json`,
     )
     .action(
       async (

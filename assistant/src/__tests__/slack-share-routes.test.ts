@@ -111,7 +111,7 @@ describe("handleListSlackChannels", () => {
   });
 
   test("returns channels sorted by type then name", async () => {
-    connectionByProvider["integration:slack"] = { id: "conn-slack-1" };
+    connectionByProvider["slack"] = { id: "conn-slack-1" };
     secureKeyValues.set(
       "oauth_connection/conn-slack-1/access_token",
       "xoxb-test",
@@ -192,7 +192,7 @@ describe("handleShareToSlackChannel", () => {
   });
 
   test("returns 400 for malformed JSON", async () => {
-    connectionByProvider["integration:slack"] = { id: "conn-slack-1" };
+    connectionByProvider["slack"] = { id: "conn-slack-1" };
     secureKeyValues.set(
       "oauth_connection/conn-slack-1/access_token",
       "xoxb-test",
@@ -207,7 +207,7 @@ describe("handleShareToSlackChannel", () => {
   });
 
   test("returns 400 when missing required fields", async () => {
-    connectionByProvider["integration:slack"] = { id: "conn-slack-1" };
+    connectionByProvider["slack"] = { id: "conn-slack-1" };
     secureKeyValues.set(
       "oauth_connection/conn-slack-1/access_token",
       "xoxb-test",
@@ -220,7 +220,7 @@ describe("handleShareToSlackChannel", () => {
   });
 
   test("returns 404 when app not found", async () => {
-    connectionByProvider["integration:slack"] = { id: "conn-slack-1" };
+    connectionByProvider["slack"] = { id: "conn-slack-1" };
     secureKeyValues.set(
       "oauth_connection/conn-slack-1/access_token",
       "xoxb-test",
@@ -232,7 +232,7 @@ describe("handleShareToSlackChannel", () => {
   });
 
   test("posts message and returns success", async () => {
-    connectionByProvider["integration:slack"] = { id: "conn-slack-1" };
+    connectionByProvider["slack"] = { id: "conn-slack-1" };
     secureKeyValues.set(
       "oauth_connection/conn-slack-1/access_token",
       "xoxb-test",

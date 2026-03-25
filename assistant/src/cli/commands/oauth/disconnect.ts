@@ -14,7 +14,6 @@ import {
   isManagedMode,
   requirePlatformClient,
   resolveService,
-  toBareProvider,
 } from "./shared.js";
 
 const log = getCliLogger("cli");
@@ -38,7 +37,7 @@ export function registerDisconnectCommand(oauth: Command): void {
       "after",
       `
 Arguments:
-  provider   Provider name or key (e.g. google, integration:google, gmail).
+  provider   Provider name (e.g. google, slack, gmail).
              Run 'assistant oauth providers list' to see available providers.
 
 Options:
@@ -136,7 +135,7 @@ Examples:
               );
               if (matching.length === 0) {
                 writeError(
-                  `No active connection found for "${toBareProvider(providerKey)}" with account "${opts.account}".\n\n` +
+                  `No active connection found for "${providerKey}" with account "${opts.account}".\n\n` +
                     `Run 'assistant oauth status ${provider}' to see connected accounts.`,
                 );
                 return;
@@ -148,7 +147,7 @@ Examples:
               const match = entries.find((c) => c.id === opts.connectionId);
               if (!match) {
                 writeError(
-                  `Connection "${opts.connectionId}" is not an active ${toBareProvider(providerKey)} connection.\n\n` +
+                  `Connection "${opts.connectionId}" is not an active ${providerKey} connection.\n\n` +
                     `Run 'assistant oauth status ${provider}' to see active connections.`,
                 );
                 return;
@@ -159,7 +158,7 @@ Examples:
               // Neither specified — auto-resolve
               if (entries.length === 0) {
                 writeError(
-                  `No active connections found for "${toBareProvider(providerKey)}".\n\n` +
+                  `No active connections found for "${providerKey}".\n\n` +
                     `Run 'assistant oauth status ${provider}' to check connection status.`,
                 );
                 return;
@@ -171,7 +170,7 @@ Examples:
                   account: c.account_label ?? null,
                 }));
                 writeError(
-                  `Multiple active connections for "${toBareProvider(providerKey)}". ` +
+                  `Multiple active connections for "${providerKey}". ` +
                     `Specify which one to disconnect with --account or --connection-id.\n\n` +
                     `Run 'assistant oauth status ${provider}' to see connected accounts and IDs.`,
                   { connections: connectionList },

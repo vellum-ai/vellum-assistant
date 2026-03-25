@@ -59,11 +59,9 @@ export async function resolveOAuthConnection(
         );
       }
 
-      const providerSlug = providerKey.replace(/^integration:/, "");
-
       const connectionId = await resolvePlatformConnectionId({
         client,
-        provider: providerSlug,
+        provider: providerKey,
         account,
       });
 

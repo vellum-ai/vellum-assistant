@@ -76,7 +76,7 @@ export async function run(
   if (!forwardTo) return err("to is required.");
 
   try {
-    const connection = await resolveOAuthConnection("integration:google", {
+    const connection = await resolveOAuthConnection("google", {
       account,
     });
     const message = await getMessage(connection, messageId, "full");

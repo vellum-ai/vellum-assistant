@@ -27,9 +27,8 @@ export function registerPingCommand(oauth: Command): void {
       "after",
       `
 Arguments:
-  provider   Provider key, alias, or provider ID from 'assistant oauth providers list'.
-             Accepts canonical keys (e.g. integration:google), aliases (e.g.
-             gmail), or bare provider names (e.g. google).
+  provider   Provider name (e.g. google, slack).
+             Run 'assistant oauth providers list' to see available providers.
 
 Options:
   --account <account>   Account identifier (e.g. email) to disambiguate when
@@ -40,7 +39,7 @@ Options:
 
 Examples:
   $ assistant oauth ping google
-  $ assistant oauth ping integration:google --json
+  $ assistant oauth ping google --json
   $ assistant oauth ping google --account user@example.com`,
     )
     .action(
