@@ -662,6 +662,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public func performZoomOut() { zoomManager.zoomOut() }
     public func performZoomReset() { zoomManager.resetZoom() }
 
+    public func popOutActiveConversation() {
+        guard let mainWindow = mainWindow,
+              let id = mainWindow.conversationManager.activeConversationId,
+              mainWindow.conversationManager.activeConversation?.conversationId != nil else { return }
+        threadWindowManager?.openThread(
+            conversationLocalId: id,
+            conversationManager: mainWindow.conversationManager
+        )
+    }
+
     public func createNewConversation() {
         showMainWindow()
         mainWindow?.conversationManager.createConversation()
