@@ -1482,7 +1482,7 @@ describe("executeAuthenticatedCommand — integration: local OAuth", () => {
     });
     addCommandGrant(
       deps.persistentStore,
-      "local_oauth:integration:google/conn-123",
+      "local_oauth:google/conn-123",
       digest,
       "list",
     );
@@ -1490,7 +1490,7 @@ describe("executeAuthenticatedCommand — integration: local OAuth", () => {
     const request: ExecuteCommandRequest = {
       bundleDigest: digest,
       profileName: "list",
-      credentialHandle: "local_oauth:integration:google/conn-123",
+      credentialHandle: "local_oauth:google/conn-123",
       argv: ["list", "--format", "json"],
       workspaceDir: testWorkspaceDir,
       purpose: "OAuth pipeline test",
