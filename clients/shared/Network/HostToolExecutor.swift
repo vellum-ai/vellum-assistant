@@ -138,6 +138,15 @@ public enum HostToolExecutor {
             // Register the process so cancel can terminate it
             lock.withLock { runningProcesses[request.requestId] = process }
 
+            // Re-check cancellation after registration — a cancel may have
+            // arrived between the initial check and the store above.
+            if isCancelledAndConsume(request.requestId) {
+                lock.withLock { runningProcesses.removeValue(forKey: request.requestId) }
+                timerSource.cancel()
+                log.debug("Host bash cancelled before launch — requestId=\(request.requestId, privacy: .public)")
+                return
+            }
+
             do {
                 try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                     process.terminationHandler = { _ in
