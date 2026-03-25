@@ -1235,6 +1235,7 @@ struct MainWindowView: View {
             )
             .frame(width: drawerWidth)
             .offset(x: 16 + VSpacing.sm, y: -drawerY)
+            .animation(VAnimation.snappy, value: sidebarExpanded)
             .zIndex(10)
             .transition(.scale(scale: 0.96, anchor: .bottom).combined(with: .opacity))
         }
