@@ -145,7 +145,9 @@ final class SecretPromptManager {
             dismissPrompt(requestId: requestId)
         } else if success {
             // Save: delay dismiss so "Saved" confirmation is visible
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard !Task.isCancelled else { return }
                 self?.dismissPrompt(requestId: requestId)
             }
         }

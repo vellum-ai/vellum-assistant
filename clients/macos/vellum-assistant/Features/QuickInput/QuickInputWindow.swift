@@ -164,7 +164,9 @@ final class QuickInputWindow {
                 if let conversationId = self?.textModel.selectedConversationId {
                     self?.onSelectConversation?(conversationId)
                     // Small delay so the conversation switches before we send the message
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    Task { @MainActor [weak self] in
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                        guard !Task.isCancelled else { return }
                         self?.onSubmitToConversation?(message, self?.attachedImageData)
                     }
                 } else {

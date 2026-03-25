@@ -244,7 +244,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Apply immediately, and again after a short delay to catch SwiftUI
         // resetting the title after applicationDidFinishLaunching returns.
         applyMenuBarTitlePatch()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            guard !Task.isCancelled else { return }
             self?.applyMenuBarTitlePatch()
         }
     }
@@ -260,8 +262,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// with delays (same pattern as Help menu and app-name patching).
     func installFileMenuDelegate() {
         installFileMenuDelegateOnce()
-        for delay in [0.1, 0.5, 1.0] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+        for delay: UInt64 in [100_000_000, 500_000_000, 1_000_000_000] {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: delay)
+                guard !Task.isCancelled else { return }
                 self?.installFileMenuDelegateOnce()
             }
         }
@@ -317,7 +321,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             if let existing = others.first {
                 log.info("[singleInstance] Another instance (pid \(existing.processIdentifier)) detected — activating it and terminating self")
                 existing.activate()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 300_000_000)
+                    guard !Task.isCancelled else { return }
                     NSApp.terminate(nil)
                 }
                 return
