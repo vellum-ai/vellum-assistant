@@ -654,9 +654,9 @@ struct MessageListView: View {
                   let color = appearance.characterColor {
             HStack {
                 AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
-                                   size: avatarSize, blinkEnabled: true, pokeEnabled: true)
+                                   size: avatarSize, blinkEnabled: true, pokeEnabled: true,
+                                   isStreaming: true)
                     .frame(width: avatarSize, height: avatarSize)
-                    .modifier(AvatarWiggleModifier(isActive: true))
                 Spacer()
             }
             .accessibilityHidden(true)

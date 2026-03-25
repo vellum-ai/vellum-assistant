@@ -73,6 +73,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("vDisclosureSection", "VDisclosureSection", keywords: ["disclosure", "collapsible"], description: "Full-row clickable disclosure with animated chevron. Replaces DisclosureGroup.", useInsteadOf: "Raw DisclosureGroup"),
                 GalleryComponent("vListRow", "VListRow", keywords: ["list row"], description: "List item with hover highlight and optional tap action."),
                 GalleryComponent("vAvatarImage", "VAvatarImage", keywords: ["avatar", "image"], description: "Avatar with transparency-aware clip shape. Transparent images show full artwork; opaque images clip to a circle."),
+                GalleryComponent("animatedAvatar", "AnimatedAvatarView", keywords: ["avatar", "animated", "character", "streaming", "morph"], description: "Live-rendered avatar with CAShapeLayer. Supports breathing, blinking, poke, and streaming body-morph animations."),
                 GalleryComponent("vCodeView", "VCodeView", keywords: ["code view", "syntax"], description: "Read-only code viewer with line numbers, search, and pluggable syntax highlighting. Wraps NSTextView for native text selection."),
                 GalleryComponent("vDiffView", "VDiffView", keywords: ["diff view"], description: "Renders unified diff text with per-line colored backgrounds. Green for additions, red for removals."),
                 GalleryComponent("vStreamingWaveform", "VStreamingWaveform", keywords: ["waveform", "streaming"], description: "Animated audio waveform driven by amplitude. Two styles: conversation (centered) and dictation (bottom-aligned)."),
@@ -359,12 +360,18 @@ struct ComponentGalleryView: View {
 
 // MARK: - Section Header
 
-struct GallerySectionHeader: View {
-    let title: String
-    let description: String
-    var useInsteadOf: String?
+public struct GallerySectionHeader: View {
+    public let title: String
+    public let description: String
+    public var useInsteadOf: String?
 
-    var body: some View {
+    public init(title: String, description: String, useInsteadOf: String? = nil) {
+        self.title = title
+        self.description = description
+        self.useInsteadOf = useInsteadOf
+    }
+
+    public var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text(title)
                 .font(VFont.titleLarge)

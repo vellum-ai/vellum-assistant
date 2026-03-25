@@ -432,9 +432,9 @@ struct ChatBubble: View {
                   let eyeStyle = appearance.characterEyeStyle,
                   let color = appearance.characterColor {
             AnimatedAvatarView(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color,
-                               size: avatarSize, blinkEnabled: true, pokeEnabled: true)
+                               size: avatarSize, blinkEnabled: true, pokeEnabled: true,
+                               isStreaming: message.isStreaming)
                 .frame(width: avatarSize, height: avatarSize)
-                .modifier(AvatarWiggleModifier(isActive: message.isStreaming))
                 .scaleEffect(avatarBounceScale)
                 .onTapGesture { triggerBounce() }
         } else {

@@ -698,8 +698,10 @@ extension AppDelegate {
 
     #if DEBUG
     @objc func showComponentGallery() {
+        AvatarGallerySection.registerInGallery()
         if galleryWindow == nil { galleryWindow = ComponentGalleryWindow() }
         galleryWindow?.show()
     }
+
     #endif
 }

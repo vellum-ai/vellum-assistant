@@ -458,8 +458,22 @@ extension DisplayGallerySection {
         case "vCodeView": DisplayGallerySection(filter: "vCodeView")
         case "vDiffView": DisplayGallerySection(filter: "vDiffView")
         case "vStreamingWaveform": DisplayGallerySection(filter: "vStreamingWaveform")
-        default: EmptyView()
+        default:
+            if let factory = DisplayGallerySection.externalPageFactories[id] {
+                AnyView(factory())
+            } else {
+                EmptyView()
+            }
         }
     }
+
+    /// Registry for platform-specific gallery pages (e.g. macOS-only AnimatedAvatarView).
+    nonisolated(unsafe) static var externalPageFactories: [String: () -> AnyView] = [:]
+}
+
+/// Register an external gallery page factory for a component ID.
+/// Used by the macOS target to inject platform-specific gallery pages.
+public func registerDisplayGalleryPage(id: String, factory: @escaping () -> AnyView) {
+    DisplayGallerySection.externalPageFactories[id] = factory
 }
 #endif

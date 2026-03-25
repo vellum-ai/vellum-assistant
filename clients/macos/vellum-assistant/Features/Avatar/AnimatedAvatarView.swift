@@ -13,6 +13,7 @@ struct AnimatedAvatarView: View {
     var blinkEnabled: Bool = true
     var pokeEnabled: Bool = true
     var entryAnimationEnabled: Bool = false
+    var isStreaming: Bool = false
 
     @State private var isHovered = false
 
@@ -20,6 +21,7 @@ struct AnimatedAvatarView: View {
         AvatarLayerRepresentable(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color, size: size,
                                  breathingEnabled: breathingEnabled, blinkEnabled: blinkEnabled, pokeEnabled: pokeEnabled,
                                  entryAnimationEnabled: entryAnimationEnabled,
+                                 isStreaming: isStreaming,
                                  isHovered: isHovered)
             .frame(width: size, height: size)
             .accessibilityHidden(true)
@@ -39,6 +41,7 @@ private struct AvatarLayerRepresentable: NSViewRepresentable {
     var blinkEnabled: Bool = true
     var pokeEnabled: Bool = true
     var entryAnimationEnabled: Bool = false
+    var isStreaming: Bool = false
     var isHovered: Bool = false
 
     func makeNSView(context: Context) -> AvatarLayerView {
@@ -47,6 +50,7 @@ private struct AvatarLayerRepresentable: NSViewRepresentable {
                        breathingEnabled: breathingEnabled, blinkEnabled: blinkEnabled, pokeEnabled: pokeEnabled,
                        entryAnimationEnabled: entryAnimationEnabled)
         view.updateHoverState(isHovered)
+        view.updateStreamingState(isStreaming)
         return view
     }
 
@@ -55,6 +59,7 @@ private struct AvatarLayerRepresentable: NSViewRepresentable {
                          breathingEnabled: breathingEnabled, blinkEnabled: blinkEnabled, pokeEnabled: pokeEnabled,
                          entryAnimationEnabled: entryAnimationEnabled)
         nsView.updateHoverState(isHovered)
+        nsView.updateStreamingState(isStreaming)
     }
 }
 
@@ -98,6 +103,18 @@ class AvatarLayerView: NSView {
     /// Whether configure() has set up entry animation state (closed eyes, drop transform)
     /// that needs to be cleaned up if the entry animation never fires.
     private var entrySetupPending: Bool = false
+
+    /// Whether the body morphing streaming animation is currently active.
+    private var isStreamingActive: Bool = false
+    /// Cached current body shape and size for morph path generation.
+    private var currentBodyShape: AvatarBodyShape?
+    private var currentSize: CGFloat = 0
+    /// Pre-computed wobbled body paths for streaming animation.
+    /// Index 0 is the original shape; remaining indices are wobble variants.
+    private var bodyWobblePaths: [CGPath] = []
+    /// Timer-driven path cycling for the wobble animation.
+    private var wobbleTimer: Task<Void, Never>?
+    private var wobbleFrameIndex: Int = 0
 
     /// Notification observers for window key/resign-key events.
     private var notificationObservers: [NSObjectProtocol] = []
@@ -203,6 +220,8 @@ class AvatarLayerView: NSView {
         let key = "\(bodyShape.rawValue)-\(eyeStyle.rawValue)-\(color.rawValue)-\(String(format: "%.1f", size))-\(breathingEnabled)-\(blinkEnabled)-\(pokeEnabled)"
         guard key != currentKey else { return }
         currentKey = key
+        currentBodyShape = bodyShape
+        currentSize = size
 
         // Update frame
         frame = NSRect(x: 0, y: 0, width: size, height: size)
@@ -226,6 +245,22 @@ class AvatarLayerView: NSView {
         // Anchor scale from the center of the body layer so breathing animates symmetrically
         bodyLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
         bodyLayer.position = CGPoint(x: frame.width / 2, y: frame.height / 2)
+
+        // Pre-compute wobbled body paths for streaming animation.
+        // Mirrors the eye blink approach: same EditablePath, same transform,
+        // just control points perturbed — guarantees identical element count.
+        bodyWobblePaths.removeAll()
+        if bodyViewBox.width > 0 && bodyViewBox.height > 0 {
+            let wobbleAmount: CGFloat = 0.12  // ±12% radial scale
+            for seed in 0..<16 {
+                let wobbled = seed == 0 ? bodyEditable : bodyEditable.wobbled(seed: seed, amount: wobbleAmount)
+                let wCGPath = wobbled.toCGPath()
+                var wTransform = bodyTransform
+                if let transformed = wCGPath.copy(using: &wTransform) {
+                    bodyWobblePaths.append(transformed)
+                }
+            }
+        }
 
         // --- Eye layers ---
         // Remove old eye layers
@@ -372,6 +407,98 @@ class AvatarLayerView: NSView {
         breathe.repeatCount = .infinity
         breathe.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
         bodyLayer.add(breathe, forKey: "breathing")
+    }
+
+    // MARK: - Streaming Body Morph
+
+    func updateStreamingState(_ streaming: Bool) {
+        guard streaming != isStreamingActive else { return }
+        isStreamingActive = streaming
+        if streaming {
+            startBodyMorph()
+        } else {
+            stopBodyMorph()
+        }
+    }
+
+    private func startBodyMorph() {
+        guard bodyWobblePaths.count >= 2 else { return }
+
+        // Remove breathing — conflicts with morph.
+        bodyLayer.removeAnimation(forKey: "breathing")
+        wobbleTimer?.cancel()
+        wobbleFrameIndex = 0
+
+        // Timer-driven path morphing: cycle through wobble paths using
+        // CABasicAnimation for smooth interpolation between each pair.
+        // This approach is proven to work (same as eye blink transitions).
+        wobbleTimer = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 150_000_000) // 0.15s per frame
+                guard !Task.isCancelled, let self = self else { return }
+                await MainActor.run {
+                    guard self.isStreamingActive, self.bodyWobblePaths.count >= 2 else { return }
+                    let fromIndex = self.wobbleFrameIndex
+                    let toIndex = (fromIndex + 1) % self.bodyWobblePaths.count
+                    self.wobbleFrameIndex = toIndex
+
+                    let anim = CABasicAnimation(keyPath: "path")
+                    anim.fromValue = self.bodyWobblePaths[fromIndex]
+                    anim.toValue = self.bodyWobblePaths[toIndex]
+                    anim.duration = 0.3
+                    anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    anim.fillMode = .forwards
+                    anim.isRemovedOnCompletion = false
+                    self.bodyLayer.add(anim, forKey: "bodyMorph")
+                    self.bodyLayer.path = self.bodyWobblePaths[toIndex]
+                }
+            }
+        }
+
+        // Transform wobble layered on top for squash/stretch/rotation.
+        let scaleX = CAKeyframeAnimation(keyPath: "transform.scale.x")
+        scaleX.values = [1.0, 1.04, 0.97, 1.02, 1.0]
+        scaleX.keyTimes = [0, 0.25, 0.5, 0.75, 1.0] as [NSNumber]
+        scaleX.duration = 1.8
+        scaleX.repeatCount = .infinity
+        scaleX.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: 4)
+
+        let scaleY = CAKeyframeAnimation(keyPath: "transform.scale.y")
+        scaleY.values = [1.0, 0.97, 1.04, 0.98, 1.0]
+        scaleY.keyTimes = [0, 0.25, 0.5, 0.75, 1.0] as [NSNumber]
+        scaleY.duration = 1.8
+        scaleY.repeatCount = .infinity
+        scaleY.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: 4)
+
+        let rotation = CAKeyframeAnimation(keyPath: "transform.rotation.z")
+        rotation.values = [0, 0.03, -0.03, 0.015, 0]
+        rotation.keyTimes = [0, 0.25, 0.5, 0.75, 1.0] as [NSNumber]
+        rotation.duration = 2.4
+        rotation.repeatCount = .infinity
+        rotation.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: 4)
+
+        bodyLayer.add(scaleX, forKey: "bodyMorph.scaleX")
+        bodyLayer.add(scaleY, forKey: "bodyMorph.scaleY")
+        bodyLayer.add(rotation, forKey: "bodyMorph.rotation")
+    }
+
+    private func stopBodyMorph() {
+        wobbleTimer?.cancel()
+        wobbleTimer = nil
+        bodyLayer.removeAnimation(forKey: "bodyMorph")
+        bodyLayer.removeAnimation(forKey: "bodyMorph.scaleX")
+        bodyLayer.removeAnimation(forKey: "bodyMorph.scaleY")
+        bodyLayer.removeAnimation(forKey: "bodyMorph.rotation")
+        // Restore original path (index 0 is the unmodified shape)
+        if let original = bodyWobblePaths.first {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            bodyLayer.path = original
+            CATransaction.commit()
+        }
+        if configBreathingEnabled {
+            startBreathing()
+        }
     }
 
     // MARK: - Window-aware lifecycle
