@@ -5,7 +5,6 @@
  * invite token redemption.
  */
 import { getChannelPermissionProfile } from "../../channels/permission-profiles.js";
-import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -14,6 +13,7 @@ import {
 } from "../../channels/types.js";
 import { touchContactInteraction } from "../../contacts/contacts-write.js";
 import type { TrustContext } from "../../daemon/conversation-runtime-assembly.js";
+import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   recordConversationSeenSignal,
