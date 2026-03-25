@@ -41,7 +41,7 @@ enum LogExporter {
     }
 
     /// Collects logs, archives them, and uploads the archive to the platform API
-    /// (`POST /v1/feedback/`) for storage.
+    /// (`POST /v1/upload/feedback/`) for storage.
     /// Includes report metadata (reason, message) from the log report form.
     ///
     /// Throws if the archive build or platform upload fails. The caller is
@@ -93,7 +93,7 @@ enum LogExporter {
         connectedAssistantId: String?
     ) async throws {
         let baseURL = AuthService.shared.baseURL
-        guard let url = URL(string: "\(baseURL)/v1/feedback/") else {
+        guard let url = URL(string: "\(baseURL)/v1/upload/feedback/") else {
             log.warning("Failed to construct platform feedback URL")
             throw URLError(.badURL)
         }
