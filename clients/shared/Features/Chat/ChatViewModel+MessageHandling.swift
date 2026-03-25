@@ -128,7 +128,7 @@ extension ChatViewModel {
     /// Argument keys whose values may contain credentials and must be redacted.
     /// All comparisons use lowercased keys to catch variants like accessToken,
     /// Authorization, X-API-KEY, etc.
-    private static let sensitiveKeys: Set<String> = [
+    nonisolated static let sensitiveKeys: Set<String> = [
         "value", "secret", "password", "token", "client_secret", "api_key",
         "authorization", "access_token", "refresh_token", "api_secret",
         "accesstoken", "refreshtoken", "apikey", "apisecret", "clientsecret",
@@ -136,7 +136,7 @@ extension ChatViewModel {
     ]
 
     /// Case-insensitive check: does the given key match any sensitive key?
-    private static func isSensitiveKey(_ key: String) -> Bool {
+    nonisolated static func isSensitiveKey(_ key: String) -> Bool {
         sensitiveKeys.contains(key.lowercased())
     }
 

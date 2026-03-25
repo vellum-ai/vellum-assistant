@@ -37,7 +37,7 @@ extension ChatViewModel {
     // MARK: - Image processing utilities
 
     /// Resize image data to fit within `maxDimension` and return PNG data.
-    static func generateThumbnail(from data: Data, maxDimension: CGFloat) -> Data? {
+    nonisolated static func generateThumbnail(from data: Data, maxDimension: CGFloat) -> Data? {
         ChatAttachmentManager.generateThumbnail(from: data, maxDimension: maxDimension)
     }
 
