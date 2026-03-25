@@ -67,7 +67,7 @@ let _cesReconnect: (() => Promise<CesClient | undefined>) | undefined;
 let _lastReconnectAttempt = 0;
 
 /** Minimum interval between CES reconnection attempts. */
-const RECONNECT_COOLDOWN_MS = 10_000;
+const RECONNECT_COOLDOWN_MS = 3_000;
 
 /** Inject a CES RPC client for credential routing. Resets the resolved backend. */
 export function setCesClient(client: CesClient | undefined): void {
