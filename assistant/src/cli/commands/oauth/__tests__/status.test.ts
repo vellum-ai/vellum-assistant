@@ -59,13 +59,9 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
 mock.module("../../../../oauth/provider-behaviors.js", () => ({
   resolveService: (service: string) => {
     const aliases: Record<string, string> = {
-      gmail: "integration:google",
-      google: "integration:google",
-      slack: "integration:slack",
+      gmail: "google",
     };
-    if (aliases[service]) return aliases[service];
-    if (!service.includes(":")) return `integration:${service}`;
-    return service;
+    return aliases[service] ?? service;
   },
   getProviderBehavior: () => undefined,
 }));
@@ -112,13 +108,9 @@ mock.module("../../../lib/daemon-credential-client.js", () => ({
 mock.module("../shared.js", () => ({
   resolveService: (service: string) => {
     const aliases: Record<string, string> = {
-      gmail: "integration:google",
-      google: "integration:google",
-      slack: "integration:slack",
+      gmail: "google",
     };
-    if (aliases[service]) return aliases[service];
-    if (!service.includes(":")) return `integration:${service}`;
-    return service;
+    return aliases[service] ?? service;
   },
   isManagedMode: (key: string) => mockIsManagedMode(key),
   requirePlatformClient: async (_cmd: Command) => {
@@ -167,10 +159,6 @@ mock.module("../shared.js", () => ({
     if (!result.ok) return null;
     return result.body as Array<Record<string, unknown>>;
   },
-  toBareProvider: (provider: string): string =>
-    provider.startsWith("integration:")
-      ? provider.slice("integration:".length)
-      : provider,
 }));
 
 // ---------------------------------------------------------------------------
@@ -263,7 +251,7 @@ describe("assistant oauth status", () => {
   describe("managed mode", () => {
     beforeEach(() => {
       mockGetProvider = () => ({
-        providerKey: "integration:google",
+        providerKey: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockIsManagedMode = () => true;
@@ -300,7 +288,7 @@ describe("assistant oauth status", () => {
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
-      expect(parsed.provider).toBe("integration:google");
+      expect(parsed.provider).toBe("google");
       expect(parsed.mode).toBe("managed");
       expect(parsed.connections).toHaveLength(2);
 
@@ -327,7 +315,7 @@ describe("assistant oauth status", () => {
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
-      expect(parsed.provider).toBe("integration:google");
+      expect(parsed.provider).toBe("google");
       expect(parsed.mode).toBe("managed");
       expect(parsed.connections).toEqual([]);
     });
@@ -388,7 +376,7 @@ describe("assistant oauth status", () => {
   describe("BYO mode", () => {
     beforeEach(() => {
       mockGetProvider = () => ({
-        providerKey: "integration:google",
+        providerKey: "google",
         managedServiceConfigKey: null,
       });
       mockIsManagedMode = () => false;
@@ -399,7 +387,7 @@ describe("assistant oauth status", () => {
       mockListConnections = () => [
         {
           id: "conn-local-1",
-          providerKey: "integration:google",
+          providerKey: "google",
           accountInfo: "localuser@gmail.com",
           grantedScopes: '["email","profile"]',
           expiresAt,
@@ -416,7 +404,7 @@ describe("assistant oauth status", () => {
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
-      expect(parsed.provider).toBe("integration:google");
+      expect(parsed.provider).toBe("google");
       expect(parsed.mode).toBe("byo");
       expect(parsed.connections).toHaveLength(1);
 
@@ -433,7 +421,7 @@ describe("assistant oauth status", () => {
       mockListConnections = () => [
         {
           id: "conn-local-2",
-          providerKey: "integration:google",
+          providerKey: "google",
           accountInfo: null,
           grantedScopes: "[]",
           expiresAt: null,
@@ -460,7 +448,7 @@ describe("assistant oauth status", () => {
       mockListConnections = () => [
         {
           id: "conn-active",
-          providerKey: "integration:google",
+          providerKey: "google",
           accountInfo: "user@gmail.com",
           grantedScopes: "[]",
           expiresAt: null,
@@ -469,7 +457,7 @@ describe("assistant oauth status", () => {
         },
         {
           id: "conn-revoked",
-          providerKey: "integration:google",
+          providerKey: "google",
           accountInfo: "old@gmail.com",
           grantedScopes: "[]",
           expiresAt: null,
@@ -500,7 +488,7 @@ describe("assistant oauth status", () => {
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
-      expect(parsed.provider).toBe("integration:google");
+      expect(parsed.provider).toBe("google");
       expect(parsed.mode).toBe("byo");
       expect(parsed.connections).toEqual([]);
     });
@@ -517,7 +505,7 @@ describe("assistant oauth status", () => {
       mockListConnections = () => [
         {
           id: "conn-structure",
-          providerKey: "integration:google",
+          providerKey: "google",
           accountInfo: "check@gmail.com",
           grantedScopes: '["scope1"]',
           expiresAt: Date.now() + 60_000,
@@ -555,7 +543,7 @@ describe("assistant oauth status", () => {
       mockListConnections = () => [
         {
           id: "conn-bad-scopes",
-          providerKey: "integration:google",
+          providerKey: "google",
           accountInfo: null,
           grantedScopes: "not-valid-json",
           expiresAt: null,
