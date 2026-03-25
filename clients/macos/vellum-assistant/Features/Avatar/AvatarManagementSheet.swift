@@ -81,7 +81,7 @@ struct AvatarManagementSheet: View {
                 actionRow(
                     icon: "photo",
                     label: "Upload Image",
-                    subtitle: "Choose a PNG or JPEG from your Mac"
+                    subtitle: "Choose an image from your Mac"
                 ) {
                     pickImage()
                 }
@@ -329,7 +329,7 @@ struct AvatarManagementSheet: View {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.png, .jpeg, .gif, .heic]
+        panel.allowedContentTypes = [.png, .jpeg, .webP, .gif, .heic]
         panel.message = "Choose a profile picture"
 
         guard panel.runModal() == .OK, let url = panel.url,
