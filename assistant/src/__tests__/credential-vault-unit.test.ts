@@ -880,17 +880,16 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     expect(result.content).toContain("mock-auth-url.example.com");
   });
 
-  test("resolves gmail alias to google", async () => {
-    // Even with alias resolution, missing client_id should still fail
+  test("rejects missing client_id for google", async () => {
+    // Missing client_id should fail
     const result = await credentialStoreTool.execute(
       {
         action: "oauth2_connect",
-        service: "gmail",
+        service: "google",
       },
       _ctx,
     );
     expect(result.isError).toBe(true);
-    // Should NOT require auth_url/token_url/scopes — those are well-known for gmail
     // Should fail on client_id since none is stored
     expect(result.content).toContain("client_id is required");
   });
@@ -1062,14 +1061,14 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     const result = await credentialStoreTool.execute(
       {
         action: "oauth2_connect",
-        service: "gmail",
+        service: "google",
         client_id: "unknown-client-id",
       },
       _ctx,
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("client_secret is required for gmail");
+    expect(result.content).toContain("client_secret is required for google");
     // getMostRecentAppByProvider should NOT have been called
     expect(mockGetMostRecentAppByProvider).not.toHaveBeenCalled();
 
@@ -1098,13 +1097,13 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     const result = await credentialStoreTool.execute(
       {
         action: "oauth2_connect",
-        service: "gmail",
+        service: "google",
       },
       _ctx,
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("client_secret is required for gmail");
+    expect(result.content).toContain("client_secret is required for google");
 
     // Reset mocks
     mockGetMostRecentAppByProvider.mockImplementation(() => undefined);
