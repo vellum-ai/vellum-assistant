@@ -44,6 +44,7 @@ struct ImproveExperienceStepView: View {
                             label: "Share Analytics",
                             helperText: "Send anonymous product usage data. Your conversations and personal data are never included."
                         )
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                         SettingsDivider()
 
@@ -53,8 +54,8 @@ struct ImproveExperienceStepView: View {
                             label: "Share Diagnostics",
                             helperText: "Send crash reports and performance metrics. Your conversations and personal data are never included."
                         )
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
                 // ToS consent checkbox
