@@ -46,8 +46,7 @@ function ensureGrantAuditEnabled(cmd: Command): boolean {
 
   writeOutput(cmd, {
     ok: false,
-    error:
-      "CES grant/audit inspection is disabled (feature_flags.ces-grant-audit.enabled is off)",
+    error: "CES grant/audit inspection is disabled (ces-grant-audit is off)",
   });
   process.exitCode = 1;
   return false;

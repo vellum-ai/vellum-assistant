@@ -5,15 +5,15 @@
  * Delegates to the unified feature-flag resolver so that config overrides
  * and registry defaults are respected uniformly.
  *
- * The flag key follows the canonical `feature_flags.<id>.enabled` format
- * and is declared in `meta/feature-flags/feature-flag-registry.json`.
+ * The flag key uses simple kebab-case format and is declared in
+ * `meta/feature-flags/feature-flag-registry.json`.
  */
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../config/schema.js";
 
 /** Gate for the entire email integration. */
-export const EMAIL_FLAG_KEY = "feature_flags.email-channel.enabled" as const;
+export const EMAIL_FLAG_KEY = "email-channel" as const;
 
 /**
  * Whether the email integration is enabled.

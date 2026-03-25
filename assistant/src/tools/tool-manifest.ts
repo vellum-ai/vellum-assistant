@@ -89,7 +89,7 @@ export const explicitTools: Tool[] = [
 
 // ── CES tools (feature-flag gated) ──────────────────────────────────
 // Credential Execution Service tools are only registered when the
-// CES feature flag (`feature_flags.ces-tools.enabled`) is enabled.
+// CES feature flag (`ces-tools`) is enabled.
 // This list is intentionally separate from `explicitTools` so that
 // initializeTools() in registry.ts can conditionally include them.
 

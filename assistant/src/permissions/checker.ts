@@ -444,7 +444,7 @@ async function buildCommandCandidates(
       // through to the permissive skill_load:* allow rule.
       const config = getConfig();
       const inlineEnabled = isAssistantFeatureFlagEnabled(
-        "feature_flags.inline-skill-commands.enabled",
+        "inline-skill-commands",
         config,
       );
 
@@ -1107,7 +1107,7 @@ function skillLoadAllowlistStrategy(
     // Check whether this is a dynamic (inline-command) skill load
     const config = getConfig();
     const inlineEnabled = isAssistantFeatureFlagEnabled(
-      "feature_flags.inline-skill-commands.enabled",
+      "inline-skill-commands",
       config,
     );
 

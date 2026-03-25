@@ -17,9 +17,7 @@ export interface ResolvedSkill {
 export function skillFlagKey(
   skill: Pick<SkillSummary, "featureFlag">,
 ): string | undefined {
-  return skill.featureFlag
-    ? `feature_flags.${skill.featureFlag}.enabled`
-    : undefined;
+  return skill.featureFlag || undefined;
 }
 
 export function resolveSkillStates(
