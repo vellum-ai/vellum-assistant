@@ -140,8 +140,9 @@ final class SecretPromptManager {
     /// Any future change that adds logging here must be audited for secret leaks.
     private func respond(requestId: String, value: String?, delivery: String? = nil) async -> Bool {
         let success = await onResponse?(requestId, value, delivery) ?? true
-        if success && value == nil {
-            // Cancel: dismiss immediately
+        if value == nil {
+            // Cancel: dismiss immediately regardless of whether the
+            // HTTP response succeeded — the user asked to close the panel.
             dismissPrompt(requestId: requestId)
         } else if success {
             // Save: delay dismiss so "Saved" confirmation is visible
