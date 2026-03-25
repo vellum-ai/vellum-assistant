@@ -277,6 +277,7 @@ public struct InlineTableWidget: View {
                             .foregroundStyle(allSelected ? VColor.primaryBase : VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
+                    .pointerCursor()
                     .accessibilityLabel(allSelected ? "Deselect all" : "Select all")
                     .frame(width: selectionColumnWidth)
                 } else {
@@ -319,6 +320,7 @@ public struct InlineTableWidget: View {
                             .foregroundStyle(isSelected ? VColor.primaryBase : VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
+                    .pointerCursor()
                     .frame(width: selectionColumnWidth)
                 } else {
                     Color.clear.frame(width: selectionColumnWidth)
@@ -332,6 +334,7 @@ public struct InlineTableWidget: View {
             }
         }
         .padding(.vertical, VSpacing.xs)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.sm)
                 .fill(isSelected ? VColor.primaryBase.opacity(0.1) : Color.clear)
@@ -371,6 +374,7 @@ public struct InlineTableWidget: View {
 
     private func resizeHandle(for columnIndex: Int) -> some View {
         let isHighlighted = isResizeHandleHighlighted(columnIndex)
+        #if os(macOS)
         return Rectangle()
             .fill(Color.clear)
             .frame(width: resizeHandleWidth)
@@ -380,7 +384,6 @@ public struct InlineTableWidget: View {
                     .frame(width: resizeHandleIndicatorWidth(isHighlighted: isHighlighted))
                     .opacity(resizeHandleIndicatorOpacity(isHighlighted: isHighlighted))
             )
-            #if os(macOS)
             .overlay {
                 HorizontalResizeHandleTrackingView(
                     isDragging: activeResizeHandleIndex == columnIndex,
@@ -390,13 +393,33 @@ public struct InlineTableWidget: View {
                         } else if hoveredResizeHandleIndex == columnIndex {
                             hoveredResizeHandleIndex = nil
                         }
+                    },
+                    onDragBegan: {
+                        beginResize(for: columnIndex)
+                    },
+                    onDragChanged: { delta in
+                        applyResizeDelta(delta, for: columnIndex)
+                    },
+                    onDragEnded: {
+                        endResize(for: columnIndex)
                     }
                 )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            #endif
+            .contentShape(Rectangle())
+        #else
+        return Rectangle()
+            .fill(Color.clear)
+            .frame(width: resizeHandleWidth)
+            .overlay(
+                Rectangle()
+                    .fill(resizeHandleIndicatorColor(isHighlighted: isHighlighted))
+                    .frame(width: resizeHandleIndicatorWidth(isHighlighted: isHighlighted))
+                    .opacity(resizeHandleIndicatorOpacity(isHighlighted: isHighlighted))
+            )
             .contentShape(Rectangle())
             .gesture(resizeHandleDragGesture(for: columnIndex))
+        #endif
     }
 
     private func isResizeHandleHighlighted(_ columnIndex: Int) -> Bool {
@@ -414,42 +437,51 @@ public struct InlineTableWidget: View {
     private func resizeHandleDragGesture(for columnIndex: Int) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .named(resizeGestureCoordinateSpaceName))
             .onChanged { value in
-                let column = data.columns[columnIndex]
-                if activeResizeHandleIndex == nil {
-                    activeResizeHandleIndex = columnIndex
-                }
+                beginResize(for: columnIndex)
                 #if os(macOS)
                 NSCursor.resizeLeftRight.set()
                 #endif
-                let startWidth: CGFloat
-                if let existing = resizeDragStartWidths[column.id] {
-                    startWidth = existing
-                } else {
-                    let captured = currentColumnWidth(column)
-                    resizeDragStartWidths[column.id] = captured
-                    startWidth = captured
-                }
                 let delta = value.location.x - value.startLocation.x
-                let newWidth = max(minColumnWidth, startWidth + delta)
-                let snappedWidth = (newWidth * 2).rounded() / 2
-                if columnOverrides[column.id] != snappedWidth {
-                    var transaction = Transaction()
-                    transaction.disablesAnimations = true
-                    withTransaction(transaction) {
-                        columnOverrides[column.id] = snappedWidth
-                    }
-                }
+                applyResizeDelta(delta, for: columnIndex)
             }
             .onEnded { _ in
-                let column = data.columns[columnIndex]
-                resizeDragStartWidths[column.id] = nil
-                activeResizeHandleIndex = nil
-                #if os(macOS)
-                if hoveredResizeHandleIndex == nil {
-                    NSCursor.arrow.set()
-                }
-                #endif
+                endResize(for: columnIndex)
             }
+    }
+
+    private func beginResize(for columnIndex: Int) {
+        let column = data.columns[columnIndex]
+        if activeResizeHandleIndex == nil {
+            activeResizeHandleIndex = columnIndex
+        }
+        if resizeDragStartWidths[column.id] == nil {
+            resizeDragStartWidths[column.id] = currentColumnWidth(column)
+        }
+    }
+
+    private func applyResizeDelta(_ delta: CGFloat, for columnIndex: Int) {
+        let column = data.columns[columnIndex]
+        guard let startWidth = resizeDragStartWidths[column.id] else { return }
+        let newWidth = max(minColumnWidth, startWidth + delta)
+        let snappedWidth = (newWidth * 2).rounded() / 2
+        if columnOverrides[column.id] != snappedWidth {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                columnOverrides[column.id] = snappedWidth
+            }
+        }
+    }
+
+    private func endResize(for columnIndex: Int) {
+        let column = data.columns[columnIndex]
+        resizeDragStartWidths[column.id] = nil
+        activeResizeHandleIndex = nil
+        #if os(macOS)
+        if hoveredResizeHandleIndex == nil {
+            NSCursor.arrow.set()
+        }
+        #endif
     }
 
     private func resizeHandleIndicatorWidth(isHighlighted: Bool) -> CGFloat {
@@ -519,17 +551,36 @@ public struct InlineTableWidget: View {
 private struct HorizontalResizeHandleTrackingView: NSViewRepresentable {
     let isDragging: Bool
     let onHoverChanged: (Bool) -> Void
+    let onDragBegan: () -> Void
+    let onDragChanged: (CGFloat) -> Void
+    let onDragEnded: () -> Void
 
     final class Coordinator {
         var onHoverChanged: (Bool) -> Void
+        var onDragBegan: () -> Void
+        var onDragChanged: (CGFloat) -> Void
+        var onDragEnded: () -> Void
 
-        init(onHoverChanged: @escaping (Bool) -> Void) {
+        init(
+            onHoverChanged: @escaping (Bool) -> Void,
+            onDragBegan: @escaping () -> Void,
+            onDragChanged: @escaping (CGFloat) -> Void,
+            onDragEnded: @escaping () -> Void
+        ) {
             self.onHoverChanged = onHoverChanged
+            self.onDragBegan = onDragBegan
+            self.onDragChanged = onDragChanged
+            self.onDragEnded = onDragEnded
         }
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onHoverChanged: onHoverChanged)
+        Coordinator(
+            onHoverChanged: onHoverChanged,
+            onDragBegan: onDragBegan,
+            onDragChanged: onDragChanged,
+            onDragEnded: onDragEnded
+        )
     }
 
     func makeNSView(context: Context) -> HorizontalResizeHandleTrackingNSView {
@@ -537,13 +588,34 @@ private struct HorizontalResizeHandleTrackingView: NSViewRepresentable {
         view.onHoverChanged = { hovering in
             context.coordinator.onHoverChanged(hovering)
         }
+        view.onDragBegan = {
+            context.coordinator.onDragBegan()
+        }
+        view.onDragChanged = { delta in
+            context.coordinator.onDragChanged(delta)
+        }
+        view.onDragEnded = {
+            context.coordinator.onDragEnded()
+        }
         return view
     }
 
     func updateNSView(_ nsView: HorizontalResizeHandleTrackingNSView, context: Context) {
         context.coordinator.onHoverChanged = onHoverChanged
+        context.coordinator.onDragBegan = onDragBegan
+        context.coordinator.onDragChanged = onDragChanged
+        context.coordinator.onDragEnded = onDragEnded
         nsView.onHoverChanged = { hovering in
             context.coordinator.onHoverChanged(hovering)
+        }
+        nsView.onDragBegan = {
+            context.coordinator.onDragBegan()
+        }
+        nsView.onDragChanged = { delta in
+            context.coordinator.onDragChanged(delta)
+        }
+        nsView.onDragEnded = {
+            context.coordinator.onDragEnded()
         }
         nsView.isDragging = isDragging
         nsView.window?.invalidateCursorRects(for: nsView)
@@ -555,8 +627,12 @@ private struct HorizontalResizeHandleTrackingView: NSViewRepresentable {
 
 private final class HorizontalResizeHandleTrackingNSView: NSView {
     var onHoverChanged: ((Bool) -> Void)?
+    var onDragBegan: (() -> Void)?
+    var onDragChanged: ((CGFloat) -> Void)?
+    var onDragEnded: (() -> Void)?
     var isDragging: Bool = false
     private var trackingAreaRef: NSTrackingArea?
+    private var dragStartXInWindow: CGFloat?
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -601,7 +677,29 @@ private final class HorizontalResizeHandleTrackingNSView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
+        self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        dragStartXInWindow = event.locationInWindow.x
+        onDragBegan?()
+        NSCursor.resizeLeftRight.set()
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let dragStartXInWindow else { return }
+        let delta = event.locationInWindow.x - dragStartXInWindow
+        onDragChanged?(delta)
+        NSCursor.resizeLeftRight.set()
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if let dragStartXInWindow {
+            let delta = event.locationInWindow.x - dragStartXInWindow
+            onDragChanged?(delta)
+        }
+        dragStartXInWindow = nil
+        onDragEnded?()
     }
 }
 #endif
