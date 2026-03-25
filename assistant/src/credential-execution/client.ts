@@ -348,7 +348,7 @@ export function createCesClient(
     },
 
     isReady(): boolean {
-      return ready;
+      return ready && transport.isAlive();
     },
 
     close(): void {

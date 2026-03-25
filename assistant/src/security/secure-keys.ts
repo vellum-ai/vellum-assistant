@@ -77,11 +77,24 @@ function getEncryptedStoreBackend(): CredentialBackend {
  *   2. Containerized + CES_CREDENTIAL_URL → CES HTTP client (Docker/managed).
  *   3. Encrypted file store → fallback when CES is unavailable.
  *
- * Once resolved, the backend does not change during the process lifetime.
+ * The resolved backend is cached, but if it becomes unavailable (e.g. the
+ * CES transport dies) the cache is invalidated and a fresh resolution is
+ * performed. This lets the system fall back to the encrypted file store
+ * instead of repeatedly failing through a dead transport.
+ *
  * Call `_resetBackend()` in tests to clear the cached resolution.
  */
 async function resolveBackendAsync(): Promise<CredentialBackend> {
-  if (_resolvedBackend) return _resolvedBackend;
+  if (_resolvedBackend) {
+    if (_resolvedBackend.isAvailable()) return _resolvedBackend;
+    // Backend is no longer reachable — re-resolve.
+    log.warn(
+      { backend: _resolvedBackend.name },
+      "Credential backend is no longer available — re-resolving",
+    );
+    _resolvedBackend = undefined;
+    _resolvePromise = undefined;
+  }
   if (!_resolvePromise) {
     _resolvePromise = doResolveBackend();
   }
