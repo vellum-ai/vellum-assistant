@@ -55,6 +55,8 @@ export class VellumAcpClientHandler implements Client {
   private accumulatedText = "";
   /** Tracks pending ACP permission requestIds for cleanup on session close. */
   readonly pendingRequestIds = new Set<string>();
+  /** When true, auto-approve all subsequent permission requests for this session. */
+  private autoApproveAll = false;
 
   /** Returns the full agent response text accumulated from agent_message_chunk events. */
   get responseText(): string {
@@ -164,6 +166,7 @@ export class VellumAcpClientHandler implements Client {
         toolTitle,
         toolKind,
         optionCount: options.length,
+        autoApproveAll: this.autoApproveAll,
       },
       "ACP permission requested",
     );
@@ -178,6 +181,26 @@ export class VellumAcpClientHandler implements Client {
         : { command: rawInput };
 
     const toolName = `ACP Agent: ${toolTitle}`;
+
+    // If the user previously chose "Allow all for this session", auto-approve
+    // and show the decided indicator directly (no pending flash).
+    if (this.autoApproveAll) {
+      this.sendToVellum({
+        type: "confirmation_request",
+        requestId,
+        toolName,
+        input,
+        riskLevel: "medium",
+        allowlistOptions: [],
+        scopeOptions: [],
+        persistentDecisionsAllowed: false,
+        acpToolKind: toolKind,
+        acpOptions: [],
+        conversationId: this.parentConversationId,
+      });
+      const optionId = mapDecisionToOptionId("allow", options);
+      return { outcome: { outcome: "selected", optionId } };
+    }
     const acpOptions = options.map((opt) => ({
       optionId: opt.optionId,
       name: opt.name,
@@ -195,6 +218,7 @@ export class VellumAcpClientHandler implements Client {
       allowlistOptions: [],
       scopeOptions: [],
       persistentDecisionsAllowed: false,
+      temporaryOptionsAvailable: ["allow_conversation"],
       acpToolKind: toolKind,
       acpOptions,
       conversationId: this.parentConversationId,
@@ -208,6 +232,13 @@ export class VellumAcpClientHandler implements Client {
       const timer = setTimeout(() => {
         const pending = pendingInteractions.resolve(requestId);
         if (pending?.directResolve) {
+          this.sendToVellum({
+            type: "confirmation_state_changed",
+            conversationId: this.parentConversationId,
+            requestId,
+            state: "timed_out",
+            source: "timeout",
+          });
           pending.directResolve("deny");
         }
       }, timeoutMs);
@@ -224,12 +255,26 @@ export class VellumAcpClientHandler implements Client {
           allowlistOptions: [],
           scopeOptions: [],
           persistentDecisionsAllowed: false,
+          temporaryOptionsAvailable: ["allow_conversation"],
           acpToolKind: toolKind,
           acpOptions,
         },
         directResolve: (decision: UserDecision) => {
           clearTimeout(timer);
           this.pendingRequestIds.delete(requestId);
+          // "Allow for this conversation" => auto-approve all future
+          // requests in this ACP session.
+          if (decision === "allow_conversation") {
+            this.autoApproveAll = true;
+          }
+          const isApproved = decision !== "deny" && decision !== "always_deny";
+          this.sendToVellum({
+            type: "confirmation_state_changed",
+            conversationId: this.parentConversationId,
+            requestId,
+            state: isApproved ? "approved" : "denied",
+            source: "button",
+          });
           const optionId = mapDecisionToOptionId(decision, options);
           resolve(optionId);
         },

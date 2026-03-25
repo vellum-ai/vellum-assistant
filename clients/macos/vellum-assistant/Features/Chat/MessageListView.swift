@@ -352,9 +352,13 @@ struct MessageListView: View {
 
         var nextDecidedConfirmationByIndex: [Int: ToolConfirmationData] = [:]
         for i in liveMessages.indices {
+            // Only absorb decided confirmations that have a toolUseId — these
+            // can be rendered as chips on the preceding assistant's tool call.
+            // ACP confirmations have no toolUseId and must stay standalone.
             if i + 1 < liveMessages.count,
                let conf = liveMessages[i + 1].confirmation,
-               conf.state != .pending {
+               conf.state != .pending,
+               conf.toolUseId != nil, !conf.toolUseId!.isEmpty {
                 nextDecidedConfirmationByIndex[i] = conf
             }
         }
@@ -1202,7 +1206,12 @@ private struct MessageCellView: View, Equatable {
                     .id(message.id)
                 }
             } else {
-                if !hasPrecedingAssistant {
+                // Show standalone decided card when there's no preceding
+                // assistant to absorb it, OR when the confirmation has no
+                // toolUseId (e.g. ACP permissions that can't be rendered
+                // as chips on a tool call).
+                let hasToolUseId = confirmation.toolUseId != nil && !confirmation.toolUseId!.isEmpty
+                if !hasPrecedingAssistant || !hasToolUseId {
                     ToolConfirmationBubble(
                         confirmation: confirmation,
                         onAllow: { onConfirmationAllow(confirmation.requestId) },
