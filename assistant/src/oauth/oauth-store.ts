@@ -86,7 +86,8 @@ export function seedProviders(
     const pingUrl = p.pingUrl ?? null;
     const pingMethod = p.pingMethod ?? null;
     const pingHeaders = p.pingHeaders ? JSON.stringify(p.pingHeaders) : null;
-    const pingBody = p.pingBody ? JSON.stringify(p.pingBody) : null;
+    const pingBody =
+      p.pingBody !== undefined ? JSON.stringify(p.pingBody) : null;
     const baseUrl = p.baseUrl ?? null;
     const defaultScopes = JSON.stringify(p.defaultScopes);
     const scopePolicy = JSON.stringify(p.scopePolicy);
@@ -214,7 +215,8 @@ export function registerProvider(params: {
     pingUrl: params.pingUrl ?? null,
     pingMethod: params.pingMethod ?? null,
     pingHeaders: params.pingHeaders ? JSON.stringify(params.pingHeaders) : null,
-    pingBody: params.pingBody ? JSON.stringify(params.pingBody) : null,
+    pingBody:
+      params.pingBody !== undefined ? JSON.stringify(params.pingBody) : null,
     managedServiceConfigKey: params.managedServiceConfigKey ?? null,
     displayName: params.displayName ?? null,
     description: params.description ?? null,
