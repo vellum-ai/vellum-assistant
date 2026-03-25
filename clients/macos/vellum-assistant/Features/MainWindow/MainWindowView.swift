@@ -1106,15 +1106,18 @@ struct MainWindowView: View {
             topBarView
 
             // Main container: sidebar + content with uniform padding
-            HStack(spacing: 16) {
-                if !isSettingsOpen {
-                    sidebarView
-                        .animation(VAnimation.panel, value: sidebarExpanded)
-                }
+            HStack(spacing: 0) {
+                sidebarView
+                    .frame(width: isSettingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth))
+                    .clipped()
+                    .opacity(isSettingsOpen ? 0 : 1)
+                    .allowsHitTesting(!isSettingsOpen)
+                    .animation(VAnimation.panel, value: sidebarExpanded)
+                    .animation(VAnimation.panel, value: isSettingsOpen)
+                    .padding(.trailing, isSettingsOpen ? 0 : 16)
 
                 chatContentView(geometry: geometry)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                    .animation(VAnimation.panel, value: sidebarExpanded)
                     .overlay {
                         assistantLoadingOverlayIfNeeded
                     }
