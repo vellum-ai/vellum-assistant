@@ -146,19 +146,13 @@ async function collectRoutesFromModules(): Promise<RouteEntry[]> {
         const rawDefs = exportValue(createDeepStub());
         if (!Array.isArray(rawDefs)) continue;
         for (const raw of rawDefs) {
-          if (
-            typeof raw !== "object" ||
-            raw === null ||
-            typeof raw.endpoint !== "string" ||
-            typeof raw.method !== "string"
-          ) {
-            continue;
-          }
-          const parsed = RouteEntrySchema.parse({
-            ...raw,
+          const result = RouteEntrySchema.safeParse({
+            ...(typeof raw === "object" && raw !== null ? raw : {}),
             sourceModule: file,
           });
-          routes.push(parsed);
+          if (result.success) {
+            routes.push(result.data);
+          }
         }
       } catch (err) {
         console.warn(
