@@ -1803,6 +1803,8 @@ jobs:
             git commit --allow-empty --amend -m "$(git log -1 --format=%B) [skip ci]"
             git push origin "$BRANCH" --force-with-lease
 
+            # Give GitHub time to process the force-push before retrying
+            sleep 10
             gh pr merge "$PR_URL" --squash --admin --delete-branch
           fi
 
