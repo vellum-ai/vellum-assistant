@@ -771,8 +771,7 @@ struct MessageListView: View {
             })
             .onScrollPhaseChange { oldPhase, newPhase in
                 scrollPhase = newPhase
-                if newPhase == .idle && oldPhase != .idle
-                    && scrollPosition.viewID(type: String.self) == "scroll-bottom-anchor" {
+                if newPhase == .idle && oldPhase != .idle && scrollCoordinator.isAtBottom {
                     // User finished scrolling and ended up at the bottom — re-tether.
                     scrollCoordinator.handleScrollToBottom()
                 }
@@ -817,6 +816,17 @@ struct MessageListView: View {
                     scrollCoordinator.currentScrollViewportHeight = accepted
                 }
                 os_signpost(.end, log: PerfSignposts.log, name: "viewportHeightChanged")
+
+                // --- Bottom detection ---
+                // 20pt threshold accounts for the avatar inset and trailing padding.
+                let distanceFromBottom = newState.contentHeight - newState.contentOffsetY - newState.visibleRectHeight
+                let nowAtBottom = distanceFromBottom.isFinite && distanceFromBottom <= 20
+                if scrollCoordinator.isAtBottom != nowAtBottom {
+                    scrollCoordinator.isAtBottom = nowAtBottom
+                    if nowAtBottom {
+                        scrollCoordinator.handleScrollToBottom()
+                    }
+                }
             }
             .scrollIndicators(.automatic)
             .onPreferenceChange(PaginationSentinelMinYKey.self) { sentinelMinY in
@@ -835,7 +845,7 @@ struct MessageListView: View {
                     .padding(.bottom, ConversationAvatarFollower.verticalOffset)
             }
             .overlay(alignment: .bottom) {
-                if !isNearBottom && scrollPosition.viewID(type: String.self) != "scroll-bottom-anchor" {
+                if !isNearBottom && !scrollCoordinator.isAtBottom {
                     Button(action: {
                         os_signpost(.event, log: PerfSignposts.log, name: "scrollToLatestPressed")
                         scrollCoordinator.hasReceivedScrollEvent = true
@@ -983,15 +993,6 @@ struct MessageListView: View {
                    responder.isEditable {
                     window.makeFirstResponder(nil)
                     scrollCoordinator.lastAutoFocusedRequestId = requestId
-                }
-            }
-            .onChange(of: scrollPosition.viewID(type: String.self)) { oldViewID, newViewID in
-                scrollCoordinator.updateIsAtBottom(newViewID)
-                // Re-tether immediately when the bottom sentinel scrolls into view,
-                // not just on idle. This makes isNearBottom update in real-time so the
-                // avatar appears and the CTA disappears as the user scrolls down.
-                if newViewID == "scroll-bottom-anchor" && oldViewID != "scroll-bottom-anchor" {
-                    scrollCoordinator.handleScrollToBottom()
                 }
             }
     }

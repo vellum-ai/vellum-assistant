@@ -75,10 +75,11 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// the view-owned `ScrollPosition` binding.
     var scrollTo: ((_ id: any Hashable, _ anchor: UnitPoint?) -> Void)?
 
-    /// Returns `true` when the bottom sentinel is the current scroll position
-    /// target — i.e., the user is at the bottom of the conversation.
-    /// Replaces the former distance-from-bottom math and `BottomVisibilityPolicy`.
-    var isAtBottom: Bool = true
+    /// Returns `true` when the user is within 20pt of the conversation bottom.
+    /// Computed from scroll geometry in the onScrollGeometryChange handler.
+    /// @Published so the "Scroll to latest" CTA button and avatar visibility
+    /// react immediately when the user scrolls to/from the bottom.
+    @Published var isAtBottom: Bool = true
 
     // MARK: - Reactive State (@Published)
 
@@ -194,13 +195,6 @@ final class MessageListScrollCoordinator: ObservableObject {
     // MARK: - Bottom Detection
 
     /// Updates `isAtBottom` based on the current scroll position's view ID.
-    /// Called from the view's `.onChange(of: scrollPosition.viewID)` handler.
-    /// The bottom sentinel has ID "scroll-bottom-anchor"; when the scroll
-    /// position's viewID matches, the user is at the bottom.
-    func updateIsAtBottom(_ viewID: String?) {
-        isAtBottom = viewID == "scroll-bottom-anchor"
-    }
-
     // MARK: - Suppression Management
 
     /// Adds a suppression reason and schedules its automatic timeout.
