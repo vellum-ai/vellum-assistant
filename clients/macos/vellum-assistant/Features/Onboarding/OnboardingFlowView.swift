@@ -172,7 +172,7 @@ struct OnboardingFlowView: View {
             }
         }
         }
-        .frame(minWidth: 520, minHeight: 700)
+        .frame(minWidth: 460, minHeight: 700)
         .task {
             if !authManager.isAuthenticated {
                 await authManager.checkSession()
