@@ -15,6 +15,7 @@ struct AgentPanelContent: View {
     @State private var skillToDelete: SkillInfo?
     @State private var selectedCategory: SkillCategory?
     @State private var globalSkillSearchQuery = ""
+    @State private var showCreateSheet = false
 
     init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, connectionManager: GatewayConnectionManager) {
         self.onInvokeSkill = onInvokeSkill
@@ -69,6 +70,12 @@ struct AgentPanelContent: View {
                 selectedInstalledSkillId = nil
             }
         }
+        .sheet(isPresented: $showCreateSheet, onDismiss: { skillsManager.resetDraftState() }) {
+            SkillCreateSheet(
+                skillsManager: skillsManager,
+                onDismiss: { showCreateSheet = false }
+            )
+        }
         .sheet(item: $skillToDelete) { skill in
             SkillDeleteConfirmView(
                 skillName: skill.name,
@@ -89,6 +96,13 @@ struct AgentPanelContent: View {
     private var filterBar: some View {
         HStack(spacing: VSpacing.sm) {
             VSearchBar(placeholder: "Search Skills", text: $globalSkillSearchQuery)
+            VButton(
+                label: "Create",
+                leftIcon: VIcon.plus.rawValue,
+                style: .primary,
+                size: .compact,
+                action: { showCreateSheet = true }
+            )
         }
     }
 
@@ -190,7 +204,7 @@ struct AgentPanelContent: View {
             VEmptyState(
                 title: selectedCategory == nil ? "No Skills Installed" : "No \(selectedCategory!.displayName) Skills",
                 subtitle: selectedCategory == nil
-                    ? "Ask your assistant in chat to search for and install new skills."
+                    ? "Create a custom skill or ask your assistant to search for one."
                     : "Try selecting a different category or clearing the filter.",
                 icon: VIcon.zap.rawValue
             )
