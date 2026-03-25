@@ -3,7 +3,7 @@
 openapi: 3.0.0
 info:
   title: Vellum Assistant API
-  version: 0.5.10
+  version: 0.5.11
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -3197,6 +3197,9 @@ paths:
                   requestId:
                     type: string
                   reason:
+                    type: string
+                  replyText:
+                    description: Resolver reply text for the guardian (e.g. verification code)
                     type: string
                 required:
                   - applied

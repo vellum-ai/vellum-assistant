@@ -302,6 +302,12 @@ export function guardianActionRouteDefinitions(): RouteDefinition[] {
         applied: z.boolean(),
         requestId: z.string(),
         reason: z.string(),
+        replyText: z
+          .string()
+          .optional()
+          .describe(
+            "Resolver reply text for the guardian (e.g. verification code)",
+          ),
       }),
       handler: async ({ req, authContext }) =>
         handleGuardianActionDecision(req, authContext),
