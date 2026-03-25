@@ -818,10 +818,7 @@ struct MessageListView: View {
                 os_signpost(.end, log: PerfSignposts.log, name: "viewportHeightChanged")
 
                 // --- Bottom detection ---
-                // Compute distance from bottom using the geometry we already have.
-                // This is more reliable than scrollPosition.viewID which can miss
-                // the 1pt sentinel view. A 20pt threshold accounts for the avatar
-                // inset and any trailing padding.
+                // 20pt threshold accounts for the avatar inset and trailing padding.
                 let distanceFromBottom = newState.contentHeight - newState.contentOffsetY - newState.visibleRectHeight
                 let nowAtBottom = distanceFromBottom.isFinite && distanceFromBottom <= 20
                 if scrollCoordinator.isAtBottom != nowAtBottom {
@@ -998,9 +995,6 @@ struct MessageListView: View {
                     scrollCoordinator.lastAutoFocusedRequestId = requestId
                 }
             }
-            // Bottom detection is now handled by the onScrollGeometryChange handler above
-            // (distance-from-bottom ≤ 20pt check), which is more reliable than
-            // scrollPosition.viewID for the 1pt sentinel view.
     }
 }
 
