@@ -202,7 +202,7 @@ Examples:
 
             const result: Record<string, unknown> = {
               ok: true,
-              provider: toBareProvider(providerKey),
+              provider: providerKey,
               connectionId,
             };
             if (accountLabel) result.account = accountLabel;
@@ -210,7 +210,7 @@ Examples:
 
             if (!jsonMode) {
               log.info(
-                `Disconnected ${toBareProvider(providerKey)} connection ${connectionId}`,
+                `Disconnected ${providerKey} connection ${connectionId}`,
               );
             }
           } else {
