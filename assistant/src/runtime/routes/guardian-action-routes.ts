@@ -121,7 +121,11 @@ export async function handleGuardianActionDecision(
     return httpError("BAD_REQUEST", result.message, 400);
   }
   if (result.applied) {
-    return Response.json({ applied: true, requestId: result.requestId });
+    return Response.json({
+      applied: true,
+      requestId: result.requestId,
+      ...(result.replyText ? { replyText: result.replyText } : {}),
+    });
   }
   return result.reason === "not_found"
     ? httpError(

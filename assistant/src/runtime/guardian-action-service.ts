@@ -42,7 +42,7 @@ export interface ProcessGuardianDecisionParams {
 }
 
 export type ProcessGuardianDecisionResult =
-  | { ok: true; applied: true; requestId: string }
+  | { ok: true; applied: true; requestId: string; replyText?: string }
   | {
       ok: true;
       applied: false;
@@ -116,7 +116,12 @@ export async function processGuardianDecision(
       };
     }
 
-    return { ok: true, applied: true, requestId: canonicalResult.requestId };
+    return {
+      ok: true,
+      applied: true,
+      requestId: canonicalResult.requestId,
+      replyText: canonicalResult.resolverReplyText,
+    };
   }
 
   return {

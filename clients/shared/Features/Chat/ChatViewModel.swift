@@ -3429,6 +3429,14 @@ public final class ChatViewModel: ObservableObject {
                 // does not echo back the action that was submitted.
                 let resolvedAction = submittedAction ?? response.reason ?? "approved"
                 messages[idx].guardianDecision?.state = .resolved(action: resolvedAction)
+
+                // Display resolver reply text (e.g. verification code for access
+                // requests) as a follow-up assistant message so the guardian can
+                // see and act on it.
+                if let replyText = response.replyText, !replyText.isEmpty {
+                    let replyMessage = ChatMessage(role: .assistant, text: replyText)
+                    messages.append(replyMessage)
+                }
             } else {
                 // Stale: someone else already resolved this prompt.
                 // Surface the server-supplied reason so the user sees context
