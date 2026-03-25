@@ -905,8 +905,11 @@ struct MainWindowView: View {
         // and the sidebar shows no active highlight.
         // Clear it when entering draft mode (nil) so no conversation appears active.
         windowState.persistentConversationId = newId
-        if case .panel(.intelligence) = windowState.selection {
+        switch windowState.selection {
+        case .panel(.intelligence), .panel(.documentEditor):
             windowState.selection = nil
+        default:
+            break
         }
         windowState.selectedSubagentId = nil
         if let oldId {
