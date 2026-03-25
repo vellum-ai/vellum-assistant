@@ -25,7 +25,6 @@ mock.module("../logger.js", () => ({
 
 import {
   readCredential,
-  readTelegramCredentials,
   readServiceCredentials,
   type ServiceCredentialSpec,
 } from "../credential-reader.js";
@@ -164,51 +163,6 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests: encrypted store (existing)
-// ---------------------------------------------------------------------------
-
-describe("readTelegramCredentials", () => {
-  test("returns null when metadata file does not exist", async () => {
-    const result = await readTelegramCredentials();
-    expect(result).toBeNull();
-  });
-
-  test("returns null when metadata has no Telegram entries", async () => {
-    writeMetadata([{ service: "github", field: "token" }]);
-    const result = await readTelegramCredentials();
-    expect(result).toBeNull();
-  });
-
-  test("returns null when metadata exists but secrets are missing from encrypted store", async () => {
-    writeMetadata([
-      { service: "telegram", field: "bot_token" },
-      { service: "telegram", field: "webhook_secret" },
-    ]);
-
-    const result = await readTelegramCredentials();
-    expect(result).toBeNull();
-  });
-
-  test("returns credentials from encrypted store", async () => {
-    writeMetadata([
-      { service: "telegram", field: "bot_token" },
-      { service: "telegram", field: "webhook_secret" },
-    ]);
-
-    writeEncryptedStore({
-      [credentialKey("telegram", "bot_token")]: "enc-bot-token",
-      [credentialKey("telegram", "webhook_secret")]: "enc-webhook-secret",
-    });
-
-    const result = await readTelegramCredentials();
-    expect(result).toEqual({
-      botToken: "enc-bot-token",
-      webhookSecret: "enc-webhook-secret",
-    });
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Tests: v2 encrypted store (store.key)
 // ---------------------------------------------------------------------------
 
@@ -240,24 +194,6 @@ describe("v2 encrypted store with store.key", () => {
 
     const result = await readCredential(credentialKey("test", "key"));
     expect(result).toBeUndefined();
-  });
-
-  test("returns Telegram credentials from v2 store", async () => {
-    writeMetadata([
-      { service: "telegram", field: "bot_token" },
-      { service: "telegram", field: "webhook_secret" },
-    ]);
-
-    writeEncryptedStoreV2({
-      [credentialKey("telegram", "bot_token")]: "v2-bot-token",
-      [credentialKey("telegram", "webhook_secret")]: "v2-webhook-secret",
-    });
-
-    const result = await readTelegramCredentials();
-    expect(result).toEqual({
-      botToken: "v2-bot-token",
-      webhookSecret: "v2-webhook-secret",
-    });
   });
 });
 
@@ -408,7 +344,7 @@ describe("secret leak prevention", () => {
     expect(serialized).not.toContain(secretValue);
   });
 
-  test("failed encrypted store read does not leak secret values into logs", async () => {
+  test("service credential read does not leak secret values into logs", async () => {
     const secretValue = "super-secret-telegram-token";
 
     writeMetadata([
@@ -420,7 +356,10 @@ describe("secret leak prevention", () => {
       [credentialKey("telegram", "webhook_secret")]: "webhook-secret-value",
     });
 
-    const result = await readTelegramCredentials();
+    const result = await readServiceCredentials({
+      service: "telegram",
+      requiredFields: ["bot_token", "webhook_secret"],
+    });
     expect(result).not.toBeNull();
 
     const serialized = allLogStrings();
