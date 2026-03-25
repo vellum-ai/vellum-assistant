@@ -328,7 +328,7 @@ extension AppDelegate {
             return
         }
         if (event.type == .rightMouseUp || event.modifierFlags.contains(.control)),
-           MacOSClientFeatureFlagManager.shared.isEnabled("quick_input_enabled") {
+           MacOSClientFeatureFlagManager.shared.isEnabled("quick-input") {
             toggleQuickInput()
         } else {
             showStatusMenu()
@@ -377,7 +377,7 @@ extension AppDelegate {
         newChatItem.image = VIcon.messageCirclePlus.nsImage(size: 16)
         menu.addItem(newChatItem)
 
-        if MacOSClientFeatureFlagManager.shared.isEnabled("developer_menu_items_enabled") {
+        if MacOSClientFeatureFlagManager.shared.isEnabled("developer-menu-items") {
             menu.addItem(NSMenuItem.separator())
 
             let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")

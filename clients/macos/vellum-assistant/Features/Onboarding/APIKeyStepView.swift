@@ -11,11 +11,11 @@ struct APIKeyStepView: View {
     @State private var showContent = false
 
     private var userHostedEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
+        MacOSClientFeatureFlagManager.shared.isEnabled("user-hosted-enabled")
     }
 
     private var platformHostedEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("platform_hosted_enabled")
+        MacOSClientFeatureFlagManager.shared.isEnabled("platform-hosted-enabled")
     }
 
     var body: some View {
