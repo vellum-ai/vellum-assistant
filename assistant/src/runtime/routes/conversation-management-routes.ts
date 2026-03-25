@@ -320,6 +320,14 @@ export function conversationManagementRouteDefinitions(
             404,
           );
         }
+
+        // Cancel the associated schedule job (if any) before wiping the
+        // conversation so that orphaned schedules don't continue to fire.
+        const conv = getConversation(resolvedId);
+        if (conv?.scheduleJobId) {
+          deleteSchedule(conv.scheduleJobId);
+        }
+
         deps.destroyConversation(resolvedId);
         const result = wipeConversation(resolvedId);
         // Enqueue Qdrant vector cleanup jobs

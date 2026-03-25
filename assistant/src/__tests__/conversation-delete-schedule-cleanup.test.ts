@@ -63,8 +63,8 @@ function getRawDb(): Database {
   return (getDb() as unknown as { $client: Database }).$client;
 }
 
-/** Build the DELETE /conversations/:id route handler with minimal deps. */
-function getDeleteHandler() {
+/** Build route definitions with minimal deps. */
+function getRoutes() {
   const routes = conversationManagementRouteDefinitions({
     switchConversation: async () => null,
     renameConversation: () => true,
@@ -74,12 +74,24 @@ function getDeleteHandler() {
     undoLastMessage: async () => null,
     regenerateResponse: async () => null,
   });
+  return routes;
+}
 
-  const deleteRoute = routes.find(
+function getDeleteHandler() {
+  const deleteRoute = getRoutes().find(
     (r) => r.endpoint === "conversations/:id" && r.method === "DELETE",
   );
   if (!deleteRoute) throw new Error("DELETE conversations/:id route not found");
   return deleteRoute.handler;
+}
+
+function getWipeHandler() {
+  const wipeRoute = getRoutes().find(
+    (r) => r.endpoint === "conversations/:id/wipe" && r.method === "POST",
+  );
+  if (!wipeRoute)
+    throw new Error("POST conversations/:id/wipe route not found");
+  return wipeRoute.handler;
 }
 
 describe("DELETE /conversations/:id — schedule cleanup (LUM-380)", () => {
@@ -265,5 +277,83 @@ describe("DELETE /conversations/:id — schedule cleanup (LUM-380)", () => {
 
     // Schedule B should still exist
     expect(getSchedule(scheduleB.id)).not.toBeNull();
+  });
+});
+
+describe("POST /conversations/:id/wipe — schedule cleanup (LUM-380)", () => {
+  beforeEach(() => {
+    getRawDb().run("DELETE FROM cron_runs");
+    getRawDb().run("DELETE FROM cron_jobs");
+    getRawDb().run("DELETE FROM memory_item_sources");
+    getRawDb().run("DELETE FROM memory_segments");
+    getRawDb().run("DELETE FROM memory_items");
+    getRawDb().run("DELETE FROM memory_summaries");
+    getRawDb().run("DELETE FROM memory_embeddings");
+    getRawDb().run("DELETE FROM memory_jobs");
+    getRawDb().run("DELETE FROM tool_invocations");
+    getRawDb().run("DELETE FROM llm_request_logs");
+    getRawDb().run("DELETE FROM messages");
+    getRawDb().run("DELETE FROM conversations");
+  });
+
+  test("wiping a conversation with a scheduleJobId removes the schedule", async () => {
+    const schedule = createSchedule({
+      name: "Wipe-test schedule",
+      expression: "0 9 * * 1-5",
+      message: "Time for standup!",
+    });
+
+    const conv = createConversation({
+      source: "schedule",
+      scheduleJobId: schedule.id,
+    });
+
+    expect(getSchedule(schedule.id)).not.toBeNull();
+
+    const handler = getWipeHandler();
+    const req = new Request(
+      `http://localhost/v1/conversations/${conv.id}/wipe`,
+      { method: "POST" },
+    );
+    const response = await handler({
+      req,
+      url: new URL(req.url),
+      server: {} as never,
+      authContext: undefined as never,
+      params: { id: conv.id },
+    });
+
+    expect(response.status).toBe(200);
+
+    // Schedule should be deleted
+    expect(getSchedule(schedule.id)).toBeNull();
+  });
+
+  test("wiping a conversation without a scheduleJobId does not affect schedules", async () => {
+    const schedule = createSchedule({
+      name: "Unrelated schedule",
+      expression: "0 12 * * *",
+      message: "Noon check",
+    });
+
+    const conv = createConversation("no-schedule-wipe");
+
+    const handler = getWipeHandler();
+    const req = new Request(
+      `http://localhost/v1/conversations/${conv.id}/wipe`,
+      { method: "POST" },
+    );
+    const response = await handler({
+      req,
+      url: new URL(req.url),
+      server: {} as never,
+      authContext: undefined as never,
+      params: { id: conv.id },
+    });
+
+    expect(response.status).toBe(200);
+
+    // Unrelated schedule should still exist
+    expect(getSchedule(schedule.id)).not.toBeNull();
   });
 });
