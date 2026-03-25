@@ -536,6 +536,14 @@ public enum GatewayHTTPClient {
 
     // MARK: - Logging Helpers
 
+    /// Returns `true` when the URL targets a health-check endpoint.
+    /// These requests are exempted from HTTP logging to reduce noise.
+    private static func isHealthCheck(_ url: URL?) -> Bool {
+        guard let path = url?.path else { return false }
+        let normalized = path.hasSuffix("/") ? String(path.dropLast()) : path
+        return normalized.hasSuffix("/health")
+    }
+
     /// Extracts the URL path without query parameters for logging.
     private static func logPath(from url: URL?) -> String {
         guard let url = url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
@@ -546,12 +554,14 @@ public enum GatewayHTTPClient {
     }
 
     private static func logOutgoing(_ request: URLRequest) {
+        guard !isHealthCheck(request.url) else { return }
         let path = logPath(from: request.url)
         let bodyLength = request.httpBody?.count ?? 0
         log.info("HTTP \(request.httpMethod ?? "?", privacy: .public) \(path, privacy: .public) body=\(bodyLength)B")
     }
 
     private static func logResponse(_ request: URLRequest, http: HTTPURLResponse) {
+        guard !isHealthCheck(request.url) else { return }
         let path = logPath(from: request.url)
         log.info("HTTP \(request.httpMethod ?? "?", privacy: .public) \(path, privacy: .public) → \(http.statusCode) content-length=\(http.expectedContentLength)")
     }
