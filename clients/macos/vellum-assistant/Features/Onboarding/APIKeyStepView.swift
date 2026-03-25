@@ -197,7 +197,7 @@ struct APIKeyStepView: View {
                             .stroke(
                                 isSelected ? VColor.primaryBase.opacity(0.5)
                                     : (isDisabled ? VColor.borderDisabled : VColor.borderBase),
-                                lineWidth: 1
+                                lineWidth: 2
                             )
                     )
             )

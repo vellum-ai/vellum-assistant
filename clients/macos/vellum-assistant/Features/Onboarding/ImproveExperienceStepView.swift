@@ -36,42 +36,35 @@ struct ImproveExperienceStepView: View {
         VStack(spacing: VSpacing.md) {
             VStack(spacing: VSpacing.md) {
                 // Privacy toggles card
-                VStack(spacing: VSpacing.lg) {
-                    // Usage analytics toggle
-                    VToggle(
-                        isOn: $collectUsageData,
-                        label: "Share Analytics",
-                        helperText: "Send anonymous product usage data. Your conversations and personal data are never included."
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VCard(padding: VSpacing.lg) {
+                    VStack(spacing: VSpacing.lg) {
+                        // Usage analytics toggle
+                        VToggle(
+                            isOn: $collectUsageData,
+                            label: "Share Analytics",
+                            helperText: "Send anonymous product usage data. Your conversations and personal data are never included."
+                        )
 
-                    SettingsDivider()
+                        SettingsDivider()
 
-                    // Diagnostics toggle
-                    VToggle(
-                        isOn: $sendDiagnostics,
-                        label: "Share Diagnostics",
-                        helperText: "Send crash reports and performance metrics. Your conversations and personal data are never included."
-                    )
+                        // Diagnostics toggle
+                        VToggle(
+                            isOn: $sendDiagnostics,
+                            label: "Share Diagnostics",
+                            helperText: "Send crash reports and performance metrics. Your conversations and personal data are never included."
+                        )
+                    }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(VSpacing.lg)
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.borderBase, lineWidth: 1)
-                )
 
                 // ToS consent checkbox
-                HStack(spacing: VSpacing.md) {
-                    VCheckbox(isOn: $tosAccepted)
-                    tosConsentText
+                VCard(padding: VSpacing.lg) {
+                    HStack(spacing: VSpacing.md) {
+                        VCheckbox(isOn: $tosAccepted)
+                        tosConsentText
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(VSpacing.lg)
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.borderBase, lineWidth: 1)
-                )
 
                 OnboardingButton(
                     title: "Accept and Start",
