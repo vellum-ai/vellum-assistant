@@ -29,7 +29,7 @@ The oauth command group manages the full OAuth lifecycle:
   request     Make authenticated HTTP requests (curl-like interface)
   providers   Protocol-level configurations (auth URLs, scopes, endpoints)
   apps        Client credentials (client ID / secret pairs)
-  connections Active token grants per provider (deprecated)
+  connections Active token grants per provider (token, ping, list, get)
 
 Providers are seeded on startup for built-in integrations. Apps and connections
 are created during the OAuth authorization flow or can be managed manually via
