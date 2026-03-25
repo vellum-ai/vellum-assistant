@@ -1,20 +1,15 @@
 import SwiftUI
 
-/// Preference key for measuring the available table width.
-private struct TableWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
 /// Inline table widget with selectable rows and action support.
+///
+/// Uses `Grid` for proper column-aligned layout that respects the
+/// container width — text wraps within each column instead of
+/// overflowing horizontally.
 public struct InlineTableWidget: View {
     public let data: TableSurfaceData
     public let onAction: (String, [String: AnyCodable]?) -> Void
 
     @State private var selectedIds: Set<String> = []
-    @State private var tableWidth: CGFloat = 0
 
     public init(data: TableSurfaceData, onAction: @escaping (String, [String: AnyCodable]?) -> Void) {
         self.data = data
@@ -30,29 +25,10 @@ public struct InlineTableWidget: View {
         return !ids.isEmpty && ids.isSubset(of: selectedIds)
     }
 
-    /// Width reserved for the selection checkbox / spacer column.
-    private var selectionColumnWidth: CGFloat {
-        data.selectionMode != .none ? 28 : 0
-    }
-
-    /// Calculate the explicit width for a column based on the measured table width.
-    /// Fixed-width columns get their specified size; flexible columns share the remainder equally.
-    private func resolvedColumnWidth(for column: TableColumn) -> CGFloat {
-        if let w = column.width {
-            return CGFloat(w)
-        }
-        guard tableWidth > 0 else { return 100 }
-        let fixedTotal = CGFloat(data.columns.compactMap(\.width).reduce(0, +))
-        let flexCount = data.columns.filter({ $0.width == nil }).count
-        guard flexCount > 0 else { return 100 }
-        let remaining = tableWidth - fixedTotal - selectionColumnWidth
-        return max(40, remaining / CGFloat(flexCount))
-    }
-
     public var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
+        Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
             // Column headers
-            HStack(spacing: 0) {
+            GridRow {
                 if data.selectionMode == .multiple {
                     Button {
                         toggleSelectAll()
@@ -71,14 +47,15 @@ public struct InlineTableWidget: View {
                     Text(column.label)
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
-                        .frame(width: resolvedColumnWidth(for: column), alignment: .leading)
                         .textSelection(.enabled)
+                        .columnFrame(column.width)
                 }
             }
             .padding(.bottom, VSpacing.xxs)
 
             Divider()
                 .background(VColor.borderBase.opacity(0.3))
+                .gridCellUnsizedAxes(.horizontal)
 
             // Rows
             ForEach(data.rows) { row in
@@ -90,15 +67,8 @@ public struct InlineTableWidget: View {
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentTertiary)
                     .padding(.top, VSpacing.xs)
+                    .gridCellColumns(data.columns.count + (data.selectionMode != .none ? 1 : 0))
             }
-        }
-        .background(
-            GeometryReader { geometry in
-                Color.clear.preference(key: TableWidthKey.self, value: geometry.size.width)
-            }
-        )
-        .onPreferenceChange(TableWidthKey.self) { width in
-            tableWidth = width
         }
         .onAppear {
             // Initialize selection from data and notify the parent so action
@@ -113,7 +83,7 @@ public struct InlineTableWidget: View {
 
     private func rowView(_ row: TableRow) -> some View {
         let isSelected = selectedIds.contains(row.id)
-        return HStack(spacing: 0) {
+        return GridRow {
             if data.selectionMode != .none && row.selectable {
                 Button {
                     toggleSelection(row.id)
@@ -129,7 +99,7 @@ public struct InlineTableWidget: View {
             }
 
             ForEach(data.columns) { column in
-                cellView(row.cells[column.id], width: resolvedColumnWidth(for: column))
+                cellView(row.cells[column.id], width: column.width)
             }
         }
         .padding(.vertical, VSpacing.xs)
@@ -146,7 +116,7 @@ public struct InlineTableWidget: View {
     }
 
     @ViewBuilder
-    private func cellView(_ value: TableCellValue?, width: CGFloat) -> some View {
+    private func cellView(_ value: TableCellValue?, width: Int?) -> some View {
         HStack(spacing: VSpacing.xs) {
             if let icon = value?.icon,
                let vIcon = SFSymbolMapping.icon(forSFSymbol: icon) {
@@ -159,7 +129,7 @@ public struct InlineTableWidget: View {
                 .lineLimit(nil)
                 .textSelection(.enabled)
         }
-        .frame(width: width, alignment: .leading)
+        .columnFrame(width)
     }
 
     private func resolveIconColor(_ token: String?) -> Color {
@@ -196,5 +166,18 @@ public struct InlineTableWidget: View {
             }
         }
         onAction("selection_changed", ["selectedIds": AnyCodable(Array(selectedIds))])
+    }
+}
+
+// MARK: - Column Sizing
+
+private extension View {
+    @ViewBuilder
+    func columnFrame(_ width: Int?) -> some View {
+        if let w = width {
+            self.frame(width: CGFloat(w), alignment: .leading)
+        } else {
+            self.frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
