@@ -231,10 +231,6 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// Task that clears the highlight flash after the animation duration.
     var highlightDismissTask: Task<Void, Never>?
 
-    /// In-flight auto-recovery task scheduled after the loop guard trips.
-    /// Fires a single deferred re-pin attempt after the cooldown drains.
-    var loopGuardRecoveryTask: Task<Void, Never>?
-
     // MARK: - Suppression Management
 
     /// Adds a suppression reason and schedules its automatic timeout.
@@ -407,8 +403,6 @@ final class MessageListScrollCoordinator: ObservableObject {
         scrollRestoreTask = nil
         paginationTask?.cancel()
         paginationTask = nil
-        loopGuardRecoveryTask?.cancel()
-        loopGuardRecoveryTask = nil
         anchorTimeoutTask?.cancel()
         anchorTimeoutTask = nil
         highlightDismissTask?.cancel()
@@ -421,7 +415,6 @@ final class MessageListScrollCoordinator: ObservableObject {
         scrollTracking.snapshotDebounceTask = nil
         bottomPinCoordinator.cancelActiveSession(reason: .conversationSwitch)
         bottomPinCoordinator.onPinRequested = nil
-        scrollLoopGuard.onRecoveryNeeded = nil
     }
 
     /// Resets state for a conversation switch.
@@ -434,8 +427,6 @@ final class MessageListScrollCoordinator: ObservableObject {
         scrollTracking.snapshotDebounceTask = nil
         paginationTask?.cancel()
         paginationTask = nil
-        loopGuardRecoveryTask?.cancel()
-        loopGuardRecoveryTask = nil
         isPaginationInFlight = false
         wasPaginationTriggerInRange = false
         // Update the live conversation ID so closures read the new value.
