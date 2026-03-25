@@ -804,21 +804,23 @@ struct MessageListView: View {
                 // A 0.5pt dead-zone prevents floating-point rounding differences
                 // between render passes from triggering continuous @State mutations
                 // (scrollViewportHeight) which would create a runaway render loop.
+                // --- Viewport height update ---
                 let decision = PreferenceGeometryFilter.evaluate(
                     newValue: newState.visibleRectHeight,
                     previous: scrollViewportHeight,
                     deadZone: 0.5
                 )
-                guard case .accept(let accepted) = decision else { return }
-                os_signpost(.begin, log: PerfSignposts.log, name: "viewportHeightChanged")
-                if scrollViewportHeight != accepted {
-                    scrollViewportHeight = accepted
-                    scrollCoordinator.currentScrollViewportHeight = accepted
+                if case .accept(let accepted) = decision {
+                    os_signpost(.begin, log: PerfSignposts.log, name: "viewportHeightChanged")
+                    if scrollViewportHeight != accepted {
+                        scrollViewportHeight = accepted
+                        scrollCoordinator.currentScrollViewportHeight = accepted
+                    }
+                    os_signpost(.end, log: PerfSignposts.log, name: "viewportHeightChanged")
                 }
-                os_signpost(.end, log: PerfSignposts.log, name: "viewportHeightChanged")
 
                 // --- Bottom detection ---
-                // 20pt threshold accounts for the avatar inset and trailing padding.
+                // Always runs regardless of viewport dead-zone filter above.
                 let distanceFromBottom = newState.contentHeight - newState.contentOffsetY - newState.visibleRectHeight
                 let nowAtBottom = distanceFromBottom.isFinite && distanceFromBottom <= 20
                 if scrollCoordinator.isAtBottom != nowAtBottom {
