@@ -359,8 +359,8 @@ extension AppDelegate {
         HostToolExecutor.markCancelled(requestId)
         if let task = inFlightCuTasks.removeValue(forKey: requestId) {
             task.cancel()
+            dismissHostCuOverlay()
         }
-        dismissHostCuOverlay()
         log.info("Cancelling host CU — requestId=\(requestId, privacy: .public)")
     }
 

@@ -143,6 +143,9 @@ public enum HostToolExecutor {
             if isCancelledAndConsume(request.requestId) {
                 lock.withLock { runningProcesses.removeValue(forKey: request.requestId) }
                 timerSource.cancel()
+                // Close write ends so the readDataToEndOfFile() GCD blocks can finish
+                try? stdoutPipe.fileHandleForWriting.close()
+                try? stderrPipe.fileHandleForWriting.close()
                 log.debug("Host bash cancelled before launch — requestId=\(request.requestId, privacy: .public)")
                 return
             }
