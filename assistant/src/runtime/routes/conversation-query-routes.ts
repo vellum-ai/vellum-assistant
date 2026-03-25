@@ -43,7 +43,9 @@ import {
   performConversationSearch,
 } from "../../daemon/handlers/conversation-history.js";
 import { deleteQueuedMessage } from "../../daemon/handlers/conversations.js";
+import { getAssistantMessageIdsInTurn } from "../../memory/conversation-crud.js";
 import { getRequestLogsByMessageId } from "../../memory/llm-request-log-store.js";
+import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import { normalizeLlmContextPayloads } from "./llm-context-normalization.js";
@@ -412,6 +414,9 @@ export function conversationQueryRouteDefinitions(
           return httpError("BAD_REQUEST", "message id is required", 400);
         }
         const logs = getRequestLogsByMessageId(messageId);
+        const turnMessageIds = getAssistantMessageIdsInTurn(messageId);
+        const memoryRecallLog =
+          getMemoryRecallLogByMessageIds(turnMessageIds);
         return Response.json({
           messageId,
           logs: logs.map((log) => {
@@ -444,6 +449,7 @@ export function conversationQueryRouteDefinitions(
               ...result,
             };
           }),
+          memoryRecall: memoryRecallLog ?? null,
         });
       },
     },
