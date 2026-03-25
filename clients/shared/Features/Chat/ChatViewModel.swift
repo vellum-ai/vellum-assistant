@@ -3008,8 +3008,11 @@ public final class ChatViewModel: ObservableObject {
                         arrivedBeforeText: toolsBeforeText,
                         imageData: nil
                     )
-                    // Store raw base64 for lazy decode instead of eagerly decoding
-                    toolCall.imageData = tc.imageData
+                    // Decode image eagerly — NSImage/UIImage init from Data is
+                    // thread-safe and the views expect cachedImage to be populated.
+                    let decodedImage = ToolCallData.decodeImage(from: tc.imageData)
+                    toolCall.cachedImage = decodedImage
+                    if decodedImage == nil { toolCall.imageData = tc.imageData }
                     toolCall.reasonDescription = (tc.input["activity"]?.value as? String)
                         ?? (tc.input["reason"]?.value as? String)
                         ?? (tc.input["reasoning"]?.value as? String)
