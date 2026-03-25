@@ -60,6 +60,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var navLocalMonitor: Any?
     var zoomLocalMonitor: Any?
     var sidebarToggleLocalMonitor: Any?
+    var popOutLocalMonitor: Any?
     public let services = AppServices()
     let vellumCli = VellumCli()
     public let updateManager = UpdateManager()

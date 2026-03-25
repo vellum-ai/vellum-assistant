@@ -78,7 +78,6 @@ struct VellumAssistantApp: App {
                 Button("Pop Out Conversation") {
                     appDelegate.popOutActiveConversation()
                 }
-                .keyboardShortcut("p", modifiers: .command)
             }
             // View menu: zoom shortcuts for discoverability.
             // The actual handling is done by event monitors (registerZoomMonitor)

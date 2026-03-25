@@ -72,6 +72,12 @@ extension UserDefaults {
         }
         return string(forKey: "currentConversationShortcut") ?? ""
     }
+    @objc dynamic var popOutShortcut: String {
+        if UserDefaults.standard.object(forKey: "popOutShortcut") == nil {
+            return "cmd+p"
+        }
+        return string(forKey: "popOutShortcut") ?? ""
+    }
 }
 
 // MARK: - Input Monitors
@@ -88,6 +94,7 @@ extension AppDelegate {
         registerCmdKMonitor()
         registerNewChatMonitor()
         registerCurrentConversationMonitor()
+        registerPopOutMonitor()
 
         globalHotkeyObserver = Publishers.Merge4(
             UserDefaults.standard.publisher(for: \.globalHotkeyShortcut).map { _ in () },
@@ -97,6 +104,7 @@ extension AppDelegate {
         )
         .merge(with: UserDefaults.standard.publisher(for: \.newChatShortcut).map { _ in () })
         .merge(with: UserDefaults.standard.publisher(for: \.currentConversationShortcut).map { _ in () })
+        .merge(with: UserDefaults.standard.publisher(for: \.popOutShortcut).map { _ in () })
         .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
         .sink { [weak self] _ in
             self?.registerGlobalHotkeyMonitor()
@@ -104,6 +112,7 @@ extension AppDelegate {
             self?.registerSidebarToggleMonitor()
             self?.registerNewChatMonitor()
             self?.registerCurrentConversationMonitor()
+            self?.registerPopOutMonitor()
             self?.updateNewChatMenuItemShortcut()
             self?.updateCurrentConversationMenuItemShortcut()
         }
@@ -206,6 +215,10 @@ extension AppDelegate {
         if let monitor = sidebarToggleLocalMonitor {
             NSEvent.removeMonitor(monitor)
             sidebarToggleLocalMonitor = nil
+        }
+        if let monitor = popOutLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            popOutLocalMonitor = nil
         }
     }
 
@@ -372,6 +385,37 @@ extension AppDelegate {
             return nil
         }
         sidebarToggleLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
+    }
+
+    /// Registers a local event monitor to pop out the active conversation into
+    /// a new window when the configured shortcut (default: Cmd+P) is pressed.
+    /// The shortcut is read dynamically from UserDefaults so it can be
+    /// reconfigured without restarting.
+    func registerPopOutMonitor() {
+        if let existing = popOutLocalMonitor {
+            NSEvent.removeMonitor(existing)
+            popOutLocalMonitor = nil
+        }
+
+        let shortcut = UserDefaults.standard.string(forKey: "popOutShortcut") ?? "cmd+p"
+        guard !shortcut.isEmpty else { return }
+
+        let (targetModifiers, targetKey) = ShortcutHelper.parseShortcut(shortcut)
+
+        let handler: (NSEvent) -> NSEvent? = { [weak self] event in
+            guard self?.isBootstrapping != true,
+                  self?.mainWindow?.isVisible == true else { return event }
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.numericPad)
+            guard mods == targetModifiers,
+                  event.charactersIgnoringModifiers?.lowercased() == targetKey.lowercased() else {
+                return event
+            }
+            Task { @MainActor in
+                self?.popOutActiveConversation()
+            }
+            return nil
+        }
+        popOutLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: handler)
     }
 
     /// Registers Cmd+=/Cmd+-/Cmd+0 as local shortcuts for window zoom.
