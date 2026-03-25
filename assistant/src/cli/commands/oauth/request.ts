@@ -247,8 +247,8 @@ Examples:
                   if (connections.length === 0) {
                     writeError(
                       `Error: No active platform connection found for "${providerKey}" with account "${opts.account}".\n\n` +
-                        `Run 'assistant oauth platform status ${providerKey}' to see connected accounts for this provider.\n` +
-                        `To connect a new account, run 'assistant oauth platform connect --help'.`,
+                        `Run 'assistant oauth status ${providerKey}' to see connected accounts for this provider.\n` +
+                        `To connect a new account, run 'assistant oauth connect --help'.`,
                     );
                     return;
                   }
@@ -266,8 +266,8 @@ Examples:
               if (!conn) {
                 writeError(
                   `Error: No active OAuth connection found for "${providerKey}" with account "${opts.account}"${opts.clientId ? ` and client ID "${opts.clientId}"` : ""}.\n\n` +
-                    `Run 'assistant oauth connections list' to see active connections.\n` +
-                    `To connect a new account, run 'assistant oauth connections connect --help'.`,
+                    `Run 'assistant oauth status ${providerKey}' to see active connections.\n` +
+                    `To connect a new account, run 'assistant oauth connect --help'.`,
                 );
                 return;
               }
@@ -434,14 +434,14 @@ Examples:
             if (managed) {
               writeError(
                 `Error: ${resolveMessage}\n\n` +
-                  `Run 'assistant oauth platform status ${providerKey}' to check connection status.\n` +
-                  `To connect, run 'assistant oauth platform connect --help'.`,
+                  `Run 'assistant oauth status ${providerKey}' to check connection status.\n` +
+                  `To connect, run 'assistant oauth connect --help'.`,
               );
             } else {
               writeError(
                 `Error: ${resolveMessage}\n\n` +
-                  `Run 'assistant oauth connections list' to see active connections.\n` +
-                  `To connect, run 'assistant oauth connections connect --help'.`,
+                  `Run 'assistant oauth status ${providerKey}' to see active connections.\n` +
+                  `To connect, run 'assistant oauth connect --help'.`,
               );
             }
             return;
@@ -473,13 +473,13 @@ Examples:
             if (managed) {
               authHint =
                 `Hint: Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth platform status ${providerKey}' to check connection health.\n` +
-                `To reconnect, run 'assistant oauth platform connect --help'.`;
+                `Run 'assistant oauth status ${providerKey}' to check connection health.\n` +
+                `To reconnect, run 'assistant oauth connect --help'.`;
             } else {
               authHint =
                 `Hint: Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth connections list --provider ${providerKey}' to check connection status.\n` +
-                `To reconnect, run 'assistant oauth connections connect --help'.`;
+                `Run 'assistant oauth status ${providerKey}' to check connection status.\n` +
+                `To reconnect, run 'assistant oauth connect --help'.`;
             }
             writeInfo(authHint);
           }
@@ -555,11 +555,11 @@ Examples:
             const managed = isManagedMode(providerKey);
             const authHint = managed
               ? `Hint: Request returned HTTP ${errStatus}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth platform status ${providerKey}' to check connection health.\n` +
-                `To reconnect, run 'assistant oauth platform connect --help'.`
+                `Run 'assistant oauth status ${providerKey}' to check connection health.\n` +
+                `To reconnect, run 'assistant oauth connect --help'.`
               : `Hint: Request returned HTTP ${errStatus}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth connections list --provider ${providerKey}' to check connection status.\n` +
-                `To reconnect, run 'assistant oauth connections connect --help'.`;
+                `Run 'assistant oauth status ${providerKey}' to check connection status.\n` +
+                `To reconnect, run 'assistant oauth connect --help'.`;
 
             writeError(`Error: ${message}`, authHint);
             writeInfo(authHint);
