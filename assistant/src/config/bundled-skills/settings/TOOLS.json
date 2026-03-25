@@ -67,11 +67,13 @@
             "type": "string",
             "enum": [
               "General",
-              "Channels",
               "Models & Services",
               "Voice",
+              "Sounds",
               "Permissions & Privacy",
-              "Contacts",
+              "Billing",
+              "Archived Conversations",
+              "Schedules",
               "Developer"
             ],
             "description": "The settings tab to navigate to"
