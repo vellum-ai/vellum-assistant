@@ -259,14 +259,18 @@ final class AvatarAppearanceManager {
         cachedFullFallbackAvatar = nil
         cachedFullFallbackName = nil
 
-        let path = customAvatarURL.path
-        if let image = NSImage(contentsOfFile: path) {
-            customAvatarImage = image
-        } else {
-            customAvatarImage = nil
-            // Reload character traits from disk so the character avatar
-            // is restored when the custom image is removed.
-            loadCharacterTraitsFromDisk()
+        // Always try loading character traits first. If traits exist,
+        // the avatar is a character and the PNG is just a daemon rendering.
+        loadCharacterTraitsFromDisk()
+
+        if characterBodyShape == nil {
+            // No character traits — load the PNG as a custom upload.
+            let path = customAvatarURL.path
+            if let image = NSImage(contentsOfFile: path) {
+                customAvatarImage = image
+            } else {
+                customAvatarImage = nil
+            }
         }
         updateDockIcon()
     }
@@ -286,6 +290,10 @@ final class AvatarAppearanceManager {
         characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
         characterEyeStyle = AvatarEyeStyle(rawValue: components.eyeStyle)
         characterColor = AvatarColor(rawValue: components.color)
+        // Character traits found — clear the custom image since the PNG
+        // is a daemon rendering, not a user upload.
+        customAvatarImage = nil
+        cachedChatAvatar = nil
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
     }
@@ -355,6 +363,11 @@ final class AvatarAppearanceManager {
             characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
             characterEyeStyle = AvatarEyeStyle(rawValue: components.eyeStyle)
             characterColor = AvatarColor(rawValue: components.color)
+            // Character traits loaded — the PNG on disk is just a daemon
+            // rendering of the character, not a user upload. Clear it so
+            // the animated path is used.
+            customAvatarImage = nil
+            cachedChatAvatar = nil
             cachedFallbackAvatar = nil
             cachedFullFallbackAvatar = nil
             updateDockIcon()
@@ -376,18 +389,32 @@ final class AvatarAppearanceManager {
         let dir = url.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 
+        let isCharacter = bodyShape != nil
+
         guard let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
               let pngData = bitmap.representation(using: .png, properties: [:]) else { return }
 
         try? pngData.write(to: url)
         cachedChatAvatar = nil
-        customAvatarImage = image
+        cachedFallbackAvatar = nil
+        cachedFullFallbackAvatar = nil
 
-        // Persist component choices (nil clears them for uploaded images)
-        characterBodyShape = bodyShape
-        characterEyeStyle = eyeStyle
-        characterColor = color
+        if isCharacter {
+            // Character save: set traits, clear the custom image so
+            // AnimatedAvatarView is used instead of the static PNG.
+            customAvatarImage = nil
+            characterBodyShape = bodyShape
+            characterEyeStyle = eyeStyle
+            characterColor = color
+        } else {
+            // Custom upload: set the image, clear character traits so
+            // the static VAvatarImage path is used.
+            customAvatarImage = image
+            characterBodyShape = nil
+            characterEyeStyle = nil
+            characterColor = nil
+        }
         saveAvatarComponents()
         updateDockIcon()
     }
@@ -420,10 +447,15 @@ final class AvatarAppearanceManager {
         cachedFullFallbackAvatar = nil
         cachedFullFallbackName = nil
 
+        // Load character traits from disk first to determine if this
+        // is a character avatar or a custom upload.
+        loadCharacterTraitsFromDisk()
+
         // Fast path: load the image directly from disk so the dock icon
         // reflects the new avatar immediately, without waiting for the
-        // HTTP round-trip through the gateway.
-        if let avatarPath, let image = NSImage(contentsOfFile: avatarPath) {
+        // HTTP round-trip through the gateway. Only set customAvatarImage
+        // if this is NOT a character avatar (traits would be nil).
+        if characterBodyShape == nil, let avatarPath, let image = NSImage(contentsOfFile: avatarPath) {
             customAvatarImage = image
             updateDockIcon()
         }

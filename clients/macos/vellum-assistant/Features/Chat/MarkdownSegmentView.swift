@@ -13,6 +13,7 @@ private final class AttributedStringCacheEntry: NSObject {
 /// unified Text views so that text selection can span across paragraphs.
 struct MarkdownSegmentView: View, Equatable {
     let segments: [MarkdownSegment]
+    var isStreaming: Bool = false
     var maxContentWidth: CGFloat? = VSpacing.chatBubbleMaxWidth
     var textColor: Color = VColor.contentDefault
     var secondaryTextColor: Color = VColor.contentSecondary
@@ -24,6 +25,7 @@ struct MarkdownSegmentView: View, Equatable {
 
     static func == (lhs: MarkdownSegmentView, rhs: MarkdownSegmentView) -> Bool {
         lhs.segments == rhs.segments
+            && lhs.isStreaming == rhs.isStreaming
             && lhs.maxContentWidth == rhs.maxContentWidth
             && lhs.textColor == rhs.textColor
             && lhs.secondaryTextColor == rhs.secondaryTextColor
@@ -54,6 +56,7 @@ struct MarkdownSegmentView: View, Equatable {
                         // the double-measurement that fixedSize causes (measure at ideal
                         // size, then constrain to proposed width).
                         .lineLimit(nil)
+                        .streamingFade(isStreaming: isStreaming, characterCount: attributed.characters.count)
 
                 case .heading(let level, let headingText):
                     let headingFont: Font = switch level {
@@ -435,6 +438,24 @@ private extension View {
     func optionalMaxWidth(_ width: CGFloat?) -> some View {
         if let width {
             self.frame(maxWidth: width, alignment: .leading)
+        } else {
+            self
+        }
+    }
+}
+
+// MARK: - Streaming Fade
+
+private extension View {
+    /// Conditionally applies `StreamingFadeRenderer` during streaming.
+    /// New characters fade from 0 → 1 opacity over 150ms as SwiftUI
+    /// interpolates the renderer's animatable `elapsedCount`.
+    @ViewBuilder
+    func streamingFade(isStreaming: Bool, characterCount: Int) -> some View {
+        if isStreaming {
+            self
+                .textRenderer(StreamingFadeRenderer(elapsedCount: Double(characterCount)))
+                .animation(.easeIn(duration: 0.15), value: characterCount)
         } else {
             self
         }

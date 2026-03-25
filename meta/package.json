@@ -1,6 +1,6 @@
 {
   "name": "vellum",
-  "version": "0.5.10",
+  "version": "0.5.11",
   "license": "MIT",
   "description": "Install the full Vellum stack locally",
   "bin": {
@@ -15,10 +15,10 @@
     "Dockerfile"
   ],
   "dependencies": {
-    "@vellumai/assistant": "0.5.10",
-    "@vellumai/cli": "0.5.10",
-    "@vellumai/credential-executor": "0.5.10",
-    "@vellumai/vellum-gateway": "0.5.10"
+    "@vellumai/assistant": "0.5.11",
+    "@vellumai/cli": "0.5.11",
+    "@vellumai/credential-executor": "0.5.11",
+    "@vellumai/vellum-gateway": "0.5.11"
   },
   "devDependencies": {
     "@types/bun": "^1.2.4"

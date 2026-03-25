@@ -13,6 +13,7 @@ struct SettingsAppearanceTab: View {
     @State private var isRecordingSidebarToggle = false
     @State private var isRecordingNewChat = false
     @State private var isRecordingCurrentConversation = false
+    @State private var isRecordingPopOut = false
     @State private var isRecordingVoiceInput = false
     @State private var shortcutMonitor: Any?
     @State private var flagsMonitor: Any?
@@ -386,6 +387,39 @@ struct SettingsAppearanceTab: View {
 
                 SettingsDivider()
 
+                // Pop out conversation (configurable)
+                HStack {
+                    Text("Pop out conversation")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentSecondary)
+                    Spacer()
+                    if isRecordingPopOut, let display = recordingDisplayString, !display.isEmpty {
+                        VShortcutTag(display)
+                    } else {
+                        VShortcutTag(ShortcutHelper.displayString(for: store.popOutShortcut))
+                    }
+
+                    if isRecordingPopOut {
+                        VButton(label: "Press shortcut...", style: .outlined) {
+                            stopRecording()
+                        }
+                    } else {
+                        HStack(spacing: VSpacing.sm) {
+                            VButton(label: "Record", style: .outlined) {
+                                startRecordingPopOut()
+                            }
+                            if !store.popOutShortcut.isEmpty {
+                                VButton(label: "Unbind", style: .outlined) {
+                                    store.popOutShortcut = ""
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(.vertical, VSpacing.md)
+
+                SettingsDivider()
+
                 VToggle(
                     isOn: Binding(
                         get: { store.cmdEnterToSend },
@@ -602,6 +636,13 @@ struct SettingsAppearanceTab: View {
         isRecordingCurrentConversation = true
     }
 
+    private func startRecordingPopOut() {
+        startRecordingShortcut { shortcut, _ in
+            store.popOutShortcut = shortcut
+        }
+        isRecordingPopOut = true
+    }
+
     /// Shared recording logic. The callback receives the shortcut string and the raw NSEvent key code.
     private func startRecordingShortcut(onRecord: @escaping (String, UInt16) -> Void) {
         stopRecording()
@@ -648,6 +689,7 @@ struct SettingsAppearanceTab: View {
         isRecordingSidebarToggle = false
         isRecordingNewChat = false
         isRecordingCurrentConversation = false
+        isRecordingPopOut = false
         recordingDisplayString = nil
         if let monitor = shortcutMonitor {
             NSEvent.removeMonitor(monitor)

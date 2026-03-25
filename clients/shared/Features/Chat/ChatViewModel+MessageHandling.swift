@@ -71,7 +71,7 @@ extension ChatViewModel {
     }
 
     /// Priority list of input keys whose values are most useful as a tool call summary.
-    static let toolInputPriorityKeys = [
+    nonisolated static let toolInputPriorityKeys = [
         "command", "file_path", "path", "query", "url", "pattern", "glob"
     ]
 
