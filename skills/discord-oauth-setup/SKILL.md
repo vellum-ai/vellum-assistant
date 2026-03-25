@@ -156,7 +156,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:discord --client-id $(cat <<'EOF'
+    curl -s -H "Authorization: Bearer $(assistant oauth token integration:discord --client-id $(cat <<'EOF'
     <client-id>
     EOF
     ))" "https://discord.com/api/v10/users/@me" | python3 -m json.tool

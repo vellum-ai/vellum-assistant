@@ -198,7 +198,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:twitter --client-id $(cat <<'EOF'
+    curl -s -H "Authorization: Bearer $(assistant oauth token integration:twitter --client-id $(cat <<'EOF'
     <client-id>
     EOF
     ))" "https://api.x.com/2/users/me" | python3 -m json.tool

@@ -152,7 +152,7 @@ After authorization completes, verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:figma --client-id $(cat <<'EOF'
+    curl -s -H "Authorization: Bearer $(assistant oauth token integration:figma --client-id $(cat <<'EOF'
     <client-id>
     EOF
     ))" "https://api.figma.com/v1/me" | python3 -m json.tool
