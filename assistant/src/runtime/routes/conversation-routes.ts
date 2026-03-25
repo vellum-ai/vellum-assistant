@@ -549,17 +549,20 @@ export function handleListMessages(
     };
   });
 
-  const oldestTimestamp =
-    rawMessages.length > 0 ? rawMessages[0].createdAt : undefined;
-  const oldestMessageId =
-    rawMessages.length > 0 ? rawMessages[0].id : undefined;
+  if (isPaginated) {
+    const oldestTimestamp =
+      rawMessages.length > 0 ? rawMessages[0].createdAt : undefined;
+    const oldestMessageId =
+      rawMessages.length > 0 ? rawMessages[0].id : undefined;
+    return Response.json({
+      messages,
+      hasMore,
+      ...(oldestTimestamp != null ? { oldestTimestamp } : {}),
+      ...(oldestMessageId != null ? { oldestMessageId } : {}),
+    });
+  }
 
-  return Response.json({
-    messages,
-    ...(isPaginated ? { hasMore } : {}),
-    ...(oldestTimestamp != null ? { oldestTimestamp } : {}),
-    ...(oldestMessageId != null ? { oldestMessageId } : {}),
-  });
+  return Response.json({ messages });
 }
 
 /**
