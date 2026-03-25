@@ -11,6 +11,7 @@ import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 import {
   fetchActiveConnections,
+  printDeprecationWarning,
   requirePlatformClient,
   toBareProvider,
 } from "./shared.js";
@@ -105,7 +106,7 @@ export function registerPlatformCommands(oauth: Command): void {
 
 function registerStatusCommand(platform: Command): void {
   platform
-    .command("status <provider>")
+    .command("status <provider>", { hidden: true })
     .description(
       "Check whether a provider supports managed OAuth and list the user's active connections",
     )
@@ -130,6 +131,11 @@ Examples:
         cmd: Command,
       ) => {
         try {
+          printDeprecationWarning(
+            "assistant oauth platform status",
+            "assistant oauth status",
+            cmd,
+          );
           const providerKey = toProviderKey(provider);
           const providerRow = getProvider(providerKey);
 
@@ -224,7 +230,7 @@ Examples:
 
 function registerConnectCommand(platform: Command): void {
   platform
-    .command("connect <provider>")
+    .command("connect <provider>", { hidden: true })
     .description(
       "Initiate a platform-managed OAuth flow for a provider and open the browser",
     )
@@ -261,6 +267,11 @@ Examples:
     .action(
       async (provider: string, opts: { scopes?: string[] }, cmd: Command) => {
         try {
+          printDeprecationWarning(
+            "assistant oauth platform connect",
+            "assistant oauth connect",
+            cmd,
+          );
           if (!requireManagedProvider(provider, cmd)) return;
 
           const client = await requirePlatformClient(cmd);
@@ -333,7 +344,7 @@ Examples:
 
 function registerDisconnectCommand(platform: Command): void {
   platform
-    .command("disconnect <provider>")
+    .command("disconnect <provider>", { hidden: true })
     .description(
       "Disconnect a platform-managed OAuth connection for a provider",
     )
@@ -367,6 +378,11 @@ Examples:
         cmd: Command,
       ) => {
         try {
+          printDeprecationWarning(
+            "assistant oauth platform disconnect",
+            "assistant oauth disconnect",
+            cmd,
+          );
           if (!requireManagedCapableProvider(provider, cmd)) return;
 
           const client = await requirePlatformClient(cmd);

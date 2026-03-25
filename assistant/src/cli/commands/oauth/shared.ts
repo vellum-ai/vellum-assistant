@@ -8,7 +8,7 @@ import {
 import { getProvider } from "../../../oauth/oauth-store.js";
 import { resolveService } from "../../../oauth/provider-behaviors.js";
 import { VellumPlatformClient } from "../../../platform/client.js";
-import { writeOutput } from "../../output.js";
+import { shouldOutputJson, writeOutput } from "../../output.js";
 
 // ---------------------------------------------------------------------------
 // Re-exports
@@ -30,6 +30,22 @@ export interface PlatformConnectionEntry {
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Print a deprecation warning to stderr for renamed commands. Skipped in JSON
+ * mode so machine-parseable output is not polluted.
+ */
+export function printDeprecationWarning(
+  oldCmd: string,
+  newCmd: string,
+  cmd: Command,
+): void {
+  if (!shouldOutputJson(cmd)) {
+    process.stderr.write(
+      `Warning: '${oldCmd}' is deprecated. Use '${newCmd}' instead.\n`,
+    );
+  }
+}
 
 /**
  * Extract the bare provider slug (e.g. "google") from either a raw CLI
