@@ -1184,7 +1184,11 @@ export function applyRuntimeInjections(
     }
   }
 
-  if (options.transportHints && options.transportHints.length > 0) {
+  if (
+    mode === "full" &&
+    options.transportHints &&
+    options.transportHints.length > 0
+  ) {
     const userTail = result[result.length - 1];
     if (userTail && userTail.role === "user") {
       result = [
