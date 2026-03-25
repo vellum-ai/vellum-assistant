@@ -284,20 +284,21 @@ describe("011-backfill-installation-id migration", () => {
     expect(parsed.assistants[0].installationId).toBe("sqlite-id");
   });
 
-  test("respects BASE_DATA_DIR environment variable", () => {
+  test("ignores BASE_DATA_DIR and always reads lockfile from homedir", () => {
     process.env.BASE_DATA_DIR = "/custom-base";
     getMemoryCheckpointFn.mockReturnValue("sqlite-id");
 
-    const customLockPath = "/custom-base/.vellum.lock.json";
+    // Lockfile under BASE_DATA_DIR should be ignored — the migration
+    // always reads from homedir() (per-user, not per-instance).
     setupFs({
-      [customLockPath]: makeLockfile([{ assistantId: "my-assistant" }]),
+      [LOCK_PATH]: makeLockfile([{ assistantId: "my-assistant" }]),
     });
 
     backfillInstallationIdMigration.run(WORKSPACE_DIR);
 
     expect(writeFileSyncFn).toHaveBeenCalledTimes(1);
     const [path] = writeFileSyncFn.mock.calls[0] as [string, string];
-    expect(path).toBe(customLockPath);
+    expect(path).toBe(LOCK_PATH);
   });
 
   test("preserves other assistants in lockfile when writing", () => {

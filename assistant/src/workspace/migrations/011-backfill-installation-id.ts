@@ -39,10 +39,12 @@ export const backfillInstallationIdMigration: WorkspaceMigration = {
 
     // b. Read the lockfile — check both the current and legacy lockfile paths
     //    to support installs that haven't migrated the filename yet.
-    const base = process.env.BASE_DATA_DIR?.trim() || homedir();
+    //    Always reads from homedir(), matching resolveInstanceDataDir() in
+    //    platform.ts — the lockfile is a per-user file, not per-instance.
+    const home = homedir();
     const lockCandidates = [
-      join(base, ".vellum.lock.json"),
-      join(base, ".vellum.lockfile.json"),
+      join(home, ".vellum.lock.json"),
+      join(home, ".vellum.lockfile.json"),
     ];
 
     let lockPath: string | undefined;
