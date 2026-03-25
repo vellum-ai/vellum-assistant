@@ -3,7 +3,7 @@
  *
  * POST /v1/messages/:id/tts?conversationId=... — synthesize message text to audio
  *
- * Gated behind the `feature_flags.message-tts.enabled` assistant feature flag.
+ * Gated behind the `message-tts` assistant feature flag.
  * Uses Fish Audio for synthesis when configured.
  */
 
@@ -18,7 +18,7 @@ import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("tts-routes");
 
-const MESSAGE_TTS_FLAG = "feature_flags.message-tts.enabled" as const;
+const MESSAGE_TTS_FLAG = "message-tts" as const;
 
 // ---------------------------------------------------------------------------
 // Route definitions

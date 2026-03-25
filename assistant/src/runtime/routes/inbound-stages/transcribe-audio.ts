@@ -15,8 +15,7 @@ import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("transcribe-audio");
 
-const VOICE_TRANSCRIPTION_FLAG_KEY =
-  "feature_flags.channel-voice-transcription.enabled" as const;
+const VOICE_TRANSCRIPTION_FLAG_KEY = "channel-voice-transcription" as const;
 
 /** Timeout for the entire transcription pipeline (all attachments). */
 const TRANSCRIPTION_TIMEOUT_MS = 30_000;

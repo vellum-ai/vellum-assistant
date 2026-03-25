@@ -7,11 +7,11 @@ import { describe, expect, test } from "bun:test";
  * Guard tests for assistant feature flags.
  *
  * 1. Key format validation: ensure production code uses the canonical
- *    `feature_flags.<flagId>.enabled` format, not the legacy
- *    `skills.<id>.enabled` format.
+ *    simple kebab-case format (e.g., "browser", "ces-tools"), not the
+ *    legacy `skills.<id>.enabled` format.
  *
  * 2. Declaration coverage: ensure all assistant-scope flag keys in the
- *    unified registry conform to the canonical format.
+ *    unified registry conform to the simple kebab-case format.
  *
  * See AGENTS.md "Assistant Feature Flags" for the full convention.
  */
@@ -53,7 +53,7 @@ function loadRegistry(): Registry {
   return JSON.parse(raw);
 }
 
-const CANONICAL_KEY_RE = /^feature_flags\.[a-z0-9][a-z0-9._-]*\.enabled$/;
+const CANONICAL_KEY_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 /**
  * Files allowed to contain the legacy `skills.<id>.enabled` key format.
@@ -126,13 +126,13 @@ describe("assistant feature flag guard", () => {
     if (violations.length > 0) {
       const message = [
         "Found production files using the legacy `skills.<id>.enabled` key format.",
-        "New code must use the canonical format: `feature_flags.<id>.enabled`.",
+        'New code must use the canonical simple kebab-case format (e.g., "browser", "ces-tools").',
         'See AGENTS.md "Assistant Feature Flags" for the convention.',
         "",
         "Violations:",
         ...violations.map((f) => `  - ${f}`),
         "",
-        "To fix: replace `skills.<id>.enabled` with `feature_flags.<id>.enabled`.",
+        "To fix: replace `skills.<id>.enabled` with the simple kebab-case format.",
         "If backward-compat access is genuinely needed, add to LEGACY_KEY_ALLOWLIST in assistant-feature-flag-guard.test.ts.",
       ].join("\n");
 
@@ -144,7 +144,7 @@ describe("assistant feature flag guard", () => {
   // Test: unified registry key format (assistant-scope only)
   // ---------------------------------------------------------------------------
 
-  test("all assistant-scope keys in the unified registry use the canonical feature_flags.<id>.enabled format", () => {
+  test("all assistant-scope keys in the unified registry use the canonical simple kebab-case format", () => {
     const registry = loadRegistry();
     const assistantFlags = registry.flags.filter(
       (f) => f.scope === "assistant",
@@ -156,7 +156,7 @@ describe("assistant feature flag guard", () => {
     if (violations.length > 0) {
       const message = [
         "Found assistant-scope keys in the unified registry that do not match the canonical format.",
-        "Expected format: feature_flags.<flagId>.enabled",
+        'Expected format: simple kebab-case (e.g., "browser", "ces-tools")',
         "",
         "Violations:",
         ...violations.map((k) => `  - ${k}`),
