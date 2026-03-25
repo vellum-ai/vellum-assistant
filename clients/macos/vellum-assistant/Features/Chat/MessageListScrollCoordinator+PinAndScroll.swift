@@ -138,47 +138,41 @@ extension MessageListScrollCoordinator {
         }
     }
 
-    /// Staged scroll-to-bottom that retries after increasing delays to handle
-    /// cases where SwiftUI hasn't committed the new content's layout yet.
+    /// Deferred safety-net scroll-to-bottom after a conversation switch.
+    ///
+    /// The primary positioning mechanism is `.defaultScrollAnchor(.bottom)` on the
+    /// ScrollView, which tells SwiftUI to place content at the bottom declaratively
+    /// — no programmatic scroll needed for the common case. This method exists only
+    /// as a fallback: if the layout hasn't settled after 200ms (e.g. very large
+    /// conversations where LazyVStack materializes slowly), it issues a single
+    /// programmatic scroll to correct the position.
     func restoreScrollToBottom(
         conversationId: UUID?,
         anchorMessageId: Binding<UUID?>
     ) {
         scrollRestoreTask?.cancel()
 
-        // Route the initial restore through the coordinator for bounded retries.
-        if anchorMessageId.wrappedValue == nil {
-            requestBottomPin(reason: .initialRestore, conversationId: conversationId)
-        }
-
         scrollRestoreTask = Task { @MainActor [weak self] in
             guard let self, !Task.isCancelled else { return }
-            // Stage 0: immediate — the coordinator fires its first attempt above.
-            os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=0")
-            scrollCoordinatorLog.debug("Scroll restore: stage 0 (immediate, coordinator-driven)")
+            os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=deferred-safety-net")
+            scrollCoordinatorLog.debug("Scroll restore: waiting for defaultScrollAnchor to settle")
 
-            // Stage 1: ~3 frames — handles most conversation switches.
-            try? await Task.sleep(nanoseconds: 50_000_000)
+            // Wait for layout to materialize. defaultScrollAnchor handles
+            // positioning declaratively; this delay just gives it time to
+            // take effect before we check whether a fallback is needed.
+            try? await Task.sleep(nanoseconds: 200_000_000)
             guard !Task.isCancelled else { return }
-            os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=1")
-            if anchorMessageId.wrappedValue == nil {
-                requestBottomPin(reason: .initialRestore, conversationId: conversationId)
-            }
-            scrollCoordinatorLog.debug("Scroll restore: stage 1 (50ms)")
 
-            // Stage 2: ~9 frames — catches slower layout/materialization.
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            guard !Task.isCancelled else { return }
             if anchorMessageId.wrappedValue == nil
                 && !hasReceivedScrollEvent
                 && !self.isAtBottom
             {
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=2 action=retry")
+                os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=fallback action=pin")
                 requestBottomPin(reason: .initialRestore, conversationId: conversationId)
-                scrollCoordinatorLog.debug("Scroll restore: stage 2 (200ms) — retrying via coordinator")
+                scrollCoordinatorLog.debug("Scroll restore: fallback pin (defaultScrollAnchor insufficient)")
             } else {
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=2 action=skipped")
-                scrollCoordinatorLog.debug("Scroll restore: stage 2 skipped (anchor=\(String(describing: anchorMessageId.wrappedValue)) scrollEvent=\(self.hasReceivedScrollEvent))")
+                os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=fallback action=skipped")
+                scrollCoordinatorLog.debug("Scroll restore: no fallback needed (anchor=\(String(describing: anchorMessageId.wrappedValue)) scrollEvent=\(self.hasReceivedScrollEvent) atBottom=\(self.isAtBottom))")
             }
 
             if !Task.isCancelled { scrollRestoreTask = nil }
