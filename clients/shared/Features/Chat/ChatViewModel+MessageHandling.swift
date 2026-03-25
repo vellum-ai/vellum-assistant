@@ -1850,8 +1850,11 @@ extension ChatViewModel {
                 // for this requestId, skip the duplicate call; otherwise forward
                 // so externally-resolved confirmations still dismiss notifications.
                 if inlineResponseHandledRequestIds.remove(msg.requestId) == nil {
+                    log.info("[confirm-flow] confirmationStateChanged: forwarding to notification cleanup (not in handledSet): requestId=\(msg.requestId, privacy: .public) state=\(msg.state, privacy: .public)")
                     let decisionString = msg.state == "approved" ? "allow" : "deny"
                     onInlineConfirmationResponse?(msg.requestId, decisionString)
+                } else {
+                    log.info("[confirm-flow] confirmationStateChanged: skipped notification cleanup (already in handledSet): requestId=\(msg.requestId, privacy: .public) state=\(msg.state, privacy: .public)")
                 }
             }
 
