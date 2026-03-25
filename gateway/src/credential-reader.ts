@@ -335,114 +335,66 @@ export async function readServiceCredentials(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Per-service credential specs
+// ---------------------------------------------------------------------------
+
+export const TELEGRAM_CREDENTIAL_SPEC: ServiceCredentialSpec = {
+  service: "telegram",
+  requiredFields: ["bot_token", "webhook_secret"],
+} as const;
+
+export const TWILIO_CREDENTIAL_SPEC: ServiceCredentialSpec = {
+  service: "twilio",
+  requiredFields: ["account_sid", "auth_token"],
+} as const;
+
+export const WHATSAPP_CREDENTIAL_SPEC: ServiceCredentialSpec = {
+  service: "whatsapp",
+  requiredFields: [
+    "phone_number_id",
+    "access_token",
+    "app_secret",
+    "webhook_verify_token",
+  ],
+} as const;
+
+export const SLACK_CHANNEL_CREDENTIAL_SPEC: ServiceCredentialSpec = {
+  service: "slack_channel",
+  requiredFields: ["bot_token", "app_token"],
+} as const;
+
+export const ALL_CREDENTIAL_SPECS: readonly ServiceCredentialSpec[] = [
+  TELEGRAM_CREDENTIAL_SPEC,
+  TWILIO_CREDENTIAL_SPEC,
+  WHATSAPP_CREDENTIAL_SPEC,
+  SLACK_CHANNEL_CREDENTIAL_SPEC,
+];
+
+// ---------------------------------------------------------------------------
+// Per-service typed credential readers (thin wrappers over readServiceCredentials)
+// ---------------------------------------------------------------------------
+
 export type TelegramCredentials = {
   botToken: string;
   webhookSecret: string;
 };
+
+export async function readTelegramCredentials(): Promise<TelegramCredentials | null> {
+  const raw = await readServiceCredentials(TELEGRAM_CREDENTIAL_SPEC);
+  if (!raw) return null;
+  return { botToken: raw.bot_token, webhookSecret: raw.webhook_secret };
+}
 
 export type TwilioCredentials = {
   accountSid: string;
   authToken: string;
 };
 
-/**
- * Check the credential metadata file for Telegram credentials and read
- * them from the encrypted store.
- *
- * Returns `null` if:
- * - The metadata file doesn't exist or can't be parsed
- * - Telegram bot_token or webhook_secret entries are missing from metadata
- * - The actual secret values can't be read from the encrypted store
- */
-export async function readTelegramCredentials(): Promise<TelegramCredentials | null> {
-  try {
-    const metadataPath = getMetadataPath();
-    if (!existsSync(metadataPath)) return null;
-
-    const raw = readFileSync(metadataPath, "utf-8");
-    const data = JSON.parse(raw);
-    if (!data || !Array.isArray(data.credentials)) return null;
-
-    const hasBotToken = data.credentials.some(
-      (c: { service?: string; field?: string }) =>
-        c.service === "telegram" && c.field === "bot_token",
-    );
-    const hasWebhookSecret = data.credentials.some(
-      (c: { service?: string; field?: string }) =>
-        c.service === "telegram" && c.field === "webhook_secret",
-    );
-
-    if (!hasBotToken || !hasWebhookSecret) return null;
-
-    const botToken = await readCredential(
-      credentialKey("telegram", "bot_token"),
-    );
-    const webhookSecret = await readCredential(
-      credentialKey("telegram", "webhook_secret"),
-    );
-
-    if (!botToken || !webhookSecret) {
-      log.warn(
-        "Telegram credential metadata exists but secrets could not be read",
-      );
-      return null;
-    }
-
-    return { botToken, webhookSecret };
-  } catch (err) {
-    log.debug({ err }, "Failed to read Telegram credentials");
-    return null;
-  }
-}
-
-/**
- * Check the credential metadata file for Twilio credentials and read
- * them from the encrypted store.
- *
- * Returns `null` if:
- * - The metadata file doesn't exist or can't be parsed
- * - Twilio account_sid or auth_token entries are missing from metadata
- * - The actual secret values can't be read from the encrypted store
- */
 export async function readTwilioCredentials(): Promise<TwilioCredentials | null> {
-  try {
-    const metadataPath = getMetadataPath();
-    if (!existsSync(metadataPath)) return null;
-
-    const raw = readFileSync(metadataPath, "utf-8");
-    const data = JSON.parse(raw);
-    if (!data || !Array.isArray(data.credentials)) return null;
-
-    const hasAccountSid = data.credentials.some(
-      (c: { service?: string; field?: string }) =>
-        c.service === "twilio" && c.field === "account_sid",
-    );
-    const hasAuthToken = data.credentials.some(
-      (c: { service?: string; field?: string }) =>
-        c.service === "twilio" && c.field === "auth_token",
-    );
-
-    if (!hasAccountSid || !hasAuthToken) return null;
-
-    const accountSid = await readCredential(
-      credentialKey("twilio", "account_sid"),
-    );
-    const authToken = await readCredential(
-      credentialKey("twilio", "auth_token"),
-    );
-
-    if (!accountSid || !authToken) {
-      log.warn(
-        "Twilio credential metadata exists but secrets could not be read",
-      );
-      return null;
-    }
-
-    return { accountSid, authToken };
-  } catch (err) {
-    log.debug({ err }, "Failed to read Twilio credentials");
-    return null;
-  }
+  const raw = await readServiceCredentials(TWILIO_CREDENTIAL_SPEC);
+  if (!raw) return null;
+  return { accountSid: raw.account_sid, authToken: raw.auth_token };
 }
 
 export type SlackChannelCredentials = {
@@ -452,54 +404,10 @@ export type SlackChannelCredentials = {
   appToken: string;
 };
 
-/**
- * Check the credential metadata file for Slack channel credentials and read
- * them from the encrypted store.
- *
- * Returns `null` if:
- * - The metadata file doesn't exist or can't be parsed
- * - Slack channel bot_token or app_token entries are missing from metadata
- * - The actual secret values can't be read from the encrypted store
- */
 export async function readSlackChannelCredentials(): Promise<SlackChannelCredentials | null> {
-  try {
-    const metadataPath = getMetadataPath();
-    if (!existsSync(metadataPath)) return null;
-
-    const raw = readFileSync(metadataPath, "utf-8");
-    const data = JSON.parse(raw);
-    if (!data || !Array.isArray(data.credentials)) return null;
-
-    const hasBotToken = data.credentials.some(
-      (c: { service?: string; field?: string }) =>
-        c.service === "slack_channel" && c.field === "bot_token",
-    );
-    const hasAppToken = data.credentials.some(
-      (c: { service?: string; field?: string }) =>
-        c.service === "slack_channel" && c.field === "app_token",
-    );
-
-    if (!hasBotToken || !hasAppToken) return null;
-
-    const botToken = await readCredential(
-      credentialKey("slack_channel", "bot_token"),
-    );
-    const appToken = await readCredential(
-      credentialKey("slack_channel", "app_token"),
-    );
-
-    if (!botToken || !appToken) {
-      log.warn(
-        "Slack channel credential metadata exists but secrets could not be read",
-      );
-      return null;
-    }
-
-    return { botToken, appToken };
-  } catch (err) {
-    log.debug({ err }, "Failed to read Slack channel credentials");
-    return null;
-  }
+  const raw = await readServiceCredentials(SLACK_CHANNEL_CREDENTIAL_SPEC);
+  if (!raw) return null;
+  return { botToken: raw.bot_token, appToken: raw.app_token };
 }
 
 export type WhatsAppCredentials = {
@@ -513,72 +421,13 @@ export type WhatsAppCredentials = {
   webhookVerifyToken: string;
 };
 
-/**
- * Check the credential metadata file for WhatsApp credentials and read
- * them from the encrypted store.
- *
- * Returns `null` if:
- * - The metadata file doesn't exist or can't be parsed
- * - Required WhatsApp entries are missing from metadata
- * - The actual secret values can't be read from the encrypted store
- */
 export async function readWhatsAppCredentials(): Promise<WhatsAppCredentials | null> {
-  try {
-    const metadataPath = getMetadataPath();
-    if (!existsSync(metadataPath)) return null;
-
-    const raw = readFileSync(metadataPath, "utf-8");
-    const data = JSON.parse(raw);
-    if (!data || !Array.isArray(data.credentials)) return null;
-
-    const hasPhoneNumberId = data.credentials.some(
-      (c: { service?: string; field?: string }) =>
-        c.service === "whatsapp" && c.field === "phone_number_id",
-    );
-    const hasAccessToken = data.credentials.some(
-      (c: { service?: string; field?: string }) =>
-        c.service === "whatsapp" && c.field === "access_token",
-    );
-    const hasAppSecret = data.credentials.some(
-      (c: { service?: string; field?: string }) =>
-        c.service === "whatsapp" && c.field === "app_secret",
-    );
-    const hasWebhookVerifyToken = data.credentials.some(
-      (c: { service?: string; field?: string }) =>
-        c.service === "whatsapp" && c.field === "webhook_verify_token",
-    );
-
-    if (
-      !hasPhoneNumberId ||
-      !hasAccessToken ||
-      !hasAppSecret ||
-      !hasWebhookVerifyToken
-    )
-      return null;
-
-    const phoneNumberId = await readCredential(
-      credentialKey("whatsapp", "phone_number_id"),
-    );
-    const accessToken = await readCredential(
-      credentialKey("whatsapp", "access_token"),
-    );
-    const appSecret = await readCredential(
-      credentialKey("whatsapp", "app_secret"),
-    );
-    const webhookVerifyToken = await readCredential(
-      credentialKey("whatsapp", "webhook_verify_token"),
-    );
-
-    if (!phoneNumberId || !accessToken || !appSecret || !webhookVerifyToken) {
-      log.warn(
-        "WhatsApp credential metadata exists but secrets could not be read",
-      );
-      return null;
-    }
-
-    return { phoneNumberId, accessToken, appSecret, webhookVerifyToken };
-  } catch (err) {
-    log.debug({ err }, "Failed to read WhatsApp credentials");
-    return null;
-  }
+  const raw = await readServiceCredentials(WHATSAPP_CREDENTIAL_SPEC);
+  if (!raw) return null;
+  return {
+    phoneNumberId: raw.phone_number_id,
+    accessToken: raw.access_token,
+    appSecret: raw.app_secret,
+    webhookVerifyToken: raw.webhook_verify_token,
+  };
 }
