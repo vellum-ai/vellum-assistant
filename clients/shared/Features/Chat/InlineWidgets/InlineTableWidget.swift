@@ -1,5 +1,18 @@
 import SwiftUI
 
+/// Applies an explicit width when measured, or `maxWidth: .infinity` as
+/// a fallback before the container width is known.
+private extension View {
+    @ViewBuilder
+    func columnFrame(_ width: CGFloat) -> some View {
+        if width.isFinite {
+            self.frame(width: width, alignment: .leading)
+        } else {
+            self.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
 /// Inline table widget with selectable rows and action support.
 ///
 /// Measures the available container width via `onGeometryChange` and
@@ -39,7 +52,7 @@ public struct InlineTableWidget: View {
         if let w = column.width {
             return CGFloat(w)
         }
-        guard tableWidth > 0 else { return 0 }
+        guard tableWidth > 0 else { return .infinity }
         let fixedTotal = CGFloat(data.columns.compactMap(\.width).reduce(0, +))
         let flexCount = data.columns.filter({ $0.width == nil }).count
         guard flexCount > 0 else { return 0 }
@@ -70,7 +83,7 @@ public struct InlineTableWidget: View {
                     Text(column.label)
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
-                        .frame(width: columnWidth(for: column), alignment: .leading)
+                        .columnFrame(columnWidth(for: column))
                         .textSelection(.enabled)
                 }
             }
@@ -95,6 +108,7 @@ public struct InlineTableWidget: View {
                     .padding(.top, VSpacing.xs)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onGeometryChange(for: CGFloat.self) { proxy in
             proxy.size.width
         } action: { newWidth in
@@ -161,7 +175,7 @@ public struct InlineTableWidget: View {
                 .lineLimit(nil)
                 .textSelection(.enabled)
         }
-        .frame(width: width, alignment: .leading)
+        .columnFrame(width)
     }
 
     // MARK: - Helpers
