@@ -270,7 +270,7 @@ At least --id or --provider must be specified.`,
   // ---------------------------------------------------------------------------
 
   connections
-    .command("token <provider-key>")
+    .command("token <provider-key>", { hidden: true })
     .description(
       "Print a valid OAuth access token for a provider, refreshing if expired",
     )
@@ -304,6 +304,12 @@ Examples:
         cmd: Command,
       ) => {
         try {
+          printDeprecationWarning(
+            "assistant oauth connections token",
+            "assistant oauth token",
+            cmd,
+          );
+
           // CES shell lockdown: deny raw token reveal in untrusted shells.
           if (isUntrustedShell()) {
             writeOutput(cmd, { ok: false, error: UNTRUSTED_SHELL_ERROR });
@@ -334,7 +340,7 @@ Examples:
   // ---------------------------------------------------------------------------
 
   connections
-    .command("ping <provider-key>")
+    .command("ping <provider-key>", { hidden: true })
     .description(
       "Verify that a stored OAuth token is still valid by hitting the provider's health-check endpoint",
     )
@@ -366,6 +372,8 @@ Examples:
         cmd: Command,
       ) => {
         try {
+          printDeprecationWarning("oauth connections ping", "oauth ping", cmd);
+
           const provider = getProvider(providerKey);
           if (!provider) {
             writeOutput(cmd, {

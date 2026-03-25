@@ -120,7 +120,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:discord --client-id $(cat <<'EOF'
+    assistant oauth connect integration:discord --client-id $(cat <<'EOF'
     <client-id>
     EOF
     ) --scopes identify guilds guilds.members.read messages.read
