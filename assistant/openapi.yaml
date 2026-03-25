@@ -1928,8 +1928,12 @@ paths:
               schema:
                 type: object
                 properties:
-                  ok:
+                  success:
                     type: boolean
+                  type:
+                    type: string
+                  name:
+                    type: string
       requestBody:
         required: true
         content:
@@ -1937,10 +1941,14 @@ paths:
             schema:
               type: object
               properties:
+                type:
+                  type: string
+                  description: "Secret type: 'api_key' or 'credential'"
                 name:
                   type: string
                   description: Name of the secret to delete
               required:
+                - type
                 - name
     get:
       operationId: secrets_get
@@ -1958,7 +1966,10 @@ paths:
                 properties:
                   secrets:
                     type: array
-                    description: List of secret metadata entries
+                    description: List of secret metadata entries, each with type and name
+                  accounts:
+                    type: array
+                    description: Alias for secrets (same data)
     post:
       operationId: secrets_post
       summary: Add a secret
@@ -1973,8 +1984,12 @@ paths:
               schema:
                 type: object
                 properties:
-                  ok:
+                  success:
                     type: boolean
+                  type:
+                    type: string
+                  name:
+                    type: string
       requestBody:
         required: true
         content:
@@ -1982,16 +1997,17 @@ paths:
             schema:
               type: object
               properties:
+                type:
+                  type: string
+                  description: "Secret type: 'api_key' or 'credential'"
                 name:
                   type: string
                   description: Unique name for the secret
                 value:
                   type: string
                   description: Secret value to store
-                service:
-                  type: string
-                  description: Associated service identifier
               required:
+                - type
                 - name
                 - value
   /v1/secrets/read:
@@ -2009,10 +2025,16 @@ paths:
               schema:
                 type: object
                 properties:
-                  name:
-                    type: string
+                  found:
+                    type: boolean
                   value:
                     type: string
+                    description: Decrypted value (only when reveal=true and found)
+                  masked:
+                    type: string
+                    description: Masked value (when reveal=false and found)
+                  unreachable:
+                    type: boolean
       requestBody:
         required: true
         content:
@@ -2020,10 +2042,17 @@ paths:
             schema:
               type: object
               properties:
+                type:
+                  type: string
+                  description: "Secret type: 'api_key' or 'credential'"
                 name:
                   type: string
                   description: Name of the secret to read
+                reveal:
+                  type: boolean
+                  description: If true, return the decrypted value; otherwise return a masked version
               required:
+                - type
                 - name
   /v1/settings/avatar/generate:
     post:

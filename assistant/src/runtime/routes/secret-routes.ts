@@ -563,19 +563,21 @@ export function secretRouteDefinitions(
       requestBody: {
         type: "object",
         properties: {
+          type: {
+            type: "string",
+            description: "Secret type: 'api_key' or 'credential'",
+          },
           name: { type: "string", description: "Unique name for the secret" },
           value: { type: "string", description: "Secret value to store" },
-          service: {
-            type: "string",
-            description: "Associated service identifier",
-          },
         },
-        required: ["name", "value"],
+        required: ["type", "name", "value"],
       },
       responseBody: {
         type: "object",
         properties: {
-          ok: { type: "boolean" },
+          success: { type: "boolean" },
+          type: { type: "string" },
+          name: { type: "string" },
         },
       },
     },
@@ -589,14 +591,20 @@ export function secretRouteDefinitions(
       requestBody: {
         type: "object",
         properties: {
+          type: {
+            type: "string",
+            description: "Secret type: 'api_key' or 'credential'",
+          },
           name: { type: "string", description: "Name of the secret to delete" },
         },
-        required: ["name"],
+        required: ["type", "name"],
       },
       responseBody: {
         type: "object",
         properties: {
-          ok: { type: "boolean" },
+          success: { type: "boolean" },
+          type: { type: "string" },
+          name: { type: "string" },
         },
       },
     },
@@ -612,7 +620,12 @@ export function secretRouteDefinitions(
         properties: {
           secrets: {
             type: "array",
-            description: "List of secret metadata entries",
+            description:
+              "List of secret metadata entries, each with type and name",
+          },
+          accounts: {
+            type: "array",
+            description: "Alias for secrets (same data)",
           },
         },
       },
@@ -627,15 +640,32 @@ export function secretRouteDefinitions(
       requestBody: {
         type: "object",
         properties: {
+          type: {
+            type: "string",
+            description: "Secret type: 'api_key' or 'credential'",
+          },
           name: { type: "string", description: "Name of the secret to read" },
+          reveal: {
+            type: "boolean",
+            description:
+              "If true, return the decrypted value; otherwise return a masked version",
+          },
         },
-        required: ["name"],
+        required: ["type", "name"],
       },
       responseBody: {
         type: "object",
         properties: {
-          name: { type: "string" },
-          value: { type: "string" },
+          found: { type: "boolean" },
+          value: {
+            type: "string",
+            description: "Decrypted value (only when reveal=true and found)",
+          },
+          masked: {
+            type: "string",
+            description: "Masked value (when reveal=false and found)",
+          },
+          unreachable: { type: "boolean" },
         },
       },
     },
