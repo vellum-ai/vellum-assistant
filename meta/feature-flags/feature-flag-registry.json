@@ -336,6 +336,14 @@
       "label": "Show Background Conversations",
       "description": "Include background conversations (heartbeat, tasks) in the sidebar conversation list",
       "defaultEnabled": false
+    },
+    {
+      "id": "voice-mode",
+      "scope": "macos",
+      "key": "voice-mode",
+      "label": "Voice Mode",
+      "description": "Show the live voice conversation button in the composer",
+      "defaultEnabled": false
     }
   ]
 }

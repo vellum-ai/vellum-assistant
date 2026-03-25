@@ -414,16 +414,17 @@ struct ComposerView: View {
                     action: onStop
                 )
             } else if inputText.isEmpty && !hasPendingConfirmation {
-                // Live voice button
-                VButton(
-                    label: "Voice mode",
-                    iconOnly: VIcon.audioWaveform.rawValue,
-                    style: .ghost,
-                    iconSize: composerActionButtonSize,
-                    action: { onVoiceModeToggle?() }
-                )
-
-                .vTooltip("Live voice conversation")
+                if onVoiceModeToggle != nil {
+                    // Live voice button
+                    VButton(
+                        label: "Voice mode",
+                        iconOnly: VIcon.audioWaveform.rawValue,
+                        style: .ghost,
+                        iconSize: composerActionButtonSize,
+                        action: { onVoiceModeToggle?() }
+                    )
+                    .vTooltip("Live voice conversation")
+                }
 
                 // Dictate button
                 VButton(
@@ -474,14 +475,15 @@ struct ComposerView: View {
                 .vTooltip(canSend ? "Send" : "Type a message to send")
             } else {
                 // Pending confirmation — show same buttons as empty-input state
-                VButton(
-                    label: "Voice mode",
-                    iconOnly: VIcon.audioWaveform.rawValue,
-                    style: .ghost,
-                    iconSize: composerActionButtonSize,
-                    action: { onVoiceModeToggle?() }
-                )
-
+                if onVoiceModeToggle != nil {
+                    VButton(
+                        label: "Voice mode",
+                        iconOnly: VIcon.audioWaveform.rawValue,
+                        style: .ghost,
+                        iconSize: composerActionButtonSize,
+                        action: { onVoiceModeToggle?() }
+                    )
+                }
 
                 VButton(
                     label: isRecording ? "Stop recording" : "Dictate",
