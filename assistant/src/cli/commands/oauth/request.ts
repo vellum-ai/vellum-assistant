@@ -451,17 +451,25 @@ Examples:
               providerKey,
               resolveOptions,
             );
-          } catch {
-            // Error case 5: Connection resolution failure
+          } catch (resolveErr) {
+            // Error case 5: Connection resolution failure — preserve the
+            // original error message so callers can see the actual cause
+            // (e.g. missing platform login, missing access token, provider
+            // misconfiguration) rather than a generic "no connection" hint.
+            const resolveMessage =
+              resolveErr instanceof Error
+                ? resolveErr.message
+                : String(resolveErr);
+
             if (managed) {
               writeError(
-                `Error: No active platform OAuth connection found for "${providerKey}".\n\n` +
+                `Error: ${resolveMessage}\n\n` +
                   `Run 'assistant oauth platform status ${providerKey}' to check connection status.\n` +
                   `To connect, run 'assistant oauth platform connect --help'.`,
               );
             } else {
               writeError(
-                `Error: No active OAuth connection found for "${providerKey}".\n\n` +
+                `Error: ${resolveMessage}\n\n` +
                   `Run 'assistant oauth connections list' to see active connections.\n` +
                   `To connect, run 'assistant oauth connections connect --help'.`,
               );
@@ -563,6 +571,29 @@ Examples:
             providerKey = resolveService(opts.provider);
           } catch {
             providerKey = opts.provider;
+          }
+
+          // BYO connections throw on persistent 401 (after refresh retry
+          // exhaustion) with a `status` property. Detect this and show the
+          // same auth hint that the response-level 401/403 check would give.
+          const errStatus =
+            err && typeof err === "object" && "status" in err
+              ? (err as { status: unknown }).status
+              : undefined;
+
+          if (errStatus === 401 || errStatus === 403) {
+            const managed = isManagedMode(providerKey);
+            const authHint = managed
+              ? `Hint: Request returned HTTP ${errStatus}. The OAuth token may be expired or revoked.\n\n` +
+                `Run 'assistant oauth platform status ${providerKey}' to check connection health.\n` +
+                `To reconnect, run 'assistant oauth platform connect --help'.`
+              : `Hint: Request returned HTTP ${errStatus}. The OAuth token may be expired or revoked.\n\n` +
+                `Run 'assistant oauth connections list --provider ${providerKey}' to check connection status.\n` +
+                `To reconnect, run 'assistant oauth connections connect --help'.`;
+
+            writeError(`Error: ${message}`, authHint);
+            writeInfo(authHint);
+            return;
           }
 
           writeError(
