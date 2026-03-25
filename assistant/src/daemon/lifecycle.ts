@@ -77,7 +77,11 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
-import { setCesClient, setCesReconnect } from "../security/secure-keys.js";
+import {
+  onCesClientChanged,
+  setCesClient,
+  setCesReconnect,
+} from "../security/secure-keys.js";
 import { seedCatalogSkillMemories } from "../skills/skill-memory.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getDeviceId } from "../util/device-id.js";
@@ -539,6 +543,11 @@ export async function runDaemon(): Promise<void> {
     log.info("Daemon startup: starting DaemonServer");
     const server = new DaemonServer();
     server.setCes(await cesStartupPromise);
+
+    // Keep the server's CES client ref in sync after reconnection so that
+    // secret routes and new conversations use the fresh client.
+    onCesClientChanged((client) => server.updateCesClient(client));
+
     await server.start();
     log.info("Daemon startup: DaemonServer started");
 

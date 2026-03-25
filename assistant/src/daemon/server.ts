@@ -295,6 +295,14 @@ export class DaemonServer {
     return this.cesClientRef;
   }
 
+  /**
+   * Update the CES client reference after a successful reconnection.
+   * Called via the `onCesClientChanged` listener registered in lifecycle.ts.
+   */
+  updateCesClient(client: CesClient | undefined): void {
+    this.cesClientRef = client;
+  }
+
   /** Optional heartbeat service reference for "Run Now" from the UI. */
   private _heartbeatService?: HeartbeatService;
 

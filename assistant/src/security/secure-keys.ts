@@ -63,6 +63,9 @@ let _resolvePromise: Promise<CredentialBackend> | undefined;
  */
 let _cesReconnect: (() => Promise<CesClient | undefined>) | undefined;
 
+/** Optional listener invoked whenever setCesClient() updates the client. */
+let _cesClientListener: ((client: CesClient | undefined) => void) | undefined;
+
 /** Epoch ms of the last reconnection attempt. Used for cooldown. */
 let _lastReconnectAttempt = 0;
 
@@ -78,6 +81,18 @@ export function setCesClient(client: CesClient | undefined): void {
   // Reset resolved backend so next call picks up CES
   _resolvedBackend = undefined;
   _resolvePromise = undefined;
+  _cesClientListener?.(client);
+}
+
+/**
+ * Register a listener that is called whenever setCesClient() updates the
+ * CES client reference. Used by lifecycle.ts to keep DaemonServer in sync
+ * after a successful reconnection.
+ */
+export function onCesClientChanged(
+  fn: ((client: CesClient | undefined) => void) | undefined,
+): void {
+  _cesClientListener = fn;
 }
 
 /** Register a callback for reconnecting to CES when the transport dies. */
@@ -357,6 +372,7 @@ export function _resetBackend(): void {
   _resolvedBackend = undefined;
   _resolvePromise = undefined;
   _cesReconnect = undefined;
+  _cesClientListener = undefined;
   _lastReconnectAttempt = 0;
   _reconnectInFlight = undefined;
 }
