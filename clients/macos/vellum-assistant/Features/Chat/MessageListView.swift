@@ -556,8 +556,8 @@ struct MessageListView: View {
         )
     }
 
-    /// Delegates bottom-pin coordinator configuration to the scroll coordinator.
-    private func configureBottomPinCoordinator() {
+    /// Configures scroll callbacks and bindings on the scroll coordinator.
+    private func configureScrollCallbacks() {
         // Wire the scrollTo closure so the coordinator can perform programmatic
         // scrolls without holding a reference to ScrollViewProxy.
         let binding = $scrollPosition
@@ -571,7 +571,7 @@ struct MessageListView: View {
         scrollCoordinator.scrollToEdge = { edge in
             binding.wrappedValue.scrollTo(edge: edge)
         }
-        scrollCoordinator.configureBottomPinCoordinator(
+        scrollCoordinator.configureScrollCallbacks(
             scrollViewportHeight: scrollCoordinator.currentScrollViewportHeight,
             conversationId: conversationId,
             isNearBottom: $isNearBottom
@@ -906,7 +906,7 @@ struct MessageListView: View {
                         os_signpost(.event, log: PerfSignposts.log, name: "scrollToLatestPressed")
                         scrollCoordinator.hasReceivedScrollEvent = true
                         // Signal the coordinator to reattach and scroll to bottom.
-                        scrollCoordinator.bottomPinCoordinator.handleUserAction(.jumpToLatest)
+                        scrollCoordinator.reattachToBottom()
                         requestBottomPin(reason: .initialRestore, animated: true, userInitiated: true)
                     }) {
                         HStack(spacing: VSpacing.xs) {
@@ -927,7 +927,7 @@ struct MessageListView: View {
                 }
             }
             .onAppear {
-                configureBottomPinCoordinator()
+                configureScrollCallbacks()
                 // Seed the confirmation marker on initial mount — conversationSwitched
                 // doesn't fire for the initial value, so a conversation already paused
                 // in awaiting_confirmation at launch or reconnect needs the marker set here.
@@ -960,7 +960,7 @@ struct MessageListView: View {
                             anchorMessageId = nil
                             scrollCoordinator.anchorSetTime = nil
                             scrollCoordinator.anchorTimeoutTask = nil
-                            scrollCoordinator.bottomPinCoordinator.reattach()
+                            scrollCoordinator.reattachToBottom()
                             scrollCoordinator.requestBottomPin(reason: .initialRestore, conversationId: conversationId, animated: true)
                         }
                     }

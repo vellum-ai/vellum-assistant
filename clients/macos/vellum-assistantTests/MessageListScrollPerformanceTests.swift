@@ -135,31 +135,35 @@ final class MessageListScrollPerformanceTests: XCTestCase {
         }
     }
 
-    // MARK: - Test 3: ChatBottomPinCoordinator Pin Request
+    // MARK: - Test 3: requestBottomPin Hot Path
 
-    /// Measures the synchronous hot path of ChatBottomPinCoordinator:
-    /// create coordinator, request a pin, reset — repeated 100 times.
-    /// With sessions removed, each requestPin is a single-attempt call.
+    /// Measures the synchronous hot path of requestBottomPin on the scroll
+    /// coordinator: request a pin, reset follow state — repeated 100 times.
     @MainActor
-    func testChatBottomPinCoordinatorPinRequest() {
+    func testRequestBottomPinPerformance() {
         measure(metrics: [XCTClockMetric()]) {
-            let coordinator = ChatBottomPinCoordinator()
-            var pinCallCount = 0
+            let coordinator = MessageListScrollCoordinator()
+            var scrollCallCount = 0
 
-            coordinator.onPinRequested = { _, _ in
-                pinCallCount += 1
-                return true
+            coordinator.scrollTo = { _, _ in
+                scrollCallCount += 1
             }
 
             let convId = UUID()
+            coordinator.configureScrollCallbacks(
+                scrollViewportHeight: 600,
+                conversationId: convId,
+                isNearBottom: .constant(true)
+            )
 
             // Run 100 pin request cycles to get a stable measurement.
             for _ in 0..<100 {
-                coordinator.requestPin(reason: .initialRestore, conversationId: convId)
-                coordinator.reset(newConversationId: convId)
+                coordinator.requestBottomPin(reason: .initialRestore, conversationId: convId)
+                coordinator.isFollowingBottom = true
             }
 
-            XCTAssertGreaterThan(pinCallCount, 0)
+            XCTAssertGreaterThan(scrollCallCount, 0)
+            coordinator.cancelAllTasks()
         }
     }
 

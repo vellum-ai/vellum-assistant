@@ -19,9 +19,9 @@ extension MessageListScrollCoordinator {
         scrollTo?(id, anchor)
     }
 
-    /// Routes a bottom-follow request through the coordinator.
+    /// Routes a bottom-follow request directly.
     /// Pass `userInitiated: true` for explicit user actions (e.g. "Scroll to latest" button)
-    /// to bypass suppression checks — user intent always wins.
+    /// to bypass both follow-state and suppression checks — user intent always wins.
     @discardableResult
     func requestBottomPin(
         reason: BottomPinRequestReason,
@@ -29,7 +29,7 @@ extension MessageListScrollCoordinator {
         animated: Bool = false,
         userInitiated: Bool = false
     ) -> Bool {
-        // User-initiated scrolls bypass the coordinator session and suppression
+        // User-initiated scrolls bypass both the follow-state and suppression
         // checks entirely — user intent always wins over defensive guards.
         if userInitiated {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
@@ -44,22 +44,36 @@ extension MessageListScrollCoordinator {
             return true
         }
 
-        let convId = conversationId ?? Self.bootstrapConversationId
-        bottomPinCoordinator.requestPin(
-            reason: reason,
-            conversationId: convId,
-            animated: animated
-        )
+        // Non-user-initiated requests are gated on BOTH follow-state and
+        // suppression. The isFollowingBottom check prevents yanking detached
+        // users to the bottom. The !isSuppressed check prevents auto-scroll
+        // from fighting pagination, expansion, and resize suppression.
+        guard isFollowingBottom else {
+            scrollCoordinatorLog.debug("[BottomPin] suppressed reason=\(reason.rawValue) isFollowingBottom=false")
+            return false
+        }
+        guard !isSuppressed else {
+            scrollCoordinatorLog.debug("[BottomPin] suppressed reason=\(reason.rawValue) isSuppressed=true")
+            return false
+        }
+
+        os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
+                    "target=bottomAnchor reason=%{public}s", reason.rawValue)
+        recordScrollLoopEvent(.scrollToRequested, conversationId: currentConversationId)
+        if animated {
+            withAnimation(VAnimation.fast) {
+                performScrollTo("scroll-bottom-anchor", anchor: .bottom)
+            }
+        } else {
+            performScrollTo("scroll-bottom-anchor", anchor: .bottom)
+        }
         return true
     }
 
-    /// Configures the coordinator's callbacks to wire pin requests back to
-    /// the scroll position and follow-state changes back to `isNearBottom`.
-    ///
-    /// Closures capture `[weak self]` and read `self.currentConversationId`
-    /// and `self.currentScrollViewportHeight` so they always use the live
-    /// value — not a stale snapshot from configure time.
-    func configureBottomPinCoordinator(
+    /// Configures the scroll coordinator's bindings and seeds initial state.
+    /// Stores the `isNearBottom` binding so `detachFromBottom` / `reattachToBottom`
+    /// can update it directly without callback indirection.
+    func configureScrollCallbacks(
         scrollViewportHeight: CGFloat,
         conversationId: UUID?,
         isNearBottom: Binding<Bool>
@@ -67,31 +81,11 @@ extension MessageListScrollCoordinator {
         // Seed the live state so closures have a valid value immediately.
         currentConversationId = conversationId
         currentScrollViewportHeight = scrollViewportHeight
+        isNearBottomBinding = isNearBottom
 
-        bottomPinCoordinator.onPinRequested = { [weak self] reason, animated in
-            guard let self else { return false }
-            guard !isSuppressed else { return false }
-            os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
-                        "target=bottomAnchor reason=coordinator-%{public}s", reason.rawValue)
-            recordScrollLoopEvent(.scrollToRequested, conversationId: self.currentConversationId)
-            if animated {
-                withAnimation(VAnimation.fast) {
-                    self.performScrollTo("scroll-bottom-anchor", anchor: .bottom)
-                }
-            } else {
-                self.performScrollTo("scroll-bottom-anchor", anchor: .bottom)
-            }
-            // With ScrollPosition, the scroll is applied immediately — return
-            // true to indicate the pin was accepted.
-            return true
-        }
-        bottomPinCoordinator.onFollowStateChanged = { isFollowing in
-            isNearBottom.wrappedValue = isFollowing
-        }
-
-        // If detach() was called before this callback was wired up, sync
-        // isNearBottom now so it isn't stuck at true permanently.
-        if !bottomPinCoordinator.isFollowingBottom {
+        // If detachFromBottom() was called before this binding was stored,
+        // sync isNearBottom now so it isn't stuck at true permanently.
+        if !isFollowingBottom {
             isNearBottom.wrappedValue = false
         }
     }
@@ -131,7 +125,7 @@ extension MessageListScrollCoordinator {
         scrollRestoreTask = nil
         clearAllSuppression()
         pushToTopMessageId = nil
-        bottomPinCoordinator.handleUserAction(.scrollUp)
+        detachFromBottom()
         hasReceivedScrollEvent = true
     }
 
@@ -140,7 +134,7 @@ extension MessageListScrollCoordinator {
         scrollRestoreTask?.cancel()
         scrollRestoreTask = nil
         clearAllSuppression()
-        bottomPinCoordinator.handleUserAction(.scrollToBottom)
+        reattachToBottom()
         hasReceivedScrollEvent = true
     }
 
@@ -212,9 +206,8 @@ extension MessageListScrollCoordinator {
     ) {
         guard !isPaginationInFlight else { return }
         isPaginationInFlight = true
-        // Pagination scroll-position restore is higher priority — cancel any
-        // active pin session so the coordinator doesn't fight the restore.
-        bottomPinCoordinator.cancelActiveSession(reason: .paginationRestore)
+        // Pagination scroll-position restore is higher priority than bottom-pin.
+        // No active session to cancel (sessions were removed in PR 1).
         let anchorId = visibleMessages.first?.id
         os_signpost(.event, log: PerfSignposts.log, name: "paginationSentinelFired")
         scrollCoordinatorLog.debug("[pagination] fired — anchorId: \(String(describing: anchorId))")
