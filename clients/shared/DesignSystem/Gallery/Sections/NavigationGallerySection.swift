@@ -252,6 +252,129 @@ struct NavigationGallerySection: View {
                 }
             }
 
+            if filter == nil || filter == "vMenu" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VMenu (Simple Action Menu)
+                GallerySectionHeader(
+                    title: "VMenu",
+                    description: "Reusable popover container with section headers, dividers, action items, and custom rows. Use instead of manual drawer chrome."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Simple Action Menu").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        VMenu {
+                            VMenuItem(icon: VIcon.copy.rawValue, label: "Copy") {}
+                            VMenuItem(icon: VIcon.gitBranch.rawValue, label: "Fork") {}
+                            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {}
+                        }
+                    }
+                }
+
+                Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+                // MARK: - VMenu (Sections)
+                GallerySectionHeader(
+                    title: "VMenu with Sections",
+                    description: "VMenuSection groups items with an optional header label and divider."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Menu with Section Headers").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        VMenu {
+                            VMenuItem(icon: VIcon.pencil.rawValue, label: "Edit") {}
+                            VMenuItem(icon: VIcon.copy.rawValue, label: "Duplicate") {}
+
+                            VMenuSection(header: "Analytics") {
+                                VMenuItem(icon: VIcon.barChart.rawValue, label: "View Stats") {}
+                                VMenuItem(icon: VIcon.scrollText.rawValue, label: "View Logs") {}
+                            }
+
+                            VMenuSection(header: "Danger Zone") {
+                                VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {}
+                            }
+                        }
+                    }
+                }
+
+                Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+                // MARK: - VMenu (Active Item)
+                GallerySectionHeader(
+                    title: "VMenu with Active Item",
+                    description: "A VMenuItem with isActive: true shows the highlighted/selected state."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Active Item Highlight").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        VMenu {
+                            VMenuItem(icon: VIcon.pin.rawValue, label: "Pinned") {}
+                            VMenuItem(icon: VIcon.settings.rawValue, label: "Settings", isActive: true) {}
+                            VMenuItem(icon: VIcon.externalLink.rawValue, label: "Open External") {}
+                        }
+                    }
+                }
+
+                Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+                // MARK: - VMenu (Custom Row)
+                GallerySectionHeader(
+                    title: "VMenu with Custom Row",
+                    description: "VMenuCustomRow embeds arbitrary content in a menu with consistent horizontal alignment."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Custom Row Content").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        VMenu {
+                            VMenuItem(icon: VIcon.settings.rawValue, label: "Settings") {}
+                            VMenuDivider()
+                            VMenuCustomRow {
+                                HStack {
+                                    Text("Theme")
+                                        .font(VFont.bodySmallDefault)
+                                        .foregroundStyle(VColor.contentDefault)
+                                    Spacer()
+                                    VThemeToggle(showLabel: false)
+                                }
+                                .padding(.vertical, VSpacing.xs)
+                            }
+                            VMenuDivider()
+                            VMenuItem(icon: VIcon.logOut.rawValue, label: "Sign Out") {}
+                        }
+                    }
+                }
+
+                Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+                // MARK: - VMenu (Fixed Width)
+                GallerySectionHeader(
+                    title: "VMenu with Fixed Width",
+                    description: "Pass a width parameter to constrain the menu to a fixed size."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Fixed Width (200pt)").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        VMenu(width: 200) {
+                            VMenuItem(icon: VIcon.copy.rawValue, label: "Copy") {}
+                            VMenuItem(icon: VIcon.gitBranch.rawValue, label: "Fork") {}
+                            VMenuDivider()
+                            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {}
+                        }
+                    }
+                }
+            }
+
         }
     }
 }
@@ -266,6 +389,7 @@ extension NavigationGallerySection {
         case "vSidebarRow": NavigationGallerySection(filter: "vSidebarRow")
         case "vLink": NavigationGallerySection(filter: "vLink")
         case "vThemeToggle": NavigationGallerySection(filter: "vThemeToggle")
+        case "vMenu": NavigationGallerySection(filter: "vMenu")
         default: EmptyView()
         }
     }
