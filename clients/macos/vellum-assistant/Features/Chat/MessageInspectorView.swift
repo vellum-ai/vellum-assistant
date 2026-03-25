@@ -124,7 +124,7 @@ struct MessageInspectorView: View {
                 }
 
                 HStack(spacing: VSpacing.sm) {
-                    ForEach(0..<4, id: \.self) { _ in
+                    ForEach(0..<5, id: \.self) { _ in
                         VSkeletonBone(width: 88, height: 32, radius: VRadius.md)
                     }
                     Spacer()
@@ -313,6 +313,8 @@ struct MessageInspectorView: View {
         switch viewState.selectedDetailTab {
         case .overview:
             MessageInspectorOverviewTab(entry: entry)
+        case .memory:
+            MessageInspectorMemoryTab(memoryRecall: viewState.memoryRecall)
         case .prompt:
             MessageInspectorPromptTab(entry: entry)
         case .response:
@@ -535,6 +537,7 @@ enum RawPayloadPane: String, CaseIterable {
 
 enum MessageInspectorDetailTab: String, CaseIterable {
     case overview
+    case memory
     case prompt
     case response
     case raw
@@ -543,6 +546,8 @@ enum MessageInspectorDetailTab: String, CaseIterable {
         switch self {
         case .overview:
             return "Overview"
+        case .memory:
+            return "Memory"
         case .prompt:
             return "Prompt"
         case .response:
@@ -556,6 +561,8 @@ enum MessageInspectorDetailTab: String, CaseIterable {
         switch self {
         case .overview:
             return .layoutGrid
+        case .memory:
+            return .brain
         case .prompt:
             return .scrollText
         case .response:
@@ -569,6 +576,7 @@ enum MessageInspectorDetailTab: String, CaseIterable {
 struct MessageInspectorViewState {
     private(set) var loadState: MessageInspectorLoadState = .loading
     private(set) var logs: [LLMRequestLogEntry] = []
+    private(set) var memoryRecall: MemoryRecallData?
     private(set) var selectedLogID: String?
     private(set) var selectedDetailTab: MessageInspectorDetailTab = .overview
     private(set) var selectedRawPane: RawPayloadPane = .request
@@ -605,6 +613,7 @@ struct MessageInspectorViewState {
         case .loaded(let response):
             let orderedLogs = Self.ordered(response.logs)
             logs = orderedLogs
+            memoryRecall = response.memoryRecall
 
             guard !orderedLogs.isEmpty else {
                 loadState = .empty
@@ -622,10 +631,12 @@ struct MessageInspectorViewState {
             selectedLogID = orderedLogs.first?.id
         case .empty:
             logs = []
+            memoryRecall = nil
             loadState = .empty
             selectedLogID = nil
         case .failed:
             logs = []
+            memoryRecall = nil
             loadState = .failed
             selectedLogID = nil
         }
