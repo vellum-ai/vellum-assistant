@@ -71,6 +71,10 @@ export async function handleConfirm(
   // pending interaction — the client can retry with corrected values.
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
+    log.warn(
+      { requestId, decision },
+      "Confirmation POST for unknown requestId (already consumed or never registered)",
+    );
     return httpError(
       "NOT_FOUND",
       "No pending interaction found for this requestId",
@@ -130,6 +134,16 @@ export async function handleConfirm(
 
   // Validation passed — consume the pending interaction.
   const interaction = pendingInteractions.resolve(requestId)!;
+
+  log.info(
+    {
+      requestId,
+      decision,
+      toolName: interaction.confirmationDetails?.toolName,
+      conversationId: interaction.conversationId,
+    },
+    "Confirmation resolved via HTTP",
+  );
 
   // ACP permissions: resolve directly without a Conversation object.
   if (interaction.directResolve) {
