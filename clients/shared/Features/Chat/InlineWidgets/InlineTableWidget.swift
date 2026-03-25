@@ -1,29 +1,16 @@
 import SwiftUI
 
-/// Applies an explicit width when measured, or `maxWidth: .infinity` as
-/// a fallback before the container width is known.
-private extension View {
-    @ViewBuilder
-    func columnFrame(_ width: CGFloat) -> some View {
-        if width.isFinite {
-            self.frame(width: width, alignment: .leading)
-        } else {
-            self.frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-}
-
 /// Inline table widget with selectable rows and action support.
 ///
-/// Measures the available container width via `onGeometryChange` and
-/// distributes it among columns explicitly, so text wraps within
+/// Measures the available container width using a zero-height spacer
+/// and distributes it among columns explicitly, so text wraps within
 /// each column instead of overflowing the viewport.
 public struct InlineTableWidget: View {
     public let data: TableSurfaceData
     public let onAction: (String, [String: AnyCodable]?) -> Void
 
     @State private var selectedIds: Set<String> = []
-    @State private var tableWidth: CGFloat = 0
+    @State private var availableWidth: CGFloat = 0
 
     public init(data: TableSurfaceData, onAction: @escaping (String, [String: AnyCodable]?) -> Void) {
         self.data = data
@@ -39,6 +26,9 @@ public struct InlineTableWidget: View {
         return !ids.isEmpty && ids.isSubset(of: selectedIds)
     }
 
+    /// Whether the available width has been measured yet.
+    private var isMeasured: Bool { availableWidth > 0 }
+
     // MARK: - Column Width Calculation
 
     /// Width reserved for the selection checkbox / spacer column.
@@ -47,77 +37,40 @@ public struct InlineTableWidget: View {
     }
 
     /// Resolved width for a single column. Fixed-width columns use their
-    /// specified value; flexible columns share the remaining space equally.
+    /// specified value (clamped to available space); flexible columns share
+    /// the remaining space equally.
     private func columnWidth(for column: TableColumn) -> CGFloat {
+        guard isMeasured else { return 0 }
+        let distributable = availableWidth - selectionColumnWidth
         if let w = column.width {
-            return CGFloat(w)
+            return min(CGFloat(w), distributable)
         }
-        guard tableWidth > 0 else { return .infinity }
         let fixedTotal = CGFloat(data.columns.compactMap(\.width).reduce(0, +))
         let flexCount = data.columns.filter({ $0.width == nil }).count
         guard flexCount > 0 else { return 0 }
-        return max(0, (tableWidth - fixedTotal - selectionColumnWidth) / CGFloat(flexCount))
+        return max(0, (distributable - fixedTotal) / CGFloat(flexCount))
     }
 
     // MARK: - Body
 
     public var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Column headers
-            HStack(spacing: 0) {
-                if data.selectionMode == .multiple {
-                    Button {
-                        toggleSelectAll()
-                    } label: {
-                        VIconView(allSelected ? .circleCheck : .circle, size: 14)
-                            .foregroundStyle(allSelected ? VColor.primaryBase : VColor.contentTertiary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(allSelected ? "Deselect all" : "Select all")
-                    .frame(width: 28)
-                } else if data.selectionMode != .none {
-                    Color.clear
-                        .frame(width: 28)
+            // Zero-height spacer to measure the parent's proposed width.
+            // Unlike the table content, this can't overflow because it has
+            // no intrinsic content width — it always reports exactly the
+            // proposed width from the parent.
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .frame(height: 0)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: {
+                    availableWidth = $0
                 }
-                ForEach(data.columns) { column in
-                    Text(column.label)
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                        .columnFrame(columnWidth(for: column))
-                        .textSelection(.enabled)
-                }
-            }
-            .padding(.bottom, VSpacing.xxs)
 
-            Divider()
-                .background(VColor.borderBase.opacity(0.3))
-
-            // Rows
-            ForEach(Array(data.rows.enumerated()), id: \.element.id) { index, row in
-                rowView(row)
-                if index < data.rows.count - 1 {
-                    Divider()
-                        .background(VColor.borderBase.opacity(0.15))
-                }
+            if isMeasured {
+                tableContent
             }
-
-            if let caption = data.caption {
-                Text(caption)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .padding(.top, VSpacing.xs)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.width
-        } action: { newWidth in
-            tableWidth = newWidth
         }
         .onAppear {
-            // Initialize selection from data and notify the parent so action
-            // buttons always carry the current selection — even if the user
-            // never toggles a checkbox.
             selectedIds = Set(data.rows.filter(\.selected).map(\.id))
             if data.selectionMode != .none {
                 onAction("selection_changed", ["selectedIds": AnyCodable(Array(selectedIds))])
@@ -125,7 +78,64 @@ public struct InlineTableWidget: View {
         }
     }
 
+    // MARK: - Table Content
+
+    @ViewBuilder
+    private var tableContent: some View {
+        // Column headers
+        HStack(spacing: 0) {
+            selectionSpacer(isHeader: true)
+            ForEach(data.columns) { column in
+                Text(column.label)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .textSelection(.enabled)
+                    .frame(width: columnWidth(for: column), alignment: .leading)
+            }
+        }
+        .padding(.bottom, VSpacing.xxs)
+
+        Divider()
+            .background(VColor.borderBase.opacity(0.3))
+
+        // Rows
+        ForEach(Array(data.rows.enumerated()), id: \.element.id) { index, row in
+            rowView(row)
+            if index < data.rows.count - 1 {
+                Divider()
+                    .background(VColor.borderBase.opacity(0.15))
+            }
+        }
+
+        if let caption = data.caption {
+            Text(caption)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentTertiary)
+                .padding(.top, VSpacing.xs)
+        }
+    }
+
     // MARK: - Row & Cell Views
+
+    @ViewBuilder
+    private func selectionSpacer(isHeader: Bool = false) -> some View {
+        if data.selectionMode != .none {
+            if isHeader && data.selectionMode == .multiple {
+                Button {
+                    toggleSelectAll()
+                } label: {
+                    VIconView(allSelected ? .circleCheck : .circle, size: 14)
+                        .foregroundStyle(allSelected ? VColor.primaryBase : VColor.contentTertiary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(allSelected ? "Deselect all" : "Select all")
+                .frame(width: 28)
+            } else {
+                Color.clear
+                    .frame(width: 28)
+            }
+        }
+    }
 
     private func rowView(_ row: TableRow) -> some View {
         let isSelected = selectedIds.contains(row.id)
@@ -175,7 +185,7 @@ public struct InlineTableWidget: View {
                 .lineLimit(nil)
                 .textSelection(.enabled)
         }
-        .columnFrame(width)
+        .frame(width: width, alignment: .leading)
     }
 
     // MARK: - Helpers
