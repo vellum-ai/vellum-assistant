@@ -198,11 +198,10 @@ extension MessageListScrollCoordinator {
         hasPlayedTailEntryAnimation = false
         // Reset confirmation focus tracking for the new conversation.
         lastAutoFocusedRequestId = nil
-        // Restore scroll to bottom for the new conversation.
+        // The ScrollView's `.defaultScrollAnchor(.bottom)` handles initial
+        // bottom positioning declaratively. restoreScrollToBottom provides
+        // a deferred safety-net check in case the anchor alone is insufficient.
         scrollRestoreTask?.cancel()
-        if anchorMessageId.wrappedValue == nil {
-            requestBottomPin(reason: .initialRestore, conversationId: newConversationId)
-        }
         restoreScrollToBottom(
             conversationId: newConversationId,
             anchorMessageId: anchorMessageId
