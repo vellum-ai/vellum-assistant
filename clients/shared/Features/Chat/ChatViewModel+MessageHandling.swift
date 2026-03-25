@@ -1868,7 +1868,7 @@ extension ChatViewModel {
             switch msg.phase {
             case "thinking":
                 isThinking = true
-                isSending = true
+                isSending = false
             case "streaming", "tool_running":
                 isThinking = false
             case "idle":
