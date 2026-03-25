@@ -47,7 +47,7 @@ export const WebSearchServiceSchema = BaseServiceSchema.extend({
 export type WebSearchService = z.infer<typeof WebSearchServiceSchema>;
 
 export const GoogleOAuthServiceSchema = BaseServiceSchema.extend({
-  mode: ServiceModeSchema.default("managed"),
+  mode: ServiceModeSchema.default("your-own"),
 });
 export type GoogleOAuthService = z.infer<typeof GoogleOAuthServiceSchema>;
 
