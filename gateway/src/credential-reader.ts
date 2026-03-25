@@ -158,81 +158,6 @@ export function getMetadataPath(): string {
   return join(getWorkspaceDir(), "data", "credentials", "metadata.json");
 }
 
-type CredentialMetadataEntry = {
-  service?: string;
-  field?: string;
-};
-
-function readCredentialMetadataEntries(): CredentialMetadataEntry[] | null {
-  const metadataPath = getMetadataPath();
-  if (!existsSync(metadataPath)) return null;
-
-  const raw = readFileSync(metadataPath, "utf-8");
-  const data = JSON.parse(raw);
-  if (!data || !Array.isArray(data.credentials)) return null;
-
-  return data.credentials as CredentialMetadataEntry[];
-}
-
-function hasRequiredMetadataEntries(
-  entries: CredentialMetadataEntry[],
-  required: Array<{ service: string; field: string }>,
-): boolean {
-  return required.every(({ service, field }) =>
-    entries.some((entry) => entry.service === service && entry.field === field),
-  );
-}
-
-export type CredentialMetadataStatus = {
-  telegram: boolean;
-  twilio: boolean;
-  slackChannel: boolean;
-  whatsapp: boolean;
-};
-
-export function readCredentialMetadataStatus(): CredentialMetadataStatus {
-  try {
-    const entries = readCredentialMetadataEntries();
-    if (!entries) {
-      return {
-        telegram: false,
-        twilio: false,
-        slackChannel: false,
-        whatsapp: false,
-      };
-    }
-
-    return {
-      telegram: hasRequiredMetadataEntries(entries, [
-        { service: "telegram", field: "bot_token" },
-        { service: "telegram", field: "webhook_secret" },
-      ]),
-      twilio: hasRequiredMetadataEntries(entries, [
-        { service: "twilio", field: "account_sid" },
-        { service: "twilio", field: "auth_token" },
-      ]),
-      slackChannel: hasRequiredMetadataEntries(entries, [
-        { service: "slack_channel", field: "bot_token" },
-        { service: "slack_channel", field: "app_token" },
-      ]),
-      whatsapp: hasRequiredMetadataEntries(entries, [
-        { service: "whatsapp", field: "phone_number_id" },
-        { service: "whatsapp", field: "access_token" },
-        { service: "whatsapp", field: "app_secret" },
-        { service: "whatsapp", field: "webhook_verify_token" },
-      ]),
-    };
-  } catch (err) {
-    log.debug({ err }, "Failed to read credential metadata status");
-    return {
-      telegram: false,
-      twilio: false,
-      slackChannel: false,
-      whatsapp: false,
-    };
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Encrypted store reader
 // ---------------------------------------------------------------------------
@@ -284,9 +209,7 @@ const CES_HTTP_TIMEOUT_MS = 5_000;
  * Returns `undefined` if the env vars are not set, the CES is unreachable,
  * or the credential doesn't exist (404).
  */
-async function readCesCredential(
-  account: string,
-): Promise<string | undefined> {
+async function readCesCredential(account: string): Promise<string | undefined> {
   const baseUrl = process.env.CES_CREDENTIAL_URL?.trim();
   if (!baseUrl) return undefined;
 
@@ -377,16 +300,23 @@ export type TwilioCredentials = {
  */
 export async function readTelegramCredentials(): Promise<TelegramCredentials | null> {
   try {
-    const entries = readCredentialMetadataEntries();
-    if (!entries) return null;
+    const metadataPath = getMetadataPath();
+    if (!existsSync(metadataPath)) return null;
 
-    if (
-      !hasRequiredMetadataEntries(entries, [
-        { service: "telegram", field: "bot_token" },
-        { service: "telegram", field: "webhook_secret" },
-      ])
-    )
-      return null;
+    const raw = readFileSync(metadataPath, "utf-8");
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.credentials)) return null;
+
+    const hasBotToken = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "telegram" && c.field === "bot_token",
+    );
+    const hasWebhookSecret = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "telegram" && c.field === "webhook_secret",
+    );
+
+    if (!hasBotToken || !hasWebhookSecret) return null;
 
     const botToken = await readCredential(
       credentialKey("telegram", "bot_token"),
@@ -420,16 +350,23 @@ export async function readTelegramCredentials(): Promise<TelegramCredentials | n
  */
 export async function readTwilioCredentials(): Promise<TwilioCredentials | null> {
   try {
-    const entries = readCredentialMetadataEntries();
-    if (!entries) return null;
+    const metadataPath = getMetadataPath();
+    if (!existsSync(metadataPath)) return null;
 
-    if (
-      !hasRequiredMetadataEntries(entries, [
-        { service: "twilio", field: "account_sid" },
-        { service: "twilio", field: "auth_token" },
-      ])
-    )
-      return null;
+    const raw = readFileSync(metadataPath, "utf-8");
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.credentials)) return null;
+
+    const hasAccountSid = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "twilio" && c.field === "account_sid",
+    );
+    const hasAuthToken = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "twilio" && c.field === "auth_token",
+    );
+
+    if (!hasAccountSid || !hasAuthToken) return null;
 
     const accountSid = await readCredential(
       credentialKey("twilio", "account_sid"),
@@ -470,16 +407,23 @@ export type SlackChannelCredentials = {
  */
 export async function readSlackChannelCredentials(): Promise<SlackChannelCredentials | null> {
   try {
-    const entries = readCredentialMetadataEntries();
-    if (!entries) return null;
+    const metadataPath = getMetadataPath();
+    if (!existsSync(metadataPath)) return null;
 
-    if (
-      !hasRequiredMetadataEntries(entries, [
-        { service: "slack_channel", field: "bot_token" },
-        { service: "slack_channel", field: "app_token" },
-      ])
-    )
-      return null;
+    const raw = readFileSync(metadataPath, "utf-8");
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.credentials)) return null;
+
+    const hasBotToken = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "slack_channel" && c.field === "bot_token",
+    );
+    const hasAppToken = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "slack_channel" && c.field === "app_token",
+    );
+
+    if (!hasBotToken || !hasAppToken) return null;
 
     const botToken = await readCredential(
       credentialKey("slack_channel", "bot_token"),
@@ -524,16 +468,35 @@ export type WhatsAppCredentials = {
  */
 export async function readWhatsAppCredentials(): Promise<WhatsAppCredentials | null> {
   try {
-    const entries = readCredentialMetadataEntries();
-    if (!entries) return null;
+    const metadataPath = getMetadataPath();
+    if (!existsSync(metadataPath)) return null;
+
+    const raw = readFileSync(metadataPath, "utf-8");
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.credentials)) return null;
+
+    const hasPhoneNumberId = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "whatsapp" && c.field === "phone_number_id",
+    );
+    const hasAccessToken = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "whatsapp" && c.field === "access_token",
+    );
+    const hasAppSecret = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "whatsapp" && c.field === "app_secret",
+    );
+    const hasWebhookVerifyToken = data.credentials.some(
+      (c: { service?: string; field?: string }) =>
+        c.service === "whatsapp" && c.field === "webhook_verify_token",
+    );
 
     if (
-      !hasRequiredMetadataEntries(entries, [
-        { service: "whatsapp", field: "phone_number_id" },
-        { service: "whatsapp", field: "access_token" },
-        { service: "whatsapp", field: "app_secret" },
-        { service: "whatsapp", field: "webhook_verify_token" },
-      ])
+      !hasPhoneNumberId ||
+      !hasAccessToken ||
+      !hasAppSecret ||
+      !hasWebhookVerifyToken
     )
       return null;
 

@@ -9,13 +9,18 @@
  * causing later credential changes to be missed until restart.
  */
 
-import { mkdirSync, watch, type FSWatcher } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  watch,
+  type FSWatcher,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { getLogger } from "./logger.js";
 import {
   getMetadataPath,
   getRootDir,
-  readCredentialMetadataStatus,
   readTelegramCredentials,
   readTwilioCredentials,
   readWhatsAppCredentials,
@@ -30,6 +35,87 @@ const log = getLogger("credential-watcher");
 
 const DEBOUNCE_MS = 500;
 const UNRESOLVED_CREDENTIAL_RETRY_MS = 2_000;
+const RETRYABLE_CREDENTIAL_BACKEND = !!process.env.CES_CREDENTIAL_URL?.trim();
+
+type TrackedServiceName = "telegram" | "twilio" | "whatsapp" | "slackChannel";
+
+const REQUIRED_METADATA_FIELDS: Record<
+  TrackedServiceName,
+  Array<{ service: string; field: string }>
+> = {
+  telegram: [
+    { service: "telegram", field: "bot_token" },
+    { service: "telegram", field: "webhook_secret" },
+  ],
+  twilio: [
+    { service: "twilio", field: "account_sid" },
+    { service: "twilio", field: "auth_token" },
+  ],
+  whatsapp: [
+    { service: "whatsapp", field: "phone_number_id" },
+    { service: "whatsapp", field: "access_token" },
+    { service: "whatsapp", field: "app_secret" },
+    { service: "whatsapp", field: "webhook_verify_token" },
+  ],
+  slackChannel: [
+    { service: "slack_channel", field: "bot_token" },
+    { service: "slack_channel", field: "app_token" },
+  ],
+};
+
+function readExpectedServices(
+  metadataPath: string,
+): Record<TrackedServiceName, boolean> {
+  try {
+    if (!existsSync(metadataPath)) {
+      return {
+        telegram: false,
+        twilio: false,
+        whatsapp: false,
+        slackChannel: false,
+      };
+    }
+
+    const raw = readFileSync(metadataPath, "utf-8");
+    const data = JSON.parse(raw);
+    if (!data || !Array.isArray(data.credentials)) {
+      return {
+        telegram: false,
+        twilio: false,
+        whatsapp: false,
+        slackChannel: false,
+      };
+    }
+
+    const entries = data.credentials as Array<{
+      service?: string;
+      field?: string;
+    }>;
+    const hasRequiredFields = (
+      required: Array<{ service: string; field: string }>,
+    ): boolean =>
+      required.every(({ service, field }) =>
+        entries.some(
+          (entry) => entry.service === service && entry.field === field,
+        ),
+      );
+
+    return {
+      telegram: hasRequiredFields(REQUIRED_METADATA_FIELDS.telegram),
+      twilio: hasRequiredFields(REQUIRED_METADATA_FIELDS.twilio),
+      whatsapp: hasRequiredFields(REQUIRED_METADATA_FIELDS.whatsapp),
+      slackChannel: hasRequiredFields(REQUIRED_METADATA_FIELDS.slackChannel),
+    };
+  } catch (err) {
+    log.debug({ err }, "Failed to read credential metadata for retry state");
+    return {
+      telegram: false,
+      twilio: false,
+      whatsapp: false,
+      slackChannel: false,
+    };
+  }
+}
 
 export type CredentialChangeEvent = {
   telegramCredentials: TelegramCredentials | null;
@@ -49,6 +135,7 @@ export class CredentialWatcher {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private retryPending = false;
+  private stopped = false;
   private lastSerialized: Map<string, string> = new Map();
   private polling = false;
   private pendingPoll = false;
@@ -61,6 +148,10 @@ export class CredentialWatcher {
   }
 
   async start(): Promise<void> {
+    this.stopped = false;
+    this.pendingPoll = false;
+    this.pendingForceChanged = false;
+    this.retryPending = false;
     await this.pollOnce();
 
     const metadataDir = dirname(this.metadataPath);
@@ -111,6 +202,7 @@ export class CredentialWatcher {
   }
 
   stop(): void {
+    this.stopped = true;
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
@@ -131,6 +223,7 @@ export class CredentialWatcher {
   private pendingForceChanged = false;
 
   private scheduleCheck(forceChanged = false): void {
+    if (this.stopped) return;
     if (forceChanged) this.pendingForceChanged = true;
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
@@ -144,7 +237,9 @@ export class CredentialWatcher {
   }
 
   private scheduleRetry(unresolvedServices: string[]): void {
-    if (this.retryTimer) return;
+    if (this.stopped || !RETRYABLE_CREDENTIAL_BACKEND || this.retryTimer) {
+      return;
+    }
 
     if (!this.retryPending) {
       log.info(
@@ -155,11 +250,13 @@ export class CredentialWatcher {
     }
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
+      if (this.stopped) return;
       void this.pollOnce();
     }, UNRESOLVED_CREDENTIAL_RETRY_MS);
   }
 
   private async pollOnce(forceChanged = false): Promise<void> {
+    if (this.stopped) return;
     if (this.polling) {
       // A poll is already in flight — flag that another round is needed
       // so credential updates arriving mid-poll aren't silently dropped.
@@ -173,7 +270,6 @@ export class CredentialWatcher {
       const twilioCredentials = await readTwilioCredentials();
       const whatsappCredentials = await readWhatsAppCredentials();
       const slackChannelCredentials = await readSlackChannelCredentials();
-      const metadataStatus = readCredentialMetadataStatus();
 
       const services = {
         telegram: { creds: telegramCredentials, key: "telegram" },
@@ -196,23 +292,26 @@ export class CredentialWatcher {
         }
       }
 
-      const unresolvedServices = [
-        metadataStatus.telegram && !telegramCredentials ? "telegram" : null,
-        metadataStatus.twilio && !twilioCredentials ? "twilio" : null,
-        metadataStatus.whatsapp && !whatsappCredentials ? "whatsapp" : null,
-        metadataStatus.slackChannel && !slackChannelCredentials
-          ? "slackChannel"
-          : null,
-      ].filter((service): service is string => service !== null);
+      if (RETRYABLE_CREDENTIAL_BACKEND) {
+        const expectedServices = readExpectedServices(this.metadataPath);
+        const unresolvedServices = [
+          expectedServices.telegram && !telegramCredentials ? "telegram" : null,
+          expectedServices.twilio && !twilioCredentials ? "twilio" : null,
+          expectedServices.whatsapp && !whatsappCredentials ? "whatsapp" : null,
+          expectedServices.slackChannel && !slackChannelCredentials
+            ? "slackChannel"
+            : null,
+        ].filter((service): service is string => service !== null);
 
-      if (unresolvedServices.length > 0) {
-        this.scheduleRetry(unresolvedServices);
-      } else if (this.retryTimer) {
-        clearTimeout(this.retryTimer);
-        this.retryTimer = null;
-        this.retryPending = false;
-      } else {
-        this.retryPending = false;
+        if (unresolvedServices.length > 0) {
+          this.scheduleRetry(unresolvedServices);
+        } else if (this.retryTimer) {
+          clearTimeout(this.retryTimer);
+          this.retryTimer = null;
+          this.retryPending = false;
+        } else {
+          this.retryPending = false;
+        }
       }
 
       if (changedServices.size === 0) return;
@@ -229,7 +328,7 @@ export class CredentialWatcher {
       });
     } finally {
       this.polling = false;
-      if (this.pendingPoll) {
+      if (this.pendingPoll && !this.stopped) {
         this.pendingPoll = false;
         const force = this.pendingForceChanged;
         this.pendingForceChanged = false;
