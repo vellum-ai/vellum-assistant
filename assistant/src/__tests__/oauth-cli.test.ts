@@ -292,24 +292,19 @@ async function runCli(
 // Tests
 // ---------------------------------------------------------------------------
 
-describe("assistant oauth connections token <provider-key>", () => {
+describe("assistant oauth token <provider-key>", () => {
   beforeEach(() => {
     mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
   });
 
   test("prints bare token in human mode", async () => {
-    const { exitCode, stdout } = await runCli([
-      "connections",
-      "token",
-      "integration:twitter",
-    ]);
+    const { exitCode, stdout } = await runCli(["token", "integration:twitter"]);
     expect(exitCode).toBe(0);
     expect(stdout).toBe("mock-access-token-xyz\n");
   });
 
   test("prints JSON in --json mode", async () => {
     const { exitCode, stdout } = await runCli([
-      "connections",
       "token",
       "integration:twitter",
       "--json",
@@ -326,7 +321,7 @@ describe("assistant oauth connections token <provider-key>", () => {
       return cb("tok");
     };
 
-    await runCli(["connections", "token", "integration:twitter"]);
+    await runCli(["token", "integration:twitter"]);
     expect(capturedService).toBe("integration:twitter");
   });
 
@@ -337,11 +332,7 @@ describe("assistant oauth connections token <provider-key>", () => {
       return cb("gmail-token");
     };
 
-    const { exitCode, stdout } = await runCli([
-      "connections",
-      "token",
-      "integration:google",
-    ]);
+    const { exitCode, stdout } = await runCli(["token", "integration:google"]);
     expect(exitCode).toBe(0);
     expect(stdout).toBe("gmail-token\n");
     expect(capturedService).toBe("integration:google");
@@ -355,7 +346,6 @@ describe("assistant oauth connections token <provider-key>", () => {
     };
 
     const { exitCode, stdout } = await runCli([
-      "connections",
       "token",
       "integration:twitter",
       "--json",
@@ -374,7 +364,6 @@ describe("assistant oauth connections token <provider-key>", () => {
     };
 
     const { exitCode, stdout } = await runCli([
-      "connections",
       "token",
       "integration:twitter",
       "--json",
@@ -389,17 +378,13 @@ describe("assistant oauth connections token <provider-key>", () => {
     // Simulate withValidToken refreshing and returning a new token
     mockWithValidToken = async (_service, cb) => cb("refreshed-new-token");
 
-    const { exitCode, stdout } = await runCli([
-      "connections",
-      "token",
-      "integration:twitter",
-    ]);
+    const { exitCode, stdout } = await runCli(["token", "integration:twitter"]);
     expect(exitCode).toBe(0);
     expect(stdout).toBe("refreshed-new-token\n");
   });
 
   test("missing provider-key argument exits non-zero", async () => {
-    const { exitCode } = await runCli(["connections", "token"]);
+    const { exitCode } = await runCli(["token"]);
     expect(exitCode).not.toBe(0);
   });
 });
@@ -763,7 +748,7 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
 // ping
 // ---------------------------------------------------------------------------
 
-describe("assistant oauth connections ping <provider-key>", () => {
+describe("assistant oauth ping <provider-key>", () => {
   beforeEach(() => {
     mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
   });
@@ -785,7 +770,6 @@ describe("assistant oauth connections ping <provider-key>", () => {
       new Response("{}", { status: 200 })) as unknown as typeof fetch;
     try {
       const { exitCode, stdout } = await runCli([
-        "connections",
         "ping",
         "integration:google",
         "--json",
@@ -802,7 +786,6 @@ describe("assistant oauth connections ping <provider-key>", () => {
   test("exits 1 when provider not found", async () => {
     mockGetProvider = () => undefined;
     const { exitCode, stdout } = await runCli([
-      "connections",
       "ping",
       "integration:unknown",
       "--json",
@@ -825,12 +808,7 @@ describe("assistant oauth connections ping <provider-key>", () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
-    const { exitCode, stdout } = await runCli([
-      "connections",
-      "ping",
-      "telegram",
-      "--json",
-    ]);
+    const { exitCode, stdout } = await runCli(["ping", "telegram", "--json"]);
     expect(exitCode).toBe(1);
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
@@ -855,7 +833,6 @@ describe("assistant oauth connections ping <provider-key>", () => {
       new Response("Forbidden", { status: 403 })) as unknown as typeof fetch;
     try {
       const { exitCode, stdout } = await runCli([
-        "connections",
         "ping",
         "integration:google",
         "--json",
@@ -885,7 +862,6 @@ describe("assistant oauth connections ping <provider-key>", () => {
       updatedAt: Date.now(),
     });
     const { exitCode, stdout } = await runCli([
-      "connections",
       "ping",
       "integration:google",
       "--json",

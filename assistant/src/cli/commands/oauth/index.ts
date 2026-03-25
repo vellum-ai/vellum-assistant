@@ -31,7 +31,7 @@ The oauth command group manages the full OAuth lifecycle:
   request     Make authenticated HTTP requests (curl-like interface)
   providers   Protocol-level configurations (auth URLs, scopes, endpoints)
   apps        Client credentials (client ID / secret pairs)
-  connections Active token grants per provider (token, ping, list, get)
+  connections Active token grants per provider (list, get)
 
 Providers are seeded on startup for built-in integrations. Apps and connections
 are created during the OAuth authorization flow or can be managed manually via
@@ -45,7 +45,6 @@ Examples:
   $ assistant oauth request --provider integration:google /gmail/v1/users/me/messages
   $ assistant oauth request --provider integration:twitter -X POST -d '{"text":"Hello"}' https://api.x.com/2/tweets
   $ assistant oauth token integration:twitter
-  $ assistant oauth connections token integration:twitter
   $ assistant oauth providers list
   $ assistant oauth providers get integration:google`,
   );

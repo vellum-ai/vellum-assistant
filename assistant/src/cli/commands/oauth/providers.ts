@@ -231,7 +231,7 @@ Arguments (via options):
                         (e.g. "client_secret_post", "client_secret_basic").
   --callback-transport  Transport method for the OAuth callback.
   --ping-url            Optional URL for a lightweight health-check endpoint.
-                        Used by "connections ping" to validate that a stored token
+                        Used by "assistant oauth ping" to validate that a stored token
                         is still functional (e.g. "https://api.example.com/user").
   --display-name        Optional human-readable display name for the provider.
   --description         Optional short description of the provider.
