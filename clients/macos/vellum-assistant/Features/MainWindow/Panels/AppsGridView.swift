@@ -1,7 +1,7 @@
 import SwiftUI
 import VellumAssistantShared
 
-/// Full-screen apps grid view showing all apps as a flat card grid with search.
+/// Full-screen apps list view showing all apps as scannable rows with search.
 struct AppsGridView: View {
     var appListManager: AppListManager
     let connectionManager: GatewayConnectionManager
@@ -37,8 +37,6 @@ struct AppsGridView: View {
     @State private var previewCache: [String: String] = [:]
     /// In-flight preview fetch tasks, keyed by app ID, so they can be cancelled.
     @State private var previewTasks: [String: Task<Void, Never>] = [:]
-
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.xl), count: 5)
 
     /// Maximum width of the centered content area.
     private let maxContentWidth: CGFloat = 1400
@@ -152,7 +150,7 @@ struct AppsGridView: View {
         VSearchBar(placeholder: "Search your library", text: $searchText)
     }
 
-    // MARK: - App Card
+    // MARK: - App Row
 
     private func appCard(_ app: AppListManager.AppItem) -> some View {
         let isHovered = hoveredAppId == app.id
@@ -167,13 +165,11 @@ struct AppsGridView: View {
             )
             onOpenApp(app.id)
         } label: {
-            VStack(alignment: .leading, spacing: VSpacing.xl) {
-                // Preview thumbnail or icon placeholder — all corners rounded.
-                // Use a sized container with .overlay so .fill images don't overflow.
+            HStack(spacing: VSpacing.lg) {
+                // Preview thumbnail
                 Group {
                     if let nsImage = AppPreviewImageStore.image(appId: app.id, base64: preview) {
                         Color.clear
-                            .aspectRatio(16.0 / 10.0, contentMode: .fit)
                             .overlay(
                                 Image(nsImage: nsImage)
                                     .resizable()
@@ -183,7 +179,6 @@ struct AppsGridView: View {
                     } else if let icon = app.icon, !icon.isEmpty,
                               let nsImage = MainWindowView.buildAppIcon(iconBase64: nil, emojiIcon: icon, appName: app.name) {
                         Color.clear
-                            .aspectRatio(16.0 / 10.0, contentMode: .fit)
                             .overlay(
                                 Image(nsImage: nsImage)
                                     .resizable()
@@ -194,93 +189,19 @@ struct AppsGridView: View {
                         ZStack {
                             VColor.surfaceBase
 
-                            VIconView(appIcon, size: 32)
+                            VIconView(appIcon, size: 20)
                                 .foregroundStyle(VColor.contentTertiary)
                         }
-                        .aspectRatio(16.0 / 10.0, contentMode: .fit)
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .frame(width: 80, height: 50)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
+                    RoundedRectangle(cornerRadius: VRadius.sm)
                         .stroke(VColor.borderBase, lineWidth: 1)
                 )
-                .overlay(alignment: .topTrailing) {
-                    ZStack {
-                        if isBundling && sharingAppId == app.id {
-                            ProgressView()
-                                .controlSize(.small)
-                                .frame(width: 24, height: 24)
-                        } else {
-                            VButton(label: "App actions", iconOnly: VIcon.ellipsis.rawValue, style: .primary, iconSize: 24) {}
-                                .allowsHitTesting(false)
-                        }
-                        Menu {
-                            Button {
-                                if app.isPinned {
-                                    appListManager.unpinApp(id: app.id)
-                                } else {
-                                    appListManager.pinApp(id: app.id)
-                                }
-                            } label: {
-                                Label { Text(app.isPinned ? "Unpin" : "Pin") } icon: { VIconView(app.isPinned ? .pinOff : .pin, size: 14) }
-                            }
-                            Button {
-                                bundleAndShareLocal(appId: app.id)
-                            } label: {
-                                Label { Text("Share") } icon: { VIconView(.share, size: 14) }
-                            }
-                            Button {
-                                editingApp = app
-                            } label: {
-                                Label { Text("Change Icon") } icon: { VIconView(.paintbrush, size: 14) }
-                            }
-                            Button(role: .destructive) {
-                                    hoveredAppId = nil
-                                Task { await AppsClient().deleteApp(id: app.id) }
-                                appListManager.removeApp(id: app.id)
-                                AppPreviewImageStore.remove(appId: app.id)
-                            } label: {
-                                Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
-                            }
-                        } label: {
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .frame(width: 32, height: 32)
-                        }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                    }
-                    .fixedSize()
-                    .accessibilityLabel("App actions")
-                    .padding(VSpacing.sm)
-                    .contentShape(Rectangle())
-                    .onTapGesture {} // absorb tap so it doesn't propagate to parent Button
-                    .opacity(isHovered || (isBundling && sharingAppId == app.id) ? 1 : 0)
-                    .allowsHitTesting(isHovered || (isBundling && sharingAppId == app.id))
-                    .animation(VAnimation.fast, value: isHovered)
-                    .overlay {
-                        AppSharePanel(
-                            items: shareFileURL != nil && sharingAppId == app.id ? [shareFileURL!] : [],
-                            isPresented: Binding(
-                                get: { showShareSheet && sharingAppId == app.id },
-                                set: { newValue in
-                                    showShareSheet = newValue
-                                    if !newValue { sharingAppId = nil }
-                                }
-                            ),
-                            appName: shareAppName,
-                            appIcon: shareAppIcon,
-                            appId: sharingAppId == app.id ? app.id : nil,
-                            gatewayBaseURL: gatewayBaseURL
-                        )
-                        .allowsHitTesting(false)
-                    }
-                }
 
-
-                // Name + date below the image
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(app.name)
                         .font(VFont.bodyLargeEmphasised)
                         .foregroundStyle(VColor.contentDefault)
@@ -291,7 +212,84 @@ struct AppsGridView: View {
                         .foregroundStyle(VColor.contentTertiary)
                         .lineLimit(1)
                 }
+
+                Spacer()
+
+                // Action menu
+                ZStack {
+                    if isBundling && sharingAppId == app.id {
+                        ProgressView()
+                            .controlSize(.small)
+                            .frame(width: 24, height: 24)
+                    } else {
+                        VButton(label: "App actions", iconOnly: VIcon.ellipsis.rawValue, style: .ghost, iconSize: 20) {}
+                            .allowsHitTesting(false)
+                    }
+                    Menu {
+                        Button {
+                            if app.isPinned {
+                                appListManager.unpinApp(id: app.id)
+                            } else {
+                                appListManager.pinApp(id: app.id)
+                            }
+                        } label: {
+                            Label { Text(app.isPinned ? "Unpin" : "Pin") } icon: { VIconView(app.isPinned ? .pinOff : .pin, size: 14) }
+                        }
+                        Button {
+                            bundleAndShareLocal(appId: app.id)
+                        } label: {
+                            Label { Text("Share") } icon: { VIconView(.share, size: 14) }
+                        }
+                        Button {
+                            editingApp = app
+                        } label: {
+                            Label { Text("Change Icon") } icon: { VIconView(.paintbrush, size: 14) }
+                        }
+                        Button(role: .destructive) {
+                            hoveredAppId = nil
+                            Task { await AppsClient().deleteApp(id: app.id) }
+                            appListManager.removeApp(id: app.id)
+                            AppPreviewImageStore.remove(appId: app.id)
+                        } label: {
+                            Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
+                        }
+                    } label: {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .frame(width: 32, height: 32)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                }
+                .fixedSize()
+                .accessibilityLabel("App actions")
+                .contentShape(Rectangle())
+                .onTapGesture {} // absorb tap so it doesn't propagate to parent Button
+                .opacity(isHovered || (isBundling && sharingAppId == app.id) ? 1 : 0)
+                .allowsHitTesting(isHovered || (isBundling && sharingAppId == app.id))
+                .animation(VAnimation.fast, value: isHovered)
+                .overlay {
+                    AppSharePanel(
+                        items: shareFileURL != nil && sharingAppId == app.id ? [shareFileURL!] : [],
+                        isPresented: Binding(
+                            get: { showShareSheet && sharingAppId == app.id },
+                            set: { newValue in
+                                showShareSheet = newValue
+                                if !newValue { sharingAppId = nil }
+                            }
+                        ),
+                        appName: shareAppName,
+                        appIcon: shareAppIcon,
+                        appId: sharingAppId == app.id ? app.id : nil,
+                        gatewayBaseURL: gatewayBaseURL
+                    )
+                    .allowsHitTesting(false)
+                }
             }
+            .padding(.vertical, VSpacing.sm)
+            .padding(.horizontal, VSpacing.md)
+            .background(isHovered ? VColor.surfaceOverlay : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -324,20 +322,21 @@ struct AppsGridView: View {
         .accessibilityLabel(app.name)
     }
 
-    // MARK: - Shared App Card
+    // MARK: - Shared App Row
 
     private func sharedAppCard(_ app: SharedAppItem) -> some View {
         let preview = app.preview
         let resolvedPreview = preview?.isEmpty == true ? nil : preview
+        let isHovered = hoveredAppId == "shared-\(app.uuid)"
 
         return Button {
             openSharedApp(app)
         } label: {
-            VStack(alignment: .leading, spacing: VSpacing.xl) {
+            HStack(spacing: VSpacing.lg) {
+                // Preview thumbnail
                 Group {
                     if let nsImage = AppPreviewImageStore.image(appId: "shared-\(app.uuid)", base64: resolvedPreview) {
                         Color.clear
-                            .aspectRatio(16.0 / 10.0, contentMode: .fit)
                             .overlay(
                                 Image(nsImage: nsImage)
                                     .resizable()
@@ -349,18 +348,18 @@ struct AppsGridView: View {
                             VColor.surfaceBase
 
                             Text(app.icon ?? "\u{1F4F1}")
-                                .font(.system(size: 32))
+                                .font(.system(size: 20))
                         }
-                        .aspectRatio(16.0 / 10.0, contentMode: .fit)
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .frame(width: 80, height: 50)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
+                    RoundedRectangle(cornerRadius: VRadius.sm)
                         .stroke(VColor.borderBase, lineWidth: 1)
                 )
 
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
                     HStack(spacing: VSpacing.xs) {
                         Text(app.name)
                             .font(VFont.bodyLargeEmphasised)
@@ -380,7 +379,13 @@ struct AppsGridView: View {
                         .foregroundStyle(VColor.contentTertiary)
                         .lineLimit(1)
                 }
+
+                Spacer()
             }
+            .padding(.vertical, VSpacing.sm)
+            .padding(.horizontal, VSpacing.md)
+            .background(isHovered ? VColor.surfaceOverlay : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -512,7 +517,7 @@ struct AppsGridView: View {
                 .font(VFont.bodySmallEmphasised)
                 .foregroundStyle(VColor.contentSecondary)
 
-            LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
+            LazyVStack(spacing: VSpacing.xs) {
                 ForEach(apps) { app in
                     appCard(app)
                         .onAppear { fetchPreviewIfNeeded(app) }
@@ -527,7 +532,7 @@ struct AppsGridView: View {
                 .font(VFont.bodySmallEmphasised)
                 .foregroundStyle(VColor.contentSecondary)
 
-            LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
+            LazyVStack(spacing: VSpacing.xs) {
                 ForEach(apps) { app in
                     sharedAppCard(app)
                 }
