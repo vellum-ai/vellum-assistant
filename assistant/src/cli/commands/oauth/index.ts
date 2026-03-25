@@ -1,11 +1,13 @@
 import type { Command } from "commander";
 
 import { registerAppCommands } from "./apps.js";
+import { registerConnectCommand } from "./connect.js";
 import { registerConnectionCommands } from "./connections.js";
 import { registerDisconnectCommand } from "./disconnect.js";
 import { registerPlatformCommands } from "./platform.js";
 import { registerProviderCommands } from "./providers.js";
 import { registerRequestCommand } from "./request.js";
+import { registerStatusCommand } from "./status.js";
 
 export function registerOAuthCommand(program: Command): void {
   const oauth = program
@@ -23,6 +25,9 @@ The oauth command group manages the full OAuth lifecycle:
   connections Active token grants per provider (list, get, token, disconnect)
   platform    Platform-managed OAuth provider status and connections
   request     Make authenticated HTTP requests (curl-like interface)
+  connect     Initiate an OAuth flow (auto-detects managed vs BYO mode)
+  disconnect  Disconnect a provider and remove credentials (auto-detects mode)
+  status      Show connection status for a provider (auto-detects mode)
 
 Providers are seeded on startup for built-in integrations. Apps and connections
 are created during the OAuth authorization flow or can be managed manually via
@@ -70,8 +75,20 @@ Examples:
   registerRequestCommand(oauth);
 
   // ---------------------------------------------------------------------------
+  // connect — unified connect command (auto-detects managed vs BYO)
+  // ---------------------------------------------------------------------------
+
+  registerConnectCommand(oauth);
+
+  // ---------------------------------------------------------------------------
   // disconnect — unified disconnect with auto-detected managed/BYO routing
   // ---------------------------------------------------------------------------
 
   registerDisconnectCommand(oauth);
+
+  // ---------------------------------------------------------------------------
+  // status — unified connection status (auto-detects managed vs BYO)
+  // ---------------------------------------------------------------------------
+
+  registerStatusCommand(oauth);
 }
