@@ -666,22 +666,9 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
     });
   });
 
-  test("upsert resolves non-prefixed credential path via metadata store", async () => {
-    // The resolution logic splits on the LAST colon, so
-    // "integration:google:client_secret" → service="integration:google", field="client_secret"
-    mockGetCredentialMetadata = (service, field) =>
-      service === "integration:google" && field === "client_secret"
-        ? {
-            credentialId: "cred-1",
-            service: "integration:google",
-            field: "client_secret",
-            allowedTools: [],
-            allowedDomains: [],
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          }
-        : undefined;
-
+  test("upsert passes non-prefixed credential path through unchanged", async () => {
+    // Short-form resolution (splitting on last colon) has been removed.
+    // Non-prefixed paths are now passed through as-is.
     const { exitCode, stdout } = await runCli([
       "apps",
       "upsert",
@@ -695,13 +682,11 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
     ]);
     expect(exitCode).toBe(0);
     expect(mockUpsertAppCalls).toHaveLength(1);
-    // The non-prefixed path should have been resolved to the full credential key
     expect(mockUpsertAppCalls[0]).toEqual({
       provider: "integration:google",
       clientId: "abc",
       clientSecretOpts: {
-        clientSecretCredentialPath:
-          "credential/integration:google/client_secret",
+        clientSecretCredentialPath: "integration:google:client_secret",
       },
     });
     const parsed = JSON.parse(stdout);

@@ -8,8 +8,6 @@ import {
   listApps,
   upsertApp,
 } from "../../../oauth/oauth-store.js";
-import { credentialKey } from "../../../security/credential-key.js";
-import { getCredentialMetadata } from "../../../tools/credentials/metadata-store.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
@@ -207,16 +205,13 @@ You can supply the client secret directly via --client-secret, or reference an
 existing credential in the store via --client-secret-credential-path. These two
 options are mutually exclusive — providing both is an error.
 
-The --client-secret-credential-path accepts two formats:
-  1. Full credential path: "credential/google/client_secret"
-  2. Short name (service:field): "google:client_secret"
-     Resolved via the metadata store by splitting on the last colon.
+The --client-secret-credential-path must be a full credential path
+(e.g. "credential/google/client_secret").
 
 Examples:
   $ assistant oauth apps upsert --provider google --client-id abc123
   $ assistant oauth apps upsert --provider slack --client-id def456 --client-secret s3cret
   $ assistant oauth apps upsert --provider slack --client-id def456 --client-secret-credential-path "credential/slack/client_secret"
-  $ assistant oauth apps upsert --provider slack --client-id def456 --client-secret-credential-path "slack:client_secret"
   $ assistant oauth apps upsert --provider google --client-id abc123 --json`,
     )
     .action(
@@ -240,28 +235,10 @@ Examples:
             return;
           }
 
-          let resolvedCredentialPath = opts.clientSecretCredentialPath;
-          if (
-            resolvedCredentialPath &&
-            !resolvedCredentialPath.startsWith("credential/")
-          ) {
-            // Attempt to interpret as a credential key — split on the LAST colon to get service/field
-            const lastColon = resolvedCredentialPath.lastIndexOf(":");
-            if (lastColon > 0) {
-              const asService = resolvedCredentialPath.slice(0, lastColon);
-              const asField = resolvedCredentialPath.slice(lastColon + 1);
-              // If a credential exists in metadata with these coordinates, resolve it
-              const meta = getCredentialMetadata(asService, asField);
-              if (meta) {
-                resolvedCredentialPath = credentialKey(asService, asField);
-              }
-            }
-          }
-
           const clientSecretOpts = opts.clientSecret
             ? { clientSecretValue: opts.clientSecret }
-            : resolvedCredentialPath
-              ? { clientSecretCredentialPath: resolvedCredentialPath }
+            : opts.clientSecretCredentialPath
+              ? { clientSecretCredentialPath: opts.clientSecretCredentialPath }
               : undefined;
           const row = await upsertApp(
             opts.provider,

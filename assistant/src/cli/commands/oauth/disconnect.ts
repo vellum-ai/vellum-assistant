@@ -7,8 +7,6 @@ import {
   getProvider,
   listActiveConnectionsByProvider,
 } from "../../../oauth/oauth-store.js";
-import { deleteCredentialMetadata } from "../../../tools/credentials/metadata-store.js";
-import { deleteSecureKeyViaDaemon } from "../../lib/daemon-credential-client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 import {
@@ -284,29 +282,6 @@ Examples:
                 `Failed to disconnect OAuth provider "${providerKey}" — please try again.`,
               );
               return;
-            }
-
-            // Clean up legacy credential keys
-            const legacyFields = [
-              "access_token",
-              "refresh_token",
-              "client_id",
-              "client_secret",
-            ];
-            for (const field of legacyFields) {
-              try {
-                await deleteSecureKeyViaDaemon(
-                  "credential",
-                  `${providerKey}:${field}`,
-                );
-              } catch {
-                // Best-effort cleanup — ignore failures
-              }
-              try {
-                deleteCredentialMetadata(providerKey, field);
-              } catch {
-                // Best-effort cleanup — ignore failures
-              }
             }
 
             const result: Record<string, unknown> = {
