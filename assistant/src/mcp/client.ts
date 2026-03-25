@@ -168,7 +168,7 @@ export class McpClient {
     const result = await this.client.callTool(
       { name, arguments: args },
       undefined,
-      { signal },
+      signal ? { signal } : undefined,
     );
     const isError = result.isError === true;
 

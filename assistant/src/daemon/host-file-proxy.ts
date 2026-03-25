@@ -82,10 +82,14 @@ export class HostFileProxy {
             clearTimeout(timer);
             this.pending.delete(requestId);
             this.onInternalResolve?.(requestId);
-            this.sendToClient({
-              type: "host_file_cancel",
-              requestId,
-            } as ServerMessage);
+            try {
+              this.sendToClient({
+                type: "host_file_cancel",
+                requestId,
+              } as ServerMessage);
+            } catch {
+              // Best-effort cancel notification — connection may already be closed.
+            }
             resolve({ content: "Aborted", isError: true });
           }
         };
@@ -127,10 +131,14 @@ export class HostFileProxy {
     for (const [requestId, entry] of this.pending) {
       clearTimeout(entry.timer);
       this.onInternalResolve?.(requestId);
-      this.sendToClient({
-        type: "host_file_cancel",
-        requestId,
-      } as ServerMessage);
+      try {
+        this.sendToClient({
+          type: "host_file_cancel",
+          requestId,
+        } as ServerMessage);
+      } catch {
+        // Best-effort cancel notification — connection may already be closed.
+      }
       entry.reject(
         new AssistantError(
           "Host file proxy disposed",
