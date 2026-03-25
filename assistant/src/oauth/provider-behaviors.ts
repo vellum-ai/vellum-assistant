@@ -15,7 +15,7 @@ import type { OAuthProviderBehavior } from "./connect-types.js";
 // Provider behaviors
 // ---------------------------------------------------------------------------
 
-const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
+export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
   google: {
     service: "google",
     // Google APIs for Gmail/Calendar/Contacts span multiple hosts; register

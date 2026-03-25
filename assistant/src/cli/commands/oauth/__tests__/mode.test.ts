@@ -92,13 +92,9 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
 mock.module("../../../../oauth/provider-behaviors.js", () => ({
   resolveService: (service: string) => {
     const aliases: Record<string, string> = {
-      gmail: "integration:google",
-      google: "integration:google",
-      slack: "integration:slack",
+      gmail: "google",
     };
-    if (aliases[service]) return aliases[service];
-    if (!service.includes(":")) return `integration:${service}`;
-    return service;
+    return aliases[service] ?? service;
   },
   getProviderBehavior: () => undefined,
 }));
@@ -133,13 +129,9 @@ mock.module("../../../lib/daemon-credential-client.js", () => ({
 mock.module("../shared.js", () => ({
   resolveService: (service: string) => {
     const aliases: Record<string, string> = {
-      gmail: "integration:google",
-      google: "integration:google",
-      slack: "integration:slack",
+      gmail: "google",
     };
-    if (aliases[service]) return aliases[service];
-    if (!service.includes(":")) return `integration:${service}`;
-    return service;
+    return aliases[service] ?? service;
   },
   isManagedMode: () => false,
   getManagedServiceConfigKey: (key: string) =>
@@ -193,10 +185,6 @@ mock.module("../shared.js", () => ({
     if (!result.ok) return null;
     return result.body as Array<Record<string, unknown>>;
   },
-  toBareProvider: (provider: string): string =>
-    provider.startsWith("integration:")
-      ? provider.slice("integration:".length)
-      : provider,
 }));
 
 // ---------------------------------------------------------------------------
@@ -295,7 +283,7 @@ describe("assistant oauth mode", () => {
       expect(parsed.error).toContain("providers list");
     });
 
-    test("provider alias resolution: gmail resolves to integration:google", async () => {
+    test("provider alias resolution: gmail resolves to google", async () => {
       let capturedProviderKey: string | undefined;
 
       mockGetProvider = (key: string) => {
@@ -311,12 +299,12 @@ describe("assistant oauth mode", () => {
       };
 
       await runCommand(["mode", "gmail", "--json"]);
-      expect(capturedProviderKey).toBe("integration:google");
+      expect(capturedProviderKey).toBe("google");
     });
 
     test("provider without managedServiceConfigKey returns your-own with managedModeSupported: false", async () => {
       mockGetProvider = () => ({
-        providerKey: "integration:slack",
+        providerKey: "slack",
         managedServiceConfigKey: null,
       });
       mockGetManagedServiceConfigKey = () => null;
@@ -329,14 +317,14 @@ describe("assistant oauth mode", () => {
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
-      expect(parsed.provider).toBe("integration:slack");
+      expect(parsed.provider).toBe("slack");
       expect(parsed.mode).toBe("your-own");
       expect(parsed.managedModeSupported).toBe(false);
     });
 
     test("provider in managed mode returns mode: managed with managedModeSupported: true", async () => {
       mockGetProvider = () => ({
-        providerKey: "integration:google",
+        providerKey: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";
@@ -352,14 +340,14 @@ describe("assistant oauth mode", () => {
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
-      expect(parsed.provider).toBe("integration:google");
+      expect(parsed.provider).toBe("google");
       expect(parsed.mode).toBe("managed");
       expect(parsed.managedModeSupported).toBe(true);
     });
 
     test("provider in your-own mode returns mode: your-own with managedModeSupported: true", async () => {
       mockGetProvider = () => ({
-        providerKey: "integration:google",
+        providerKey: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";
@@ -375,7 +363,7 @@ describe("assistant oauth mode", () => {
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
-      expect(parsed.provider).toBe("integration:google");
+      expect(parsed.provider).toBe("google");
       expect(parsed.mode).toBe("your-own");
       expect(parsed.managedModeSupported).toBe(true);
     });
@@ -388,7 +376,7 @@ describe("assistant oauth mode", () => {
   describe("set mode", () => {
     test("invalid mode value returns error listing valid values", async () => {
       mockGetProvider = () => ({
-        providerKey: "integration:google",
+        providerKey: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";
@@ -410,7 +398,7 @@ describe("assistant oauth mode", () => {
 
     test("provider without managedServiceConfigKey returns error about managed mode not available when --set managed", async () => {
       mockGetProvider = () => ({
-        providerKey: "integration:slack",
+        providerKey: "slack",
         managedServiceConfigKey: null,
       });
       mockGetManagedServiceConfigKey = () => null;
@@ -426,12 +414,12 @@ describe("assistant oauth mode", () => {
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(false);
       expect(parsed.error).toContain("Managed mode is not available");
-      expect(parsed.error).toContain("integration:slack");
+      expect(parsed.error).toContain("slack");
     });
 
     test("provider without managedServiceConfigKey treats --set your-own as successful no-op", async () => {
       mockGetProvider = () => ({
-        providerKey: "integration:slack",
+        providerKey: "slack",
         managedServiceConfigKey: null,
       });
       mockGetManagedServiceConfigKey = () => null;
@@ -446,7 +434,7 @@ describe("assistant oauth mode", () => {
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
-      expect(parsed.provider).toBe("integration:slack");
+      expect(parsed.provider).toBe("slack");
       expect(parsed.mode).toBe("your-own");
       expect(parsed.changed).toBe(false);
       expect(parsed.managedModeSupported).toBe(false);
@@ -454,7 +442,7 @@ describe("assistant oauth mode", () => {
 
     test("set to same mode returns changed: false", async () => {
       mockGetProvider = () => ({
-        providerKey: "integration:google",
+        providerKey: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";
@@ -472,7 +460,7 @@ describe("assistant oauth mode", () => {
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
-      expect(parsed.provider).toBe("integration:google");
+      expect(parsed.provider).toBe("google");
       expect(parsed.mode).toBe("managed");
       expect(parsed.changed).toBe(false);
       expect(parsed.managedModeSupported).toBe(true);
@@ -480,7 +468,7 @@ describe("assistant oauth mode", () => {
 
     test("switch managed -> your-own with active managed connections and no BYO connections includes hint", async () => {
       mockGetProvider = () => ({
-        providerKey: "integration:google",
+        providerKey: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";
@@ -512,7 +500,7 @@ describe("assistant oauth mode", () => {
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
-      expect(parsed.provider).toBe("integration:google");
+      expect(parsed.provider).toBe("google");
       expect(parsed.mode).toBe("your-own");
       expect(parsed.changed).toBe(true);
       expect(parsed.managedModeSupported).toBe(true);
@@ -523,7 +511,7 @@ describe("assistant oauth mode", () => {
 
     test("switch your-own -> managed with active BYO connections and no managed connections includes hint", async () => {
       mockGetProvider = () => ({
-        providerKey: "integration:google",
+        providerKey: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";
@@ -536,7 +524,7 @@ describe("assistant oauth mode", () => {
       mockListActiveConnectionsByProvider = () => [
         {
           id: "conn-local-1",
-          providerKey: "integration:google",
+          providerKey: "google",
           status: "active",
         },
       ];
@@ -555,7 +543,7 @@ describe("assistant oauth mode", () => {
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
-      expect(parsed.provider).toBe("integration:google");
+      expect(parsed.provider).toBe("google");
       expect(parsed.mode).toBe("managed");
       expect(parsed.changed).toBe(true);
       expect(parsed.managedModeSupported).toBe(true);
@@ -566,7 +554,7 @@ describe("assistant oauth mode", () => {
 
     test("switch mode with connections on both sides has no hint", async () => {
       mockGetProvider = () => ({
-        providerKey: "integration:google",
+        providerKey: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";
@@ -589,7 +577,7 @@ describe("assistant oauth mode", () => {
       mockListActiveConnectionsByProvider = () => [
         {
           id: "conn-local-1",
-          providerKey: "integration:google",
+          providerKey: "google",
           status: "active",
         },
       ];
@@ -611,7 +599,7 @@ describe("assistant oauth mode", () => {
 
     test("switch mode with no connections on either side has no hint", async () => {
       mockGetProvider = () => ({
-        providerKey: "integration:google",
+        providerKey: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";
@@ -644,7 +632,7 @@ describe("assistant oauth mode", () => {
 
     test("saveRawConfig is called with the correct nested path", async () => {
       mockGetProvider = () => ({
-        providerKey: "integration:google",
+        providerKey: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockGetManagedServiceConfigKey = () => "google-oauth";

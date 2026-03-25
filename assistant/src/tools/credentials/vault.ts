@@ -14,8 +14,8 @@ import {
 } from "../../oauth/oauth-store.js";
 import {
   getProviderBehavior,
+  PROVIDER_BEHAVIORS,
   resolveService,
-  SERVICE_ALIASES,
 } from "../../oauth/provider-behaviors.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
@@ -829,7 +829,7 @@ class CredentialStoreTool implements Tool {
             isError: true,
           };
 
-        // Resolve aliases (e.g. "gmail" → "integration:google")
+        // Resolve aliases (e.g. "gmail" → "google")
         const service = resolveService(rawService);
 
         // Code-side behavioral fields (identityVerifier, setup, etc.)
@@ -975,7 +975,7 @@ class CredentialStoreTool implements Tool {
         if (!descProviderRow) {
           return {
             content: `No well-known OAuth config found for "${rawService}". Available services: ${Object.keys(
-              SERVICE_ALIASES,
+              PROVIDER_BEHAVIORS,
             ).join(", ")}`,
             isError: false,
           };

@@ -1059,7 +1059,7 @@ describe("assistant credentials CLI", () => {
       const setResult = await runCli([
         "set",
         "--service",
-        "integration:google",
+        "google",
         "--field",
         "client_secret",
         "secret123",
@@ -1068,13 +1068,13 @@ describe("assistant credentials CLI", () => {
       expect(setResult.exitCode).toBe(0);
       const setParsed = JSON.parse(setResult.stdout);
       expect(setParsed.ok).toBe(true);
-      expect(setParsed.service).toBe("integration:google");
+      expect(setParsed.service).toBe("google");
       expect(setParsed.field).toBe("client_secret");
 
       const revealResult = await runCli([
         "reveal",
         "--service",
-        "integration:google",
+        "google",
         "--field",
         "client_secret",
         "--json",
