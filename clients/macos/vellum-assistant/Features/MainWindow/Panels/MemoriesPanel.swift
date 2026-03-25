@@ -108,25 +108,13 @@ struct MemoriesPanel: View {
             searchDebounceTask?.cancel()
             searchDebounceTask = nil
         }
-        .overlay {
-            if let item = selectedItem {
-                VColor.auxBlack.opacity(0.3)
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        withAnimation(VAnimation.fast) { selectedItem = nil }
-                    }
-
-                MemoryItemDetailSheet(
-                    item: item,
-                    store: store,
-                    onDismiss: {
-                        withAnimation(VAnimation.fast) { selectedItem = nil }
-                    }
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.97)))
-            }
+        .sheet(item: $selectedItem) { item in
+            MemoryItemDetailSheet(
+                item: item,
+                store: store,
+                onDismiss: { selectedItem = nil }
+            )
         }
-        .animation(VAnimation.fast, value: selectedItem?.id)
         .sheet(isPresented: $showCreateSheet) {
             MemoryItemCreateSheet(
                 store: store,
