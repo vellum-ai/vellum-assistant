@@ -33,7 +33,7 @@ struct ReauthView: View {
             }
 
             Text("Welcome Back")
-                .font(.system(size: 32, weight: .regular, design: .serif))
+                .font(VFont.displayLarge)
                 .foregroundStyle(VColor.contentDefault)
                 .padding(.bottom, VSpacing.xs)
 
@@ -64,12 +64,11 @@ struct ReauthView: View {
                     }
                     .frame(height: 36)
                 } else {
-                    OnboardingButton(title: primaryActionTitle, style: .primary) {
+                    VButton(label: primaryActionTitle, style: .primary, isFullWidth: true) {
                         Task {
                             await handlePrimaryAction()
                         }
                     }
-                    .accessibilityLabel(primaryActionTitle)
                 }
 
                 if let error = authManager.errorMessage {
@@ -80,14 +79,13 @@ struct ReauthView: View {
                 }
 
                 if hasNonManagedAssistant {
-                    OnboardingButton(title: "Skip", style: .ghost) {
+                    VButton(label: "Skip", style: .ghost) {
                         if let nonManaged = LockfileAssistant.loadAll().first(where: { !$0.isManaged }) {
                             UserDefaults.standard.set(nonManaged.assistantId, forKey: "connectedAssistantId")
                         }
                         didComplete = true
                         onComplete()
                     }
-                    .accessibilityLabel("Skip")
                 }
             }
             .frame(maxWidth: 280)

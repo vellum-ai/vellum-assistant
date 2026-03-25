@@ -20,7 +20,7 @@ struct APIKeyStepView: View {
 
     var body: some View {
         Text("Hosting")
-            .font(.system(size: 32, weight: .regular, design: .serif))
+            .font(VFont.displayLarge)
             .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
@@ -37,20 +37,16 @@ struct APIKeyStepView: View {
             VStack(spacing: VSpacing.md) {
                 hostingCards
 
-                OnboardingButton(
-                    title: continueButtonTitle,
-                    style: .primary,
-                    disabled: !canContinue
-                ) {
+                VButton(label: continueButtonTitle, style: .primary, isFullWidth: true, isDisabled: !canContinue) {
                     handleContinue()
                 }
 
-                OnboardingButton(title: "Need help deciding?", style: .ghostPrimary) {
+                VButton(label: "Need help deciding?", style: .ghost) {
                     NSWorkspace.shared.open(URL(string: "https://vellum.ai/docs/hosting-options")!)
                 }
 
                 if !isAuthenticated {
-                    OnboardingButton(title: "Back", style: .ghost) {
+                    VButton(label: "Back", style: .ghost) {
                         goBack()
                     }
                     .padding(.top, VSpacing.xs)
@@ -149,7 +145,7 @@ struct APIKeyStepView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: VSpacing.sm) {
                         Text(title)
-                            .font(.system(size: 15, weight: .medium))
+                            .font(VFont.bodyLargeEmphasised)
                             .foregroundStyle(isDisabled ? VColor.contentTertiary : VColor.contentDefault)
 
                         Spacer()
@@ -165,7 +161,7 @@ struct APIKeyStepView: View {
                         }
                     }
                     Text(subtitle)
-                        .font(.system(size: 12))
+                        .font(VFont.bodySmallDefault)
                         .foregroundStyle(isDisabled ? VColor.contentTertiary : VColor.contentSecondary)
                 }
 
@@ -190,14 +186,14 @@ struct APIKeyStepView: View {
             .frame(minHeight: 64)
             .contentShape(Rectangle())
             .background(
-                RoundedRectangle(cornerRadius: VRadius.lg)
+                RoundedRectangle(cornerRadius: VRadius.xl)
                     .fill(isSelected ? VColor.primaryBase.opacity(0.1) : Color.clear)
                     .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
+                        RoundedRectangle(cornerRadius: VRadius.xl)
                             .stroke(
                                 isSelected ? VColor.primaryBase.opacity(0.5)
                                     : (isDisabled ? VColor.borderDisabled : VColor.borderBase),
-                                lineWidth: 1
+                                lineWidth: 2
                             )
                     )
             )

@@ -19,7 +19,7 @@ struct ImproveExperienceStepView: View {
 
     var body: some View {
         Text("Before You Start")
-            .font(.system(size: 32, weight: .regular, design: .serif))
+            .font(VFont.displayLarge)
             .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
@@ -36,52 +36,42 @@ struct ImproveExperienceStepView: View {
         VStack(spacing: VSpacing.md) {
             VStack(spacing: VSpacing.md) {
                 // Privacy toggles card
-                VStack(spacing: VSpacing.lg) {
-                    // Usage analytics toggle
-                    VToggle(
-                        isOn: $collectUsageData,
-                        label: "Share Analytics",
-                        helperText: "Send anonymous product usage data. Your conversations and personal data are never included."
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VCard(padding: VSpacing.lg) {
+                    VStack(spacing: VSpacing.lg) {
+                        // Usage analytics toggle
+                        VToggle(
+                            isOn: $collectUsageData,
+                            label: "Share Analytics",
+                            helperText: "Send anonymous product usage data. Your conversations and personal data are never included."
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
-                    SettingsDivider()
+                        SettingsDivider()
 
-                    // Diagnostics toggle
-                    VToggle(
-                        isOn: $sendDiagnostics,
-                        label: "Share Diagnostics",
-                        helperText: "Send crash reports and performance metrics. Your conversations and personal data are never included."
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                        // Diagnostics toggle
+                        VToggle(
+                            isOn: $sendDiagnostics,
+                            label: "Share Diagnostics",
+                            helperText: "Send crash reports and performance metrics. Your conversations and personal data are never included."
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
-                .padding(VSpacing.lg)
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.borderBase, lineWidth: 1)
-                )
 
                 // ToS consent checkbox
-                HStack(spacing: VSpacing.md) {
-                    VCheckbox(isOn: $tosAccepted)
-                    tosConsentText
+                VCard(padding: VSpacing.lg) {
+                    HStack(spacing: VSpacing.md) {
+                        VCheckbox(isOn: $tosAccepted)
+                        tosConsentText
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(VSpacing.lg)
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .stroke(VColor.borderBase, lineWidth: 1)
-                )
 
-                OnboardingButton(
-                    title: "Accept and Start",
-                    style: .primary,
-                    disabled: !tosAccepted
-                ) {
+                VButton(label: "Accept and Start", style: .primary, isFullWidth: true, isDisabled: !tosAccepted) {
                     saveAndContinue()
                 }
 
-                OnboardingButton(title: "Back", style: .ghost) {
+                VButton(label: "Back", style: .ghost) {
                     goBack()
                 }
                 .padding(.top, VSpacing.xs)

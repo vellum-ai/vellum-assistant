@@ -63,7 +63,7 @@ struct APIKeyEntryStepView: View {
 
     var body: some View {
         Text("Connect a Model Provider")
-            .font(.system(size: 32, weight: .regular, design: .serif))
+            .font(VFont.displayLarge)
             .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
@@ -85,22 +85,18 @@ struct APIKeyEntryStepView: View {
                     apiKeyField
                 }
 
-                OnboardingButton(
-                    title: "Continue",
-                    style: .primary,
-                    disabled: providerRequiresKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ) {
+                VButton(label: "Continue", style: .primary, isFullWidth: true, isDisabled: providerRequiresKey && apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
                     saveAndHatch()
                 }
 
                 if let apiKeyUrl = currentProviderEntry?.apiKeyUrl,
                    let url = URL(string: apiKeyUrl) {
-                    OnboardingButton(title: "Get an API key", style: .ghostPrimary) {
+                    VButton(label: "Get an API key", style: .ghost) {
                         NSWorkspace.shared.open(url)
                     }
                 }
 
-                OnboardingButton(title: "Back", style: .ghost) {
+                VButton(label: "Back", style: .ghost) {
                     goBack()
                 }
             }
@@ -194,12 +190,11 @@ struct APIKeyEntryStepView: View {
                         guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                         saveAndHatch()
                     },
-                    maxWidth: 400,
                     isFocused: $keyFieldFocused
                 )
             }
         }
-        .frame(maxWidth: 400)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Helpers

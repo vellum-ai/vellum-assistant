@@ -172,6 +172,7 @@ struct OnboardingFlowView: View {
             }
         }
         }
+        .frame(minWidth: 460, minHeight: 700)
         .task {
             if !authManager.isAuthenticated {
                 await authManager.checkSession()
@@ -327,7 +328,7 @@ struct OnboardingFlowView: View {
                         .frame(maxWidth: 280)
                 }
 
-                OnboardingButton(title: "Try again", style: .primary) {
+                VButton(label: "Try again", style: .primary, isFullWidth: true) {
                     Task {
                         await performManagedBootstrap()
                     }
