@@ -18,6 +18,7 @@ import { z } from "zod";
 
 import {
   batchSetDisplayOrders,
+  countConversationsByScheduleJobId,
   deleteConversation,
   getConversation,
   PRIVATE_CONVERSATION_FORK_ERROR,
@@ -322,9 +323,15 @@ export function conversationManagementRouteDefinitions(
         }
 
         // Cancel the associated schedule job (if any) before wiping the
-        // conversation so that orphaned schedules don't continue to fire.
+        // conversation — but only when this is the last conversation that
+        // references the schedule.  Recurring schedules create a new
+        // conversation per run, so we must not cancel the schedule when
+        // earlier run conversations are cleaned up.
         const conv = getConversation(resolvedId);
-        if (conv?.scheduleJobId) {
+        if (
+          conv?.scheduleJobId &&
+          countConversationsByScheduleJobId(conv.scheduleJobId) <= 1
+        ) {
           deleteSchedule(conv.scheduleJobId);
         }
 
@@ -384,9 +391,15 @@ export function conversationManagementRouteDefinitions(
         }
 
         // Cancel the associated schedule job (if any) before deleting the
-        // conversation so that orphaned schedules don't continue to fire.
+        // conversation — but only when this is the last conversation that
+        // references the schedule.  Recurring schedules create a new
+        // conversation per run, so we must not cancel the schedule when
+        // earlier run conversations are cleaned up.
         const conv = getConversation(resolvedId);
-        if (conv?.scheduleJobId) {
+        if (
+          conv?.scheduleJobId &&
+          countConversationsByScheduleJobId(conv.scheduleJobId) <= 1
+        ) {
           deleteSchedule(conv.scheduleJobId);
         }
 

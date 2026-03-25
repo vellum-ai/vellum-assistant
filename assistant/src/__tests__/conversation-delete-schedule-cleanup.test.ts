@@ -234,6 +234,45 @@ describe("DELETE /conversations/:id — schedule cleanup (LUM-380)", () => {
     expect(runAfter).toBeNull();
   });
 
+  test("deleting one of multiple conversations sharing a schedule preserves the schedule", async () => {
+    // Recurring schedules create a new conversation per run, all sharing
+    // the same scheduleJobId.  Deleting an earlier run conversation must
+    // NOT cancel the schedule while other conversations still reference it.
+    const schedule = createSchedule({
+      name: "Recurring daily",
+      expression: "0 9 * * *",
+      message: "Daily task",
+    });
+
+    // Two conversations referencing the same schedule (simulates two runs)
+    const conv1 = createConversation({
+      source: "schedule",
+      scheduleJobId: schedule.id,
+    });
+    createConversation({
+      source: "schedule",
+      scheduleJobId: schedule.id,
+    });
+
+    // Delete the first conversation
+    const handler = getDeleteHandler();
+    const req = new Request(`http://localhost/v1/conversations/${conv1.id}`, {
+      method: "DELETE",
+    });
+    const response = await handler({
+      req,
+      url: new URL(req.url),
+      server: {} as never,
+      authContext: undefined as never,
+      params: { id: conv1.id },
+    });
+
+    expect(response.status).toBe(204);
+
+    // Schedule should still exist because another conversation references it
+    expect(getSchedule(schedule.id)).not.toBeNull();
+  });
+
   test("deleting one scheduled conversation does not affect other schedules", async () => {
     // Create two separate schedules
     const scheduleA = createSchedule({
