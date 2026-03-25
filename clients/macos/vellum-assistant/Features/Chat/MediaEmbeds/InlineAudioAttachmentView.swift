@@ -69,67 +69,62 @@ struct InlineAudioAttachmentView: View {
     /// completion and relay it back to the SwiftUI state.
     @State private var coordinator: AudioPlayerCoordinator?
 
-    /// Timer publisher for updating progress during playback.
-    private let timer = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
-
     var body: some View {
-        HStack(spacing: VSpacing.sm) {
-            // Play/pause button
-            playPauseButton
+        TimelineView(.periodic(from: .now, by: 0.1)) { context in
+            let _ = updatePlaybackProgress()
+            HStack(spacing: VSpacing.sm) {
+                // Play/pause button
+                playPauseButton
 
-            // Center: filename + progress bar
-            VStack(alignment: .leading, spacing: 3) {
-                Text(attachment.filename)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentDefault)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-
-                if let failure {
-                    Text(failure.userMessage)
-                        .font(VFont.labelSmall)
-                        .foregroundStyle(VColor.contentTertiary)
+                // Center: filename + progress bar
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(attachment.filename)
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentDefault)
                         .lineLimit(1)
-                } else {
-                    progressBar
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+                        .truncationMode(.middle)
 
-            // Right: time display or save button
-            if isHovering && (failure == nil || localFileURL != nil || cachedFileURL != nil) {
-                Button(action: saveAudio) {
-                    if isSaving {
-                        ProgressView()
-                            .controlSize(.small)
+                    if let failure {
+                        Text(failure.userMessage)
+                            .font(VFont.labelSmall)
+                            .foregroundStyle(VColor.contentTertiary)
+                            .lineLimit(1)
                     } else {
-                        VIconView(.arrowDownToLine, size: 14)
-                            .foregroundStyle(VColor.contentSecondary)
+                        progressBar
                     }
                 }
-                .buttonStyle(.plain)
-                .disabled(isSaving)
-                .accessibilityLabel("Save audio")
-            } else {
-                timeDisplay
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Right: time display or save button
+                if isHovering && (failure == nil || localFileURL != nil || cachedFileURL != nil) {
+                    Button(action: saveAudio) {
+                        if isSaving {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            VIconView(.arrowDownToLine, size: 14)
+                                .foregroundStyle(VColor.contentSecondary)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isSaving)
+                    .accessibilityLabel("Save audio")
+                } else {
+                    timeDisplay
+                }
             }
-        }
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.sm)
-                .fill(VColor.surfaceOverlay)
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.sm)
-                        .stroke(VColor.borderBase.opacity(0.4), lineWidth: 0.5)
-                )
-        )
-        .frame(maxWidth: 360)
-        .onHover { isHovering = $0 }
-        .onReceive(timer) { _ in
-            guard isPlaying, let player = audioPlayer else { return }
-            progress = player.currentTime
-            duration = player.duration
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(VColor.surfaceOverlay)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .stroke(VColor.borderBase.opacity(0.4), lineWidth: 0.5)
+                    )
+            )
+            .frame(maxWidth: 360)
+            .onHover { isHovering = $0 }
         }
         .onDisappear {
             stop()
@@ -217,6 +212,18 @@ struct InlineAudioAttachmentView: View {
             }
         }
         .monospacedDigit()
+    }
+
+    // MARK: - Playback Progress
+
+    /// Updates progress and duration from the active audio player.
+    /// Called on each TimelineView tick; the return value is discarded via `let _ =`.
+    @discardableResult
+    private func updatePlaybackProgress() -> Bool {
+        guard isPlaying, let player = audioPlayer else { return false }
+        progress = player.currentTime
+        duration = player.duration
+        return true
     }
 
     // MARK: - Playback Control
