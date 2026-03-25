@@ -32,11 +32,12 @@ export function updateIdentityAvatarSection(
   }
 
   const sectionBody = description
-    ? `## Avatar\n${description}`
-    : "## Avatar\nNo description yet — describe what the current avatar looks like.";
+    ? `## Avatar\n${description}\n`
+    : "## Avatar\nNo description yet — describe what the current avatar looks like.\n";
 
-  // Match ## Avatar through to the next heading (any level) or end of file
-  const avatarSectionRegex = /## Avatar\n[\s\S]*?(?=\n#{1,6} |\n*$)/;
+  // Match ## Avatar and its content up to (but not including) the next heading
+  // at any level, or end of file. Uses multiline ^ to match headings at line start.
+  const avatarSectionRegex = /## Avatar\n[\s\S]*?(?=^#{1,6} |\s*$)/m;
 
   let updated: string;
   if (avatarSectionRegex.test(content)) {
