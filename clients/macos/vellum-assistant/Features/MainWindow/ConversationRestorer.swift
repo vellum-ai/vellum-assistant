@@ -74,7 +74,7 @@ final class ConversationRestorer {
                 case .conversationListResponse(let response):
                     self.handleConversationListResponse(response)
                 case .historyResponse(let response):
-                    self.handleHistoryResponse(response)
+                    await self.handleHistoryResponse(response)
                 case .conversationTitleUpdated(let response):
                     self.handleConversationTitleUpdated(response)
                 default:
@@ -124,7 +124,7 @@ final class ConversationRestorer {
             guard let self else { return }
             let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: nil, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
             if let response {
-                self.handleHistoryResponse(response)
+                await self.handleHistoryResponse(response)
             } else {
                 self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
             }
@@ -142,7 +142,7 @@ final class ConversationRestorer {
             guard let self else { return }
             let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: nil, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
             if let response {
-                self.handleHistoryResponse(response)
+                await self.handleHistoryResponse(response)
             } else {
                 self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
             }
@@ -164,7 +164,7 @@ final class ConversationRestorer {
             guard let self else { return }
             let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: beforeTimestamp, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
             if let response {
-                self.handleHistoryResponse(response)
+                await self.handleHistoryResponse(response)
             } else {
                 self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
                 if let vm = self.delegate?.existingChatViewModel(for: conversation.id) {
@@ -292,7 +292,7 @@ final class ConversationRestorer {
         delegate.restoreLastActiveConversation()
     }
 
-    func handleHistoryResponse(_ response: HistoryResponse) {
+    func handleHistoryResponse(_ response: HistoryResponse) async {
         guard let localId = pendingHistoryByConversationId.removeValue(forKey: response.conversationId) else { return }
         guard let viewModel = delegate?.chatViewModel(for: localId) else { return }
 
@@ -301,7 +301,7 @@ final class ConversationRestorer {
         // isLoadingMoreMessages is true, the response is for a "Load more" request.
         let isPaginationLoad = viewModel.isHistoryLoaded && viewModel.isLoadingMoreMessages
 
-        viewModel.populateFromHistory(
+        await viewModel.populateFromHistory(
             response.messages,
             hasMore: response.hasMore,
             oldestTimestamp: response.oldestTimestamp,

@@ -2834,17 +2834,18 @@ public final class ChatViewModel: ObservableObject {
         hasMore: Bool,
         oldestTimestamp: Double? = nil,
         isPaginationLoad: Bool = false
-    ) {
+    ) async {
         let spid = OSSignpostID(log: Self.poiLog)
         os_signpost(.begin, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "messages=%d isPagination=%d", historyMessages.count, isPaginationLoad ? 1 : 0)
 
-        // Phase 1: reconstruct messages using a nonisolated static method.
+        // Phase 1: reconstruct messages off the main thread.
         // The heavy work (JSON size estimation, tool input formatting, surface
-        // mapping, image decoding) uses no @MainActor state — only the
-        // conversationId is captured. Currently called synchronously from
-        // @MainActor; a future optimization could wrap this in Task.detached.
+        // mapping, image decoding) runs in a detached task using a nonisolated
+        // static method that accesses no @MainActor state.
         let convId = self.conversationId
-        let result = Self.reconstructMessages(from: historyMessages, conversationId: convId)
+        let result = await Task.detached {
+            Self.reconstructMessages(from: historyMessages, conversationId: convId)
+        }.value
         let chatMessages = result.messages
         let reconstructedSubagents = result.subagents
 

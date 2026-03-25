@@ -455,7 +455,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
             ),
         ]
 
-        viewModel.populateFromHistory(historyItems, hasMore: false)
+        await viewModel.populateFromHistory(historyItems, hasMore: false)
 
         XCTAssertEqual(viewModel.messages.count, 1)
         let msg = viewModel.messages[0]
@@ -500,7 +500,7 @@ final class ChatDynamicPreviewRegressionTests: XCTestCase {
             ),
         ]
 
-        viewModel.populateFromHistory(historyItems, hasMore: false)
+        await viewModel.populateFromHistory(historyItems, hasMore: false)
 
         XCTAssertEqual(viewModel.messages.count, 1)
         let msg = viewModel.messages[0]

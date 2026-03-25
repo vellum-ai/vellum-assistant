@@ -235,7 +235,7 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
             timestamp: 2_000
         )
 
-        viewModel.populateFromHistory(
+        await viewModel.populateFromHistory(
             [assistantReply],
             hasMore: true,
             oldestTimestamp: 2_000
@@ -250,7 +250,7 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
             timestamp: 1_000
         )
 
-        viewModel.populateFromHistory(
+        await viewModel.populateFromHistory(
             [olderUserMessage],
             hasMore: false,
             oldestTimestamp: 1_000,
