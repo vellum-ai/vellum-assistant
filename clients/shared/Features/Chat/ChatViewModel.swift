@@ -751,7 +751,12 @@ public final class ChatViewModel: ObservableObject {
         "Forking is unavailable in private conversations."
 
     /// Whether this view model has had its history loaded from the daemon.
-    public var isHistoryLoaded: Bool = false
+    public var isHistoryLoaded: Bool = false {
+        didSet {
+            guard oldValue != isHistoryLoaded else { return }
+            scheduleCoalescedPublish()
+        }
+    }
 
     /// True while `populateFromHistory` is actively inserting messages.
     /// Observers can check this to avoid treating the history hydration as new activity.
