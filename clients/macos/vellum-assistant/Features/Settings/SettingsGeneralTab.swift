@@ -130,8 +130,9 @@ struct SettingsGeneralTab: View {
                         .foregroundStyle(VColor.contentTertiary)
                 }
             }
-            .padding(VSpacing.xxl)
+            .padding(VSpacing.lg)
             .frame(minWidth: 260)
+            .background(VColor.surfaceLift)
             .interactiveDismissDisabled(!dockerOperationTimedOut)
             .onAppear {
                 dockerOperationTimedOut = false
