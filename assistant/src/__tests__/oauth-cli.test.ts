@@ -148,6 +148,7 @@ mock.module("../oauth/oauth-store.js", () => ({
   registerProvider: () => ({}),
   seedProviders: () => {},
   getActiveConnection: () => undefined,
+  listActiveConnectionsByProvider: () => [],
   createConnection: () => ({}),
   isProviderConnected: () => false,
   updateConnection: () => ({}),
