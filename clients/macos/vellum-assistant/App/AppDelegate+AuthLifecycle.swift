@@ -164,9 +164,8 @@ extension AppDelegate {
 
     @objc public func performLogout() {
         Task {
-            // Capture assistant/org IDs before logout clears them from UserDefaults
+            // Capture assistant ID before logout clears UserDefaults
             let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-            let connectedOrganizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
 
             // Capture managed status before logout clears UserDefaults
             let wasManaged = isCurrentAssistantManaged
