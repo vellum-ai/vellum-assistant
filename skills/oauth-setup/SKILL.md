@@ -189,10 +189,7 @@ If a ping URL is available, verify:
 ```
 bash:
   command: |
-    curl -H "Authorization: Bearer $(assistant oauth token <provider-key> --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ))" "<provider-ping-url>"
+    curl -H "Authorization: Bearer $(assistant oauth token <provider-key>)" "<provider-ping-url>"
 ```
 
 **On success:** "**{setup.displayName} is connected!** You're all set."

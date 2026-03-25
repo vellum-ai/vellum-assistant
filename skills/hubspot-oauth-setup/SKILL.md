@@ -164,10 +164,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth token integration:hubspot --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ))" "https://api.hubapi.com/crm/v3/objects/contacts?limit=1" | python3 -m json.tool
+    curl -s -H "Authorization: Bearer $(assistant oauth token integration:hubspot)" "https://api.hubapi.com/crm/v3/objects/contacts?limit=1" | python3 -m json.tool
 ```
 
 **On success:** "HubSpot is connected! You can now ask me to look up contacts, manage deals, and browse company records in your HubSpot CRM."

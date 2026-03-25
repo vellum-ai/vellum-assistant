@@ -90,8 +90,5 @@ bash:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth token integration:notion --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ))" "https://api.notion.com/v1/users/me" -H "Notion-Version: 2022-06-28"
+    curl -s -H "Authorization: Bearer $(assistant oauth token integration:notion)" "https://api.notion.com/v1/users/me" -H "Notion-Version: 2022-06-28"
 ```

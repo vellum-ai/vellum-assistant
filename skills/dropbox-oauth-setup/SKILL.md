@@ -172,10 +172,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -X POST -H "Authorization: Bearer $(assistant oauth token integration:dropbox --client-id $(cat <<'EOF'
-    <app-key>
-    EOF
-    ))" "https://api.dropboxapi.com/2/users/get_current_account" | python3 -m json.tool
+    curl -s -X POST -H "Authorization: Bearer $(assistant oauth token integration:dropbox)" "https://api.dropboxapi.com/2/users/get_current_account" | python3 -m json.tool
 ```
 
 **On success:** "Dropbox is connected! You can now ask me to read files, upload documents, and browse your Dropbox."

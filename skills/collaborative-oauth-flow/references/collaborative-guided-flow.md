@@ -174,10 +174,7 @@ If a ping URL is available:
 ```
 bash:
   command: |
-    curl -H "Authorization: Bearer $(assistant oauth token <provider-key> --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ))" "<provider-ping-url>"
+    curl -H "Authorization: Bearer $(assistant oauth token <provider-key>)" "<provider-ping-url>"
 ```
 
 ---

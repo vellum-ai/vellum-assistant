@@ -161,10 +161,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth token integration:github --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ))" "https://api.github.com/user" | python3 -m json.tool
+    curl -s -H "Authorization: Bearer $(assistant oauth token integration:github)" "https://api.github.com/user" | python3 -m json.tool
 ```
 
 **On success:** "GitHub is connected! You can now ask me to check your repositories, notifications, pull requests, and issues."

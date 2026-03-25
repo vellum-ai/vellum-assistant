@@ -195,10 +195,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth token integration:twitter --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ))" "https://api.x.com/2/users/me" | python3 -m json.tool
+    curl -s -H "Authorization: Bearer $(assistant oauth token integration:twitter)" "https://api.x.com/2/users/me" | python3 -m json.tool
 ```
 
 **On success:** "Twitter is connected! You can now ask me to read your timeline, post tweets, and check your profile."

@@ -120,10 +120,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth token integration:todoist --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ))" "https://api.todoist.com/rest/v2/projects" | python3 -m json.tool
+    curl -s -H "Authorization: Bearer $(assistant oauth token integration:todoist)" "https://api.todoist.com/rest/v2/projects" | python3 -m json.tool
 ```
 
 **On success:** "Todoist is connected! You can now ask me to manage your tasks, create projects, and organize your to-do lists."
