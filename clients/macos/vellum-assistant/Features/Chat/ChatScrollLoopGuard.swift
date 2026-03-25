@@ -47,9 +47,12 @@ final class ChatScrollLoopGuard {
     // MARK: - Thresholds (explicit constants)
 
     /// Maximum anchor preference change events allowed in the detection window.
-    /// 150 per 2-second window = 75/sec sustained. Normal fast scroll peaks at
-    /// ~60 accepted events/sec, giving ~2.5x headroom while still catching
-    /// runaway layout loops (400+/2s).
+    /// 150 per 2-second window. Normal fast scroll sustains ~60 accepted events
+    /// over the full 2-second window; the 2.5x factor (150 / 60) is against that
+    /// sustained window total, not a per-second peak rate. This catches runaway
+    /// layout loops (200+/2s) while accommodating legitimate fast scroll.
+    /// NOTE: Monitor on high-refresh-rate displays (120 Hz+) — event volume may
+    /// scale with refresh rate, requiring a higher threshold.
     static let anchorThreshold: Int = 150
 
     /// Maximum scrollTo requests allowed in the detection window.
