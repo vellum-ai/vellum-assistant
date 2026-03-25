@@ -41,10 +41,10 @@ extension MessageListScrollCoordinator {
             let isDaemonConfirmationResume =
                 effectivePhaseWhenSendingStopped == "awaiting_confirmation"
                 && assistantActivityPhase != "awaiting_confirmation"
-            if isDaemonConfirmationResume && !bottomPinCoordinator.isFollowingBottom {
+            if isDaemonConfirmationResume && !isFollowingBottom {
                 // Daemon resumed from confirmation while user was scrolled up.
             } else {
-                bottomPinCoordinator.reattach()
+                reattachToBottom()
                 // For user-initiated sends, scroll the user's message to
                 // the viewport top with space below for the assistant's
                 // response. Daemon confirmation resumes stay bottom-pinned.
@@ -72,7 +72,7 @@ extension MessageListScrollCoordinator {
             // near the top.
             let wasPushToTop = pushToTopMessageId != nil
             pushToTopMessageId = nil
-            if wasPushToTop && bottomPinCoordinator.isFollowingBottom {
+            if wasPushToTop && isFollowingBottom {
                 requestBottomPin(
                     reason: .messageCount,
                     conversationId: conversationId,
@@ -110,8 +110,8 @@ extension MessageListScrollCoordinator {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=messagesChanged")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundInMessages")
             recordScrollLoopEvent(.scrollToRequested, conversationId: conversationId, isNearBottom: isNearBottom)
-            // Anchor jumps bypass the coordinator — they are higher priority.
-            bottomPinCoordinator.cancelActiveSession(reason: .deepLinkAnchorHandoff)
+            // Deep-link anchor takes priority — detach from bottom-follow.
+            detachFromBottom()
             withAnimation {
                 scrollTo?(id, .center)
             }
@@ -134,7 +134,7 @@ extension MessageListScrollCoordinator {
                 anchorSetTime = nil
                 anchorTimeoutTask?.cancel()
                 anchorTimeoutTask = nil
-                bottomPinCoordinator.reattach()
+                reattachToBottom()
                 requestBottomPin(reason: .messageCount, conversationId: conversationId, animated: true)
                 return
             }
@@ -258,7 +258,8 @@ extension MessageListScrollCoordinator {
         if anchorMessageId.wrappedValue != nil {
             scrollRestoreTask?.cancel()
             scrollRestoreTask = nil
-            bottomPinCoordinator.cancelActiveSession(reason: .deepLinkAnchorHandoff)
+            // Deep-link anchor takes priority — detach from bottom-follow.
+            detachFromBottom()
         }
         anchorSetTime = anchorMessageId.wrappedValue != nil ? Date() : nil
         anchorTimeoutTask?.cancel()
@@ -288,7 +289,7 @@ extension MessageListScrollCoordinator {
                 anchorMessageId.wrappedValue = nil
                 self.anchorSetTime = nil
                 self.anchorTimeoutTask = nil
-                self.bottomPinCoordinator.reattach()
+                self.reattachToBottom()
                 self.requestBottomPin(reason: .initialRestore, conversationId: conversationId, animated: true)
             }
         }

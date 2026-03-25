@@ -9,20 +9,15 @@ extension MessageListScrollCoordinator {
 
     // MARK: - Scroll Methods
 
-    /// Sentinel UUID used for pin requests before the daemon assigns a real
-    /// conversation ID. Lets bootstrap-window requests coalesce normally.
-    static let bootstrapConversationId = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
-
     /// Performs a programmatic scroll to the given item ID and anchor point,
     /// using the `scrollTo` closure configured during setup.
     func performScrollTo(_ id: any Hashable, anchor: UnitPoint? = nil) {
         scrollTo?(id, anchor)
     }
 
-    /// Routes a bottom-follow request through the coordinator.
-    /// Returns `false` when the scroll loop guard is tripped, suppressing the request.
+    /// Routes a bottom-follow request directly.
     /// Pass `userInitiated: true` for explicit user actions (e.g. "Scroll to latest" button)
-    /// to bypass the loop guard and suppression checks — user intent always wins.
+    /// to bypass both follow-state and suppression checks — user intent always wins.
     @discardableResult
     func requestBottomPin(
         reason: BottomPinRequestReason,
@@ -30,14 +25,7 @@ extension MessageListScrollCoordinator {
         animated: Bool = false,
         userInitiated: Bool = false
     ) -> Bool {
-        let convIdString = (conversationId ?? Self.bootstrapConversationId).uuidString
-        if !userInitiated, scrollLoopGuard.isTripped(conversationId: convIdString) {
-            os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
-                        "target=bottomAnchor reason=circuitBreakerSuppressed-requestBottomPin")
-            return false
-        }
-
-        // User-initiated scrolls bypass the coordinator session and suppression
+        // User-initiated scrolls bypass both the follow-state and suppression
         // checks entirely — user intent always wins over defensive guards.
         if userInitiated {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
@@ -52,22 +40,36 @@ extension MessageListScrollCoordinator {
             return true
         }
 
-        let convId = conversationId ?? Self.bootstrapConversationId
-        bottomPinCoordinator.requestPin(
-            reason: reason,
-            conversationId: convId,
-            animated: animated
-        )
+        // Non-user-initiated requests are gated on BOTH follow-state and
+        // suppression. The isFollowingBottom check prevents yanking detached
+        // users to the bottom. The !isSuppressed check prevents auto-scroll
+        // from fighting pagination, expansion, and resize suppression.
+        guard isFollowingBottom else {
+            scrollCoordinatorLog.debug("[BottomPin] suppressed reason=\(reason.rawValue) isFollowingBottom=false")
+            return false
+        }
+        guard !isSuppressed else {
+            scrollCoordinatorLog.debug("[BottomPin] suppressed reason=\(reason.rawValue) isSuppressed=true")
+            return false
+        }
+
+        os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
+                    "target=bottomAnchor reason=%{public}s", reason.rawValue)
+        recordScrollLoopEvent(.scrollToRequested, conversationId: currentConversationId)
+        if animated {
+            withAnimation(VAnimation.fast) {
+                performScrollTo("scroll-bottom-anchor", anchor: .bottom)
+            }
+        } else {
+            performScrollTo("scroll-bottom-anchor", anchor: .bottom)
+        }
         return true
     }
 
-    /// Configures the coordinator's callbacks to wire pin requests back to
-    /// the scroll position and follow-state changes back to `isNearBottom`.
-    ///
-    /// Closures capture `[weak self]` and read `self.currentConversationId`
-    /// and `self.currentScrollViewportHeight` so they always use the live
-    /// value — not a stale snapshot from configure time.
-    func configureBottomPinCoordinator(
+    /// Configures the scroll coordinator's bindings and seeds initial state.
+    /// Stores the `isNearBottom` binding so `detachFromBottom` / `reattachToBottom`
+    /// can update it directly without callback indirection.
+    func configureScrollCallbacks(
         scrollViewportHeight: CGFloat,
         conversationId: UUID?,
         isNearBottom: Binding<Bool>
@@ -75,75 +77,22 @@ extension MessageListScrollCoordinator {
         // Seed the live state so closures have a valid value immediately.
         currentConversationId = conversationId
         currentScrollViewportHeight = scrollViewportHeight
+        isNearBottomBinding = isNearBottom
 
-        bottomPinCoordinator.onPinRequested = { [weak self] reason, animated in
-            guard let self else { return false }
-            guard !isSuppressed else { return false }
-            // Circuit breaker: suppress scroll-to when a scroll loop was detected.
-            let convIdString = self.currentConversationId?.uuidString ?? "unknown"
-            if scrollLoopGuard.isTripped(conversationId: convIdString) {
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
-                            "target=bottomAnchor reason=circuitBreakerSuppressed")
-                return false
-            }
-            os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
-                        "target=bottomAnchor reason=coordinator-%{public}s", reason.rawValue)
-            recordScrollLoopEvent(.scrollToRequested, conversationId: self.currentConversationId)
-            if animated {
-                withAnimation(VAnimation.fast) {
-                    self.performScrollTo("scroll-bottom-anchor", anchor: .bottom)
-                }
-            } else {
-                self.performScrollTo("scroll-bottom-anchor", anchor: .bottom)
-            }
-            // With ScrollPosition, the scroll is applied immediately — return
-            // true to indicate the pin was accepted.
-            return true
-        }
-        bottomPinCoordinator.onFollowStateChanged = { isFollowing in
-            isNearBottom.wrappedValue = isFollowing
-        }
-
-        // Wire auto-recovery: when the loop guard's cooldown expires, schedule
-        // a single deferred re-pin attempt so the UI doesn't get stuck.
-        scrollLoopGuard.onRecoveryNeeded = { [weak self] convId in
-            guard let self else { return }
-            loopGuardRecoveryTask?.cancel()
-            loopGuardRecoveryTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(ChatScrollLoopGuard.autoRecoveryDelay * 1_000_000_000))
-                guard !Task.isCancelled, let self else { return }
-                // Only re-pin if the user hasn't scrolled away during the delay.
-                guard self.bottomPinCoordinator.isFollowingBottom else {
-                    scrollCoordinatorLog.debug("Loop guard auto-recovery: skipping re-pin — user scrolled away for \(convId)")
-                    self.loopGuardRecoveryTask = nil
-                    return
-                }
-                scrollCoordinatorLog.debug("Loop guard auto-recovery: attempting re-pin for \(convId)")
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
-                            "target=bottomAnchor reason=loopGuardAutoRecovery")
-                self.bottomPinCoordinator.reattach()
-                self.requestBottomPin(
-                    reason: .initialRestore,
-                    conversationId: self.currentConversationId,
-                    animated: true
-                )
-                self.loopGuardRecoveryTask = nil
-            }
-        }
-
-        // If detach() was called before this callback was wired up, sync
-        // isNearBottom now so it isn't stuck at true permanently.
-        if !bottomPinCoordinator.isFollowingBottom {
+        // If detachFromBottom() was called before this binding was stored,
+        // sync isNearBottom now so it isn't stuck at true permanently.
+        if !isFollowingBottom {
             isNearBottom.wrappedValue = false
         }
     }
 
-    /// Staged scroll-to-bottom that retries after increasing delays to handle
-    /// cases where SwiftUI hasn't committed the new content's layout yet.
+    /// Delayed scroll-to-bottom fallback that catches cases where the preceding
+    /// `scrollToEdge(.bottom)` fires before SwiftUI has fully laid out the content.
     ///
-    /// The initial `scrollToEdge(.bottom)` in `conversationSwitched` handles
-    /// most cases. This method catches slow LazyVStack materialization where
-    /// the edge scroll fires before content is fully laid out.
+    /// All callers now perform `scrollToEdge(.bottom)` before invoking this method
+    /// (both `conversationSwitched` and `onAppear`). This single 100ms delayed
+    /// fallback uses the ID-based `requestBottomPin` as a belt-and-suspenders check
+    /// for cases where the edge scroll fires before content layout is complete.
     func restoreScrollToBottom(
         conversationId: UUID?,
         anchorMessageId: Binding<UUID?>
@@ -151,35 +100,16 @@ extension MessageListScrollCoordinator {
         scrollRestoreTask?.cancel()
 
         scrollRestoreTask = Task { @MainActor [weak self] in
-            guard let self, !Task.isCancelled else { return }
-            os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=0")
-            scrollCoordinatorLog.debug("Scroll restore: stage 0 (immediate)")
-
-            // Stage 1: ~3 frames — handles most conversation switches.
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            guard !Task.isCancelled else { return }
-            os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=1")
-            if anchorMessageId.wrappedValue == nil {
-                requestBottomPin(reason: .initialRestore, conversationId: conversationId)
-            }
-            scrollCoordinatorLog.debug("Scroll restore: stage 1 (50ms)")
-
-            // Stage 2: ~12 frames — catches slower layout/materialization.
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            guard !Task.isCancelled else { return }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            guard !Task.isCancelled, let self else { return }
             if anchorMessageId.wrappedValue == nil
-                && !hasReceivedScrollEvent
+                && !self.hasReceivedScrollEvent
                 && !self.isAtBottom
             {
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=2 action=retry")
-                requestBottomPin(reason: .initialRestore, conversationId: conversationId)
-                scrollCoordinatorLog.debug("Scroll restore: stage 2 (200ms) — retrying")
-            } else {
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=2 action=skipped")
-                scrollCoordinatorLog.debug("Scroll restore: stage 2 skipped (anchor=\(String(describing: anchorMessageId.wrappedValue)) scrollEvent=\(self.hasReceivedScrollEvent) atBottom=\(self.isAtBottom))")
+                os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=fallback")
+                self.requestBottomPin(reason: .initialRestore, conversationId: conversationId)
             }
-
-            if !Task.isCancelled { scrollRestoreTask = nil }
+            self.scrollRestoreTask = nil
         }
     }
 
@@ -189,11 +119,9 @@ extension MessageListScrollCoordinator {
     func handleScrollUp() {
         scrollRestoreTask?.cancel()
         scrollRestoreTask = nil
-        loopGuardRecoveryTask?.cancel()
-        loopGuardRecoveryTask = nil
         clearAllSuppression()
         pushToTopMessageId = nil
-        bottomPinCoordinator.handleUserAction(.scrollUp)
+        detachFromBottom()
         hasReceivedScrollEvent = true
     }
 
@@ -202,7 +130,7 @@ extension MessageListScrollCoordinator {
         scrollRestoreTask?.cancel()
         scrollRestoreTask = nil
         clearAllSuppression()
-        bottomPinCoordinator.handleUserAction(.scrollToBottom)
+        reattachToBottom()
         hasReceivedScrollEvent = true
     }
 
@@ -248,14 +176,15 @@ extension MessageListScrollCoordinator {
             self.suppressionTimeoutTasks[ScrollSuppression.resize.rawValue]?.cancel()
             self.suppressionTimeoutTasks[ScrollSuppression.resize.rawValue] = nil
             defer {
-                if !Task.isCancelled {
-                    self.removeSuppression(.resize)
-                    onComplete()
-                }
+                if !Task.isCancelled { onComplete() }
             }
             try? await Task.sleep(nanoseconds: 100_000_000)
-            guard !Task.isCancelled else { return }
-
+            guard !Task.isCancelled else {
+                self.removeSuppression(.resize)
+                return
+            }
+            // Remove suppression BEFORE the pin request so it isn't rejected.
+            self.removeSuppression(.resize)
             if isNearBottom && anchorMessageId == nil && !self.isAtBottom {
                 self.requestBottomPin(reason: .resize, conversationId: conversationId)
             }
@@ -273,9 +202,7 @@ extension MessageListScrollCoordinator {
     ) {
         guard !isPaginationInFlight else { return }
         isPaginationInFlight = true
-        // Pagination scroll-position restore is higher priority — cancel any
-        // active pin session so the coordinator doesn't fight the restore.
-        bottomPinCoordinator.cancelActiveSession(reason: .paginationRestore)
+        // Pagination scroll-position restore is higher priority than bottom-pin.
         let anchorId = visibleMessages.first?.id
         os_signpost(.event, log: PerfSignposts.log, name: "paginationSentinelFired")
         scrollCoordinatorLog.debug("[pagination] fired — anchorId: \(String(describing: anchorId))")
