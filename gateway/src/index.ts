@@ -241,12 +241,28 @@ async function main() {
     credentials: credentialCache,
     configFile: configFileCache,
   });
+  // Map: "channel:threadTs" -> { messageTs, expiresAt } for replacing approval
+  // messages with the bot's follow-up content after an approval button click.
+  const pendingApprovalReplacements = new Map<
+    string,
+    { messageTs: string; expiresAt: number }
+  >();
+
+  // Clean up expired entries every 60s
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of pendingApprovalReplacements) {
+      if (entry.expiresAt <= now) pendingApprovalReplacements.delete(key);
+    }
+  }, 60_000);
+
   const handleSlackDeliver = createSlackDeliverHandler(
     config,
     (threadTs) => {
       slackSocketClient?.trackThread(threadTs);
     },
     { credentials: credentialCache, configFile: configFileCache },
+    pendingApprovalReplacements,
   );
   const handleOAuthCallback = createOAuthCallbackHandler(config);
   const pairingProxy = createPairingProxyHandler(config);
@@ -1192,6 +1208,18 @@ async function main() {
             .catch(() => forward());
         } else {
           forward();
+        }
+
+        // When an approval button is clicked, store the approval message ts
+        // so the next outbound delivery to this thread replaces the approval
+        // message instead of posting a new one.
+        const callbackData = normalized.event.message.callbackData;
+        if (callbackData?.startsWith("apr:") && messageTs && threadTs) {
+          const key = `${channel}:${threadTs}`;
+          pendingApprovalReplacements.set(key, {
+            messageTs,
+            expiresAt: Date.now() + 60_000, // 60s TTL
+          });
         }
       },
     );

@@ -330,6 +330,10 @@ export function createSlackDeliverHandler(
   config: GatewayConfig,
   onThreadReply?: (threadTs: string) => void,
   caches?: { credentials?: CredentialCache; configFile?: ConfigFileCache },
+  pendingApprovalReplacements?: Map<
+    string,
+    { messageTs: string; expiresAt: number }
+  >,
 ) {
   return async (req: Request): Promise<Response> => {
     const traceId = req.headers.get("x-trace-id") ?? undefined;
@@ -541,8 +545,26 @@ export function createSlackDeliverHandler(
 
     // Support threading via query param
     const threadTs = new URL(req.url).searchParams.get("threadTs") ?? undefined;
-    const messageTs = body.messageTs ?? updateTs;
-    const isUpdate = typeof messageTs === "string" && messageTs.length > 0;
+    let messageTs = body.messageTs ?? updateTs;
+    let isUpdate = typeof messageTs === "string" && messageTs.length > 0;
+
+    // Check for pending approval message replacement: if this is a new message
+    // (not already an update) to a thread with a pending approval replacement,
+    // convert it to an update of the approval message so the follow-up content
+    // replaces the original approval prompt.
+    if (threadTs && !isUpdate && !isEphemeral && !chatAction && text) {
+      const replacementKey = `${chatId}:${threadTs}`;
+      const pending = pendingApprovalReplacements?.get(replacementKey);
+      if (pending) {
+        messageTs = pending.messageTs;
+        isUpdate = true;
+        pendingApprovalReplacements!.delete(replacementKey);
+        tlog.info(
+          { chatId, threadTs, approvalMessageTs: messageTs },
+          "Converting delivery to approval message replacement",
+        );
+      }
+    }
 
     // Resolve Block Kit blocks: use provided blocks, approval prompt, or auto-format text
     const blocks: Block[] =
