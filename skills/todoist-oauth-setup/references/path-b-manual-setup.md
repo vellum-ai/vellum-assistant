@@ -108,7 +108,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:todoist --client-id $(cat <<'EOF'
+    assistant oauth connect integration:todoist --client-id $(cat <<'EOF'
     <client-id>
     EOF
     )

@@ -101,7 +101,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:github --client-id $(cat <<'EOF'
+    assistant oauth connect integration:github --client-id $(cat <<'EOF'
     <client-id>
     EOF
     ) --scopes repo read:user notifications

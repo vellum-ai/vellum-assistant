@@ -95,7 +95,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:linear --client-id $(cat <<'EOF'
+    assistant oauth connect integration:linear --client-id $(cat <<'EOF'
     <client-id>
     EOF
     )
