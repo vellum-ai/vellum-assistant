@@ -755,8 +755,8 @@ describe("credential_store tool — prompt action", () => {
 describe("credential_store tool — oauth2_connect error paths", () => {
   /** Well-known provider rows returned by the mocked getProvider */
   const wellKnownProviders: Record<string, object> = {
-    "integration:google": {
-      key: "integration:google",
+    google: {
+      key: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: JSON.stringify(["https://mail.google.com/"]),
@@ -764,8 +764,8 @@ describe("credential_store tool — oauth2_connect error paths", () => {
       callbackTransport: "loopback",
       loopbackPort: 8756,
     },
-    "integration:slack": {
-      key: "integration:slack",
+    slack: {
+      key: "slack",
       authUrl: "https://slack.com/oauth/v2/authorize",
       tokenUrl: "https://slack.com/api/oauth.v2.access",
       defaultScopes: JSON.stringify(["channels:read"]),
@@ -880,7 +880,7 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     expect(result.content).toContain("mock-auth-url.example.com");
   });
 
-  test("resolves gmail alias to integration:google", async () => {
+  test("resolves gmail alias to google", async () => {
     // Even with alias resolution, missing client_id should still fail
     const result = await credentialStoreTool.execute(
       {
@@ -895,7 +895,7 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     expect(result.content).toContain("client_id is required");
   });
 
-  test("resolves slack alias to integration:slack", async () => {
+  test("resolves slack to its canonical name", async () => {
     const result = await credentialStoreTool.execute(
       {
         action: "oauth2_connect",
@@ -912,13 +912,13 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     // and store client_secret in the secure store.
     mockGetMostRecentAppByProvider.mockImplementation(() => ({
       id: "test-app-id",
-      providerKey: "integration:google",
+      providerKey: "google",
       clientId: "stored-client-id-123",
       clientSecretCredentialPath: "oauth_app/test-app-id/client_secret",
       createdAt: Date.now(),
     }));
     mockGetProvider.mockImplementation(() => ({
-      key: "integration:google",
+      key: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: JSON.stringify(["https://mail.google.com/"]),
@@ -958,13 +958,10 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     // most-recent-app heuristic) so the secret comes from the correct app.
     mockGetAppByProviderAndClientId.mockImplementation(
       (providerKey: string, cId: string) => {
-        if (
-          providerKey === "integration:google" &&
-          cId === "caller-supplied-client-id"
-        ) {
+        if (providerKey === "google" && cId === "caller-supplied-client-id") {
           return {
             id: "matched-app-id",
-            providerKey: "integration:google",
+            providerKey: "google",
             clientId: "caller-supplied-client-id",
             clientSecretCredentialPath:
               "oauth_app/matched-app-id/client_secret",
@@ -975,7 +972,7 @@ describe("credential_store tool — oauth2_connect error paths", () => {
       },
     );
     mockGetProvider.mockImplementation(() => ({
-      key: "integration:google",
+      key: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: JSON.stringify(["https://mail.google.com/"]),
@@ -1013,13 +1010,13 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     // use getMostRecentAppByProvider (the fallback heuristic).
     mockGetMostRecentAppByProvider.mockImplementation(() => ({
       id: "recent-app-id",
-      providerKey: "integration:google",
+      providerKey: "google",
       clientId: "recent-client-id",
       clientSecretCredentialPath: "oauth_app/recent-app-id/client_secret",
       createdAt: Date.now(),
     }));
     mockGetProvider.mockImplementation(() => ({
-      key: "integration:google",
+      key: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: JSON.stringify(["https://mail.google.com/"]),
@@ -1056,7 +1053,7 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     // report the missing secret error.
     mockGetAppByProviderAndClientId.mockImplementation(() => undefined);
     mockGetProvider.mockImplementation(() => ({
-      key: "integration:google",
+      key: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: JSON.stringify(["https://mail.google.com/"]),
@@ -1087,12 +1084,12 @@ describe("credential_store tool — oauth2_connect error paths", () => {
     // guardrail.
     mockGetMostRecentAppByProvider.mockImplementation(() => ({
       id: "test-app-id-no-secret",
-      providerKey: "integration:google",
+      providerKey: "google",
       clientId: "stored-client-id-456",
       createdAt: Date.now(),
     }));
     mockGetProvider.mockImplementation(() => ({
-      key: "integration:google",
+      key: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: JSON.stringify(["https://mail.google.com/"]),
