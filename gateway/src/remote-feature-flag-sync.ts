@@ -1,3 +1,5 @@
+import type { CredentialCache } from "./credential-cache.js";
+import { credentialKey } from "./credential-key.js";
 import { fetchImpl } from "./fetch.js";
 import { writeRemoteFeatureFlags } from "./feature-flag-remote-store.js";
 import { getLogger } from "./logger.js";
@@ -22,12 +24,8 @@ function getPollIntervalMs(): number {
 }
 
 export type RemoteFeatureFlagSyncConfig = {
-  /** Base URL of the Vellum platform API (e.g. "https://assistant.vellum.ai"). Empty string disables remote sync. */
-  platformUrl: string;
-  /** Assistant ID to scope the feature flags request. */
-  assistantId: string;
-  /** Platform API key for authentication (Api-Key header). */
-  platformApiKey: string;
+  /** Credential cache for resolving platform URL, API key, and assistant ID dynamically. */
+  credentials: CredentialCache;
 };
 
 /**
@@ -41,24 +39,13 @@ export type RemoteFeatureFlagSyncConfig = {
 export class RemoteFeatureFlagSync {
   private started = false;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
-  private readonly config: RemoteFeatureFlagSyncConfig;
+  private readonly credentials: CredentialCache;
 
   constructor(config: RemoteFeatureFlagSyncConfig) {
-    this.config = config;
+    this.credentials = config.credentials;
   }
 
   async start(): Promise<void> {
-    if (
-      !this.config.platformUrl ||
-      !this.config.assistantId ||
-      !this.config.platformApiKey
-    ) {
-      log.warn(
-        "Remote feature flag sync disabled: missing platform URL, assistant ID, or API key",
-      );
-      return;
-    }
-
     this.started = true;
 
     try {
@@ -102,7 +89,28 @@ export class RemoteFeatureFlagSync {
     string,
     boolean
   > | null> {
-    const { platformUrl, assistantId, platformApiKey } = this.config;
+    const [platformUrlRaw, assistantIdRaw, platformApiKeyRaw] =
+      await Promise.all([
+        this.credentials.get(credentialKey("vellum", "platform_base_url")),
+        this.credentials.get(credentialKey("vellum", "platform_assistant_id")),
+        this.credentials.get(credentialKey("vellum", "assistant_api_key")),
+      ]);
+
+    const platformUrl = platformUrlRaw?.trim().replace(/\/+$/, "");
+    const assistantId = assistantIdRaw?.trim();
+    const platformApiKey = platformApiKeyRaw?.trim();
+
+    if (!platformUrl || !assistantId || !platformApiKey) {
+      log.debug(
+        {
+          hasPlatformUrl: !!platformUrl,
+          hasAssistantId: !!assistantId,
+          hasPlatformApiKey: !!platformApiKey,
+        },
+        "Remote feature flag sync skipped: missing credentials",
+      );
+      return null;
+    }
 
     const url = `${platformUrl}/v1/assistants/${assistantId}/feature-flags/`;
     log.debug({ url }, "Fetching remote feature flags from platform");

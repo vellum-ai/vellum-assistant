@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomBytes } from "node:crypto";
 
-import type { RemoteFeatureFlagSyncConfig } from "../remote-feature-flag-sync.js";
+import type { CredentialCache } from "../credential-cache.js";
 
 // ---------------------------------------------------------------------------
 // Isolated temp directory (mirrors feature-flags-route.test.ts pattern)
@@ -44,14 +44,25 @@ const { readRemoteFeatureFlags, clearRemoteFeatureFlagStoreCache } =
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-function makeConfig(
-  overrides: Partial<RemoteFeatureFlagSyncConfig> = {},
-): RemoteFeatureFlagSyncConfig {
+
+/**
+ * Build a fake CredentialCache that resolves credential keys from an
+ * in-memory map. Keys follow the `credential/{service}/{field}` format
+ * produced by `credentialKey()`.
+ */
+function fakeCredentialCache(
+  values: Record<string, string | undefined> = {},
+): CredentialCache {
   return {
-    platformUrl: "https://assistant.vellum.ai",
-    assistantId: "asst-123",
-    platformApiKey: "test-api-key",
-    ...overrides,
+    get: async (key: string) => values[key],
+  } as unknown as CredentialCache;
+}
+
+function defaultCredentials(): Record<string, string> {
+  return {
+    "credential/vellum/platform_base_url": "https://assistant.vellum.ai",
+    "credential/vellum/platform_assistant_id": "asst-123",
+    "credential/vellum/assistant_api_key": "test-api-key",
   };
 }
 
@@ -83,24 +94,39 @@ afterEach(() => {
 // Tests
 // ---------------------------------------------------------------------------
 describe("RemoteFeatureFlagSync", () => {
-  test("skips sync when platformUrl is empty", async () => {
-    const sync = new RemoteFeatureFlagSync(makeConfig({ platformUrl: "" }));
+  test("skips sync when platform_base_url is missing", async () => {
+    const creds = defaultCredentials();
+    delete creds["credential/vellum/platform_base_url"];
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(creds),
+    });
     await sync.start();
     sync.stop();
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("skips sync when platformApiKey is empty", async () => {
-    const sync = new RemoteFeatureFlagSync(makeConfig({ platformApiKey: "" }));
+  test("skips sync when assistant_api_key is missing", async () => {
+    const creds = defaultCredentials();
+    delete creds["credential/vellum/assistant_api_key"];
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(creds),
+    });
     await sync.start();
     sync.stop();
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("skips sync when assistantId is empty", async () => {
-    const sync = new RemoteFeatureFlagSync(makeConfig({ assistantId: "" }));
+  test("skips sync when platform_assistant_id is missing", async () => {
+    const creds = defaultCredentials();
+    delete creds["credential/vellum/platform_assistant_id"];
+
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(creds),
+    });
     await sync.start();
     sync.stop();
 
@@ -114,7 +140,9 @@ describe("RemoteFeatureFlagSync", () => {
       }),
     );
 
-    const sync = new RemoteFeatureFlagSync(makeConfig());
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+    });
     await sync.start();
     sync.stop();
 
@@ -133,7 +161,9 @@ describe("RemoteFeatureFlagSync", () => {
       }),
     );
 
-    const sync1 = new RemoteFeatureFlagSync(makeConfig());
+    const sync1 = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+    });
     await sync1.start();
     sync1.stop();
 
@@ -147,7 +177,9 @@ describe("RemoteFeatureFlagSync", () => {
       async () => new Response("Internal Server Error", { status: 500 }),
     );
 
-    const sync2 = new RemoteFeatureFlagSync(makeConfig());
+    const sync2 = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+    });
     await sync2.start();
     sync2.stop();
 
@@ -166,7 +198,9 @@ describe("RemoteFeatureFlagSync", () => {
       }),
     );
 
-    const sync1 = new RemoteFeatureFlagSync(makeConfig());
+    const sync1 = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+    });
     await sync1.start();
     sync1.stop();
 
@@ -180,7 +214,9 @@ describe("RemoteFeatureFlagSync", () => {
       throw new Error("Network failure");
     });
 
-    const sync2 = new RemoteFeatureFlagSync(makeConfig());
+    const sync2 = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+    });
     // Should not throw — errors are caught and logged
     await sync2.start();
     sync2.stop();
@@ -196,9 +232,13 @@ describe("RemoteFeatureFlagSync", () => {
     fetchMock = mock(async () => Response.json({ flags: {} }));
 
     const apiKey = "my-secret-key-42";
-    const sync = new RemoteFeatureFlagSync(
-      makeConfig({ platformApiKey: apiKey }),
-    );
+    const creds = {
+      ...defaultCredentials(),
+      "credential/vellum/assistant_api_key": apiKey,
+    };
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(creds),
+    });
     await sync.start();
     sync.stop();
 
@@ -211,11 +251,14 @@ describe("RemoteFeatureFlagSync", () => {
   test("constructs correct URL with assistant ID", async () => {
     fetchMock = mock(async () => Response.json({ flags: {} }));
 
-    const cfg = makeConfig({
-      platformUrl: "https://platform.example.com",
-      assistantId: "asst-abc-999",
+    const creds = {
+      ...defaultCredentials(),
+      "credential/vellum/platform_base_url": "https://platform.example.com",
+      "credential/vellum/platform_assistant_id": "asst-abc-999",
+    };
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(creds),
     });
-    const sync = new RemoteFeatureFlagSync(cfg);
     await sync.start();
     sync.stop();
 
@@ -238,7 +281,9 @@ describe("RemoteFeatureFlagSync", () => {
       }),
     );
 
-    const sync = new RemoteFeatureFlagSync(makeConfig());
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+    });
     await sync.start();
     sync.stop();
 
@@ -258,7 +303,9 @@ describe("RemoteFeatureFlagSync", () => {
       }),
     );
 
-    const sync1 = new RemoteFeatureFlagSync(makeConfig());
+    const sync1 = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+    });
     await sync1.start();
     sync1.stop();
 
@@ -270,12 +317,57 @@ describe("RemoteFeatureFlagSync", () => {
     // Now simulate a response with missing flags field — cached flags should be preserved
     fetchMock = mock(async () => Response.json({ data: "unexpected" }));
 
-    const sync2 = new RemoteFeatureFlagSync(makeConfig());
+    const sync2 = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(defaultCredentials()),
+    });
     await sync2.start();
     sync2.stop();
 
     clearRemoteFeatureFlagStoreCache();
     const cached = readRemoteFeatureFlags();
     expect(cached).toEqual({ "feature_flags.browser.enabled": true });
+  });
+
+  test("strips trailing slashes from platform URL", async () => {
+    fetchMock = mock(async () => Response.json({ flags: {} }));
+
+    const creds = {
+      ...defaultCredentials(),
+      "credential/vellum/platform_base_url": "https://platform.example.com///",
+    };
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(creds),
+    });
+    await sync.start();
+    sync.stop();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url] = fetchMock.mock.calls[0];
+    expect(url).toBe(
+      "https://platform.example.com/v1/assistants/asst-123/feature-flags/",
+    );
+  });
+
+  test("trims whitespace from credential values", async () => {
+    fetchMock = mock(async () => Response.json({ flags: {} }));
+
+    const creds = {
+      "credential/vellum/platform_base_url": "  https://platform.example.com  ",
+      "credential/vellum/platform_assistant_id": "  asst-trimmed  ",
+      "credential/vellum/assistant_api_key": "  trimmed-key  ",
+    };
+    const sync = new RemoteFeatureFlagSync({
+      credentials: fakeCredentialCache(creds),
+    });
+    await sync.start();
+    sync.stop();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe(
+      "https://platform.example.com/v1/assistants/asst-trimmed/feature-flags/",
+    );
+    const headers = init?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Api-Key trimmed-key");
   });
 });
