@@ -15,7 +15,7 @@ extension MessageListScrollCoordinator {
 
     /// Performs a programmatic scroll to the given item ID and anchor point,
     /// using the `scrollTo` closure configured during setup.
-    private func performScrollTo(_ id: any Hashable, anchor: UnitPoint? = nil) {
+    func performScrollTo(_ id: any Hashable, anchor: UnitPoint? = nil) {
         scrollTo?(id, anchor)
     }
 

@@ -786,6 +786,16 @@ struct MessageListView: View {
                                 isNearBottom = true
                             }
                         }
+
+                    // Viewport-height spacer that allows the last message
+                    // to scroll to the top. Only rendered during push-to-top
+                    // to avoid empty scrollable space in idle state.
+                    if scrollCoordinator.pushToTopMessageId != nil {
+                        Color.clear
+                            .frame(height: scrollCoordinator.currentScrollViewportHeight.isFinite ? max(0, scrollCoordinator.currentScrollViewportHeight) : 0)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
                 }
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
@@ -808,7 +818,12 @@ struct MessageListView: View {
             .onScrollPhaseChange { oldPhase, newPhase in
                 scrollCoordinator.scrollPhase = newPhase
                 if newPhase == .idle && oldPhase != .idle && scrollCoordinator.isAtBottom {
-                    // User finished scrolling and ended up at the bottom — re-tether.
+                    // User-initiated scrolls that land at the bottom exit
+                    // push-to-top. Programmatic scrolls (.animating) are
+                    // excluded to avoid undoing the initial push-to-top.
+                    if oldPhase == .interacting || oldPhase == .decelerating {
+                        scrollCoordinator.pushToTopMessageId = nil
+                    }
                     scrollCoordinator.handleScrollToBottom()
                 }
             }
@@ -822,7 +837,8 @@ struct MessageListView: View {
             } action: { _, newState in
                 // --- Scroll direction detection ---
                 let tracking = scrollCoordinator.scrollTracking
-                let isScrollable = newState.contentHeight > newState.containerHeight
+                let effectiveContentHeight = newState.contentHeight - scrollCoordinator.tailSpacerHeight
+                let isScrollable = effectiveContentHeight > newState.containerHeight || scrollCoordinator.pushToTopMessageId != nil
                 let isScrollingUp = newState.contentOffsetY < tracking.lastScrollContentOffsetY
                 tracking.scrollContentHeight = newState.contentHeight
                 tracking.scrollContainerHeight = newState.containerHeight
@@ -853,14 +869,23 @@ struct MessageListView: View {
                 }
 
                 // --- Bottom detection ---
-                // Always runs regardless of viewport dead-zone filter above.
-                let distanceFromBottom = newState.contentHeight - newState.contentOffsetY - newState.visibleRectHeight
+                let distanceFromBottom = effectiveContentHeight - newState.contentOffsetY - newState.visibleRectHeight
                 let nowAtBottom = distanceFromBottom.isFinite && distanceFromBottom <= 20
                 if scrollCoordinator.isAtBottom != nowAtBottom {
                     scrollCoordinator.isAtBottom = nowAtBottom
                     if nowAtBottom {
                         scrollCoordinator.handleScrollToBottom()
                     }
+                }
+
+                // --- Push-to-top overflow detection ---
+                if scrollCoordinator.pushToTopMessageId != nil && distanceFromBottom > 50 {
+                    scrollCoordinator.pushToTopMessageId = nil
+                    scrollCoordinator.requestBottomPin(
+                        reason: .messageCount,
+                        conversationId: conversationId,
+                        animated: true
+                    )
                 }
             }
             .scrollIndicators(scrollCoordinator.hideScrollIndicators ? .hidden : .automatic)
