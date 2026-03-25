@@ -1,13 +1,24 @@
-import { and, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import {
   getAssistantMessageIdsInTurn,
   getMessageById,
+  getTurnTimeBounds,
   messageMetadataSchema,
 } from "./conversation-crud.js";
 import { getDb } from "./db.js";
-import { llmRequestLogs } from "./schema.js";
+import { llmRequestLogs, messages } from "./schema.js";
+
+type LogRow = {
+  id: string;
+  conversationId: string;
+  messageId: string | null;
+  provider: string | null;
+  requestPayload: string;
+  responsePayload: string;
+  createdAt: number;
+};
 
 export function recordRequestLog(
   conversationId: string,
@@ -77,15 +88,7 @@ export function backfillMessageIdOnLogs(
  * given message IDs, ordered by `createdAt ASC`. Uses the existing
  * `idx_llm_request_logs_message_id` index via `inArray`.
  */
-function selectLogsByMessageIds(messageIds: string[]): Array<{
-  id: string;
-  conversationId: string;
-  messageId: string | null;
-  provider: string | null;
-  requestPayload: string;
-  responsePayload: string;
-  createdAt: number;
-}> {
+function selectLogsByMessageIds(messageIds: string[]): LogRow[] {
   if (messageIds.length === 0) return [];
   const db = getDb();
   return db
@@ -104,26 +107,90 @@ function selectLogsByMessageIds(messageIds: string[]): Array<{
     .all();
 }
 
-export function getRequestLogsByMessageId(messageId: string): Array<{
-  id: string;
-  conversationId: string;
-  messageId: string | null;
-  provider: string | null;
-  requestPayload: string;
-  responsePayload: string;
-  createdAt: number;
-}> {
+/**
+ * Find orphaned logs — logs whose `message_id` references a message that no
+ * longer exists in the DB. These are left behind when intermediate assistant
+ * messages are deleted (e.g. by retry/deleteLastExchange).
+ *
+ * Scoped to a single conversation and a time range to avoid cross-turn bleed.
+ */
+function selectOrphanedLogsInRange(
+  conversationId: string,
+  startTime: number,
+  endTime: number,
+): LogRow[] {
+  if (endTime <= startTime) return [];
+  const db = getDb();
+  // LEFT JOIN messages → filter where message row IS NULL (orphaned).
+  return db
+    .select({
+      id: llmRequestLogs.id,
+      conversationId: llmRequestLogs.conversationId,
+      messageId: llmRequestLogs.messageId,
+      provider: llmRequestLogs.provider,
+      requestPayload: llmRequestLogs.requestPayload,
+      responsePayload: llmRequestLogs.responsePayload,
+      createdAt: llmRequestLogs.createdAt,
+    })
+    .from(llmRequestLogs)
+    .leftJoin(messages, eq(llmRequestLogs.messageId, messages.id))
+    .where(
+      and(
+        eq(llmRequestLogs.conversationId, conversationId),
+        gte(llmRequestLogs.createdAt, startTime),
+        lte(llmRequestLogs.createdAt, endTime),
+        sql`${messages.id} IS NULL`,
+        sql`${llmRequestLogs.messageId} IS NOT NULL`,
+      ),
+    )
+    .orderBy(llmRequestLogs.createdAt)
+    .all();
+}
+
+export function getRequestLogsByMessageId(messageId: string): LogRow[] {
   // Resolve all assistant message IDs in the same turn so the inspector
   // shows every LLM call from the entire agent turn, not just the queried message.
   const turnMessageIds = getAssistantMessageIdsInTurn(messageId);
   const turnLogs = selectLogsByMessageIds(turnMessageIds);
+
+  // Orphaned-log recovery: intermediate assistant messages within a turn can
+  // be deleted (e.g. by retry / deleteLastExchange) while their
+  // llm_request_logs rows survive. When that happens the message-ID-based
+  // query misses those logs. We detect orphaned logs (logs whose message_id
+  // references a deleted message) within the turn's time window and merge
+  // them with the message-ID-based results.
+  const message = getMessageById(messageId);
+  if (message) {
+    const bounds = getTurnTimeBounds(message.conversationId, message.createdAt);
+    if (bounds) {
+      const orphanedLogs = selectOrphanedLogsInRange(
+        message.conversationId,
+        bounds.startTime,
+        bounds.endTime,
+      );
+      if (orphanedLogs.length > 0) {
+        const seen = new Set(turnLogs.map((l) => l.id));
+        const merged = [...turnLogs];
+        for (const log of orphanedLogs) {
+          if (!seen.has(log.id)) {
+            merged.push(log);
+            seen.add(log.id);
+          }
+        }
+        merged.sort(
+          (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id),
+        );
+        return merged;
+      }
+    }
+  }
+
   if (turnLogs.length > 0) {
     return turnLogs;
   }
 
   // Fork-source fallback: if no logs found for the turn, check whether
   // the queried message was forked from a source and resolve that source's turn.
-  const message = getMessageById(messageId);
   if (!message?.metadata) {
     return [];
   }

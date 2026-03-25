@@ -7,6 +7,7 @@ import {
   desc,
   eq,
   gt,
+  gte,
   inArray,
   isNull,
   lte,
@@ -1646,6 +1647,129 @@ function isToolResultMessage(role: string, content: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * Returns the time boundaries (start/end `createdAt` values) for the turn
+ * containing the given message. The bounds span from the real user message
+ * that started the turn to just before the real user message that starts the
+ * next turn (or to the end of the conversation if this is the last turn).
+ *
+ * Also extends the end boundary to capture orphaned LLM request logs from
+ * deleted intermediate messages (e.g. removed by retry/deleteLastExchange).
+ *
+ * Returns null if the message is the only one in the conversation.
+ */
+export function getTurnTimeBounds(
+  conversationId: string,
+  messageCreatedAt: number,
+): { startTime: number; endTime: number } | null {
+  const db = getDb();
+
+  // Walk backward (by rowid, not just createdAt) to find the real user
+  // message that starts this turn.
+  const rowidSubquery = sql`(
+    SELECT rowid FROM messages
+    WHERE conversation_id = ${conversationId}
+      AND created_at <= ${messageCreatedAt}
+    ORDER BY rowid DESC LIMIT 1
+  )`;
+  const backwardRows = db
+    .select({
+      role: messages.role,
+      content: messages.content,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        sql`rowid <= ${rowidSubquery}`,
+      ),
+    )
+    .orderBy(sql`rowid DESC`)
+    .limit(50)
+    .all();
+
+  let startTime = messageCreatedAt;
+  for (const row of backwardRows) {
+    if (row.role === "user" && !isToolResultMessage(row.role, row.content)) {
+      startTime = row.createdAt;
+      break;
+    }
+  }
+
+  // Walk forward (by rowid) to find the next real user message.
+  const forwardRowidSubquery = sql`(
+    SELECT rowid FROM messages
+    WHERE conversation_id = ${conversationId}
+      AND created_at >= ${messageCreatedAt}
+    ORDER BY rowid DESC LIMIT 1
+  )`;
+  const forwardRows = db
+    .select({
+      role: messages.role,
+      content: messages.content,
+      createdAt: messages.createdAt,
+    })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        sql`rowid > ${forwardRowidSubquery}`,
+      ),
+    )
+    .orderBy(sql`rowid ASC`)
+    .limit(50)
+    .all();
+
+  let endTime = messageCreatedAt;
+  let nextTurnStart: number | null = null;
+  for (const row of forwardRows) {
+    if (row.role === "user" && !isToolResultMessage(row.role, row.content)) {
+      nextTurnStart = row.createdAt;
+      break;
+    }
+    endTime = row.createdAt;
+  }
+
+  // When the next turn start has a strictly greater timestamp, use it minus
+  // 1ms as the hard upper bound. When timestamps collide (e.g. in tests),
+  // don't extend — the message-ID-based query is authoritative.
+  if (nextTurnStart != null && nextTurnStart > endTime) {
+    endTime = nextTurnStart - 1;
+  }
+
+  // Extend end boundary to the latest log that falls within the turn window.
+  // Orphaned logs from deleted intermediate messages may have timestamps
+  // beyond any surviving message. Cap at 30 minutes to avoid sweeping in
+  // logs from a much later turn.
+  const MAX_TURN_DURATION_MS = 30 * 60 * 1000;
+  const hardCeiling = nextTurnStart != null && nextTurnStart > startTime
+    ? nextTurnStart - 1
+    : startTime + MAX_TURN_DURATION_MS;
+
+  if (hardCeiling > endTime) {
+    const latestLog = db
+      .select({ createdAt: llmRequestLogs.createdAt })
+      .from(llmRequestLogs)
+      .where(
+        and(
+          eq(llmRequestLogs.conversationId, conversationId),
+          gte(llmRequestLogs.createdAt, startTime),
+          lte(llmRequestLogs.createdAt, hardCeiling),
+        ),
+      )
+      .orderBy(desc(llmRequestLogs.createdAt))
+      .limit(1)
+      .get();
+
+    if (latestLog && latestLog.createdAt > endTime) {
+      endTime = latestLog.createdAt;
+    }
+  }
+
+  return { startTime, endTime };
 }
 
 /**
