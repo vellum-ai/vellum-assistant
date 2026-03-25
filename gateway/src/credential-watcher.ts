@@ -13,16 +13,10 @@ import { mkdirSync, watch, type FSWatcher } from "node:fs";
 import { dirname, join } from "node:path";
 import { getLogger } from "./logger.js";
 import {
+  readServiceCredentials,
+  ALL_CREDENTIAL_SPECS,
   getMetadataPath,
   getRootDir,
-  readTelegramCredentials,
-  readTwilioCredentials,
-  readWhatsAppCredentials,
-  readSlackChannelCredentials,
-  type TelegramCredentials,
-  type TwilioCredentials,
-  type WhatsAppCredentials,
-  type SlackChannelCredentials,
 } from "./credential-reader.js";
 
 const log = getLogger("credential-watcher");
@@ -30,14 +24,10 @@ const log = getLogger("credential-watcher");
 const DEBOUNCE_MS = 500;
 
 export type CredentialChangeEvent = {
-  telegramCredentials: TelegramCredentials | null;
-  telegramChanged: boolean;
-  twilioCredentials: TwilioCredentials | null;
-  twilioChanged: boolean;
-  whatsappCredentials: WhatsAppCredentials | null;
-  whatsappChanged: boolean;
-  slackChannelCredentials: SlackChannelCredentials | null;
-  slackChannelChanged: boolean;
+  /** Map from service name to resolved credentials (null if unavailable) */
+  credentials: ReadonlyMap<string, Record<string, string> | null>;
+  /** Set of service names whose credentials changed since last poll */
+  changedServices: ReadonlySet<string>;
 };
 
 export type CredentialChangeCallback = (event: CredentialChangeEvent) => void;
@@ -144,44 +134,28 @@ export class CredentialWatcher {
     }
     this.polling = true;
     try {
-      const telegramCredentials = await readTelegramCredentials();
-      const twilioCredentials = await readTwilioCredentials();
-      const whatsappCredentials = await readWhatsAppCredentials();
-      const slackChannelCredentials = await readSlackChannelCredentials();
-
-      const services = {
-        telegram: { creds: telegramCredentials, key: "telegram" },
-        twilio: { creds: twilioCredentials, key: "twilio" },
-        whatsapp: { creds: whatsappCredentials, key: "whatsapp" },
-        slackChannel: { creds: slackChannelCredentials, key: "slackChannel" },
-      };
+      const credentials = new Map<string, Record<string, string> | null>();
+      for (const spec of ALL_CREDENTIAL_SPECS) {
+        credentials.set(spec.service, await readServiceCredentials(spec));
+      }
 
       const changedServices = new Set<string>();
-      for (const [name, { creds }] of Object.entries(services)) {
+      for (const [service, creds] of credentials) {
         const newVal = creds ? JSON.stringify(creds) : undefined;
-        const oldVal = this.lastSerialized.get(name);
+        const oldVal = this.lastSerialized.get(service);
         if (newVal !== oldVal || (forceChanged && newVal !== undefined)) {
-          changedServices.add(name);
+          changedServices.add(service);
           if (newVal !== undefined) {
-            this.lastSerialized.set(name, newVal);
+            this.lastSerialized.set(service, newVal);
           } else {
-            this.lastSerialized.delete(name);
+            this.lastSerialized.delete(service);
           }
         }
       }
 
       if (changedServices.size === 0) return;
 
-      this.callback({
-        telegramCredentials,
-        telegramChanged: changedServices.has("telegram"),
-        twilioCredentials,
-        twilioChanged: changedServices.has("twilio"),
-        whatsappCredentials,
-        whatsappChanged: changedServices.has("whatsapp"),
-        slackChannelCredentials,
-        slackChannelChanged: changedServices.has("slackChannel"),
-      });
+      this.callback({ credentials, changedServices });
     } finally {
       this.polling = false;
       if (this.pendingPoll) {
