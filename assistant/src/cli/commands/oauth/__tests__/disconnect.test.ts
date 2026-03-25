@@ -384,7 +384,7 @@ describe("assistant oauth disconnect", () => {
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
-      expect(parsed.provider).toBe("google");
+      expect(parsed.provider).toBe("integration:google");
       expect(parsed.connectionId).toBe("conn-1");
       expect(parsed.account).toBe("user@gmail.com");
     });
