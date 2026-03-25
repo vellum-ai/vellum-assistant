@@ -39,7 +39,7 @@ struct WakeUpStepView: View {
     var body: some View {
         // Title
         Text("Welcome to Vellum")
-            .font(.system(size: 32, weight: .regular, design: .serif))
+            .font(VFont.displayLarge)
             .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)

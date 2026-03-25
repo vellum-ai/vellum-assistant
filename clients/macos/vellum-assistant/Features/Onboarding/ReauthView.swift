@@ -33,7 +33,7 @@ struct ReauthView: View {
             }
 
             Text("Welcome Back")
-                .font(.system(size: 32, weight: .regular, design: .serif))
+                .font(VFont.displayLarge)
                 .foregroundStyle(VColor.contentDefault)
                 .padding(.bottom, VSpacing.xs)
 

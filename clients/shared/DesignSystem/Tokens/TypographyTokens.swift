@@ -62,6 +62,10 @@ public enum VFont {
         #endif
     }
 
+    // MARK: - Display
+
+    public static let displayLarge = dmSans(weight: 400, size: adaptiveSize(32))
+
     // MARK: - Title (Figma)
 
     public static let titleLarge  = dmSans(weight: 400, size: adaptiveSize(24))

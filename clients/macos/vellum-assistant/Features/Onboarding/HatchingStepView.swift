@@ -153,14 +153,14 @@ struct HatchingStepView: View {
             if state.hatchFailed {
                 if state.hasExistingManagedAssistant {
                     Text("You already have an assistant")
-                        .font(.system(size: 24, weight: .regular, design: .serif))
+                        .font(VFont.titleLarge)
                         .foregroundStyle(VColor.contentDefault)
                     Text("You have an assistant on the hosted platform")
                         .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentSecondary)
                 } else {
                     Text("Something went wrong")
-                        .font(.system(size: 24, weight: .regular, design: .serif))
+                        .font(VFont.titleLarge)
                         .foregroundStyle(VColor.contentDefault)
                     if let reason = failureReason {
                         Text(reason)
@@ -171,15 +171,15 @@ struct HatchingStepView: View {
                 }
             } else if state.hatchCompleted {
                 Text(isCustomHardware ? "Your assistant is paired!" : "Your assistant is ready!")
-                    .font(.system(size: 24, weight: .regular, design: .serif))
+                    .font(VFont.titleLarge)
                     .foregroundStyle(VColor.contentDefault)
             } else if isCustomHardware {
                 Text("Pairing\u{2026}")
-                    .font(.system(size: 24, weight: .regular, design: .serif))
+                    .font(VFont.titleLarge)
                     .foregroundStyle(VColor.contentDefault)
             } else {
                 Text("Waking up...")
-                    .font(.system(size: 24, weight: .regular, design: .serif))
+                    .font(VFont.titleLarge)
                     .foregroundStyle(VColor.contentDefault)
                 Text("Hang tight \u{2014} your assistant will have a few\nquestions for you once it\u{2019}s up.")
                     .font(VFont.bodySmallDefault)

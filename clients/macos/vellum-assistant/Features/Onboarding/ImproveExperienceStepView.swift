@@ -19,7 +19,7 @@ struct ImproveExperienceStepView: View {
 
     var body: some View {
         Text("Before You Start")
-            .font(.system(size: 32, weight: .regular, design: .serif))
+            .font(VFont.displayLarge)
             .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
