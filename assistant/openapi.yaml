@@ -4210,13 +4210,17 @@ paths:
                     type: array
                     items: {}
                     description: Array of message objects
-                  interfaceFiles:
-                    type: array
-                    items: {}
-                    description: Interface file paths with modification timestamps
+                  hasMore:
+                    description: Whether older messages exist beyond this page
+                    type: boolean
+                  oldestTimestamp:
+                    description: Timestamp of the oldest message in this page (ms since epoch)
+                    type: number
+                  oldestMessageId:
+                    description: ID of the oldest message in this page
+                    type: string
                 required:
                   - messages
-                  - interfaceFiles
                 additionalProperties: false
     post:
       operationId: messages_post

@@ -48,7 +48,10 @@ import {
 } from "../../memory/canonical-guardian-store.js";
 import {
   addMessage,
+  getLastAssistantTimestampBefore,
   getMessages,
+  getMessagesPaginated,
+  type MessageRow,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
@@ -360,7 +363,49 @@ export function handleListMessages(
   if (!resolvedConversationId) {
     return Response.json({ messages: [] });
   }
-  const rawMessages = getMessages(resolvedConversationId);
+
+  const beforeTimestampRaw = url.searchParams.get("beforeTimestamp");
+  const limitRaw = url.searchParams.get("limit");
+
+  // Validate: reject NaN values with 400
+  if (beforeTimestampRaw !== null && isNaN(Number(beforeTimestampRaw))) {
+    return httpError(
+      "BAD_REQUEST",
+      "beforeTimestamp must be a valid number",
+      400,
+    );
+  }
+  if (limitRaw !== null && isNaN(Number(limitRaw))) {
+    return httpError("BAD_REQUEST", "limit must be a valid number", 400);
+  }
+
+  const beforeTimestamp = beforeTimestampRaw
+    ? Number(beforeTimestampRaw)
+    : undefined;
+  // Clamp limit to 1-500 range
+  const limit = limitRaw
+    ? Math.min(Math.max(Math.floor(Number(limitRaw)), 1), 500)
+    : undefined;
+
+  // Option A: only paginate when beforeTimestamp is present.
+  // Initial load and reconnect send limit but no beforeTimestamp — those must continue
+  // returning all messages for zero regression risk.
+  const isPaginated = beforeTimestamp != null;
+
+  let rawMessages: MessageRow[];
+  let hasMore = false;
+
+  if (isPaginated) {
+    const result = getMessagesPaginated(
+      resolvedConversationId,
+      limit,
+      beforeTimestamp,
+    );
+    rawMessages = result.messages;
+    hasMore = result.hasMore;
+  } else {
+    rawMessages = getMessages(resolvedConversationId);
+  }
 
   // Parse content blocks and extract text + tool calls
   const parsed = rawMessages.map((msg) => {
@@ -429,6 +474,12 @@ export function handleListMessages(
   const interfaceFiles = getInterfaceFilesWithMtimes(interfacesDir);
 
   let prevAssistantTimestamp = 0;
+  if (isPaginated && rawMessages.length > 0) {
+    prevAssistantTimestamp = getLastAssistantTimestampBefore(
+      resolvedConversationId!,
+      rawMessages[0].createdAt,
+    );
+  }
   const messages: RuntimeMessagePayload[] = parsed.map((m) => {
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
     if (m.id) {
@@ -497,6 +548,19 @@ export function handleListMessages(
       ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
     };
   });
+
+  if (isPaginated) {
+    const oldestTimestamp =
+      rawMessages.length > 0 ? rawMessages[0].createdAt : undefined;
+    const oldestMessageId =
+      rawMessages.length > 0 ? rawMessages[0].id : undefined;
+    return Response.json({
+      messages,
+      hasMore,
+      ...(oldestTimestamp != null ? { oldestTimestamp } : {}),
+      ...(oldestMessageId != null ? { oldestMessageId } : {}),
+    });
+  }
 
   return Response.json({ messages });
 }
@@ -1502,9 +1566,20 @@ export function conversationRouteDefinitions(deps: {
       tags: ["messages"],
       responseBody: z.object({
         messages: z.array(z.unknown()).describe("Array of message objects"),
-        interfaceFiles: z
-          .array(z.unknown())
-          .describe("Interface file paths with modification timestamps"),
+        hasMore: z
+          .boolean()
+          .optional()
+          .describe("Whether older messages exist beyond this page"),
+        oldestTimestamp: z
+          .number()
+          .optional()
+          .describe(
+            "Timestamp of the oldest message in this page (ms since epoch)",
+          ),
+        oldestMessageId: z
+          .string()
+          .optional()
+          .describe("ID of the oldest message in this page"),
       }),
       handler: ({ url }) => handleListMessages(url, deps.interfacesDir),
     },
