@@ -563,6 +563,108 @@ describe("assistant oauth ping", () => {
   });
 
   // =========================================================================
+  // Provider ping config (method / headers / body)
+  // =========================================================================
+
+  test("uses configured pingMethod for POST providers", async () => {
+    mockGetProvider = () => ({
+      providerKey: "integration:dropbox",
+      pingUrl: "https://api.dropboxapi.com/2/users/get_current_account",
+      pingMethod: "POST",
+      pingHeaders: null,
+      pingBody: null,
+    });
+
+    let capturedRequestArgs: Record<string, unknown> = {};
+    mockResolveOAuthConnectionResult = {
+      request: async (req: unknown) => {
+        capturedRequestArgs = req as Record<string, unknown>;
+        return { status: 200, headers: {}, body: {} };
+      },
+    };
+
+    const { exitCode } = await runCommand(["ping", "dropbox", "--json"]);
+    expect(exitCode).toBe(0);
+    expect(capturedRequestArgs.method).toBe("POST");
+  });
+
+  test("uses configured pingHeaders", async () => {
+    mockGetProvider = () => ({
+      providerKey: "integration:notion",
+      pingUrl: "https://api.notion.com/v1/users/me",
+      pingMethod: null,
+      pingHeaders: '{"Notion-Version":"2022-06-28"}',
+      pingBody: null,
+    });
+
+    let capturedRequestArgs: Record<string, unknown> = {};
+    mockResolveOAuthConnectionResult = {
+      request: async (req: unknown) => {
+        capturedRequestArgs = req as Record<string, unknown>;
+        return { status: 200, headers: {}, body: {} };
+      },
+    };
+
+    const { exitCode } = await runCommand(["ping", "notion", "--json"]);
+    expect(exitCode).toBe(0);
+    expect(capturedRequestArgs.headers).toEqual({
+      "Notion-Version": "2022-06-28",
+    });
+  });
+
+  test("uses configured pingBody for GraphQL providers", async () => {
+    mockGetProvider = () => ({
+      providerKey: "integration:linear",
+      pingUrl: "https://api.linear.app/graphql",
+      pingMethod: "POST",
+      pingHeaders: '{"Content-Type":"application/json"}',
+      pingBody: '{"query":"{ viewer { id name email } }"}',
+    });
+
+    let capturedRequestArgs: Record<string, unknown> = {};
+    mockResolveOAuthConnectionResult = {
+      request: async (req: unknown) => {
+        capturedRequestArgs = req as Record<string, unknown>;
+        return { status: 200, headers: {}, body: {} };
+      },
+    };
+
+    const { exitCode } = await runCommand(["ping", "linear", "--json"]);
+    expect(exitCode).toBe(0);
+    expect(capturedRequestArgs.method).toBe("POST");
+    expect(capturedRequestArgs.headers).toEqual({
+      "Content-Type": "application/json",
+    });
+    expect(capturedRequestArgs.body).toEqual({
+      query: "{ viewer { id name email } }",
+    });
+  });
+
+  test("defaults to GET with no extra headers/body when ping config is null", async () => {
+    mockGetProvider = () => ({
+      providerKey: "integration:google",
+      pingUrl: "https://www.googleapis.com/oauth2/v1/tokeninfo",
+      pingMethod: null,
+      pingHeaders: null,
+      pingBody: null,
+    });
+
+    let capturedRequestArgs: Record<string, unknown> = {};
+    mockResolveOAuthConnectionResult = {
+      request: async (req: unknown) => {
+        capturedRequestArgs = req as Record<string, unknown>;
+        return { status: 200, headers: {}, body: {} };
+      },
+    };
+
+    const { exitCode } = await runCommand(["ping", "google", "--json"]);
+    expect(exitCode).toBe(0);
+    expect(capturedRequestArgs.method).toBe("GET");
+    expect(capturedRequestArgs.headers).toBeUndefined();
+    expect(capturedRequestArgs.body).toBeUndefined();
+  });
+
+  // =========================================================================
   // Network failure
   // =========================================================================
 
