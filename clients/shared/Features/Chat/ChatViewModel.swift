@@ -510,6 +510,11 @@ public final class ChatViewModel: ObservableObject {
     /// but no ChatMessage is appended. Defaults to true for all errors.
     public var shouldCreateInlineErrorMessage: ((ConversationError) -> Bool)?
 
+    /// Called when the daemon reports that the managed assistant API key is
+    /// invalid (MANAGED_KEY_INVALID). The host should clear the cached key and
+    /// call reprovision so the next retry uses a fresh key.
+    public var onManagedKeyInvalid: (() -> Void)?
+
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
     /// Anthropic has a 5MB limit per image; base64 encoding adds ~33% overhead.
     static let maxImageSize = ChatAttachmentManager.maxImageSize

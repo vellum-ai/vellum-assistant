@@ -1244,6 +1244,7 @@ public enum ConversationErrorCode: String, CaseIterable, Codable, Sendable {
     case regenerateFailed = "REGENERATE_FAILED"
     case authenticationRequired = "AUTHENTICATION_REQUIRED"
     case providerNotConfigured = "PROVIDER_NOT_CONFIGURED"
+    case managedKeyInvalid = "MANAGED_KEY_INVALID"
     case unknown = "UNKNOWN"
 
     /// Fall back to `.unknown` for unrecognized codes so that version skew

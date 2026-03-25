@@ -159,7 +159,7 @@ struct ChatConversationErrorToast: View {
             return .refreshCw
         case .authenticationRequired:
             return .lock
-        case .providerNotConfigured:
+        case .providerNotConfigured, .managedKeyInvalid:
             return .keyRound
         case .unknown:
             return .circleAlert
