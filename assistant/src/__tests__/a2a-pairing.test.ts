@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { initializeDb, resetDb } from "../memory/db.js";
+// Import types from barrel to keep index.ts used by knip
 import type {
   A2APairingAccepted,
   A2APairingFinalize,
-} from "../runtime/a2a/message-contract.js";
+} from "../runtime/a2a/index.js";
 import {
   handleInboundPairingRequest,
   handlePairingAccepted,
