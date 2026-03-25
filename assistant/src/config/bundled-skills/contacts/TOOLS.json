@@ -160,6 +160,36 @@
       },
       "executor": "tools/google-contacts.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "contact_message",
+      "description": "Send a message to a known assistant contact via assistant-to-assistant (A2A) messaging. Requires the target contact to be of type 'assistant' with valid Vellum assistant metadata from a completed A2A pairing.",
+      "category": "contacts",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "contact_id": {
+            "type": "string",
+            "description": "ID of the target assistant contact. Use this when the contact ID is already known."
+          },
+          "contact_name": {
+            "type": "string",
+            "description": "Display name of the target assistant contact. Used for lookup when contact_id is not provided. If multiple matches are found, the tool will return the list for disambiguation."
+          },
+          "message": {
+            "type": "string",
+            "description": "The message content to send to the target assistant"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["message"]
+      },
+      "executor": "tools/contact-message.ts",
+      "execution_target": "host"
     }
   ]
 }
