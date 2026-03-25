@@ -55,6 +55,16 @@ public struct InlineSurfaceRouter: View {
         return false
     }
 
+    private var isTableSurface: Bool {
+        if case .table = surface.data { return true }
+        return false
+    }
+
+    private var standardWidgetMaxWidth: CGFloat {
+        // Tables should use the full chat bubble width before falling back to horizontal scroll.
+        isTableSurface ? VSpacing.chatBubbleMaxWidth : 540
+    }
+
     /// Whether the surface renders as a lightweight chip without card chrome.
     private var isChipOnlySurface: Bool {
         return false
@@ -92,7 +102,7 @@ public struct InlineSurfaceRouter: View {
                 actionButtons
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: isTableSurface ? nil : .infinity, alignment: .leading)
         .inlineWidgetCard(interactive: isDynamicPreview || isDocumentPreview)
         .overlay(alignment: .topTrailing) {
             if isDynamicPreview && !isAppCreated {
@@ -137,8 +147,8 @@ public struct InlineSurfaceRouter: View {
                 }
             }
         }
-        // Consistent width for all widget cards; dynamic page previews and document previews are more compact.
-        .frame(maxWidth: isAppCreated ? 400 : (isDynamicPreview || isDocumentPreview ? 350 : 540), alignment: .leading)
+        // Dynamic page/document previews stay compact; tables can grow to the chat bubble max width.
+        .frame(maxWidth: isAppCreated ? 400 : (isDynamicPreview || isDocumentPreview ? 350 : standardWidgetMaxWidth), alignment: .leading)
         }
         }
         .onChange(of: surface) { oldSurface, newSurface in
