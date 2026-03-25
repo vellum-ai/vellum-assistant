@@ -121,8 +121,8 @@ This generates an image using AI, saves it to `data/avatar/avatar-image.png`, an
 - For AI generation, ask the user to describe the avatar they want. Be encouraging - suggest they include details like style, colors, mood, or a character concept.
 - After any avatar change, confirm it was applied and let the user know they can change it again anytime.
 - **After any avatar change**, update the `## Avatar` section in `IDENTITY.md` with a plain-text description of the current avatar appearance. Do NOT use markdown image links — write a human-readable description instead. This ensures you remember what you look like across sessions. Example: `## Avatar\nA friendly purple cat with green eyes wearing a tiny hat`
-- **When the user asks what your avatar looks like**, read the `## Avatar` section in `IDENTITY.md` for your text description. If you need to see the actual image, read the file at `data/avatar/avatar-image.png` using the `file_read` tool.
-- **When the user asks you to show or provide your avatar**, read and return the image file at `data/avatar/avatar-image.png` using the `file_read` tool.
+- **When the user asks what your avatar looks like**, read the `## Avatar` section in `IDENTITY.md` for your text description.
+- **When the user asks you to show or provide your avatar**, use the `get_avatar` tool. Do NOT use `file_read` — the `get_avatar` tool handles everything. Only call it once.
 
 ## Mutual Exclusivity Rule
 
