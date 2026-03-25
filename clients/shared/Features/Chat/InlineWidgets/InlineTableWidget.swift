@@ -86,6 +86,7 @@ private struct TableColumnLayout: Layout {
 private let minColumnWidth: CGFloat = 60
 private let selectionColumnWidth: CGFloat = 28
 private let resizeHandleWidth: CGFloat = 8
+private let resizeGestureCoordinateSpaceName = "InlineTableWidgetResize"
 
 // MARK: - InlineTableWidget
 
@@ -110,6 +111,11 @@ public struct InlineTableWidget: View {
     @State private var columnOverrides: [String: CGFloat] = [:]
     /// Baseline width captured at drag start for each column.
     @State private var resizeDragStartWidths: [String: CGFloat] = [:]
+    @State private var hoveredResizeHandleIndex: Int?
+    @State private var activeResizeHandleIndex: Int?
+    #if os(macOS)
+    @State private var didPushResizeCursor = false
+    #endif
 
     public init(data: TableSurfaceData, onAction: @escaping (String, [String: AnyCodable]?) -> Void) {
         self.data = data
@@ -172,6 +178,10 @@ public struct InlineTableWidget: View {
         needsHorizontalScroll
     }
 
+    private var isResizingColumn: Bool {
+        activeResizeHandleIndex != nil
+    }
+
     // MARK: - Body
 
     public var body: some View {
@@ -190,6 +200,17 @@ public struct InlineTableWidget: View {
             if hasSelection {
                 onAction("selection_changed", ["selectedIds": AnyCodable(Array(selectedIds))])
             }
+        }
+        .coordinateSpace(name: resizeGestureCoordinateSpaceName)
+        .onDisappear {
+            hoveredResizeHandleIndex = nil
+            activeResizeHandleIndex = nil
+            #if os(macOS)
+            if didPushResizeCursor {
+                NSCursor.pop()
+                didPushResizeCursor = false
+            }
+            #endif
         }
     }
 
@@ -210,6 +231,7 @@ public struct InlineTableWidget: View {
             tableContent
                 .frame(width: minimumTableWidth, alignment: .leading)
         }
+        .scrollDisabled(isResizingColumn)
         .frame(maxWidth: maxTableViewportWidth, alignment: .leading)
         .overlay(alignment: .trailing) {
             if shouldShowHorizontalHint {
@@ -354,28 +376,42 @@ public struct InlineTableWidget: View {
     // MARK: - Resize Handle
 
     private func resizeHandle(for columnIndex: Int) -> some View {
-        Rectangle()
+        let isHighlighted = isResizeHandleHighlighted(columnIndex)
+        return Rectangle()
             .fill(Color.clear)
             .frame(width: resizeHandleWidth)
             .overlay(
                 Rectangle()
-                    .fill(VColor.borderBase.opacity(0.2))
+                    .fill(VColor.borderBase.opacity(0.45))
                     .frame(width: 1)
+                    .opacity(resizeHandleIndicatorOpacity(isHighlighted: isHighlighted))
+                    .animation(VAnimation.fast, value: isHighlighted)
             )
             .contentShape(Rectangle())
             #if os(macOS)
             .onHover { hovering in
                 if hovering {
-                    NSCursor.resizeLeftRight.push()
-                } else {
-                    NSCursor.pop()
+                    hoveredResizeHandleIndex = columnIndex
+                    if !didPushResizeCursor {
+                        NSCursor.resizeLeftRight.push()
+                        didPushResizeCursor = true
+                    }
+                } else if hoveredResizeHandleIndex == columnIndex {
+                    hoveredResizeHandleIndex = nil
+                    if didPushResizeCursor && !isResizingColumn {
+                        NSCursor.pop()
+                        didPushResizeCursor = false
+                    }
                 }
             }
             #endif
             .gesture(
-                DragGesture(minimumDistance: 1)
+                DragGesture(minimumDistance: 0, coordinateSpace: .named(resizeGestureCoordinateSpaceName))
                     .onChanged { value in
                         let column = data.columns[columnIndex]
+                        if activeResizeHandleIndex == nil {
+                            activeResizeHandleIndex = columnIndex
+                        }
                         let startWidth: CGFloat
                         if let existing = resizeDragStartWidths[column.id] {
                             startWidth = existing
@@ -384,14 +420,41 @@ public struct InlineTableWidget: View {
                             resizeDragStartWidths[column.id] = captured
                             startWidth = captured
                         }
-                        let newWidth = max(minColumnWidth, startWidth + value.translation.width)
-                        columnOverrides[column.id] = newWidth
+                        let delta = value.location.x - value.startLocation.x
+                        let newWidth = max(minColumnWidth, startWidth + delta)
+                        let snappedWidth = (newWidth * 2).rounded() / 2
+                        if columnOverrides[column.id] != snappedWidth {
+                            var transaction = Transaction()
+                            transaction.disablesAnimations = true
+                            withTransaction(transaction) {
+                                columnOverrides[column.id] = snappedWidth
+                            }
+                        }
                     }
                     .onEnded { _ in
                         let column = data.columns[columnIndex]
                         resizeDragStartWidths[column.id] = nil
+                        activeResizeHandleIndex = nil
+                        #if os(macOS)
+                        if didPushResizeCursor && hoveredResizeHandleIndex == nil {
+                            NSCursor.pop()
+                            didPushResizeCursor = false
+                        }
+                        #endif
                     }
             )
+    }
+
+    private func isResizeHandleHighlighted(_ columnIndex: Int) -> Bool {
+        hoveredResizeHandleIndex == columnIndex || activeResizeHandleIndex == columnIndex
+    }
+
+    private func resizeHandleIndicatorOpacity(isHighlighted: Bool) -> Double {
+        #if os(macOS)
+        isHighlighted ? 1 : 0
+        #else
+        isHighlighted ? 1 : 0.2
+        #endif
     }
 
     private func currentColumnWidth(_ column: TableColumn) -> CGFloat {
