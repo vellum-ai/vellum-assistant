@@ -130,10 +130,10 @@ extension AppDelegate {
                         requestId: msg.requestId,
                         decision: "allow"
                     )
+                    log.info("[confirm-flow] CU auto-approved requestId=\(msg.requestId, privacy: .public) tool=\(msg.toolName, privacy: .public)")
                 } else {
                     log.error("Failed to auto-approve confirmation")
                 }
-                log.info("[confirm-flow] CU auto-approved requestId=\(msg.requestId, privacy: .public) tool=\(msg.toolName, privacy: .public)")
                 return
             }
 
