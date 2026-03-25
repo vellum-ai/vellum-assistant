@@ -14,6 +14,7 @@ struct SkillCreateSheet: View {
     @State private var showAdvanced: Bool = false
     @State private var hasDrafted: Bool = false
     @State private var userEditedSkillId: Bool = false
+    @State private var lastAppliedDraftName: String?
 
     var body: some View {
         VModal(title: "New Skill") {
@@ -69,14 +70,15 @@ struct SkillCreateSheet: View {
                 skillId = deriveSkillId(from: newValue)
             }
         }
-        .onChange(of: skillsManager.draftResult) { _, newResult in
-            if let result = newResult {
+        .onChange(of: skillsManager.isDrafting) { wasDrafting, isDrafting in
+            if wasDrafting && !isDrafting, let result = skillsManager.draftResult, result.name != lastAppliedDraftName {
                 name = result.name
                 skillId = result.skillId
                 description = result.description
                 emoji = result.emoji ?? ""
                 bodyMarkdown = result.bodyMarkdown
                 userEditedSkillId = true // Don't overwrite drafted skillId
+                lastAppliedDraftName = result.name
                 hasDrafted = true
             }
         }
