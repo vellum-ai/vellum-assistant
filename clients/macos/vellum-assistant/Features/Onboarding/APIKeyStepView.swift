@@ -37,20 +37,16 @@ struct APIKeyStepView: View {
             VStack(spacing: VSpacing.md) {
                 hostingCards
 
-                OnboardingButton(
-                    title: continueButtonTitle,
-                    style: .primary,
-                    disabled: !canContinue
-                ) {
+                VButton(label: continueButtonTitle, style: .primary, isFullWidth: true, isDisabled: !canContinue) {
                     handleContinue()
                 }
 
-                OnboardingButton(title: "Need help deciding?", style: .ghostPrimary) {
+                VButton(label: "Need help deciding?", style: .ghost) {
                     NSWorkspace.shared.open(URL(string: "https://vellum.ai/docs/hosting-options")!)
                 }
 
                 if !isAuthenticated {
-                    OnboardingButton(title: "Back", style: .ghost) {
+                    VButton(label: "Back", style: .ghost) {
                         goBack()
                     }
                     .padding(.top, VSpacing.xs)

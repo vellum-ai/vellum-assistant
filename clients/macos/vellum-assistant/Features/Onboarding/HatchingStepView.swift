@@ -219,19 +219,19 @@ struct HatchingStepView: View {
     private var failureButtons: some View {
         VStack(spacing: VSpacing.sm) {
             if state.hasExistingManagedAssistant {
-                OnboardingButton(title: "Meet your assistant", style: .primary) {
+                VButton(label: "Meet your assistant", style: .primary, isFullWidth: true) {
                     meetExistingAssistant()
                 }
 
-                OnboardingButton(title: "Go Back", style: .ghost) {
+                VButton(label: "Go Back", style: .ghost) {
                     goBack()
                 }
             } else {
-                OnboardingButton(title: "Try Again", style: .primary) {
+                VButton(label: "Try Again", style: .primary, isFullWidth: true) {
                     retryHatch()
                 }
 
-                OnboardingButton(title: "Go Back", style: .ghost) {
+                VButton(label: "Go Back", style: .ghost) {
                     goBack()
                 }
             }

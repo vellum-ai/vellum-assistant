@@ -67,15 +67,11 @@ struct ImproveExperienceStepView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                OnboardingButton(
-                    title: "Accept and Start",
-                    style: .primary,
-                    disabled: !tosAccepted
-                ) {
+                VButton(label: "Accept and Start", style: .primary, isFullWidth: true, isDisabled: !tosAccepted) {
                     saveAndContinue()
                 }
 
-                OnboardingButton(title: "Back", style: .ghost) {
+                VButton(label: "Back", style: .ghost) {
                     goBack()
                 }
                 .padding(.top, VSpacing.xs)

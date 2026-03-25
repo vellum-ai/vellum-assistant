@@ -79,21 +79,18 @@ struct WakeUpStepView: View {
                 }
                 .frame(height: 36)
             } else if managedSignInEnabled {
-                OnboardingButton(title: "Log In", style: .primary) {
+                VButton(label: "Log In", style: .primary, isFullWidth: true) {
                     onContinueWithVellum()
                 }
-                .accessibilityLabel("Log In")
 
-                OnboardingButton(title: "Continue without account", style: .ghost) {
+                VButton(label: "Continue without account", style: .ghost) {
                     state?.skippedAuth = true
                     onStartWithAPIKey()
                 }
-                .accessibilityLabel("Continue without account")
             } else {
-                OnboardingButton(title: "Get Started", style: .primary) {
+                VButton(label: "Get Started", style: .primary, isFullWidth: true) {
                     onStartWithAPIKey()
                 }
-                .accessibilityLabel("Get Started")
             }
 
             // Auth error message
