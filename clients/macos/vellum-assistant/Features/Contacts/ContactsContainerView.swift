@@ -158,7 +158,7 @@ struct ContactsContainerView: View {
             .frame(maxWidth: 700, maxHeight: .infinity, alignment: .leading)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
-        .onChange(of: viewModel.contacts) { _, newContacts in
+        .onChange(of: viewModel.contacts, initial: true) { _, newContacts in
             // Default to assistant on first load (don't override existing selection)
             if selection == nil && !newContacts.isEmpty {
                 selection = .assistant
