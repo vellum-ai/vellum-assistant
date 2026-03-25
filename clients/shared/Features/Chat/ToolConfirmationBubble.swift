@@ -258,19 +258,18 @@ public struct ToolConfirmationBubble: View {
         .padding(VSpacing.md)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            GeometryReader { geo in
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(VColor.surfaceOverlay)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.md)
-                            .stroke(VColor.borderBase, lineWidth: 0.5)
-                    )
-                    .onAppear { useCompactConfirmationLayout = geo.size.width < 450 }
-                    .onChange(of: geo.size.width) { _, width in
-                        useCompactConfirmationLayout = width < 450
-                    }
-            }
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(VColor.surfaceOverlay)
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.borderBase, lineWidth: 0.5)
+                )
         )
+        .onGeometryChange(for: Bool.self) { proxy in
+            proxy.size.width < 450
+        } action: { isCompact in
+            useCompactConfirmationLayout = isCompact
+        }
         .onAppear {
             if isKeyboardActive {
                 #if os(macOS)
