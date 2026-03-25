@@ -408,7 +408,7 @@ describe("assistant oauth mode", () => {
       expect(parsed.error).toContain("your-own");
     });
 
-    test("provider without managedServiceConfigKey returns error about managed mode not available", async () => {
+    test("provider without managedServiceConfigKey returns error about managed mode not available when --set managed", async () => {
       mockGetProvider = () => ({
         providerKey: "integration:slack",
         managedServiceConfigKey: null,
@@ -427,6 +427,29 @@ describe("assistant oauth mode", () => {
       expect(parsed.ok).toBe(false);
       expect(parsed.error).toContain("Managed mode is not available");
       expect(parsed.error).toContain("integration:slack");
+    });
+
+    test("provider without managedServiceConfigKey treats --set your-own as successful no-op", async () => {
+      mockGetProvider = () => ({
+        providerKey: "integration:slack",
+        managedServiceConfigKey: null,
+      });
+      mockGetManagedServiceConfigKey = () => null;
+
+      const { exitCode, stdout } = await runCommand([
+        "mode",
+        "slack",
+        "--set",
+        "your-own",
+        "--json",
+      ]);
+      expect(exitCode).toBe(0);
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.provider).toBe("integration:slack");
+      expect(parsed.mode).toBe("your-own");
+      expect(parsed.changed).toBe(false);
+      expect(parsed.managedModeSupported).toBe(false);
     });
 
     test("set to same mode returns changed: false", async () => {

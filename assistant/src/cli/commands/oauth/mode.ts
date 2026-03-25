@@ -157,8 +157,27 @@ Examples:
           return;
         }
 
-        // Validate provider supports managed mode
+        // Provider has no managedServiceConfigKey — it is always "your-own"
         if (managedKey === null) {
+          if (newMode === "your-own") {
+            // Already your-own — successful no-op
+            if (shouldOutputJson(cmd)) {
+              writeOutput(cmd, {
+                ok: true,
+                provider: providerKey,
+                mode: "your-own",
+                changed: false,
+                managedModeSupported: false,
+              });
+            } else {
+              log.info(
+                `${providerKey} is already set to your-own (managed mode not available for this provider)`,
+              );
+            }
+            return;
+          }
+
+          // Requesting managed on a provider that doesn't support it
           writeOutput(cmd, {
             ok: false,
             error:
