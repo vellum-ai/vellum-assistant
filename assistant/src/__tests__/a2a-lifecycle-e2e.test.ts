@@ -5,29 +5,43 @@
  * and security invariants (auth enforcement, invite code validation,
  * identity verification, routing hijack prevention).
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-import { initializeDb, resetDb } from "../memory/db.js";
-import type {
-  A2APairingAccepted,
-  A2APairingFinalize,
-} from "../runtime/a2a/index.js";
-import {
-  completePairingApproval,
-  handlePairingAccepted,
-  handlePairingFinalize,
-  initiatePairing,
-} from "../runtime/a2a/pairing.js";
-import {
-  createPairingRequest,
-  findPairingByInviteCode,
-  updatePairingStatus,
-} from "../runtime/a2a/pairing-store.js";
-import { interceptA2AEnvelope } from "../runtime/routes/inbound-stages/a2a-interceptor.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Mocks
+// Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
+
+const testDir = mkdtempSync(join(tmpdir(), "a2a-lifecycle-e2e-test-"));
+
+mock.module("../util/platform.js", () => ({
+  getRootDir: () => testDir,
+  getDataDir: () => testDir,
+  getWorkspaceConfigPath: () => join(testDir, "config.json"),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
+  ensureDataDir: () => {},
+}));
+
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: (_target, prop: string) => {
+        if (prop === "child")
+          return () =>
+            new Proxy({} as Record<string, unknown>, {
+              get: () => () => {},
+            });
+        return () => {};
+      },
+    }),
+}));
 
 // Mock fetch for outbound HTTP calls
 const fetchCalls: { url: string; init: RequestInit }[] = [];
@@ -60,7 +74,34 @@ mock.module("../runtime/access-request-helper.js", () => ({
   notifyGuardianOfAccessRequest: mockNotifyGuardian,
 }));
 
+import { initializeDb, resetDb } from "../memory/db.js";
+import type {
+  A2APairingAccepted,
+  A2APairingFinalize,
+} from "../runtime/a2a/index.js";
+import {
+  completePairingApproval,
+  handlePairingAccepted,
+  handlePairingFinalize,
+  initiatePairing,
+} from "../runtime/a2a/pairing.js";
+import {
+  createPairingRequest,
+  findPairingByInviteCode,
+  updatePairingStatus,
+} from "../runtime/a2a/pairing-store.js";
+import { interceptA2AEnvelope } from "../runtime/routes/inbound-stages/a2a-interceptor.js";
+
 initializeDb();
+
+afterAll(() => {
+  resetDb();
+  try {
+    rmSync(testDir, { recursive: true });
+  } catch {
+    /* best effort */
+  }
+});
 
 beforeEach(() => {
   resetDb();

@@ -5,7 +5,6 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import * as contactStore from "../contacts/contact-store.js";
 import type { ContactWithChannels } from "../contacts/types.js";
 import type { AssistantContactMetadata } from "../contacts/types.js";
 import { ChannelDeliveryError } from "../runtime/gateway-client.js";
@@ -34,9 +33,6 @@ mock.module("../runtime/auth/token-service.js", () => ({
 mock.module("../config/env.js", () => ({
   getGatewayInternalBaseUrl: () => "http://127.0.0.1:7830",
 }));
-
-// Import after mocks are set up
-const { sendA2AMessage } = await import("../runtime/a2a/outbound-client.js");
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -76,21 +72,35 @@ function makeVellumMetadata(
 }
 
 // ---------------------------------------------------------------------------
+// Contact store mock setup — use mock.module for proper ESM support
+// ---------------------------------------------------------------------------
+
+let getContactImpl: (...args: unknown[]) => ContactWithChannels | null = () =>
+  makeAssistantContact();
+let getMetadataImpl: (
+  ...args: unknown[]
+) => AssistantContactMetadata | null = () => makeVellumMetadata();
+
+mock.module("../contacts/contact-store.js", () => ({
+  getContact: (...args: unknown[]) => getContactImpl(...args),
+  getAssistantContactMetadata: (...args: unknown[]) => getMetadataImpl(...args),
+  // Stubs for any other exports the module may use
+  upsertContact: () => ({ id: "stub" }),
+  upsertAssistantContactMetadata: () => {},
+  searchContacts: () => [],
+}));
+
+// Import after mocks are set up
+const { sendA2AMessage } = await import("../runtime/a2a/outbound-client.js");
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
 describe("sendA2AMessage", () => {
-  let getContactSpy: ReturnType<typeof mock>;
-  let getMetadataSpy: ReturnType<typeof mock>;
-
   beforeEach(() => {
-    getContactSpy = mock(() => makeAssistantContact());
-    getMetadataSpy = mock(() => makeVellumMetadata());
-
-    // Patch contact store functions
-    (contactStore as Record<string, unknown>).getContact = getContactSpy;
-    (contactStore as Record<string, unknown>).getAssistantContactMetadata =
-      getMetadataSpy;
+    getContactImpl = () => makeAssistantContact();
+    getMetadataImpl = () => makeVellumMetadata();
 
     mockDeliverChannelReply.mockReset();
     mockDeliverChannelReply.mockImplementation(() =>
@@ -137,8 +147,7 @@ describe("sendA2AMessage", () => {
   });
 
   test("failure when contact is not found", async () => {
-    getContactSpy.mockImplementation(() => null);
-    (contactStore as Record<string, unknown>).getContact = getContactSpy;
+    getContactImpl = () => null;
 
     const result = await sendA2AMessage("nonexistent", "Hello");
 
@@ -148,10 +157,7 @@ describe("sendA2AMessage", () => {
   });
 
   test("failure when contact is human (wrong contact type)", async () => {
-    getContactSpy.mockImplementation(() =>
-      makeAssistantContact({ contactType: "human" }),
-    );
-    (contactStore as Record<string, unknown>).getContact = getContactSpy;
+    getContactImpl = () => makeAssistantContact({ contactType: "human" });
 
     const result = await sendA2AMessage("contact-alice", "Hello");
 
@@ -162,9 +168,7 @@ describe("sendA2AMessage", () => {
   });
 
   test("failure when contact has no assistant metadata", async () => {
-    getMetadataSpy.mockImplementation(() => null);
-    (contactStore as Record<string, unknown>).getAssistantContactMetadata =
-      getMetadataSpy;
+    getMetadataImpl = () => null;
 
     const result = await sendA2AMessage("contact-alice", "Hello");
 
@@ -174,13 +178,12 @@ describe("sendA2AMessage", () => {
   });
 
   test("failure when assistant metadata species is not vellum", async () => {
-    getMetadataSpy.mockImplementation(() => ({
-      contactId: "contact-alice",
-      species: "openclaw",
-      metadata: {},
-    }));
-    (contactStore as Record<string, unknown>).getAssistantContactMetadata =
-      getMetadataSpy;
+    getMetadataImpl = () =>
+      ({
+        contactId: "contact-alice",
+        species: "openclaw",
+        metadata: {},
+      }) as unknown as AssistantContactMetadata;
 
     const result = await sendA2AMessage("contact-alice", "Hello");
 
