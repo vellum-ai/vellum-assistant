@@ -138,12 +138,13 @@ extension MessageListScrollCoordinator {
         }
     }
 
-    /// Staged scroll-to-bottom that retries after increasing delays to handle
-    /// cases where SwiftUI hasn't committed the new content's layout yet.
+    /// Delayed scroll-to-bottom fallback that catches cases where the preceding
+    /// `scrollToEdge(.bottom)` fires before SwiftUI has fully laid out the content.
     ///
-    /// The initial `scrollToEdge(.bottom)` in `conversationSwitched` handles
-    /// most cases. This method catches slow LazyVStack materialization where
-    /// the edge scroll fires before content is fully laid out.
+    /// All callers now perform `scrollToEdge(.bottom)` before invoking this method
+    /// (both `conversationSwitched` and `onAppear`). This single 100ms delayed
+    /// fallback uses the ID-based `requestBottomPin` as a belt-and-suspenders check
+    /// for cases where the edge scroll fires before content layout is complete.
     func restoreScrollToBottom(
         conversationId: UUID?,
         anchorMessageId: Binding<UUID?>
@@ -151,35 +152,16 @@ extension MessageListScrollCoordinator {
         scrollRestoreTask?.cancel()
 
         scrollRestoreTask = Task { @MainActor [weak self] in
-            guard let self, !Task.isCancelled else { return }
-            os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=0")
-            scrollCoordinatorLog.debug("Scroll restore: stage 0 (immediate)")
-
-            // Stage 1: ~3 frames — handles most conversation switches.
-            try? await Task.sleep(nanoseconds: 50_000_000)
-            guard !Task.isCancelled else { return }
-            os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=1")
-            if anchorMessageId.wrappedValue == nil {
-                requestBottomPin(reason: .initialRestore, conversationId: conversationId)
-            }
-            scrollCoordinatorLog.debug("Scroll restore: stage 1 (50ms)")
-
-            // Stage 2: ~12 frames — catches slower layout/materialization.
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            guard !Task.isCancelled else { return }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            guard !Task.isCancelled, let self else { return }
             if anchorMessageId.wrappedValue == nil
-                && !hasReceivedScrollEvent
+                && !self.hasReceivedScrollEvent
                 && !self.isAtBottom
             {
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=2 action=retry")
-                requestBottomPin(reason: .initialRestore, conversationId: conversationId)
-                scrollCoordinatorLog.debug("Scroll restore: stage 2 (200ms) — retrying")
-            } else {
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=2 action=skipped")
-                scrollCoordinatorLog.debug("Scroll restore: stage 2 skipped (anchor=\(String(describing: anchorMessageId.wrappedValue)) scrollEvent=\(self.hasReceivedScrollEvent) atBottom=\(self.isAtBottom))")
+                os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=fallback")
+                self.requestBottomPin(reason: .initialRestore, conversationId: conversationId)
             }
-
-            if !Task.isCancelled { scrollRestoreTask = nil }
+            self.scrollRestoreTask = nil
         }
     }
 

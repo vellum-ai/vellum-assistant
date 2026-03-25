@@ -965,6 +965,7 @@ struct MessageListView: View {
                         }
                     }
                 } else {
+                    scrollCoordinator.scrollToEdge?(.bottom)
                     restoreScrollToBottom()
                 }
             }
