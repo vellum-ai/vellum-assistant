@@ -777,9 +777,12 @@ public final class ChatViewModel: ObservableObject {
     /// True while a previous-page load is in progress (brief async delay for UX).
     @Published public var isLoadingMoreMessages: Bool = false
 
-    /// Timeout task that logs a warning if the daemon takes too long to respond
-    /// to a pagination request. The flag is intentionally NOT cleared here —
-    /// see the comment in `loadPreviousMessagePage()` for rationale.
+    /// Timeout task that logs a warning at 30s if the daemon is slow, then
+    /// clears `isLoadingMoreMessages` at 60s to unblock the user. The 30s
+    /// warning preserves the flag to avoid misclassifying late-but-valid
+    /// responses (see loadPreviousMessagePage); the 60s hard clear accepts
+    /// the risk of a narrow misclassification window to prevent a permanently
+    /// stuck loading spinner.
     private var loadMoreTimeoutTask: Task<Void, Never>?
 
     /// The subset of messages that are actually displayed (excludes subagent notifications
@@ -891,6 +894,9 @@ public final class ChatViewModel: ObservableObject {
         // of prepending. The flag is properly cleared by populateFromHistory
         // when the response arrives, or by reconnect/conversation-switch logic if
         // the daemon disconnects.
+        // At 60s a hard clear of isLoadingMoreMessages fires to prevent a permanent
+        // stuck spinner. This accepts a narrow misclassification window for late
+        // responses arriving between 60-65s.
         loadMoreTimeoutTask?.cancel()
         loadMoreTimeoutTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 30_000_000_000) // 30 seconds
@@ -899,7 +905,8 @@ public final class ChatViewModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 30_000_000_000) // +30s = 60s total
             guard let self, !Task.isCancelled, self.isLoadingMoreMessages else { return }
             log.error("Pagination request timed out after 60s — resetting pagination state")
-            self.resetMessagePagination()
+            self.isLoadingMoreMessages = false
+            self.loadMoreTimeoutTask = nil
         }
         onLoadMoreHistory?(conversationId, cursor)
         // The loading indicator is cleared by populateFromHistory when the response arrives.
