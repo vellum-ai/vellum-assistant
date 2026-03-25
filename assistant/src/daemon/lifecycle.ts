@@ -518,12 +518,14 @@ export async function runDaemon(): Promise<void> {
             }
             log.warn({ reason }, "CES reconnection handshake rejected");
             newClient.close();
+            await pm.stop().catch(() => {});
             return undefined;
           } catch (err) {
             log.warn(
               { error: err instanceof Error ? err.message : String(err) },
               "CES reconnection attempt failed",
             );
+            await pm.stop().catch(() => {});
             return undefined;
           }
         });
