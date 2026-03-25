@@ -771,7 +771,8 @@ struct MessageListView: View {
             })
             .onScrollPhaseChange { oldPhase, newPhase in
                 scrollPhase = newPhase
-                if newPhase == .idle && oldPhase != .idle && scrollCoordinator.isAtBottom {
+                if newPhase == .idle && oldPhase != .idle
+                    && scrollPosition.viewID(type: String.self) == "scroll-bottom-anchor" {
                     // User finished scrolling and ended up at the bottom — re-tether.
                     scrollCoordinator.handleScrollToBottom()
                 }
@@ -834,7 +835,7 @@ struct MessageListView: View {
                     .padding(.bottom, ConversationAvatarFollower.verticalOffset)
             }
             .overlay(alignment: .bottom) {
-                if !isNearBottom && !scrollCoordinator.isAtBottom {
+                if !isNearBottom && scrollPosition.viewID(type: String.self) != "scroll-bottom-anchor" {
                     Button(action: {
                         os_signpost(.event, log: PerfSignposts.log, name: "scrollToLatestPressed")
                         scrollCoordinator.hasReceivedScrollEvent = true
