@@ -132,7 +132,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:asana --client-id $(cat <<'EOF'
+    curl -s -H "Authorization: Bearer $(assistant oauth token integration:asana --client-id $(cat <<'EOF'
     <client-id>
     EOF
     ))" "https://app.asana.com/api/1.0/users/me" | python3 -m json.tool

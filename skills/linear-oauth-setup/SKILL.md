@@ -149,7 +149,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $(assistant oauth connections token integration:linear --client-id $(cat <<'EOF'
+    curl -s -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $(assistant oauth token integration:linear --client-id $(cat <<'EOF'
     <client-id>
     EOF
     ))" -d '{"query":"{ viewer { id name email } }"}' "https://api.linear.app/graphql" | python3 -m json.tool

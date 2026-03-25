@@ -189,7 +189,7 @@ If a ping URL is available, verify:
 ```
 bash:
   command: |
-    curl -H "Authorization: Bearer $(assistant oauth connections token <provider-key> --client-id $(cat <<'EOF'
+    curl -H "Authorization: Bearer $(assistant oauth token <provider-key> --client-id $(cat <<'EOF'
     <client-id>
     EOF
     ))" "<provider-ping-url>"
