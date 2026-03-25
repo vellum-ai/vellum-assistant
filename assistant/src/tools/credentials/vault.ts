@@ -102,11 +102,11 @@ class CredentialStoreTool implements Tool {
               "describe",
             ],
             description:
-              'The operation to perform. Use "prompt" to ask the user for a secret via secure UI - the value never enters the conversation. Use "oauth2_connect" to connect an OAuth2 service via browser authorization. Use "describe" to get setup metadata for a well-known OAuth service (dashboard URL, scopes, redirect URI, etc.). For well-known services (gmail, slack), only the service name is required - endpoints, scopes, and stored client credentials are resolved automatically.',
+              'The operation to perform. Use "prompt" to ask the user for a secret via secure UI - the value never enters the conversation. Use "oauth2_connect" to connect an OAuth2 service via browser authorization. Use "describe" to get setup metadata for a well-known OAuth service (dashboard URL, scopes, redirect URI, etc.). For well-known services (google, slack), only the service name is required - endpoints, scopes, and stored client credentials are resolved automatically.',
           },
           service: {
             type: "string",
-            description: "Service name, e.g. gmail, github",
+            description: "Service name, e.g. google, github",
           },
           account: {
             type: "string",
@@ -157,7 +157,7 @@ class CredentialStoreTool implements Tool {
             type: "array",
             items: { type: "string" },
             description:
-              "OAuth2 scopes to request (only for oauth2_connect action). Auto-filled for well-known services (gmail, slack).",
+              "OAuth2 scopes to request (only for oauth2_connect action). Auto-filled for well-known services (google, slack).",
           },
           client_id: {
             type: "string",

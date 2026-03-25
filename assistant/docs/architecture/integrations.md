@@ -240,7 +240,7 @@ Returns `{ ok: true, scopes }` or `{ ok: false, error, allowedScopes }`.
 
 `assistant/src/oauth/connect-orchestrator.ts` exports `orchestrateOAuthConnect(options)`, which runs the full OAuth2 flow:
 
-1. **Resolve service** — alias expansion via `resolveService()`.
+1. **Receive canonical provider name** — the orchestrator receives the canonical provider name directly (e.g. `google`, `slack`).
 2. **Load behavior** — `getProviderBehavior()` from the registry; load protocol fields from the `oauth_providers` DB table.
 3. **Compute scopes** — `resolveScopes()` with scope policy enforcement.
 4. **Build OAuth config** — assemble protocol-level config from the DB provider row.
