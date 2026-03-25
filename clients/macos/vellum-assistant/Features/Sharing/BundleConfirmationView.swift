@@ -19,7 +19,7 @@ struct BundleConfirmationView: View {
             }
         }
         .frame(width: 480, height: 400)
-        .background(VColor.surfaceOverlay)
+        .background(VColor.surfaceLift)
     }
 
     // MARK: - Main Confirmation Content
@@ -216,12 +216,12 @@ struct BundleConfirmationView: View {
     // MARK: - Footer
 
     private var footerSection: some View {
-        HStack(spacing: VSpacing.md) {
+        HStack(spacing: VSpacing.sm) {
+            Spacer()
+
             VButton(label: "Cancel", style: .outlined) {
                 viewModel.cancel()
             }
-
-            Spacer()
 
             if viewModel.isTampered {
                 tamperedInstallButton

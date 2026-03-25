@@ -231,8 +231,6 @@ private struct TrustRuleFormView: View {
                 Text(existingRule != nil ? "Edit Trust Rule" : "Add Trust Rule")
                     .font(.headline)
                 Spacer()
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
             }
             .padding()
 
@@ -262,6 +260,8 @@ private struct TrustRuleFormView: View {
 
             HStack {
                 Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     save()
                 }
