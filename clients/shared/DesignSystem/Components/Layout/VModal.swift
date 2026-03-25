@@ -109,10 +109,10 @@ public struct VModal<Content: View, Footer: View>: View {
             }
         }
         .frame(maxHeight: screenMaxHeight)
-        .background(VColor.surfaceOverlay)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .background(VColor.surfaceLift)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
+            RoundedRectangle(cornerRadius: VRadius.lg)
                 .stroke(VColor.borderBase, lineWidth: 1)
         )
     }
@@ -127,7 +127,7 @@ public struct VModal<Content: View, Footer: View>: View {
             }
             if let subtitle {
                 Text(subtitle)
-                    .font(VFont.bodyMediumLighter)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentSecondary)
             }
         }
