@@ -109,7 +109,6 @@ mock.module("../shared.js", () => ({
     return service;
   },
   isManagedMode: (key: string) => mockIsManagedMode(key),
-  printDeprecationWarning: () => {},
   toBareProvider: (provider: string): string =>
     provider.startsWith("integration:")
       ? provider.slice("integration:".length)
