@@ -61,6 +61,12 @@ mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: mockBuildSystemPrompt,
 }));
 
+mock.module("../prompts/persona-resolver.js", () => ({
+  resolveGuardianPersona: () => null,
+  resolveChannelPersona: () => null,
+  resolveUserPersona: () => null,
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
