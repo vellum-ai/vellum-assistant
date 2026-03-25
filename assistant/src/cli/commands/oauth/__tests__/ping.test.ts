@@ -52,12 +52,6 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
 }));
 
 mock.module("../../../../oauth/provider-behaviors.js", () => ({
-  resolveService: (service: string) => {
-    const aliases: Record<string, string> = {
-      gmail: "google",
-    };
-    return aliases[service] ?? service;
-  },
   getProviderBehavior: () => undefined,
 }));
 
@@ -97,12 +91,6 @@ mock.module("../../../../util/logger.js", () => ({
 
 // Mock shared.js helpers
 mock.module("../shared.js", () => ({
-  resolveService: (service: string) => {
-    const aliases: Record<string, string> = {
-      gmail: "google",
-    };
-    return aliases[service] ?? service;
-  },
   isManagedMode: () => false,
   requirePlatformClient: async () => null,
   fetchActiveConnections: async () => [],
@@ -212,35 +200,6 @@ describe("assistant oauth ping", () => {
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("No ping URL configured");
     expect(parsed.error).toContain("providers register --ping-url");
-  });
-
-  // -------------------------------------------------------------------------
-  // Provider alias resolution
-  // -------------------------------------------------------------------------
-
-  test("resolves provider alias (gmail -> google)", async () => {
-    mockGetProvider = () => ({
-      providerKey: "google",
-      pingUrl: "https://www.googleapis.com/oauth2/v1/tokeninfo",
-    });
-
-    mockResolveOAuthConnectionResult = {
-      request: async () => ({
-        status: 200,
-        headers: {},
-        body: { ok: true },
-      }),
-    };
-
-    const { exitCode, stdout } = await runCommand(["ping", "gmail", "--json"]);
-    expect(exitCode).toBe(0);
-    const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.provider).toBe("google");
-
-    // Verify resolveOAuthConnection was called with resolved key
-    expect(mockResolveOAuthConnectionCalls).toHaveLength(1);
-    expect(mockResolveOAuthConnectionCalls[0].providerKey).toBe("google");
   });
 
   // =========================================================================

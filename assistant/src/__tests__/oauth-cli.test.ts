@@ -213,7 +213,6 @@ mock.module("../oauth/connect-orchestrator.js", () => ({
 // ---------------------------------------------------------------------------
 
 mock.module("../oauth/provider-behaviors.js", () => ({
-  resolveService: (service: string) => service,
   getProviderBehavior: (providerKey: string) =>
     mockGetProviderBehavior(providerKey),
 }));

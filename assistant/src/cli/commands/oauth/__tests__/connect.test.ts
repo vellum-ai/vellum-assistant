@@ -81,12 +81,6 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
 }));
 
 mock.module("../../../../oauth/provider-behaviors.js", () => ({
-  resolveService: (service: string) => {
-    const aliases: Record<string, string> = {
-      gmail: "google",
-    };
-    return aliases[service] ?? service;
-  },
   getProviderBehavior: (key: string) => mockGetProviderBehavior(key),
 }));
 
@@ -130,12 +124,6 @@ mock.module("../../../lib/daemon-credential-client.js", () => ({
 
 // Mock shared.js helpers to control managed vs BYO mode routing
 mock.module("../shared.js", () => ({
-  resolveService: (service: string) => {
-    const aliases: Record<string, string> = {
-      gmail: "google",
-    };
-    return aliases[service] ?? service;
-  },
   isManagedMode: (key: string) => mockIsManagedMode(key),
   requirePlatformClient: async (_cmd: Command) => {
     if (
@@ -277,43 +265,6 @@ describe("assistant oauth connect", () => {
     expect(parsed.ok).toBe(false);
     expect(parsed.error).toContain("Unknown provider");
     expect(parsed.error).toContain("providers list");
-  });
-
-  // -------------------------------------------------------------------------
-  // Provider alias resolution
-  // -------------------------------------------------------------------------
-
-  test("provider alias 'gmail' resolves to google", async () => {
-    let capturedProviderKey: string | undefined;
-
-    mockGetProvider = (key: string) => {
-      capturedProviderKey = key;
-      return {
-        providerKey: key,
-        authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-        tokenUrl: "https://oauth2.googleapis.com/token",
-        managedServiceConfigKey: null,
-      };
-    };
-
-    mockGetMostRecentAppByProvider = () => ({
-      id: "app-1",
-      clientId: "test-id",
-      clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "google",
-      createdAt: 0,
-      updatedAt: 0,
-    });
-
-    mockOrchestrateOAuthConnect = async () => ({
-      success: true,
-      deferred: false,
-      grantedScopes: ["read"],
-      accountInfo: "user@example.com",
-    });
-
-    await runCommand(["connect", "gmail", "--json"]);
-    expect(capturedProviderKey).toBe("google");
   });
 
   // -------------------------------------------------------------------------

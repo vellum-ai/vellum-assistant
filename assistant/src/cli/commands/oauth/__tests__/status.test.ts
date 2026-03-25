@@ -57,12 +57,6 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
 }));
 
 mock.module("../../../../oauth/provider-behaviors.js", () => ({
-  resolveService: (service: string) => {
-    const aliases: Record<string, string> = {
-      gmail: "google",
-    };
-    return aliases[service] ?? service;
-  },
   getProviderBehavior: () => undefined,
 }));
 
@@ -106,12 +100,6 @@ mock.module("../../../lib/daemon-credential-client.js", () => ({
 
 // Mock shared.js helpers to control managed vs BYO mode routing
 mock.module("../shared.js", () => ({
-  resolveService: (service: string) => {
-    const aliases: Record<string, string> = {
-      gmail: "google",
-    };
-    return aliases[service] ?? service;
-  },
   isManagedMode: (key: string) => mockIsManagedMode(key),
   requirePlatformClient: async (_cmd: Command) => {
     if (

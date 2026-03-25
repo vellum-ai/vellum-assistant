@@ -55,12 +55,6 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
 }));
 
 mock.module("../../../../oauth/provider-behaviors.js", () => ({
-  resolveService: (service: string) => {
-    const aliases: Record<string, string> = {
-      gmail: "google",
-    };
-    return aliases[service] ?? service;
-  },
   getProviderBehavior: () => undefined,
 }));
 
@@ -94,12 +88,6 @@ mock.module("../../../lib/daemon-credential-client.js", () => ({
 
 // Mock shared.js helpers to control managed vs BYO mode routing
 mock.module("../shared.js", () => ({
-  resolveService: (service: string) => {
-    const aliases: Record<string, string> = {
-      gmail: "google",
-    };
-    return aliases[service] ?? service;
-  },
   isManagedMode: (key: string) => mockIsManagedMode(key),
 }));
 
@@ -221,25 +209,6 @@ describe("assistant oauth token", () => {
       expect(parsed.ok).toBe(false);
       expect(parsed.error).toContain("No access token found");
     });
-  });
-
-  // =========================================================================
-  // Provider alias resolution
-  // =========================================================================
-
-  test("resolves provider alias (gmail -> google)", async () => {
-    let calledWithService = "";
-    mockWithValidToken = async (service, callback) => {
-      calledWithService = service;
-      return callback("alias-token");
-    };
-
-    const { exitCode, stdout } = await runCommand(["token", "gmail", "--json"]);
-    expect(exitCode).toBe(0);
-    expect(calledWithService).toBe("google");
-    const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.token).toBe("alias-token");
   });
 
   // =========================================================================
