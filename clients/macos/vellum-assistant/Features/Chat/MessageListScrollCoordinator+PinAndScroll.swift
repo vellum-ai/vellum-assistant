@@ -20,9 +20,8 @@ extension MessageListScrollCoordinator {
     }
 
     /// Routes a bottom-follow request through the coordinator.
-    /// Returns `false` when the scroll loop guard is tripped, suppressing the request.
     /// Pass `userInitiated: true` for explicit user actions (e.g. "Scroll to latest" button)
-    /// to bypass the loop guard and suppression checks — user intent always wins.
+    /// to bypass suppression checks — user intent always wins.
     @discardableResult
     func requestBottomPin(
         reason: BottomPinRequestReason,
@@ -30,13 +29,6 @@ extension MessageListScrollCoordinator {
         animated: Bool = false,
         userInitiated: Bool = false
     ) -> Bool {
-        let convIdString = (conversationId ?? Self.bootstrapConversationId).uuidString
-        if !userInitiated, scrollLoopGuard.isTripped(conversationId: convIdString) {
-            os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
-                        "target=bottomAnchor reason=circuitBreakerSuppressed-requestBottomPin")
-            return false
-        }
-
         // User-initiated scrolls bypass the coordinator session and suppression
         // checks entirely — user intent always wins over defensive guards.
         if userInitiated {
@@ -79,13 +71,6 @@ extension MessageListScrollCoordinator {
         bottomPinCoordinator.onPinRequested = { [weak self] reason, animated in
             guard let self else { return false }
             guard !isSuppressed else { return false }
-            // Circuit breaker: suppress scroll-to when a scroll loop was detected.
-            let convIdString = self.currentConversationId?.uuidString ?? "unknown"
-            if scrollLoopGuard.isTripped(conversationId: convIdString) {
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
-                            "target=bottomAnchor reason=circuitBreakerSuppressed")
-                return false
-            }
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                         "target=bottomAnchor reason=coordinator-%{public}s", reason.rawValue)
             recordScrollLoopEvent(.scrollToRequested, conversationId: self.currentConversationId)
@@ -102,33 +87,6 @@ extension MessageListScrollCoordinator {
         }
         bottomPinCoordinator.onFollowStateChanged = { isFollowing in
             isNearBottom.wrappedValue = isFollowing
-        }
-
-        // Wire auto-recovery: when the loop guard's cooldown expires, schedule
-        // a single deferred re-pin attempt so the UI doesn't get stuck.
-        scrollLoopGuard.onRecoveryNeeded = { [weak self] convId in
-            guard let self else { return }
-            loopGuardRecoveryTask?.cancel()
-            loopGuardRecoveryTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: UInt64(ChatScrollLoopGuard.autoRecoveryDelay * 1_000_000_000))
-                guard !Task.isCancelled, let self else { return }
-                // Only re-pin if the user hasn't scrolled away during the delay.
-                guard self.bottomPinCoordinator.isFollowingBottom else {
-                    scrollCoordinatorLog.debug("Loop guard auto-recovery: skipping re-pin — user scrolled away for \(convId)")
-                    self.loopGuardRecoveryTask = nil
-                    return
-                }
-                scrollCoordinatorLog.debug("Loop guard auto-recovery: attempting re-pin for \(convId)")
-                os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
-                            "target=bottomAnchor reason=loopGuardAutoRecovery")
-                self.bottomPinCoordinator.reattach()
-                self.requestBottomPin(
-                    reason: .initialRestore,
-                    conversationId: self.currentConversationId,
-                    animated: true
-                )
-                self.loopGuardRecoveryTask = nil
-            }
         }
 
         // If detach() was called before this callback was wired up, sync
@@ -171,8 +129,6 @@ extension MessageListScrollCoordinator {
     func handleScrollUp() {
         scrollRestoreTask?.cancel()
         scrollRestoreTask = nil
-        loopGuardRecoveryTask?.cancel()
-        loopGuardRecoveryTask = nil
         clearAllSuppression()
         pushToTopMessageId = nil
         bottomPinCoordinator.handleUserAction(.scrollUp)
