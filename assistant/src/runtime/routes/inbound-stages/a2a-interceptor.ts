@@ -13,15 +13,15 @@
  * handlers (pairing_request, pairing_accepted), never the message pipeline.
  */
 
-import { notifyGuardianOfAccessRequest } from "../../access-request-helper.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
+import { getLogger } from "../../../util/logger.js";
+import { parseA2AEnvelope } from "../../a2a/message-contract.js";
 import {
+  handleInboundPairingRequest,
   handlePairingAccepted,
   handlePairingFinalize,
-  handleInboundPairingRequest,
 } from "../../a2a/pairing.js";
-import { parseA2AEnvelope } from "../../a2a/message-contract.js";
-import { getLogger } from "../../../util/logger.js";
+import { notifyGuardianOfAccessRequest } from "../../access-request-helper.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 
 const log = getLogger("a2a-interceptor");
 
@@ -32,7 +32,7 @@ export interface A2AInterceptResult {
   response?: Response;
 }
 
-interface A2ASourceMetadata {
+interface A2ASourceMetadata extends Record<string, unknown> {
   a2a: true;
   envelopeType: string;
   authenticated: boolean;

@@ -14,8 +14,6 @@
 import { answerCall } from "../calls/call-domain.js";
 import { getGatewayInternalBaseUrl } from "../config/env.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { findPairingByRemoteAssistant } from "../runtime/a2a/pairing-store.js";
-import { completePairingApproval } from "../runtime/a2a/pairing.js";
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
@@ -26,6 +24,8 @@ import {
   type NotificationSourceChannel,
 } from "../notifications/signal.js";
 import { addRule } from "../permissions/trust-store.js";
+import { completePairingApproval } from "../runtime/a2a/pairing.js";
+import { findPairingByRemoteAssistant } from "../runtime/a2a/pairing-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
 import type { ApprovalAction } from "../runtime/channel-approval-types.js";

@@ -1,23 +1,22 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { initializeDb, resetDb } from "../memory/db.js";
+import type {
+  A2APairingAccepted,
+  A2APairingFinalize,
+} from "../runtime/a2a/message-contract.js";
+import {
+  handleInboundPairingRequest,
+  handlePairingAccepted,
+  handlePairingFinalize,
+} from "../runtime/a2a/pairing.js";
 import {
   createPairingRequest,
   findPairingByInviteCode,
   findPairingByRemoteAssistant,
   updatePairingStatus,
 } from "../runtime/a2a/pairing-store.js";
-import {
-  handleInboundPairingRequest,
-  handlePairingAccepted,
-  handlePairingFinalize,
-} from "../runtime/a2a/pairing.js";
-import type {
-  A2APairingAccepted,
-  A2APairingFinalize,
-} from "../runtime/a2a/message-contract.js";
 import { interceptA2AEnvelope } from "../runtime/routes/inbound-stages/a2a-interceptor.js";
-import { _resetBackend } from "../security/secure-keys.js";
 
 // Mock fetch for outbound HTTP calls
 const mockFetch = mock(() =>
@@ -111,13 +110,13 @@ describe("pairing store", () => {
   test("findPairingByRemoteAssistant returns null for wrong direction", () => {
     createPairingRequest(
       "outbound",
-      "invite-xyz",
-      "remote-asst-2",
+      "invite-wrong-dir",
+      "remote-asst-3",
       "https://gw2.example.com",
       Date.now() + 3600_000,
     );
 
-    expect(findPairingByRemoteAssistant("remote-asst-2", "inbound")).toBeNull();
+    expect(findPairingByRemoteAssistant("remote-asst-3", "inbound")).toBeNull();
   });
 
   test("updatePairingStatus changes status", () => {
