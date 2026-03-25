@@ -281,10 +281,29 @@ extension AppDelegate {
                     HostToolExecutor.executeHostFileRequest(msg)
                 case .hostCuRequest(let msg):
                     let proxy = self.getOrCreateHostCuOverlay(conversationId: msg.conversationId, request: msg)
-                    Task { @MainActor in
+                    let task = Task { @MainActor in
+                        defer { self.inFlightCuTasks.removeValue(forKey: msg.requestId) }
+
+                        guard !Task.isCancelled else { return }
                         let result = await HostCuActionRunner.perform(msg, overlayProxy: proxy)
+
+                        guard !Task.isCancelled else { return }
+
+                        // Suppress stale POST if cancelled
+                        if HostToolExecutor.isCancelledAndConsume(msg.requestId) {
+                            log.debug("Host CU result suppressed (cancelled) — requestId=\(msg.requestId, privacy: .public)")
+                            return
+                        }
                         _ = await HostProxyClient().postCuResult(result)
                     }
+                    self.inFlightCuTasks[msg.requestId] = task
+
+                case .hostBashCancel(let msg):
+                    HostToolExecutor.cancelHostBashRequest(msg.requestId)
+                case .hostFileCancel(let msg):
+                    HostToolExecutor.cancelHostFileRequest(msg.requestId)
+                case .hostCuCancel(let msg):
+                    self.cancelHostCuRequest(msg.requestId)
 
                 // Signing identity
                 case .signBundlePayload(let msg):
@@ -330,6 +349,19 @@ extension AppDelegate {
                 }
             }
         }
+    }
+
+    // MARK: - Host CU Cancel
+
+    /// Cancel an in-flight host CU request: mark it cancelled, cancel the
+    /// Swift Task, and dismiss the overlay.
+    func cancelHostCuRequest(_ requestId: String) {
+        HostToolExecutor.markCancelled(requestId)
+        if let task = inFlightCuTasks.removeValue(forKey: requestId) {
+            task.cancel()
+        }
+        dismissHostCuOverlay()
+        log.info("Cancelling host CU — requestId=\(requestId, privacy: .public)")
     }
 
     // MARK: - Signing Identity

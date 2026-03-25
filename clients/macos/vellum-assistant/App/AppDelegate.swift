@@ -41,6 +41,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var hostCuOverlayCleanupTask: Task<Void, Never>?
     /// Combine subscriptions for host CU overlay state observation.
     var hostCuOverlayCancellables = Set<AnyCancellable>()
+    /// In-flight CU tasks keyed by request ID, for cancel support.
+    var inFlightCuTasks: [String: Task<Void, Never>] = [:]
     var isStartingSession = false
     var startSessionTask: Task<Void, Never>?
     var voiceInput: VoiceInputManager?
