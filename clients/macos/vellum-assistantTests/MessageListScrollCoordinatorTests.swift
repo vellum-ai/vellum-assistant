@@ -23,7 +23,7 @@ final class MessageListScrollCoordinatorTests: XCTestCase {
         super.tearDown()
     }
 
-    // MARK: - Follow/Detach State (migrated from ChatBottomPinCoordinatorTests)
+    // MARK: - Follow/Detach State
 
     func testInitialStateIsFollowingBottom() {
         XCTAssertTrue(coordinator.isFollowingBottom)
