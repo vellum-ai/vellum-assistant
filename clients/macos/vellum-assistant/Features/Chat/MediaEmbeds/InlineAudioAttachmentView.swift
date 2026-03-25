@@ -59,8 +59,6 @@ struct InlineAudioAttachmentView: View {
     @State private var isPlaying = false
     @State private var isLoading = false
     @State private var failure: AudioPlaybackFailure?
-    @State private var progress: Double = 0
-    @State private var duration: TimeInterval = 0
     @State private var hasRetriedOnce = false
     @State private var isSaving = false
     @State private var isHovering = false
@@ -69,63 +67,71 @@ struct InlineAudioAttachmentView: View {
     /// completion and relay it back to the SwiftUI state.
     @State private var coordinator: AudioPlayerCoordinator?
 
+    /// Current playback progress read directly from the audio player.
+    /// Computed inline inside TimelineView so no @State mutation occurs in the view body.
+    private var currentProgress: Double {
+        audioPlayer?.currentTime ?? 0
+    }
+
+    /// Current audio duration read directly from the audio player.
+    private var currentDuration: TimeInterval {
+        audioPlayer?.duration ?? 0
+    }
+
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 0.1)) { context in
-            let _ = updatePlaybackProgress()
-            HStack(spacing: VSpacing.sm) {
-                // Play/pause button
-                playPauseButton
+        HStack(spacing: VSpacing.sm) {
+            // Play/pause button
+            playPauseButton
 
-                // Center: filename + progress bar
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(attachment.filename)
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentDefault)
+            // Center: filename + progress bar
+            VStack(alignment: .leading, spacing: 3) {
+                Text(attachment.filename)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                if let failure {
+                    Text(failure.userMessage)
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
                         .lineLimit(1)
-                        .truncationMode(.middle)
-
-                    if let failure {
-                        Text(failure.userMessage)
-                            .font(VFont.labelSmall)
-                            .foregroundStyle(VColor.contentTertiary)
-                            .lineLimit(1)
-                    } else {
-                        progressBar
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                // Right: time display or save button
-                if isHovering && (failure == nil || localFileURL != nil || cachedFileURL != nil) {
-                    Button(action: saveAudio) {
-                        if isSaving {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            VIconView(.arrowDownToLine, size: 14)
-                                .foregroundStyle(VColor.contentSecondary)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isSaving)
-                    .accessibilityLabel("Save audio")
                 } else {
-                    timeDisplay
+                    progressBar
                 }
             }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.sm)
-                    .fill(VColor.surfaceOverlay)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.sm)
-                            .stroke(VColor.borderBase.opacity(0.4), lineWidth: 0.5)
-                    )
-            )
-            .frame(maxWidth: 360)
-            .onHover { isHovering = $0 }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            // Right: time display or save button
+            if isHovering && (failure == nil || localFileURL != nil || cachedFileURL != nil) {
+                Button(action: saveAudio) {
+                    if isSaving {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        VIconView(.arrowDownToLine, size: 14)
+                            .foregroundStyle(VColor.contentSecondary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(isSaving)
+                .accessibilityLabel("Save audio")
+            } else {
+                timeDisplay
+            }
         }
+        .padding(.horizontal, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.sm)
+                .fill(VColor.surfaceOverlay)
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .stroke(VColor.borderBase.opacity(0.4), lineWidth: 0.5)
+                )
+        )
+        .frame(maxWidth: 360)
+        .onHover { isHovering = $0 }
         .onDisappear {
             stop()
         }
@@ -169,61 +175,55 @@ struct InlineAudioAttachmentView: View {
     }
 
     private var progressBar: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                // Track
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(VColor.borderBase.opacity(0.5))
-                    .frame(height: 3)
-
-                // Filled portion
-                if duration > 0 {
+        TimelineView(isPlaying ? .periodic(from: .now, by: 0.1) : .everyMinute) { _ in
+            GeometryReader { geo in
+                let dur = currentDuration
+                let prog = currentProgress
+                ZStack(alignment: .leading) {
+                    // Track
                     RoundedRectangle(cornerRadius: 1.5)
-                        .fill(VColor.systemPositiveStrong)
-                        .frame(width: max(0, geo.size.width * CGFloat(progress / duration)), height: 3)
+                        .fill(VColor.borderBase.opacity(0.5))
+                        .frame(height: 3)
+
+                    // Filled portion
+                    if dur > 0 {
+                        RoundedRectangle(cornerRadius: 1.5)
+                            .fill(VColor.systemPositiveStrong)
+                            .frame(width: max(0, geo.size.width * CGFloat(prog / dur)), height: 3)
+                    }
+                }
+                .contentShape(Rectangle())
+                .onTapGesture { location in
+                    guard dur > 0, let player = audioPlayer else { return }
+                    let fraction = max(0, min(1, location.x / geo.size.width))
+                    player.currentTime = fraction * dur
                 }
             }
-            .contentShape(Rectangle())
-            .onTapGesture { location in
-                guard duration > 0, let player = audioPlayer else { return }
-                let fraction = max(0, min(1, location.x / geo.size.width))
-                let seekTime = fraction * duration
-                player.currentTime = seekTime
-                progress = seekTime
-            }
+            .frame(height: 3)
         }
-        .frame(height: 3)
     }
 
     private var timeDisplay: some View {
-        Group {
-            if duration > 0 || isPlaying {
-                Text("\(formatTime(progress)) / \(formatTime(duration))")
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.contentTertiary)
-            } else if attachment.dataLength > 0 {
-                Text(formattedFileSize(base64Length: attachment.dataLength))
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.contentTertiary)
-            } else if let sizeBytes = attachment.sizeBytes {
-                Text(formattedFileSize(bytes: sizeBytes))
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.contentTertiary)
+        TimelineView(isPlaying ? .periodic(from: .now, by: 0.1) : .everyMinute) { _ in
+            let dur = currentDuration
+            let prog = currentProgress
+            Group {
+                if dur > 0 || isPlaying {
+                    Text("\(formatTime(prog)) / \(formatTime(dur))")
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
+                } else if attachment.dataLength > 0 {
+                    Text(formattedFileSize(base64Length: attachment.dataLength))
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
+                } else if let sizeBytes = attachment.sizeBytes {
+                    Text(formattedFileSize(bytes: sizeBytes))
+                        .font(VFont.labelSmall)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
             }
+            .monospacedDigit()
         }
-        .monospacedDigit()
-    }
-
-    // MARK: - Playback Progress
-
-    /// Updates progress and duration from the active audio player.
-    /// Called on each TimelineView tick; the return value is discarded via `let _ =`.
-    @discardableResult
-    private func updatePlaybackProgress() -> Bool {
-        guard isPlaying, let player = audioPlayer else { return false }
-        progress = player.currentTime
-        duration = player.duration
-        return true
     }
 
     // MARK: - Playback Control
@@ -245,7 +245,6 @@ struct InlineAudioAttachmentView: View {
         audioPlayer = nil
         coordinator = nil
         isPlaying = false
-        progress = 0
     }
 
     // MARK: - Failure Tap Handling
@@ -317,13 +316,10 @@ struct InlineAudioAttachmentView: View {
             let player = try AVAudioPlayer(contentsOf: fileURL)
             let coord = AudioPlayerCoordinator { [self] in
                 self.isPlaying = false
-                self.progress = 0
             }
             player.delegate = coord
             self.coordinator = coord
             self.audioPlayer = player
-            self.duration = player.duration
-            self.progress = 0
             player.play()
             self.isPlaying = true
         } catch {
