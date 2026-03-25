@@ -36,13 +36,13 @@ You can define entirely new oauth providers to integrate with even if they do no
 
 Examples:
   assistant oauth providers list
-  assistant oauth providers get integration:google
-  assistant oauth mode integration:google --set=managed
-  assistant oauth connect integration:google --open-browser
-  assistant oauth status integration:google
-  assistant oauth ping integration:google
-  assistant oauth request --provider integration:google /gmail/v1/users/me/messages
-  assistant oauth disconnect integration:google`,
+  assistant oauth providers get google
+  assistant oauth mode google --set=managed
+  assistant oauth connect google --open-browser
+  assistant oauth status google
+  assistant oauth ping google
+  assistant oauth request --provider google /gmail/v1/users/me/messages
+  assistant oauth disconnect google`,
   );
 
   // ---------------------------------------------------------------------------

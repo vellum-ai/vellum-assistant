@@ -40,9 +40,8 @@ export function registerConnectCommand(oauth: Command): void {
       "after",
       `
 Arguments:
-  provider   Provider key, alias, or ID from 'assistant oauth providers list'.
-             Accepts canonical keys (e.g. integration:google), aliases (e.g.
-             gmail), or bare provider names (e.g. google).
+  provider   Provider name (e.g. google, slack, gmail).
+             Run 'assistant oauth providers list' to see available providers.
 
 Options:
   --scopes <scopes...>   Scopes to request for the authorization. In managed
@@ -60,7 +59,7 @@ Options:
 Examples:
   $ assistant oauth connect google
   $ assistant oauth connect gmail --open-browser
-  $ assistant oauth connect integration:google --scopes https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events
+  $ assistant oauth connect google --scopes https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events
   $ assistant oauth connect google --client-id abc123 --open-browser`,
     )
     .action(
