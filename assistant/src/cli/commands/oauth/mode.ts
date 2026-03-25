@@ -200,6 +200,7 @@ Examples:
               provider: providerKey,
               mode: newMode,
               changed: false,
+              managedModeSupported: true,
             });
           } else {
             log.info(`${providerKey} is already set to ${newMode}`);
@@ -243,6 +244,7 @@ Examples:
             provider: providerKey,
             mode: newMode,
             changed: true,
+            managedModeSupported: true,
           };
           if (hint) result.hint = hint;
           writeOutput(cmd, result);

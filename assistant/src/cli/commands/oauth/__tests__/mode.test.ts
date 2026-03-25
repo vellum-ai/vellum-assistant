@@ -475,6 +475,7 @@ describe("assistant oauth mode", () => {
       expect(parsed.provider).toBe("integration:google");
       expect(parsed.mode).toBe("managed");
       expect(parsed.changed).toBe(false);
+      expect(parsed.managedModeSupported).toBe(true);
     });
 
     test("switch managed -> your-own with active managed connections and no BYO connections includes hint", async () => {
@@ -514,6 +515,7 @@ describe("assistant oauth mode", () => {
       expect(parsed.provider).toBe("integration:google");
       expect(parsed.mode).toBe("your-own");
       expect(parsed.changed).toBe(true);
+      expect(parsed.managedModeSupported).toBe(true);
       expect(parsed.hint).toContain("No active connections");
       expect(parsed.hint).toContain("your-own");
       expect(parsed.hint).toContain("connect");
@@ -556,6 +558,7 @@ describe("assistant oauth mode", () => {
       expect(parsed.provider).toBe("integration:google");
       expect(parsed.mode).toBe("managed");
       expect(parsed.changed).toBe(true);
+      expect(parsed.managedModeSupported).toBe(true);
       expect(parsed.hint).toContain("No active connections");
       expect(parsed.hint).toContain("managed");
       expect(parsed.hint).toContain("connect");
@@ -602,6 +605,7 @@ describe("assistant oauth mode", () => {
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
       expect(parsed.changed).toBe(true);
+      expect(parsed.managedModeSupported).toBe(true);
       expect(parsed.hint).toBeUndefined();
     });
 
@@ -634,6 +638,7 @@ describe("assistant oauth mode", () => {
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
       expect(parsed.changed).toBe(true);
+      expect(parsed.managedModeSupported).toBe(true);
       expect(parsed.hint).toBeUndefined();
     });
 
