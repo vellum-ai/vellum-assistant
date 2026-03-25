@@ -516,7 +516,15 @@ async function main() {
     stdout: "pipe",
     stderr: "pipe",
   });
-  const yamlOutput = await new Response(prettierProc.stdout).text();
+  const [yamlOutput, prettierExitCode] = await Promise.all([
+    new Response(prettierProc.stdout).text(),
+    prettierProc.exited,
+  ]);
+  if (prettierExitCode !== 0) {
+    const stderr = await new Response(prettierProc.stderr).text();
+    console.error(`prettier exited with code ${prettierExitCode}: ${stderr}`);
+    process.exit(1);
+  }
 
   if (isCheck) {
     let existing: string;
