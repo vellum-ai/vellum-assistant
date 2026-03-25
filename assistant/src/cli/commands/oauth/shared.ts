@@ -96,11 +96,16 @@ export async function requirePlatformClient(
 /**
  * Fetch active platform connections for a provider. Returns the parsed entries
  * or writes an error and returns null.
+ *
+ * When `silent` is true the helper returns null on HTTP errors without writing
+ * any output — useful inside polling loops where transient failures should be
+ * quietly retried rather than emitting multiple error lines.
  */
 export async function fetchActiveConnections(
   client: VellumPlatformClient,
   provider: string,
   cmd: Command,
+  options?: { silent?: boolean },
 ): Promise<PlatformConnectionEntry[] | null> {
   const params = new URLSearchParams();
   params.set("provider", toBareProvider(provider));
@@ -110,11 +115,13 @@ export async function fetchActiveConnections(
   const response = await client.fetch(path);
 
   if (!response.ok) {
-    writeOutput(cmd, {
-      ok: false,
-      error: `Platform returned HTTP ${response.status}`,
-    });
-    process.exitCode = 1;
+    if (!options?.silent) {
+      writeOutput(cmd, {
+        ok: false,
+        error: `Platform returned HTTP ${response.status}`,
+      });
+      process.exitCode = 1;
+    }
     return null;
   }
 
