@@ -7,7 +7,7 @@
  *   - **Pre-auth routes**: bypass JWT authentication in `routeRequest()`
  *   - **Non-v1 routes**: live outside the `/v1/` URL namespace
  *
- * Both `generate-openapi.ts` and `http-server.ts` import from here.
+ * `generate-openapi.ts` imports from here; `http-server.ts` references it.
  * When adding or removing pre-auth or non-v1 routes in `routeRequest()`,
  * update this file and regenerate the OpenAPI spec:
  *
