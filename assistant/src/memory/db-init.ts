@@ -13,6 +13,7 @@ import { ensureDataDir, getDbPath } from "../util/platform.js";
 import { getDb, getSqlite } from "./db-connection.js";
 import {
   addCoreColumns,
+  createA2aPairingRequestsTable,
   createActorRefreshTokenRecordsTable,
   createActorTokenRecordsTable,
   createAssistantInboxTables,
@@ -507,6 +508,9 @@ export function initializeDb(): void {
 
   // 90. Add source_type and source_message_role columns to memory_items
   migrateAddSourceTypeColumns(database);
+
+  // 91. A2A pairing requests table for inter-assistant handshake state
+  createA2aPairingRequestsTable(database);
 
   validateMigrationState(database);
 

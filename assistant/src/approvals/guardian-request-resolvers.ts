@@ -14,6 +14,8 @@
 import { answerCall } from "../calls/call-domain.js";
 import { getGatewayInternalBaseUrl } from "../config/env.js";
 import { upsertContactChannel } from "../contacts/contacts-write.js";
+import { findPairingByRemoteAssistant } from "../runtime/a2a/pairing-store.js";
+import { completePairingApproval } from "../runtime/a2a/pairing.js";
 import {
   type CanonicalGuardianRequest,
   getCanonicalGuardianRequest,
@@ -482,6 +484,36 @@ const accessRequestResolver: GuardianRequestResolver = {
           ? { guardianReplyText: `Access denied for ${requesterLabel}.` }
           : {}),
       };
+    }
+
+    // A2A pairing approvals: directly activate the assistant contact without
+    // minting a verification session. Identity is established by the
+    // invite-code handshake, not by channel-native identity verification.
+    const a2aPairing = findPairingByRemoteAssistant(
+      requesterExternalUserId,
+      "inbound",
+    );
+    if (a2aPairing && a2aPairing.status === "pending") {
+      try {
+        const success = await completePairingApproval(requesterExternalUserId);
+        if (success) {
+          log.info(
+            {
+              event: "resolver_access_request_a2a_approved",
+              requestId: request.id,
+              remoteAssistantId: requesterExternalUserId,
+            },
+            "Access request resolver: A2A pairing approval — direct assistant contact activation",
+          );
+          return { ok: true, applied: true };
+        }
+      } catch (err) {
+        log.error(
+          { err, requesterExternalUserId },
+          "Access request resolver: failed to complete A2A pairing approval",
+        );
+      }
+      return { ok: false, reason: "a2a_pairing_approval_failed" };
     }
 
     // Voice approvals: directly activate the trusted contact without minting

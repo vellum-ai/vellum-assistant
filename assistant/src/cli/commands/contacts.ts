@@ -16,6 +16,8 @@ import type {
   ContactRole,
   ContactType,
 } from "../../contacts/types.js";
+import { initiatePairing } from "../../runtime/a2a/pairing.js";
+import { findPairingByInviteCode } from "../../runtime/a2a/pairing-store.js";
 import {
   createIngressInvite,
   listIngressInvites,
@@ -711,6 +713,110 @@ Examples:
               process.exitCode = 1;
             }
           }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
+          process.exitCode = 1;
+        }
+      },
+    );
+
+  // ── A2A Pairing ────────────────────────────────────────────────────
+
+  contacts
+    .command("pair <targetGatewayUrl> <targetAssistantId>")
+    .description("Initiate A2A pairing with a remote assistant")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  targetGatewayUrl    Gateway URL of the remote assistant (e.g. https://gateway.example.com)
+  targetAssistantId   ID of the remote assistant to pair with
+
+Initiates the A2A pairing handshake by generating an invite code and
+sending a pairing request to the remote assistant's gateway. The remote
+assistant's guardian must approve the request before pairing completes.
+
+Examples:
+  $ assistant contacts pair https://gateway.example.com remote-assistant-id
+  $ assistant contacts pair https://gateway.example.com remote-assistant-id --json`,
+    )
+    .action(
+      async (
+        targetGatewayUrl: string,
+        targetAssistantId: string,
+        _opts: unknown,
+        cmd: Command,
+      ) => {
+        try {
+          initializeDb();
+          const result = await initiatePairing(
+            targetAssistantId,
+            targetGatewayUrl,
+          );
+          writeOutput(cmd, {
+            ok: true,
+            pairingRequestId: result.pairingRequestId,
+            inviteCode: result.inviteCode,
+            status: "pending",
+            message: `Pairing request sent to ${targetAssistantId}. Waiting for guardian approval.`,
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
+          process.exitCode = 1;
+        }
+      },
+    );
+
+  contacts
+    .command("pair-status [inviteCode]")
+    .description("Check the status of an A2A pairing request")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  inviteCode   The invite code returned by 'contacts pair' (optional)
+
+Checks the current status of a pairing request by invite code.
+
+Examples:
+  $ assistant contacts pair-status abc123def456
+  $ assistant contacts pair-status abc123def456 --json`,
+    )
+    .action(
+      async (inviteCode: string | undefined, _opts: unknown, cmd: Command) => {
+        try {
+          if (!inviteCode) {
+            writeOutput(cmd, {
+              ok: false,
+              error: "inviteCode argument is required",
+            });
+            process.exitCode = 1;
+            return;
+          }
+          initializeDb();
+          const request = findPairingByInviteCode(inviteCode);
+          if (!request) {
+            writeOutput(cmd, {
+              ok: false,
+              error: "Pairing request not found or expired",
+            });
+            process.exitCode = 1;
+            return;
+          }
+          writeOutput(cmd, {
+            ok: true,
+            pairingRequest: {
+              id: request.id,
+              direction: request.direction,
+              remoteAssistantId: request.remoteAssistantId,
+              remoteGatewayUrl: request.remoteGatewayUrl,
+              status: request.status,
+              createdAt: request.createdAt,
+              expiresAt: request.expiresAt,
+            },
+          });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           writeOutput(cmd, { ok: false, error: message });
