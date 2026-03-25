@@ -5,13 +5,16 @@
  * Backend selection (`resolveBackendAsync`) is the single async decision point:
  *   1. CES RPC (primary) — injected via `setCesClient()`: delegates credential
  *      operations to the CES process over stdio RPC. This is the default path
- *      for all local modes (desktop app, dev, CLI).
+ *      for local modes and the managed bootstrap handshake path.
  *   2. CES HTTP — containerized mode (IS_CONTAINERIZED + CES_CREDENTIAL_URL):
- *      delegates to the CES sidecar over HTTP. Used in Docker/managed mode.
+ *      delegates to the CES sidecar over HTTP. Used in Docker/managed mode,
+ *      including failover when the bootstrap RPC transport dies later.
  *   3. Encrypted file store (fallback) — used when CES is unavailable.
  *
  * All operations (reads, writes, lists, deletes) go to exactly one backend.
- * There are no cross-backend fallbacks or merges.
+ * There are no cross-store fallbacks or merges. The only transport failover is
+ * CES RPC → CES HTTP in managed mode; both backends target the same CES
+ * sidecar and credential data.
  */
 
 import type {
@@ -121,10 +124,17 @@ function getEncryptedStoreBackend(): CredentialBackend {
  * primary credential source — falling back to the encrypted file store would
  * silently serve stale or empty data.
  *
- * If reconnection succeeds the cache is refreshed with the new client.
- * If reconnection fails (or is on cooldown) the existing unavailable backend
- * is returned — its methods short-circuit via `isAvailable()` guards and
- * return `unreachable` results so callers can degrade gracefully.
+ * In managed mode, if the CES bootstrap RPC transport dies, we first fail
+ * over from CES RPC to the CES HTTP credential API exposed by the same
+ * sidecar. This avoids pinning credential reads to a dead bootstrap socket
+ * when the in-pod HTTP interface is still healthy.
+ *
+ * If HTTP failover is unavailable, we attempt CES RPC reconnection. When
+ * reconnection succeeds the cache is refreshed with the new client.
+ *
+ * If neither recovery path succeeds, the existing unavailable backend is
+ * returned — its methods short-circuit via `isAvailable()` guards and return
+ * `unreachable` results so callers can degrade gracefully.
  *
  * Additionally, if CES failed on initial startup (so the encrypted file
  * store became the resolved backend) but the reconnection callback is
@@ -136,6 +146,11 @@ function getEncryptedStoreBackend(): CredentialBackend {
 async function resolveBackendAsync(): Promise<CredentialBackend> {
   if (_resolvedBackend) {
     if (!_resolvedBackend.isAvailable()) {
+      const cesHttpFallback = tryFailoverToCesHttpBackend(_resolvedBackend);
+      if (cesHttpFallback) {
+        return cesHttpFallback;
+      }
+
       // Backend is no longer reachable — attempt CES reconnection.
       const reconnected = await attemptCesReconnection();
       if (reconnected) {
@@ -149,7 +164,7 @@ async function resolveBackendAsync(): Promise<CredentialBackend> {
         // backends.
         return _resolvedBackend;
       }
-    } else if (_cesReconnect && _resolvedBackend.name !== "ces-rpc") {
+    } else if (_cesReconnect && _resolvedBackend.name === "encrypted-store") {
       // CES is the preferred backend but initial startup failed, so we
       // fell back to the encrypted store. Attempt to upgrade to CES.
       const reconnected = await attemptCesReconnection();
@@ -167,6 +182,25 @@ async function resolveBackendAsync(): Promise<CredentialBackend> {
     _resolvePromise = doResolveBackend();
   }
   return _resolvePromise;
+}
+
+function tryFailoverToCesHttpBackend(
+  backend: CredentialBackend,
+): CredentialBackend | undefined {
+  if (backend.name !== "ces-rpc") return undefined;
+  if (!getIsContainerized() || !process.env.CES_CREDENTIAL_URL) {
+    return undefined;
+  }
+
+  const cesHttp = createCesCredentialBackend();
+  if (!cesHttp.isAvailable()) return undefined;
+
+  _resolvedBackend = cesHttp;
+  _resolvePromise = undefined;
+  log.warn(
+    "CES RPC credential backend became unavailable — failing over to CES HTTP backend",
+  );
+  return cesHttp;
 }
 
 /**
