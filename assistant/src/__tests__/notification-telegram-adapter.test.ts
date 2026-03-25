@@ -6,6 +6,9 @@ const deliveryCalls: Array<{
   bearerToken?: string;
 }> = [];
 
+/** When true, deliverChannelReply throws if the payload contains an approval field. */
+let rejectRichDelivery = false;
+
 mock.module("../config/env.js", () => ({
   isHttpAuthDisabled: () => true,
   getGatewayInternalBaseUrl: () => "http://gateway.internal",
@@ -17,6 +20,9 @@ mock.module("../runtime/gateway-client.js", () => ({
     payload: Record<string, unknown>,
     bearerToken?: string,
   ) => {
+    if (rejectRichDelivery && payload.approval) {
+      throw new Error("Telegram API error: buttons not supported");
+    }
     deliveryCalls.push({ url, payload, bearerToken });
   },
 }));
@@ -60,6 +66,7 @@ function makeDestination(
 describe("TelegramAdapter", () => {
   beforeEach(() => {
     deliveryCalls.length = 0;
+    rejectRichDelivery = false;
   });
 
   test("prefers deliveryText and does not append deterministic label", async () => {
@@ -241,28 +248,9 @@ describe("TelegramAdapter", () => {
     expect(deliveryCalls[0]?.payload.approval).toBeUndefined();
   });
 
-  test("falls back to plain text when rich delivery with approval fails", async () => {
-    // Re-import with a mock that fails on first call (with approval) but
-    // succeeds on retry (without approval).
-    const { mock: mockModule } = await import("bun:test");
-    mockModule.module("../runtime/gateway-client.js", () => ({
-      deliverChannelReply: async (
-        url: string,
-        payload: Record<string, unknown>,
-        bearerToken?: string,
-      ) => {
-        if (payload.approval) {
-          throw new Error("Telegram API error: buttons not supported");
-        }
-        deliveryCalls.push({ url, payload, bearerToken });
-      },
-    }));
+  test("falls back to plain text with instructions when rich delivery fails", async () => {
+    rejectRichDelivery = true;
 
-    // Clear the module cache so TelegramAdapter picks up the new mock.
-    // Because bun:test mocks are hoisted, the existing adapter already
-    // uses the original mock. We test the fallback structurally instead:
-    // verify that when approval is present and the call throws, the
-    // outer try/catch still succeeds with a plain-text delivery.
     const adapter = new TelegramAdapter();
     const payload = makePayload({
       sourceEventName: "ingress.access_request",
@@ -279,9 +267,18 @@ describe("TelegramAdapter", () => {
       },
     });
 
-    // With the original mock (which doesn't throw), the rich delivery
-    // succeeds on the first attempt — verifying the happy path.
     const result = await adapter.send(payload, makeDestination());
+
     expect(result.success).toBe(true);
+    // Rich delivery threw, so only the plain-text fallback should be recorded.
+    expect(deliveryCalls).toHaveLength(1);
+    const call = deliveryCalls[0]!;
+    // No approval payload in the fallback delivery.
+    expect(call.payload.approval).toBeUndefined();
+    // The fallback text should include the original message AND the
+    // typed-command instructions from plainTextFallback.
+    const text = call.payload.text as string;
+    expect(text).toContain("Someone is requesting access to the assistant.");
+    expect(text).toContain("XYZW");
   });
 });

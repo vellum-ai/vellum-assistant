@@ -47,6 +47,8 @@ export interface GuardianActionDecisionResponse {
   resolverFailureReason?: string;
   requestId?: string;
   userText?: string;
+  /** Resolver reply text for the guardian (e.g. verification code for access requests). */
+  replyText?: string;
 }
 
 // --- Domain-level union aliases (consumed by the barrel file) ---

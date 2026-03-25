@@ -135,9 +135,17 @@ export class TelegramAdapter implements ChannelAdapter {
         }
       }
 
+      // When falling back from rich delivery, append the plain-text
+      // instructions so the guardian still knows how to approve/reject.
+      const fallbackText =
+        approval?.plainTextFallback &&
+        !messageText.includes(approval.plainTextFallback)
+          ? `${messageText}\n\n${approval.plainTextFallback}`
+          : messageText;
+
       await deliverChannelReply(
         deliverUrl,
-        { chatId, text: messageText },
+        { chatId, text: fallbackText },
         mintDaemonDeliveryToken(),
       );
 
