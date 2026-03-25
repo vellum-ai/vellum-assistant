@@ -35,8 +35,8 @@ export function updateIdentityAvatarSection(
     ? `## Avatar\n${description}`
     : "## Avatar\nNo description yet — describe what the current avatar looks like.";
 
-  // Match ## Avatar through to the next heading or end of file
-  const avatarSectionRegex = /## Avatar\n[\s\S]*?(?=\n## |\n*$)/;
+  // Match ## Avatar through to the next heading (any level) or end of file
+  const avatarSectionRegex = /## Avatar\n[\s\S]*?(?=\n#{1,6} |\n*$)/;
 
   let updated: string;
   if (avatarSectionRegex.test(content)) {
