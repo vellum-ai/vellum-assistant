@@ -118,7 +118,7 @@ describe("secret ingress — channel inbound path", () => {
     );
 
     expect(result.blocked).toBe(true);
-    expect(result.detectedTypes).toContain("Google OAuth Secret");
+    expect(result.detectedTypes).toContain("Google OAuth Client Secret");
   });
 
   test("channel inbound with normal text returns blocked: false", () => {
