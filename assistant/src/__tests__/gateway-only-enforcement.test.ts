@@ -706,6 +706,72 @@ describe("gateway-only ingress enforcement", () => {
     });
   });
 
+  // ── A2A routes do not exist on runtime (gateway-only) ────────────────
+
+  describe("runtime has no A2A webhook or deliver routes", () => {
+    test("POST /webhook/a2a is rejected (no handler on runtime)", async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/webhook/a2a`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          version: "v1",
+          type: "pairing_request",
+          senderAssistantId: "alice",
+          senderGatewayUrl: "http://alice.test",
+          inviteCode: "inv-1",
+        }),
+      });
+      // Without auth, the request is rejected at auth middleware (401).
+      expect(res.status).toBe(401);
+    });
+
+    test("POST /webhook/a2a with auth returns 404 (no handler exists)", async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/webhook/a2a`, {
+        method: "POST",
+        headers: {
+          ...AUTH_HEADERS,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          version: "v1",
+          type: "pairing_request",
+          senderAssistantId: "alice",
+          senderGatewayUrl: "http://alice.test",
+          inviteCode: "inv-1",
+        }),
+      });
+      // With valid auth, the request passes auth but finds no matching route.
+      expect(res.status).toBe(404);
+    });
+
+    test("POST /deliver/a2a is rejected (no handler on runtime)", async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/deliver/a2a`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chatId: "alice",
+          text: "hello",
+        }),
+      });
+      expect(res.status).toBe(401);
+    });
+
+    test("POST /deliver/a2a with auth returns 404 (no handler exists)", async () => {
+      const res = await fetch(`http://127.0.0.1:${port}/deliver/a2a`, {
+        method: "POST",
+        headers: {
+          ...AUTH_HEADERS,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          chatId: "alice",
+          text: "hello",
+        }),
+      });
+      expect(res.status).toBe(404);
+    });
+  });
+
   // ── Startup warning for non-loopback host ──────────────────────────
 
   describe("startup guard — non-loopback host", () => {
