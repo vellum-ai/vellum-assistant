@@ -17,7 +17,7 @@
         "required": ["title"]
       },
       "executor": "tools/rename-conversation.ts",
-      "execution_target": "sandbox"
+      "execution_target": "host"
     }
   ]
 }
