@@ -1112,9 +1112,9 @@ struct MainWindowView: View {
                     .clipped()
                     .opacity(isSettingsOpen ? 0 : 1)
                     .allowsHitTesting(!isSettingsOpen)
+                    .padding(.trailing, isSettingsOpen ? 0 : 16)
                     .animation(VAnimation.panel, value: sidebarExpanded)
                     .animation(VAnimation.panel, value: isSettingsOpen)
-                    .padding(.trailing, isSettingsOpen ? 0 : 16)
 
                 chatContentView(geometry: geometry)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))

@@ -868,7 +868,8 @@ struct MessageListView: View {
                     .padding(.bottom, ConversationAvatarFollower.verticalOffset)
             }
             .overlay(alignment: .bottom) {
-                if !isNearBottom && !scrollCoordinator.anchorIsVisible {
+                if !isNearBottom && !scrollCoordinator.anchorIsVisible
+                    && scrollCoordinator.anchorLastMinY > 0 {
                     Button(action: {
                         os_signpost(.event, log: PerfSignposts.log, name: "scrollToLatestPressed")
                         scrollCoordinator.hasReceivedScrollEvent = true

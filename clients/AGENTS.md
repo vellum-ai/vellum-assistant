@@ -203,6 +203,8 @@ All scroll state and reactions for the message list live in `MessageListScrollCo
 - **`MessageListScrollCoordinator+PinAndScroll.swift`** — Pin requests (`requestBottomPin`, `configureBottomPinCoordinator`), scroll restore, user scroll actions (`handleScrollUp`, `handleScrollToBottom`), suppress-auto-scroll, resize task, pagination trigger/execution, anchor handling.
 - **`MessageListScrollCoordinator+Reactions.swift`** — Consolidated reaction points that replace former inline `onChange` handlers: `sendingStateChanged`, `messagesChanged`, `containerResized`, `conversationSwitched`, `anchorMessageIdChanged`, `flashHighlight`, `handleConfirmationFocusIfNeeded`.
 
+The coordinator owns a **`BottomVisibilityPolicy`** that provides hysteresis-based anchor visibility. It uses two thresholds (a "show" threshold and a higher "hide" threshold) on `anchorLastMinY` distance to prevent `anchorIsVisible` from toggling rapidly near the boundary. Three consumers depend on `anchorIsVisible`: the "Scroll to latest" CTA button (with an additional `anchorLastMinY > 0` guard to filter rubber-band overscroll), the reattach-on-idle logic, and streaming-dot visibility.
+
 The coordinator is an `ObservableObject` owned by `MessageListView` via `@StateObject`. It separates reactive state (`@Published` properties that drive view updates) from non-reactive bookkeeping (plain stored properties that update on every scroll tick without triggering `objectWillChange`).
 
 ### Scroll Event Detection
@@ -220,6 +222,7 @@ The `ScrollSuppression` OptionSet manages reasons for temporarily suppressing au
 - **Guard scroll `onChange` handlers with the `ScrollSuppression` state machine.** Any `onChange(of: messages.count)` that calls `proxy.scrollTo` must check `scrollCoordinator.isSuppressed`. Suppression reasons (`.pagination`, `.expansion`, `.resize`) are managed via `addSuppression`/`removeSuppression` on `MessageListScrollCoordinator`, each with a defined timeout. This prevents auto-scroll from racing pagination scroll or other competing operations.
 - **Use an in-flight guard to prevent stacking concurrent pagination loads.** The coordinator's `isPaginationInFlight` flag gates the pagination sentinel. Without it, rapid scroll-to-top can enqueue multiple concurrent loads before `isLoadingMoreMessages` is set by the async response, duplicating content and corrupting the history cursor.
 - **Route all scroll reactions through coordinator methods.** Do not add inline `onChange` handlers that call `proxy.scrollTo` directly in `MessageListView`. Instead, add a new method on the coordinator (in the appropriate extension file) and call it from the view. This keeps scroll logic centralized and testable.
+- **`ChatScrollLoopGuard` anchor threshold rationale.** The `anchorThreshold` of 150 per 2-second window accommodates normal fast scroll (~60 events over the full 2s window) with 2.5x headroom, while catching runaway layout loops (200+/2s). The 2.5x multiplier is against the sustained 2-second window total, not a per-second peak rate. Monitor this threshold on high-refresh-rate displays (120 Hz+), as event volume may scale with refresh rate and require adjustment.
 <details>
 <summary><strong>Layout timing, scroll forwarding, and .scrollPosition caveats</strong></summary>
 
@@ -327,6 +330,7 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
 | `@Observable` dictionary as per-entity store | Any key mutation invalidates all views reading the dictionary | Use per-entity `@Observable` wrapper objects; mutate their properties instead of the dictionary |
 | GeometryReader on ScrollView `.background` measuring parent frame | Measures the ScrollView's proposed size (parent frame), not content intrinsic height — creates feedback loop where state derived from the measurement drives the frame that's being measured | Place GeometryReader on the *inner content* (inside the ScrollView), and reset all derived state (`contentHeight`, `isExpanded`) atomically when content clears |
 | `.foregroundColor(VColor.xxx)` | Deprecated since macOS 12 / iOS 15; fully removed from the codebase — do not reintroduce | Use `.foregroundStyle(VColor.xxx)` — drop-in replacement for `Color` values |
+| Inherited `.animation()` causing layout interpolation during view switches | A parent's `.animation()` modifier applies to all descendants, including subtrees that should switch instantly (e.g., tab/panel changes) | Apply `.animation(nil, value: switchValue)` on the subtree that should not animate. This overrides the inherited animation for that specific value change while preserving sibling animations driven by other values. |
 
 </details>
 
