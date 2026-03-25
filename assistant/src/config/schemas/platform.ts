@@ -39,14 +39,6 @@ export const DaemonConfigSchema = z
       .positive("daemon.sigkillGracePeriodMs must be a positive integer")
       .default(2000)
       .describe("Grace period after SIGTERM before sending SIGKILL (ms)"),
-    titleGenerationMaxTokens: z
-      .number({ error: "daemon.titleGenerationMaxTokens must be a number" })
-      .int("daemon.titleGenerationMaxTokens must be an integer")
-      .positive("daemon.titleGenerationMaxTokens must be a positive integer")
-      .default(50)
-      .describe(
-        "Maximum number of tokens for auto-generated conversation titles",
-      ),
     standaloneRecording: z
       .boolean({ error: "daemon.standaloneRecording must be a boolean" })
       .default(true)

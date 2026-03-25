@@ -7,12 +7,10 @@
  * overwritten, never user-provided custom titles.
  */
 
-import { getConfig } from "../config/loader.js";
 import { getConfiguredProvider } from "../providers/provider-send-message.js";
 import type { Provider } from "../providers/types.js";
 import { runBtwSidechain } from "../runtime/btw-sidechain.js";
 import { getLogger } from "../util/logger.js";
-import { truncate } from "../util/truncate.js";
 import {
   getConversation,
   getMessages,
@@ -128,15 +126,13 @@ export async function generateAndPersistConversationTitle(
     return { title: fallback, updated: true };
   }
 
-  const config = getConfig();
   const prompt = buildTitlePrompt(context, userMessage, assistantResponse);
   const result = await runBtwSidechain({
     content: prompt,
     provider,
     systemPrompt: buildTitleSystemPrompt(),
     tools: [],
-    maxTokens: config.daemon.titleGenerationMaxTokens,
-    modelIntent: "latency-optimized",
+    modelIntent: "quality-optimized",
     signal,
     timeoutMs: 10_000,
   });
@@ -234,14 +230,12 @@ export async function regenerateConversationTitle(
   }
 
   const prompt = buildRegenerationPrompt(recentMessages);
-  const config = getConfig();
   const result = await runBtwSidechain({
     content: prompt,
     provider,
     systemPrompt: buildTitleSystemPrompt(),
     tools: [],
-    maxTokens: config.daemon.titleGenerationMaxTokens,
-    modelIntent: "latency-optimized",
+    modelIntent: "quality-optimized",
     signal,
     timeoutMs: 10_000,
   });
@@ -292,7 +286,6 @@ function buildTitleSystemPrompt(): string {
     "You generate short conversation titles. Output ONLY the title text — no explanation, no quotes, no markdown, no preamble.",
     "",
     "Rules:",
-    "- Maximum 5 words and 40 characters",
     "- Summarize the TOPIC the user is asking about",
     "- Do NOT respond to the conversation content",
     "- Do NOT assess feasibility or comment on capabilities",
@@ -320,10 +313,10 @@ function buildTitlePrompt(
   }
 
   if (userMessage) {
-    parts.push(`User: ${truncate(userMessage, 200, "")}`);
+    parts.push(`User: ${userMessage}`);
   }
   if (assistantResponse) {
-    parts.push(`Assistant: ${truncate(assistantResponse, 200, "")}`);
+    parts.push(`Assistant: ${assistantResponse}`);
   }
 
   return parts.join("\n");
@@ -332,9 +325,6 @@ function buildTitlePrompt(
 function normalizeTitle(raw: string): string {
   let title = raw.trim().replace(/^["']|["']$/g, "");
   title = stripMarkdown(title);
-  const words = title.split(/\s+/);
-  if (words.length > 5) title = words.slice(0, 5).join(" ");
-  if (title.length > 40) title = title.slice(0, 40).trimEnd();
   return title;
 }
 
@@ -353,8 +343,8 @@ function stripMarkdown(text: string): string {
 
 function deriveFallbackTitle(context?: TitleContext): string | null {
   if (!context) return null;
-  if (context.systemHint) return truncate(context.systemHint, 40, "");
-  if (context.uxBrief) return truncate(context.uxBrief, 40, "");
+  if (context.systemHint) return context.systemHint;
+  if (context.uxBrief) return context.uxBrief;
   return null;
 }
 
@@ -412,7 +402,7 @@ function buildRegenerationPrompt(recentMessages: MessageRow[]): string {
     const text = extractTextForTitle(msg.content);
     if (!text) continue;
     const role = msg.role === "user" ? "User" : "Assistant";
-    parts.push(`${role}: ${truncate(text, 200, "")}`);
+    parts.push(`${role}: ${text}`);
   }
 
   return parts.join("\n");
