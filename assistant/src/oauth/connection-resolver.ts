@@ -29,7 +29,7 @@ export interface ResolveOAuthConnectionOptions {
  * BYO providers resolve from the local SQLite oauth-store and require an
  * active connection row and a stored access token.
  *
- * @param providerKey - Provider identifier (e.g. "integration:google").
+ * @param providerKey - Provider identifier (e.g. "google").
  *   Maps to the `provider_key` primary key in the `oauth_providers` table.
  * @param options.clientId - Optional OAuth app client ID. When multiple BYO
  *   apps exist for the same provider, narrows the connection lookup to the
