@@ -112,7 +112,10 @@ describe("sendA2AMessage", () => {
 
     // Verify deliverChannelReply was called with standard ChannelReplyPayload
     expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1);
-    const [callbackUrl, payload, token] = mockDeliverChannelReply.mock.calls[0];
+    const args = mockDeliverChannelReply.mock.calls[0] as unknown[];
+    const callbackUrl = args[0] as string;
+    const payload = args[1] as Record<string, unknown>;
+    const token = args[2] as string;
 
     // Callback URL should point to gateway /deliver/a2a with routing params
     expect(callbackUrl).toContain("http://127.0.0.1:7830/deliver/a2a");
@@ -204,7 +207,8 @@ describe("sendA2AMessage", () => {
     await sendA2AMessage("contact-alice", "Test message");
 
     expect(mockDeliverChannelReply).toHaveBeenCalledTimes(1);
-    const [, payload] = mockDeliverChannelReply.mock.calls[0];
+    const callArgs = mockDeliverChannelReply.mock.calls[0] as unknown[];
+    const payload = callArgs[1] as Record<string, unknown>;
 
     // The payload should only have chatId and text — no A2A-specific fields
     // like version, type, senderAssistantId, messageId, etc.
