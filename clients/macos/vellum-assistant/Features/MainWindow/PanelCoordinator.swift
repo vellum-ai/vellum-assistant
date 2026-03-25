@@ -383,9 +383,6 @@ extension MainWindowView {
             let isTTSEnabled = assistantFeatureFlagStore.isEnabled(
                 "message-tts"
             )
-            let isVoiceModeEnabled = assistantFeatureFlagStore.isEnabled(
-                "voice-mode"
-            )
             ActiveChatViewWrapper(
                 viewModel: viewModel,
                 windowState: windowState,
@@ -406,9 +403,9 @@ extension MainWindowView {
                 onDictateToggle: {
                     AppDelegate.shared?.voiceInput?.toggleRecording(origin: .chatComposer)
                 },
-                onVoiceModeToggle: isVoiceModeEnabled ? {
+                onVoiceModeToggle: {
                     toggleVoiceMode()
-                } : nil,
+                },
                 conversationId: conversationManager.activeConversationId,
                 anchorMessageId: $conversationManager.pendingAnchorMessageId,
                 highlightedMessageId: $conversationManager.highlightedMessageId
