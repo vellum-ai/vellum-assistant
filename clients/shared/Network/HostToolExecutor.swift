@@ -22,7 +22,7 @@ public enum HostToolExecutor {
     #endif
 
     /// Mark a request ID as cancelled and sweep stale entries (>30s old).
-    static func markCancelled(_ requestId: String) {
+    public static func markCancelled(_ requestId: String) {
         lock.withLock {
             let now = Date()
             cancelledRequestIds[requestId] = now
@@ -33,7 +33,7 @@ public enum HostToolExecutor {
 
     /// Check if a request ID was cancelled. If found, removes it (consume-once)
     /// and returns `true`. Returns `false` if not cancelled.
-    static func isCancelledAndConsume(_ requestId: String) -> Bool {
+    public static func isCancelledAndConsume(_ requestId: String) -> Bool {
         lock.withLock {
             if cancelledRequestIds.removeValue(forKey: requestId) != nil {
                 return true
