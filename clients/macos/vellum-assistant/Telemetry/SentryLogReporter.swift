@@ -10,8 +10,8 @@ import VellumAssistantShared
 /// do not need any changes. The forwarder uses `OSLogStore` with
 /// `.currentProcessIdentifier` scope, which requires no special entitlements.
 ///
-/// Additionally installs the `VLogger.errorReporter` callback so that any
-/// code using the new `VLogger` type also flows into Sentry immediately.
+/// Additionally installs the `ReportableLogger.errorReporter` callback so
+/// that any code using `ReportableLogger` also flows into Sentry immediately.
 ///
 /// Call `SentryLogReporter.start()` once at app startup (after `SentrySDK.start`).
 final class SentryLogReporter: @unchecked Sendable {
@@ -30,6 +30,12 @@ final class SentryLogReporter: @unchecked Sendable {
     private var recentFingerprints = Set<String>()
     private let maxFingerprintCacheSize = 500
 
+    /// Categories that already have explicit Sentry integration and should
+    /// be skipped by the OSLogStore poller to avoid duplicate events.
+    private let excludedCategories: Set<String> = [
+        "MetricKit",       // MetricKitManager sends hang diagnostics directly
+    ]
+
     private init() {}
 
     // MARK: - Public API
@@ -37,22 +43,22 @@ final class SentryLogReporter: @unchecked Sendable {
     /// Start the log forwarder. Safe to call multiple times (subsequent
     /// calls are no-ops).
     static func start() {
-        shared.installVLoggerHook()
+        shared.installReportableLoggerHook()
         shared.startPolling()
     }
 
     /// Stop the log forwarder. Called when the user disables diagnostics.
     static func stop() {
-        VLogger.errorReporter = nil
+        ReportableLogger.errorReporter = nil
         shared.stopPolling()
     }
 
-    // MARK: - VLogger hook
+    // MARK: - ReportableLogger hook
 
-    /// Wire up `VLogger.errorReporter` so that new code using `VLogger`
-    /// captures to Sentry immediately (no polling delay).
-    private func installVLoggerHook() {
-        VLogger.errorReporter = { message, category in
+    /// Wire up `ReportableLogger.errorReporter` so that new code using
+    /// `ReportableLogger` captures to Sentry immediately (no polling delay).
+    private func installReportableLoggerHook() {
+        ReportableLogger.errorReporter = { message, category in
             // Record the fingerprint so pollForErrors() skips this entry
             // when it later reads the same message from OSLogStore.
             let fingerprint = "\(category):\(message)"
@@ -108,6 +114,9 @@ final class SentryLogReporter: @unchecked Sendable {
             for case let entry as OSLogEntryLog in entries {
                 // Skip entries from before our window (position is inclusive).
                 guard entry.date > cutoff else { continue }
+
+                // Skip categories that already send explicit Sentry events.
+                guard !excludedCategories.contains(entry.category) else { continue }
 
                 let message = entry.composedMessage
                 guard !message.isEmpty else { continue }

@@ -1,22 +1,22 @@
 import Foundation
 import os
 
-/// Drop-in replacement for `os.Logger` that forwards error- and fault-level
-/// messages to a configurable reporter (e.g. Sentry) in addition to the
-/// unified logging system.
+/// Drop-in replacement for `os.Logger` that forwards error-, fault-, and
+/// critical-level messages to a configurable reporter (e.g. Sentry) in
+/// addition to the unified logging system.
 ///
 /// Usage:
 /// ```swift
-/// private let log = VLogger(subsystem: "com.vellum.vellum-assistant", category: "MyFeature")
+/// private let log = ReportableLogger(subsystem: "com.vellum.vellum-assistant", category: "MyFeature")
 /// log.info("loaded")           // → os.Logger only
 /// log.error("something broke") // → os.Logger + error reporter (if configured)
 /// ```
 ///
 /// Configure the reporter at app startup:
 /// ```swift
-/// VLogger.errorReporter = { message, category in /* Sentry, analytics, etc. */ }
+/// ReportableLogger.errorReporter = { message, category in /* Sentry, analytics, etc. */ }
 /// ```
-public struct VLogger: Sendable {
+public struct ReportableLogger: Sendable {
 
     // MARK: - Error reporter hook
 
@@ -26,9 +26,9 @@ public struct VLogger: Sendable {
     private static let _lock = NSLock()
     private static var _errorReporter: (@Sendable (String, String) -> Void)?
 
-    /// Called for every `error()` and `fault()` log. Set once at app startup
-    /// to bridge error logs into Sentry or another crash reporter.
-    /// Parameters: (message: String, category: String).
+    /// Called for every `error()`, `fault()`, and `critical()` log. Set once
+    /// at app startup to bridge error logs into Sentry or another crash
+    /// reporter. Parameters: (message: String, category: String).
     public static var errorReporter: (@Sendable (String, String) -> Void)? {
         get { _lock.lock(); defer { _lock.unlock() }; return _errorReporter }
         set { _lock.lock(); defer { _lock.unlock() }; _errorReporter = newValue }
@@ -51,9 +51,8 @@ public struct VLogger: Sendable {
     public func info(_ message: String) { osLogger.info("\(message)") }
     public func notice(_ message: String) { osLogger.notice("\(message)") }
     public func warning(_ message: String) { osLogger.warning("\(message)") }
-    public func critical(_ message: String) { osLogger.critical("\(message)") }
 
-    // MARK: - Error / Fault — captured to reporter
+    // MARK: - Error / Fault / Critical — captured to reporter
 
     /// Log an error and forward to the error reporter (e.g. Sentry).
     public func error(_ message: String) {
@@ -64,6 +63,14 @@ public struct VLogger: Sendable {
     /// Log a fault and forward to the error reporter (e.g. Sentry).
     public func fault(_ message: String) {
         osLogger.fault("\(message, privacy: .public)")
+        Self.errorReporter?(message, category)
+    }
+
+    /// Log a critical message and forward to the error reporter.
+    /// Apple maps `Logger.critical()` to `OSLogType.fault`, so this
+    /// receives the same Sentry treatment as `fault()`.
+    public func critical(_ message: String) {
+        osLogger.critical("\(message, privacy: .public)")
         Self.errorReporter?(message, category)
     }
 }
