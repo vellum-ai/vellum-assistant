@@ -175,7 +175,7 @@ Examples:
         if (!row) {
           writeOutput(cmd, {
             ok: false,
-            error: `Provider not found: ${providerKey}`,
+            error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers. To register a custom provider, run 'assistant oauth providers register --help'.`,
           });
           process.exitCode = 1;
           return;
@@ -196,7 +196,10 @@ Examples:
   providers
     .command("register")
     .description("Register a new OAuth provider configuration")
-    .requiredOption("--provider-key <key>", "Provider key")
+    .requiredOption(
+      "--provider-key <key>",
+      "Unique provider key (e.g. \"integration:custom-service\"). Must not collide with an existing key from 'assistant oauth providers list'.",
+    )
     .requiredOption("--auth-url <url>", "Authorization endpoint URL")
     .requiredOption("--token-url <url>", "Token endpoint URL")
     .option("--base-url <url>", "API base URL")
