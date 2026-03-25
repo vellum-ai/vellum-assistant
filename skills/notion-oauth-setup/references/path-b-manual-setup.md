@@ -37,7 +37,9 @@ Tell the user:
 >
 > The integration will be created as Internal by default - that's exactly what we want.
 >
-> Let me know when the integration is created.
+> Let me know when the integration is created, or if you run into any issues.
+
+If the user reports they can't create the integration due to missing admin permissions, see [non-admin-alternatives.md](non-admin-alternatives.md). If they receive a secret from their admin, skip directly to Path B Step 3.
 
 ## Path B Step 3: Copy the Internal Integration Secret
 
