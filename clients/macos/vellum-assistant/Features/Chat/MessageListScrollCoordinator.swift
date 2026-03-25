@@ -381,6 +381,7 @@ final class MessageListScrollCoordinator: ObservableObject {
         highlightDismissTask = nil
         scrollIndicatorRestoreTask?.cancel()
         scrollIndicatorRestoreTask = nil
+        hideScrollIndicators = false
         isPaginationInFlight = false
         scrollTracking.snapshotDebounceTask?.cancel()
         scrollTracking.snapshotDebounceTask = nil

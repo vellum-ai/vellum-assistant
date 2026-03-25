@@ -199,6 +199,13 @@ extension MessageListScrollCoordinator {
         hasPlayedTailEntryAnimation = false
         // Reset confirmation focus tracking for the new conversation.
         lastAutoFocusedRequestId = nil
+        // When switching to a conversation that is already actively sending,
+        // .onChange(of: isSending) won't fire (the value doesn't change), so
+        // hasReceivedScrollEvent stays false. Set it now so that messagesChanged()
+        // can issue programmatic pins for streaming messages in the new conversation.
+        if isSending {
+            hasReceivedScrollEvent = true
+        }
         // The ScrollView's `.defaultScrollAnchor(.bottom)` handles initial
         // bottom positioning declaratively. restoreScrollToBottom provides
         // a deferred safety-net check in case the anchor alone is insufficient.
