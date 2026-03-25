@@ -474,7 +474,8 @@ struct MessageListView: View {
     private static func estimatedCellHeight(
         for message: ChatMessage,
         showTimestamp: Bool,
-        subagentCount: Int
+        subagentCount: Int,
+        isConfirmationHidden: Bool
     ) -> CGFloat {
         var height: CGFloat = 0
 
@@ -485,7 +486,9 @@ struct MessageListView: View {
 
         // Message-type branching (mirrors MessageCellView.body)
         if message.confirmation != nil {
-            height += 120
+            if !isConfirmationHidden {
+                height += 120
+            }
         } else if message.modelList != nil {
             height += 200
         } else if message.commandList != nil {
@@ -540,12 +543,37 @@ struct MessageListView: View {
             },
             uniquingKeysWith: +
         )
+        // Determine which confirmation messages are hidden (mirrors MessageCellView.body):
+        // - Pending confirmations rendered inline on the preceding assistant message's tool call
+        // - Decided confirmations preceded by an assistant message
+        var confirmationHiddenIndices = Set<Int>()
+        for i in msgs.indices {
+            guard let confirmation = msgs[i].confirmation else { continue }
+            if confirmation.state == .pending {
+                if let toolUseId = confirmation.toolUseId, !toolUseId.isEmpty {
+                    for j in stride(from: i - 1, through: 0, by: -1) {
+                        let prev = msgs[j]
+                        guard prev.role == .assistant, prev.confirmation == nil else { continue }
+                        if prev.toolCalls.contains(where: { $0.toolUseId == toolUseId && $0.pendingConfirmation != nil }) {
+                            confirmationHiddenIndices.insert(i)
+                        }
+                        break
+                    }
+                }
+            } else {
+                if i > 0 && msgs[i - 1].role == .assistant {
+                    confirmationHiddenIndices.insert(i)
+                }
+            }
+        }
+
         var total: CGFloat = 0
-        for msg in msgs {
+        for (i, msg) in msgs.enumerated() {
             total += Self.estimatedCellHeight(
                 for: msg,
                 showTimestamp: timestamps.contains(msg.id),
-                subagentCount: subagentCounts[msg.id] ?? 0
+                subagentCount: subagentCounts[msg.id] ?? 0,
+                isConfirmationHidden: confirmationHiddenIndices.contains(i)
             )
         }
         // Inter-item spacing (LazyVStack spacing: VSpacing.md between cells)
