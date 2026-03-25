@@ -2126,15 +2126,15 @@ public final class SettingsStore: ObservableObject {
         }
         if let googleOAuth = services["google-oauth"] as? [String: Any],
            let mode = googleOAuth["mode"] as? String {
-            self.managedOAuthMode["integration:google"] = mode
+            self.managedOAuthMode["google"] = mode
         } else if let legacy = services["integration:google"] as? [String: Any],
                   let mode = legacy["mode"] as? String {
             // Migrate from the legacy key that was written due to a bug where
             // setManagedOAuthMode fell back to the raw providerKey when metadata
             // hadn't loaded yet. Read the value and re-save under the correct key
             // so subsequent launches use the canonical path.
-            self.managedOAuthMode["integration:google"] = mode
-            setManagedOAuthMode(mode, providerKey: "integration:google")
+            self.managedOAuthMode["google"] = mode
+            setManagedOAuthMode(mode, providerKey: "google")
         }
     }
 
@@ -2179,12 +2179,9 @@ public final class SettingsStore: ObservableObject {
 
     func setManagedOAuthMode(_ mode: String, providerKey: String) {
         managedOAuthMode[providerKey] = mode
-        // Derive the config service key deterministically from providerKey so it
-        // matches the key that loadServiceModes() reads on startup. Previously
-        // this depended on provider metadata being loaded, which caused a race:
-        // if metadata hadn't arrived yet the fallback wrote under the wrong key.
-        let slug = providerKey.hasPrefix("integration:") ? String(providerKey.dropFirst("integration:".count)) : providerKey
-        let serviceKey = "\(slug)-oauth"
+        // Derive the config service key from providerKey (e.g. "google" → "google-oauth")
+        // so it matches the key that loadServiceModes() reads on startup.
+        let serviceKey = "\(providerKey)-oauth"
         Task {
             let success = await settingsClient.patchConfig([
                 "services": [serviceKey: ["mode": mode]]
@@ -2274,11 +2271,9 @@ public final class SettingsStore: ObservableObject {
         guard managedOAuthMode[providerKey] == "managed" else { return }
         guard let assistantId = await resolvePlatformAssistantId(userId: userId) else { return }
 
-        let providerSlug = providerKey.hasPrefix("integration:") ? String(providerKey.dropFirst("integration:".count)) : providerKey
-
         do {
             let connections = try await PlatformOAuthService.shared.listConnections(assistantId: assistantId)
-            managedOAuthConnections[providerKey] = connections.filter { $0.provider == providerSlug }
+            managedOAuthConnections[providerKey] = connections.filter { $0.provider == providerKey }
             managedOAuthError[providerKey] = nil
         } catch {
             log.error("Failed to fetch managed OAuth connections for \(providerKey): \(error)")
@@ -2288,8 +2283,6 @@ public final class SettingsStore: ObservableObject {
     }
 
     func startManagedOAuthConnect(providerKey: String, userId: String? = nil) {
-        let providerSlug = providerKey.hasPrefix("integration:") ? String(providerKey.dropFirst("integration:".count)) : providerKey
-
         Task {
             managedOAuthIsConnecting[providerKey] = true
             managedOAuthError[providerKey] = nil
@@ -2302,9 +2295,9 @@ public final class SettingsStore: ObservableObject {
 
             do {
                 let response = try await PlatformOAuthService.shared.startOAuthConnect(
-                    provider: providerSlug,
+                    provider: providerKey,
                     assistantId: assistantId,
-                    redirectAfterConnect: "vellum-assistant://oauth/\(providerSlug)/callback"
+                    redirectAfterConnect: "vellum-assistant://oauth/\(providerKey)/callback"
                 )
 
                 guard let connectURL = URL(string: response.connect_url) else {
@@ -3144,11 +3137,8 @@ struct OAuthProviderMetadata: Codable, Sendable {
     let client_id_placeholder: String?
     let requires_client_secret: Int
 
-    /// Derive the platform OAuth slug from provider_key (e.g. "integration:google" → "google").
+    /// The platform OAuth slug is the provider_key itself (bare name, e.g. "google").
     var platformOAuthSlug: String {
-        if provider_key.hasPrefix("integration:") {
-            return String(provider_key.dropFirst("integration:".count))
-        }
         return provider_key
     }
 }
