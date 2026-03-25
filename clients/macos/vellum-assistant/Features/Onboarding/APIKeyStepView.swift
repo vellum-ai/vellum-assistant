@@ -145,7 +145,7 @@ struct APIKeyStepView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: VSpacing.sm) {
                         Text(title)
-                            .font(.system(size: 15, weight: .medium))
+                            .font(VFont.bodyLargeEmphasised)
                             .foregroundStyle(isDisabled ? VColor.contentTertiary : VColor.contentDefault)
 
                         Spacer()
@@ -161,7 +161,7 @@ struct APIKeyStepView: View {
                         }
                     }
                     Text(subtitle)
-                        .font(.system(size: 12))
+                        .font(VFont.bodySmallDefault)
                         .foregroundStyle(isDisabled ? VColor.contentTertiary : VColor.contentSecondary)
                 }
 
