@@ -115,7 +115,7 @@ class HistoryExpiredError extends Error {
 export const gmailProvider: WatcherProvider = {
   id: "gmail",
   displayName: "Gmail",
-  requiredCredentialService: "integration:google",
+  requiredCredentialService: "google",
 
   async getInitialWatermark(credentialService: string): Promise<string> {
     const connection = await resolveOAuthConnection(credentialService);

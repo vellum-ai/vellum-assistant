@@ -1738,7 +1738,7 @@ export function buildSchema(): Record<string, unknown> {
               required: true,
               schema: { type: "string" },
               description:
-                "OAuth provider key to filter by, for example `integration:google`.",
+                "OAuth provider key to filter by, for example `google`.",
             },
           ],
           security: [{ BearerAuth: [] }],

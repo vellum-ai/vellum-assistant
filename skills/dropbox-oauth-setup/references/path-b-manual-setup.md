@@ -84,7 +84,7 @@ Wait for the App key, then store it:
 
 ```
 credential_store store:
-  service: "integration:dropbox"
+  service: "dropbox"
   field: "client_id"
   value: "<the app key the user sent>"
 ```
@@ -97,7 +97,7 @@ Store the secret:
 
 ```
 credential_store store:
-  service: "integration:dropbox"
+  service: "dropbox"
   field: "oauth_secret"
   value: "<the app secret the user sent>"
 ```
@@ -115,16 +115,16 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:dropbox --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider dropbox --client-id $(cat <<'EOF'
     <app-key>
     EOF
-    ) --client-secret-credential-path "integration:dropbox:oauth_secret"
+    ) --client-secret-credential-path "credential/dropbox/oauth_secret"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connect integration:dropbox
+    assistant oauth connect dropbox
 ```
 
 Send the returned auth URL to the user. Tell them to click **Allow** on the Dropbox consent page.

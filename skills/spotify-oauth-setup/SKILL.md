@@ -16,7 +16,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 
 ## Provider Details
 
-- **Provider key:** `integration:spotify`
+- **Provider key:** `spotify`
 - **Dashboard:** `https://developer.spotify.com/dashboard`
 - **Ping URL:** `https://api.spotify.com/v1/me`
 - **Callback transport:** Loopback
@@ -58,7 +58,7 @@ Before providing the redirect URI, resolve it:
 
 ```
 bash:
-  command: assistant oauth providers get integration:spotify --json
+  command: assistant oauth providers get spotify --json
 ```
 
 - If the `redirectUri` is a concrete URL (e.g. `http://localhost:…/oauth/callback`), tell the user to enter that exact URL as the redirect URI.
@@ -103,7 +103,7 @@ Collect the app secret via secure prompt:
 
 ```
 credential_store prompt:
-  service: "integration:spotify"
+  service: "spotify"
   field: "oauth_secret"
   label: "Spotify OAuth App Secret"
   description: "Copy the app secret from the Settings page (click View app secret to reveal it) and paste it here."
@@ -115,10 +115,10 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:spotify --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider spotify --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "integration:spotify:oauth_secret"
+    ) --client-secret-credential-path "credential/spotify/oauth_secret"
 ```
 
 **Milestone (4 of 7):** "Credentials saved - just the authorization step left."
@@ -134,7 +134,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:spotify
+    assistant oauth connect spotify
 ```
 
 The scopes requested will include:
@@ -158,7 +158,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    assistant oauth ping integration:spotify
+    assistant oauth ping spotify
 ```
 
 **On success:** "Spotify is connected! You can now ask me to control playback, manage your playlists, check what's playing, and browse your library."

@@ -110,13 +110,13 @@ describe("daemon credential read requests", () => {
 
   test("preserves compound credential service names on metadata reads", async () => {
     const result = await getSecureKeyResultViaDaemon(
-      credentialKey("integration:google", "client_secret"),
+      credentialKey("google", "client_secret"),
     );
 
     expect(result).toEqual({ value: "secret-value", unreachable: false });
     expect(getRequestBody()).toEqual({
       type: "credential",
-      name: "integration:google:client_secret",
+      name: "google:client_secret",
       reveal: true,
     });
   });

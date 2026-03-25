@@ -35,7 +35,7 @@ function makeMockClient(
 
 const DEFAULT_OPTIONS = {
   id: "conn-1",
-  providerKey: "integration:google",
+  providerKey: "google",
   externalId: "ext-123",
   accountInfo: "user@example.com",
   client: makeMockClient(),
@@ -192,7 +192,7 @@ describe("PlatformOAuthConnection", () => {
     const conn = new PlatformOAuthConnection({
       ...DEFAULT_OPTIONS,
       client,
-      providerKey: "integration:slack",
+      providerKey: "slack",
       connectionId: "slack-conn-456",
     });
     await conn.request({ method: "GET", path: "/test" });

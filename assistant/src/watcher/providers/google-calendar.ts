@@ -25,7 +25,7 @@ import type {
 const log = getLogger("watcher:google-calendar");
 
 /** The credential service — calendar shares OAuth tokens with Gmail. */
-const CREDENTIAL_SERVICE = "integration:google";
+const CREDENTIAL_SERVICE = "google";
 
 function eventToItem(event: CalendarEvent, eventType: string): WatcherItem {
   const start = event.start?.dateTime ?? event.start?.date ?? "";

@@ -40,7 +40,7 @@ export interface OAuthScopePolicy {
  * templates, skill IDs) and cannot be serialised to a DB row.
  */
 export interface OAuthProviderBehavior {
-  /** Canonical service key (e.g. "integration:twitter"). */
+  /** Canonical service key (e.g. "twitter"). */
   service: string;
   /**
    * Async function that verifies the user's identity after a successful

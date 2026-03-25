@@ -264,7 +264,7 @@ describe("resolveManagedSubject", () => {
 
   test("rejects a local_oauth handle", async () => {
     const result = await resolveManagedSubject(
-      "local_oauth:integration:google/conn_local1",
+      "local_oauth:google/conn_local1",
       {
         platformBaseUrl: TEST_PLATFORM_URL,
         assistantApiKey: TEST_API_KEY,

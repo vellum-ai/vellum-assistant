@@ -82,7 +82,7 @@ Wait for the Client ID, then store it:
 
 ```
 credential_store store:
-  service: "integration:airtable"
+  service: "airtable"
   field: "client_id"
   value: "<the client id the user sent>"
 ```
@@ -95,7 +95,7 @@ Store the secret:
 
 ```
 credential_store store:
-  service: "integration:airtable"
+  service: "airtable"
   field: "oauth_secret"
   value: "<the oauth secret the user sent>"
 ```
@@ -113,16 +113,16 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:airtable --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider airtable --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "integration:airtable:oauth_secret"
+    ) --client-secret-credential-path "credential/airtable/oauth_secret"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connect integration:airtable
+    assistant oauth connect airtable
 ```
 
 Send the returned auth URL to the user. Tell them to click **Grant access** on the Airtable consent page.

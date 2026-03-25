@@ -479,7 +479,7 @@ struct SettingsPanel: View {
                     .background(VColor.borderBase)
                     .padding(.vertical, VSpacing.sm)
 
-                OAuthProviderServiceCard(store: store, authManager: authManager, showToast: showToast, providerKey: "integration:google")
+                OAuthProviderServiceCard(store: store, authManager: authManager, showToast: showToast, providerKey: "google")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)

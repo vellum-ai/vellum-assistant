@@ -16,7 +16,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 
 ## Provider Details
 
-- **Provider key:** `integration:twitter`
+- **Provider key:** `twitter`
 - **Auth URL:** `https://twitter.com/i/oauth2/authorize`
 - **Token URL:** `https://api.x.com/2/oauth2/token`
 - **Ping URL:** `https://api.x.com/2/users/me`
@@ -110,7 +110,7 @@ Before providing the redirect URI, resolve it:
 
 ```
 bash:
-  command: assistant oauth providers list --provider-key "integration:twitter" --json
+  command: assistant oauth providers list --provider-key "twitter" --json
 ```
 
 Check the redirect URI situation. Since callbackTransport is `gateway`, public ingress must be configured:
@@ -152,7 +152,7 @@ Collect Client Secret via secure prompt:
 
 ```
 credential_store prompt:
-  service: "integration:twitter"
+  service: "twitter"
   field: "client_secret"
   label: "Twitter OAuth 2.0 Client Secret"
   description: "Copy the Client Secret from the Keys and tokens page and paste it here."
@@ -164,10 +164,10 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:twitter --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider twitter --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "credential/integration:twitter/client_secret"
+    ) --client-secret-credential-path "credential/twitter/client_secret"
 ```
 
 **Milestone (6 of 8):** "Credentials saved - just the authorization step left."
@@ -183,7 +183,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:twitter
+    assistant oauth connect twitter
 ```
 
 ---
@@ -195,7 +195,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    assistant oauth ping integration:twitter
+    assistant oauth ping twitter
 ```
 
 **On success:** "Twitter is connected! You can now ask me to read your timeline, post tweets, and check your profile."

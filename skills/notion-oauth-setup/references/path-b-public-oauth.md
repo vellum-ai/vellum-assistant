@@ -61,7 +61,7 @@ After receiving the Client ID, collect the secret securely:
 
 ```
 credential_store prompt:
-  service: "integration:notion"
+  service: "notion"
   field: "client_secret"
   label: "Notion OAuth Client Secret"
   description: "Copy the Client Secret from the Notion integration page and paste it here."
@@ -73,16 +73,16 @@ credential_store prompt:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:notion --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider notion --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "credential/integration:notion/client_secret"
+    ) --client-secret-credential-path "credential/notion/client_secret"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connect integration:notion
+    assistant oauth connect notion
 ```
 
 ### Step 5: Verify Connection
@@ -90,5 +90,5 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth ping integration:notion
+    assistant oauth ping notion
 ```

@@ -9,7 +9,7 @@
  * for issues assigned to the authenticated user.
  *
  * The credential service expects a Linear API key (personal or OAuth access token)
- * stored under `integration:linear`. The token only needs read access to notifications
+ * stored under `linear`. The token only needs read access to notifications
  * and issues.
  */
 
@@ -495,7 +495,7 @@ function issueToStatusChangeItem(
 export const linearProvider: WatcherProvider = {
   id: "linear",
   displayName: "Linear",
-  requiredCredentialService: "integration:linear",
+  requiredCredentialService: "linear",
 
   async getInitialWatermark(_credentialService: string): Promise<string> {
     // Start from "now" so we don't replay all existing notifications

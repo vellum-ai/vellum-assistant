@@ -59,7 +59,7 @@ Wait for the Client ID, then store it:
 
 ```
 credential_store store:
-  service: "integration:github"
+  service: "github"
   field: "client_id"
   value: "<the client id the user sent>"
 ```
@@ -72,7 +72,7 @@ Store the secret:
 
 ```
 credential_store store:
-  service: "integration:github"
+  service: "github"
   field: <secret-field>
   value: "<the app secret the user sent>"
 ```
@@ -92,16 +92,16 @@ Tell the user:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:github --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider github --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "integration:github:<secret-field>"
+    ) --client-secret-credential-path "credential/github/<secret-field>"
 ```
 
 ```
 bash:
   command: |
-    assistant oauth connect integration:github --scopes repo read:user notifications
+    assistant oauth connect github --scopes repo read:user notifications
 ```
 
 Send the returned auth URL to the user. Tell them to click **Authorize** on the GitHub consent page.

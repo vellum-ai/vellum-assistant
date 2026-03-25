@@ -83,13 +83,9 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
 mock.module("../../../../oauth/provider-behaviors.js", () => ({
   resolveService: (service: string) => {
     const aliases: Record<string, string> = {
-      gmail: "integration:google",
-      google: "integration:google",
-      slack: "integration:slack",
+      gmail: "google",
     };
-    if (aliases[service]) return aliases[service];
-    if (!service.includes(":")) return `integration:${service}`;
-    return service;
+    return aliases[service] ?? service;
   },
   getProviderBehavior: (key: string) => mockGetProviderBehavior(key),
 }));
@@ -136,13 +132,9 @@ mock.module("../../../lib/daemon-credential-client.js", () => ({
 mock.module("../shared.js", () => ({
   resolveService: (service: string) => {
     const aliases: Record<string, string> = {
-      gmail: "integration:google",
-      google: "integration:google",
-      slack: "integration:slack",
+      gmail: "google",
     };
-    if (aliases[service]) return aliases[service];
-    if (!service.includes(":")) return `integration:${service}`;
-    return service;
+    return aliases[service] ?? service;
   },
   isManagedMode: (key: string) => mockIsManagedMode(key),
   requirePlatformClient: async (_cmd: Command) => {
@@ -193,10 +185,6 @@ mock.module("../shared.js", () => ({
     if (!result.ok) return null;
     return result.body as Array<Record<string, unknown>>;
   },
-  toBareProvider: (provider: string): string =>
-    provider.startsWith("integration:")
-      ? provider.slice("integration:".length)
-      : provider,
 }));
 
 // ---------------------------------------------------------------------------
@@ -295,7 +283,7 @@ describe("assistant oauth connect", () => {
   // Provider alias resolution
   // -------------------------------------------------------------------------
 
-  test("provider alias 'gmail' resolves to integration:google", async () => {
+  test("provider alias 'gmail' resolves to google", async () => {
     let capturedProviderKey: string | undefined;
 
     mockGetProvider = (key: string) => {
@@ -312,7 +300,7 @@ describe("assistant oauth connect", () => {
       id: "app-1",
       clientId: "test-id",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:google",
+      providerKey: "google",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -325,7 +313,7 @@ describe("assistant oauth connect", () => {
     });
 
     await runCommand(["connect", "gmail", "--json"]);
-    expect(capturedProviderKey).toBe("integration:google");
+    expect(capturedProviderKey).toBe("google");
   });
 
   // -------------------------------------------------------------------------
@@ -334,7 +322,7 @@ describe("assistant oauth connect", () => {
 
   test("managed mode: prints connect URL without --open-browser", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: "google-oauth",
@@ -361,7 +349,7 @@ describe("assistant oauth connect", () => {
     expect(parsed.connectUrl).toBe(
       "https://platform.example.com/oauth/connect",
     );
-    expect(parsed.provider).toBe("integration:google");
+    expect(parsed.provider).toBe("google");
   });
 
   // -------------------------------------------------------------------------
@@ -370,7 +358,7 @@ describe("assistant oauth connect", () => {
 
   test("managed mode with --open-browser: opens browser and polls for new connection", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: "google-oauth",
@@ -427,7 +415,7 @@ describe("assistant oauth connect", () => {
 
   test("BYO mode: prints auth URL without --open-browser", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: null,
@@ -438,7 +426,7 @@ describe("assistant oauth connect", () => {
       id: "app-1",
       clientId: "byo-client-id",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:google",
+      providerKey: "google",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -448,12 +436,12 @@ describe("assistant oauth connect", () => {
       deferred: true,
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
       state: "abc",
-      service: "integration:google",
+      service: "google",
     });
 
     const { exitCode, stdout } = await runCommand([
       "connect",
-      "integration:google",
+      "google",
       "--json",
     ]);
     expect(exitCode).toBe(0);
@@ -463,7 +451,7 @@ describe("assistant oauth connect", () => {
     expect(parsed.authUrl).toBe(
       "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
     );
-    expect(parsed.service).toBe("integration:google");
+    expect(parsed.service).toBe("google");
   });
 
   // -------------------------------------------------------------------------
@@ -472,7 +460,7 @@ describe("assistant oauth connect", () => {
 
   test("BYO mode with --open-browser calls orchestrator with isInteractive: true", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: null,
@@ -483,7 +471,7 @@ describe("assistant oauth connect", () => {
       id: "app-1",
       clientId: "test-id",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:google",
+      providerKey: "google",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -501,7 +489,7 @@ describe("assistant oauth connect", () => {
 
     const { exitCode, stdout } = await runCommand([
       "connect",
-      "integration:google",
+      "google",
       "--client-id",
       "test-id",
       "--open-browser",
@@ -525,7 +513,7 @@ describe("assistant oauth connect", () => {
 
   test("BYO mode: missing app with --client-id returns error with hint", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: null,
@@ -535,7 +523,7 @@ describe("assistant oauth connect", () => {
 
     const { exitCode, stdout } = await runCommand([
       "connect",
-      "integration:google",
+      "google",
       "--client-id",
       "nonexistent-id",
       "--json",
@@ -553,7 +541,7 @@ describe("assistant oauth connect", () => {
 
   test("BYO mode: no client_id found returns error with hint", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: null,
@@ -563,7 +551,7 @@ describe("assistant oauth connect", () => {
 
     const { exitCode, stdout } = await runCommand([
       "connect",
-      "integration:google",
+      "google",
       "--json",
     ]);
     expect(exitCode).toBe(1);
@@ -579,7 +567,7 @@ describe("assistant oauth connect", () => {
 
   test("--client-id is silently ignored in managed mode", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: "google-oauth",
@@ -616,7 +604,7 @@ describe("assistant oauth connect", () => {
 
   test("JSON output for deferred case includes ok, deferred, authUrl, service", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:slack",
+      providerKey: "slack",
       authUrl: "https://slack.com/oauth/v2/authorize",
       tokenUrl: "https://slack.com/api/oauth.v2.access",
       managedServiceConfigKey: null,
@@ -627,7 +615,7 @@ describe("assistant oauth connect", () => {
       id: "app-slack",
       clientId: "slack-client-id",
       clientSecretCredentialPath: "oauth_app/app-slack/client_secret",
-      providerKey: "integration:slack",
+      providerKey: "slack",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -637,7 +625,7 @@ describe("assistant oauth connect", () => {
       deferred: true,
       authUrl: "https://slack.com/oauth/v2/authorize?state=xyz",
       state: "xyz",
-      service: "integration:slack",
+      service: "slack",
     });
 
     const { exitCode, stdout } = await runCommand([
@@ -650,7 +638,7 @@ describe("assistant oauth connect", () => {
     expect(parsed).toHaveProperty("ok", true);
     expect(parsed).toHaveProperty("deferred", true);
     expect(parsed).toHaveProperty("authUrl");
-    expect(parsed).toHaveProperty("service", "integration:slack");
+    expect(parsed).toHaveProperty("service", "slack");
   });
 
   // -------------------------------------------------------------------------
@@ -659,7 +647,7 @@ describe("assistant oauth connect", () => {
 
   test("JSON output for completed case includes ok, grantedScopes, accountInfo", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: null,
@@ -670,7 +658,7 @@ describe("assistant oauth connect", () => {
       id: "app-1",
       clientId: "completed-client-id",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:google",
+      providerKey: "google",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -703,7 +691,7 @@ describe("assistant oauth connect", () => {
 
   test("BYO mode: client_secret required but missing returns error with hint", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       tokenEndpointAuthMethod: "client_secret_post",
@@ -715,7 +703,7 @@ describe("assistant oauth connect", () => {
       id: "app-1",
       clientId: "test-id",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:google",
+      providerKey: "google",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -735,7 +723,7 @@ describe("assistant oauth connect", () => {
 
     const { exitCode, stdout } = await runCommand([
       "connect",
-      "integration:google",
+      "google",
       "--json",
     ]);
     expect(exitCode).toBe(1);
@@ -751,7 +739,7 @@ describe("assistant oauth connect", () => {
 
   test("BYO mode: orchestrator error propagates correctly", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       managedServiceConfigKey: null,
@@ -762,7 +750,7 @@ describe("assistant oauth connect", () => {
       id: "app-1",
       clientId: "client-id",
       clientSecretCredentialPath: "oauth_app/app-1/client_secret",
-      providerKey: "integration:google",
+      providerKey: "google",
       createdAt: 0,
       updatedAt: 0,
     });
@@ -774,7 +762,7 @@ describe("assistant oauth connect", () => {
 
     const { exitCode, stdout } = await runCommand([
       "connect",
-      "integration:google",
+      "google",
       "--json",
     ]);
     expect(exitCode).toBe(1);

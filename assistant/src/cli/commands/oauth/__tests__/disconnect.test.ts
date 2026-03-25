@@ -100,13 +100,9 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
 mock.module("../../../../oauth/provider-behaviors.js", () => ({
   resolveService: (service: string) => {
     const aliases: Record<string, string> = {
-      gmail: "integration:google",
-      google: "integration:google",
-      slack: "integration:slack",
+      gmail: "google",
     };
-    if (aliases[service]) return aliases[service];
-    if (!service.includes(":")) return `integration:${service}`;
-    return service;
+    return aliases[service] ?? service;
   },
   getProviderBehavior: () => undefined,
 }));
@@ -167,13 +163,9 @@ mock.module("../../../lib/daemon-credential-client.js", () => ({
 mock.module("../shared.js", () => ({
   resolveService: (service: string) => {
     const aliases: Record<string, string> = {
-      gmail: "integration:google",
-      google: "integration:google",
-      slack: "integration:slack",
+      gmail: "google",
     };
-    if (aliases[service]) return aliases[service];
-    if (!service.includes(":")) return `integration:${service}`;
-    return service;
+    return aliases[service] ?? service;
   },
   isManagedMode: (key: string) => mockIsManagedMode(key),
   requirePlatformClient: async (_cmd: Command) => {
@@ -222,10 +214,6 @@ mock.module("../shared.js", () => ({
     if (!result.ok) return null;
     return result.body as Array<Record<string, unknown>>;
   },
-  toBareProvider: (provider: string): string =>
-    provider.startsWith("integration:")
-      ? provider.slice("integration:".length)
-      : provider,
 }));
 
 // ---------------------------------------------------------------------------
@@ -323,7 +311,7 @@ describe("assistant oauth disconnect", () => {
 
   test("both --account and --connection-id returns error", async () => {
     mockGetProvider = () => ({
-      providerKey: "integration:google",
+      providerKey: "google",
       managedServiceConfigKey: null,
     });
 
@@ -351,7 +339,7 @@ describe("assistant oauth disconnect", () => {
   describe("managed mode", () => {
     beforeEach(() => {
       mockGetProvider = () => ({
-        providerKey: "integration:google",
+        providerKey: "google",
         managedServiceConfigKey: "google-oauth",
       });
       mockIsManagedMode = () => true;
@@ -384,7 +372,7 @@ describe("assistant oauth disconnect", () => {
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
-      expect(parsed.provider).toBe("integration:google");
+      expect(parsed.provider).toBe("google");
       expect(parsed.connectionId).toBe("conn-1");
       expect(parsed.account).toBe("user@gmail.com");
     });
@@ -512,7 +500,7 @@ describe("assistant oauth disconnect", () => {
   describe("BYO mode", () => {
     beforeEach(() => {
       mockGetProvider = () => ({
-        providerKey: "integration:google",
+        providerKey: "google",
         managedServiceConfigKey: null,
       });
       mockIsManagedMode = () => false;
@@ -522,7 +510,7 @@ describe("assistant oauth disconnect", () => {
       mockListActiveConnectionsByProvider = () => [
         {
           id: "conn-1",
-          providerKey: "integration:google",
+          providerKey: "google",
           accountInfo: "user@gmail.com",
           status: "active",
         },
@@ -536,60 +524,14 @@ describe("assistant oauth disconnect", () => {
       expect(exitCode).toBe(0);
       const parsed = JSON.parse(stdout);
       expect(parsed.ok).toBe(true);
-      expect(parsed.provider).toBe("integration:google");
+      expect(parsed.provider).toBe("google");
       expect(parsed.connectionId).toBe("conn-1");
       expect(parsed.account).toBe("user@gmail.com");
 
       // Verify disconnectOAuthProvider was called
       expect(mockDisconnectOAuthProviderCalls).toHaveLength(1);
-      expect(mockDisconnectOAuthProviderCalls[0].providerKey).toBe(
-        "integration:google",
-      );
+      expect(mockDisconnectOAuthProviderCalls[0].providerKey).toBe("google");
       expect(mockDisconnectOAuthProviderCalls[0].connectionId).toBe("conn-1");
-    });
-
-    test("single connection also cleans up legacy credential keys", async () => {
-      mockListActiveConnectionsByProvider = () => [
-        {
-          id: "conn-1",
-          providerKey: "integration:google",
-          accountInfo: "user@gmail.com",
-          status: "active",
-        },
-      ];
-
-      await runCommand(["disconnect", "google", "--json"]);
-
-      // Should have attempted to delete legacy keys
-      const expectedFields = [
-        "access_token",
-        "refresh_token",
-        "client_id",
-        "client_secret",
-      ];
-      expect(mockDeleteSecureKeyViaDaemonCalls.length).toBe(
-        expectedFields.length,
-      );
-      for (const field of expectedFields) {
-        expect(
-          mockDeleteSecureKeyViaDaemonCalls.some(
-            (c) =>
-              c.type === "credential" &&
-              c.name === `integration:google:${field}`,
-          ),
-        ).toBe(true);
-      }
-
-      expect(mockDeleteCredentialMetadataCalls.length).toBe(
-        expectedFields.length,
-      );
-      for (const field of expectedFields) {
-        expect(
-          mockDeleteCredentialMetadataCalls.some(
-            (c) => c.service === "integration:google" && c.field === field,
-          ),
-        ).toBe(true);
-      }
     });
 
     test("--account matches accountInfo", async () => {
@@ -597,7 +539,7 @@ describe("assistant oauth disconnect", () => {
         if (opts?.account === "user@gmail.com") {
           return {
             id: "conn-1",
-            providerKey: "integration:google",
+            providerKey: "google",
             accountInfo: "user@gmail.com",
             status: "active",
           };
@@ -641,7 +583,7 @@ describe("assistant oauth disconnect", () => {
         if (id === "conn-123") {
           return {
             id: "conn-123",
-            providerKey: "integration:google",
+            providerKey: "google",
             accountInfo: "user@gmail.com",
             status: "active",
           };
@@ -667,7 +609,7 @@ describe("assistant oauth disconnect", () => {
         if (id === "conn-slack") {
           return {
             id: "conn-slack",
-            providerKey: "integration:slack",
+            providerKey: "slack",
             accountInfo: null,
             status: "active",
           };
@@ -693,13 +635,13 @@ describe("assistant oauth disconnect", () => {
       mockListActiveConnectionsByProvider = () => [
         {
           id: "conn-1",
-          providerKey: "integration:google",
+          providerKey: "google",
           accountInfo: "user1@gmail.com",
           status: "active",
         },
         {
           id: "conn-2",
-          providerKey: "integration:google",
+          providerKey: "google",
           accountInfo: "user2@gmail.com",
           status: "active",
         },
@@ -740,7 +682,7 @@ describe("assistant oauth disconnect", () => {
       mockListActiveConnectionsByProvider = () => [
         {
           id: "conn-1",
-          providerKey: "integration:google",
+          providerKey: "google",
           accountInfo: null,
           status: "active",
         },

@@ -16,7 +16,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 
 ## Provider Details
 
-- **Provider key:** `integration:dropbox`
+- **Provider key:** `dropbox`
 - **Dashboard:** `https://www.dropbox.com/developers/apps`
 - **Ping URL:** `https://api.dropboxapi.com/2/users/get_current_account` (POST, no body)
 - **Callback transport:** Loopback (port 17327)
@@ -129,7 +129,7 @@ Collect the App secret via secure prompt:
 
 ```
 credential_store prompt:
-  service: "integration:dropbox"
+  service: "dropbox"
   field: "oauth_secret"
   label: "Dropbox App Secret"
   description: "Copy the App secret from the Settings page (click Show to reveal it) and paste it here."
@@ -141,10 +141,10 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:dropbox --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider dropbox --client-id $(cat <<'EOF'
     <app-key>
     EOF
-    ) --client-secret-credential-path "integration:dropbox:oauth_secret"
+    ) --client-secret-credential-path "credential/dropbox/oauth_secret"
 ```
 
 **Milestone (8 of 11):** "Credentials saved - just the authorization step left."
@@ -160,7 +160,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:dropbox
+    assistant oauth connect dropbox
 ```
 
 ---
@@ -172,7 +172,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    assistant oauth ping integration:dropbox
+    assistant oauth ping dropbox
 ```
 
 **On success:** "Dropbox is connected! You can now ask me to read files, upload documents, and browse your Dropbox."

@@ -88,34 +88,6 @@ async function daemonFetch(
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Derive the canonical credential storage key from a "service:field" name.
- * Mirrors the parsing in secret-routes.ts handleAddSecret / handleDeleteSecret.
- *
- * Uses lastIndexOf to split on the *last* colon so compound service names
- * (e.g. "integration:google") are preserved intact while the single-segment
- * field name is extracted correctly.
- */
-function deriveCredentialStorageKey(name: string): string {
-  // Already a canonical storage key (credential/service/field) — return as-is
-  // to avoid double-encoding (e.g. "credential/integration:google/access_token"
-  // would otherwise become "credential/credential/integration/google/access_token").
-  if (name.startsWith("credential/")) {
-    return name;
-  }
-
-  const colonIdx = name.lastIndexOf(":");
-  if (colonIdx < 1 || colonIdx === name.length - 1) {
-    // Malformed — return raw name so the caller stores *something*.
-    // The daemon would reject this with a 400, so this only fires in
-    // the offline fallback path with bad input.
-    return name;
-  }
-  const service = name.slice(0, colonIdx);
-  const field = name.slice(colonIdx + 1);
-  return credentialKey(service, field);
-}
-
 function deriveReadSecretRequest(account: string): {
   type: "api_key" | "credential";
   name: string;
@@ -227,11 +199,17 @@ export async function setSecureKeyViaDaemon(
   }
 
   // Daemon unreachable — fall back to direct write.
-  // For credentials, derive the canonical storage key (credential/service/field)
-  // to match the daemon path which uses credentialKey().
-  const storageKey =
-    type === "credential" ? deriveCredentialStorageKey(name) : name;
-  return setSecureKeyAsync(storageKey, value);
+  // For credentials, convert "service:field" to the canonical
+  // "credential/service/field" storage key using credentialKey().
+  if (type === "credential" && !name.startsWith("credential/")) {
+    const colonIdx = name.lastIndexOf(":");
+    if (colonIdx > 0 && colonIdx < name.length - 1) {
+      const service = name.slice(0, colonIdx);
+      const field = name.slice(colonIdx + 1);
+      return setSecureKeyAsync(credentialKey(service, field), value);
+    }
+  }
+  return setSecureKeyAsync(name, value);
 }
 
 /**
@@ -260,11 +238,17 @@ export async function deleteSecureKeyViaDaemon(
   }
 
   // Daemon unreachable — fall back to direct delete.
-  // For credentials, derive the canonical storage key (credential/service/field)
-  // to match the daemon path which uses credentialKey().
-  const storageKey =
-    type === "credential" ? deriveCredentialStorageKey(name) : name;
-  return deleteSecureKeyAsync(storageKey);
+  // For credentials, convert "service:field" to the canonical
+  // "credential/service/field" storage key using credentialKey().
+  if (type === "credential" && !name.startsWith("credential/")) {
+    const colonIdx = name.lastIndexOf(":");
+    if (colonIdx > 0 && colonIdx < name.length - 1) {
+      const service = name.slice(0, colonIdx);
+      const field = name.slice(colonIdx + 1);
+      return deleteSecureKeyAsync(credentialKey(service, field));
+    }
+  }
+  return deleteSecureKeyAsync(name);
 }
 
 /**

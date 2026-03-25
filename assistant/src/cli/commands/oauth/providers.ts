@@ -83,7 +83,7 @@ authorization URL, token URL, default scopes, and other endpoint details.
 They are seeded on startup for built-in integrations (e.g. Google, Slack,
 GitHub) but can also be registered dynamically via the "register" subcommand.
 
-Each provider is identified by a provider key (e.g. "integration:google").`,
+Each provider is identified by a provider key (e.g. "google").`,
   );
 
   // ---------------------------------------------------------------------------
@@ -159,7 +159,7 @@ Examples:
       "after",
       `
 Arguments:
-  provider-key   The full provider key (e.g. "integration:google").
+  provider-key   Provider key (e.g. "google").
                  Must match the key used during registration or seeding.
 
 Returns the full provider configuration including auth URL, token URL,
@@ -167,8 +167,8 @@ default scopes, scope policy, and extra parameters. Exits with code 1
 if the provider key is not found.
 
 Examples:
-  $ assistant oauth providers get integration:google
-  $ assistant oauth providers get integration:twitter --json`,
+  $ assistant oauth providers get google
+  $ assistant oauth providers get twitter --json`,
     )
     .action((providerKey: string, _opts: unknown, cmd: Command) => {
       try {
@@ -200,7 +200,7 @@ Examples:
     .description("Register a new OAuth provider configuration")
     .requiredOption(
       "--provider-key <key>",
-      "Unique provider key (e.g. \"integration:custom-service\"). Must not collide with an existing key from 'assistant oauth providers list'.",
+      "Unique provider key (e.g. \"custom-service\"). Must not collide with an existing key from 'assistant oauth providers list'.",
     )
     .requiredOption("--auth-url <url>", "Authorization endpoint URL")
     .requiredOption("--token-url <url>", "Token endpoint URL")
@@ -234,7 +234,7 @@ Examples:
       "after",
       `
 Arguments (via options):
-  --provider-key        Unique identifier for this provider (e.g. "integration:custom-service").
+  --provider-key        Unique identifier for this provider (e.g. "custom-service").
                         Must not collide with an existing provider key.
   --auth-url            The OAuth authorization endpoint URL.
   --token-url           The OAuth token endpoint URL.
@@ -265,16 +265,16 @@ On success, returns the full provider row including generated timestamps.
 
 Examples:
   $ assistant oauth providers register \\
-      --provider-key integration:custom-api \\
+      --provider-key custom-api \\
       --auth-url https://custom-api.example.com/oauth/authorize \\
       --token-url https://custom-api.example.com/oauth/token
   $ assistant oauth providers register \\
-      --provider-key integration:my-service \\
+      --provider-key my-service \\
       --auth-url https://my-service.com/auth \\
       --token-url https://my-service.com/token \\
       --scopes read,write --json
   $ assistant oauth providers register \\
-      --provider-key integration:custom-api \\
+      --provider-key custom-api \\
       --auth-url https://example.com/auth \\
       --token-url https://example.com/token \\
       --ping-url https://example.com/user`,

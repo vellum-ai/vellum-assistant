@@ -6,7 +6,7 @@
  * start from "now" and don't replay historical notifications.
  *
  * The credential service expects a GitHub Personal Access Token (or fine-grained
- * token) stored under `integration:github`. The token needs at minimum the
+ * token) stored under `github`. The token needs at minimum the
  * `notifications` scope (classic) or Notification read permission (fine-grained).
  */
 
@@ -117,7 +117,7 @@ async function fetchNotificationsPage(
 export const githubProvider: WatcherProvider = {
   id: "github",
   displayName: "GitHub",
-  requiredCredentialService: "integration:github",
+  requiredCredentialService: "github",
 
   async getInitialWatermark(_credentialService: string): Promise<string> {
     // Start from "now" so we don't replay all existing notifications

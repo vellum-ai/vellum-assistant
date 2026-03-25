@@ -14,7 +14,7 @@ import {
 } from "../../../oauth/oauth-store.js";
 import { VellumPlatformClient } from "../../../platform/client.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
-import { isManagedMode, resolveService, toBareProvider } from "./shared.js";
+import { isManagedMode, resolveService } from "./shared.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -88,10 +88,7 @@ export function registerRequestCommand(oauth: Command): void {
     .description(
       "The recommended way to make an authenticated request to an OAuth provider (supports a curl-like interface)",
     )
-    .requiredOption(
-      "--provider <key>",
-      "Provider key (e.g. integration:google) or alias (e.g. gmail)",
-    )
+    .requiredOption("--provider <key>", "Provider name (e.g. google, slack)")
     .option("-X, --request <method>", "HTTP method (default: GET)")
     .option(
       "-H, --header <header>",
@@ -130,11 +127,11 @@ Note: The Authorization header is set automatically. User-supplied
 -H "Authorization: ..." will be overridden by the OAuth bearer token.
 
 Examples:
-  $ assistant oauth request --provider integration:twitter https://api.x.com/2/tweets
+  $ assistant oauth request --provider twitter https://api.x.com/2/tweets
   $ assistant oauth request --provider gmail /gmail/v1/users/me/messages -G
-  $ assistant oauth request --provider integration:twitter -X POST -d '{"text":"Hello"}' https://api.x.com/2/tweets
-  $ assistant oauth request --provider integration:google -d @body.json https://www.googleapis.com/calendar/v3/calendars
-  $ assistant oauth request --provider integration:slack -H "Content-Type: application/json" -d '{"channel":"C123"}' /api/chat.postMessage --json`,
+  $ assistant oauth request --provider twitter -X POST -d '{"text":"Hello"}' https://api.x.com/2/tweets
+  $ assistant oauth request --provider google -d @body.json https://www.googleapis.com/calendar/v3/calendars
+  $ assistant oauth request --provider slack -H "Content-Type: application/json" -d '{"channel":"C123"}' /api/chat.postMessage --json`,
     )
     .action(
       async (
@@ -233,7 +230,7 @@ Examples:
               const client = await VellumPlatformClient.create();
               if (client && client.platformAssistantId) {
                 const params = new URLSearchParams();
-                params.set("provider", toBareProvider(providerKey));
+                params.set("provider", providerKey);
                 params.set("status", "ACTIVE");
                 params.set("account_identifier", opts.account);
 

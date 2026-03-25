@@ -16,7 +16,7 @@ This skill follows the **Collaborative Guided Flow** pattern from the included `
 
 ## Provider Details
 
-- **Provider key:** `integration:airtable`
+- **Provider key:** `airtable`
 - **Dashboard:** `https://airtable.com/create/oauth`
 - **Ping URL:** `https://api.airtable.com/v0/meta/whoami`
 - **Callback transport:** Loopback (port 17329)
@@ -105,7 +105,7 @@ Collect the OAuth secret via secure prompt:
 
 ```
 credential_store prompt:
-  service: "integration:airtable"
+  service: "airtable"
   field: "oauth_secret"
   label: "Airtable OAuth Secret"
   description: "Copy the OAuth secret from the integration page (you may need to click Show or Generate first) and paste it here."
@@ -117,10 +117,10 @@ Register the OAuth app:
 ```
 bash:
   command: |
-    assistant oauth apps upsert --provider integration:airtable --client-id $(cat <<'EOF'
+    assistant oauth apps upsert --provider airtable --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "integration:airtable:oauth_secret"
+    ) --client-secret-credential-path "credential/airtable/oauth_secret"
 ```
 
 **Milestone (6 of 8):** "Credentials saved - just the authorization step left."
@@ -136,7 +136,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connect integration:airtable
+    assistant oauth connect airtable
 ```
 
 ---
@@ -148,7 +148,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    assistant oauth ping integration:airtable
+    assistant oauth ping airtable
 ```
 
 **On success:** "Airtable is connected! You can now ask me to read and update records in your Airtable bases."

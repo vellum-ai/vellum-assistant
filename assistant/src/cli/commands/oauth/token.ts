@@ -45,10 +45,9 @@ export function registerTokenCommand(oauth: Command): void {
       "after",
       `
 Arguments:
-  provider   Provider name or key. Accepts bare names (google, slack),
-             canonical keys (integration:google), aliases (gmail), or
-             provider IDs. Run 'assistant oauth providers list' to see
-             all available providers.
+  provider   Provider name (e.g. google, slack).
+             Run 'assistant oauth providers list' to see all available
+             providers.
 
 Options:
   --account <account>   Select a specific account when multiple connections
@@ -74,7 +73,7 @@ shell (VELLUM_UNTRUSTED_SHELL=1) to prevent token exfiltration.
 
 Examples:
   $ assistant oauth token google
-  $ assistant oauth token integration:twitter --json
+  $ assistant oauth token twitter --json
   $ assistant oauth token google --account user@gmail.com
   $ assistant oauth token google --client-id abc123`,
     )

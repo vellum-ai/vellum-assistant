@@ -32,17 +32,6 @@ export interface PlatformConnectionEntry {
 // ---------------------------------------------------------------------------
 
 /**
- * Extract the bare provider slug (e.g. "google") from either a raw CLI
- * argument or a canonical provider key (e.g. "integration:google").
- * Platform API paths expect the bare slug, not the internal key.
- */
-export function toBareProvider(provider: string): string {
-  return provider.startsWith("integration:")
-    ? provider.slice("integration:".length)
-    : provider;
-}
-
-/**
  * Return the provider's `managedServiceConfigKey` if it exists and is a valid
  * key in `ServicesSchema.shape`, or `null` otherwise. This centralises the
  * lookup so that callers (e.g. `isManagedMode`, `mode.ts`) don't duplicate the
@@ -104,7 +93,7 @@ export async function fetchActiveConnections(
   options?: { silent?: boolean },
 ): Promise<PlatformConnectionEntry[] | null> {
   const params = new URLSearchParams();
-  params.set("provider", toBareProvider(provider));
+  params.set("provider", provider);
   params.set("status", "ACTIVE");
 
   const path = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/oauth/connections/?${params.toString()}`;

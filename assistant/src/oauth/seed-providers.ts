@@ -46,8 +46,8 @@ const PROVIDER_SEED_DATA: Record<
     requiresClientSecret?: boolean;
   }
 > = {
-  "integration:google": {
-    providerKey: "integration:google",
+  google: {
+    providerKey: "google",
     authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     tokenUrl: "https://oauth2.googleapis.com/token",
     userinfoUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
@@ -79,8 +79,8 @@ const PROVIDER_SEED_DATA: Record<
     managedServiceConfigKey: "google-oauth",
   },
 
-  "integration:slack": {
-    providerKey: "integration:slack",
+  slack: {
+    providerKey: "slack",
     authUrl: "https://slack.com/oauth/v2/authorize",
     tokenUrl: "https://slack.com/api/oauth.v2.access",
     pingUrl: "https://slack.com/api/auth.test",
@@ -116,8 +116,8 @@ const PROVIDER_SEED_DATA: Record<
     callbackTransport: "loopback",
   },
 
-  "integration:notion": {
-    providerKey: "integration:notion",
+  notion: {
+    providerKey: "notion",
     authUrl: "https://api.notion.com/v1/oauth/authorize",
     tokenUrl: "https://api.notion.com/v1/oauth/token",
     pingUrl: "https://api.notion.com/v1/users/me",
@@ -138,8 +138,8 @@ const PROVIDER_SEED_DATA: Record<
     callbackTransport: "loopback",
   },
 
-  "integration:twitter": {
-    providerKey: "integration:twitter",
+  twitter: {
+    providerKey: "twitter",
     authUrl: "https://twitter.com/i/oauth2/authorize",
     tokenUrl: "https://api.x.com/2/oauth2/token",
     pingUrl: "https://api.x.com/2/users/me",
@@ -163,8 +163,8 @@ const PROVIDER_SEED_DATA: Record<
     callbackTransport: "gateway",
   },
 
-  "integration:github": {
-    providerKey: "integration:github",
+  github: {
+    providerKey: "github",
     authUrl: "https://github.com/login/oauth/authorize",
     tokenUrl: "https://github.com/login/oauth/access_token",
     pingUrl: "https://api.github.com/user",
@@ -187,8 +187,8 @@ const PROVIDER_SEED_DATA: Record<
     callbackTransport: "loopback",
   },
 
-  "integration:linear": {
-    providerKey: "integration:linear",
+  linear: {
+    providerKey: "linear",
     authUrl: "https://linear.app/oauth/authorize",
     tokenUrl: "https://api.linear.app/oauth/token",
     pingUrl: "https://api.linear.app/graphql",
@@ -210,8 +210,8 @@ const PROVIDER_SEED_DATA: Record<
     callbackTransport: "loopback",
   },
 
-  "integration:spotify": {
-    providerKey: "integration:spotify",
+  spotify: {
+    providerKey: "spotify",
     authUrl: "https://accounts.spotify.com/authorize",
     tokenUrl: "https://accounts.spotify.com/api/token",
     pingUrl: "https://api.spotify.com/v1/me",
@@ -240,8 +240,8 @@ const PROVIDER_SEED_DATA: Record<
     callbackTransport: "loopback",
   },
 
-  "integration:todoist": {
-    providerKey: "integration:todoist",
+  todoist: {
+    providerKey: "todoist",
     authUrl: "https://todoist.com/oauth/authorize",
     tokenUrl: "https://todoist.com/oauth/access_token",
     pingUrl: "https://api.todoist.com/rest/v2/projects",
@@ -259,8 +259,8 @@ const PROVIDER_SEED_DATA: Record<
     callbackTransport: "loopback",
   },
 
-  "integration:discord": {
-    providerKey: "integration:discord",
+  discord: {
+    providerKey: "discord",
     authUrl: "https://discord.com/oauth2/authorize",
     tokenUrl: "https://discord.com/api/v10/oauth2/token",
     pingUrl: "https://discord.com/api/v10/users/@me",
@@ -283,8 +283,8 @@ const PROVIDER_SEED_DATA: Record<
     callbackTransport: "loopback",
   },
 
-  "integration:dropbox": {
-    providerKey: "integration:dropbox",
+  dropbox: {
+    providerKey: "dropbox",
     authUrl: "https://www.dropbox.com/oauth2/authorize",
     tokenUrl: "https://api.dropboxapi.com/oauth2/token",
     pingUrl: "https://api.dropboxapi.com/2/users/get_current_account",
@@ -309,8 +309,8 @@ const PROVIDER_SEED_DATA: Record<
     callbackTransport: "loopback",
   },
 
-  "integration:asana": {
-    providerKey: "integration:asana",
+  asana: {
+    providerKey: "asana",
     authUrl: "https://app.asana.com/-/oauth_authorize",
     tokenUrl: "https://app.asana.com/-/oauth_token",
     pingUrl: "https://app.asana.com/api/1.0/users/me",
@@ -328,8 +328,8 @@ const PROVIDER_SEED_DATA: Record<
     callbackTransport: "loopback",
   },
 
-  "integration:airtable": {
-    providerKey: "integration:airtable",
+  airtable: {
+    providerKey: "airtable",
     authUrl: "https://airtable.com/oauth2/v1/authorize",
     tokenUrl: "https://airtable.com/oauth2/v1/token",
     pingUrl: "https://api.airtable.com/v0/meta/whoami",
@@ -352,8 +352,8 @@ const PROVIDER_SEED_DATA: Record<
     callbackTransport: "loopback",
   },
 
-  "integration:hubspot": {
-    providerKey: "integration:hubspot",
+  hubspot: {
+    providerKey: "hubspot",
     authUrl: "https://app.hubspot.com/oauth/authorize",
     tokenUrl: "https://api.hubapi.com/oauth/v1/token",
     pingUrl: "https://api.hubapi.com/crm/v3/objects/contacts?limit=1",
@@ -380,8 +380,8 @@ const PROVIDER_SEED_DATA: Record<
     callbackTransport: "loopback",
   },
 
-  "integration:figma": {
-    providerKey: "integration:figma",
+  figma: {
+    providerKey: "figma",
     authUrl: "https://www.figma.com/oauth",
     tokenUrl: "https://api.figma.com/v1/oauth/token",
     pingUrl: "https://api.figma.com/v1/me",
