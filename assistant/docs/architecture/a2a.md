@@ -137,7 +137,7 @@ All A2A credentials are stored in the secure key store (CES in Docker, encrypted
 | File                                                             | Purpose                                                                |
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | `assistant/src/runtime/a2a/message-contract.ts`                  | Wire-protocol types and envelope validation                            |
-| `assistant/src/runtime/a2a/pairing.ts`                           | Four-phase pairing protocol implementation                             |
+| `assistant/src/runtime/a2a/pairing.ts`                           | Five-phase pairing protocol implementation                             |
 | `assistant/src/runtime/a2a/pairing-store.ts`                     | Pairing request persistence (SQLite)                                   |
 | `assistant/src/runtime/a2a/outbound-client.ts`                   | Outbound message delivery via gateway                                  |
 | `assistant/src/runtime/routes/inbound-stages/a2a-interceptor.ts` | Interceptor that routes pairing envelopes before conversation pipeline |
