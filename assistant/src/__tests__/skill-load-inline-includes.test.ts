@@ -222,7 +222,7 @@ describe("skill_load inline command expansion for included skills", () => {
 
     // Enable the feature flag
     _setOverridesForTesting({
-      "feature_flags.inline-skill-commands.enabled": true,
+      "inline-skill-commands": true,
     });
     testConfig.skills = { load: { extraDirs: [] } };
   });
@@ -572,7 +572,7 @@ describe("skill_load inline command expansion for included skills", () => {
   describe("feature flag disabled for included skills", () => {
     test("skill_load returns error when child has inline commands and flag is off", async () => {
       _setOverridesForTesting({
-        "feature_flags.inline-skill-commands.enabled": false,
+        "inline-skill-commands": false,
       });
 
       writeSkill(

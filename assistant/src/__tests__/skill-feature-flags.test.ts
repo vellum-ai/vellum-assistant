@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 const DECLARED_FLAG_ID = "contacts";
-const DECLARED_FLAG_KEY = `feature_flags.${DECLARED_FLAG_ID}.enabled`;
+const DECLARED_FLAG_KEY = DECLARED_FLAG_ID;
 const DECLARED_SKILL_ID = "contacts";
 // ---------------------------------------------------------------------------
 // Helpers
@@ -71,9 +71,7 @@ function makeSkill(
 
 describe("skillFlagKey", () => {
   test("returns canonical key when featureFlag is present", () => {
-    expect(skillFlagKey({ featureFlag: "my-flag" })).toBe(
-      "feature_flags.my-flag.enabled",
-    );
+    expect(skillFlagKey({ featureFlag: "my-flag" })).toBe("my-flag");
   });
 
   test("returns undefined when featureFlag is undefined", () => {
@@ -132,9 +130,7 @@ describe("isAssistantFeatureFlagEnabled with skillFlagKey", () => {
 describe("isAssistantFeatureFlagEnabled", () => {
   test("returns true for unknown flags (open by default)", () => {
     const config = makeConfig();
-    expect(
-      isAssistantFeatureFlagEnabled("feature_flags.unknown.enabled", config),
-    ).toBe(true);
+    expect(isAssistantFeatureFlagEnabled("unknown", config)).toBe(true);
   });
 
   test("file-based override overrides registry default", () => {
@@ -152,19 +148,15 @@ describe("isAssistantFeatureFlagEnabled", () => {
   });
 
   test("respects persisted overrides for undeclared keys", () => {
-    _setOverridesForTesting({ "feature_flags.browser.enabled": false });
+    _setOverridesForTesting({ browser: false });
     const config = makeConfig();
-    expect(
-      isAssistantFeatureFlagEnabled("feature_flags.browser.enabled", config),
-    ).toBe(false);
+    expect(isAssistantFeatureFlagEnabled("browser", config)).toBe(false);
   });
 
   test("declared keys with no persisted override use registry default", () => {
     const config = makeConfig();
     // browser is declared in the registry with defaultEnabled: true
-    expect(
-      isAssistantFeatureFlagEnabled("feature_flags.browser.enabled", config),
-    ).toBe(true);
+    expect(isAssistantFeatureFlagEnabled("browser", config)).toBe(true);
   });
 });
 
@@ -176,7 +168,7 @@ describe("resolveSkillStates with feature flags", () => {
   test("flag OFF skill does not appear in resolved list", () => {
     _setOverridesForTesting({
       [DECLARED_FLAG_KEY]: false,
-      "feature_flags.browser.enabled": true,
+      browser: true,
     });
     const catalog = [
       makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
@@ -194,7 +186,7 @@ describe("resolveSkillStates with feature flags", () => {
   test("flag ON skill appears normally", () => {
     _setOverridesForTesting({
       [DECLARED_FLAG_KEY]: true,
-      "feature_flags.browser.enabled": true,
+      browser: true,
     });
     const catalog = [
       makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
@@ -259,8 +251,8 @@ describe("resolveSkillStates with feature flags", () => {
   test("multiple skills with mixed flags — persisted overrides respected", () => {
     _setOverridesForTesting({
       [DECLARED_FLAG_KEY]: false,
-      "feature_flags.browser.enabled": true,
-      "feature_flags.deploy.enabled": false,
+      browser: true,
+      deploy: false,
     });
     const catalog = [
       makeSkill(DECLARED_SKILL_ID, "bundled", DECLARED_FLAG_ID),
@@ -319,7 +311,7 @@ describe("resolveSkillStates with frontmatter featureFlag", () => {
     // setting feature_flags.my-skill.enabled = false has no effect
     // when the skill itself does not declare a featureFlag.
     _setOverridesForTesting({
-      "feature_flags.my-skill.enabled": false,
+      "my-skill": false,
     });
     const catalog = [makeSkill("my-skill")];
     const config = makeConfig();
