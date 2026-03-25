@@ -441,6 +441,26 @@ assistant contacts invites revoke <invite_id> --json
 
 Replace `<invite_id>` with the invite's `id` from the list response. The same revoke command is used for both Telegram and voice invites.
 
+## Assistant-to-Assistant Messaging
+
+Send messages to other paired assistants using the `contact_message` tool. This requires:
+
+1. The target contact must be of type `assistant` (set via `--contact-type assistant` during creation or A2A pairing).
+2. The target contact must have valid Vellum assistant metadata (set during A2A pairing).
+3. The `assistant-a2a` feature flag must be enabled.
+
+### Send a message to an assistant contact
+
+Use the `contact_message` tool to send a message to a known assistant contact. You can identify the target by either `contact_id` or `contact_name`.
+
+When `contact_name` is used, the tool searches for assistant contacts matching the name. If multiple matches are found, the tool returns the list for disambiguation -- the user must then specify the `contact_id`.
+
+The tool sends the message through the gateway's A2A delivery endpoint. The daemon sends a standard channel reply payload -- all A2A envelope construction and credential resolution is handled by the gateway.
+
+### Reply routing
+
+When responding to an inbound A2A message, the runtime uses the `replyCallbackUrl` already set by the gateway at inbound time (which includes target routing context as query params). No special reply logic is needed -- it follows the standard callback pipeline.
+
 ## Google Contacts
 
 Use `google_contacts` to list or search the user's Google Contacts by name or email. Returns name, email, phone, and organization. Requires the `contacts.readonly` OAuth scope - users may need to re-authorize Gmail to grant this additional permission.
