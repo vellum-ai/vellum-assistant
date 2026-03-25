@@ -30,11 +30,13 @@ export class CesRpcCredentialBackend implements CredentialBackend {
   }
 
   async get(account: string): Promise<CredentialGetResult> {
+    if (!this.isAvailable()) {
+      return { value: undefined, unreachable: true };
+    }
     try {
-      const result = await this.client.call(
-        CesRpcMethod.GetCredential,
-        { account },
-      );
+      const result = await this.client.call(CesRpcMethod.GetCredential, {
+        account,
+      });
       return {
         value: result.found ? result.value : undefined,
         unreachable: false,
@@ -46,11 +48,12 @@ export class CesRpcCredentialBackend implements CredentialBackend {
   }
 
   async set(account: string, value: string): Promise<boolean> {
+    if (!this.isAvailable()) return false;
     try {
-      const result = await this.client.call(
-        CesRpcMethod.SetCredential,
-        { account, value },
-      );
+      const result = await this.client.call(CesRpcMethod.SetCredential, {
+        account,
+        value,
+      });
       return result.ok;
     } catch (err) {
       log.warn({ err, account }, "CES RPC credential set failed");
@@ -59,11 +62,11 @@ export class CesRpcCredentialBackend implements CredentialBackend {
   }
 
   async delete(account: string): Promise<DeleteResult> {
+    if (!this.isAvailable()) return "error";
     try {
-      const result = await this.client.call(
-        CesRpcMethod.DeleteCredential,
-        { account },
-      );
+      const result = await this.client.call(CesRpcMethod.DeleteCredential, {
+        account,
+      });
       return result.result;
     } catch (err) {
       log.warn({ err, account }, "CES RPC credential delete failed");
@@ -72,11 +75,11 @@ export class CesRpcCredentialBackend implements CredentialBackend {
   }
 
   async list(): Promise<CredentialListResult> {
+    if (!this.isAvailable()) {
+      return { accounts: [], unreachable: true };
+    }
     try {
-      const result = await this.client.call(
-        CesRpcMethod.ListCredentials,
-        {},
-      );
+      const result = await this.client.call(CesRpcMethod.ListCredentials, {});
       return { accounts: result.accounts, unreachable: false };
     } catch (err) {
       log.warn({ err }, "CES RPC credential list failed");
