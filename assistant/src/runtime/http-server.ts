@@ -1029,7 +1029,7 @@ export class RuntimeHttpServer {
           const limit = Number(url.searchParams.get("limit") ?? 50);
           const offset = Number(url.searchParams.get("offset") ?? 0);
           const includeBackground = isAssistantFeatureFlagEnabled(
-            "feature_flags.show-background-conversations.enabled",
+            "show-background-conversations",
             getConfig(),
           );
           const conversations = listConversations(

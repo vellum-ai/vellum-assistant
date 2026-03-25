@@ -110,7 +110,7 @@ describe("RemoteFeatureFlagSync", () => {
   test("fetches and caches flags on successful response", async () => {
     fetchMock = mock(async () =>
       Response.json({
-        flags: { "feature_flags.browser.enabled": true },
+        flags: { browser: true },
       }),
     );
 
@@ -122,14 +122,14 @@ describe("RemoteFeatureFlagSync", () => {
 
     clearRemoteFeatureFlagStoreCache();
     const cached = readRemoteFeatureFlags();
-    expect(cached).toEqual({ "feature_flags.browser.enabled": true });
+    expect(cached).toEqual({ browser: true });
   });
 
   test("preserves cached flags on non-OK response", async () => {
     // First, seed cached flags with a successful fetch
     fetchMock = mock(async () =>
       Response.json({
-        flags: { "feature_flags.browser.enabled": true },
+        flags: { browser: true },
       }),
     );
 
@@ -139,7 +139,7 @@ describe("RemoteFeatureFlagSync", () => {
 
     clearRemoteFeatureFlagStoreCache();
     expect(readRemoteFeatureFlags()).toEqual({
-      "feature_flags.browser.enabled": true,
+      browser: true,
     });
 
     // Now simulate a non-OK response — cached flags should be preserved
@@ -155,14 +155,14 @@ describe("RemoteFeatureFlagSync", () => {
 
     clearRemoteFeatureFlagStoreCache();
     const cached = readRemoteFeatureFlags();
-    expect(cached).toEqual({ "feature_flags.browser.enabled": true });
+    expect(cached).toEqual({ browser: true });
   });
 
   test("preserves cached flags on network error", async () => {
     // First, seed cached flags with a successful fetch
     fetchMock = mock(async () =>
       Response.json({
-        flags: { "feature_flags.browser.enabled": true },
+        flags: { browser: true },
       }),
     );
 
@@ -172,7 +172,7 @@ describe("RemoteFeatureFlagSync", () => {
 
     clearRemoteFeatureFlagStoreCache();
     expect(readRemoteFeatureFlags()).toEqual({
-      "feature_flags.browser.enabled": true,
+      browser: true,
     });
 
     // Now simulate a network error — cached flags should be preserved
@@ -189,7 +189,7 @@ describe("RemoteFeatureFlagSync", () => {
 
     clearRemoteFeatureFlagStoreCache();
     const cached = readRemoteFeatureFlags();
-    expect(cached).toEqual({ "feature_flags.browser.enabled": true });
+    expect(cached).toEqual({ browser: true });
   });
 
   test("sends correct auth header", async () => {
@@ -230,10 +230,10 @@ describe("RemoteFeatureFlagSync", () => {
     fetchMock = mock(async () =>
       Response.json({
         flags: {
-          "feature_flags.browser.enabled": true,
-          "feature_flags.contacts.enabled": "yes" as unknown,
-          "feature_flags.other.enabled": 1 as unknown,
-          "feature_flags.valid.enabled": false,
+          browser: true,
+          contacts: "yes" as unknown,
+          other: 1 as unknown,
+          valid: false,
         },
       }),
     );
@@ -245,8 +245,8 @@ describe("RemoteFeatureFlagSync", () => {
     clearRemoteFeatureFlagStoreCache();
     const cached = readRemoteFeatureFlags();
     expect(cached).toEqual({
-      "feature_flags.browser.enabled": true,
-      "feature_flags.valid.enabled": false,
+      browser: true,
+      valid: false,
     });
   });
 
@@ -254,7 +254,7 @@ describe("RemoteFeatureFlagSync", () => {
     // First, seed cached flags with a successful fetch
     fetchMock = mock(async () =>
       Response.json({
-        flags: { "feature_flags.browser.enabled": true },
+        flags: { browser: true },
       }),
     );
 
@@ -264,7 +264,7 @@ describe("RemoteFeatureFlagSync", () => {
 
     clearRemoteFeatureFlagStoreCache();
     expect(readRemoteFeatureFlags()).toEqual({
-      "feature_flags.browser.enabled": true,
+      browser: true,
     });
 
     // Now simulate a response with missing flags field — cached flags should be preserved
@@ -276,6 +276,6 @@ describe("RemoteFeatureFlagSync", () => {
 
     clearRemoteFeatureFlagStoreCache();
     const cached = readRemoteFeatureFlags();
-    expect(cached).toEqual({ "feature_flags.browser.enabled": true });
+    expect(cached).toEqual({ browser: true });
   });
 });

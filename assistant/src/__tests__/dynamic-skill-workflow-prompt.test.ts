@@ -84,7 +84,7 @@ describe("Dynamic Skill Authoring Workflow moved to tool descriptions", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
     _setOverridesForTesting({
-      "feature_flags.browser.enabled": true,
+      browser: true,
     });
   });
 

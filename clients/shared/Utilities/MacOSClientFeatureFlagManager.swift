@@ -62,7 +62,7 @@ public final class MacOSClientFeatureFlagManager: @unchecked Sendable {
         }
     }
 
-    /// Check whether a flag is enabled by its key (e.g. "user_hosted_enabled").
+    /// Check whether a flag is enabled by its key (e.g. "user-hosted-enabled").
     /// Resolution order: override (env var / .env file / UserDefaults) -> registry defaultEnabled -> false.
     public func isEnabled(_ key: String) -> Bool {
         lock.lock()

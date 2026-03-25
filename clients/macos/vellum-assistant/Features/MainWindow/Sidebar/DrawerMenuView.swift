@@ -19,7 +19,7 @@ struct DrawerMenuView: View {
     private var isBillingVisible: Bool {
         let _ = bootstrapGeneration  // Force recomputation when bootstrap completes
         return authManager.isAuthenticated &&
-        MacOSClientFeatureFlagManager.shared.isEnabled("settings_billing_enabled") &&
+        MacOSClientFeatureFlagManager.shared.isEnabled("settings-billing") &&
         connectedOrgId != nil
     }
 

@@ -4,7 +4,7 @@
     {
       "id": "browser",
       "scope": "assistant",
-      "key": "feature_flags.browser.enabled",
+      "key": "browser",
       "label": "Browser",
       "description": "Enable browser skill prerequisites section in the system prompt",
       "defaultEnabled": true
@@ -12,7 +12,7 @@
     {
       "id": "user-hosted-enabled",
       "scope": "macos",
-      "key": "user_hosted_enabled",
+      "key": "user-hosted-enabled",
       "label": "User Hosted Enabled",
       "description": "Enable user-hosted onboarding flow",
       "defaultEnabled": false
@@ -20,7 +20,7 @@
     {
       "id": "platform-hosted-enabled",
       "scope": "macos",
-      "key": "platform_hosted_enabled",
+      "key": "platform-hosted-enabled",
       "label": "Platform Hosted Assistants",
       "description": "Enable the Vellum Cloud hosting option on the Hosting screen",
       "defaultEnabled": false
@@ -28,7 +28,7 @@
     {
       "id": "contacts",
       "scope": "assistant",
-      "key": "feature_flags.contacts.enabled",
+      "key": "contacts",
       "label": "Contacts",
       "description": "Show the Contacts tab in Settings for viewing and managing contacts",
       "defaultEnabled": true
@@ -36,7 +36,7 @@
     {
       "id": "email-channel",
       "scope": "assistant",
-      "key": "feature_flags.email-channel.enabled",
+      "key": "email-channel",
       "label": "Email Channel",
       "description": "Enable the entire email integration: email CLI commands, email channel, sequences, email readiness probes, invite adapters, and the email-setup skill",
       "defaultEnabled": false
@@ -44,7 +44,7 @@
     {
       "id": "app-builder-multifile",
       "scope": "assistant",
-      "key": "feature_flags.app-builder-multifile.enabled",
+      "key": "app-builder-multifile",
       "label": "App Builder Multi-file",
       "description": "Enable multi-file TSX app creation with esbuild compilation instead of single-HTML apps",
       "defaultEnabled": false
@@ -52,7 +52,7 @@
     {
       "id": "mobile-pairing",
       "scope": "macos",
-      "key": "mobile_pairing_enabled",
+      "key": "mobile-pairing",
       "label": "Mobile Pairing",
       "description": "Show the Mobile (iOS) pairing card in Settings > Account",
       "defaultEnabled": false
@@ -60,7 +60,7 @@
     {
       "id": "settings-developer-nav",
       "scope": "assistant",
-      "key": "feature_flags.settings-developer-nav.enabled",
+      "key": "settings-developer-nav",
       "label": "Settings Developer Nav",
       "description": "Control Developer nav visibility in macOS settings",
       "defaultEnabled": true
@@ -68,7 +68,7 @@
     {
       "id": "developer-menu-items",
       "scope": "macos",
-      "key": "developer_menu_items_enabled",
+      "key": "developer-menu-items",
       "label": "Developer Menu Items",
       "description": "Show Component Gallery and Replay Onboarding in the menu bar",
       "defaultEnabled": false
@@ -76,7 +76,7 @@
     {
       "id": "ces-tools",
       "scope": "assistant",
-      "key": "feature_flags.ces-tools.enabled",
+      "key": "ces-tools",
       "label": "CES Tool Exposure",
       "description": "Register Credential Execution Service tools (credential-grant, credential-revoke, credential-list) in the agent loop",
       "defaultEnabled": false
@@ -84,7 +84,7 @@
     {
       "id": "ces-shell-lockdown",
       "scope": "assistant",
-      "key": "feature_flags.ces-shell-lockdown.enabled",
+      "key": "ces-shell-lockdown",
       "label": "CES Shell Lockdown",
       "description": "Enforce untrusted-agent shell lockdown when CES credentials are active, restricting direct shell access to credentialed services",
       "defaultEnabled": false
@@ -92,7 +92,7 @@
     {
       "id": "ces-secure-install",
       "scope": "assistant",
-      "key": "feature_flags.ces-secure-install.enabled",
+      "key": "ces-secure-install",
       "label": "CES Secure Command Installation",
       "description": "Enable secure tool/command installation via CES instead of direct shell execution for untrusted agents",
       "defaultEnabled": false
@@ -100,7 +100,7 @@
     {
       "id": "ces-grant-audit",
       "scope": "assistant",
-      "key": "feature_flags.ces-grant-audit.enabled",
+      "key": "ces-grant-audit",
       "label": "CES Grant & Audit Inspection",
       "description": "Surface credential grant and audit inspection endpoints for reviewing active grants and access logs",
       "defaultEnabled": false
@@ -108,7 +108,7 @@
     {
       "id": "ces-managed-sidecar",
       "scope": "assistant",
-      "key": "feature_flags.ces-managed-sidecar.enabled",
+      "key": "ces-managed-sidecar",
       "label": "CES Managed Sidecar Transport",
       "description": "Use managed sidecar transport for CES communication when running in a containerized environment",
       "defaultEnabled": true
@@ -116,7 +116,7 @@
     {
       "id": "ces-credential-backend",
       "scope": "assistant",
-      "key": "feature_flags.ces-credential-backend.enabled",
+      "key": "ces-credential-backend",
       "label": "CES Credential Backend",
       "description": "Route credential reads and writes through the CES process instead of accessing the encrypted store directly",
       "defaultEnabled": true
@@ -124,7 +124,7 @@
     {
       "id": "settings-billing",
       "scope": "macos",
-      "key": "settings_billing_enabled",
+      "key": "settings-billing",
       "label": "Billing Settings Tab",
       "description": "Show the Billing tab in Settings when signed in, displaying credits balance and top-up",
       "defaultEnabled": true
@@ -132,7 +132,7 @@
     {
       "id": "managed-sign-in",
       "scope": "macos",
-      "key": "managed_sign_in_enabled",
+      "key": "managed-sign-in",
       "label": "Managed Sign In",
       "description": "Enable managed (organization-hosted) sign-in flow in the onboarding experience",
       "defaultEnabled": true
@@ -140,7 +140,7 @@
     {
       "id": "integration-twitter",
       "scope": "assistant",
-      "key": "feature_flags.integration-twitter.enabled",
+      "key": "integration-twitter",
       "label": "Twitter / X Integration",
       "description": "Enable the Twitter / X OAuth setup skill for connecting to the Twitter API",
       "defaultEnabled": false
@@ -148,7 +148,7 @@
     {
       "id": "integration-github",
       "scope": "assistant",
-      "key": "feature_flags.integration-github.enabled",
+      "key": "integration-github",
       "label": "GitHub Integration",
       "description": "Enable the GitHub OAuth setup skill for connecting to GitHub",
       "defaultEnabled": false
@@ -156,7 +156,7 @@
     {
       "id": "integration-linear",
       "scope": "assistant",
-      "key": "feature_flags.integration-linear.enabled",
+      "key": "integration-linear",
       "label": "Linear Integration",
       "description": "Enable the Linear OAuth setup skill for connecting to Linear",
       "defaultEnabled": false
@@ -164,7 +164,7 @@
     {
       "id": "integration-spotify",
       "scope": "assistant",
-      "key": "feature_flags.integration-spotify.enabled",
+      "key": "integration-spotify",
       "label": "Spotify Integration",
       "description": "Enable the Spotify OAuth setup skill for connecting to the Spotify API",
       "defaultEnabled": false
@@ -172,7 +172,7 @@
     {
       "id": "integration-todoist",
       "scope": "assistant",
-      "key": "feature_flags.integration-todoist.enabled",
+      "key": "integration-todoist",
       "label": "Todoist Integration",
       "description": "Enable the Todoist OAuth setup skill for connecting to Todoist",
       "defaultEnabled": false
@@ -180,7 +180,7 @@
     {
       "id": "integration-discord",
       "scope": "assistant",
-      "key": "feature_flags.integration-discord.enabled",
+      "key": "integration-discord",
       "label": "Discord Integration",
       "description": "Enable the Discord OAuth setup skill for connecting to Discord",
       "defaultEnabled": false
@@ -188,7 +188,7 @@
     {
       "id": "integration-dropbox",
       "scope": "assistant",
-      "key": "feature_flags.integration-dropbox.enabled",
+      "key": "integration-dropbox",
       "label": "Dropbox Integration",
       "description": "Enable the Dropbox OAuth setup skill for connecting to Dropbox",
       "defaultEnabled": false
@@ -196,7 +196,7 @@
     {
       "id": "integration-asana",
       "scope": "assistant",
-      "key": "feature_flags.integration-asana.enabled",
+      "key": "integration-asana",
       "label": "Asana Integration",
       "description": "Enable the Asana OAuth setup skill for connecting to Asana",
       "defaultEnabled": false
@@ -204,7 +204,7 @@
     {
       "id": "integration-airtable",
       "scope": "assistant",
-      "key": "feature_flags.integration-airtable.enabled",
+      "key": "integration-airtable",
       "label": "Airtable Integration",
       "description": "Enable the Airtable OAuth setup skill for connecting to Airtable",
       "defaultEnabled": false
@@ -212,7 +212,7 @@
     {
       "id": "integration-hubspot",
       "scope": "assistant",
-      "key": "feature_flags.integration-hubspot.enabled",
+      "key": "integration-hubspot",
       "label": "HubSpot Integration",
       "description": "Enable the HubSpot OAuth setup skill for connecting to HubSpot CRM",
       "defaultEnabled": false
@@ -220,7 +220,7 @@
     {
       "id": "integration-figma",
       "scope": "assistant",
-      "key": "feature_flags.integration-figma.enabled",
+      "key": "integration-figma",
       "label": "Figma Integration",
       "description": "Enable the Figma OAuth setup skill for connecting to Figma",
       "defaultEnabled": false
@@ -228,7 +228,7 @@
     {
       "id": "integration-notion",
       "scope": "assistant",
-      "key": "feature_flags.integration-notion.enabled",
+      "key": "integration-notion",
       "label": "Notion Integration",
       "description": "Enable the Notion setup skill for connecting to Notion",
       "defaultEnabled": false
@@ -236,7 +236,7 @@
     {
       "id": "conversation-starters",
       "scope": "assistant",
-      "key": "feature_flags.conversation-starters.enabled",
+      "key": "conversation-starters",
       "label": "Recommended Starts",
       "description": "Show a curated row of recommended starting actions on the empty conversation page, ordered by relevance as confident first-click options",
       "defaultEnabled": true
@@ -244,7 +244,7 @@
     {
       "id": "deploy-to-vercel",
       "scope": "assistant",
-      "key": "feature_flags.deploy-to-vercel.enabled",
+      "key": "deploy-to-vercel",
       "label": "Deploy to Vercel",
       "description": "Enable the Deploy to Vercel / Publish option in the app workspace header share menu",
       "defaultEnabled": false
@@ -252,7 +252,7 @@
     {
       "id": "managed-google-oauth",
       "scope": "assistant",
-      "key": "feature_flags.managed-google-oauth.enabled",
+      "key": "managed-google-oauth",
       "label": "Managed Google OAuth",
       "description": "Show the Google OAuth service card in Models & Services settings",
       "defaultEnabled": false
@@ -260,7 +260,7 @@
     {
       "id": "settings-embedding-provider",
       "scope": "assistant",
-      "key": "feature_flags.settings-embedding-provider.enabled",
+      "key": "settings-embedding-provider",
       "label": "Embedding Provider Settings",
       "description": "Show the Embedding service card in Models & Services settings",
       "defaultEnabled": false
@@ -268,7 +268,7 @@
     {
       "id": "settings-schedules",
       "scope": "assistant",
-      "key": "feature_flags.settings-schedules.enabled",
+      "key": "settings-schedules",
       "label": "Schedules Settings Tab",
       "description": "Show the Schedules tab in Settings for viewing and managing schedules",
       "defaultEnabled": false
@@ -276,7 +276,7 @@
     {
       "id": "quick-input",
       "scope": "macos",
-      "key": "quick_input_enabled",
+      "key": "quick-input",
       "label": "Quick Input",
       "description": "Enable the Quick Input popover on right-click of the menu bar icon",
       "defaultEnabled": false
@@ -284,7 +284,7 @@
     {
       "id": "expand-completed-steps",
       "scope": "macos",
-      "key": "expand_completed_steps",
+      "key": "expand-completed-steps",
       "label": "Expand Completed Steps",
       "description": "Auto-expand completed tool call step groups instead of showing them collapsed",
       "defaultEnabled": false
@@ -292,7 +292,7 @@
     {
       "id": "inline-skill-commands",
       "scope": "assistant",
-      "key": "feature_flags.inline-skill-commands.enabled",
+      "key": "inline-skill-commands",
       "label": "Inline Skill Command Expansion",
       "description": "Enable secure inline skill command expansion via !`command` syntax, with version-pinned approval and sandboxed execution at skill load time",
       "defaultEnabled": true
@@ -300,7 +300,7 @@
     {
       "id": "channel-voice-transcription",
       "scope": "assistant",
-      "key": "feature_flags.channel-voice-transcription.enabled",
+      "key": "channel-voice-transcription",
       "label": "Channel Voice Transcription",
       "description": "Auto-transcribe voice/audio messages received from channels (Telegram, WhatsApp) before processing",
       "defaultEnabled": true
@@ -308,7 +308,7 @@
     {
       "id": "sounds",
       "scope": "assistant",
-      "key": "feature_flags.sounds.enabled",
+      "key": "sounds",
       "label": "Sounds",
       "description": "Enable the Sounds tab in Settings and all app sound playback (event sounds, random ambient sounds)",
       "defaultEnabled": true
@@ -316,7 +316,7 @@
     {
       "id": "message-tts",
       "scope": "assistant",
-      "key": "feature_flags.message-tts.enabled",
+      "key": "message-tts",
       "label": "Message Text-to-Speech",
       "description": "Show a speaker button on assistant messages to generate and play the message as audio via Fish Audio TTS",
       "defaultEnabled": false
@@ -324,7 +324,7 @@
     {
       "id": "backward-releases",
       "scope": "assistant",
-      "key": "feature_flags.backward-releases.enabled",
+      "key": "backward-releases",
       "label": "Backward Releases",
       "description": "Show older versions in the version picker, allowing rollback to previous releases",
       "defaultEnabled": true
@@ -332,7 +332,7 @@
     {
       "id": "show-background-conversations",
       "scope": "assistant",
-      "key": "feature_flags.show-background-conversations.enabled",
+      "key": "show-background-conversations",
       "label": "Show Background Conversations",
       "description": "Include background conversations (heartbeat, tasks) in the sidebar conversation list",
       "defaultEnabled": false

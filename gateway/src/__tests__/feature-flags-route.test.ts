@@ -33,7 +33,7 @@ const TEST_REGISTRY = {
     {
       id: "browser",
       scope: "assistant",
-      key: "feature_flags.browser.enabled",
+      key: "browser",
       label: "Browser",
       description: "Browser skill",
       defaultEnabled: true,
@@ -41,7 +41,7 @@ const TEST_REGISTRY = {
     {
       id: "contacts",
       scope: "assistant",
-      key: "feature_flags.contacts.enabled",
+      key: "contacts",
       label: "Contacts",
       description: "Contacts management",
       defaultEnabled: false,
@@ -49,7 +49,7 @@ const TEST_REGISTRY = {
     {
       id: "user-hosted-enabled",
       scope: "macos",
-      key: "user_hosted_enabled",
+      key: "user-hosted-enabled",
       label: "User Hosted Enabled",
       description: "Enable user-hosted onboarding flow",
       defaultEnabled: false,
@@ -128,14 +128,12 @@ describe("GET /v1/feature-flags handler", () => {
       expect(typeof flag.enabled).toBe("boolean");
       expect(typeof flag.defaultEnabled).toBe("boolean");
       expect(typeof flag.description).toBe("string");
-      expect(flag.key).toMatch(
-        /^feature_flags\.[a-z0-9][a-z0-9._-]*\.enabled$/,
-      );
+      expect(flag.key).toMatch(/^[a-z0-9][a-z0-9-]*$/);
     }
 
     // Check a specific known flag
     const browserFlag = body.flags.find(
-      (f: { key: string }) => f.key === "feature_flags.browser.enabled",
+      (f: { key: string }) => f.key === "browser",
     );
     expect(browserFlag).toBeDefined();
     expect(browserFlag.defaultEnabled).toBe(true);
@@ -160,7 +158,7 @@ describe("GET /v1/feature-flags handler", () => {
 
     // Verify specific labels
     const browserFlag2 = body.flags.find(
-      (f: { key: string }) => f.key === "feature_flags.browser.enabled",
+      (f: { key: string }) => f.key === "browser",
     );
     expect(browserFlag2).toBeDefined();
     expect(browserFlag2.label).toBe("Browser");
@@ -177,7 +175,7 @@ describe("GET /v1/feature-flags handler", () => {
 
     // The macos-scope flag should not appear
     const macosFlag = body.flags.find(
-      (f: { key: string }) => f.key === "user_hosted_enabled",
+      (f: { key: string }) => f.key === "user-hosted-enabled",
     );
     expect(macosFlag).toBeUndefined();
   });
@@ -209,7 +207,7 @@ describe("GET /v1/feature-flags handler", () => {
       JSON.stringify({
         version: 1,
         values: {
-          "feature_flags.browser.enabled": false,
+          browser: false,
         },
       }),
     );
@@ -224,7 +222,7 @@ describe("GET /v1/feature-flags handler", () => {
     const body = await res.json();
 
     const browserFlag = body.flags.find(
-      (f: { key: string }) => f.key === "feature_flags.browser.enabled",
+      (f: { key: string }) => f.key === "browser",
     );
     expect(browserFlag).toBeDefined();
     expect(browserFlag.enabled).toBe(false); // overridden from default true
@@ -238,7 +236,7 @@ describe("GET /v1/feature-flags handler", () => {
       JSON.stringify({
         version: 1,
         values: {
-          "feature_flags.browser.enabled": "no",
+          browser: "no",
         },
       }),
     );
@@ -256,7 +254,7 @@ describe("GET /v1/feature-flags handler", () => {
     // invalid "no" string is dropped and the flag falls back to its
     // registry default (true).
     const browserFlag = body.flags.find(
-      (f: { key: string }) => f.key === "feature_flags.browser.enabled",
+      (f: { key: string }) => f.key === "browser",
     );
     expect(browserFlag).toBeDefined();
     expect(browserFlag.enabled).toBe(true);
@@ -270,7 +268,7 @@ describe("GET /v1/feature-flags handler", () => {
       JSON.stringify({
         version: 1,
         values: {
-          "feature_flags.contacts.enabled": true,
+          contacts: true,
         },
       }),
     );
@@ -291,7 +289,7 @@ describe("GET /v1/feature-flags handler", () => {
     const body = await res.json();
 
     const contactsFlag = body.flags.find(
-      (f: { key: string }) => f.key === "feature_flags.contacts.enabled",
+      (f: { key: string }) => f.key === "contacts",
     );
     expect(contactsFlag).toBeDefined();
     // Remote value (true) overrides registry default (false)
@@ -305,7 +303,7 @@ describe("GET /v1/feature-flags handler", () => {
       JSON.stringify({
         version: 1,
         values: {
-          "feature_flags.contacts.enabled": true,
+          contacts: true,
         },
       }),
     );
@@ -317,7 +315,7 @@ describe("GET /v1/feature-flags handler", () => {
       JSON.stringify({
         version: 1,
         values: {
-          "feature_flags.contacts.enabled": false,
+          contacts: false,
         },
       }),
     );
@@ -332,7 +330,7 @@ describe("GET /v1/feature-flags handler", () => {
     const body = await res.json();
 
     const contactsFlag = body.flags.find(
-      (f: { key: string }) => f.key === "feature_flags.contacts.enabled",
+      (f: { key: string }) => f.key === "contacts",
     );
     expect(contactsFlag).toBeDefined();
     // Local override (false) takes precedence over remote (true)
@@ -362,7 +360,7 @@ describe("GET /v1/feature-flags handler", () => {
 
     // contacts has defaultEnabled: false in registry
     const contactsFlag = body.flags.find(
-      (f: { key: string }) => f.key === "feature_flags.contacts.enabled",
+      (f: { key: string }) => f.key === "contacts",
     );
     expect(contactsFlag).toBeDefined();
     expect(contactsFlag.enabled).toBe(false);
@@ -370,7 +368,7 @@ describe("GET /v1/feature-flags handler", () => {
 
     // browser has defaultEnabled: true in registry
     const browserFlag = body.flags.find(
-      (f: { key: string }) => f.key === "feature_flags.browser.enabled",
+      (f: { key: string }) => f.key === "browser",
     );
     expect(browserFlag).toBeDefined();
     expect(browserFlag.enabled).toBe(true);
@@ -382,28 +380,25 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
   test("writes to feature-flags.json store", async () => {
     const handler = createFeatureFlagsPatchHandler();
     const res = await handler(
-      new Request(
-        "http://gateway.test/v1/feature-flags/feature_flags.browser.enabled",
-        {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ enabled: false }),
-        },
-      ),
-      "feature_flags.browser.enabled",
+      new Request("http://gateway.test/v1/feature-flags/browser", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled: false }),
+      }),
+      "browser",
     );
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({
-      key: "feature_flags.browser.enabled",
+      key: "browser",
       enabled: false,
     });
 
     // Verify persistence to the feature-flags.json store
     clearFeatureFlagStoreCache();
     const persisted = readPersistedFeatureFlags();
-    expect(persisted["feature_flags.browser.enabled"]).toBe(false);
+    expect(persisted["browser"]).toBe(false);
   });
 
   test("preserves existing persisted flags when writing", async () => {
@@ -413,7 +408,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
       JSON.stringify({
         version: 1,
         values: {
-          "feature_flags.contacts.enabled": true,
+          contacts: true,
         },
       }),
     );
@@ -421,22 +416,19 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     const handler = createFeatureFlagsPatchHandler();
     await handler(
-      new Request(
-        "http://gateway.test/v1/feature-flags/feature_flags.browser.enabled",
-        {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ enabled: true }),
-        },
-      ),
-      "feature_flags.browser.enabled",
+      new Request("http://gateway.test/v1/feature-flags/browser", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled: true }),
+      }),
+      "browser",
     );
 
     // Both old and new values should be persisted
     clearFeatureFlagStoreCache();
     const persisted = readPersistedFeatureFlags();
-    expect(persisted["feature_flags.contacts.enabled"]).toBe(true);
-    expect(persisted["feature_flags.browser.enabled"]).toBe(true);
+    expect(persisted["contacts"]).toBe(true);
+    expect(persisted["browser"]).toBe(true);
   });
 
   test("creates feature-flags.json and directories when they do not exist", async () => {
@@ -445,15 +437,12 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     const handler = createFeatureFlagsPatchHandler();
     const res = await handler(
-      new Request(
-        "http://gateway.test/v1/feature-flags/feature_flags.browser.enabled",
-        {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ enabled: true }),
-        },
-      ),
-      "feature_flags.browser.enabled",
+      new Request("http://gateway.test/v1/feature-flags/browser", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled: true }),
+      }),
+      "browser",
     );
 
     expect(res.status).toBe(200);
@@ -461,7 +450,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     clearFeatureFlagStoreCache();
     const persisted = readPersistedFeatureFlags();
-    expect(persisted["feature_flags.browser.enabled"]).toBe(true);
+    expect(persisted["browser"]).toBe(true);
   });
 
   // Validation tests
@@ -506,17 +495,16 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     }
   });
 
-  test("rejects key not matching feature_flags.<id>.enabled format", async () => {
+  test("rejects key not matching simple kebab-case format", async () => {
     const handler = createFeatureFlagsPatchHandler();
 
     const invalidKeys = [
       "random.key",
-      "feature_flags.enabled",
-      "feature_flags..enabled",
-      "feature_flags.UPPERCASE.enabled",
-      "feature_flags.browser.disabled",
-      "other.browser.enabled",
-      "feature_flags.browser.enabled.extra",
+      "UPPERCASE",
+      "has_underscore",
+      "has.dot",
+      "INVALID!",
+      "-starts-with-dash",
     ];
 
     for (const key of invalidKeys) {
@@ -539,15 +527,12 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     const handler = createFeatureFlagsPatchHandler();
 
     const res = await handler(
-      new Request(
-        "http://gateway.test/v1/feature-flags/feature_flags.totally-unknown-flag.enabled",
-        {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ enabled: true }),
-        },
-      ),
-      "feature_flags.totally-unknown-flag.enabled",
+      new Request("http://gateway.test/v1/feature-flags/totally-unknown-flag", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled: true }),
+      }),
+      "totally-unknown-flag",
     );
 
     expect(res.status).toBe(400);
@@ -555,13 +540,10 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     expect(body.error).toContain("not declared");
   });
 
-  test("accepts valid declared feature_flags.* key formats", async () => {
+  test("accepts valid declared kebab-case key formats", async () => {
     const handler = createFeatureFlagsPatchHandler();
 
-    const validKeys = [
-      "feature_flags.browser.enabled",
-      "feature_flags.contacts.enabled",
-    ];
+    const validKeys = ["browser", "contacts"];
 
     for (const key of validKeys) {
       clearFeatureFlagStoreCache();
@@ -584,15 +566,12 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     const invalidValues = ["true", 1, null, undefined];
     for (const value of invalidValues) {
       const res = await handler(
-        new Request(
-          "http://gateway.test/v1/feature-flags/feature_flags.browser.enabled",
-          {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ enabled: value }),
-          },
-        ),
-        "feature_flags.browser.enabled",
+        new Request("http://gateway.test/v1/feature-flags/browser", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: value }),
+        }),
+        "browser",
       );
 
       expect(res.status).toBe(400);
@@ -604,15 +583,12 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
   test("rejects invalid JSON body", async () => {
     const handler = createFeatureFlagsPatchHandler();
     const res = await handler(
-      new Request(
-        "http://gateway.test/v1/feature-flags/feature_flags.browser.enabled",
-        {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: "not json",
-        },
-      ),
-      "feature_flags.browser.enabled",
+      new Request("http://gateway.test/v1/feature-flags/browser", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: "not json",
+      }),
+      "browser",
     );
 
     expect(res.status).toBe(400);
@@ -623,13 +599,10 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
   test("rejects missing body", async () => {
     const handler = createFeatureFlagsPatchHandler();
     const res = await handler(
-      new Request(
-        "http://gateway.test/v1/feature-flags/feature_flags.browser.enabled",
-        {
-          method: "PATCH",
-        },
-      ),
-      "feature_flags.browser.enabled",
+      new Request("http://gateway.test/v1/feature-flags/browser", {
+        method: "PATCH",
+      }),
+      "browser",
     );
 
     expect(res.status).toBe(400);
@@ -641,30 +614,27 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
       featureFlagStorePath,
       JSON.stringify({
         version: 1,
-        values: { "feature_flags.contacts.enabled": true },
+        values: { contacts: true },
       }),
     );
     clearFeatureFlagStoreCache();
 
     const handler = createFeatureFlagsPatchHandler();
     await handler(
-      new Request(
-        "http://gateway.test/v1/feature-flags/feature_flags.browser.enabled",
-        {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ enabled: false }),
-        },
-      ),
-      "feature_flags.browser.enabled",
+      new Request("http://gateway.test/v1/feature-flags/browser", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ enabled: false }),
+      }),
+      "browser",
     );
 
     // Verify the file is valid JSON and contains all expected data
     const raw = readFileSync(featureFlagStorePath, "utf-8");
     const data = JSON.parse(raw);
     expect(data.version).toBe(1);
-    expect(data.values["feature_flags.contacts.enabled"]).toBe(true);
-    expect(data.values["feature_flags.browser.enabled"]).toBe(false);
+    expect(data.values["contacts"]).toBe(true);
+    expect(data.values["browser"]).toBe(false);
 
     // Verify no temp files left behind
     const { readdirSync } = await import("node:fs");
@@ -677,10 +647,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     const handler = createFeatureFlagsPatchHandler();
 
     // Fire multiple concurrent PATCH requests at the same time
-    const flagKeys = [
-      "feature_flags.browser.enabled",
-      "feature_flags.contacts.enabled",
-    ];
+    const flagKeys = ["browser", "contacts"];
 
     const results = await Promise.all(
       flagKeys.map((key) =>
