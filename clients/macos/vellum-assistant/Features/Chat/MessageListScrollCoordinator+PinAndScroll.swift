@@ -13,6 +13,12 @@ extension MessageListScrollCoordinator {
     /// conversation ID. Lets bootstrap-window requests coalesce normally.
     static let bootstrapConversationId = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
 
+    /// Performs a programmatic scroll to the given item ID and anchor point,
+    /// using the `scrollTo` closure configured during setup.
+    private func performScrollTo(_ id: any Hashable, anchor: UnitPoint? = nil) {
+        scrollTo?(id, anchor)
+    }
+
     /// Routes a bottom-follow request through the coordinator.
     /// Returns `false` when the scroll loop guard is tripped, suppressing the request.
     /// Pass `userInitiated: true` for explicit user actions (e.g. "Scroll to latest" button)
@@ -20,7 +26,6 @@ extension MessageListScrollCoordinator {
     @discardableResult
     func requestBottomPin(
         reason: BottomPinRequestReason,
-        proxy: ScrollViewProxy,
         conversationId: UUID?,
         animated: Bool = false,
         userInitiated: Bool = false
@@ -39,10 +44,10 @@ extension MessageListScrollCoordinator {
                         "target=bottomAnchor reason=userInitiated")
             if animated {
                 withAnimation(VAnimation.fast) {
-                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    performScrollTo("scroll-bottom-anchor", anchor: .bottom)
                 }
             } else {
-                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                performScrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
             return true
         }
@@ -57,13 +62,12 @@ extension MessageListScrollCoordinator {
     }
 
     /// Configures the coordinator's callbacks to wire pin requests back to
-    /// the scroll view proxy and follow-state changes back to `isNearBottom`.
+    /// the scroll position and follow-state changes back to `isNearBottom`.
     ///
     /// Closures capture `[weak self]` and read `self.currentConversationId`
     /// and `self.currentScrollViewportHeight` so they always use the live
     /// value — not a stale snapshot from configure time.
     func configureBottomPinCoordinator(
-        proxy: ScrollViewProxy,
         scrollViewportHeight: CGFloat,
         conversationId: UUID?,
         isNearBottom: Binding<Bool>
@@ -87,17 +91,14 @@ extension MessageListScrollCoordinator {
             recordScrollLoopEvent(.scrollToRequested, conversationId: self.currentConversationId)
             if animated {
                 withAnimation(VAnimation.fast) {
-                    proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                    self.performScrollTo("scroll-bottom-anchor", anchor: .bottom)
                 }
             } else {
-                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
+                self.performScrollTo("scroll-bottom-anchor", anchor: .bottom)
             }
-            // Check if the pin succeeded (anchor within viewport).
-            let outcome = MessageListBottomAnchorPolicy.verify(
-                anchorMinY: anchorLastMinY,
-                viewportHeight: self.currentScrollViewportHeight
-            )
-            return outcome == .anchored
+            // With ScrollPosition, the scroll is applied immediately — return
+            // true to indicate the pin was accepted.
+            return true
         }
         bottomPinCoordinator.onFollowStateChanged = { isFollowing in
             isNearBottom.wrappedValue = isFollowing
@@ -123,7 +124,6 @@ extension MessageListScrollCoordinator {
                 self.bottomPinCoordinator.reattach()
                 self.requestBottomPin(
                     reason: .initialRestore,
-                    proxy: proxy,
                     conversationId: self.currentConversationId,
                     animated: true
                 )
@@ -141,17 +141,14 @@ extension MessageListScrollCoordinator {
     /// Staged scroll-to-bottom that retries after increasing delays to handle
     /// cases where SwiftUI hasn't committed the new content's layout yet.
     func restoreScrollToBottom(
-        proxy: ScrollViewProxy,
         conversationId: UUID?,
-        anchorMessageId: Binding<UUID?>,
-        scrollViewportHeight: CGFloat
+        anchorMessageId: Binding<UUID?>
     ) {
         scrollRestoreTask?.cancel()
-        hasFreshAnchorMeasurement = false
 
         // Route the initial restore through the coordinator for bounded retries.
         if anchorMessageId.wrappedValue == nil {
-            requestBottomPin(reason: .initialRestore, proxy: proxy, conversationId: conversationId)
+            requestBottomPin(reason: .initialRestore, conversationId: conversationId)
         }
 
         scrollRestoreTask = Task { @MainActor [weak self] in
@@ -165,23 +162,19 @@ extension MessageListScrollCoordinator {
             guard !Task.isCancelled else { return }
             os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=1")
             if anchorMessageId.wrappedValue == nil {
-                requestBottomPin(reason: .initialRestore, proxy: proxy, conversationId: conversationId)
+                requestBottomPin(reason: .initialRestore, conversationId: conversationId)
             }
             scrollCoordinatorLog.debug("Scroll restore: stage 1 (50ms)")
 
             // Stage 2: ~9 frames — catches slower layout/materialization.
             try? await Task.sleep(nanoseconds: 150_000_000)
             guard !Task.isCancelled else { return }
-            let restoreOutcome = MessageListBottomAnchorPolicy.verify(
-                anchorMinY: anchorLastMinY,
-                viewportHeight: scrollViewportHeight
-            )
             if anchorMessageId.wrappedValue == nil
                 && !hasReceivedScrollEvent
-                && restoreOutcome == .needsRepin
+                && !self.isAtBottom
             {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=2 action=retry")
-                requestBottomPin(reason: .initialRestore, proxy: proxy, conversationId: conversationId)
+                requestBottomPin(reason: .initialRestore, conversationId: conversationId)
                 scrollCoordinatorLog.debug("Scroll restore: stage 2 (200ms) — retrying via coordinator")
             } else {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=2 action=skipped")
@@ -218,7 +211,6 @@ extension MessageListScrollCoordinator {
     func handleSuppressAutoScroll(
         isNearBottom: Bool,
         conversationId: UUID?,
-        proxy: ScrollViewProxy,
         scrollViewportHeight: CGFloat
     ) {
         // Cancel any pending expansion timeout before re-evaluating.
@@ -226,7 +218,7 @@ extension MessageListScrollCoordinator {
         if isNearBottom {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=expansionPinning")
             recordScrollLoopEvent(.suppressionFlip, conversationId: conversationId, isNearBottom: isNearBottom, scrollViewportHeight: scrollViewportHeight)
-            requestBottomPin(reason: .expansion, proxy: proxy, conversationId: conversationId, animated: false)
+            requestBottomPin(reason: .expansion, conversationId: conversationId, animated: false)
         } else {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=offBottomExpansion")
             recordScrollLoopEvent(.suppressionFlip, conversationId: conversationId, isNearBottom: isNearBottom, scrollViewportHeight: scrollViewportHeight)
@@ -237,26 +229,15 @@ extension MessageListScrollCoordinator {
         }
     }
 
-    /// Handles a non-finite distance-from-bottom value by marking the anchor
-    /// as off-screen.
-    func handleNonFiniteAnchor() {
-        if anchorIsVisible {
-            anchorIsVisible = false
-        }
-        anchorLastMinY = .infinity
-    }
-
     // MARK: - Resize
 
     /// Creates a resize scroll stabilization task. The caller is responsible for
     /// assigning the returned task to the view-local `resizeScrollTask` state and
     /// cancelling any previous task before calling this.
     func makeResizeTask(
-        proxy: ScrollViewProxy,
         conversationId: UUID?,
         isNearBottom: Bool,
         anchorMessageId: UUID?,
-        scrollViewportHeight: CGFloat,
         onComplete: @escaping @MainActor () -> Void
     ) -> Task<Void, Never> {
         Task { @MainActor [weak self] in
@@ -276,14 +257,8 @@ extension MessageListScrollCoordinator {
             try? await Task.sleep(nanoseconds: 100_000_000)
             guard !Task.isCancelled else { return }
 
-            if isNearBottom && anchorMessageId == nil {
-                let resizeOutcome = MessageListBottomAnchorPolicy.verify(
-                    anchorMinY: self.anchorLastMinY,
-                    viewportHeight: scrollViewportHeight
-                )
-                if resizeOutcome == .needsRepin {
-                    self.requestBottomPin(reason: .resize, proxy: proxy, conversationId: conversationId)
-                }
+            if isNearBottom && anchorMessageId == nil && !self.isAtBottom {
+                self.requestBottomPin(reason: .resize, conversationId: conversationId)
             }
         }
     }
@@ -293,7 +268,6 @@ extension MessageListScrollCoordinator {
     /// Fires a single pagination load, restores the scroll anchor, and
     /// manages the `isPaginationInFlight` / suppression guards.
     func triggerPagination(
-        proxy: ScrollViewProxy,
         visibleMessages: [ChatMessage],
         conversationId: UUID?,
         loadPreviousMessagePage: (() async -> Bool)?
@@ -334,7 +308,7 @@ extension MessageListScrollCoordinator {
                 }
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=paginationAnchor")
                 recordScrollLoopEvent(.scrollToRequested, conversationId: conversationId)
-                proxy.scrollTo(id, anchor: .top)
+                performScrollTo(id, anchor: .top)
                 scrollCoordinatorLog.debug("[pagination] scroll restored to anchor \(id)")
                 removeSuppression(.pagination)
             }
@@ -349,7 +323,6 @@ extension MessageListScrollCoordinator {
         scrollViewportHeight: CGFloat,
         hasMoreMessages: Bool,
         isLoadingMoreMessages: Bool,
-        proxy: ScrollViewProxy,
         visibleMessages: [ChatMessage],
         conversationId: UUID?,
         loadPreviousMessagePage: (() async -> Bool)?
@@ -378,52 +351,10 @@ extension MessageListScrollCoordinator {
         else { return false }
 
         triggerPagination(
-            proxy: proxy,
             visibleMessages: visibleMessages,
             conversationId: conversationId,
             loadPreviousMessagePage: loadPreviousMessagePage
         )
         return true
-    }
-
-    // MARK: - Anchor Handling
-
-    /// Handles an accepted distance-from-bottom value (finite, past dead-zone).
-    /// Returns true if a direct scroll-to-bottom was issued (first measurement after conversation switch).
-    @discardableResult
-    func handleAcceptedAnchorMinY(
-        accepted: CGFloat,
-        scrollViewportHeight: CGFloat,
-        anchorMessageId: UUID?,
-        proxy: ScrollViewProxy,
-        conversationId: UUID?,
-        messages: [ChatMessage],
-        isNearBottom: Bool,
-        containerWidth: CGFloat,
-        highlightedMessageId: UUID?
-    ) -> Bool {
-        recordScrollLoopEvent(.anchorPreferenceChange, conversationId: conversationId, isNearBottom: isNearBottom, scrollViewportHeight: scrollViewportHeight)
-        updateAnchor(distanceFromBottom: accepted, viewportHeight: scrollViewportHeight)
-        var didDirectScroll = false
-        let convIdString = conversationId?.uuidString ?? "unknown"
-        if !hasFreshAnchorMeasurement {
-            hasFreshAnchorMeasurement = true
-            if !hasReceivedScrollEvent && anchorMessageId == nil
-                && !scrollLoopGuard.isTripped(conversationId: convIdString)
-            {
-                proxy.scrollTo("scroll-bottom-anchor", anchor: .bottom)
-                didDirectScroll = true
-            }
-        }
-        scheduleTranscriptSnapshot(
-            conversationId: conversationId,
-            messages: messages,
-            isNearBottom: isNearBottom,
-            scrollViewportHeight: scrollViewportHeight,
-            containerWidth: containerWidth,
-            anchorMessageId: anchorMessageId,
-            highlightedMessageId: highlightedMessageId
-        )
-        return didDirectScroll
     }
 }

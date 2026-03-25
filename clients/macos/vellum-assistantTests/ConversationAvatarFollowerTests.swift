@@ -3,38 +3,32 @@ import XCTest
 
 final class ConversationAvatarFollowerTests: XCTestCase {
     @MainActor
-    func testViewportChangeRecomputesVisibility() {
+    func testUpdateIsAtBottomSetsTrue() {
         let coordinator = MessageListScrollCoordinator()
-        // Distance-from-bottom of 15 is within the 20pt visibility threshold.
-        coordinator.anchorLastMinY = 15
-        coordinator.anchorIsVisible = false
-        var storedViewportHeight: CGFloat = 500
+        coordinator.isAtBottom = false
 
-        let changed = coordinator.updateAnchorViewport(
-            height: 540,
-            storedViewportHeight: &storedViewportHeight
-        )
+        coordinator.updateIsAtBottom("scroll-bottom-anchor")
 
-        XCTAssertTrue(changed)
-        XCTAssertEqual(storedViewportHeight, 540)
-        XCTAssertTrue(coordinator.anchorIsVisible)
+        XCTAssertTrue(coordinator.isAtBottom)
     }
 
     @MainActor
-    func testViewportChangeNoOpsWhenHeightIsUnchanged() {
+    func testUpdateIsAtBottomSetsFalseForOtherID() {
         let coordinator = MessageListScrollCoordinator()
-        // Distance-from-bottom of 50 is outside the 20pt threshold — not visible.
-        coordinator.anchorLastMinY = 50
-        coordinator.anchorIsVisible = false
-        var storedViewportHeight: CGFloat = 540
+        coordinator.isAtBottom = true
 
-        let changed = coordinator.updateAnchorViewport(
-            height: 540,
-            storedViewportHeight: &storedViewportHeight
-        )
+        coordinator.updateIsAtBottom("some-message-id")
 
-        XCTAssertFalse(changed)
-        XCTAssertEqual(storedViewportHeight, 540)
-        XCTAssertFalse(coordinator.anchorIsVisible)
+        XCTAssertFalse(coordinator.isAtBottom)
+    }
+
+    @MainActor
+    func testUpdateIsAtBottomSetsFalseForNil() {
+        let coordinator = MessageListScrollCoordinator()
+        coordinator.isAtBottom = true
+
+        coordinator.updateIsAtBottom(nil)
+
+        XCTAssertFalse(coordinator.isAtBottom)
     }
 }
