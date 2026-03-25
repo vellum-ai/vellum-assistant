@@ -15,6 +15,7 @@ import {
   randomBytes as cryptoRandomBytes,
 } from "node:crypto";
 import { mkdirSync, renameSync, writeFileSync, rmSync } from "node:fs";
+import { createServer, type Server } from "node:http";
 import { hostname, tmpdir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -188,9 +189,12 @@ const gatewayRoot = join(__dirname, "..", "..");
 const gatewayEntry = join(gatewayRoot, "src", "index.ts");
 
 let gatewayProc: ChildProcess | null = null;
+let cesServer: Server | null = null;
 let port = 0;
 
-async function startGateway(): Promise<void> {
+async function startGateway(
+  envOverrides: Record<string, string> = {},
+): Promise<void> {
   port = 49152 + Math.floor(Math.random() * 16383);
   gatewayProc = spawn("bun", ["run", gatewayEntry], {
     env: {
@@ -200,6 +204,7 @@ async function startGateway(): Promise<void> {
       // Ensure Telegram is NOT configured via env vars
       TELEGRAM_BOT_TOKEN: "",
       TELEGRAM_WEBHOOK_SECRET: "",
+      ...envOverrides,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -218,10 +223,68 @@ async function startGateway(): Promise<void> {
   throw new Error("Gateway failed to start within 5 seconds");
 }
 
+async function startCesServer(opts: {
+  credentials: Record<string, string>;
+  serviceToken: string;
+  isAvailable: () => boolean;
+}): Promise<string> {
+  cesServer = createServer((req, res) => {
+    if (req.headers.authorization !== `Bearer ${opts.serviceToken}`) {
+      res.statusCode = 401;
+      res.end(JSON.stringify({ error: "Unauthorized" }));
+      return;
+    }
+
+    if (!opts.isAvailable()) {
+      res.statusCode = 503;
+      res.end(JSON.stringify({ error: "Unavailable" }));
+      return;
+    }
+
+    const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    const prefix = "/v1/credentials/";
+    if (!url.pathname.startsWith(prefix)) {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+
+    const account = decodeURIComponent(url.pathname.slice(prefix.length));
+    const value = opts.credentials[account];
+    if (!value) {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ account, value }));
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    cesServer!.once("error", reject);
+    cesServer!.listen(0, "127.0.0.1", () => {
+      cesServer!.off("error", reject);
+      resolve();
+    });
+  });
+
+  const address = cesServer.address();
+  if (!address || typeof address === "string") {
+    throw new Error("CES test server did not expose a TCP port");
+  }
+
+  return `http://127.0.0.1:${address.port}`;
+}
+
 afterEach(() => {
   if (gatewayProc) {
     gatewayProc.kill();
     gatewayProc = null;
+  }
+  if (cesServer) {
+    cesServer.close();
+    cesServer = null;
   }
   try {
     rmSync(testDir, { recursive: true, force: true });
@@ -340,6 +403,42 @@ describe("gateway telegram hot-reload (e2e)", () => {
     // We expect 401 (webhook secret verification failed) rather than 503
     // (not configured). Getting past the 503 gate proves the gateway
     // hot-reloaded the v2 credentials from the credential store.
+    const after = await fetch(`${base}/webhooks/telegram`, {
+      method: "POST",
+    });
+    expect(after.status).toBe(401);
+  }, 15_000);
+
+  test("gateway retries CES-backed Telegram credentials when CES is unavailable during startup", async () => {
+    mkdirSync(testDir, { recursive: true });
+    writeCredentialMetadata();
+
+    let cesAvailable = false;
+    const cesUrl = await startCesServer({
+      serviceToken: "test-ces-token",
+      isAvailable: () => cesAvailable,
+      credentials: {
+        "credential/telegram/bot_token": "fake-ces-bot-token:ABC123",
+        "credential/telegram/webhook_secret": "fake-ces-webhook-secret",
+      },
+    });
+
+    await startGateway({
+      CES_CREDENTIAL_URL: cesUrl,
+      CES_SERVICE_TOKEN: "test-ces-token",
+    });
+
+    const base = `http://localhost:${port}`;
+
+    const before = await fetch(`${base}/webhooks/telegram`, {
+      method: "POST",
+    });
+    expect(before.status).toBe(503);
+
+    cesAvailable = true;
+
+    await new Promise((resolve) => setTimeout(resolve, 3500));
+
     const after = await fetch(`${base}/webhooks/telegram`, {
       method: "POST",
     });

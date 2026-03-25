@@ -15,6 +15,7 @@ import { getLogger } from "./logger.js";
 import {
   getMetadataPath,
   getRootDir,
+  readCredentialMetadataStatus,
   readTelegramCredentials,
   readTwilioCredentials,
   readWhatsAppCredentials,
@@ -28,6 +29,7 @@ import {
 const log = getLogger("credential-watcher");
 
 const DEBOUNCE_MS = 500;
+const UNRESOLVED_CREDENTIAL_RETRY_MS = 2_000;
 
 export type CredentialChangeEvent = {
   telegramCredentials: TelegramCredentials | null;
@@ -45,6 +47,8 @@ export type CredentialChangeCallback = (event: CredentialChangeEvent) => void;
 export class CredentialWatcher {
   private watchers: FSWatcher[] = [];
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryPending = false;
   private lastSerialized: Map<string, string> = new Map();
   private polling = false;
   private pendingPoll = false;
@@ -111,6 +115,11 @@ export class CredentialWatcher {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
+    this.retryPending = false;
     this.pendingPoll = false;
     for (const watcher of this.watchers) {
       watcher.close();
@@ -134,6 +143,22 @@ export class CredentialWatcher {
     }, DEBOUNCE_MS);
   }
 
+  private scheduleRetry(unresolvedServices: string[]): void {
+    if (this.retryTimer) return;
+
+    if (!this.retryPending) {
+      log.info(
+        { unresolvedServices, retryMs: UNRESOLVED_CREDENTIAL_RETRY_MS },
+        "Credential metadata exists but secrets are unavailable; scheduling retry",
+      );
+      this.retryPending = true;
+    }
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      void this.pollOnce();
+    }, UNRESOLVED_CREDENTIAL_RETRY_MS);
+  }
+
   private async pollOnce(forceChanged = false): Promise<void> {
     if (this.polling) {
       // A poll is already in flight — flag that another round is needed
@@ -148,6 +173,7 @@ export class CredentialWatcher {
       const twilioCredentials = await readTwilioCredentials();
       const whatsappCredentials = await readWhatsAppCredentials();
       const slackChannelCredentials = await readSlackChannelCredentials();
+      const metadataStatus = readCredentialMetadataStatus();
 
       const services = {
         telegram: { creds: telegramCredentials, key: "telegram" },
@@ -168,6 +194,25 @@ export class CredentialWatcher {
             this.lastSerialized.delete(name);
           }
         }
+      }
+
+      const unresolvedServices = [
+        metadataStatus.telegram && !telegramCredentials ? "telegram" : null,
+        metadataStatus.twilio && !twilioCredentials ? "twilio" : null,
+        metadataStatus.whatsapp && !whatsappCredentials ? "whatsapp" : null,
+        metadataStatus.slackChannel && !slackChannelCredentials
+          ? "slackChannel"
+          : null,
+      ].filter((service): service is string => service !== null);
+
+      if (unresolvedServices.length > 0) {
+        this.scheduleRetry(unresolvedServices);
+      } else if (this.retryTimer) {
+        clearTimeout(this.retryTimer);
+        this.retryTimer = null;
+        this.retryPending = false;
+      } else {
+        this.retryPending = false;
       }
 
       if (changedServices.size === 0) return;
