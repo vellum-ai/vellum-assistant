@@ -245,16 +245,58 @@ export function identityRouteDefinitions(): RouteDefinition[] {
       endpoint: "health",
       method: "GET",
       handler: () => handleDetailedHealth(),
+      summary: "Detailed health check",
+      description:
+        "Returns runtime health including version, disk, memory, CPU, and migration status.",
+      tags: ["system"],
+      responseBody: {
+        type: "object",
+        properties: {
+          status: { type: "string" },
+          timestamp: { type: "string" },
+          version: { type: "string" },
+          disk: { type: "object" },
+          memory: { type: "object" },
+          cpu: { type: "object" },
+          migrations: { type: "object" },
+        },
+      },
     },
     {
       endpoint: "identity",
       method: "GET",
       handler: () => handleGetIdentity(),
+      summary: "Get assistant identity",
+      description:
+        "Returns the assistant's identity fields parsed from IDENTITY.md.",
+      tags: ["identity"],
+      responseBody: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          role: { type: "string" },
+          personality: { type: "string" },
+          emoji: { type: "string" },
+          home: { type: "string" },
+          version: { type: "string" },
+          createdAt: { type: "string" },
+        },
+      },
     },
     {
       endpoint: "identity/intro",
       method: "GET",
       handler: () => handleGetIdentityIntro(),
+      summary: "Get identity intro text",
+      description:
+        "Returns the cached identity intro string, preferring SOUL.md over LLM-generated cache.",
+      tags: ["identity"],
+      responseBody: {
+        type: "object",
+        properties: {
+          text: { type: "string" },
+        },
+      },
     },
   ];
 }

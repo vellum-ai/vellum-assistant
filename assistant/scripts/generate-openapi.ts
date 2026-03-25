@@ -22,6 +22,7 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import { stringify } from "yaml";
+import { z } from "zod";
 
 const ROOT = resolve(import.meta.dir, "..");
 const ROUTES_DIR = join(ROOT, "src/runtime/routes");
@@ -29,14 +30,45 @@ const OUTPUT_PATH = join(ROOT, "openapi.yaml");
 const PKG_PATH = join(ROOT, "package.json");
 
 // ---------------------------------------------------------------------------
-// Types
+// Schemas
 // ---------------------------------------------------------------------------
 
-interface RouteEntry {
-  method: string;
+const RouteQueryParamSchema = z.object({
+  name: z.string(),
+  type: z.string().optional(),
+  required: z.boolean().optional(),
+  description: z.string().optional(),
+});
+
+const RouteBodySchemaSchema = z.object({
+  type: z.string(),
+  properties: z.record(z.string(), z.unknown()).optional(),
+  required: z.array(z.string()).optional(),
+  description: z.string().optional(),
+});
+
+const RouteEntrySchema = z.object({
+  method: z.string(),
   /** Endpoint path relative to /v1/ (e.g. "conversations/:id"). */
-  endpoint: string;
-}
+  endpoint: z.string(),
+  /** Short summary for OpenAPI operation. */
+  summary: z.string().optional(),
+  /** Longer description for OpenAPI operation. */
+  description: z.string().optional(),
+  /** Grouping tags. */
+  tags: z.array(z.string()).optional(),
+  /** Query parameter definitions. */
+  queryParams: z.array(RouteQueryParamSchema).optional(),
+  /** JSON Schema for the request body. */
+  requestBody: RouteBodySchemaSchema.optional(),
+  /** JSON Schema for the 200 response body. */
+  responseBody: RouteBodySchemaSchema.optional(),
+  /** Source module filename, used for auto-deriving tags. */
+  sourceModule: z.string().optional(),
+});
+
+type RouteBodySchema = z.infer<typeof RouteBodySchemaSchema>;
+type RouteEntry = z.infer<typeof RouteEntrySchema>;
 
 // ---------------------------------------------------------------------------
 // Programmatic route extraction
@@ -111,17 +143,15 @@ async function collectRoutesFromModules(): Promise<RouteEntry[]> {
       }
 
       try {
-        const defs = exportValue(createDeepStub()) as Array<{
-          endpoint?: string;
-          method?: string;
-        }>;
-        if (!Array.isArray(defs)) continue;
-        for (const def of defs) {
-          if (
-            typeof def.endpoint === "string" &&
-            typeof def.method === "string"
-          ) {
-            routes.push({ endpoint: def.endpoint, method: def.method });
+        const rawDefs = exportValue(createDeepStub());
+        if (!Array.isArray(rawDefs)) continue;
+        for (const raw of rawDefs) {
+          const result = RouteEntrySchema.safeParse({
+            ...(typeof raw === "object" && raw !== null ? raw : {}),
+            sourceModule: file,
+          });
+          if (result.success) {
+            routes.push(result.data);
           }
         }
       } catch (err) {
@@ -220,17 +250,51 @@ function extractPathParams(openApiPath: string): string[] {
 // Spec builder
 // ---------------------------------------------------------------------------
 
-interface OpenApiPathItem {
-  [method: string]: {
-    operationId: string;
-    responses: Record<string, { description: string }>;
-    parameters?: Array<{
-      name: string;
-      in: string;
-      required: boolean;
-      schema: { type: string };
-    }>;
+interface OpenApiParameter {
+  name: string;
+  in: string;
+  required: boolean;
+  schema: { type: string };
+  description?: string;
+}
+
+interface OpenApiOperation {
+  operationId: string;
+  summary?: string;
+  description?: string;
+  tags?: string[];
+  parameters?: OpenApiParameter[];
+  requestBody?: {
+    required: boolean;
+    content: {
+      "application/json": {
+        schema: RouteBodySchema;
+      };
+    };
   };
+  responses: Record<
+    string,
+    {
+      description: string;
+      content?: {
+        "application/json": {
+          schema: RouteBodySchema;
+        };
+      };
+    }
+  >;
+}
+
+interface OpenApiPathItem {
+  [method: string]: OpenApiOperation;
+}
+
+/** Derive a tag name from a route module filename (e.g. "secret-routes.ts" → "secrets"). */
+function deriveTagFromModule(filename: string): string {
+  // Strip directory prefix and extension
+  const base = filename.replace(/^.*[\/]/, "").replace(/\.ts$/, "");
+  // Remove trailing "-routes" suffix
+  return base.replace(/-routes$/, "");
 }
 
 function buildSpec(
@@ -243,6 +307,7 @@ function buildSpec(
     path: string;
     method: string;
     endpoint: string;
+    entry: RouteEntry;
   }> = [];
 
   // Non-v1 routes first
@@ -250,7 +315,12 @@ function buildSpec(
     const key = `${r.method}:${r.path}`;
     if (!seen.has(key)) {
       seen.add(key);
-      uniqueRoutes.push({ path: r.path, method: r.method, endpoint: r.path });
+      uniqueRoutes.push({
+        path: r.path,
+        method: r.method,
+        endpoint: r.path,
+        entry: { method: r.method, endpoint: r.path },
+      });
     }
   }
 
@@ -264,6 +334,7 @@ function buildSpec(
         path: openApiPath,
         method: r.method,
         endpoint: r.endpoint,
+        entry: r,
       });
     }
   }
@@ -288,21 +359,66 @@ function buildSpec(
       : route.path.replace(/^\//, "").replace(/[/{}\-]/g, "_") +
         `_${methodLower}`;
 
+    const { entry } = route;
+
+    // Build parameters: path params + query params from metadata
     const pathParams = extractPathParams(route.path);
-    const operation: OpenApiPathItem[string] = {
+    const parameters: OpenApiParameter[] = pathParams.map((name) => ({
+      name,
+      in: "path" as const,
+      required: true,
+      schema: { type: "string" },
+    }));
+
+    if (entry.queryParams) {
+      for (const qp of entry.queryParams) {
+        parameters.push({
+          name: qp.name,
+          in: "query",
+          required: qp.required ?? false,
+          schema: { type: qp.type ?? "string" },
+          ...(qp.description ? { description: qp.description } : {}),
+        });
+      }
+    }
+
+    // Determine tags: explicit tags > auto-derived from source module
+    const tags: string[] | undefined =
+      entry.tags && entry.tags.length > 0
+        ? entry.tags
+        : entry.sourceModule
+          ? [deriveTagFromModule(entry.sourceModule)]
+          : undefined;
+
+    // Build the operation
+    const operation: OpenApiOperation = {
       operationId,
+      ...(entry.summary ? { summary: entry.summary } : {}),
+      ...(entry.description ? { description: entry.description } : {}),
+      ...(tags ? { tags } : {}),
       responses: {
-        "200": { description: "Successful response" },
+        "200": entry.responseBody
+          ? {
+              description: "Successful response",
+              content: {
+                "application/json": { schema: entry.responseBody },
+              },
+            }
+          : { description: "Successful response" },
       },
     };
 
-    if (pathParams.length > 0) {
-      operation.parameters = pathParams.map((name) => ({
-        name,
-        in: "path",
+    if (parameters.length > 0) {
+      operation.parameters = parameters;
+    }
+
+    if (entry.requestBody) {
+      operation.requestBody = {
         required: true,
-        schema: { type: "string" },
-      }));
+        content: {
+          "application/json": { schema: entry.requestBody },
+        },
+      };
     }
 
     paths[route.path][methodLower] = operation;

@@ -31,6 +31,24 @@ export interface RouteContext {
   params: RouteParams;
 }
 
+/** Schema for an OpenAPI query parameter. */
+export interface RouteQueryParam {
+  name: string;
+  /** OpenAPI-style JSON Schema type (e.g. "string", "integer"). Defaults to "string". */
+  type?: string;
+  required?: boolean;
+  description?: string;
+}
+
+/** Inline JSON-Schema-style object for request/response bodies. */
+export interface RouteBodySchema {
+  /** JSON Schema type (typically "object"). */
+  type: string;
+  properties?: Record<string, unknown>;
+  required?: string[];
+  description?: string;
+}
+
 /**
  * A single route entry in the declarative table.
  *
@@ -47,6 +65,20 @@ export interface RouteDefinition {
   method: string;
   handler: (ctx: RouteContext) => Promise<Response> | Response;
   policyKey?: string;
+
+  // -- OpenAPI metadata (optional) ------------------------------------------
+  /** Short summary shown next to the operation in generated docs. */
+  summary?: string;
+  /** Longer description (Markdown-safe) for the operation. */
+  description?: string;
+  /** Grouping tags (e.g. "secrets", "identity"). Auto-derived from the route module filename when omitted. */
+  tags?: string[];
+  /** Query parameter definitions for the operation. */
+  queryParams?: RouteQueryParam[];
+  /** JSON Schema for the request body (POST/PUT/PATCH/DELETE). */
+  requestBody?: RouteBodySchema;
+  /** JSON Schema for the 200 response body. */
+  responseBody?: RouteBodySchema;
 }
 
 // ---------------------------------------------------------------------------

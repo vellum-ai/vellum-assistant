@@ -556,21 +556,118 @@ export function secretRouteDefinitions(
       endpoint: "secrets",
       method: "POST",
       handler: async ({ req }) => handleAddSecret(req, deps?.getCesClient),
+      summary: "Add a secret",
+      description:
+        "Store a new secret (API key, OAuth token, etc.) in the credential vault.",
+      tags: ["secrets"],
+      requestBody: {
+        type: "object",
+        properties: {
+          type: {
+            type: "string",
+            description: "Secret type: 'api_key' or 'credential'",
+          },
+          name: { type: "string", description: "Unique name for the secret" },
+          value: { type: "string", description: "Secret value to store" },
+        },
+        required: ["type", "name", "value"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+          type: { type: "string" },
+          name: { type: "string" },
+        },
+      },
     },
     {
       endpoint: "secrets",
       method: "DELETE",
       handler: async ({ req }) => handleDeleteSecret(req),
+      summary: "Delete a secret",
+      description: "Remove a secret from the credential vault by name.",
+      tags: ["secrets"],
+      requestBody: {
+        type: "object",
+        properties: {
+          type: {
+            type: "string",
+            description: "Secret type: 'api_key' or 'credential'",
+          },
+          name: { type: "string", description: "Name of the secret to delete" },
+        },
+        required: ["type", "name"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          success: { type: "boolean" },
+          type: { type: "string" },
+          name: { type: "string" },
+        },
+      },
     },
     {
       endpoint: "secrets",
       method: "GET",
       handler: async () => handleListSecrets(),
+      summary: "List secrets",
+      description: "Return the names (not values) of all stored secrets.",
+      tags: ["secrets"],
+      responseBody: {
+        type: "object",
+        properties: {
+          secrets: {
+            type: "array",
+            description:
+              "List of secret metadata entries, each with type and name",
+          },
+          accounts: {
+            type: "array",
+            description: "Alias for secrets (same data)",
+          },
+        },
+      },
     },
     {
       endpoint: "secrets/read",
       method: "POST",
       handler: async ({ req }) => handleReadSecret(req),
+      summary: "Read a secret value",
+      description: "Retrieve the decrypted value of a stored secret by name.",
+      tags: ["secrets"],
+      requestBody: {
+        type: "object",
+        properties: {
+          type: {
+            type: "string",
+            description: "Secret type: 'api_key' or 'credential'",
+          },
+          name: { type: "string", description: "Name of the secret to read" },
+          reveal: {
+            type: "boolean",
+            description:
+              "If true, return the decrypted value; otherwise return a masked version",
+          },
+        },
+        required: ["type", "name"],
+      },
+      responseBody: {
+        type: "object",
+        properties: {
+          found: { type: "boolean" },
+          value: {
+            type: "string",
+            description: "Decrypted value (only when reveal=true and found)",
+          },
+          masked: {
+            type: "string",
+            description: "Masked value (when reveal=false and found)",
+          },
+          unreachable: { type: "boolean" },
+        },
+      },
     },
   ];
 }
