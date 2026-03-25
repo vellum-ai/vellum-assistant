@@ -14,6 +14,8 @@
  * POST   /v1/conversations/reorder        — reorder / pin conversations
  */
 
+import { z } from "zod";
+
 import {
   batchSetDisplayOrders,
   deleteConversation,
@@ -76,27 +78,19 @@ export function conversationManagementRouteDefinitions(
       summary: "Create a conversation",
       description: "Create or get an existing conversation by key.",
       tags: ["conversations"],
-      requestBody: {
-        type: "object",
-        properties: {
-          conversationKey: {
-            type: "string",
-            description: "Idempotency key for the conversation",
-          },
-          conversationType: {
-            type: "string",
-            description: "'standard' (default) or 'private'",
-          },
-        },
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          conversationKey: { type: "string" },
-          conversationType: { type: "string" },
-        },
-      },
+      requestBody: z.object({
+        conversationKey: z
+          .string()
+          .describe("Idempotency key for the conversation"),
+        conversationType: z
+          .string()
+          .describe("'standard' (default) or 'private'"),
+      }),
+      responseBody: z.object({
+        id: z.string(),
+        conversationKey: z.string(),
+        conversationType: z.string(),
+      }),
       handler: async ({ req }) => {
         let body: { conversationKey?: string; conversationType?: string } = {};
         try {
@@ -139,17 +133,13 @@ export function conversationManagementRouteDefinitions(
       description:
         "Create a copy of a conversation, optionally truncated at a specific message.",
       tags: ["conversations"],
-      requestBody: {
-        type: "object",
-        properties: {
-          conversationId: { type: "string" },
-          throughMessageId: {
-            type: "string",
-            description: "Truncate the fork at this message",
-          },
-        },
-        required: ["conversationId"],
-      },
+      requestBody: z.object({
+        conversationId: z.string(),
+        throughMessageId: z
+          .string()
+          .describe("Truncate the fork at this message")
+          .optional(),
+      }),
       handler: async ({ req }) => {
         if (!deps.forkConversation) {
           return httpError(
@@ -214,25 +204,18 @@ export function conversationManagementRouteDefinitions(
       summary: "Switch active conversation",
       description: "Set the active conversation for the current session.",
       tags: ["conversations"],
-      requestBody: {
-        type: "object",
-        properties: {
-          conversationId: { type: "string" },
-          conversationKey: {
-            type: "string",
-            description: "Optional key to register for this conversation",
-          },
-        },
-        required: ["conversationId"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          conversationId: { type: "string" },
-          title: { type: "string" },
-          conversationType: { type: "string" },
-        },
-      },
+      requestBody: z.object({
+        conversationId: z.string(),
+        conversationKey: z
+          .string()
+          .describe("Optional key to register for this conversation")
+          .optional(),
+      }),
+      responseBody: z.object({
+        conversationId: z.string(),
+        title: z.string(),
+        conversationType: z.string(),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           conversationId?: string;
@@ -270,13 +253,9 @@ export function conversationManagementRouteDefinitions(
       summary: "Rename a conversation",
       description: "Update the display name of a conversation.",
       tags: ["conversations"],
-      requestBody: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-        },
-        required: ["name"],
-      },
+      requestBody: z.object({
+        name: z.string(),
+      }),
       handler: async ({ req, params }) => {
         const body = (await req.json()) as { name?: string };
         const name = body.name;
@@ -324,15 +303,12 @@ export function conversationManagementRouteDefinitions(
       description:
         "Delete all messages in a conversation and revert associated memory changes.",
       tags: ["conversations"],
-      responseBody: {
-        type: "object",
-        properties: {
-          wiped: { type: "boolean" },
-          unsupersededItems: { type: "integer" },
-          deletedSummaries: { type: "integer" },
-          cancelledJobs: { type: "integer" },
-        },
-      },
+      responseBody: z.object({
+        wiped: z.boolean(),
+        unsupersededItems: z.number().int(),
+        deletedSummaries: z.number().int(),
+        cancelledJobs: z.number().int(),
+      }),
       handler: async ({ params }) => {
         const resolvedId = resolveConversationId(params.id);
         if (!resolvedId) {
@@ -448,13 +424,10 @@ export function conversationManagementRouteDefinitions(
       description:
         "Remove the most recent user+assistant message pair from the conversation.",
       tags: ["conversations"],
-      responseBody: {
-        type: "object",
-        properties: {
-          removedCount: { type: "integer" },
-          conversationId: { type: "string" },
-        },
-      },
+      responseBody: z.object({
+        removedCount: z.number().int(),
+        conversationId: z.string(),
+      }),
       handler: async ({ params }) => {
         const result = await deps.undoLastMessage(params.id);
         if (!result) {
@@ -511,17 +484,13 @@ export function conversationManagementRouteDefinitions(
       description:
         "Batch-update display order and pin state for conversations.",
       tags: ["conversations"],
-      requestBody: {
-        type: "object",
-        properties: {
-          updates: {
-            type: "array",
-            description:
-              "Array of { conversationId, displayOrder?, isPinned? } objects",
-          },
-        },
-        required: ["updates"],
-      },
+      requestBody: z.object({
+        updates: z
+          .array(z.unknown())
+          .describe(
+            "Array of { conversationId, displayOrder?, isPinned? } objects",
+          ),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           updates?: Array<{

@@ -4,6 +4,8 @@
  * Resolves pending host CU proxy requests by requestId when the desktop
  * client returns observation results via HTTP.
  */
+import { z } from "zod";
+
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
@@ -93,30 +95,23 @@ export function hostCuRouteDefinitions(): RouteDefinition[] {
       summary: "Submit host CU result",
       description: "Resolve a pending host computer-use request by requestId.",
       tags: ["host"],
-      requestBody: {
-        type: "object",
-        properties: {
-          requestId: { type: "string", description: "Pending CU request ID" },
-          axTree: { type: "string", description: "Accessibility tree" },
-          axDiff: { type: "string", description: "Accessibility tree diff" },
-          screenshot: { type: "string", description: "Base64 screenshot" },
-          screenshotWidthPx: { type: "number" },
-          screenshotHeightPx: { type: "number" },
-          screenWidthPt: { type: "number" },
-          screenHeightPt: { type: "number" },
-          executionResult: { type: "string" },
-          executionError: { type: "string" },
-          secondaryWindows: { type: "string" },
-          userGuidance: { type: "string" },
-        },
-        required: ["requestId"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          accepted: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        requestId: z.string().describe("Pending CU request ID"),
+        axTree: z.string().describe("Accessibility tree").optional(),
+        axDiff: z.string().describe("Accessibility tree diff").optional(),
+        screenshot: z.string().describe("Base64 screenshot").optional(),
+        screenshotWidthPx: z.number().optional(),
+        screenshotHeightPx: z.number().optional(),
+        screenWidthPt: z.number().optional(),
+        screenHeightPt: z.number().optional(),
+        executionResult: z.string().optional(),
+        executionError: z.string().optional(),
+        secondaryWindows: z.string().optional(),
+        userGuidance: z.string().optional(),
+      }),
+      responseBody: z.object({
+        accepted: z.boolean(),
+      }),
       handler: async ({ req, authContext }) =>
         handleHostCuResult(req, authContext),
     },

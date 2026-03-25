@@ -5,6 +5,7 @@
  */
 
 import { and, desc, eq, inArray, like } from "drizzle-orm";
+import { z } from "zod";
 
 import { getDb } from "../../memory/db.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
@@ -221,23 +222,13 @@ export function conversationStarterRouteDefinitions(): RouteDefinition[] {
           description: 'Scope ID (default "default")',
         },
       ],
-      responseBody: {
-        type: "object",
-        properties: {
-          starters: {
-            type: "array",
-            description: "Ordered list of starter chips",
-          },
-          total: {
-            type: "integer",
-            description: "Total number of available starters",
-          },
-          status: {
-            type: "string",
-            description: "One of: ready, empty, generating",
-          },
-        },
-      },
+      responseBody: z.object({
+        starters: z
+          .array(z.unknown())
+          .describe("Ordered list of starter chips"),
+        total: z.number().int().describe("Total number of available starters"),
+        status: z.string().describe("One of: ready, empty, generating"),
+      }),
     },
   ];
 }

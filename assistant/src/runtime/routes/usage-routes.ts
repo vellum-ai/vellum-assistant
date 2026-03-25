@@ -6,6 +6,8 @@
  * GET /v1/usage/breakdown?from=&to=&groupBy=  — grouped breakdown (actor, provider, model)
  */
 
+import { z } from "zod";
+
 import {
   getUsageDayBuckets,
   getUsageGroupBreakdown,
@@ -103,12 +105,9 @@ export function usageRouteDefinitions(): RouteDefinition[] {
           description: "End epoch millis (required)",
         },
       ],
-      responseBody: {
-        type: "object",
-        properties: {
-          buckets: { type: "array", description: "Daily usage bucket objects" },
-        },
-      },
+      responseBody: z.object({
+        buckets: z.array(z.unknown()).describe("Daily usage bucket objects"),
+      }),
       handler: ({ url }) => {
         const range = parseTimeRange(url);
         if (range instanceof Response) return range;
@@ -140,12 +139,9 @@ export function usageRouteDefinitions(): RouteDefinition[] {
           description: "Group by: actor, provider, or model (required)",
         },
       ],
-      responseBody: {
-        type: "object",
-        properties: {
-          breakdown: { type: "array", description: "Grouped usage entries" },
-        },
-      },
+      responseBody: z.object({
+        breakdown: z.array(z.unknown()).describe("Grouped usage entries"),
+      }),
       handler: ({ url }) => {
         const range = parseTimeRange(url);
         if (range instanceof Response) return range;

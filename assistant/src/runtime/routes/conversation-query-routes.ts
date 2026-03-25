@@ -20,6 +20,8 @@
  * DELETE /v1/messages/queued/:id        — delete queued message
  */
 
+import { z } from "zod";
+
 import {
   deepMergeOverwrite,
   getConfig,
@@ -127,17 +129,10 @@ export function conversationQueryRouteDefinitions(
       summary: "Set LLM model",
       description: "Change the active LLM model and optionally its provider.",
       tags: ["config"],
-      requestBody: {
-        type: "object",
-        properties: {
-          modelId: { type: "string" },
-          provider: {
-            type: "string",
-            description: "Optional provider override",
-          },
-        },
-        required: ["modelId"],
-      },
+      requestBody: z.object({
+        modelId: z.string(),
+        provider: z.string().describe("Optional provider override").optional(),
+      }),
       handler: async ({ req }) => {
         if (!deps.getModelSetContext) {
           return httpError("INTERNAL_ERROR", "Model set not available", 500);
@@ -188,13 +183,9 @@ export function conversationQueryRouteDefinitions(
       summary: "Set image generation model",
       description: "Change the active image generation model.",
       tags: ["config"],
-      requestBody: {
-        type: "object",
-        properties: {
-          modelId: { type: "string" },
-        },
-        required: ["modelId"],
-      },
+      requestBody: z.object({
+        modelId: z.string(),
+      }),
       handler: async ({ req }) => {
         if (!deps.getModelSetContext) {
           return httpError(
@@ -246,14 +237,10 @@ export function conversationQueryRouteDefinitions(
       summary: "Set embedding config",
       description: "Change the embedding provider and optionally model.",
       tags: ["config"],
-      requestBody: {
-        type: "object",
-        properties: {
-          provider: { type: "string" },
-          model: { type: "string" },
-        },
-        required: ["provider"],
-      },
+      requestBody: z.object({
+        provider: z.string(),
+        model: z.string().optional(),
+      }),
       handler: async ({ req }) => {
         if (!deps.getModelSetContext) {
           return httpError(
@@ -313,12 +300,9 @@ export function conversationQueryRouteDefinitions(
       summary: "Get permission-skip flag",
       description: "Return whether dangerouslySkipPermissions is enabled.",
       tags: ["config"],
-      responseBody: {
-        type: "object",
-        properties: {
-          enabled: { type: "boolean" },
-        },
-      },
+      responseBody: z.object({
+        enabled: z.boolean(),
+      }),
       handler: () => {
         const config = getConfig();
         return Response.json({
@@ -333,13 +317,9 @@ export function conversationQueryRouteDefinitions(
       summary: "Set permission-skip flag",
       description: "Enable or disable dangerouslySkipPermissions.",
       tags: ["config"],
-      requestBody: {
-        type: "object",
-        properties: {
-          enabled: { type: "boolean" },
-        },
-        required: ["enabled"],
-      },
+      requestBody: z.object({
+        enabled: z.boolean(),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as { enabled?: unknown };
         if (typeof body.enabled !== "boolean") {
@@ -434,13 +414,10 @@ export function conversationQueryRouteDefinitions(
       description:
         "Full-text search across conversation titles and message content.",
       tags: ["conversations"],
-      responseBody: {
-        type: "object",
-        properties: {
-          query: { type: "string" },
-          results: { type: "array" },
-        },
-      },
+      responseBody: z.object({
+        query: z.string(),
+        results: z.array(z.unknown()),
+      }),
       handler: ({ url }) => {
         const q = url.searchParams.get("q");
         if (!q) {
@@ -495,14 +472,11 @@ export function conversationQueryRouteDefinitions(
       description:
         "Return request/response logs and memory recall data for a specific message.",
       tags: ["messages"],
-      responseBody: {
-        type: "object",
-        properties: {
-          messageId: { type: "string" },
-          logs: { type: "array" },
-          memoryRecall: { type: "object" },
-        },
-      },
+      responseBody: z.object({
+        messageId: z.string(),
+        logs: z.array(z.unknown()),
+        memoryRecall: z.object({}).passthrough(),
+      }),
       handler: ({ params }) => {
         const messageId = params.id;
         if (!messageId) {

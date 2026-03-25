@@ -9,6 +9,8 @@
  * PATCH  /v1/contact-channels/:contactChannelId — update a contact channel's status/policy
  */
 
+import { z } from "zod";
+
 import {
   deleteContact,
   getAssistantContactMetadata,
@@ -421,16 +423,12 @@ export function contactRouteDefinitions(): RouteDefinition[] {
       description:
         "Return all contacts, optionally filtered by type or channel status.",
       tags: ["contacts"],
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-          contacts: {
-            type: "array",
-            description: "Contact objects with channels and metadata",
-          },
-        },
-      },
+      responseBody: z.object({
+        ok: z.boolean(),
+        contacts: z
+          .array(z.unknown())
+          .describe("Contact objects with channels and metadata"),
+      }),
       handler: ({ url }) => handleListContacts(url),
     },
     {
@@ -440,34 +438,24 @@ export function contactRouteDefinitions(): RouteDefinition[] {
       description:
         "Create a new contact or update an existing one. Supports upsert by contactId or channel handle.",
       tags: ["contacts"],
-      requestBody: {
-        type: "object",
-        properties: {
-          contactId: {
-            type: "string",
-            description: "Existing contact ID (for update)",
-          },
-          displayName: { type: "string", description: "Display name" },
-          channels: {
-            type: "array",
-            description: "Channel objects with channelId, handle, displayName",
-          },
-          assistantMetadata: {
-            type: "object",
-            description: "Assistant-side metadata",
-          },
-        },
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-          contact: {
-            type: "object",
-            description: "Created or updated contact",
-          },
-        },
-      },
+      requestBody: z.object({
+        contactId: z.string().describe("Existing contact ID (for update)"),
+        displayName: z.string().describe("Display name"),
+        channels: z
+          .array(z.unknown())
+          .describe("Channel objects with channelId, handle, displayName"),
+        assistantMetadata: z
+          .object({})
+          .passthrough()
+          .describe("Assistant-side metadata"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+        contact: z
+          .object({})
+          .passthrough()
+          .describe("Created or updated contact"),
+      }),
       handler: async ({ req }) => handleUpsertContact(req),
     },
     {
@@ -476,24 +464,16 @@ export function contactRouteDefinitions(): RouteDefinition[] {
       summary: "Merge two contacts",
       description: "Merge two contacts, keeping one and absorbing the other.",
       tags: ["contacts"],
-      requestBody: {
-        type: "object",
-        properties: {
-          keepId: { type: "string", description: "ID of the contact to keep" },
-          mergeId: {
-            type: "string",
-            description: "ID of the contact to merge into the kept one",
-          },
-        },
-        required: ["keepId", "mergeId"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-          contact: { type: "object", description: "Merged contact" },
-        },
-      },
+      requestBody: z.object({
+        keepId: z.string().describe("ID of the contact to keep"),
+        mergeId: z
+          .string()
+          .describe("ID of the contact to merge into the kept one"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+        contact: z.object({}).passthrough().describe("Merged contact"),
+      }),
       handler: async ({ req }) => handleMergeContacts(req),
     },
     {
@@ -503,24 +483,18 @@ export function contactRouteDefinitions(): RouteDefinition[] {
       summary: "Update a contact channel",
       description: "Update status, policy, or reason on a contact's channel.",
       tags: ["contacts"],
-      requestBody: {
-        type: "object",
-        properties: {
-          status: { type: "string", description: "Channel status" },
-          policy: { type: "string", description: "Channel policy" },
-          reason: { type: "string", description: "Reason for the change" },
-        },
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-          contact: {
-            type: "object",
-            description: "Updated contact (if applicable)",
-          },
-        },
-      },
+      requestBody: z.object({
+        status: z.string().describe("Channel status"),
+        policy: z.string().describe("Channel policy"),
+        reason: z.string().describe("Reason for the change"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+        contact: z
+          .object({})
+          .passthrough()
+          .describe("Updated contact (if applicable)"),
+      }),
       handler: async ({ req, params }) =>
         handleUpdateContactChannel(req, params.contactChannelId),
     },
@@ -542,17 +516,14 @@ export function contactCatchAllRouteDefinitions(): RouteDefinition[] {
       description:
         "Return a single contact with its channels and assistant metadata.",
       tags: ["contacts"],
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-          contact: { type: "object", description: "Contact details" },
-          assistantMetadata: {
-            type: "object",
-            description: "Assistant-side metadata",
-          },
-        },
-      },
+      responseBody: z.object({
+        ok: z.boolean(),
+        contact: z.object({}).passthrough().describe("Contact details"),
+        assistantMetadata: z
+          .object({})
+          .passthrough()
+          .describe("Assistant-side metadata"),
+      }),
       handler: ({ params }) => handleGetContact(params.id),
     },
     {

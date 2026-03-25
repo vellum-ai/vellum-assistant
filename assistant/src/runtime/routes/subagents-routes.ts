@@ -5,6 +5,8 @@
  * sharing business logic with the handlers in
  * `daemon/handlers/subagents.ts`.
  */
+import { z } from "zod";
+
 import { getMessages } from "../../memory/conversation-crud.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
@@ -135,14 +137,11 @@ export function subagentRouteDefinitions(): RouteDefinition[] {
           description: "Parent conversation ID (required)",
         },
       ],
-      responseBody: {
-        type: "object",
-        properties: {
-          subagentId: { type: "string" },
-          objective: { type: "string" },
-          events: { type: "array", description: "Subagent event objects" },
-        },
-      },
+      responseBody: z.object({
+        subagentId: z.string(),
+        objective: z.string(),
+        events: z.array(z.unknown()).describe("Subagent event objects"),
+      }),
       handler: ({ url, params }) => {
         const conversationId = url.searchParams.get("conversationId");
         if (!conversationId) {
@@ -176,20 +175,13 @@ export function subagentRouteDefinitions(): RouteDefinition[] {
       summary: "Abort subagent",
       description: "Abort a running subagent.",
       tags: ["subagents"],
-      requestBody: {
-        type: "object",
-        properties: {
-          conversationId: { type: "string" },
-        },
-        required: ["conversationId"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          subagentId: { type: "string" },
-          aborted: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        conversationId: z.string(),
+      }),
+      responseBody: z.object({
+        subagentId: z.string(),
+        aborted: z.boolean(),
+      }),
       handler: async ({ req, params }) => {
         const body = (await req.json()) as { conversationId?: string };
         const conversationId = body.conversationId;
@@ -227,21 +219,14 @@ export function subagentRouteDefinitions(): RouteDefinition[] {
       summary: "Send message to subagent",
       description: "Send a text message to a running subagent.",
       tags: ["subagents"],
-      requestBody: {
-        type: "object",
-        properties: {
-          conversationId: { type: "string" },
-          content: { type: "string" },
-        },
-        required: ["conversationId", "content"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          subagentId: { type: "string" },
-          sent: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        conversationId: z.string(),
+        content: z.string(),
+      }),
+      responseBody: z.object({
+        subagentId: z.string(),
+        sent: z.boolean(),
+      }),
       handler: async ({ req, params }) => {
         const body = (await req.json()) as {
           conversationId?: string;

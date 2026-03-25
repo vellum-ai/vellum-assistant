@@ -5,6 +5,8 @@
  * the approval-flow trust-rule endpoint in approval-routes.ts.
  * All endpoints are bearer-token authenticated (standard runtime auth).
  */
+import { z } from "zod";
+
 import {
   addRule,
   getAllRules,
@@ -179,13 +181,10 @@ export function trustRulesRouteDefinitions(): RouteDefinition[] {
       summary: "List all trust rules",
       description: "Return all persistent trust rules.",
       tags: ["trust-rules"],
-      responseBody: {
-        type: "object",
-        properties: {
-          type: { type: "string" },
-          rules: { type: "array", description: "Trust rule objects" },
-        },
-      },
+      responseBody: z.object({
+        type: z.string(),
+        rules: z.array(z.unknown()).describe("Trust rule objects"),
+      }),
       handler: () => handleListTrustRules(),
     },
     {
@@ -195,27 +194,20 @@ export function trustRulesRouteDefinitions(): RouteDefinition[] {
       description:
         "Create a new persistent trust rule (standalone, not approval-flow).",
       tags: ["trust-rules"],
-      requestBody: {
-        type: "object",
-        properties: {
-          toolName: { type: "string", description: "Tool name" },
-          pattern: { type: "string", description: "Allowlist pattern" },
-          scope: { type: "string", description: "Scope" },
-          decision: { type: "string", description: "allow, deny, or ask" },
-          allowHighRisk: {
-            type: "boolean",
-            description: "Allow high-risk invocations",
-          },
-          executionTarget: { type: "string", description: "Execution target" },
-        },
-        required: ["toolName", "pattern", "scope", "decision"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        toolName: z.string().describe("Tool name"),
+        pattern: z.string().describe("Allowlist pattern"),
+        scope: z.string().describe("Scope"),
+        decision: z.string().describe("allow, deny, or ask"),
+        allowHighRisk: z
+          .boolean()
+          .describe("Allow high-risk invocations")
+          .optional(),
+        executionTarget: z.string().describe("Execution target").optional(),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req }) => handleAddTrustRuleManage(req),
     },
     {
@@ -224,12 +216,9 @@ export function trustRulesRouteDefinitions(): RouteDefinition[] {
       summary: "Remove a trust rule",
       description: "Delete a trust rule by ID.",
       tags: ["trust-rules"],
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-        },
-      },
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: ({ params }) => handleRemoveTrustRuleManage(params.id),
     },
     {
@@ -238,22 +227,16 @@ export function trustRulesRouteDefinitions(): RouteDefinition[] {
       summary: "Update a trust rule",
       description: "Partially update fields on an existing trust rule.",
       tags: ["trust-rules"],
-      requestBody: {
-        type: "object",
-        properties: {
-          tool: { type: "string", description: "Tool name" },
-          pattern: { type: "string", description: "Allowlist pattern" },
-          scope: { type: "string", description: "Scope" },
-          decision: { type: "string", description: "allow, deny, or ask" },
-          priority: { type: "number", description: "Rule priority" },
-        },
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        tool: z.string().describe("Tool name"),
+        pattern: z.string().describe("Allowlist pattern"),
+        scope: z.string().describe("Scope"),
+        decision: z.string().describe("allow, deny, or ask"),
+        priority: z.number().describe("Rule priority"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req, params }) =>
         handleUpdateTrustRuleManage(req, params.id),
     },

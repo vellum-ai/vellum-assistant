@@ -1,5 +1,7 @@
 import { join } from "node:path";
 
+import { z } from "zod";
+
 import { getCharacterComponents } from "../../avatar/character-components.js";
 import {
   type CharacterTraits,
@@ -50,21 +52,14 @@ export function avatarRouteDefinitions(): RouteDefinition[] {
       summary: "Render avatar from traits",
       description: "Write character traits and render an avatar PNG.",
       tags: ["avatar"],
-      requestBody: {
-        type: "object",
-        properties: {
-          bodyShape: { type: "string" },
-          eyeStyle: { type: "string" },
-          color: { type: "string" },
-        },
-        required: ["bodyShape", "eyeStyle", "color"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        bodyShape: z.string(),
+        eyeStyle: z.string(),
+        color: z.string(),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req }) => {
         let body: CharacterTraits;
         try {

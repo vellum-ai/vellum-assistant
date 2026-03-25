@@ -10,6 +10,8 @@
  * `normalizeEndpointForPolicy`.
  */
 
+import type { z } from "zod";
+
 import { enforcePolicy, getPolicy } from "./auth/route-policy.js";
 import type { AuthContext } from "./auth/types.js";
 import { httpError } from "./http-errors.js";
@@ -42,14 +44,9 @@ export interface RouteQueryParam {
   schema?: Record<string, unknown>;
 }
 
-/** Inline JSON-Schema-style object for request/response bodies. */
-export interface RouteBodySchema {
-  /** JSON Schema type (typically "object"). */
-  type: string;
-  properties?: Record<string, unknown>;
-  required?: string[];
-  description?: string;
-}
+/** Zod schema used to describe a request or response body.
+ * The generate-openapi script converts these to JSON Schema via z.toJSONSchema(). */
+export type RouteBodySchema = z.ZodType;
 
 /**
  * A single route entry in the declarative table.
@@ -77,9 +74,9 @@ export interface RouteDefinition {
   tags?: string[];
   /** Query parameter definitions for the operation. */
   queryParams?: RouteQueryParam[];
-  /** JSON Schema for the request body (POST/PUT/PATCH/DELETE). */
+  /** Zod schema for the request body (POST/PUT/PATCH/DELETE). */
   requestBody?: RouteBodySchema;
-  /** JSON Schema for the 200 response body. */
+  /** Zod schema for the 200 response body. */
   responseBody?: RouteBodySchema;
 }
 

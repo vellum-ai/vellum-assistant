@@ -10,6 +10,7 @@
 
 import { and, asc, count, desc, eq, inArray, like, ne, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
+import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import { getDb } from "../../memory/db.js";
@@ -762,13 +763,10 @@ export function memoryItemRouteDefinitions(): RouteDefinition[] {
           description: "Pagination offset",
         },
       ],
-      responseBody: {
-        type: "object",
-        properties: {
-          items: { type: "array", description: "Memory item objects" },
-          total: { type: "number" },
-        },
-      },
+      responseBody: z.object({
+        items: z.array(z.unknown()).describe("Memory item objects"),
+        total: z.number(),
+      }),
       handler: (ctx) => handleListMemoryItems(ctx.url),
     },
     {
@@ -779,15 +777,12 @@ export function memoryItemRouteDefinitions(): RouteDefinition[] {
       description:
         "Return a single memory item by ID with supersession metadata.",
       tags: ["memory"],
-      responseBody: {
-        type: "object",
-        properties: {
-          item: {
-            type: "object",
-            description: "Memory item with scopeLabel and supersession info",
-          },
-        },
-      },
+      responseBody: z.object({
+        item: z
+          .object({})
+          .passthrough()
+          .describe("Memory item with scopeLabel and supersession info"),
+      }),
       handler: (ctx) => handleGetMemoryItem(ctx),
     },
     {
@@ -796,28 +791,20 @@ export function memoryItemRouteDefinitions(): RouteDefinition[] {
       summary: "Create a memory item",
       description: "Create a new memory item and enqueue embedding.",
       tags: ["memory"],
-      requestBody: {
-        type: "object",
-        properties: {
-          kind: {
-            type: "string",
-            description: "Memory kind (identity, preference, project, etc.)",
-          },
-          subject: { type: "string", description: "Subject line" },
-          statement: { type: "string", description: "Statement content" },
-          importance: {
-            type: "number",
-            description: "Importance score (default 0.8)",
-          },
-        },
-        required: ["kind", "subject", "statement"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          item: { type: "object", description: "Created memory item" },
-        },
-      },
+      requestBody: z.object({
+        kind: z
+          .string()
+          .describe("Memory kind (identity, preference, project, etc.)"),
+        subject: z.string().describe("Subject line"),
+        statement: z.string().describe("Statement content"),
+        importance: z
+          .number()
+          .describe("Importance score (default 0.8)")
+          .optional(),
+      }),
+      responseBody: z.object({
+        item: z.object({}).passthrough().describe("Created memory item"),
+      }),
       handler: (ctx) => handleCreateMemoryItem(ctx),
     },
     {
@@ -827,24 +814,18 @@ export function memoryItemRouteDefinitions(): RouteDefinition[] {
       summary: "Update a memory item",
       description: "Partially update fields on an existing memory item.",
       tags: ["memory"],
-      requestBody: {
-        type: "object",
-        properties: {
-          subject: { type: "string" },
-          statement: { type: "string" },
-          kind: { type: "string" },
-          status: { type: "string" },
-          importance: { type: "number" },
-          sourceType: { type: "string" },
-          verificationState: { type: "string" },
-        },
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          item: { type: "object", description: "Updated memory item" },
-        },
-      },
+      requestBody: z.object({
+        subject: z.string(),
+        statement: z.string(),
+        kind: z.string(),
+        status: z.string(),
+        importance: z.number(),
+        sourceType: z.string(),
+        verificationState: z.string(),
+      }),
+      responseBody: z.object({
+        item: z.object({}).passthrough().describe("Updated memory item"),
+      }),
       handler: (ctx) => handleUpdateMemoryItem(ctx),
     },
     {
@@ -854,12 +835,9 @@ export function memoryItemRouteDefinitions(): RouteDefinition[] {
       summary: "Delete a memory item",
       description: "Delete a memory item and its embeddings.",
       tags: ["memory"],
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-        },
-      },
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: (ctx) => handleDeleteMemoryItem(ctx),
     },
   ];

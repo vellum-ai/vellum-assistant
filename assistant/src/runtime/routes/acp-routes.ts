@@ -4,6 +4,8 @@
  * Exposes spawn, steer, cancel, close, sessions, and permission operations
  * over HTTP.
  */
+import { z } from "zod";
+
 import {
   broadcastToAllClients,
   getAcpSessionManager,
@@ -24,24 +26,17 @@ export function acpRouteDefinitions(): RouteDefinition[] {
       summary: "Spawn ACP session",
       description: "Start a new Agent Communication Protocol session.",
       tags: ["acp"],
-      requestBody: {
-        type: "object",
-        properties: {
-          agent: { type: "string", description: "Agent name" },
-          task: { type: "string", description: "Task description" },
-          conversationId: { type: "string" },
-          cwd: { type: "string", description: "Working directory" },
-        },
-        required: ["agent", "task", "conversationId"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          acpSessionId: { type: "string" },
-          protocolSessionId: { type: "string" },
-          agent: { type: "string" },
-        },
-      },
+      requestBody: z.object({
+        agent: z.string().describe("Agent name"),
+        task: z.string().describe("Task description"),
+        conversationId: z.string(),
+        cwd: z.string().describe("Working directory").optional(),
+      }),
+      responseBody: z.object({
+        acpSessionId: z.string(),
+        protocolSessionId: z.string(),
+        agent: z.string(),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           agent?: string;
@@ -107,20 +102,13 @@ export function acpRouteDefinitions(): RouteDefinition[] {
       summary: "Steer ACP session",
       description: "Send a steering instruction to an active ACP session.",
       tags: ["acp"],
-      requestBody: {
-        type: "object",
-        properties: {
-          instruction: { type: "string" },
-        },
-        required: ["instruction"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          acpSessionId: { type: "string" },
-          steered: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        instruction: z.string(),
+      }),
+      responseBody: z.object({
+        acpSessionId: z.string(),
+        steered: z.boolean(),
+      }),
       handler: async ({ req, params }) => {
         const body = (await req.json()) as { instruction?: string };
         if (!body.instruction) {
@@ -143,13 +131,10 @@ export function acpRouteDefinitions(): RouteDefinition[] {
       summary: "Cancel ACP session",
       description: "Cancel an active ACP session.",
       tags: ["acp"],
-      responseBody: {
-        type: "object",
-        properties: {
-          acpSessionId: { type: "string" },
-          cancelled: { type: "boolean" },
-        },
-      },
+      responseBody: z.object({
+        acpSessionId: z.string(),
+        cancelled: z.boolean(),
+      }),
       handler: async ({ params }) => {
         const manager = getAcpSessionManager();
         try {
@@ -168,13 +153,10 @@ export function acpRouteDefinitions(): RouteDefinition[] {
       summary: "Close ACP session",
       description: "Close a completed ACP session.",
       tags: ["acp"],
-      responseBody: {
-        type: "object",
-        properties: {
-          acpSessionId: { type: "string" },
-          closed: { type: "boolean" },
-        },
-      },
+      responseBody: z.object({
+        acpSessionId: z.string(),
+        closed: z.boolean(),
+      }),
       handler: async ({ params }) => {
         const manager = getAcpSessionManager();
         try {
@@ -193,15 +175,9 @@ export function acpRouteDefinitions(): RouteDefinition[] {
       summary: "List ACP sessions",
       description: "Return all active ACP sessions.",
       tags: ["acp"],
-      responseBody: {
-        type: "object",
-        properties: {
-          sessions: {
-            type: "array",
-            description: "ACP session status objects",
-          },
-        },
-      },
+      responseBody: z.object({
+        sessions: z.array(z.unknown()).describe("ACP session status objects"),
+      }),
       handler: () => {
         const manager = getAcpSessionManager();
         const sessions = manager.getStatus();

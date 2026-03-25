@@ -5,6 +5,8 @@
  * sharing business logic with the handlers in
  * `daemon/handlers/work-items.ts`.
  */
+import { z } from "zod";
+
 import type { Conversation } from "../../daemon/conversation.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
 import { getMessages } from "../../memory/conversation-crud.js";
@@ -420,12 +422,9 @@ export function workItemRouteDefinitions(
       summary: "List work items",
       description: "Return work items, optionally filtered by status.",
       tags: ["work-items"],
-      responseBody: {
-        type: "object",
-        properties: {
-          items: { type: "array" },
-        },
-      },
+      responseBody: z.object({
+        items: z.array(z.unknown()),
+      }),
       handler: ({ url }) => {
         const status = url.searchParams.get("status") ?? undefined;
         const items = listWorkItems(
@@ -461,16 +460,13 @@ export function workItemRouteDefinitions(
       description:
         "Partially update a work item's title, notes, status, or priority.",
       tags: ["work-items"],
-      requestBody: {
-        type: "object",
-        properties: {
-          title: { type: "string" },
-          notes: { type: "string" },
-          status: { type: "string" },
-          priorityTier: { type: "integer" },
-          sortIndex: { type: "integer" },
-        },
-      },
+      requestBody: z.object({
+        title: z.string(),
+        notes: z.string(),
+        status: z.string(),
+        priorityTier: z.number().int(),
+        sortIndex: z.number().int(),
+      }),
       handler: async ({ req, params }) => {
         const body = (await req.json()) as {
           title?: string;
@@ -615,16 +611,11 @@ export function workItemRouteDefinitions(
       summary: "Approve tool permissions",
       description: "Pre-approve a set of tools for a work item before it runs.",
       tags: ["work-items"],
-      requestBody: {
-        type: "object",
-        properties: {
-          approvedTools: {
-            type: "array",
-            description: "Array of tool names to approve",
-          },
-        },
-        required: ["approvedTools"],
-      },
+      requestBody: z.object({
+        approvedTools: z
+          .array(z.unknown())
+          .describe("Array of tool names to approve"),
+      }),
       handler: async ({ req, params }) => {
         const body = (await req.json()) as { approvedTools?: string[] };
         if (!Array.isArray(body.approvedTools)) {
@@ -653,14 +644,11 @@ export function workItemRouteDefinitions(
       summary: "Preflight check",
       description: "Check tool permissions needed before running a work item.",
       tags: ["work-items"],
-      responseBody: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          success: { type: "boolean" },
-          permissions: { type: "object" },
-        },
-      },
+      responseBody: z.object({
+        id: z.string(),
+        success: z.boolean(),
+        permissions: z.object({}).passthrough(),
+      }),
       handler: async ({ params }) => {
         const result = await preflightWorkItem(params.id);
         if (!result.success) {
@@ -848,14 +836,11 @@ export function workItemRouteDefinitions(
       summary: "Get work item output",
       description: "Return the final output of a completed work item run.",
       tags: ["work-items"],
-      responseBody: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          success: { type: "boolean" },
-          output: { type: "object" },
-        },
-      },
+      responseBody: z.object({
+        id: z.string(),
+        success: z.boolean(),
+        output: z.object({}).passthrough(),
+      }),
       handler: ({ params }) => {
         try {
           const result = getWorkItemOutput(params.id);

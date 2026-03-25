@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 
 import { and, desc, eq, gte, lte } from "drizzle-orm";
+import { z } from "zod";
 
 import { getDb } from "../../memory/db.js";
 import {
@@ -674,21 +675,15 @@ export function logExportRouteDefinitions(): RouteDefinition[] {
       description:
         "Export audit records, daemon logs, workspace contents, and config as a tar.gz archive.",
       tags: ["export"],
-      requestBody: {
-        type: "object",
-        properties: {
-          auditLimit: {
-            type: "integer",
-            description: "Max audit records (default 1000)",
-          },
-          conversationId: {
-            type: "string",
-            description: "Scope to a single conversation",
-          },
-          startTime: { type: "number", description: "Lower bound epoch ms" },
-          endTime: { type: "number", description: "Upper bound epoch ms" },
-        },
-      },
+      requestBody: z.object({
+        auditLimit: z
+          .number()
+          .int()
+          .describe("Max audit records (default 1000)"),
+        conversationId: z.string().describe("Scope to a single conversation"),
+        startTime: z.number().describe("Lower bound epoch ms"),
+        endTime: z.number().describe("Upper bound epoch ms"),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as ExportRequestBody;
         return handleExport(body);

@@ -2,6 +2,8 @@
  * Pairing HTTP route handlers for device pairing flow.
  */
 
+import { z } from "zod";
+
 import {
   hashDeviceId,
   isDeviceApproved,
@@ -421,22 +423,15 @@ export function pairingRouteDefinitions(deps: {
       description:
         "Pre-register a pairing request when the QR code is displayed.",
       tags: ["pairing"],
-      requestBody: {
-        type: "object",
-        properties: {
-          pairingRequestId: { type: "string" },
-          pairingSecret: { type: "string" },
-          gatewayUrl: { type: "string" },
-          localLanUrl: { type: "string" },
-        },
-        required: ["pairingRequestId", "pairingSecret", "gatewayUrl"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        pairingRequestId: z.string(),
+        pairingSecret: z.string(),
+        gatewayUrl: z.string(),
+        localLanUrl: z.string().optional(),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req }) =>
         handlePairingRegister(req, deps.getPairingContext()),
     },

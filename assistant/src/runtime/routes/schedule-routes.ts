@@ -4,6 +4,8 @@
  * HTTP route handlers for schedule management.
  */
 
+import { z } from "zod";
+
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
 import {
   cancelSchedule,
@@ -295,12 +297,9 @@ export function scheduleRouteDefinitions(deps: {
       summary: "List schedules",
       description: "Return all scheduled jobs.",
       tags: ["schedules"],
-      responseBody: {
-        type: "object",
-        properties: {
-          schedules: { type: "array", description: "Schedule objects" },
-        },
-      },
+      responseBody: z.object({
+        schedules: z.array(z.unknown()).describe("Schedule objects"),
+      }),
       handler: () => handleListSchedules(),
     },
     {
@@ -310,19 +309,12 @@ export function scheduleRouteDefinitions(deps: {
       summary: "Toggle schedule",
       description: "Enable or disable a schedule.",
       tags: ["schedules"],
-      requestBody: {
-        type: "object",
-        properties: {
-          enabled: { type: "boolean", description: "New enabled state" },
-        },
-        required: ["enabled"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          schedules: { type: "array", description: "Updated schedule list" },
-        },
-      },
+      requestBody: z.object({
+        enabled: z.boolean().describe("New enabled state"),
+      }),
+      responseBody: z.object({
+        schedules: z.array(z.unknown()).describe("Updated schedule list"),
+      }),
       handler: async ({ req, params }) => {
         const body = (await req.json()) as { enabled?: boolean };
         if (body.enabled === undefined) {
@@ -338,12 +330,9 @@ export function scheduleRouteDefinitions(deps: {
       summary: "Delete schedule",
       description: "Remove a schedule by ID.",
       tags: ["schedules"],
-      responseBody: {
-        type: "object",
-        properties: {
-          schedules: { type: "array", description: "Updated schedule list" },
-        },
-      },
+      responseBody: z.object({
+        schedules: z.array(z.unknown()).describe("Updated schedule list"),
+      }),
       handler: ({ params }) => handleDeleteSchedule(params.id),
     },
     {
@@ -353,27 +342,20 @@ export function scheduleRouteDefinitions(deps: {
       summary: "Update schedule",
       description: "Partially update fields on a schedule.",
       tags: ["schedules"],
-      requestBody: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          expression: { type: "string" },
-          timezone: { type: "string" },
-          message: { type: "string" },
-          mode: { type: "string", description: "notify or execute" },
-          routingIntent: {
-            type: "string",
-            description: "single_channel, multi_channel, or all_channels",
-          },
-          quiet: { type: "boolean" },
-        },
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          schedules: { type: "array", description: "Updated schedule list" },
-        },
-      },
+      requestBody: z.object({
+        name: z.string(),
+        expression: z.string(),
+        timezone: z.string(),
+        message: z.string(),
+        mode: z.string().describe("notify or execute"),
+        routingIntent: z
+          .string()
+          .describe("single_channel, multi_channel, or all_channels"),
+        quiet: z.boolean(),
+      }),
+      responseBody: z.object({
+        schedules: z.array(z.unknown()).describe("Updated schedule list"),
+      }),
       handler: async ({ req, params }) => {
         const body: unknown = await req.json();
         if (typeof body !== "object" || !body || Array.isArray(body)) {
@@ -393,12 +375,9 @@ export function scheduleRouteDefinitions(deps: {
       summary: "Run schedule now",
       description: "Trigger an immediate execution of a schedule.",
       tags: ["schedules"],
-      responseBody: {
-        type: "object",
-        properties: {
-          schedules: { type: "array", description: "Updated schedule list" },
-        },
-      },
+      responseBody: z.object({
+        schedules: z.array(z.unknown()).describe("Updated schedule list"),
+      }),
       handler: async ({ params }) =>
         handleRunScheduleNow(params.id, deps.sendMessageDeps),
     },
@@ -409,12 +388,9 @@ export function scheduleRouteDefinitions(deps: {
       summary: "Cancel schedule",
       description: "Cancel a pending schedule.",
       tags: ["schedules"],
-      responseBody: {
-        type: "object",
-        properties: {
-          schedules: { type: "array", description: "Updated schedule list" },
-        },
-      },
+      responseBody: z.object({
+        schedules: z.array(z.unknown()).describe("Updated schedule list"),
+      }),
       handler: ({ params }) => handleCancelSchedule(params.id),
     },
   ];

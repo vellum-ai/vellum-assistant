@@ -8,6 +8,8 @@
  * header. Guardian decisions additionally verify that the actor is the
  * bound guardian.
  */
+import { z } from "zod";
+
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { addRule } from "../../permissions/trust-store.js";
 import type { UserDecision } from "../../permissions/types.js";
@@ -409,35 +411,25 @@ export function approvalRouteDefinitions(): RouteDefinition[] {
       summary: "Resolve a pending confirmation",
       description: "Approve or deny a pending tool confirmation by requestId.",
       tags: ["approvals"],
-      requestBody: {
-        type: "object",
-        properties: {
-          requestId: {
-            type: "string",
-            description: "Pending interaction request ID",
-          },
-          decision: {
-            type: "string",
-            description:
-              "One of: allow, allow_10m, allow_conversation, deny, always_allow, always_deny, always_allow_high_risk",
-          },
-          selectedPattern: {
-            type: "string",
-            description: "Allowlist pattern for persistent decisions",
-          },
-          selectedScope: {
-            type: "string",
-            description: "Scope for persistent decisions",
-          },
-        },
-        required: ["requestId", "decision"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          accepted: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        requestId: z.string().describe("Pending interaction request ID"),
+        decision: z
+          .string()
+          .describe(
+            "One of: allow, allow_10m, allow_conversation, deny, always_allow, always_deny, always_allow_high_risk",
+          ),
+        selectedPattern: z
+          .string()
+          .describe("Allowlist pattern for persistent decisions")
+          .optional(),
+        selectedScope: z
+          .string()
+          .describe("Scope for persistent decisions")
+          .optional(),
+      }),
+      responseBody: z.object({
+        accepted: z.boolean(),
+      }),
       handler: async ({ req, authContext }) => handleConfirm(req, authContext),
     },
     {
@@ -446,27 +438,17 @@ export function approvalRouteDefinitions(): RouteDefinition[] {
       summary: "Resolve a pending secret request",
       description: "Provide a secret value for a pending secret request.",
       tags: ["approvals"],
-      requestBody: {
-        type: "object",
-        properties: {
-          requestId: {
-            type: "string",
-            description: "Pending interaction request ID",
-          },
-          value: { type: "string", description: "Secret value" },
-          delivery: {
-            type: "string",
-            description: "Delivery mode: store or transient_send",
-          },
-        },
-        required: ["requestId"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          accepted: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        requestId: z.string().describe("Pending interaction request ID"),
+        value: z.string().describe("Secret value").optional(),
+        delivery: z
+          .string()
+          .describe("Delivery mode: store or transient_send")
+          .optional(),
+      }),
+      responseBody: z.object({
+        accepted: z.boolean(),
+      }),
       handler: async ({ req, authContext }) => handleSecret(req, authContext),
     },
     {
@@ -476,29 +458,19 @@ export function approvalRouteDefinitions(): RouteDefinition[] {
       description:
         "Add a trust rule bound to a pending confirmation without resolving it.",
       tags: ["approvals"],
-      requestBody: {
-        type: "object",
-        properties: {
-          requestId: {
-            type: "string",
-            description: "Pending confirmation request ID",
-          },
-          pattern: { type: "string", description: "Allowlist pattern" },
-          scope: { type: "string", description: "Scope for the rule" },
-          decision: { type: "string", description: "allow or deny" },
-          allowHighRisk: {
-            type: "boolean",
-            description: "Allow high-risk invocations",
-          },
-        },
-        required: ["requestId", "pattern", "scope", "decision"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          accepted: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        requestId: z.string().describe("Pending confirmation request ID"),
+        pattern: z.string().describe("Allowlist pattern"),
+        scope: z.string().describe("Scope for the rule"),
+        decision: z.string().describe("allow or deny"),
+        allowHighRisk: z
+          .boolean()
+          .describe("Allow high-risk invocations")
+          .optional(),
+      }),
+      responseBody: z.object({
+        accepted: z.boolean(),
+      }),
       handler: async ({ req, authContext }) =>
         handleTrustRule(req, authContext),
     },
@@ -521,19 +493,16 @@ export function approvalRouteDefinitions(): RouteDefinition[] {
           description: "Conversation ID",
         },
       ],
-      responseBody: {
-        type: "object",
-        properties: {
-          pendingConfirmation: {
-            type: "object",
-            description: "Pending confirmation details or null",
-          },
-          pendingSecret: {
-            type: "object",
-            description: "Pending secret request or null",
-          },
-        },
-      },
+      responseBody: z.object({
+        pendingConfirmation: z
+          .object({})
+          .passthrough()
+          .describe("Pending confirmation details or null"),
+        pendingSecret: z
+          .object({})
+          .passthrough()
+          .describe("Pending secret request or null"),
+      }),
       handler: ({ url, authContext }) =>
         handleListPendingInteractions(url, authContext),
     },

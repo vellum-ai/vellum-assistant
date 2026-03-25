@@ -52,6 +52,10 @@ paths:
                     type: string
                   cancelled:
                     type: boolean
+                required:
+                  - acpSessionId
+                  - cancelled
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -77,6 +81,10 @@ paths:
                     type: string
                   closed:
                     type: boolean
+                required:
+                  - acpSessionId
+                  - closed
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -102,6 +110,10 @@ paths:
                     type: string
                   steered:
                     type: boolean
+                required:
+                  - acpSessionId
+                  - steered
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -119,6 +131,7 @@ paths:
                   type: string
               required:
                 - instruction
+              additionalProperties: false
   /v1/acp/sessions:
     get:
       operationId: acp_sessions_get
@@ -136,7 +149,11 @@ paths:
                 properties:
                   sessions:
                     type: array
+                    items: {}
                     description: ACP session status objects
+                required:
+                  - sessions
+                additionalProperties: false
   /v1/acp/spawn:
     post:
       operationId: acp_spawn_post
@@ -158,6 +175,11 @@ paths:
                     type: string
                   agent:
                     type: string
+                required:
+                  - acpSessionId
+                  - protocolSessionId
+                  - agent
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -180,6 +202,7 @@ paths:
                 - agent
                 - task
                 - conversationId
+              additionalProperties: false
   /v1/admin/rollback-migrations:
     post:
       operationId: admin_rollbackmigrations_post
@@ -199,7 +222,13 @@ paths:
                     type: boolean
                   rolledBack:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Lists of rolled-back DB and workspace migrations
+                required:
+                  - ok
+                  - rolledBack
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -209,6 +238,8 @@ paths:
               properties:
                 targetDbVersion:
                   type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
                   description: Target DB migration version
                 targetWorkspaceMigrationId:
                   type: string
@@ -216,6 +247,11 @@ paths:
                 rollbackToRegistryCeiling:
                   type: boolean
                   description: Auto-determine targets from daemon registry ceilings
+              required:
+                - targetDbVersion
+                - targetWorkspaceMigrationId
+                - rollbackToRegistryCeiling
+              additionalProperties: false
   /v1/admin/upgrade-broadcast:
     post:
       operationId: admin_upgradebroadcast_post
@@ -233,6 +269,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -263,6 +302,7 @@ paths:
                   description: Version rolled back to, if any (complete)
               required:
                 - type
+              additionalProperties: false
   /v1/admin/workspace-commit:
     post:
       operationId: admin_workspacecommit_post
@@ -280,6 +320,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -292,6 +335,7 @@ paths:
                   description: Commit message
               required:
                 - message
+              additionalProperties: false
   /v1/apps:
     get:
       operationId: apps_get
@@ -309,7 +353,11 @@ paths:
                 properties:
                   apps:
                     type: array
+                    items: {}
                     description: Array of app summary objects
+                required:
+                  - apps
+                additionalProperties: false
   /v1/apps/{appId}/dist/{filename}:
     get:
       operationId: apps_by_appId_dist_by_filename_get
@@ -354,6 +402,14 @@ paths:
                     type: string
                   manifest:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
+                required:
+                  - type
+                  - bundlePath
+                  - iconImageBase64
+                  - manifest
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -405,6 +461,13 @@ paths:
                   type: string
                 data:
                   type: object
+                  properties: {}
+                  additionalProperties: {}
+              required:
+                - method
+                - recordId
+                - data
+              additionalProperties: false
   /v1/apps/{id}/delete:
     post:
       operationId: apps_by_id_delete_post
@@ -456,6 +519,11 @@ paths:
                     type: string
                   versions:
                     type: array
+                    items: {}
+                required:
+                  - appId
+                  - versions
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -485,6 +553,12 @@ paths:
                     type: string
                   html:
                     type: string
+                required:
+                  - appId
+                  - dirName
+                  - name
+                  - html
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -534,6 +608,7 @@ paths:
                   description: Base64-encoded image or HTML string
               required:
                 - preview
+              additionalProperties: false
   /v1/apps/{id}/restore:
     post:
       operationId: apps_by_id_restore_post
@@ -561,6 +636,7 @@ paths:
                   type: string
               required:
                 - commitHash
+              additionalProperties: false
   /v1/apps/{id}/share-cloud:
     post:
       operationId: apps_by_id_sharecloud_post
@@ -582,6 +658,11 @@ paths:
                     type: string
                   shareUrl:
                     type: string
+                required:
+                  - success
+                  - shareToken
+                  - shareUrl
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -610,6 +691,7 @@ paths:
                   description: UUID of the shared app to fork
               required:
                 - uuid
+              additionalProperties: false
   /v1/apps/gallery:
     get:
       operationId: apps_gallery_get
@@ -627,7 +709,11 @@ paths:
                 properties:
                   gallery:
                     type: array
+                    items: {}
                     description: Gallery app entries
+                required:
+                  - gallery
+                additionalProperties: false
   /v1/apps/gallery/install:
     post:
       operationId: apps_gallery_install_post
@@ -649,6 +735,7 @@ paths:
                   type: string
               required:
                 - galleryAppId
+              additionalProperties: false
   /v1/apps/open-bundle:
     post:
       operationId: apps_openbundle_post
@@ -671,6 +758,7 @@ paths:
                   description: Absolute path to the .vbundle file
               required:
                 - filePath
+              additionalProperties: false
   /v1/apps/share:
     post:
       operationId: apps_share_post
@@ -692,6 +780,11 @@ paths:
                     type: string
                   bundleSizeBytes:
                     type: number
+                required:
+                  - shareToken
+                  - shareUrl
+                  - bundleSizeBytes
+                additionalProperties: false
   /v1/apps/shared:
     get:
       operationId: apps_shared_get
@@ -709,7 +802,11 @@ paths:
                 properties:
                   apps:
                     type: array
+                    items: {}
                     description: Array of shared app objects
+                required:
+                  - apps
+                additionalProperties: false
   /v1/apps/shared/{token}:
     delete:
       operationId: apps_shared_by_token_delete
@@ -727,6 +824,9 @@ paths:
                 properties:
                   success:
                     type: boolean
+                required:
+                  - success
+                additionalProperties: false
       parameters:
         - name: token
           in: path
@@ -771,6 +871,12 @@ paths:
                     type: string
                   bundleSizeBytes:
                     type: number
+                required:
+                  - name
+                  - description
+                  - icon
+                  - bundleSizeBytes
+                additionalProperties: false
       parameters:
         - name: token
           in: path
@@ -806,6 +912,7 @@ paths:
                   type: string
               required:
                 - payload
+              additionalProperties: false
   /v1/apps/signing-identity:
     get:
       operationId: apps_signingidentity_get
@@ -837,6 +944,7 @@ paths:
                   type: string
               required:
                 - attachmentId
+              additionalProperties: false
     post:
       operationId: attachments_post
       summary: Upload attachment
@@ -861,6 +969,13 @@ paths:
                     type: number
                   kind:
                     type: string
+                required:
+                  - id
+                  - original_filename
+                  - mime_type
+                  - size_bytes
+                  - kind
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -881,6 +996,7 @@ paths:
               required:
                 - filename
                 - mimeType
+              additionalProperties: false
   /v1/attachments/{id}:
     get:
       operationId: attachments_by_id_get
@@ -911,6 +1027,15 @@ paths:
                     description: Base64-encoded content
                   fileBacked:
                     type: boolean
+                required:
+                  - id
+                  - filename
+                  - mimeType
+                  - sizeBytes
+                  - kind
+                  - data
+                  - fileBacked
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -972,6 +1097,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -989,6 +1117,7 @@ paths:
                 - bodyShape
                 - eyeStyle
                 - color
+              additionalProperties: false
   /v1/brain-graph:
     get:
       operationId: braingraph_get
@@ -1006,18 +1135,30 @@ paths:
                 properties:
                   entities:
                     type: array
+                    items: {}
                     description: Graph entity nodes
                   relations:
                     type: array
+                    items: {}
                     description: Graph relation edges
                   memorySummary:
                     type: array
+                    items: {}
                     description: Memory kind counts and colors
                   totalKnowledgeCount:
                     type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
                   generatedAt:
                     type: string
                     description: ISO 8601 timestamp
+                required:
+                  - entities
+                  - relations
+                  - memorySummary
+                  - totalKnowledgeCount
+                  - generatedAt
+                additionalProperties: false
   /v1/brain-graph-ui:
     get:
       operationId: braingraphui_get
@@ -1068,6 +1209,7 @@ paths:
               required:
                 - conversationKey
                 - content
+              additionalProperties: false
   /v1/calls/{id}:
     get:
       operationId: calls_by_id_get
@@ -1107,10 +1249,28 @@ paths:
                     type: string
                   pendingQuestion:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                   createdAt:
                     type: string
                   updatedAt:
                     type: string
+                required:
+                  - callSessionId
+                  - conversationId
+                  - status
+                  - toNumber
+                  - fromNumber
+                  - provider
+                  - providerCallSid
+                  - task
+                  - startedAt
+                  - endedAt
+                  - lastError
+                  - pendingQuestion
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -1136,6 +1296,10 @@ paths:
                     type: boolean
                   questionId:
                     type: string
+                required:
+                  - ok
+                  - questionId
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -1155,6 +1319,10 @@ paths:
                 pendingQuestionId:
                   type: string
                   description: ID of the pending question
+              required:
+                - answer
+                - pendingQuestionId
+              additionalProperties: false
   /v1/calls/{id}/cancel:
     post:
       operationId: calls_by_id_cancel_post
@@ -1174,6 +1342,10 @@ paths:
                     type: string
                   status:
                     type: string
+                required:
+                  - callSessionId
+                  - status
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -1190,6 +1362,9 @@ paths:
                 reason:
                   type: string
                   description: Cancellation reason
+              required:
+                - reason
+              additionalProperties: false
   /v1/calls/{id}/instruction:
     post:
       operationId: calls_by_id_instruction_post
@@ -1207,6 +1382,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -1223,6 +1401,9 @@ paths:
                 instruction:
                   type: string
                   description: Instruction text to relay
+              required:
+                - instruction
+              additionalProperties: false
   /v1/calls/start:
     post:
       operationId: calls_start_post
@@ -1250,6 +1431,14 @@ paths:
                     type: string
                   callerIdentityMode:
                     type: string
+                required:
+                  - callSessionId
+                  - callSid
+                  - status
+                  - toNumber
+                  - fromNumber
+                  - callerIdentityMode
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -1277,6 +1466,7 @@ paths:
                   description: Idempotency key to prevent duplicate calls
               required:
                 - conversationId
+              additionalProperties: false
   /v1/channel-verification-sessions:
     delete:
       operationId: channelverificationsessions_delete
@@ -1296,6 +1486,10 @@ paths:
                     type: boolean
                   channel:
                     type: string
+                required:
+                  - success
+                  - channel
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -1307,6 +1501,7 @@ paths:
                   type: string
               required:
                 - channel
+              additionalProperties: false
     post:
       operationId: channelverificationsessions_post
       summary: Create verification session
@@ -1340,6 +1535,15 @@ paths:
                   description: guardian or trusted_contact
                 contactChannelId:
                   type: string
+              required:
+                - channel
+                - destination
+                - rebind
+                - conversationId
+                - originConversationId
+                - purpose
+                - contactChannelId
+              additionalProperties: false
   /v1/channel-verification-sessions/resend:
     post:
       operationId: channelverificationsessions_resend_post
@@ -1363,6 +1567,7 @@ paths:
                   type: string
               required:
                 - channel
+              additionalProperties: false
   /v1/channel-verification-sessions/revoke:
     post:
       operationId: channelverificationsessions_revoke_post
@@ -1382,6 +1587,9 @@ paths:
               properties:
                 channel:
                   type: string
+              required:
+                - channel
+              additionalProperties: false
   /v1/channel-verification-sessions/status:
     get:
       operationId: channelverificationsessions_status_get
@@ -1458,7 +1666,12 @@ paths:
                     type: boolean
                   snapshots:
                     type: array
+                    items: {}
                     description: Channel readiness snapshots
+                required:
+                  - success
+                  - snapshots
+                additionalProperties: false
       parameters:
         - name: channel
           in: query
@@ -1491,7 +1704,12 @@ paths:
                     type: boolean
                   snapshots:
                     type: array
+                    items: {}
                     description: Refreshed readiness snapshots
+                required:
+                  - success
+                  - snapshots
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -1505,6 +1723,10 @@ paths:
                 includeRemote:
                   type: boolean
                   description: Include remote checks (default true)
+              required:
+                - channel
+                - includeRemote
+              additionalProperties: false
   /v1/channels/replay:
     post:
       operationId: channels_replay_post
@@ -1532,6 +1754,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -1562,9 +1787,13 @@ paths:
                   description: Capture timestamp (epoch ms)
                 captureIndex:
                   type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
                   description: Index of this capture in the batch
                 totalExpected:
                   type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
                   description: Total captures expected in the batch
               required:
                 - watchId
@@ -1573,6 +1802,7 @@ paths:
                 - timestamp
                 - captureIndex
                 - totalExpected
+              additionalProperties: false
   /v1/config:
     get:
       operationId: config_get
@@ -1624,6 +1854,7 @@ paths:
                   type: string
               required:
                 - provider
+              additionalProperties: false
   /v1/config/permissions/skip:
     get:
       operationId: config_permissions_skip_get
@@ -1641,6 +1872,9 @@ paths:
                 properties:
                   enabled:
                     type: boolean
+                required:
+                  - enabled
+                additionalProperties: false
     put:
       operationId: config_permissions_skip_put
       summary: Set permission-skip flag
@@ -1661,6 +1895,7 @@ paths:
                   type: boolean
               required:
                 - enabled
+              additionalProperties: false
   /v1/config/platform:
     get:
       operationId: config_platform_get
@@ -1680,6 +1915,10 @@ paths:
                     type: string
                   success:
                     type: boolean
+                required:
+                  - baseUrl
+                  - success
+                additionalProperties: false
     put:
       operationId: config_platform_put
       summary: Update platform config
@@ -1698,6 +1937,9 @@ paths:
               properties:
                 baseUrl:
                   type: string
+              required:
+                - baseUrl
+              additionalProperties: false
   /v1/confirm:
     post:
       operationId: confirm_post
@@ -1715,6 +1957,9 @@ paths:
                 properties:
                   accepted:
                     type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -1737,6 +1982,7 @@ paths:
               required:
                 - requestId
                 - decision
+              additionalProperties: false
   /v1/contact-channels/{contactChannelId}:
     patch:
       operationId: contactchannels_by_contactChannelId_patch
@@ -1756,7 +2002,13 @@ paths:
                     type: boolean
                   contact:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Updated contact (if applicable)
+                required:
+                  - ok
+                  - contact
+                additionalProperties: false
       parameters:
         - name: contactChannelId
           in: path
@@ -1779,6 +2031,11 @@ paths:
                 reason:
                   type: string
                   description: Reason for the change
+              required:
+                - status
+                - policy
+                - reason
+              additionalProperties: false
   /v1/contacts:
     get:
       operationId: contacts_get
@@ -1798,7 +2055,12 @@ paths:
                     type: boolean
                   contacts:
                     type: array
+                    items: {}
                     description: Contact objects with channels and metadata
+                required:
+                  - ok
+                  - contacts
+                additionalProperties: false
     post:
       operationId: contacts_post
       summary: Create or update a contact
@@ -1817,7 +2079,13 @@ paths:
                     type: boolean
                   contact:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Created or updated contact
+                required:
+                  - ok
+                  - contact
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -1833,10 +2101,19 @@ paths:
                   description: Display name
                 channels:
                   type: array
+                  items: {}
                   description: Channel objects with channelId, handle, displayName
                 assistantMetadata:
                   type: object
+                  properties: {}
+                  additionalProperties: {}
                   description: Assistant-side metadata
+              required:
+                - contactId
+                - displayName
+                - channels
+                - assistantMetadata
+              additionalProperties: false
   /v1/contacts/{id}:
     delete:
       operationId: contacts_by_id_delete
@@ -1871,10 +2148,19 @@ paths:
                     type: boolean
                   contact:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Contact details
                   assistantMetadata:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Assistant-side metadata
+                required:
+                  - ok
+                  - contact
+                  - assistantMetadata
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -1900,7 +2186,12 @@ paths:
                     type: boolean
                   invites:
                     type: array
+                    items: {}
                     description: Invite objects
+                required:
+                  - ok
+                  - invites
+                additionalProperties: false
       parameters:
         - name: sourceChannel
           in: query
@@ -1932,7 +2223,13 @@ paths:
                     type: boolean
                   invite:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Created invite
+                required:
+                  - ok
+                  - invite
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -1969,6 +2266,7 @@ paths:
                   description: Guardian name
               required:
                 - contactId
+              additionalProperties: false
   /v1/contacts/invites/{id}:
     delete:
       operationId: contacts_invites_by_id_delete
@@ -2005,6 +2303,10 @@ paths:
                   callSid:
                     type: string
                     description: Call SID from the provider
+                required:
+                  - ok
+                  - callSid
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -2030,6 +2332,8 @@ paths:
                     type: boolean
                   invite:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Redeemed invite (token path)
                   type:
                     type: string
@@ -2037,6 +2341,12 @@ paths:
                   memberId:
                     type: string
                     description: Member ID (voice path)
+                required:
+                  - ok
+                  - invite
+                  - type
+                  - memberId
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -2065,6 +2375,15 @@ paths:
                 assistantId:
                   type: string
                   description: Assistant ID (voice-code)
+              required:
+                - token
+                - code
+                - callerExternalUserId
+                - externalUserId
+                - externalChatId
+                - sourceChannel
+                - assistantId
+              additionalProperties: false
   /v1/contacts/merge:
     post:
       operationId: contacts_merge_post
@@ -2084,7 +2403,13 @@ paths:
                     type: boolean
                   contact:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Merged contact
+                required:
+                  - ok
+                  - contact
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -2101,6 +2426,7 @@ paths:
               required:
                 - keepId
                 - mergeId
+              additionalProperties: false
   /v1/conversation-starters:
     get:
       operationId: conversationstarters_get
@@ -2118,13 +2444,21 @@ paths:
                 properties:
                   starters:
                     type: array
+                    items: {}
                     description: Ordered list of starter chips
                   total:
                     type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
                     description: Total number of available starters
                   status:
                     type: string
                     description: "One of: ready, empty, generating"
+                required:
+                  - starters
+                  - total
+                  - status
+                additionalProperties: false
       parameters:
         - name: limit
           in: query
@@ -2179,6 +2513,11 @@ paths:
                     type: string
                   conversationType:
                     type: string
+                required:
+                  - id
+                  - conversationKey
+                  - conversationType
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -2192,6 +2531,10 @@ paths:
                 conversationType:
                   type: string
                   description: "'standard' (default) or 'private'"
+              required:
+                - conversationKey
+                - conversationType
+              additionalProperties: false
   /v1/conversations/{id}:
     delete:
       operationId: conversations_by_id_delete
@@ -2262,6 +2605,7 @@ paths:
                   type: string
               required:
                 - name
+              additionalProperties: false
   /v1/conversations/{id}/regenerate:
     post:
       operationId: conversations_by_id_regenerate_post
@@ -2295,8 +2639,14 @@ paths:
                 properties:
                   removedCount:
                     type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
                   conversationId:
                     type: string
+                required:
+                  - removedCount
+                  - conversationId
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -2322,10 +2672,22 @@ paths:
                     type: boolean
                   unsupersededItems:
                     type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
                   deletedSummaries:
                     type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
                   cancelledJobs:
                     type: integer
+                    minimum: -9007199254740991
+                    maximum: 9007199254740991
+                required:
+                  - wiped
+                  - unsupersededItems
+                  - deletedSummaries
+                  - cancelledJobs
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -2349,9 +2711,14 @@ paths:
                 properties:
                   conversations:
                     type: array
+                    items: {}
                     description: Attention state objects
                   hasMore:
                     type: boolean
+                required:
+                  - conversations
+                  - hasMore
+                additionalProperties: false
       parameters:
         - name: state
           in: query
@@ -2407,6 +2774,7 @@ paths:
                   description: Truncate the fork at this message
               required:
                 - conversationId
+              additionalProperties: false
   /v1/conversations/reorder:
     post:
       operationId: conversations_reorder_post
@@ -2426,9 +2794,11 @@ paths:
               properties:
                 updates:
                   type: array
+                  items: {}
                   description: Array of { conversationId, displayOrder?, isPinned? } objects
               required:
                 - updates
+              additionalProperties: false
   /v1/conversations/search:
     get:
       operationId: conversations_search_get
@@ -2448,6 +2818,11 @@ paths:
                     type: string
                   results:
                     type: array
+                    items: {}
+                required:
+                  - query
+                  - results
+                additionalProperties: false
   /v1/conversations/seen:
     post:
       operationId: conversations_seen_post
@@ -2475,6 +2850,11 @@ paths:
                     type: string
                   conversationType:
                     type: string
+                required:
+                  - conversationId
+                  - title
+                  - conversationType
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -2489,6 +2869,7 @@ paths:
                   description: Optional key to register for this conversation
               required:
                 - conversationId
+              additionalProperties: false
   /v1/conversations/unread:
     post:
       operationId: conversations_unread_post
@@ -2512,22 +2893,40 @@ paths:
                 properties:
                   session:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Uptime and start time
                   provider:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Inference provider configuration
                   memory:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Conversation and memory item counts
                   jobs:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Background job counts
                   schedules:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Schedule counts (total, enabled)
                   timestamp:
                     type: string
                     description: Current server timestamp (ISO 8601)
+                required:
+                  - session
+                  - provider
+                  - memory
+                  - jobs
+                  - schedules
+                  - timestamp
+                additionalProperties: false
   /v1/diagnostics/env-vars:
     get:
       operationId: diagnostics_envvars_get
@@ -2568,6 +2967,13 @@ paths:
                   profileSource:
                     type: string
                     description: How the profile was resolved
+                required:
+                  - text
+                  - mode
+                  - actionPlan
+                  - resolvedProfileId
+                  - profileSource
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -2580,6 +2986,8 @@ paths:
                   description: Raw speech transcription
                 context:
                   type: object
+                  properties: {}
+                  additionalProperties: {}
                   description: Dictation context (app name, window title, bundle ID, cursor state, selected text)
                 profileId:
                   type: string
@@ -2587,6 +2995,7 @@ paths:
               required:
                 - transcription
                 - context
+              additionalProperties: false
   /v1/documents:
     get:
       operationId: documents_get
@@ -2604,7 +3013,11 @@ paths:
                 properties:
                   documents:
                     type: array
+                    items: {}
                     description: Document summary objects
+                required:
+                  - documents
+                additionalProperties: false
       parameters:
         - name: conversationId
           in: query
@@ -2630,6 +3043,10 @@ paths:
                     type: boolean
                   surfaceId:
                     type: string
+                required:
+                  - success
+                  - surfaceId
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -2658,6 +3075,7 @@ paths:
                 - title
                 - content
                 - wordCount
+              additionalProperties: false
   /v1/documents/{id}:
     get:
       operationId: documents_by_id_get
@@ -2689,6 +3107,16 @@ paths:
                     type: number
                   updatedAt:
                     type: number
+                required:
+                  - success
+                  - surfaceId
+                  - conversationId
+                  - title
+                  - content
+                  - wordCount
+                  - createdAt
+                  - updatedAt
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -2731,6 +3159,8 @@ paths:
               properties:
                 auditLimit:
                   type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
                   description: Max audit records (default 1000)
                 conversationId:
                   type: string
@@ -2741,6 +3171,12 @@ paths:
                 endTime:
                   type: number
                   description: Upper bound epoch ms
+              required:
+                - auditLimit
+                - conversationId
+                - startTime
+                - endTime
+              additionalProperties: false
   /v1/guardian-actions/decision:
     post:
       operationId: guardianactions_decision_post
@@ -2762,6 +3198,11 @@ paths:
                     type: string
                   reason:
                     type: string
+                required:
+                  - applied
+                  - requestId
+                  - reason
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -2781,6 +3222,7 @@ paths:
               required:
                 - requestId
                 - action
+              additionalProperties: false
   /v1/guardian-actions/pending:
     get:
       operationId: guardianactions_pending_get
@@ -2800,7 +3242,12 @@ paths:
                     type: string
                   prompts:
                     type: array
+                    items: {}
                     description: Guardian decision prompt objects
+                required:
+                  - conversationId
+                  - prompts
+                additionalProperties: false
       parameters:
         - name: conversationId
           in: query
@@ -2843,12 +3290,29 @@ paths:
                     type: string
                   disk:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                   memory:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                   cpu:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                   migrations:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
+                required:
+                  - status
+                  - timestamp
+                  - version
+                  - disk
+                  - memory
+                  - cpu
+                  - migrations
+                additionalProperties: false
   /v1/heartbeat/checklist:
     get:
       operationId: heartbeat_checklist_get
@@ -2870,6 +3334,10 @@ paths:
                   isDefault:
                     type: boolean
                     description: True when no custom checklist exists
+                required:
+                  - content
+                  - isDefault
+                additionalProperties: false
     put:
       operationId: heartbeat_checklist_put
       summary: Write heartbeat checklist
@@ -2886,6 +3354,9 @@ paths:
                 properties:
                   success:
                     type: boolean
+                required:
+                  - success
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -2898,6 +3369,7 @@ paths:
                   description: Checklist markdown content
               required:
                 - content
+              additionalProperties: false
   /v1/heartbeat/config:
     get:
       operationId: heartbeat_config_get
@@ -2925,6 +3397,14 @@ paths:
                     type: string
                   success:
                     type: boolean
+                required:
+                  - enabled
+                  - intervalMs
+                  - activeHoursStart
+                  - activeHoursEnd
+                  - nextRunAt
+                  - success
+                additionalProperties: false
     put:
       operationId: heartbeat_config_put
       summary: Update heartbeat config
@@ -2951,6 +3431,14 @@ paths:
                     type: string
                   success:
                     type: boolean
+                required:
+                  - enabled
+                  - intervalMs
+                  - activeHoursStart
+                  - activeHoursEnd
+                  - nextRunAt
+                  - success
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -2970,6 +3458,12 @@ paths:
                 activeHoursEnd:
                   type: number
                   description: Active hours end (0–23)
+              required:
+                - enabled
+                - intervalMs
+                - activeHoursStart
+                - activeHoursEnd
+              additionalProperties: false
   /v1/heartbeat/run-now:
     post:
       operationId: heartbeat_runnow_post
@@ -2990,6 +3484,10 @@ paths:
                   ran:
                     type: boolean
                     description: Whether the heartbeat actually ran
+                required:
+                  - success
+                  - ran
+                additionalProperties: false
   /v1/heartbeat/runs:
     get:
       operationId: heartbeat_runs_get
@@ -3007,7 +3505,11 @@ paths:
                 properties:
                   runs:
                     type: array
+                    items: {}
                     description: Heartbeat run records
+                required:
+                  - runs
+                additionalProperties: false
       parameters:
         - name: limit
           in: query
@@ -3032,6 +3534,9 @@ paths:
                 properties:
                   accepted:
                     type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -3052,6 +3557,7 @@ paths:
                   type: boolean
               required:
                 - requestId
+              additionalProperties: false
   /v1/host-cu-result:
     post:
       operationId: hostcuresult_post
@@ -3069,6 +3575,9 @@ paths:
                 properties:
                   accepted:
                     type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -3106,6 +3615,7 @@ paths:
                   type: string
               required:
                 - requestId
+              additionalProperties: false
   /v1/host-file-result:
     post:
       operationId: hostfileresult_post
@@ -3123,6 +3633,9 @@ paths:
                 properties:
                   accepted:
                     type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -3141,6 +3654,7 @@ paths:
                   description: Whether the result is an error
               required:
                 - requestId
+              additionalProperties: false
   /v1/identity:
     get:
       operationId: identity_get
@@ -3170,6 +3684,15 @@ paths:
                     type: string
                   createdAt:
                     type: string
+                required:
+                  - name
+                  - role
+                  - personality
+                  - emoji
+                  - home
+                  - version
+                  - createdAt
+                additionalProperties: false
   /v1/identity/intro:
     get:
       operationId: identity_intro_get
@@ -3187,6 +3710,9 @@ paths:
                 properties:
                   text:
                     type: string
+                required:
+                  - text
+                additionalProperties: false
   /v1/integrations/ingress/config:
     get:
       operationId: integrations_ingress_config_get
@@ -3219,6 +3745,12 @@ paths:
                     type: string
                   success:
                     type: boolean
+                required:
+                  - enabled
+                  - publicBaseUrl
+                  - localGatewayTarget
+                  - success
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -3230,6 +3762,10 @@ paths:
                   type: string
                 enabled:
                   type: boolean
+              required:
+                - publicBaseUrl
+                - enabled
+              additionalProperties: false
   /v1/integrations/oauth/start:
     post:
       operationId: integrations_oauth_start_post
@@ -3251,6 +3787,11 @@ paths:
                   type: string
                 requestedScopes:
                   type: array
+                  items: {}
+              required:
+                - service
+                - requestedScopes
+              additionalProperties: false
   /v1/integrations/slack/channel/config:
     delete:
       operationId: integrations_slack_channel_config_delete
@@ -3441,9 +3982,14 @@ paths:
                 properties:
                   items:
                     type: array
+                    items: {}
                     description: Memory item objects
                   total:
                     type: number
+                required:
+                  - items
+                  - total
+                additionalProperties: false
       parameters:
         - name: kind
           in: query
@@ -3503,7 +4049,12 @@ paths:
                 properties:
                   item:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Created memory item
+                required:
+                  - item
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -3527,6 +4078,7 @@ paths:
                 - kind
                 - subject
                 - statement
+              additionalProperties: false
   /v1/memory-items/{id}:
     delete:
       operationId: memoryitems_by_id_delete
@@ -3544,6 +4096,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -3566,7 +4121,12 @@ paths:
                 properties:
                   item:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Memory item with scopeLabel and supersession info
+                required:
+                  - item
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -3589,7 +4149,12 @@ paths:
                 properties:
                   item:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Updated memory item
+                required:
+                  - item
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -3617,6 +4182,15 @@ paths:
                   type: string
                 verificationState:
                   type: string
+              required:
+                - subject
+                - statement
+                - kind
+                - status
+                - importance
+                - sourceType
+                - verificationState
+              additionalProperties: false
   /v1/messages:
     get:
       operationId: messages_get
@@ -3634,10 +4208,16 @@ paths:
                 properties:
                   messages:
                     type: array
+                    items: {}
                     description: Array of message objects
                   interfaceFiles:
                     type: array
+                    items: {}
                     description: Interface file paths with modification timestamps
+                required:
+                  - messages
+                  - interfaceFiles
+                additionalProperties: false
     post:
       operationId: messages_post
       summary: Send a message
@@ -3661,6 +4241,7 @@ paths:
                   description: Message text content
                 attachments:
                   type: array
+                  items: {}
                   description: Optional file attachments
                 conversationType:
                   type: string
@@ -3669,6 +4250,7 @@ paths:
               required:
                 - conversationKey
                 - content
+              additionalProperties: false
   /v1/messages/{id}/content:
     get:
       operationId: messages_by_id_content_get
@@ -3704,8 +4286,16 @@ paths:
                     type: string
                   logs:
                     type: array
+                    items: {}
                   memoryRecall:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
+                required:
+                  - messageId
+                  - logs
+                  - memoryRecall
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -3770,6 +4360,9 @@ paths:
                 description:
                   type: string
                   description: Human-readable export description
+              required:
+                - description
+              additionalProperties: false
   /v1/migrations/import:
     post:
       operationId: migrations_import_post
@@ -3789,12 +4382,25 @@ paths:
                     type: boolean
                   summary:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                   files:
                     type: array
+                    items: {}
                   manifest:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                   warnings:
                     type: array
+                    items: {}
+                required:
+                  - success
+                  - summary
+                  - files
+                  - manifest
+                  - warnings
+                additionalProperties: false
   /v1/migrations/import-preflight:
     post:
       operationId: migrations_importpreflight_post
@@ -3814,12 +4420,25 @@ paths:
                     type: boolean
                   summary:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                   files:
                     type: array
+                    items: {}
                   conflicts:
                     type: array
+                    items: {}
                   manifest:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
+                required:
+                  - can_import
+                  - summary
+                  - files
+                  - conflicts
+                  - manifest
+                additionalProperties: false
   /v1/migrations/validate:
     post:
       operationId: migrations_validate_post
@@ -3839,8 +4458,16 @@ paths:
                     type: boolean
                   errors:
                     type: array
+                    items: {}
                   manifest:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
+                required:
+                  - is_valid
+                  - errors
+                  - manifest
+                additionalProperties: false
   /v1/model:
     get:
       operationId: model_get
@@ -3874,6 +4501,7 @@ paths:
                   description: Optional provider override
               required:
                 - modelId
+              additionalProperties: false
   /v1/model/image-gen:
     put:
       operationId: model_imagegen_put
@@ -3895,6 +4523,7 @@ paths:
                   type: string
               required:
                 - modelId
+              additionalProperties: false
   /v1/notification-intent-result:
     post:
       operationId: notificationintentresult_post
@@ -3912,6 +4541,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -3933,6 +4565,7 @@ paths:
                   description: Error code if delivery failed
               required:
                 - deliveryId
+              additionalProperties: false
   /v1/oauth/apps:
     get:
       operationId: oauth_apps_get
@@ -4025,6 +4658,11 @@ paths:
                   type: string
                 requestedScopes:
                   type: array
+                  items: {}
+              required:
+                - service
+                - requestedScopes
+              additionalProperties: false
   /v1/pairing/register:
     post:
       operationId: pairing_register_post
@@ -4042,6 +4680,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -4061,6 +4702,7 @@ paths:
                 - pairingRequestId
                 - pairingSecret
                 - gatewayUrl
+              additionalProperties: false
   /v1/pairing/request:
     post:
       operationId: pairing_request_post
@@ -4090,10 +4732,18 @@ paths:
                 properties:
                   pendingConfirmation:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Pending confirmation details or null
                   pendingSecret:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Pending secret request or null
+                required:
+                  - pendingConfirmation
+                  - pendingSecret
+                additionalProperties: false
       parameters:
         - name: conversationKey
           in: query
@@ -4126,6 +4776,10 @@ paths:
                     type: string
                   paused:
                     type: boolean
+                required:
+                  - recordingId
+                  - paused
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -4137,6 +4791,7 @@ paths:
                   type: string
               required:
                 - conversationId
+              additionalProperties: false
   /v1/recordings/resume:
     post:
       operationId: recordings_resume_post
@@ -4156,6 +4811,10 @@ paths:
                     type: string
                   resumed:
                     type: boolean
+                required:
+                  - recordingId
+                  - resumed
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -4167,6 +4826,7 @@ paths:
                   type: string
               required:
                 - conversationId
+              additionalProperties: false
   /v1/recordings/start:
     post:
       operationId: recordings_start_post
@@ -4184,6 +4844,9 @@ paths:
                 properties:
                   recordingId:
                     type: string
+                required:
+                  - recordingId
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -4195,9 +4858,12 @@ paths:
                   type: string
                 options:
                   type: object
+                  properties: {}
+                  additionalProperties: {}
                   description: Recording options
               required:
                 - conversationId
+              additionalProperties: false
   /v1/recordings/status:
     get:
       operationId: recordings_status_get
@@ -4217,6 +4883,10 @@ paths:
                     type: boolean
                   restartInProgress:
                     type: boolean
+                required:
+                  - idle
+                  - restartInProgress
+                additionalProperties: false
     post:
       operationId: recordings_status_post
       summary: Post recording status
@@ -4233,6 +4903,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -4258,6 +4931,7 @@ paths:
               required:
                 - conversationId
                 - status
+              additionalProperties: false
   /v1/recordings/stop:
     post:
       operationId: recordings_stop_post
@@ -4277,6 +4951,10 @@ paths:
                     type: string
                   stopped:
                     type: boolean
+                required:
+                  - recordingId
+                  - stopped
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -4288,6 +4966,7 @@ paths:
                   type: string
               required:
                 - conversationId
+              additionalProperties: false
   /v1/schedules:
     get:
       operationId: schedules_get
@@ -4305,7 +4984,11 @@ paths:
                 properties:
                   schedules:
                     type: array
+                    items: {}
                     description: Schedule objects
+                required:
+                  - schedules
+                additionalProperties: false
   /v1/schedules/{id}:
     delete:
       operationId: schedules_by_id_delete
@@ -4323,7 +5006,11 @@ paths:
                 properties:
                   schedules:
                     type: array
+                    items: {}
                     description: Updated schedule list
+                required:
+                  - schedules
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -4346,7 +5033,11 @@ paths:
                 properties:
                   schedules:
                     type: array
+                    items: {}
                     description: Updated schedule list
+                required:
+                  - schedules
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -4376,6 +5067,15 @@ paths:
                   description: single_channel, multi_channel, or all_channels
                 quiet:
                   type: boolean
+              required:
+                - name
+                - expression
+                - timezone
+                - message
+                - mode
+                - routingIntent
+                - quiet
+              additionalProperties: false
   /v1/schedules/{id}/cancel:
     post:
       operationId: schedules_by_id_cancel_post
@@ -4393,7 +5093,11 @@ paths:
                 properties:
                   schedules:
                     type: array
+                    items: {}
                     description: Updated schedule list
+                required:
+                  - schedules
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -4417,7 +5121,11 @@ paths:
                 properties:
                   schedules:
                     type: array
+                    items: {}
                     description: Updated schedule list
+                required:
+                  - schedules
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -4441,7 +5149,11 @@ paths:
                 properties:
                   schedules:
                     type: array
+                    items: {}
                     description: Updated schedule list
+                required:
+                  - schedules
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -4460,6 +5172,7 @@ paths:
                   description: New enabled state
               required:
                 - enabled
+              additionalProperties: false
   /v1/search:
     get:
       operationId: search_get
@@ -4479,6 +5192,11 @@ paths:
                     type: string
                   results:
                     type: array
+                    items: {}
+                required:
+                  - query
+                  - results
+                additionalProperties: false
   /v1/search/global:
     get:
       operationId: search_global_get
@@ -4498,16 +5216,13 @@ paths:
                     type: string
                   results:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Results grouped by category
-                    properties:
-                      conversations:
-                        type: array
-                      memories:
-                        type: array
-                      schedules:
-                        type: array
-                      contacts:
-                        type: array
+                required:
+                  - query
+                  - results
+                additionalProperties: false
       parameters:
         - name: q
           in: query
@@ -4550,6 +5265,9 @@ paths:
                 properties:
                   accepted:
                     type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -4568,6 +5286,7 @@ paths:
                   description: "Delivery mode: store or transient_send"
               required:
                 - requestId
+              additionalProperties: false
   /v1/secrets:
     delete:
       operationId: secrets_delete
@@ -4589,6 +5308,11 @@ paths:
                     type: string
                   name:
                     type: string
+                required:
+                  - success
+                  - type
+                  - name
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -4605,6 +5329,7 @@ paths:
               required:
                 - type
                 - name
+              additionalProperties: false
     get:
       operationId: secrets_get
       summary: List secrets
@@ -4621,10 +5346,16 @@ paths:
                 properties:
                   secrets:
                     type: array
+                    items: {}
                     description: List of secret metadata entries, each with type and name
                   accounts:
                     type: array
+                    items: {}
                     description: Alias for secrets (same data)
+                required:
+                  - secrets
+                  - accounts
+                additionalProperties: false
     post:
       operationId: secrets_post
       summary: Add a secret
@@ -4645,6 +5376,11 @@ paths:
                     type: string
                   name:
                     type: string
+                required:
+                  - success
+                  - type
+                  - name
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -4665,6 +5401,7 @@ paths:
                 - type
                 - name
                 - value
+              additionalProperties: false
   /v1/secrets/read:
     post:
       operationId: secrets_read_post
@@ -4690,6 +5427,12 @@ paths:
                     description: Masked value (when reveal=false and found)
                   unreachable:
                     type: boolean
+                required:
+                  - found
+                  - value
+                  - masked
+                  - unreachable
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -4709,6 +5452,7 @@ paths:
               required:
                 - type
                 - name
+              additionalProperties: false
   /v1/settings/avatar/generate:
     post:
       operationId: settings_avatar_generate_post
@@ -4728,6 +5472,9 @@ paths:
               properties:
                 description:
                   type: string
+              required:
+                - description
+              additionalProperties: false
   /v1/settings/client:
     put:
       operationId: settings_client_put
@@ -4752,6 +5499,7 @@ paths:
               required:
                 - key
                 - value
+              additionalProperties: false
   /v1/settings/voice:
     put:
       operationId: settings_voice_put
@@ -4773,6 +5521,7 @@ paths:
                   type: string
               required:
                 - activationKey
+              additionalProperties: false
   /v1/skills:
     get:
       operationId: skills_get
@@ -4790,7 +5539,11 @@ paths:
                 properties:
                   skills:
                     type: array
+                    items: {}
                     description: Skill objects
+                required:
+                  - skills
+                additionalProperties: false
     post:
       operationId: skills_post
       summary: Create skill
@@ -4807,6 +5560,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -4827,6 +5583,7 @@ paths:
                 - name
                 - description
                 - bodyMarkdown
+              additionalProperties: false
   /v1/skills/{id}:
     delete:
       operationId: skills_by_id_delete
@@ -4875,6 +5632,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -4890,12 +5650,21 @@ paths:
               properties:
                 env:
                   type: object
+                  properties: {}
+                  additionalProperties: {}
                   description: Environment variables
                 apiKey:
                   type: string
                 config:
                   type: object
+                  properties: {}
+                  additionalProperties: {}
                   description: Arbitrary config
+              required:
+                - env
+                - apiKey
+                - config
+              additionalProperties: false
   /v1/skills/{id}/disable:
     post:
       operationId: skills_by_id_disable_post
@@ -4913,6 +5682,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -4936,6 +5708,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -4991,6 +5766,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -5014,7 +5792,12 @@ paths:
                 properties:
                   data:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Update availability info
+                required:
+                  - data
+                additionalProperties: false
   /v1/skills/draft:
     post:
       operationId: skills_draft_post
@@ -5037,6 +5820,7 @@ paths:
                   description: Source text for drafting
               required:
                 - sourceText
+              additionalProperties: false
   /v1/skills/install:
     post:
       operationId: skills_install_post
@@ -5054,6 +5838,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -5072,6 +5859,12 @@ paths:
                   description: Skill spec
                 version:
                   type: string
+              required:
+                - slug
+                - url
+                - spec
+                - version
+              additionalProperties: false
   /v1/skills/search:
     get:
       operationId: skills_search_get
@@ -5089,7 +5882,12 @@ paths:
                 properties:
                   data:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Search results
+                required:
+                  - data
+                additionalProperties: false
       parameters:
         - name: q
           in: query
@@ -5134,7 +5932,13 @@ paths:
                     type: string
                   events:
                     type: array
+                    items: {}
                     description: Subagent event objects
+                required:
+                  - subagentId
+                  - objective
+                  - events
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -5166,6 +5970,10 @@ paths:
                     type: string
                   aborted:
                     type: boolean
+                required:
+                  - subagentId
+                  - aborted
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -5183,6 +5991,7 @@ paths:
                   type: string
               required:
                 - conversationId
+              additionalProperties: false
   /v1/subagents/{id}/message:
     post:
       operationId: subagents_by_id_message_post
@@ -5202,6 +6011,10 @@ paths:
                     type: string
                   sent:
                     type: boolean
+                required:
+                  - subagentId
+                  - sent
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -5222,6 +6035,7 @@ paths:
               required:
                 - conversationId
                 - content
+              additionalProperties: false
   /v1/suggestion:
     get:
       operationId: suggestion_get
@@ -5243,6 +6057,11 @@ paths:
                     type: string
                   source:
                     type: string
+                required:
+                  - suggestion
+                  - messageId
+                  - source
+                additionalProperties: false
   /v1/surface-actions:
     post:
       operationId: surfaceactions_post
@@ -5260,6 +6079,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -5278,10 +6100,13 @@ paths:
                   description: Action identifier
                 data:
                   type: object
+                  properties: {}
+                  additionalProperties: {}
                   description: Action-specific payload
               required:
                 - surfaceId
                 - actionId
+              additionalProperties: false
   /v1/surfaces/{id}/undo:
     post:
       operationId: surfaces_by_id_undo_post
@@ -5299,6 +6124,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -5315,6 +6143,9 @@ paths:
                 conversationId:
                   type: string
                   description: Conversation that owns the surface
+              required:
+                - conversationId
+              additionalProperties: false
   /v1/surfaces/{surfaceId}:
     get:
       operationId: surfaces_by_surfaceId_get
@@ -5338,7 +6169,15 @@ paths:
                     type: string
                   data:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
                     description: Surface data payload
+                required:
+                  - surfaceId
+                  - surfaceType
+                  - title
+                  - data
+                additionalProperties: false
       parameters:
         - name: surfaceId
           in: path
@@ -5371,6 +6210,10 @@ paths:
                     description: Event ID
                   event_name:
                     type: string
+                required:
+                  - id
+                  - event_name
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -5383,6 +6226,7 @@ paths:
                   description: "Event name: app_open or hatch"
               required:
                 - event_name
+              additionalProperties: false
   /v1/tools:
     get:
       operationId: tools_get
@@ -5414,12 +6258,21 @@ paths:
                   type: string
                 input:
                   type: object
+                  properties: {}
+                  additionalProperties: {}
                 workingDir:
                   type: string
                 forcePromptSideEffects:
                   type: boolean
                 isInteractive:
                   type: boolean
+              required:
+                - toolName
+                - input
+                - workingDir
+                - forcePromptSideEffects
+                - isInteractive
+              additionalProperties: false
   /v1/trace-events:
     get:
       operationId: traceevents_get
@@ -5437,7 +6290,11 @@ paths:
                 properties:
                   events:
                     type: array
+                    items: {}
                     description: Trace event objects
+                required:
+                  - events
+                additionalProperties: false
       parameters:
         - name: conversationId
           in: query
@@ -5474,6 +6331,9 @@ paths:
                 properties:
                   accepted:
                     type: boolean
+                required:
+                  - accepted
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -5501,6 +6361,7 @@ paths:
                 - pattern
                 - scope
                 - decision
+              additionalProperties: false
   /v1/trust-rules/manage:
     get:
       operationId: trustrules_manage_get
@@ -5520,7 +6381,12 @@ paths:
                     type: string
                   rules:
                     type: array
+                    items: {}
                     description: Trust rule objects
+                required:
+                  - type
+                  - rules
+                additionalProperties: false
     post:
       operationId: trustrules_manage_post
       summary: Add a trust rule
@@ -5537,6 +6403,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -5567,6 +6436,7 @@ paths:
                 - pattern
                 - scope
                 - decision
+              additionalProperties: false
   /v1/trust-rules/manage/{id}:
     delete:
       operationId: trustrules_manage_by_id_delete
@@ -5584,6 +6454,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -5606,6 +6479,9 @@ paths:
                 properties:
                   ok:
                     type: boolean
+                required:
+                  - ok
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -5634,6 +6510,13 @@ paths:
                 priority:
                   type: number
                   description: Rule priority
+              required:
+                - tool
+                - pattern
+                - scope
+                - decision
+                - priority
+              additionalProperties: false
   /v1/usage/breakdown:
     get:
       operationId: usage_breakdown_get
@@ -5651,7 +6534,11 @@ paths:
                 properties:
                   breakdown:
                     type: array
+                    items: {}
                     description: Grouped usage entries
+                required:
+                  - breakdown
+                additionalProperties: false
       parameters:
         - name: from
           in: query
@@ -5688,7 +6575,11 @@ paths:
                 properties:
                   buckets:
                     type: array
+                    items: {}
                     description: Daily usage bucket objects
+                required:
+                  - buckets
+                additionalProperties: false
       parameters:
         - name: from
           in: query
@@ -5742,6 +6633,10 @@ paths:
                 properties:
                   items:
                     type: array
+                    items: {}
+                required:
+                  - items
+                additionalProperties: false
   /v1/work-items/{id}:
     delete:
       operationId: workitems_by_id_delete
@@ -5803,8 +6698,19 @@ paths:
                   type: string
                 priorityTier:
                   type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
                 sortIndex:
                   type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
+              required:
+                - title
+                - notes
+                - status
+                - priorityTier
+                - sortIndex
+              additionalProperties: false
   /v1/work-items/{id}/approve-permissions:
     post:
       operationId: workitems_by_id_approvepermissions_post
@@ -5830,9 +6736,11 @@ paths:
               properties:
                 approvedTools:
                   type: array
+                  items: {}
                   description: Array of tool names to approve
               required:
                 - approvedTools
+              additionalProperties: false
   /v1/work-items/{id}/cancel:
     post:
       operationId: workitems_by_id_cancel_post
@@ -5886,6 +6794,13 @@ paths:
                     type: boolean
                   output:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
+                required:
+                  - id
+                  - success
+                  - output
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -5913,6 +6828,13 @@ paths:
                     type: boolean
                   permissions:
                     type: object
+                    properties: {}
+                    additionalProperties: {}
+                required:
+                  - id
+                  - success
+                  - permissions
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -5977,6 +6899,7 @@ paths:
                   description: Relative path to delete
               required:
                 - path
+              additionalProperties: false
   /v1/workspace/file:
     get:
       operationId: workspace_file_get
@@ -6007,6 +6930,15 @@ paths:
                     description: Inline text content or null
                   isBinary:
                     type: boolean
+                required:
+                  - path
+                  - name
+                  - size
+                  - mimeType
+                  - modifiedAt
+                  - content
+                  - isBinary
+                additionalProperties: false
       parameters:
         - name: path
           in: query
@@ -6060,6 +6992,9 @@ paths:
                 properties:
                   path:
                     type: string
+                required:
+                  - path
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -6072,6 +7007,7 @@ paths:
                   description: Relative directory path
               required:
                 - path
+              additionalProperties: false
   /v1/workspace/rename:
     post:
       operationId: workspace_rename_post
@@ -6091,6 +7027,10 @@ paths:
                     type: string
                   newPath:
                     type: string
+                required:
+                  - oldPath
+                  - newPath
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -6107,6 +7047,7 @@ paths:
               required:
                 - oldPath
                 - newPath
+              additionalProperties: false
   /v1/workspace/tree:
     get:
       operationId: workspace_tree_get
@@ -6126,7 +7067,12 @@ paths:
                     type: string
                   entries:
                     type: array
+                    items: {}
                     description: Directory entry objects
+                required:
+                  - path
+                  - entries
+                additionalProperties: false
       parameters:
         - name: path
           in: query
@@ -6159,6 +7105,10 @@ paths:
                     type: string
                   size:
                     type: number
+                required:
+                  - path
+                  - size
+                additionalProperties: false
       requestBody:
         required: true
         content:
@@ -6177,3 +7127,4 @@ paths:
                   description: Content encoding (base64 or utf-8)
               required:
                 - path
+              additionalProperties: false

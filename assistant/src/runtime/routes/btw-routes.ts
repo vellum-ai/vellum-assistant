@@ -14,6 +14,8 @@
 
 import { existsSync, readFileSync } from "node:fs";
 
+import { z } from "zod";
+
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import {
   resolveChannelPersona,
@@ -234,17 +236,12 @@ export function btwRouteDefinitions(deps: {
       description:
         "Stream an ephemeral LLM call reusing the conversation's provider and message history. Response is SSE (btw_text_delta, btw_complete, btw_error).",
       tags: ["btw"],
-      requestBody: {
-        type: "object",
-        properties: {
-          conversationKey: {
-            type: "string",
-            description: "Conversation key to scope the call",
-          },
-          content: { type: "string", description: "User prompt content" },
-        },
-        required: ["conversationKey", "content"],
-      },
+      requestBody: z.object({
+        conversationKey: z
+          .string()
+          .describe("Conversation key to scope the call"),
+        content: z.string().describe("User prompt content"),
+      }),
       handler: async ({ req, authContext }) =>
         handleBtw(req, deps, authContext),
     },

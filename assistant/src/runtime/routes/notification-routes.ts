@@ -6,6 +6,7 @@
  */
 
 import { eq } from "drizzle-orm";
+import { z } from "zod";
 
 import { getDb } from "../../memory/db.js";
 import { notificationDeliveries } from "../../memory/schema.js";
@@ -23,34 +24,21 @@ export function notificationRouteDefinitions(): RouteDefinition[] {
       description:
         "Client acknowledgment for local notification delivery outcome.",
       tags: ["notifications"],
-      requestBody: {
-        type: "object",
-        properties: {
-          deliveryId: {
-            type: "string",
-            description: "Notification delivery ID",
-          },
-          success: {
-            type: "boolean",
-            description: "Whether delivery succeeded",
-          },
-          errorMessage: {
-            type: "string",
-            description: "Error message if delivery failed",
-          },
-          errorCode: {
-            type: "string",
-            description: "Error code if delivery failed",
-          },
-        },
-        required: ["deliveryId"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        deliveryId: z.string().describe("Notification delivery ID"),
+        success: z.boolean().describe("Whether delivery succeeded").optional(),
+        errorMessage: z
+          .string()
+          .describe("Error message if delivery failed")
+          .optional(),
+        errorCode: z
+          .string()
+          .describe("Error code if delivery failed")
+          .optional(),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           deliveryId?: string;

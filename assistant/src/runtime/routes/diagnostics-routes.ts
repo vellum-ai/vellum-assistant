@@ -2,6 +2,8 @@
  * HTTP route handlers for dictation processing.
  */
 
+import { z } from "zod";
+
 import {
   type ProfileResolution,
   resolveProfile,
@@ -439,47 +441,30 @@ export function diagnosticsRouteDefinitions(): RouteDefinition[] {
       description:
         "Classify voice input as dictation or action, clean up text, and apply user style preferences.",
       tags: ["diagnostics"],
-      requestBody: {
-        type: "object",
-        properties: {
-          transcription: {
-            type: "string",
-            description: "Raw speech transcription",
-          },
-          context: {
-            type: "object",
-            description:
-              "Dictation context (app name, window title, bundle ID, cursor state, selected text)",
-          },
-          profileId: {
-            type: "string",
-            description: "Optional dictation profile ID",
-          },
-        },
-        required: ["transcription", "context"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          text: { type: "string", description: "Processed text output" },
-          mode: {
-            type: "string",
-            description: "Detected mode: dictation, command, or action",
-          },
-          actionPlan: {
-            type: "string",
-            description: "Action plan (only when mode is action)",
-          },
-          resolvedProfileId: {
-            type: "string",
-            description: "Resolved dictation profile ID",
-          },
-          profileSource: {
-            type: "string",
-            description: "How the profile was resolved",
-          },
-        },
-      },
+      requestBody: z.object({
+        transcription: z.string().describe("Raw speech transcription"),
+        context: z
+          .object({})
+          .passthrough()
+          .describe(
+            "Dictation context (app name, window title, bundle ID, cursor state, selected text)",
+          ),
+        profileId: z
+          .string()
+          .describe("Optional dictation profile ID")
+          .optional(),
+      }),
+      responseBody: z.object({
+        text: z.string().describe("Processed text output"),
+        mode: z
+          .string()
+          .describe("Detected mode: dictation, command, or action"),
+        actionPlan: z
+          .string()
+          .describe("Action plan (only when mode is action)"),
+        resolvedProfileId: z.string().describe("Resolved dictation profile ID"),
+        profileSource: z.string().describe("How the profile was resolved"),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as DictationBody;
         if (!body.transcription) {

@@ -4,6 +4,8 @@
 
 import { statSync } from "node:fs";
 
+import { z } from "zod";
+
 import { getConfig } from "../../config/loader.js";
 import { countConversations } from "../../memory/conversation-queries.js";
 import { rawAll } from "../../memory/db.js";
@@ -98,29 +100,23 @@ export function debugRouteDefinitions(): RouteDefinition[] {
         "Return runtime diagnostics: uptime, provider info, memory stats, job counts, and schedule counts.",
       tags: ["debug"],
       handler: () => handleDebug(),
-      responseBody: {
-        type: "object",
-        properties: {
-          session: { type: "object", description: "Uptime and start time" },
-          provider: {
-            type: "object",
-            description: "Inference provider configuration",
-          },
-          memory: {
-            type: "object",
-            description: "Conversation and memory item counts",
-          },
-          jobs: { type: "object", description: "Background job counts" },
-          schedules: {
-            type: "object",
-            description: "Schedule counts (total, enabled)",
-          },
-          timestamp: {
-            type: "string",
-            description: "Current server timestamp (ISO 8601)",
-          },
-        },
-      },
+      responseBody: z.object({
+        session: z.object({}).passthrough().describe("Uptime and start time"),
+        provider: z
+          .object({})
+          .passthrough()
+          .describe("Inference provider configuration"),
+        memory: z
+          .object({})
+          .passthrough()
+          .describe("Conversation and memory item counts"),
+        jobs: z.object({}).passthrough().describe("Background job counts"),
+        schedules: z
+          .object({})
+          .passthrough()
+          .describe("Schedule counts (total, enabled)"),
+        timestamp: z.string().describe("Current server timestamp (ISO 8601)"),
+      }),
     },
   ];
 }

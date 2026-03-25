@@ -4,6 +4,8 @@
  * useful for assistant/LLM reporting and UI indicators.
  */
 
+import { z } from "zod";
+
 import {
   type AttentionFilterState,
   listConversationAttention,
@@ -165,16 +167,10 @@ export function conversationAttentionRouteDefinitions(): RouteDefinition[] {
           description: "Cursor for pagination (timestamp)",
         },
       ],
-      responseBody: {
-        type: "object",
-        properties: {
-          conversations: {
-            type: "array",
-            description: "Attention state objects",
-          },
-          hasMore: { type: "boolean" },
-        },
-      },
+      responseBody: z.object({
+        conversations: z.array(z.unknown()).describe("Attention state objects"),
+        hasMore: z.boolean(),
+      }),
       handler: ({ url }) => handleListConversationAttention(url),
     },
   ];

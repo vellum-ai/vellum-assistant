@@ -7,6 +7,8 @@ import { cpus, totalmem } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { z } from "zod";
+
 import { getBaseDataDir } from "../../config/env-registry.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
@@ -249,18 +251,15 @@ export function identityRouteDefinitions(): RouteDefinition[] {
       description:
         "Returns runtime health including version, disk, memory, CPU, and migration status.",
       tags: ["system"],
-      responseBody: {
-        type: "object",
-        properties: {
-          status: { type: "string" },
-          timestamp: { type: "string" },
-          version: { type: "string" },
-          disk: { type: "object" },
-          memory: { type: "object" },
-          cpu: { type: "object" },
-          migrations: { type: "object" },
-        },
-      },
+      responseBody: z.object({
+        status: z.string(),
+        timestamp: z.string(),
+        version: z.string(),
+        disk: z.object({}).passthrough(),
+        memory: z.object({}).passthrough(),
+        cpu: z.object({}).passthrough(),
+        migrations: z.object({}).passthrough(),
+      }),
     },
     {
       endpoint: "identity",
@@ -270,18 +269,15 @@ export function identityRouteDefinitions(): RouteDefinition[] {
       description:
         "Returns the assistant's identity fields parsed from IDENTITY.md.",
       tags: ["identity"],
-      responseBody: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          role: { type: "string" },
-          personality: { type: "string" },
-          emoji: { type: "string" },
-          home: { type: "string" },
-          version: { type: "string" },
-          createdAt: { type: "string" },
-        },
-      },
+      responseBody: z.object({
+        name: z.string(),
+        role: z.string(),
+        personality: z.string(),
+        emoji: z.string(),
+        home: z.string(),
+        version: z.string(),
+        createdAt: z.string(),
+      }),
     },
     {
       endpoint: "identity/intro",
@@ -291,12 +287,9 @@ export function identityRouteDefinitions(): RouteDefinition[] {
       description:
         "Returns the cached identity intro string, preferring SOUL.md over LLM-generated cache.",
       tags: ["identity"],
-      responseBody: {
-        type: "object",
-        properties: {
-          text: { type: "string" },
-        },
-      },
+      responseBody: z.object({
+        text: z.string(),
+      }),
     },
   ];
 }

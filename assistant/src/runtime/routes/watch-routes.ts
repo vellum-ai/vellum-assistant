@@ -5,6 +5,8 @@
  * zero dependency on CU session state.
  */
 
+import { z } from "zod";
+
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -126,52 +128,29 @@ export function watchRouteDefinitions(deps: {
       description: "Send a screen observation from ambient watch mode.",
       tags: ["computer-use"],
       handler: async ({ req }) => handleWatchObservationRoute(req, getDeps()),
-      requestBody: {
-        type: "object",
-        properties: {
-          watchId: { type: "string", description: "Watch session ID" },
-          conversationId: {
-            type: "string",
-            description: "Conversation to associate with",
-          },
-          ocrText: {
-            type: "string",
-            description: "OCR text from screen capture",
-          },
-          appName: { type: "string", description: "Active application name" },
-          windowTitle: { type: "string", description: "Active window title" },
-          bundleIdentifier: {
-            type: "string",
-            description: "Application bundle identifier",
-          },
-          timestamp: {
-            type: "number",
-            description: "Capture timestamp (epoch ms)",
-          },
-          captureIndex: {
-            type: "integer",
-            description: "Index of this capture in the batch",
-          },
-          totalExpected: {
-            type: "integer",
-            description: "Total captures expected in the batch",
-          },
-        },
-        required: [
-          "watchId",
-          "conversationId",
-          "ocrText",
-          "timestamp",
-          "captureIndex",
-          "totalExpected",
-        ],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        watchId: z.string().describe("Watch session ID"),
+        conversationId: z.string().describe("Conversation to associate with"),
+        ocrText: z.string().describe("OCR text from screen capture"),
+        appName: z.string().describe("Active application name").optional(),
+        windowTitle: z.string().describe("Active window title").optional(),
+        bundleIdentifier: z
+          .string()
+          .describe("Application bundle identifier")
+          .optional(),
+        timestamp: z.number().describe("Capture timestamp (epoch ms)"),
+        captureIndex: z
+          .number()
+          .int()
+          .describe("Index of this capture in the batch"),
+        totalExpected: z
+          .number()
+          .int()
+          .describe("Total captures expected in the batch"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
     },
   ];
 }

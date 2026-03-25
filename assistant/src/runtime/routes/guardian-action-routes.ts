@@ -11,6 +11,8 @@
  * Guardian decisions additionally verify the actor is the bound guardian
  * via the AuthContext's actorPrincipalId.
  */
+import { z } from "zod";
+
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import {
@@ -272,16 +274,12 @@ export function guardianActionRouteDefinitions(): RouteDefinition[] {
           description: "Conversation ID (required)",
         },
       ],
-      responseBody: {
-        type: "object",
-        properties: {
-          conversationId: { type: "string" },
-          prompts: {
-            type: "array",
-            description: "Guardian decision prompt objects",
-          },
-        },
-      },
+      responseBody: z.object({
+        conversationId: z.string(),
+        prompts: z
+          .array(z.unknown())
+          .describe("Guardian decision prompt objects"),
+      }),
       handler: ({ url, authContext }) =>
         handleGuardianActionsPending(url, authContext),
     },
@@ -291,23 +289,16 @@ export function guardianActionRouteDefinitions(): RouteDefinition[] {
       summary: "Submit guardian decision",
       description: "Submit a guardian action decision (approve/reject).",
       tags: ["guardian"],
-      requestBody: {
-        type: "object",
-        properties: {
-          requestId: { type: "string", description: "Guardian request ID" },
-          action: { type: "string", description: "Decision action" },
-          conversationId: { type: "string", description: "Conversation ID" },
-        },
-        required: ["requestId", "action"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          applied: { type: "boolean" },
-          requestId: { type: "string" },
-          reason: { type: "string" },
-        },
-      },
+      requestBody: z.object({
+        requestId: z.string().describe("Guardian request ID"),
+        action: z.string().describe("Decision action"),
+        conversationId: z.string().describe("Conversation ID").optional(),
+      }),
+      responseBody: z.object({
+        applied: z.boolean(),
+        requestId: z.string(),
+        reason: z.string(),
+      }),
       handler: async ({ req, authContext }) =>
         handleGuardianActionDecision(req, authContext),
     },

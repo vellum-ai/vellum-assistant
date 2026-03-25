@@ -5,6 +5,8 @@
  * POST  /v1/channels/readiness/refresh  — invalidate cache and refresh readiness
  */
 
+import { z } from "zod";
+
 import type { ChannelId } from "../../channels/types.js";
 import { getReadinessService } from "../../daemon/handlers/config-channels.js";
 import {
@@ -144,16 +146,10 @@ export function channelReadinessRouteDefinitions(): RouteDefinition[] {
           description: "Include remote checks (default true)",
         },
       ],
-      responseBody: {
-        type: "object",
-        properties: {
-          success: { type: "boolean" },
-          snapshots: {
-            type: "array",
-            description: "Channel readiness snapshots",
-          },
-        },
-      },
+      responseBody: z.object({
+        success: z.boolean(),
+        snapshots: z.array(z.unknown()).describe("Channel readiness snapshots"),
+      }),
     },
     {
       endpoint: "channels/readiness/refresh",
@@ -162,29 +158,18 @@ export function channelReadinessRouteDefinitions(): RouteDefinition[] {
       description: "Invalidate cache and re-evaluate channel readiness.",
       tags: ["channels"],
       handler: async ({ req }) => handleRefreshChannelReadiness(req),
-      requestBody: {
-        type: "object",
-        properties: {
-          channel: {
-            type: "string",
-            description: "Optional channel ID to refresh",
-          },
-          includeRemote: {
-            type: "boolean",
-            description: "Include remote checks (default true)",
-          },
-        },
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          success: { type: "boolean" },
-          snapshots: {
-            type: "array",
-            description: "Refreshed readiness snapshots",
-          },
-        },
-      },
+      requestBody: z.object({
+        channel: z.string().describe("Optional channel ID to refresh"),
+        includeRemote: z
+          .boolean()
+          .describe("Include remote checks (default true)"),
+      }),
+      responseBody: z.object({
+        success: z.boolean(),
+        snapshots: z
+          .array(z.unknown())
+          .describe("Refreshed readiness snapshots"),
+      }),
     },
   ];
 }

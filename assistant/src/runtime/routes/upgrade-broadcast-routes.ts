@@ -9,6 +9,8 @@
  * minted service token.
  */
 
+import { z } from "zod";
+
 import type {
   ServiceGroupUpdateComplete,
   ServiceGroupUpdateProgress,
@@ -29,46 +31,38 @@ export function upgradeBroadcastRouteDefinitions(): RouteDefinition[] {
       description:
         "Publish a service group update lifecycle event (starting, progress, or complete) to all connected SSE clients.",
       tags: ["admin"],
-      requestBody: {
-        type: "object",
-        properties: {
-          type: {
-            type: "string",
-            description: 'Event type: "starting", "progress", or "complete"',
-          },
-          targetVersion: {
-            type: "string",
-            description: "Target version (required for starting)",
-          },
-          expectedDowntimeSeconds: {
-            type: "number",
-            description: "Expected downtime in seconds (starting, default 60)",
-          },
-          statusMessage: {
-            type: "string",
-            description: "Status message (required for progress)",
-          },
-          installedVersion: {
-            type: "string",
-            description: "Installed version (required for complete)",
-          },
-          success: {
-            type: "boolean",
-            description: "Whether upgrade succeeded (required for complete)",
-          },
-          rolledBackToVersion: {
-            type: "string",
-            description: "Version rolled back to, if any (complete)",
-          },
-        },
-        required: ["type"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        type: z
+          .string()
+          .describe('Event type: "starting", "progress", or "complete"'),
+        targetVersion: z
+          .string()
+          .describe("Target version (required for starting)")
+          .optional(),
+        expectedDowntimeSeconds: z
+          .number()
+          .describe("Expected downtime in seconds (starting, default 60)")
+          .optional(),
+        statusMessage: z
+          .string()
+          .describe("Status message (required for progress)")
+          .optional(),
+        installedVersion: z
+          .string()
+          .describe("Installed version (required for complete)")
+          .optional(),
+        success: z
+          .boolean()
+          .describe("Whether upgrade succeeded (required for complete)")
+          .optional(),
+        rolledBackToVersion: z
+          .string()
+          .describe("Version rolled back to, if any (complete)")
+          .optional(),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req }) => {
         let body: unknown;
         try {

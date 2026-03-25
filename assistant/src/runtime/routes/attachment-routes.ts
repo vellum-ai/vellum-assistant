@@ -3,6 +3,8 @@
  */
 import { existsSync, statSync } from "node:fs";
 
+import { z } from "zod";
+
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   AttachmentUploadError,
@@ -265,29 +267,22 @@ export function attachmentRouteDefinitions(): RouteDefinition[] {
       description:
         "Upload an attachment as base64 data or file path reference.",
       tags: ["attachments"],
-      requestBody: {
-        type: "object",
-        properties: {
-          filename: { type: "string" },
-          mimeType: { type: "string" },
-          data: { type: "string", description: "Base64-encoded file data" },
-          filePath: {
-            type: "string",
-            description: "On-disk file path (file-backed upload)",
-          },
-        },
-        required: ["filename", "mimeType"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          original_filename: { type: "string" },
-          mime_type: { type: "string" },
-          size_bytes: { type: "number" },
-          kind: { type: "string" },
-        },
-      },
+      requestBody: z.object({
+        filename: z.string(),
+        mimeType: z.string(),
+        data: z.string().describe("Base64-encoded file data").optional(),
+        filePath: z
+          .string()
+          .describe("On-disk file path (file-backed upload)")
+          .optional(),
+      }),
+      responseBody: z.object({
+        id: z.string(),
+        original_filename: z.string(),
+        mime_type: z.string(),
+        size_bytes: z.number(),
+        kind: z.string(),
+      }),
       handler: async ({ req }) => handleUploadAttachment(req),
     },
     {
@@ -296,13 +291,9 @@ export function attachmentRouteDefinitions(): RouteDefinition[] {
       summary: "Delete attachment",
       description: "Delete an attachment by ID.",
       tags: ["attachments"],
-      requestBody: {
-        type: "object",
-        properties: {
-          attachmentId: { type: "string" },
-        },
-        required: ["attachmentId"],
-      },
+      requestBody: z.object({
+        attachmentId: z.string(),
+      }),
       handler: async ({ req }) => handleDeleteAttachment(req),
     },
     {
@@ -323,18 +314,15 @@ export function attachmentRouteDefinitions(): RouteDefinition[] {
       description:
         "Return metadata and optional base64 data for an attachment.",
       tags: ["attachments"],
-      responseBody: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          filename: { type: "string" },
-          mimeType: { type: "string" },
-          sizeBytes: { type: "number" },
-          kind: { type: "string" },
-          data: { type: "string", description: "Base64-encoded content" },
-          fileBacked: { type: "boolean" },
-        },
-      },
+      responseBody: z.object({
+        id: z.string(),
+        filename: z.string(),
+        mimeType: z.string(),
+        sizeBytes: z.number(),
+        kind: z.string(),
+        data: z.string().describe("Base64-encoded content"),
+        fileBacked: z.boolean(),
+      }),
       handler: ({ params }) => handleGetAttachment(params.id),
     },
   ];

@@ -5,6 +5,8 @@
  * using the standalone functions extracted in `../../daemon/handlers/skills.ts`.
  */
 
+import { z } from "zod";
+
 import type {
   CreateSkillParams,
   SkillOperationContext,
@@ -47,12 +49,9 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       summary: "List all skills",
       description: "Return all installed skills.",
       tags: ["skills"],
-      responseBody: {
-        type: "object",
-        properties: {
-          skills: { type: "array", description: "Skill objects" },
-        },
-      },
+      responseBody: z.object({
+        skills: z.array(z.unknown()).describe("Skill objects"),
+      }),
       handler: () => {
         const skills = listSkills(ctx());
         return Response.json({ skills });
@@ -85,12 +84,9 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       summary: "Enable skill",
       description: "Enable an installed skill.",
       tags: ["skills"],
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-        },
-      },
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: ({ params }) => {
         const result = enableSkill(params.id, ctx());
         if (!result.success) {
@@ -107,12 +103,9 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       summary: "Disable skill",
       description: "Disable an installed skill.",
       tags: ["skills"],
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-        },
-      },
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: ({ params }) => {
         const result = disableSkill(params.id, ctx());
         if (!result.success) {
@@ -129,20 +122,14 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       summary: "Configure skill",
       description: "Update skill configuration (env, apiKey, config).",
       tags: ["skills"],
-      requestBody: {
-        type: "object",
-        properties: {
-          env: { type: "object", description: "Environment variables" },
-          apiKey: { type: "string" },
-          config: { type: "object", description: "Arbitrary config" },
-        },
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        env: z.object({}).passthrough().describe("Environment variables"),
+        apiKey: z.string(),
+        config: z.object({}).passthrough().describe("Arbitrary config"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req, params }) => {
         const body = (await req.json()) as {
           env?: Record<string, string>;
@@ -168,21 +155,15 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       summary: "Install skill",
       description: "Install a skill by slug, URL, or spec.",
       tags: ["skills"],
-      requestBody: {
-        type: "object",
-        properties: {
-          slug: { type: "string", description: "Skill slug" },
-          url: { type: "string", description: "Skill URL" },
-          spec: { type: "string", description: "Skill spec" },
-          version: { type: "string" },
-        },
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        slug: z.string().describe("Skill slug"),
+        url: z.string().describe("Skill URL"),
+        spec: z.string().describe("Skill spec"),
+        version: z.string(),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           slug?: string;
@@ -216,12 +197,9 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       summary: "Check skill updates",
       description: "Check for available updates to installed skills.",
       tags: ["skills"],
-      responseBody: {
-        type: "object",
-        properties: {
-          data: { type: "object", description: "Update availability info" },
-        },
-      },
+      responseBody: z.object({
+        data: z.object({}).passthrough().describe("Update availability info"),
+      }),
       handler: async () => {
         const result = await checkSkillUpdates(ctx());
         if (!result.success) {
@@ -245,12 +223,9 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
           description: "Search query (required)",
         },
       ],
-      responseBody: {
-        type: "object",
-        properties: {
-          data: { type: "object", description: "Search results" },
-        },
-      },
+      responseBody: z.object({
+        data: z.object({}).passthrough().describe("Search results"),
+      }),
       handler: async ({ url }) => {
         const query = url.searchParams.get("q") ?? "";
         if (!query) {
@@ -271,16 +246,9 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       summary: "Draft a skill",
       description: "Generate a skill draft from source text.",
       tags: ["skills"],
-      requestBody: {
-        type: "object",
-        properties: {
-          sourceText: {
-            type: "string",
-            description: "Source text for drafting",
-          },
-        },
-        required: ["sourceText"],
-      },
+      requestBody: z.object({
+        sourceText: z.string().describe("Source text for drafting"),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as { sourceText?: string };
         if (!body.sourceText || typeof body.sourceText !== "string") {
@@ -305,22 +273,15 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       summary: "Create skill",
       description: "Create a new skill.",
       tags: ["skills"],
-      requestBody: {
-        type: "object",
-        properties: {
-          skillId: { type: "string" },
-          name: { type: "string" },
-          description: { type: "string" },
-          bodyMarkdown: { type: "string" },
-        },
-        required: ["skillId", "name", "description", "bodyMarkdown"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        skillId: z.string(),
+        name: z.string(),
+        description: z.string(),
+        bodyMarkdown: z.string(),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as CreateSkillParams;
         if (
@@ -350,12 +311,9 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       summary: "Update skill",
       description: "Update an installed skill to the latest version.",
       tags: ["skills"],
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-        },
-      },
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ params }) => {
         const result = await updateSkill(params.id, ctx());
         if (!result.success) {

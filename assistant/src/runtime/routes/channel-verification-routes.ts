@@ -8,6 +8,8 @@
  * GET    /v1/channel-verification-sessions/status   — check guardian binding status
  */
 
+import { z } from "zod";
+
 import type { ChannelId } from "../../channels/types.js";
 import {
   createInboundChallenge,
@@ -250,21 +252,15 @@ export function channelVerificationRouteDefinitions(): RouteDefinition[] {
       description:
         "Create a channel verification session (inbound challenge, outbound, or trusted contact).",
       tags: ["channel-verification"],
-      requestBody: {
-        type: "object",
-        properties: {
-          channel: { type: "string", description: "Channel ID" },
-          destination: { type: "string", description: "Outbound destination" },
-          rebind: { type: "boolean" },
-          conversationId: { type: "string" },
-          originConversationId: { type: "string" },
-          purpose: {
-            type: "string",
-            description: "guardian or trusted_contact",
-          },
-          contactChannelId: { type: "string" },
-        },
-      },
+      requestBody: z.object({
+        channel: z.string().describe("Channel ID"),
+        destination: z.string().describe("Outbound destination"),
+        rebind: z.boolean(),
+        conversationId: z.string(),
+        originConversationId: z.string(),
+        purpose: z.string().describe("guardian or trusted_contact"),
+        contactChannelId: z.string(),
+      }),
       handler: async ({ req, authContext }) =>
         handleCreateVerificationSession(req, authContext.assistantId),
     },
@@ -274,14 +270,10 @@ export function channelVerificationRouteDefinitions(): RouteDefinition[] {
       summary: "Resend verification code",
       description: "Resend the outbound verification code.",
       tags: ["channel-verification"],
-      requestBody: {
-        type: "object",
-        properties: {
-          channel: { type: "string" },
-          originConversationId: { type: "string" },
-        },
-        required: ["channel"],
-      },
+      requestBody: z.object({
+        channel: z.string(),
+        originConversationId: z.string().optional(),
+      }),
       handler: async ({ req }) => handleResendVerificationSession(req),
     },
     {
@@ -291,20 +283,13 @@ export function channelVerificationRouteDefinitions(): RouteDefinition[] {
       description:
         "Cancel all active inbound and outbound verification sessions.",
       tags: ["channel-verification"],
-      requestBody: {
-        type: "object",
-        properties: {
-          channel: { type: "string" },
-        },
-        required: ["channel"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          success: { type: "boolean" },
-          channel: { type: "string" },
-        },
-      },
+      requestBody: z.object({
+        channel: z.string(),
+      }),
+      responseBody: z.object({
+        success: z.boolean(),
+        channel: z.string(),
+      }),
       handler: async ({ req }) => handleCancelVerificationSession(req),
     },
     {
@@ -313,12 +298,9 @@ export function channelVerificationRouteDefinitions(): RouteDefinition[] {
       summary: "Revoke verification binding",
       description: "Cancel all sessions and revoke the guardian binding.",
       tags: ["channel-verification"],
-      requestBody: {
-        type: "object",
-        properties: {
-          channel: { type: "string" },
-        },
-      },
+      requestBody: z.object({
+        channel: z.string(),
+      }),
       handler: async ({ req }) => handleRevokeVerificationBinding(req),
     },
     {

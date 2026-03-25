@@ -8,6 +8,8 @@
  * POST   /v1/calls/:callSessionId/instruction — relay an instruction to an active call
  */
 
+import { z } from "zod";
+
 import {
   answerCall,
   cancelCall,
@@ -293,44 +295,31 @@ export function callRouteDefinitions(deps: {
         "Initiate a new outbound phone call. Supports idempotency keys to prevent duplicate calls.",
       tags: ["calls"],
       handler: async ({ req }) => handleStartCall(req, deps.assistantId),
-      requestBody: {
-        type: "object",
-        properties: {
-          phoneNumber: { type: "string", description: "Phone number to call" },
-          task: {
-            type: "string",
-            description: "Task description for the call",
-          },
-          context: {
-            type: "string",
-            description: "Additional context for the call",
-          },
-          conversationId: {
-            type: "string",
-            description: "Conversation to associate with",
-          },
-          callerIdentityMode: {
-            type: "string",
-            description: "Caller identity: 'assistant_number' or 'user_number'",
-          },
-          idempotencyKey: {
-            type: "string",
-            description: "Idempotency key to prevent duplicate calls",
-          },
-        },
-        required: ["conversationId"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          callSessionId: { type: "string" },
-          callSid: { type: "string" },
-          status: { type: "string" },
-          toNumber: { type: "string" },
-          fromNumber: { type: "string" },
-          callerIdentityMode: { type: "string" },
-        },
-      },
+      requestBody: z.object({
+        phoneNumber: z.string().describe("Phone number to call").optional(),
+        task: z.string().describe("Task description for the call").optional(),
+        context: z
+          .string()
+          .describe("Additional context for the call")
+          .optional(),
+        conversationId: z.string().describe("Conversation to associate with"),
+        callerIdentityMode: z
+          .string()
+          .describe("Caller identity: 'assistant_number' or 'user_number'")
+          .optional(),
+        idempotencyKey: z
+          .string()
+          .describe("Idempotency key to prevent duplicate calls")
+          .optional(),
+      }),
+      responseBody: z.object({
+        callSessionId: z.string(),
+        callSid: z.string(),
+        status: z.string(),
+        toNumber: z.string(),
+        fromNumber: z.string(),
+        callerIdentityMode: z.string(),
+      }),
     },
     {
       endpoint: "calls/:id/cancel",
@@ -340,19 +329,13 @@ export function callRouteDefinitions(deps: {
       description: "Cancel an active or pending call.",
       tags: ["calls"],
       handler: async ({ req, params }) => handleCancelCall(req, params.id),
-      requestBody: {
-        type: "object",
-        properties: {
-          reason: { type: "string", description: "Cancellation reason" },
-        },
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          callSessionId: { type: "string" },
-          status: { type: "string" },
-        },
-      },
+      requestBody: z.object({
+        reason: z.string().describe("Cancellation reason"),
+      }),
+      responseBody: z.object({
+        callSessionId: z.string(),
+        status: z.string(),
+      }),
     },
     {
       endpoint: "calls/:id/answer",
@@ -363,23 +346,14 @@ export function callRouteDefinitions(deps: {
         "Provide an answer to a pending question during an active call.",
       tags: ["calls"],
       handler: async ({ req, params }) => handleAnswerCall(req, params.id),
-      requestBody: {
-        type: "object",
-        properties: {
-          answer: { type: "string", description: "Answer text" },
-          pendingQuestionId: {
-            type: "string",
-            description: "ID of the pending question",
-          },
-        },
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-          questionId: { type: "string" },
-        },
-      },
+      requestBody: z.object({
+        answer: z.string().describe("Answer text"),
+        pendingQuestionId: z.string().describe("ID of the pending question"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+        questionId: z.string(),
+      }),
     },
     {
       endpoint: "calls/:id/instruction",
@@ -389,21 +363,12 @@ export function callRouteDefinitions(deps: {
       description: "Send a real-time instruction to an active call.",
       tags: ["calls"],
       handler: async ({ req, params }) => handleInstructionCall(req, params.id),
-      requestBody: {
-        type: "object",
-        properties: {
-          instruction: {
-            type: "string",
-            description: "Instruction text to relay",
-          },
-        },
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        instruction: z.string().describe("Instruction text to relay"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
     },
     {
       endpoint: "calls/:id",
@@ -413,25 +378,22 @@ export function callRouteDefinitions(deps: {
       description: "Return the current status and details of a call session.",
       tags: ["calls"],
       handler: ({ params }) => handleGetCallStatus(params.id),
-      responseBody: {
-        type: "object",
-        properties: {
-          callSessionId: { type: "string" },
-          conversationId: { type: "string" },
-          status: { type: "string" },
-          toNumber: { type: "string" },
-          fromNumber: { type: "string" },
-          provider: { type: "string" },
-          providerCallSid: { type: "string" },
-          task: { type: "string" },
-          startedAt: { type: "string" },
-          endedAt: { type: "string" },
-          lastError: { type: "string" },
-          pendingQuestion: { type: "object" },
-          createdAt: { type: "string" },
-          updatedAt: { type: "string" },
-        },
-      },
+      responseBody: z.object({
+        callSessionId: z.string(),
+        conversationId: z.string(),
+        status: z.string(),
+        toNumber: z.string(),
+        fromNumber: z.string(),
+        provider: z.string(),
+        providerCallSid: z.string(),
+        task: z.string(),
+        startedAt: z.string(),
+        endedAt: z.string(),
+        lastError: z.string(),
+        pendingQuestion: z.object({}).passthrough(),
+        createdAt: z.string(),
+        updatedAt: z.string(),
+      }),
     },
   ];
 }

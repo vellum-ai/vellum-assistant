@@ -16,6 +16,8 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
+import { z } from "zod";
+
 import { getWorkspaceDir } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { RouteContext, RouteDefinition } from "../http-router.js";
@@ -397,13 +399,10 @@ export function workspaceRouteDefinitions(): RouteDefinition[] {
           description: "Include dotfiles (true/false)",
         },
       ],
-      responseBody: {
-        type: "object",
-        properties: {
-          path: { type: "string" },
-          entries: { type: "array", description: "Directory entry objects" },
-        },
-      },
+      responseBody: z.object({
+        path: z.string(),
+        entries: z.array(z.unknown()).describe("Directory entry objects"),
+      }),
       handler: (ctx) => handleWorkspaceTree(ctx),
     },
     {
@@ -445,21 +444,15 @@ export function workspaceRouteDefinitions(): RouteDefinition[] {
           description: "Allow hidden files (true/false)",
         },
       ],
-      responseBody: {
-        type: "object",
-        properties: {
-          path: { type: "string" },
-          name: { type: "string" },
-          size: { type: "number" },
-          mimeType: { type: "string" },
-          modifiedAt: { type: "string" },
-          content: {
-            type: "string",
-            description: "Inline text content or null",
-          },
-          isBinary: { type: "boolean" },
-        },
-      },
+      responseBody: z.object({
+        path: z.string(),
+        name: z.string(),
+        size: z.number(),
+        mimeType: z.string(),
+        modifiedAt: z.string(),
+        content: z.string().describe("Inline text content or null"),
+        isBinary: z.boolean(),
+      }),
       handler: (ctx) => handleWorkspaceFile(ctx),
     },
     {
@@ -468,25 +461,18 @@ export function workspaceRouteDefinitions(): RouteDefinition[] {
       summary: "Write workspace file",
       description: "Create or overwrite a file in the workspace.",
       tags: ["workspace"],
-      requestBody: {
-        type: "object",
-        properties: {
-          path: { type: "string", description: "Relative file path" },
-          content: { type: "string", description: "File content" },
-          encoding: {
-            type: "string",
-            description: "Content encoding (base64 or utf-8)",
-          },
-        },
-        required: ["path"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          path: { type: "string" },
-          size: { type: "number" },
-        },
-      },
+      requestBody: z.object({
+        path: z.string().describe("Relative file path"),
+        content: z.string().describe("File content").optional(),
+        encoding: z
+          .string()
+          .describe("Content encoding (base64 or utf-8)")
+          .optional(),
+      }),
+      responseBody: z.object({
+        path: z.string(),
+        size: z.number(),
+      }),
       handler: (ctx) => handleWorkspaceWrite(ctx),
     },
     {
@@ -495,19 +481,12 @@ export function workspaceRouteDefinitions(): RouteDefinition[] {
       summary: "Create workspace directory",
       description: "Create directories recursively in the workspace.",
       tags: ["workspace"],
-      requestBody: {
-        type: "object",
-        properties: {
-          path: { type: "string", description: "Relative directory path" },
-        },
-        required: ["path"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          path: { type: "string" },
-        },
-      },
+      requestBody: z.object({
+        path: z.string().describe("Relative directory path"),
+      }),
+      responseBody: z.object({
+        path: z.string(),
+      }),
       handler: (ctx) => handleWorkspaceMkdir(ctx),
     },
     {
@@ -516,21 +495,14 @@ export function workspaceRouteDefinitions(): RouteDefinition[] {
       summary: "Rename workspace entry",
       description: "Rename or move a file or directory in the workspace.",
       tags: ["workspace"],
-      requestBody: {
-        type: "object",
-        properties: {
-          oldPath: { type: "string", description: "Current relative path" },
-          newPath: { type: "string", description: "New relative path" },
-        },
-        required: ["oldPath", "newPath"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          oldPath: { type: "string" },
-          newPath: { type: "string" },
-        },
-      },
+      requestBody: z.object({
+        oldPath: z.string().describe("Current relative path"),
+        newPath: z.string().describe("New relative path"),
+      }),
+      responseBody: z.object({
+        oldPath: z.string(),
+        newPath: z.string(),
+      }),
       handler: (ctx) => handleWorkspaceRename(ctx),
     },
     {
@@ -539,13 +511,9 @@ export function workspaceRouteDefinitions(): RouteDefinition[] {
       summary: "Delete workspace entry",
       description: "Delete a file or directory from the workspace.",
       tags: ["workspace"],
-      requestBody: {
-        type: "object",
-        properties: {
-          path: { type: "string", description: "Relative path to delete" },
-        },
-        required: ["path"],
-      },
+      requestBody: z.object({
+        path: z.string().describe("Relative path to delete"),
+      }),
       handler: (ctx) => handleWorkspaceDelete(ctx),
     },
   ];

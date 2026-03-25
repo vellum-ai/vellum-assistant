@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { count } from "drizzle-orm";
+import { z } from "zod";
 
 import { getDb } from "../../memory/db.js";
 import { memoryItems } from "../../memory/schema.js";
@@ -140,19 +141,15 @@ export function brainGraphRouteDefinitions(deps: {
       description:
         "Return a knowledge-graph shaped for brain-lobe visualization, with memory items mapped to brain regions.",
       tags: ["brain-graph"],
-      responseBody: {
-        type: "object",
-        properties: {
-          entities: { type: "array", description: "Graph entity nodes" },
-          relations: { type: "array", description: "Graph relation edges" },
-          memorySummary: {
-            type: "array",
-            description: "Memory kind counts and colors",
-          },
-          totalKnowledgeCount: { type: "integer" },
-          generatedAt: { type: "string", description: "ISO 8601 timestamp" },
-        },
-      },
+      responseBody: z.object({
+        entities: z.array(z.unknown()).describe("Graph entity nodes"),
+        relations: z.array(z.unknown()).describe("Graph relation edges"),
+        memorySummary: z
+          .array(z.unknown())
+          .describe("Memory kind counts and colors"),
+        totalKnowledgeCount: z.number().int(),
+        generatedAt: z.string().describe("ISO 8601 timestamp"),
+      }),
       handler: () => handleGetBrainGraph(),
     },
     {

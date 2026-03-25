@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 
 import JSZip from "jszip";
+import { z } from "zod";
 
 import type { AppManifest } from "../../bundler/manifest.js";
 import {
@@ -349,14 +350,11 @@ export function appRouteDefinitions(): RouteDefinition[] {
       summary: "Share an app",
       description: "Upload a zip app bundle and create a shareable link.",
       tags: ["apps"],
-      responseBody: {
-        type: "object",
-        properties: {
-          shareToken: { type: "string" },
-          shareUrl: { type: "string" },
-          bundleSizeBytes: { type: "number" },
-        },
-      },
+      responseBody: z.object({
+        shareToken: z.string(),
+        shareUrl: z.string(),
+        bundleSizeBytes: z.number(),
+      }),
       handler: async ({ req }) => handleShareApp(req),
     },
     {
@@ -366,15 +364,12 @@ export function appRouteDefinitions(): RouteDefinition[] {
       summary: "Get shared app metadata",
       description: "Return metadata for a shared app bundle.",
       tags: ["apps"],
-      responseBody: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          description: { type: "string" },
-          icon: { type: "string" },
-          bundleSizeBytes: { type: "number" },
-        },
-      },
+      responseBody: z.object({
+        name: z.string(),
+        description: z.string(),
+        icon: z.string(),
+        bundleSizeBytes: z.number(),
+      }),
       handler: ({ params }) => handleGetSharedAppMetadata(params.token),
     },
     {
@@ -393,12 +388,9 @@ export function appRouteDefinitions(): RouteDefinition[] {
       summary: "Delete shared app",
       description: "Remove a shared app link.",
       tags: ["apps"],
-      responseBody: {
-        type: "object",
-        properties: {
-          success: { type: "boolean" },
-        },
-      },
+      responseBody: z.object({
+        success: z.boolean(),
+      }),
       handler: ({ params }) => handleDeleteSharedApp(params.token),
     },
   ];

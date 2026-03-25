@@ -5,6 +5,8 @@
  * conversation's in-memory surface state. Used by clients to re-hydrate surfaces
  * whose data was stripped during memory compaction.
  */
+import { z } from "zod";
+
 import type {
   SurfaceData,
   SurfaceType,
@@ -57,15 +59,12 @@ export function surfaceContentRouteDefinitions(deps: {
           description: "Conversation that owns the surface",
         },
       ],
-      responseBody: {
-        type: "object",
-        properties: {
-          surfaceId: { type: "string" },
-          surfaceType: { type: "string" },
-          title: { type: "string" },
-          data: { type: "object", description: "Surface data payload" },
-        },
-      },
+      responseBody: z.object({
+        surfaceId: z.string(),
+        surfaceType: z.string(),
+        title: z.string(),
+        data: z.object({}).passthrough().describe("Surface data payload"),
+      }),
       handler: ({ url, params }) => {
         if (!deps.findConversation) {
           return httpError(

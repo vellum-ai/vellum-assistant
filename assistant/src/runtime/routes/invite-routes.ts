@@ -9,6 +9,8 @@
  *   POST   /v1/contacts/invites/:id/call  — trigger an outbound call for a phone invite
  */
 
+import { z } from "zod";
+
 import type { RouteDefinition } from "../http-router.js";
 import {
   createIngressInvite,
@@ -185,13 +187,10 @@ export function inviteRouteDefinitions(): RouteDefinition[] {
           description: "Filter by invite status",
         },
       ],
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-          invites: { type: "array", description: "Invite objects" },
-        },
-      },
+      responseBody: z.object({
+        ok: z.boolean(),
+        invites: z.array(z.unknown()).describe("Invite objects"),
+      }),
       handler: ({ url }) => handleListInvites(url),
     },
     {
@@ -201,37 +200,30 @@ export function inviteRouteDefinitions(): RouteDefinition[] {
       description:
         'Create a new invite. Supports voice invites when sourceChannel is "phone".',
       tags: ["contacts"],
-      requestBody: {
-        type: "object",
-        properties: {
-          contactId: { type: "string", description: "Contact to invite" },
-          sourceChannel: {
-            type: "string",
-            description: "Source channel (e.g. phone)",
-          },
-          note: { type: "string", description: "Optional note" },
-          maxUses: { type: "number", description: "Max redemptions" },
-          expiresInMs: { type: "number", description: "Expiry duration in ms" },
-          contactName: { type: "string", description: "Contact display name" },
-          expectedExternalUserId: {
-            type: "string",
-            description: "Expected user ID (E.164 for phone)",
-          },
-          friendName: {
-            type: "string",
-            description: "Friend name for the invite",
-          },
-          guardianName: { type: "string", description: "Guardian name" },
-        },
-        required: ["contactId"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-          invite: { type: "object", description: "Created invite" },
-        },
-      },
+      requestBody: z.object({
+        contactId: z.string().describe("Contact to invite"),
+        sourceChannel: z
+          .string()
+          .describe("Source channel (e.g. phone)")
+          .optional(),
+        note: z.string().describe("Optional note").optional(),
+        maxUses: z.number().describe("Max redemptions").optional(),
+        expiresInMs: z.number().describe("Expiry duration in ms").optional(),
+        contactName: z.string().describe("Contact display name").optional(),
+        expectedExternalUserId: z
+          .string()
+          .describe("Expected user ID (E.164 for phone)")
+          .optional(),
+        friendName: z
+          .string()
+          .describe("Friend name for the invite")
+          .optional(),
+        guardianName: z.string().describe("Guardian name").optional(),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+        invite: z.object({}).passthrough().describe("Created invite"),
+      }),
       handler: async ({ req }) => handleCreateInvite(req),
     },
     {
@@ -240,51 +232,26 @@ export function inviteRouteDefinitions(): RouteDefinition[] {
       summary: "Redeem an invite",
       description: "Redeem an invite by token or voice code.",
       tags: ["contacts"],
-      requestBody: {
-        type: "object",
-        properties: {
-          token: {
-            type: "string",
-            description: "Invite token (token-based redemption)",
-          },
-          code: {
-            type: "string",
-            description: "Voice code (voice-code redemption)",
-          },
-          callerExternalUserId: {
-            type: "string",
-            description: "Caller E.164 phone (voice-code)",
-          },
-          externalUserId: {
-            type: "string",
-            description: "External user ID (token-based)",
-          },
-          externalChatId: {
-            type: "string",
-            description: "External chat ID (token-based)",
-          },
-          sourceChannel: {
-            type: "string",
-            description: "Source channel (token-based)",
-          },
-          assistantId: {
-            type: "string",
-            description: "Assistant ID (voice-code)",
-          },
-        },
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-          invite: {
-            type: "object",
-            description: "Redeemed invite (token path)",
-          },
-          type: { type: "string", description: "Redemption type (voice path)" },
-          memberId: { type: "string", description: "Member ID (voice path)" },
-        },
-      },
+      requestBody: z.object({
+        token: z.string().describe("Invite token (token-based redemption)"),
+        code: z.string().describe("Voice code (voice-code redemption)"),
+        callerExternalUserId: z
+          .string()
+          .describe("Caller E.164 phone (voice-code)"),
+        externalUserId: z.string().describe("External user ID (token-based)"),
+        externalChatId: z.string().describe("External chat ID (token-based)"),
+        sourceChannel: z.string().describe("Source channel (token-based)"),
+        assistantId: z.string().describe("Assistant ID (voice-code)"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+        invite: z
+          .object({})
+          .passthrough()
+          .describe("Redeemed invite (token path)"),
+        type: z.string().describe("Redemption type (voice path)"),
+        memberId: z.string().describe("Member ID (voice path)"),
+      }),
       handler: async ({ req }) => handleRedeemInvite(req),
     },
     {
@@ -303,16 +270,10 @@ export function inviteRouteDefinitions(): RouteDefinition[] {
       summary: "Trigger invite call",
       description: "Trigger an outbound call for a phone invite.",
       tags: ["contacts"],
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-          callSid: {
-            type: "string",
-            description: "Call SID from the provider",
-          },
-        },
-      },
+      responseBody: z.object({
+        ok: z.boolean(),
+        callSid: z.string().describe("Call SID from the provider"),
+      }),
       handler: async ({ params }) => handleTriggerInviteCall(params.id),
     },
   ];

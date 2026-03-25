@@ -4,6 +4,8 @@
  * Resolves pending host bash proxy requests by requestId when the desktop
  * client returns execution results via HTTP.
  */
+import { z } from "zod";
+
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
@@ -79,23 +81,16 @@ export function hostBashRouteDefinitions(): RouteDefinition[] {
       summary: "Submit host bash result",
       description: "Resolve a pending host bash request by requestId.",
       tags: ["host"],
-      requestBody: {
-        type: "object",
-        properties: {
-          requestId: { type: "string", description: "Pending bash request ID" },
-          stdout: { type: "string" },
-          stderr: { type: "string" },
-          exitCode: { type: "number" },
-          timedOut: { type: "boolean" },
-        },
-        required: ["requestId"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          accepted: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        requestId: z.string().describe("Pending bash request ID"),
+        stdout: z.string().optional(),
+        stderr: z.string().optional(),
+        exitCode: z.number().optional(),
+        timedOut: z.boolean().optional(),
+      }),
+      responseBody: z.object({
+        accepted: z.boolean(),
+      }),
       handler: async ({ req, authContext }) =>
         handleHostBashResult(req, authContext),
     },

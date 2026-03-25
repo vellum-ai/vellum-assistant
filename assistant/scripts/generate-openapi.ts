@@ -40,12 +40,20 @@ const RouteQueryParamSchema = z.object({
   description: z.string().optional(),
 });
 
-const RouteBodySchemaSchema = z.object({
-  type: z.string(),
-  properties: z.record(z.string(), z.unknown()).optional(),
-  required: z.array(z.string()).optional(),
-  description: z.string().optional(),
-});
+/**
+ * Accepts either a Zod schema instance (has _zod property) or a plain
+ * JSON-Schema-style object for backward compatibility with inline routes.
+ */
+const RouteBodySchemaSchema = z.any().refine(
+  (v) =>
+    v != null &&
+    typeof v === "object" &&
+    // Zod schema instance (Zod 4 uses _zod branded property)
+    ("_zod" in v ||
+      // Plain JSON Schema fallback
+      typeof (v as Record<string, unknown>).type === "string"),
+  { message: "Expected a Zod schema or a plain JSON Schema object" },
+);
 
 const RouteEntrySchema = z.object({
   method: z.string(),
@@ -67,8 +75,33 @@ const RouteEntrySchema = z.object({
   sourceModule: z.string().optional(),
 });
 
-type RouteBodySchema = z.infer<typeof RouteBodySchemaSchema>;
 type RouteEntry = z.infer<typeof RouteEntrySchema>;
+
+/** JSON Schema representation of a body (for the OpenAPI spec output). */
+interface JSONSchemaObject {
+  type?: string;
+  properties?: Record<string, unknown>;
+  required?: string[];
+  description?: string;
+  additionalProperties?: boolean;
+  [key: string]: unknown;
+}
+
+/** Convert a Zod schema or plain JSON Schema object to a JSON Schema object. */
+function toJSONSchemaObject(schema: unknown): JSONSchemaObject {
+  if (schema == null || typeof schema !== "object") return {};
+  // Zod schema: has _zod branded property
+  if ("_zod" in (schema as Record<string, unknown>)) {
+    const converted = z.toJSONSchema(schema as z.ZodType, {
+      unrepresentable: "any",
+    });
+    // z.toJSONSchema may add $schema — strip it for inline embedding
+    const { $schema: _, ...rest } = converted as Record<string, unknown>;
+    return rest as JSONSchemaObject;
+  }
+  // Plain JSON Schema object (backward compat for inline/pre-auth routes)
+  return schema as JSONSchemaObject;
+}
 
 // ---------------------------------------------------------------------------
 // Programmatic route extraction
@@ -268,7 +301,7 @@ interface OpenApiOperation {
     required: boolean;
     content: {
       "application/json": {
-        schema: RouteBodySchema;
+        schema: JSONSchemaObject;
       };
     };
   };
@@ -278,7 +311,7 @@ interface OpenApiOperation {
       description: string;
       content?: {
         "application/json": {
-          schema: RouteBodySchema;
+          schema: JSONSchemaObject;
         };
       };
     }
@@ -401,7 +434,9 @@ function buildSpec(
           ? {
               description: "Successful response",
               content: {
-                "application/json": { schema: entry.responseBody },
+                "application/json": {
+                  schema: toJSONSchemaObject(entry.responseBody),
+                },
               },
             }
           : { description: "Successful response" },
@@ -416,7 +451,9 @@ function buildSpec(
       operation.requestBody = {
         required: true,
         content: {
-          "application/json": { schema: entry.requestBody },
+          "application/json": {
+            schema: toJSONSchemaObject(entry.requestBody),
+          },
         },
       };
     }

@@ -4,6 +4,8 @@
  * Exposes document CRUD over HTTP, sharing business logic with the
  * handlers in `daemon/handlers/documents.ts`.
  */
+import { z } from "zod";
+
 import { rawAll, rawGet, rawRun } from "../../memory/db.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
@@ -171,12 +173,9 @@ export function documentRouteDefinitions(): RouteDefinition[] {
           description: "Filter by conversation ID",
         },
       ],
-      responseBody: {
-        type: "object",
-        properties: {
-          documents: { type: "array", description: "Document summary objects" },
-        },
-      },
+      responseBody: z.object({
+        documents: z.array(z.unknown()).describe("Document summary objects"),
+      }),
       handler: ({ url }) => {
         const conversationId =
           url.searchParams.get("conversationId") ?? undefined;
@@ -191,19 +190,16 @@ export function documentRouteDefinitions(): RouteDefinition[] {
       summary: "Get a document",
       description: "Return a single document by surface ID.",
       tags: ["documents"],
-      responseBody: {
-        type: "object",
-        properties: {
-          success: { type: "boolean" },
-          surfaceId: { type: "string" },
-          conversationId: { type: "string" },
-          title: { type: "string" },
-          content: { type: "string" },
-          wordCount: { type: "number" },
-          createdAt: { type: "number" },
-          updatedAt: { type: "number" },
-        },
-      },
+      responseBody: z.object({
+        success: z.boolean(),
+        surfaceId: z.string(),
+        conversationId: z.string(),
+        title: z.string(),
+        content: z.string(),
+        wordCount: z.number(),
+        createdAt: z.number(),
+        updatedAt: z.number(),
+      }),
       handler: ({ params }) => {
         const result = loadDocument(params.id);
         if (!result.success) {
@@ -219,33 +215,17 @@ export function documentRouteDefinitions(): RouteDefinition[] {
       summary: "Save a document",
       description: "Create or upsert a document (by surfaceId).",
       tags: ["documents"],
-      requestBody: {
-        type: "object",
-        properties: {
-          surfaceId: { type: "string", description: "Surface ID (unique key)" },
-          conversationId: {
-            type: "string",
-            description: "Owning conversation",
-          },
-          title: { type: "string", description: "Document title" },
-          content: { type: "string", description: "Document content" },
-          wordCount: { type: "number", description: "Word count" },
-        },
-        required: [
-          "surfaceId",
-          "conversationId",
-          "title",
-          "content",
-          "wordCount",
-        ],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          success: { type: "boolean" },
-          surfaceId: { type: "string" },
-        },
-      },
+      requestBody: z.object({
+        surfaceId: z.string().describe("Surface ID (unique key)"),
+        conversationId: z.string().describe("Owning conversation"),
+        title: z.string().describe("Document title"),
+        content: z.string().describe("Document content"),
+        wordCount: z.number().describe("Word count"),
+      }),
+      responseBody: z.object({
+        success: z.boolean(),
+        surfaceId: z.string(),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           surfaceId?: string;

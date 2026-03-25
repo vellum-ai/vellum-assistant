@@ -9,6 +9,8 @@
  * require `settings.read`.
  */
 
+import { z } from "zod";
+
 import {
   getActiveRestartToken,
   handleRecordingPause,
@@ -301,20 +303,17 @@ export function recordingRouteDefinitions(deps: {
       summary: "Start recording",
       description: "Start a screen recording for a conversation.",
       tags: ["recordings"],
-      requestBody: {
-        type: "object",
-        properties: {
-          conversationId: { type: "string" },
-          options: { type: "object", description: "Recording options" },
-        },
-        required: ["conversationId"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          recordingId: { type: "string" },
-        },
-      },
+      requestBody: z.object({
+        conversationId: z.string(),
+        options: z
+          .object({})
+          .passthrough()
+          .describe("Recording options")
+          .optional(),
+      }),
+      responseBody: z.object({
+        recordingId: z.string(),
+      }),
       handler: async ({ req }) => handleStartRecording(req, getDeps()),
     },
     {
@@ -324,20 +323,13 @@ export function recordingRouteDefinitions(deps: {
       summary: "Stop recording",
       description: "Stop the active screen recording.",
       tags: ["recordings"],
-      requestBody: {
-        type: "object",
-        properties: {
-          conversationId: { type: "string" },
-        },
-        required: ["conversationId"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          recordingId: { type: "string" },
-          stopped: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        conversationId: z.string(),
+      }),
+      responseBody: z.object({
+        recordingId: z.string(),
+        stopped: z.boolean(),
+      }),
       handler: async ({ req }) => handleStopRecording(req, getDeps()),
     },
     {
@@ -347,20 +339,13 @@ export function recordingRouteDefinitions(deps: {
       summary: "Pause recording",
       description: "Pause the active screen recording.",
       tags: ["recordings"],
-      requestBody: {
-        type: "object",
-        properties: {
-          conversationId: { type: "string" },
-        },
-        required: ["conversationId"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          recordingId: { type: "string" },
-          paused: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        conversationId: z.string(),
+      }),
+      responseBody: z.object({
+        recordingId: z.string(),
+        paused: z.boolean(),
+      }),
       handler: async ({ req }) => handlePauseRecording(req, getDeps()),
     },
     {
@@ -370,20 +355,13 @@ export function recordingRouteDefinitions(deps: {
       summary: "Resume recording",
       description: "Resume a paused screen recording.",
       tags: ["recordings"],
-      requestBody: {
-        type: "object",
-        properties: {
-          conversationId: { type: "string" },
-        },
-        required: ["conversationId"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          recordingId: { type: "string" },
-          resumed: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        conversationId: z.string(),
+      }),
+      responseBody: z.object({
+        recordingId: z.string(),
+        resumed: z.boolean(),
+      }),
       handler: async ({ req }) => handleResumeRecording(req, getDeps()),
     },
     {
@@ -393,13 +371,10 @@ export function recordingRouteDefinitions(deps: {
       summary: "Get recording status",
       description: "Return the current recording state.",
       tags: ["recordings"],
-      responseBody: {
-        type: "object",
-        properties: {
-          idle: { type: "boolean" },
-          restartInProgress: { type: "boolean" },
-        },
-      },
+      responseBody: z.object({
+        idle: z.boolean(),
+        restartInProgress: z.boolean(),
+      }),
       handler: () => handleGetRecordingStatus(),
     },
     {
@@ -409,29 +384,22 @@ export function recordingRouteDefinitions(deps: {
       summary: "Post recording status",
       description: "Recording lifecycle callback from the client.",
       tags: ["recordings"],
-      requestBody: {
-        type: "object",
-        properties: {
-          conversationId: { type: "string" },
-          status: {
-            type: "string",
-            description:
-              "started, stopped, failed, restart_cancelled, paused, resumed",
-          },
-          filePath: { type: "string" },
-          durationMs: { type: "number" },
-          error: { type: "string" },
-          attachToConversationId: { type: "string" },
-          operationToken: { type: "string" },
-        },
-        required: ["conversationId", "status"],
-      },
-      responseBody: {
-        type: "object",
-        properties: {
-          ok: { type: "boolean" },
-        },
-      },
+      requestBody: z.object({
+        conversationId: z.string(),
+        status: z
+          .string()
+          .describe(
+            "started, stopped, failed, restart_cancelled, paused, resumed",
+          ),
+        filePath: z.string().optional(),
+        durationMs: z.number().optional(),
+        error: z.string().optional(),
+        attachToConversationId: z.string().optional(),
+        operationToken: z.string().optional(),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req }) => handlePostRecordingStatus(req, getDeps()),
     },
   ];

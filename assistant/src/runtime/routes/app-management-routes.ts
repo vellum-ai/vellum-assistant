@@ -18,6 +18,8 @@ import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { z } from "zod";
+
 import { packageApp } from "../../bundler/app-bundler.js";
 import { compileApp } from "../../bundler/app-compiler.js";
 import { scanBundle } from "../../bundler/bundle-scanner.js";
@@ -381,12 +383,9 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       summary: "List apps",
       description: "Return all locally installed apps.",
       tags: ["apps"],
-      responseBody: {
-        type: "object",
-        properties: {
-          apps: { type: "array", description: "Array of app summary objects" },
-        },
-      },
+      responseBody: z.object({
+        apps: z.array(z.unknown()).describe("Array of app summary objects"),
+      }),
       handler: () => {
         try {
           const apps = listAppsFiltered();
@@ -413,16 +412,9 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       description:
         "Scan and validate a .vbundle file from disk and return its manifest.",
       tags: ["apps"],
-      requestBody: {
-        type: "object",
-        properties: {
-          filePath: {
-            type: "string",
-            description: "Absolute path to the .vbundle file",
-          },
-        },
-        required: ["filePath"],
-      },
+      requestBody: z.object({
+        filePath: z.string().describe("Absolute path to the .vbundle file"),
+      }),
       handler: async ({ req }) => {
         try {
           const body = (await req.json()) as { filePath?: string };
@@ -455,12 +447,9 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       summary: "List shared apps",
       description: "Return all apps available via cloud share links.",
       tags: ["apps"],
-      responseBody: {
-        type: "object",
-        properties: {
-          apps: { type: "array", description: "Array of shared app objects" },
-        },
-      },
+      responseBody: z.object({
+        apps: z.array(z.unknown()).describe("Array of shared app objects"),
+      }),
       handler: () => {
         try {
           const apps = listSharedApps();
@@ -486,16 +475,9 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       summary: "Fork a shared app",
       description: "Create a local copy of a shared app by its UUID.",
       tags: ["apps"],
-      requestBody: {
-        type: "object",
-        properties: {
-          uuid: {
-            type: "string",
-            description: "UUID of the shared app to fork",
-          },
-        },
-        required: ["uuid"],
-      },
+      requestBody: z.object({
+        uuid: z.string().describe("UUID of the shared app to fork"),
+      }),
       handler: async ({ req }) => {
         try {
           const body = (await req.json()) as { uuid?: string };
@@ -527,13 +509,9 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       summary: "Install a gallery app",
       description: "Install an app from the built-in gallery by its ID.",
       tags: ["apps"],
-      requestBody: {
-        type: "object",
-        properties: {
-          galleryAppId: { type: "string" },
-        },
-        required: ["galleryAppId"],
-      },
+      requestBody: z.object({
+        galleryAppId: z.string(),
+      }),
       handler: async ({ req }) => {
         try {
           const body = (await req.json()) as { galleryAppId?: string };
@@ -563,12 +541,9 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       summary: "List gallery apps",
       description: "Return the built-in app gallery catalog.",
       tags: ["apps"],
-      responseBody: {
-        type: "object",
-        properties: {
-          gallery: { type: "array", description: "Gallery app entries" },
-        },
-      },
+      responseBody: z.object({
+        gallery: z.array(z.unknown()).describe("Gallery app entries"),
+      }),
       handler: () => {
         return Response.json({ gallery: defaultGallery });
       },
@@ -584,22 +559,15 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       description:
         "Return a signing payload or complete the signing step when signature fields are provided.",
       tags: ["apps"],
-      requestBody: {
-        type: "object",
-        properties: {
-          payload: {
-            type: "string",
-            description: "Canonical JSON payload to sign",
-          },
-          signature: {
-            type: "string",
-            description: "Ed25519 signature (optional, completes signing)",
-          },
-          keyId: { type: "string" },
-          publicKey: { type: "string" },
-        },
-        required: ["payload"],
-      },
+      requestBody: z.object({
+        payload: z.string().describe("Canonical JSON payload to sign"),
+        signature: z
+          .string()
+          .describe("Ed25519 signature (optional, completes signing)")
+          .optional(),
+        keyId: z.string().optional(),
+        publicKey: z.string().optional(),
+      }),
       handler: async ({ req }) => {
         try {
           const body = (await req.json()) as {
@@ -722,17 +690,11 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       description:
         "Create, update, or delete records in an app's local data store.",
       tags: ["apps"],
-      requestBody: {
-        type: "object",
-        properties: {
-          method: {
-            type: "string",
-            description: "'create', 'update', or 'delete'",
-          },
-          recordId: { type: "string" },
-          data: { type: "object" },
-        },
-      },
+      requestBody: z.object({
+        method: z.string().describe("'create', 'update', or 'delete'"),
+        recordId: z.string(),
+        data: z.object({}).passthrough(),
+      }),
       handler: async ({ params, req }) => {
         try {
           const body = (await req.json()) as {
@@ -772,15 +734,12 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       description:
         "Compile (if needed) and return the app's HTML for rendering.",
       tags: ["apps"],
-      responseBody: {
-        type: "object",
-        properties: {
-          appId: { type: "string" },
-          dirName: { type: "string" },
-          name: { type: "string" },
-          html: { type: "string" },
-        },
-      },
+      responseBody: z.object({
+        appId: z.string(),
+        dirName: z.string(),
+        name: z.string(),
+        html: z.string(),
+      }),
       handler: async ({ params }) => {
         try {
           const appId = params.id;
@@ -887,16 +846,9 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       summary: "Update app preview",
       description: "Set a new preview image or HTML for an app.",
       tags: ["apps"],
-      requestBody: {
-        type: "object",
-        properties: {
-          preview: {
-            type: "string",
-            description: "Base64-encoded image or HTML string",
-          },
-        },
-        required: ["preview"],
-      },
+      requestBody: z.object({
+        preview: z.string().describe("Base64-encoded image or HTML string"),
+      }),
       handler: async ({ params, req }) => {
         try {
           const body = (await req.json()) as { preview?: string };
@@ -926,13 +878,10 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       summary: "Get app version history",
       description: "Return the git commit history of an app.",
       tags: ["apps"],
-      responseBody: {
-        type: "object",
-        properties: {
-          appId: { type: "string" },
-          versions: { type: "array" },
-        },
-      },
+      responseBody: z.object({
+        appId: z.string(),
+        versions: z.array(z.unknown()),
+      }),
       handler: async ({ params, url }) => {
         try {
           const limit = url.searchParams.get("limit")
@@ -991,13 +940,9 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       summary: "Restore app version",
       description: "Restore an app to a previous git commit.",
       tags: ["apps"],
-      requestBody: {
-        type: "object",
-        properties: {
-          commitHash: { type: "string" },
-        },
-        required: ["commitHash"],
-      },
+      requestBody: z.object({
+        commitHash: z.string(),
+      }),
       handler: async ({ params, req }) => {
         try {
           const body = (await req.json()) as { commitHash?: string };
@@ -1026,15 +971,12 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       summary: "Bundle an app",
       description: "Package an app into a distributable .vbundle archive.",
       tags: ["apps"],
-      responseBody: {
-        type: "object",
-        properties: {
-          type: { type: "string" },
-          bundlePath: { type: "string" },
-          iconImageBase64: { type: "string" },
-          manifest: { type: "object" },
-        },
-      },
+      responseBody: z.object({
+        type: z.string(),
+        bundlePath: z.string(),
+        iconImageBase64: z.string(),
+        manifest: z.object({}).passthrough(),
+      }),
       handler: async ({ params }) => {
         try {
           const result = await packageApp(params.id);
@@ -1065,14 +1007,11 @@ export function appManagementRouteDefinitions(): RouteDefinition[] {
       summary: "Share app to cloud",
       description: "Package and upload an app to the cloud share service.",
       tags: ["apps"],
-      responseBody: {
-        type: "object",
-        properties: {
-          success: { type: "boolean" },
-          shareToken: { type: "string" },
-          shareUrl: { type: "string" },
-        },
-      },
+      responseBody: z.object({
+        success: z.boolean(),
+        shareToken: z.string(),
+        shareUrl: z.string(),
+      }),
       handler: async ({ params }) => {
         try {
           // Package without signing callback (HTTP clients handle signing
