@@ -9,8 +9,8 @@ extension Notification.Name {
 
 struct MainWindowView: View {
     @ObservedObject var conversationManager: ConversationManager
-    var appListManager: AppListManager
-    var zoomManager: ZoomManager
+    let appListManager: AppListManager
+    let zoomManager: ZoomManager
     /// Plain `let` instead of `@ObservedObject` so SwiftUI doesn't observe
     /// TraceStore mutations when the DebugPanel isn't visible. DebugPanel
     /// itself uses `@ObservedObject` and is only instantiated when shown.
@@ -51,7 +51,7 @@ struct MainWindowView: View {
     let ambientAgent: AmbientAgent
     let settingsStore: SettingsStore
     let authManager: AuthManager
-    var documentManager: DocumentManager
+    let documentManager: DocumentManager
     let onMicrophoneToggle: () -> Void
     @ObservedObject var voiceModeManager: VoiceModeManager
     @ObservedObject var updateManager: UpdateManager
@@ -1287,7 +1287,7 @@ struct MainWindowView: View {
 /// the correct conversation's ViewModel — even if the user switches conversations while a
 /// toast is visible.
 private struct ErrorToastOverlay: View {
-    var errorManager: ChatErrorManager
+    let errorManager: ChatErrorManager
     let onOpenModelsAndServices: () -> Void
     let onRetryConversationError: () -> Void
     let onCopyDebugInfo: () -> Void
