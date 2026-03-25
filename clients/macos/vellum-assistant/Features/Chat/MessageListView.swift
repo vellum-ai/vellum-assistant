@@ -171,17 +171,9 @@ struct MessageListView: View {
     /// Consolidates all scroll-related state: anchor tracking, scroll loop guard,
     /// bottom pin coordinator, suppression flags, and scroll-related tasks.
     @StateObject private var scrollCoordinator = MessageListScrollCoordinator()
-    /// The scroll view's viewport height, captured via onScrollGeometryChange.
-    /// Used for anchor visibility checks and bottom-pin verification.
-    @State private var scrollViewportHeight: CGFloat = .infinity
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State private var resizeScrollTask: Task<Void, Never>?
     @State private var hasPlayedTailEntryAnimation = false
-    /// Current scroll phase from onScrollPhaseChange; used by the geometry
-    /// change handler to decide whether a scroll-up should trigger detach.
-    /// Only `.interacting` (direct user gesture) triggers detach — `.decelerating`
-    /// (momentum/inertia) is intentionally ignored.
-    @State private var scrollPhase: ScrollPhase = .idle
     /// Native SwiftUI scroll position struct (macOS 15+). Replaces
     /// `ScrollViewReader` + `proxy.scrollTo()` and distance-from-bottom math.
     @State private var scrollPosition = ScrollPosition()
@@ -544,7 +536,7 @@ struct MessageListView: View {
             kind,
             conversationId: conversationId,
             isNearBottom: isNearBottom,
-            scrollViewportHeight: scrollViewportHeight,
+            scrollViewportHeight: scrollCoordinator.currentScrollViewportHeight,
             anchorMessageId: anchorMessageId
         )
     }
@@ -577,7 +569,7 @@ struct MessageListView: View {
             }
         }
         scrollCoordinator.configureBottomPinCoordinator(
-            scrollViewportHeight: scrollViewportHeight,
+            scrollViewportHeight: scrollCoordinator.currentScrollViewportHeight,
             conversationId: conversationId,
             isNearBottom: $isNearBottom
         )
@@ -807,11 +799,11 @@ struct MessageListView: View {
                 scrollCoordinator.handleSuppressAutoScroll(
                     isNearBottom: isNearBottom,
                     conversationId: conversationId,
-                    scrollViewportHeight: scrollViewportHeight
+                    scrollViewportHeight: scrollCoordinator.currentScrollViewportHeight
                 )
             })
             .onScrollPhaseChange { oldPhase, newPhase in
-                scrollPhase = newPhase
+                scrollCoordinator.scrollPhase = newPhase
                 if newPhase == .idle && oldPhase != .idle && scrollCoordinator.isAtBottom {
                     // User finished scrolling and ended up at the bottom — re-tether.
                     scrollCoordinator.handleScrollToBottom()
@@ -836,27 +828,24 @@ struct MessageListView: View {
                 // Only detach on direct user gesture (interacting), not momentum.
                 // Only detach when content is scrollable (prevents false detaches
                 // on short conversations).
-                if scrollPhase == .interacting && isScrollingUp && isScrollable {
+                if scrollCoordinator.scrollPhase == .interacting && isScrollingUp && isScrollable {
                     scrollCoordinator.handleScrollUp()
                 }
 
                 // --- Viewport height update ---
                 // Filter non-finite viewport heights and sub-pixel jitter.
                 // A 0.5pt dead-zone prevents floating-point rounding differences
-                // between render passes from triggering continuous @State mutations
-                // (scrollViewportHeight) which would create a runaway render loop.
-                // --- Viewport height update ---
+                // from triggering continuous updates that feed back into layout.
+                // `currentScrollViewportHeight` is non-reactive (not `@State`), so
+                // updating it here does NOT trigger body re-evaluations.
                 let decision = PreferenceGeometryFilter.evaluate(
                     newValue: newState.visibleRectHeight,
-                    previous: scrollViewportHeight,
+                    previous: scrollCoordinator.currentScrollViewportHeight,
                     deadZone: 0.5
                 )
                 if case .accept(let accepted) = decision {
                     os_signpost(.begin, log: PerfSignposts.log, name: "viewportHeightChanged")
-                    if scrollViewportHeight != accepted {
-                        scrollViewportHeight = accepted
-                        scrollCoordinator.currentScrollViewportHeight = accepted
-                    }
+                    scrollCoordinator.currentScrollViewportHeight = accepted
                     os_signpost(.end, log: PerfSignposts.log, name: "viewportHeightChanged")
                 }
 
@@ -875,7 +864,7 @@ struct MessageListView: View {
             .onPreferenceChange(PaginationSentinelMinYKey.self) { sentinelMinY in
                 scrollCoordinator.handlePaginationSentinel(
                     sentinelMinY: sentinelMinY,
-                    scrollViewportHeight: scrollViewportHeight,
+                    scrollViewportHeight: scrollCoordinator.currentScrollViewportHeight,
                     hasMoreMessages: hasMoreMessages,
                     isLoadingMoreMessages: isLoadingMoreMessages,
                     visibleMessages: visibleMessages,
@@ -1001,7 +990,7 @@ struct MessageListView: View {
                     hasPlayedTailEntryAnimation: &hasPlayedTailEntryAnimation,
                     resizeScrollTask: &resizeScrollTask,
                     anchorMessageId: $anchorMessageId,
-                    scrollViewportHeight: scrollViewportHeight
+                    scrollViewportHeight: scrollCoordinator.currentScrollViewportHeight
                 )
             }
             .onChange(of: currentPendingRequestId) {

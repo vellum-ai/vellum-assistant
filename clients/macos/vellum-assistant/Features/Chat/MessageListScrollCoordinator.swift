@@ -144,7 +144,19 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// The most recent scroll viewport height. Stored so closures (e.g.
     /// pin coordinator callbacks) read the live value instead of a stale
     /// capture from configure time.
-    var currentScrollViewportHeight: CGFloat = 0
+    ///
+    /// **Non-reactive**: updated from `onScrollGeometryChange` on every
+    /// scroll tick. Stored here (not `@State`) so mutations never trigger
+    /// body re-evaluations — the viewport height is only consumed by
+    /// imperative event handlers, not by the view body for rendering.
+    var currentScrollViewportHeight: CGFloat = .infinity
+
+    /// Current scroll phase from `onScrollPhaseChange`. Only read inside
+    /// the `onScrollGeometryChange` action closure to decide whether a
+    /// scroll-up should trigger detach. **Non-reactive**: stored here
+    /// (not `@State`) because it is never read during body evaluation
+    /// for rendering purposes — only in event-handler closures.
+    var scrollPhase: ScrollPhase = .idle
 
     // MARK: - Reaction State (moved from view @State to avoid cascading onChange)
 
