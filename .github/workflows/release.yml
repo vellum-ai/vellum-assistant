@@ -1780,8 +1780,6 @@ jobs:
         run: |
           VERSION="${{ needs.extract-version.outputs.version }}"
           BRANCH="release/v$VERSION"
-          # Use a temp branch name that won't re-trigger this workflow
-          TEMP_BRANCH="merge-back/v$VERSION"
 
           git config user.name "vellum-automation[bot]"
           git config user.email "192048195+vellum-automation[bot]@users.noreply.github.com"
@@ -1792,19 +1790,17 @@ jobs:
           git fetch origin main
           git rebase origin/main
 
-          # Push to a temporary branch instead of back to release/v* to
-          # avoid re-triggering the release workflow.
-          git push origin "HEAD:refs/heads/$TEMP_BRANCH"
+          # Add [skip ci] to the latest commit to prevent re-triggering
+          # the release workflow when we push the rebased branch.
+          git commit --allow-empty --amend -m "$(git log -1 --format=%B) [skip ci]"
+          git push origin "$BRANCH" --force-with-lease
 
           PR_URL=$(gh pr create \
             --title "Release v$VERSION" \
             --body "Automated version bump to $VERSION." \
             --base main \
-            --head "$TEMP_BRANCH")
+            --head "$BRANCH")
           gh pr merge "$PR_URL" --squash --admin --delete-branch
-
-          # Clean up the original release branch
-          git push origin --delete "$BRANCH" || true
 
   update-platform:
     needs: [extract-version, publish-npm]
