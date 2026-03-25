@@ -752,7 +752,6 @@ extension ChatViewModel {
                     let msgId = existingId
                     Task { @MainActor [weak self] in
                         try? await Task.sleep(nanoseconds: 5_000_000_000)
-                        guard !Task.isCancelled else { return }
                         guard let self,
                               let idx = self.messages.firstIndex(where: { $0.id == msgId }) else { return }
                         self.messages[idx].streamingCodePreview = nil

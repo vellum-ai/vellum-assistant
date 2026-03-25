@@ -117,7 +117,6 @@ final class DictationOverlayWindow {
         show(state: .done)
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 800_000_000)
-            guard !Task.isCancelled else { return }
             self?.dismiss()
         }
     }

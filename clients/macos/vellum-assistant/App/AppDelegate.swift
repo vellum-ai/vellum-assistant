@@ -246,7 +246,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         applyMenuBarTitlePatch()
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 100_000_000)
-            guard !Task.isCancelled else { return }
             self?.applyMenuBarTitlePatch()
         }
     }
@@ -265,7 +264,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         for delay: UInt64 in [100_000_000, 500_000_000, 1_000_000_000] {
             Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: delay)
-                guard !Task.isCancelled else { return }
                 self?.installFileMenuDelegateOnce()
             }
         }
@@ -323,7 +321,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 existing.activate()
                 Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 300_000_000)
-                    guard !Task.isCancelled else { return }
                     NSApp.terminate(nil)
                 }
                 return
