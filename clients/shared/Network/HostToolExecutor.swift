@@ -141,7 +141,7 @@ public enum HostToolExecutor {
             // Re-check cancellation after registration — a cancel may have
             // arrived between the initial check and the store above.
             if isCancelledAndConsume(request.requestId) {
-                lock.withLock { runningProcesses.removeValue(forKey: request.requestId) }
+                lock.withLock { runningProcesses[request.requestId] = nil }
                 timerSource.cancel()
                 // Close write ends so the readDataToEndOfFile() GCD blocks can finish
                 try? stdoutPipe.fileHandleForWriting.close()
@@ -167,7 +167,7 @@ public enum HostToolExecutor {
                     }
                 }
             } catch {
-                lock.withLock { runningProcesses.removeValue(forKey: request.requestId) }
+                lock.withLock { runningProcesses[request.requestId] = nil }
                 timerSource.cancel()
                 log.error("Failed to launch host bash process: \(error.localizedDescription)")
                 let result = HostBashResultPayload(
@@ -182,7 +182,7 @@ public enum HostToolExecutor {
                 }
                 return
             }
-            lock.withLock { runningProcesses.removeValue(forKey: request.requestId) }
+            lock.withLock { runningProcesses[request.requestId] = nil }
             timerSource.cancel()
 
             let stdout = String(data: stdoutBox.value, encoding: .utf8) ?? ""
