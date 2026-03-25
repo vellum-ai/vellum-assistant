@@ -527,6 +527,10 @@ Examples:
             } else {
               process.stdout.write(bodyStr + "\n");
             }
+          } else if (opts.output) {
+            // Truncate the output file so stale content from a previous run
+            // doesn't persist when the response has no body (HEAD, 204, etc.)
+            writeFileSync(opts.output, "", "utf-8");
           }
         } catch (err) {
           // Error case 7: Generic/unexpected errors
