@@ -16,7 +16,6 @@ import {
   isManagedMode,
   requirePlatformClient,
   resolveService,
-  toBareProvider,
 } from "./shared.js";
 
 const log = getCliLogger("cli");
@@ -121,7 +120,7 @@ Examples:
             if (!client) return;
 
             // Call the platform's OAuth start endpoint
-            const startPath = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/oauth/${encodeURIComponent(toBareProvider(providerKey))}/start/`;
+            const startPath = `/v1/assistants/${encodeURIComponent(client.platformAssistantId)}/oauth/${encodeURIComponent(providerKey)}/start/`;
 
             const body: Record<string, unknown> = {};
             if (opts.scopes && opts.scopes.length > 0) {

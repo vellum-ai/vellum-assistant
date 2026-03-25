@@ -18,7 +18,6 @@ import {
   fetchActiveConnections,
   getManagedServiceConfigKey,
   resolveService,
-  toBareProvider,
 } from "./shared.js";
 
 /**
@@ -216,8 +215,6 @@ Examples:
         // Best-effort check for active connections on old and new modes
         let oldModeConnections = 0;
         let newModeConnections = 0;
-        const bareProvider = toBareProvider(providerKey);
-
         if (currentMode === "managed") {
           // Old mode was managed — check platform connections
           oldModeConnections = await countManagedConnections(providerKey, cmd);
@@ -235,7 +232,7 @@ Examples:
         // Build hint if there are connections on the old mode but none on the new
         let hint: string | undefined;
         if (oldModeConnections > 0 && newModeConnections === 0) {
-          hint = `No active connections in ${newMode} mode. Run 'assistant oauth connect ${bareProvider}' to connect.`;
+          hint = `No active connections in ${newMode} mode. Run 'assistant oauth connect ${providerKey}' to connect.`;
         }
 
         if (shouldOutputJson(cmd)) {
