@@ -58,6 +58,7 @@ public struct VTabs<SelectionValue: Hashable>: View {
                             .fill(selection == item.tag ? VColor.borderActive : .clear)
                             .frame(height: 2)
                     }
+                    .fixedSize(horizontal: true, vertical: false)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -65,8 +66,8 @@ public struct VTabs<SelectionValue: Hashable>: View {
                 .accessibilityLabel(item.label)
                 .accessibilityAddTraits(selection == item.tag ? .isSelected : [])
             }
+            Spacer(minLength: 0)
         }
-        .fixedSize(horizontal: true, vertical: false)
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(VColor.borderDisabled)
