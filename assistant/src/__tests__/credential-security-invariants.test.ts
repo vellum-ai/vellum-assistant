@@ -216,6 +216,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/handlers/config-model.ts", // masked provider key display
       "providers/speech-to-text/resolve.ts", // STT provider API key lookup
       "daemon/lifecycle.ts", // CES client injection into secure-keys at startup
+      "runtime/a2a/pairing.ts", // A2A pairing token exchange (inbound/outbound/gateway key storage)
     ]);
 
     const thisDir = dirname(fileURLToPath(import.meta.url));

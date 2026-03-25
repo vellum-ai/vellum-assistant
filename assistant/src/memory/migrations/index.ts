@@ -132,6 +132,7 @@ export { migrateCallSessionSkipDisclosure } from "./190-call-session-skip-disclo
 export { migrateBackfillAudioAttachmentMimeTypes } from "./191-backfill-audio-attachment-mime-types.js";
 export { migrateContactsUserFileColumn } from "./192-contacts-user-file-column.js";
 export { migrateAddSourceTypeColumns } from "./193-add-source-type-columns.js";
+export { createA2aPairingRequestsTable } from "./194-a2a-pairing-requests.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
