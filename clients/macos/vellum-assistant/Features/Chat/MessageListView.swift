@@ -568,6 +568,9 @@ struct MessageListView: View {
                 binding.wrappedValue.scrollTo(id: uuidId, anchor: anchor)
             }
         }
+        scrollCoordinator.scrollToEdge = { edge in
+            binding.wrappedValue.scrollTo(edge: edge)
+        }
         scrollCoordinator.configureBottomPinCoordinator(
             scrollViewportHeight: scrollCoordinator.currentScrollViewportHeight,
             conversationId: conversationId,
@@ -794,7 +797,6 @@ struct MessageListView: View {
             .plainTextCopy()
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
-            .defaultScrollAnchor(.bottom)
             .scrollPosition($scrollPosition)
             .environment(\.suppressAutoScroll, { [self] in
                 scrollCoordinator.handleSuppressAutoScroll(

@@ -75,6 +75,11 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// the view-owned `ScrollPosition` binding.
     var scrollTo: ((_ id: any Hashable, _ anchor: UnitPoint?) -> Void)?
 
+    /// Closure that scrolls to a given edge (e.g. `.bottom`). Used for
+    /// conversation switches where we need to position at the bottom
+    /// without relying on `.defaultScrollAnchor`.
+    var scrollToEdge: ((_ edge: Edge) -> Void)?
+
     /// Returns `true` when the user is within 20pt of the conversation bottom.
     /// Computed from scroll geometry in the onScrollGeometryChange handler.
     /// @Published so the "Scroll to latest" CTA button and avatar visibility
@@ -420,6 +425,7 @@ final class MessageListScrollCoordinator: ObservableObject {
         currentConversationId = newConversationId
         // Reset the coordinator for the new conversation.
         bottomPinCoordinator.reset(newConversationId: newConversationId)
+        pushToTopMessageId = nil
         isAtBottom = true
         hasReceivedScrollEvent = false
         // Hide scroll indicators during the conversation switch grace period

@@ -45,18 +45,41 @@ extension MessageListScrollCoordinator {
                 // Daemon resumed from confirmation while user was scrolled up.
             } else {
                 bottomPinCoordinator.reattach()
+                // For user-initiated sends, scroll the user's message to
+                // the viewport top with space below for the assistant's
+                // response. Daemon confirmation resumes stay bottom-pinned.
+                if !isDaemonConfirmationResume, let lastUserMsg = messages.last(where: { $0.role == .user }) {
+                    pushToTopMessageId = lastUserMsg.id
+                    os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
+                                "target=userMessage reason=pushToTop")
+                    withAnimation(VAnimation.fast) {
+                        performScrollTo(lastUserMsg.id, anchor: .top)
+                    }
+                } else {
+                    requestBottomPin(
+                        reason: .messageCount,
+                        conversationId: conversationId,
+                        animated: true
+                    )
+                }
+            }
+        } else {
+            // Capture the activity phase at the moment sending stops.
+            phaseWhenSendingStopped = assistantActivityPhase
+            // End push-to-top phase and scroll to bottom so the user
+            // sees the complete response. Without this, responses that
+            // don't trigger overflow detection leave the user stranded
+            // near the top.
+            let wasPushToTop = pushToTopMessageId != nil
+            pushToTopMessageId = nil
+            if wasPushToTop && bottomPinCoordinator.isFollowingBottom {
                 requestBottomPin(
                     reason: .messageCount,
                     conversationId: conversationId,
                     animated: true
                 )
             }
-        } else {
-            // Capture the activity phase at the moment sending stops.
-            phaseWhenSendingStopped = assistantActivityPhase
-            // First-message detection (formerly in onChange(of: isThinking)).
-            // When thinking ends (isSending goes false covers this), check
-            // if the user has sent their first message.
+            // First-message detection.
             if !hasEverSentMessage && messages.contains(where: { $0.role == .user }) {
                 hasEverSentMessage = true
             }
@@ -118,12 +141,12 @@ extension MessageListScrollCoordinator {
         }
 
         // --- Bottom-pin on new messages ---
-        // During the initial conversation load (before any user scroll event),
-        // `.defaultScrollAnchor(.bottom)` handles positioning declaratively.
-        // Firing animated programmatic scrolls here would compete with the
-        // declarative anchor and cause visible jitter/bounce. Only issue
-        // programmatic pins after the user has interacted with the scroll view.
-        if isNearBottom && !isSuppressed && anchorMessageId == nil && hasReceivedScrollEvent {
+        // During push-to-top, suppress auto-scroll so content grows
+        // naturally below the user message. Overflow detection in the
+        // geometry handler transitions back to bottom-pin.
+        if pushToTopMessageId != nil && anchorMessageId == nil {
+            // no-op: push-to-top suppresses bottom-pin
+        } else if isNearBottom && !isSuppressed && anchorMessageId == nil && hasReceivedScrollEvent {
             requestBottomPin(reason: .messageCount, conversationId: conversationId, animated: true)
         } else if isSuppressed {
             scrollCoordinatorLog.debug("Auto-scroll suppressed (bottom-scroll suppression active)")
@@ -206,10 +229,12 @@ extension MessageListScrollCoordinator {
         if isSending {
             hasReceivedScrollEvent = true
         }
-        // The ScrollView's `.defaultScrollAnchor(.bottom)` handles initial
-        // bottom positioning declaratively. restoreScrollToBottom provides
-        // a deferred safety-net check in case the anchor alone is insufficient.
+        // Scroll to bottom for the new conversation. All positioning is
+        // imperative via ScrollPosition to avoid conflicts with push-to-top.
         scrollRestoreTask?.cancel()
+        if anchorMessageId.wrappedValue == nil {
+            scrollToEdge?(.bottom)
+        }
         restoreScrollToBottom(
             conversationId: newConversationId,
             anchorMessageId: anchorMessageId
