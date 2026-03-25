@@ -126,23 +126,40 @@ function getEncryptedStoreBackend(): CredentialBackend {
  * is returned — its methods short-circuit via `isAvailable()` guards and
  * return `unreachable` results so callers can degrade gracefully.
  *
+ * Additionally, if CES failed on initial startup (so the encrypted file
+ * store became the resolved backend) but the reconnection callback is
+ * registered, we periodically attempt to upgrade to CES — ensuring managed
+ * cloud deployments don't stay on the (potentially stale) file store.
+ *
  * Call `_resetBackend()` in tests to clear the cached resolution.
  */
 async function resolveBackendAsync(): Promise<CredentialBackend> {
   if (_resolvedBackend) {
-    if (_resolvedBackend.isAvailable()) return _resolvedBackend;
-
-    // Backend is no longer reachable — attempt CES reconnection.
-    const reconnected = await attemptCesReconnection();
-    if (reconnected) {
-      // setCesClient() cleared the cache — fall through to re-resolve
-      // with the fresh client.
+    if (!_resolvedBackend.isAvailable()) {
+      // Backend is no longer reachable — attempt CES reconnection.
+      const reconnected = await attemptCesReconnection();
+      if (reconnected) {
+        // setCesClient() cleared the cache — fall through to re-resolve
+        // with the fresh client.
+      } else {
+        // Reconnection failed or on cooldown — return the existing (dead)
+        // backend. Its methods short-circuit via isAvailable() guards and
+        // return unreachable results. Callers like getProviderKeyAsync fall
+        // back to env vars, and embedding backend selection uses cached
+        // backends.
+        return _resolvedBackend;
+      }
+    } else if (_cesReconnect && _resolvedBackend.name !== "ces-rpc") {
+      // CES is the preferred backend but initial startup failed, so we
+      // fell back to the encrypted store. Attempt to upgrade to CES.
+      const reconnected = await attemptCesReconnection();
+      if (reconnected) {
+        // setCesClient() cleared the cache — fall through to re-resolve.
+      } else {
+        // Reconnection failed or on cooldown — continue with current backend.
+        return _resolvedBackend;
+      }
     } else {
-      // Reconnection failed or on cooldown — return the existing (dead)
-      // backend. Its methods short-circuit via isAvailable() guards and
-      // return unreachable results. Callers like getProviderKeyAsync fall
-      // back to env vars, and embedding backend selection uses cached
-      // backends.
       return _resolvedBackend;
     }
   }
