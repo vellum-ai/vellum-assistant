@@ -221,6 +221,7 @@ public final class GatewayConnectionManager: ObservableObject {
         shouldReconnect = false
         healthCheckTask?.cancel()
         healthCheckTask = nil
+        consecutiveHealthCheckSuccesses = 0
         setConnected(false)
 
         eventStreamClient.stopSSE()
