@@ -2645,6 +2645,7 @@ public final class ChatViewModel: ObservableObject {
             if !success {
                 log.error("[confirm-flow] respondToConfirmation POST failed (will show error banner): requestId=\(requestId, privacy: .public) decision=\(decision, privacy: .public)")
                 self.revertConfirmationInFlight(requestId: requestId)
+                self.inlineResponseHandledRequestIds.remove(requestId)
                 self.errorText = "Failed to send confirmation response."
             }
         }
@@ -2668,6 +2669,7 @@ public final class ChatViewModel: ObservableObject {
                 )
                 if !fallbackSuccess {
                     self.revertConfirmationInFlight(requestId: requestId)
+                    self.inlineResponseHandledRequestIds.remove(requestId)
                 }
                 if fallbackSuccess {
                     self.errorText = "Preference could not be saved. This action was allowed once."
