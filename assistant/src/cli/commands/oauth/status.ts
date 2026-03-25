@@ -7,7 +7,6 @@ import {
   fetchActiveConnections,
   isManagedMode,
   requirePlatformClient,
-  resolveService,
 } from "./shared.js";
 
 const log = getCliLogger("cli");
@@ -45,10 +44,9 @@ Examples:
       ) => {
         try {
           // -----------------------------------------------------------------
-          // Resolve + validate provider
+          // Validate provider
           // -----------------------------------------------------------------
-          const providerKey = resolveService(provider);
-          const providerRow = getProvider(providerKey);
+          const providerRow = getProvider(provider);
 
           if (!providerRow) {
             writeOutput(cmd, {
@@ -64,7 +62,7 @@ Examples:
           // -----------------------------------------------------------------
           // Detect mode
           // -----------------------------------------------------------------
-          const managed = isManagedMode(providerKey);
+          const managed = isManagedMode(provider);
 
           if (managed) {
             // ---------------------------------------------------------------
@@ -75,7 +73,7 @@ Examples:
 
             const rawEntries = await fetchActiveConnections(
               client,
-              providerKey,
+              provider,
               cmd,
             );
             if (!rawEntries) return;
@@ -90,7 +88,7 @@ Examples:
             if (shouldOutputJson(cmd)) {
               writeOutput(cmd, {
                 ok: true,
-                provider: providerKey,
+                provider: provider,
                 mode: "managed",
                 connections,
               });
@@ -100,12 +98,12 @@ Examples:
             // Human output
             if (connections.length === 0) {
               log.info(
-                `No active connections for ${providerKey}. Connect with 'assistant oauth connect ${providerKey}'.`,
+                `No active connections for ${provider}. Connect with 'assistant oauth connect ${provider}'.`,
               );
               return;
             }
 
-            log.info(`Provider: ${providerKey} (managed)`);
+            log.info(`Provider: ${provider} (managed)`);
             log.info(`${connections.length} active connection(s):`);
             for (const c of connections) {
               const scopes =
@@ -120,7 +118,7 @@ Examples:
             // ---------------------------------------------------------------
             // BYO path
             // ---------------------------------------------------------------
-            const allConnections = listConnections(providerKey);
+            const allConnections = listConnections(provider);
             const activeRows = allConnections.filter(
               (r) => r.status === "active",
             );
@@ -150,7 +148,7 @@ Examples:
             if (shouldOutputJson(cmd)) {
               writeOutput(cmd, {
                 ok: true,
-                provider: providerKey,
+                provider: provider,
                 mode: "byo",
                 connections,
               });
@@ -160,12 +158,12 @@ Examples:
             // Human output
             if (connections.length === 0) {
               log.info(
-                `No active connections for ${providerKey}. Connect with 'assistant oauth connect ${providerKey}'.`,
+                `No active connections for ${provider}. Connect with 'assistant oauth connect ${provider}'.`,
               );
               return;
             }
 
-            log.info(`Provider: ${providerKey} (byo)`);
+            log.info(`Provider: ${provider} (byo)`);
             log.info(`${connections.length} active connection(s):`);
             for (const c of connections) {
               const scopes =

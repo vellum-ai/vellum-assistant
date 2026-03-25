@@ -591,20 +591,6 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// Aliases & resolution
-// ---------------------------------------------------------------------------
-
-/** Map shorthand aliases to canonical service names. */
-export const SERVICE_ALIASES: Record<string, string> = {
-  gmail: "google",
-};
-
-/** Resolve a service name through aliases. */
-export function resolveService(service: string): string {
-  return SERVICE_ALIASES[service] ?? service;
-}
-
 /** Look up a provider behavior by canonical service name. */
 export function getProviderBehavior(
   service: string,

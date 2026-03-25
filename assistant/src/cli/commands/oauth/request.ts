@@ -14,7 +14,7 @@ import {
 } from "../../../oauth/oauth-store.js";
 import { VellumPlatformClient } from "../../../platform/client.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
-import { isManagedMode, resolveService } from "./shared.js";
+import { isManagedMode } from "./shared.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -175,17 +175,12 @@ Examples:
 
         try {
           // -----------------------------------------------------------------
-          // 1. Resolve provider key
-          // -----------------------------------------------------------------
-          const providerKey = resolveService(opts.provider);
-
-          // -----------------------------------------------------------------
           // Pre-flight check 1: Provider not found
           // -----------------------------------------------------------------
-          const providerRow = getProvider(providerKey);
+          const providerRow = getProvider(opts.provider);
           if (!providerRow) {
             writeError(
-              `Error: Unknown provider "${providerKey}".\n\n` +
+              `Error: Unknown provider "${opts.provider}".\n\n` +
                 `Run 'assistant oauth providers list' to see available providers.\n` +
                 `If this is a custom provider, register it first with 'assistant oauth providers register --help'.`,
             );
@@ -195,7 +190,7 @@ Examples:
           // -----------------------------------------------------------------
           // Pre-flight check 2: Determine managed vs BYO mode
           // -----------------------------------------------------------------
-          const managed = isManagedMode(providerKey);
+          const managed = isManagedMode(opts.provider);
 
           // -----------------------------------------------------------------
           // Pre-flight check 3: Client ID not found (BYO only)
@@ -203,16 +198,16 @@ Examples:
           if (opts.clientId) {
             if (managed) {
               writeInfo(
-                `Warning: --client-id is ignored for platform-managed providers. The platform manages OAuth apps for "${providerKey}".`,
+                `Warning: --client-id is ignored for platform-managed providers. The platform manages OAuth apps for "${opts.provider}".`,
               );
             } else {
               const app = getAppByProviderAndClientId(
-                providerKey,
+                opts.provider,
                 opts.clientId,
               );
               if (!app) {
                 writeError(
-                  `Error: No registered OAuth app found for "${providerKey}" with client ID "${opts.clientId}".\n\n` +
+                  `Error: No registered OAuth app found for "${opts.provider}" with client ID "${opts.clientId}".\n\n` +
                     `Run 'assistant oauth apps list' to see registered apps for this provider.\n` +
                     `To register a new app, run 'assistant oauth apps upsert --help'.`,
                 );
@@ -230,7 +225,7 @@ Examples:
               const client = await VellumPlatformClient.create();
               if (client && client.platformAssistantId) {
                 const params = new URLSearchParams();
-                params.set("provider", providerKey);
+                params.set("provider", opts.provider);
                 params.set("status", "ACTIVE");
                 params.set("account_identifier", opts.account);
 
@@ -247,8 +242,8 @@ Examples:
 
                   if (connections.length === 0) {
                     writeError(
-                      `Error: No active platform connection found for "${providerKey}" with account "${opts.account}".\n\n` +
-                        `Run 'assistant oauth status ${providerKey}' to see connected accounts for this provider.\n` +
+                      `Error: No active platform connection found for "${opts.provider}" with account "${opts.account}".\n\n` +
+                        `Run 'assistant oauth status ${opts.provider}' to see connected accounts for this provider.\n` +
                         `To connect a new account, run 'assistant oauth connect --help'.`,
                     );
                     return;
@@ -260,14 +255,14 @@ Examples:
                 );
               }
             } else {
-              const conn = getActiveConnection(providerKey, {
+              const conn = getActiveConnection(opts.provider, {
                 clientId: opts.clientId,
                 account: opts.account,
               });
               if (!conn) {
                 writeError(
-                  `Error: No active OAuth connection found for "${providerKey}" with account "${opts.account}"${opts.clientId ? ` and client ID "${opts.clientId}"` : ""}.\n\n` +
-                    `Run 'assistant oauth status ${providerKey}' to see active connections.\n` +
+                  `Error: No active OAuth connection found for "${opts.provider}" with account "${opts.account}"${opts.clientId ? ` and client ID "${opts.clientId}"` : ""}.\n\n` +
+                    `Run 'assistant oauth status ${opts.provider}' to see active connections.\n` +
                     `To connect a new account, run 'assistant oauth connect --help'.`,
                 );
                 return;
@@ -419,7 +414,7 @@ Examples:
           let connection;
           try {
             connection = await resolveOAuthConnection(
-              providerKey,
+              opts.provider,
               resolveOptions,
             );
           } catch (resolveErr) {
@@ -435,13 +430,13 @@ Examples:
             if (managed) {
               writeError(
                 `Error: ${resolveMessage}\n\n` +
-                  `Run 'assistant oauth status ${providerKey}' to check connection status.\n` +
+                  `Run 'assistant oauth status ${opts.provider}' to check connection status.\n` +
                   `To connect, run 'assistant oauth connect --help'.`,
               );
             } else {
               writeError(
                 `Error: ${resolveMessage}\n\n` +
-                  `Run 'assistant oauth status ${providerKey}' to see active connections.\n` +
+                  `Run 'assistant oauth status ${opts.provider}' to see active connections.\n` +
                   `To connect, run 'assistant oauth connect --help'.`,
               );
             }
@@ -474,12 +469,12 @@ Examples:
             if (managed) {
               authHint =
                 `Hint: Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth status ${providerKey}' to check connection health.\n` +
+                `Run 'assistant oauth status ${opts.provider}' to check connection health.\n` +
                 `To reconnect, run 'assistant oauth connect --help'.`;
             } else {
               authHint =
                 `Hint: Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth status ${providerKey}' to check connection status.\n` +
+                `Run 'assistant oauth status ${opts.provider}' to check connection status.\n` +
                 `To reconnect, run 'assistant oauth connect --help'.`;
             }
             writeInfo(authHint);
@@ -536,14 +531,6 @@ Examples:
           // Error case 7: Generic/unexpected errors
           const message = err instanceof Error ? err.message : String(err);
 
-          // Try to extract providerKey for the generic hint
-          let providerKey: string;
-          try {
-            providerKey = resolveService(opts.provider);
-          } catch {
-            providerKey = opts.provider;
-          }
-
           // BYO connections throw on persistent 401 (after refresh retry
           // exhaustion) with a `status` property. Detect this and show the
           // same auth hint that the response-level 401/403 check would give.
@@ -553,13 +540,13 @@ Examples:
               : undefined;
 
           if (errStatus === 401 || errStatus === 403) {
-            const managed = isManagedMode(providerKey);
+            const managed = isManagedMode(opts.provider);
             const authHint = managed
               ? `Hint: Request returned HTTP ${errStatus}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth status ${providerKey}' to check connection health.\n` +
+                `Run 'assistant oauth status ${opts.provider}' to check connection health.\n` +
                 `To reconnect, run 'assistant oauth connect --help'.`
               : `Hint: Request returned HTTP ${errStatus}. The OAuth token may be expired or revoked.\n\n` +
-                `Run 'assistant oauth status ${providerKey}' to check connection status.\n` +
+                `Run 'assistant oauth status ${opts.provider}' to check connection status.\n` +
                 `To reconnect, run 'assistant oauth connect --help'.`;
 
             writeError(`Error: ${message}`, authHint);
@@ -569,7 +556,7 @@ Examples:
 
           writeError(
             `Error: ${message}\n\n` +
-              `For provider diagnostics, run 'assistant oauth providers get ${providerKey}'.`,
+              `For provider diagnostics, run 'assistant oauth providers get ${opts.provider}'.`,
           );
         }
       },

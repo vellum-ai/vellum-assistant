@@ -29,7 +29,7 @@ import type {
   OAuthScopePolicy,
 } from "./connect-types.js";
 import { getProvider } from "./oauth-store.js";
-import { getProviderBehavior, resolveService } from "./provider-behaviors.js";
+import { getProviderBehavior } from "./provider-behaviors.js";
 import { resolveScopes } from "./scope-policy.js";
 import { storeOAuth2Tokens } from "./token-persistence.js";
 
@@ -76,7 +76,7 @@ function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
 // ---------------------------------------------------------------------------
 
 export interface OAuthConnectOptions {
-  /** Raw service name (may be an alias like "gmail"). */
+  /** Canonical service name (e.g. "google", "slack"). */
   service: string;
   /** Scopes to request beyond the provider's defaults. */
   requestedScopes?: string[];
@@ -119,11 +119,9 @@ export interface OAuthConnectOptions {
 export async function orchestrateOAuthConnect(
   options: OAuthConnectOptions,
 ): Promise<OAuthConnectResult> {
-  const resolvedService = resolveService(options.service);
   log.info(
     {
-      rawService: options.service,
-      resolvedService,
+      service: options.service,
       isInteractive: options.isInteractive,
       hasOpenUrl: !!options.openUrl,
       hasSendToClient: !!options.sendToClient,
@@ -132,17 +130,17 @@ export async function orchestrateOAuthConnect(
   );
 
   // Read provider config from the DB
-  const providerRow = getProvider(resolvedService);
+  const providerRow = getProvider(options.service);
   if (!providerRow) {
     return {
       success: false,
-      error: `No OAuth provider registered for "${resolvedService}". Ensure the provider is seeded in the database.`,
+      error: `No OAuth provider registered for "${options.service}". Ensure the provider is seeded in the database.`,
       safeError: true,
     };
   }
 
   // Behavioral/code-side fields come from the behavior registry
-  const behavior = resolveBehavior(resolvedService);
+  const behavior = resolveBehavior(options.service);
 
   // Deserialize JSON fields from the DB row
   const dbDefaultScopes = safeJsonParse<string[]>(
@@ -177,7 +175,7 @@ export async function orchestrateOAuthConnect(
 
   // Resolve scopes via the scope policy engine
   const scopeProfile = {
-    service: resolvedService,
+    service: options.service,
     defaultScopes: dbDefaultScopes,
     scopePolicy: dbScopePolicy,
   };
@@ -211,7 +209,7 @@ export async function orchestrateOAuthConnect(
 
   log.info(
     {
-      service: resolvedService,
+      service: options.service,
       authUrl,
       tokenUrl,
       scopeCount: finalScopes.length,
@@ -235,7 +233,7 @@ export async function orchestrateOAuthConnect(
   };
 
   const storageParams = {
-    service: resolvedService,
+    service: options.service,
     clientId: options.clientId,
     clientSecret: options.clientSecret,
     userinfoUrl,
@@ -299,36 +297,36 @@ export async function orchestrateOAuthConnect(
             });
             log.info(
               {
-                service: resolvedService,
+                service: options.service,
                 accountInfo: stored.accountInfo ?? parsedAccountIdentifier,
               },
               "Deferred OAuth2 flow completed — tokens stored",
             );
             options.onDeferredComplete?.({
               success: true,
-              service: resolvedService,
+              service: options.service,
               accountInfo: stored.accountInfo ?? parsedAccountIdentifier,
             });
           } catch (err) {
             log.error(
-              { err, service: resolvedService },
+              { err, service: options.service },
               "Failed to store tokens from deferred OAuth2 flow",
             );
             options.onDeferredComplete?.({
               success: false,
-              service: resolvedService,
+              service: options.service,
               error: err instanceof Error ? err.message : "Unknown error",
             });
           }
         })
         .catch((err) => {
           log.error(
-            { err, service: resolvedService },
+            { err, service: options.service },
             "Deferred OAuth2 flow failed",
           );
           options.onDeferredComplete?.({
             success: false,
-            service: resolvedService,
+            service: options.service,
             error: err instanceof Error ? err.message : "Unknown error",
           });
         });
@@ -338,7 +336,7 @@ export async function orchestrateOAuthConnect(
         deferred: true,
         authUrl: prepared.authUrl,
         state: prepared.state,
-        service: resolvedService,
+        service: options.service,
       };
     } catch (err: unknown) {
       const message =
@@ -347,7 +345,7 @@ export async function orchestrateOAuthConnect(
           : "Unknown error preparing OAuth flow";
       return {
         success: false,
-        error: `Error connecting "${resolvedService}": ${message}`,
+        error: `Error connecting "${options.service}": ${message}`,
       };
     }
   }
@@ -356,7 +354,7 @@ export async function orchestrateOAuthConnect(
   // Interactive path — open browser, block until completion
   // -----------------------------------------------------------------------
   log.info(
-    { service: resolvedService, callbackTransport, loopbackPort },
+    { service: options.service, callbackTransport, loopbackPort },
     "orchestrateOAuthConnect: entering interactive path",
   );
   try {
@@ -365,7 +363,7 @@ export async function orchestrateOAuthConnect(
       {
         openUrl: (url) => {
           log.info(
-            { service: resolvedService, urlLength: url.length },
+            { service: options.service, urlLength: url.length },
             "orchestrateOAuthConnect: openUrl callback fired, delivering auth URL to client",
           );
           if (options.openUrl) {
@@ -376,7 +374,7 @@ export async function orchestrateOAuthConnect(
             options.sendToClient({
               type: "open_url",
               url,
-              title: `Connect ${resolvedService}`,
+              title: `Connect ${options.service}`,
             });
           } else {
             log.warn("orchestrateOAuthConnect: no openUrl or sendToClient available — auth URL will not reach the user");
@@ -391,7 +389,7 @@ export async function orchestrateOAuthConnect(
     );
 
     log.info(
-      { service: resolvedService, grantedScopeCount: grantedScopes.length },
+      { service: options.service, grantedScopeCount: grantedScopes.length },
       "orchestrateOAuthConnect: interactive flow completed, exchanged code for tokens",
     );
 
@@ -404,7 +402,7 @@ export async function orchestrateOAuthConnect(
           tokens.accessToken,
         );
         log.info(
-          { service: resolvedService, parsedAccountIdentifier },
+          { service: options.service, parsedAccountIdentifier },
           "orchestrateOAuthConnect: identity verified",
         );
       } catch {
@@ -421,7 +419,7 @@ export async function orchestrateOAuthConnect(
     });
 
     log.info(
-      { service: resolvedService, accountInfo },
+      { service: options.service, accountInfo },
       "orchestrateOAuthConnect: tokens stored, connect complete",
     );
 
@@ -435,12 +433,12 @@ export async function orchestrateOAuthConnect(
     const message =
       err instanceof Error ? err.message : "Unknown error during OAuth flow";
     log.error(
-      { service: resolvedService, err },
+      { service: options.service, err },
       "orchestrateOAuthConnect: interactive flow failed",
     );
     return {
       success: false,
-      error: `Error connecting "${resolvedService}": ${message}`,
+      error: `Error connecting "${options.service}": ${message}`,
     };
   }
 }

@@ -30,10 +30,7 @@ import {
   getMostRecentAppByProvider,
   getProvider,
 } from "../../oauth/oauth-store.js";
-import {
-  getProviderBehavior,
-  resolveService,
-} from "../../oauth/provider-behaviors.js";
+import { getProviderBehavior } from "../../oauth/provider-behaviors.js";
 import {
   check,
   classifyRisk,
@@ -170,14 +167,12 @@ async function handleOAuthConnectStart(body: {
     return httpError("BAD_REQUEST", "Missing required field: service", 400);
   }
 
-  const resolvedService = resolveService(body.service);
-
   // Resolve client_id and client_secret from oauth-store.
   let clientId: string | undefined;
   let clientSecret: string | undefined;
 
   // Try existing connection first (re-auth flow)
-  const conn = getConnectionByProvider(resolvedService);
+  const conn = getConnectionByProvider(body.service);
   if (conn) {
     const app = getApp(conn.oauthAppId);
     if (app) {
@@ -188,7 +183,7 @@ async function handleOAuthConnectStart(body: {
 
   // Fall back to most recent app for this provider (first-time connect with stored app)
   if (!clientId) {
-    const dbApp = getMostRecentAppByProvider(resolvedService);
+    const dbApp = getMostRecentAppByProvider(body.service);
     if (dbApp) {
       clientId = dbApp.clientId;
       if (!clientSecret) {
@@ -207,8 +202,8 @@ async function handleOAuthConnectStart(body: {
     );
   }
 
-  const behavior = getProviderBehavior(resolvedService);
-  const providerRow = getProvider(resolvedService);
+  const behavior = getProviderBehavior(body.service);
+  const providerRow = getProvider(body.service);
   const requiresSecret =
     behavior?.setup?.requiresClientSecret ??
     !!(providerRow?.tokenEndpointAuthMethod || providerRow?.extraParams);
@@ -238,7 +233,7 @@ async function handleOAuthConnectStart(body: {
         // Prefer accountInfo from oauth-store when available.
         let accountInfo = deferredResult.accountInfo;
         try {
-          const conn = getConnectionByProvider(resolvedService);
+          const conn = getConnectionByProvider(body.service);
           if (conn?.accountInfo) accountInfo = conn.accountInfo;
         } catch {
           // DB not ready — use orchestrator value
@@ -298,7 +293,7 @@ async function handleOAuthConnectStart(body: {
     // Prefer accountInfo from oauth-store when available.
     let responseAccountInfo = result.accountInfo;
     try {
-      const conn = getConnectionByProvider(resolvedService);
+      const conn = getConnectionByProvider(body.service);
       if (conn?.accountInfo) responseAccountInfo = conn.accountInfo;
     } catch {
       // DB not ready — use orchestrator value
