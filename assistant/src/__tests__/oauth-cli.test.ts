@@ -71,6 +71,22 @@ let mockGetProviderBehavior: (
   providerKey: string,
 ) => Record<string, unknown> | undefined = () => undefined;
 let mockGetSecureKey: (account: string) => string | undefined = () => undefined;
+let mockResolveOAuthConnection: (
+  providerKey: string,
+  options?: Record<string, unknown>,
+) => Promise<{
+  request: (req: Record<string, unknown>) => Promise<{
+    status: number;
+    headers: Record<string, string>;
+    body: unknown;
+  }>;
+  withToken: <T>(fn: (token: string) => Promise<T>) => Promise<T>;
+  id: string;
+  providerKey: string;
+  accountInfo: string | null;
+}> = async () => {
+  throw new Error("resolveOAuthConnection not configured in test");
+};
 let mockGetCredentialMetadata: (
   service: string,
   field: string,
@@ -207,9 +223,10 @@ mock.module("../oauth/provider-behaviors.js", () => ({
 // ---------------------------------------------------------------------------
 
 mock.module("../oauth/connection-resolver.js", () => ({
-  resolveOAuthConnection: async () => {
-    throw new Error("resolveOAuthConnection not configured in test");
-  },
+  resolveOAuthConnection: (
+    providerKey: string,
+    options?: Record<string, unknown>,
+  ) => mockResolveOAuthConnection(providerKey, options),
 }));
 
 // ---------------------------------------------------------------------------
@@ -751,6 +768,10 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
 describe("assistant oauth ping <provider-key>", () => {
   beforeEach(() => {
     mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
+    // Reset resolveOAuthConnection to default (unconfigured)
+    mockResolveOAuthConnection = async () => {
+      throw new Error("resolveOAuthConnection not configured in test");
+    };
   });
 
   test("returns ok when ping endpoint returns 200", async () => {
@@ -765,22 +786,22 @@ describe("assistant oauth ping <provider-key>", () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () =>
-      new Response("{}", { status: 200 })) as unknown as typeof fetch;
-    try {
-      const { exitCode, stdout } = await runCli([
-        "ping",
-        "integration:google",
-        "--json",
-      ]);
-      expect(exitCode).toBe(0);
-      const parsed = JSON.parse(stdout);
-      expect(parsed.ok).toBe(true);
-      expect(parsed.status).toBe(200);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    mockResolveOAuthConnection = async () => ({
+      id: "conn-1",
+      providerKey: "integration:google",
+      accountInfo: null,
+      request: async () => ({ status: 200, headers: {}, body: {} }),
+      withToken: async (fn) => fn("mock-access-token-xyz"),
+    });
+    const { exitCode, stdout } = await runCli([
+      "ping",
+      "integration:google",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.status).toBe(200);
   });
 
   test("exits 1 when provider not found", async () => {
@@ -793,7 +814,7 @@ describe("assistant oauth ping <provider-key>", () => {
     expect(exitCode).toBe(1);
     const parsed = JSON.parse(stdout);
     expect(parsed.ok).toBe(false);
-    expect(parsed.error).toContain("Provider not found");
+    expect(parsed.error).toContain("Unknown provider");
   });
 
   test("exits 1 when no ping URL configured", async () => {
@@ -827,29 +848,25 @@ describe("assistant oauth ping <provider-key>", () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
-    const originalFetch = globalThis.fetch;
-    // Use 403 (not 401) — 401 now throws inside withValidToken for retry
-    globalThis.fetch = (async () =>
-      new Response("Forbidden", { status: 403 })) as unknown as typeof fetch;
-    try {
-      const { exitCode, stdout } = await runCli([
-        "ping",
-        "integration:google",
-        "--json",
-      ]);
-      expect(exitCode).toBe(1);
-      const parsed = JSON.parse(stdout);
-      expect(parsed.ok).toBe(false);
-      expect(parsed.status).toBe(403);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    mockResolveOAuthConnection = async () => ({
+      id: "conn-1",
+      providerKey: "integration:google",
+      accountInfo: null,
+      request: async () => ({ status: 403, headers: {}, body: "Forbidden" }),
+      withToken: async (fn) => fn("mock-access-token-xyz"),
+    });
+    const { exitCode, stdout } = await runCli([
+      "ping",
+      "integration:google",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.status).toBe(403);
   });
 
-  test("exits 1 when no token exists", async () => {
-    mockWithValidToken = async () => {
-      throw new Error('No access token found for "integration:google".');
-    };
+  test("exits 1 when no connection can be resolved", async () => {
     mockGetProvider = () => ({
       providerKey: "integration:google",
       pingUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
@@ -861,6 +878,9 @@ describe("assistant oauth ping <provider-key>", () => {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
+    mockResolveOAuthConnection = async () => {
+      throw new Error('No access token found for "integration:google".');
+    };
     const { exitCode, stdout } = await runCli([
       "ping",
       "integration:google",
