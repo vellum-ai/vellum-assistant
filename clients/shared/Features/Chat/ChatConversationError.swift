@@ -14,6 +14,7 @@ public enum ConversationErrorCategory: Equatable, Sendable {
     case regenerateFailed
     case authenticationRequired
     case providerNotConfigured
+    case managedKeyInvalid
     case unknown
 
     public init(from code: ConversationErrorCode) {
@@ -42,6 +43,8 @@ public enum ConversationErrorCategory: Equatable, Sendable {
             self = .authenticationRequired
         case .providerNotConfigured:
             self = .providerNotConfigured
+        case .managedKeyInvalid:
+            self = .managedKeyInvalid
         case .unknown:
             self = .unknown
         }
@@ -74,6 +77,8 @@ public enum ConversationErrorCategory: Equatable, Sendable {
             return "Sign in or check your credentials in Settings to continue."
         case .providerNotConfigured:
             return "Add your API key in Settings to continue."
+        case .managedKeyInvalid:
+            return "The assistant API key is being refreshed. Please retry in a moment."
         case .unknown:
             return "Click Retry or send a new message. Copy debug info if the problem repeats."
         }
@@ -120,5 +125,10 @@ public struct ConversationError: Equatable {
     /// Whether this error indicates that no provider is configured for inference.
     public var isProviderNotConfigured: Bool {
         category == .providerNotConfigured
+    }
+
+    /// Whether this error indicates the managed assistant API key is invalid and should be reprovisioned.
+    public var isManagedKeyInvalid: Bool {
+        category == .managedKeyInvalid
     }
 }

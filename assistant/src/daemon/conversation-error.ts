@@ -1,3 +1,4 @@
+import { getProviderRoutingSource } from "../providers/registry.js";
 import { ProviderError, ProviderNotConfiguredError } from "../util/errors.js";
 import type {
   ConversationErrorCode,
@@ -200,12 +201,40 @@ function classifyCore(
         errorCategory: "context_too_large",
       };
     }
+    if (error.statusCode === 401 || error.statusCode === 403) {
+      if (
+        /invalid.*api.?key|invalid.*x-api-key|authentication.?error/i.test(
+          message,
+        )
+      ) {
+        // Check if this provider is routed through the managed proxy.
+        // If so, the assistant API key is stale — the client should reprovision.
+        const providerName = error.provider;
+        if (getProviderRoutingSource(providerName) === "managed-proxy") {
+          return {
+            code: "MANAGED_KEY_INVALID",
+            userMessage:
+              "The assistant API key is invalid. Attempting to re-provision…",
+            retryable: true,
+            errorCategory: "managed_key_invalid",
+          };
+        }
+        return {
+          code: "PROVIDER_NOT_CONFIGURED",
+          userMessage:
+            "Your API key is invalid or expired. Update it in Settings or switch to managed mode.",
+          retryable: false,
+          errorCategory: "provider_not_configured",
+        };
+      }
+    }
     if (error.statusCode === 401) {
       return {
-        code: "PROVIDER_BILLING",
-        userMessage: "Your API key is invalid or expired.",
+        code: "PROVIDER_NOT_CONFIGURED",
+        userMessage:
+          "Your API key is invalid or expired. Update it in Settings or switch to managed mode.",
         retryable: false,
-        errorCategory: "provider_billing",
+        errorCategory: "provider_not_configured",
       };
     }
     if (error.statusCode === 402) {
@@ -275,10 +304,11 @@ function classifyCore(
         )
       ) {
         return {
-          code: "PROVIDER_BILLING",
-          userMessage: "Your API key is invalid.",
+          code: "PROVIDER_NOT_CONFIGURED",
+          userMessage:
+            "Your API key is invalid. Update it in Settings or switch to managed mode.",
           retryable: false,
-          errorCategory: "provider_billing",
+          errorCategory: "provider_not_configured",
         };
       }
       return {

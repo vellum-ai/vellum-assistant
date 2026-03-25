@@ -11,12 +11,6 @@ public protocol CredentialStorage: Sendable {
     func delete(account: String) -> Bool
 }
 
-/// Outcome of a local assistant bootstrap attempt.
-public enum LocalBootstrapOutcome: Sendable {
-    case registeredWithExistingKey(assistantId: String)
-    case registeredAndProvisioned(assistantId: String)
-}
-
 /// Errors that can occur during local assistant bootstrapping.
 public enum LocalBootstrapError: LocalizedError, Sendable {
     case authenticationRequired
@@ -41,10 +35,15 @@ public enum LocalBootstrapError: LocalizedError, Sendable {
     }
 }
 
-/// Bootstraps a locally hosted assistant with the platform:
-/// 1. Calls ensure-registration to register (or re-confirm) the local assistant
-/// 2. Checks whether an assistant API key is already stored locally
-/// 3. If missing, calls reprovision-api-key and injects the key into the daemon
+/// Bootstraps a locally hosted assistant with the platform.
+///
+/// 1. Calls ensure-registration — on first call returns a fresh API key;
+///    on subsequent calls returns `assistant_api_key: null` (the raw key
+///    is hashed server-side and can't be recovered).
+/// 2. If a new key was returned, persists it locally and injects into the daemon.
+/// 3. If no key was returned, uses the locally persisted key.
+/// 4. If the persisted key is missing, calls reprovision-api-key to rotate
+///    and get a fresh one.
 ///
 /// Does NOT reuse ManagedAssistantBootstrapService.
 /// Does NOT write cloud = "vellum" into the lockfile.
@@ -72,7 +71,7 @@ public final class LocalAssistantBootstrapService {
         runtimeAssistantId: String,
         clientPlatform: String = "macos",
         assistantVersion: String? = nil
-    ) async throws -> LocalBootstrapOutcome {
+    ) async throws -> String {
         let installId = DeviceIdStore.getOrCreate()
 
         // Resolve the user's organization ID — required for all platform API calls.
@@ -108,159 +107,90 @@ public final class LocalAssistantBootstrapService {
             throw LocalBootstrapError.registrationFailed(error.localizedDescription)
         }
 
-        // Step 1: Ensure registration (idempotent)
-        var platformAssistantId: String?
+        // Step 1: Ensure registration (idempotent, never 409s)
+        let registration: EnsureSelfHostedLocalRegistrationResponse
         do {
-            let registration = try await authService.ensureSelfHostedLocalRegistration(
+            registration = try await authService.ensureSelfHostedLocalRegistration(
                 organizationId: organizationId,
                 clientInstallationId: installId,
                 runtimeAssistantId: runtimeAssistantId,
                 clientPlatform: clientPlatform,
                 assistantVersion: assistantVersion
             )
-            platformAssistantId = registration.assistant.id
-            log.info("Registered local assistant: \(registration.assistant.id, privacy: .public)")
-
-            // Persist the platform assistant ID mapping so other services can resolve it.
-            if let storage = credentialStorage {
-                let userId = try? await resolveUserId()
-                if let uid = userId {
-                    let persisted = PlatformAssistantIdResolver.persist(
-                        platformAssistantId: registration.assistant.id,
-                        runtimeAssistantId: runtimeAssistantId,
-                        organizationId: organizationId,
-                        userId: uid,
-                        credentialStorage: storage
-                    )
-                    if persisted {
-                        log.info("Persisted platform assistant ID mapping for runtime assistant: \(runtimeAssistantId, privacy: .public)")
-                    } else {
-                        log.warning("Failed to persist platform assistant ID mapping for runtime assistant: \(runtimeAssistantId, privacy: .public)")
-                    }
-                } else {
-                    log.warning("Could not resolve user ID — platform assistant ID mapping not persisted")
-                }
-            }
-
-            // Cache the API key from the registration response so Step 2 can re-sync
-            // without an unnecessary reprovision round-trip.
-            if let rawKey = registration.assistantApiKey, !rawKey.isEmpty {
-                let credentialAccount = Self.credentialAccount(for: runtimeAssistantId)
-                _ = credentialStorage?.set(account: credentialAccount, value: rawKey)
-                log.info("Cached API key from ensure-registration response")
-            }
         } catch let error as PlatformAPIError {
-            if case .serverError(let statusCode, _) = error, statusCode == 409 {
-                // Try to resolve platform assistant ID from cache for key re-sync
-                if let storage = credentialStorage,
-                   let uid = try? await resolveUserId(),
-                   let cachedId = PlatformAssistantIdResolver.resolve(
-                       lockfileAssistantId: runtimeAssistantId,
-                       isManaged: false,
-                       organizationId: organizationId,
-                       userId: uid,
-                       credentialStorage: storage
-                   ) {
-                    platformAssistantId = cachedId
-                    log.info("Registration returned 409 — resolved platform assistant ID from cache: \(cachedId, privacy: .public)")
-                } else {
-                    log.info("Registration returned 409 — no cached platform ID, will resolve from reprovision")
-                    // platformAssistantId stays nil — reprovision will provide it
-                }
-            } else {
-                throw mapPlatformError(error, context: .registration)
-            }
+            throw mapPlatformError(error, context: .registration)
         } catch {
             throw LocalBootstrapError.registrationFailed(error.localizedDescription)
         }
 
-        let credentialAccount = Self.credentialAccount(for: runtimeAssistantId)
+        let platformAssistantId = registration.assistant.id
+        log.info("Registered local assistant: \(platformAssistantId, privacy: .public)")
 
-        // Step 2: Check if we already have the key stored locally (only when we have the platform ID)
-        var existingKeyInjected = false
-        if platformAssistantId != nil,
-           let existingKey = credentialStorage?.get(account: credentialAccount), !existingKey.isEmpty {
-            do {
-                try await injectKeyIntoDaemon(key: existingKey)
-                log.info("Re-synced existing API key to daemon")
-                existingKeyInjected = true
-            } catch {
-                log.warning("Failed to inject existing key into daemon, will reprovision: \(error.localizedDescription)")
-                // Fall through to Step 3 — key may be stale
-            }
-        }
-
-        if existingKeyInjected, let platformId = platformAssistantId {
-            try? await injectPlatformAssistantIdIntoDaemon(id: platformId)
-            do {
-                try await injectPlatformBaseUrlIntoDaemon(url: authService.baseURL)
-            } catch {
-                log.error("Failed to inject platform base URL into daemon on existing-key path: \(error.localizedDescription)")
-                throw LocalBootstrapError.daemonInjectionFailed
-            }
-            try? await injectPlatformOrganizationIdIntoDaemon(id: organizationId)
+        // Persist the platform assistant ID mapping so other services can resolve it.
+        if let storage = credentialStorage {
             if let uid = try? await resolveUserId() {
-                try? await injectPlatformUserIdIntoDaemon(id: uid)
-            }
-            return .registeredWithExistingKey(assistantId: platformId)
-        }
-
-        // Step 3: No key stored — reprovision
-        let provisionResponse: ReprovisionSelfHostedLocalApiKeyResponse
-        do {
-            provisionResponse = try await authService.reprovisionSelfHostedLocalAssistantApiKey(
-                organizationId: organizationId,
-                clientInstallationId: installId,
-                runtimeAssistantId: runtimeAssistantId,
-                clientPlatform: clientPlatform,
-                assistantVersion: assistantVersion
-            )
-        } catch let error as PlatformAPIError {
-            throw mapPlatformError(error, context: .provisioning)
-        } catch {
-            throw LocalBootstrapError.provisioningFailed(error.localizedDescription)
-        }
-
-        // If platformAssistantId was not resolved from Step 1 (e.g. 409 path),
-        // resolve it from the reprovision response which includes the assistant record.
-        if platformAssistantId == nil {
-            platformAssistantId = provisionResponse.assistant.id
-            log.info("Resolved platform assistant ID from reprovision: \(provisionResponse.assistant.id, privacy: .public)")
-
-            // Persist the mapping now that we have it
-            if let storage = credentialStorage {
-                let userId = try? await resolveUserId()
-                if let uid = userId {
-                    PlatformAssistantIdResolver.persist(
-                        platformAssistantId: provisionResponse.assistant.id,
-                        runtimeAssistantId: runtimeAssistantId,
-                        organizationId: organizationId,
-                        userId: uid,
-                        credentialStorage: storage
-                    )
+                let persisted = PlatformAssistantIdResolver.persist(
+                    platformAssistantId: platformAssistantId,
+                    runtimeAssistantId: runtimeAssistantId,
+                    organizationId: organizationId,
+                    userId: uid,
+                    credentialStorage: storage
+                )
+                if persisted {
+                    log.info("Persisted platform assistant ID mapping for runtime assistant: \(runtimeAssistantId, privacy: .public)")
+                } else {
+                    log.warning("Failed to persist platform assistant ID mapping for runtime assistant: \(runtimeAssistantId, privacy: .public)")
                 }
+            } else {
+                log.warning("Could not resolve user ID — platform assistant ID mapping not persisted")
             }
         }
 
-        guard let resolvedPlatformId = platformAssistantId else {
-            throw LocalBootstrapError.registrationFailed("Failed to resolve platform assistant ID")
+        // Step 2: Resolve the API key to inject.
+        // - If ensure-registration returned a new key (first call), persist and use it.
+        // - Otherwise, use the locally persisted key.
+        // - If no persisted key exists, call reprovision to rotate and get a fresh one.
+        let credentialAccount = Self.credentialAccount(for: runtimeAssistantId)
+        let apiKey: String
+
+        if let newKey = registration.assistantApiKey, !newKey.isEmpty {
+            // Fresh key from first registration
+            apiKey = newKey
+            _ = credentialStorage?.set(account: credentialAccount, value: newKey)
+            log.info("Received and cached new API key from ensure-registration")
+        } else if let cachedKey = credentialStorage?.get(account: credentialAccount), !cachedKey.isEmpty {
+            // Existing key persisted locally
+            apiKey = cachedKey
+            log.info("Using locally persisted API key")
+        } else {
+            // No key available — reprovision
+            log.info("No API key available locally — calling reprovision")
+            let provisionResponse: ReprovisionSelfHostedLocalApiKeyResponse
+            do {
+                provisionResponse = try await authService.reprovisionSelfHostedLocalAssistantApiKey(
+                    organizationId: organizationId,
+                    clientInstallationId: installId,
+                    runtimeAssistantId: runtimeAssistantId,
+                    clientPlatform: clientPlatform,
+                    assistantVersion: assistantVersion
+                )
+            } catch let error as PlatformAPIError {
+                throw mapPlatformError(error, context: .provisioning)
+            } catch {
+                throw LocalBootstrapError.provisioningFailed(error.localizedDescription)
+            }
+            apiKey = provisionResponse.provisioning.assistantApiKey
+            _ = credentialStorage?.set(account: credentialAccount, value: apiKey)
+            log.info("Provisioned and cached new API key via reprovision")
         }
 
-        let rawKey = provisionResponse.provisioning.assistantApiKey
-        log.info("Provisioned new API key for assistant: \(resolvedPlatformId, privacy: .public)")
-
-        // Step 4: Store locally for future sign-ins
-        _ = credentialStorage?.set(account: credentialAccount, value: rawKey)
-
-        // Step 5: Inject into daemon
-        try await injectKeyIntoDaemon(key: rawKey)
-        if (try? await injectPlatformAssistantIdIntoDaemon(id: resolvedPlatformId)) == nil {
-            log.warning("Failed to inject platform assistant ID into daemon on provision path; the TS env-var fallback will be used")
-        }
+        // Step 3: Inject credentials into daemon
+        try await injectKeyIntoDaemon(key: apiKey)
+        try? await injectPlatformAssistantIdIntoDaemon(id: platformAssistantId)
         do {
             try await injectPlatformBaseUrlIntoDaemon(url: authService.baseURL)
         } catch {
-            log.error("Failed to inject platform base URL into daemon on provision path: \(error.localizedDescription)")
+            log.error("Failed to inject platform base URL into daemon: \(error.localizedDescription)")
             throw LocalBootstrapError.daemonInjectionFailed
         }
         try? await injectPlatformOrganizationIdIntoDaemon(id: organizationId)
@@ -268,16 +198,16 @@ public final class LocalAssistantBootstrapService {
             try? await injectPlatformUserIdIntoDaemon(id: uid)
         }
 
-        return .registeredAndProvisioned(assistantId: resolvedPlatformId)
+        return platformAssistantId
     }
 
     /// Clear the stored credential and re-run bootstrap to obtain a fresh key.
-    /// Call this when a 401 indicates the cached key has been revoked.
+    /// Call this when a 401/403 indicates the cached key has been revoked.
     public func reprovision(
         runtimeAssistantId: String,
         clientPlatform: String = "macos",
         assistantVersion: String? = nil
-    ) async throws -> LocalBootstrapOutcome {
+    ) async throws -> String {
         let account = Self.credentialAccount(for: runtimeAssistantId)
         _ = credentialStorage?.delete(account: account)
 

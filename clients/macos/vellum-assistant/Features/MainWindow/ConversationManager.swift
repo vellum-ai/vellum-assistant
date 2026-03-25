@@ -1433,8 +1433,16 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
         viewModel.shouldCreateInlineErrorMessage = { error in
             // Credits-exhausted and provider-not-configured errors use dedicated
-            // inline banners instead of the generic InlineChatErrorAlert
-            !error.isCreditsExhausted && !error.isProviderNotConfigured
+            // inline banners instead of the generic InlineChatErrorAlert.
+            // Managed key errors trigger automatic reprovision — suppress the
+            // inline error since the user message already says "re-provisioning…".
+            !error.isCreditsExhausted && !error.isProviderNotConfigured && !error.isManagedKeyInvalid
+        }
+        viewModel.onManagedKeyInvalid = { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.reprovisionManagedKey()
+            }
         }
         viewModel.onInlineConfirmationResponse = { [weak self] requestId, decision in
             // The decision was already sent to the daemon by ChatViewModel.
@@ -2472,5 +2480,28 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // conversation-list hydration backfills latestAssistantMessageAt.
         return conversations[conversationIndex].latestAssistantMessageAt != nil
             || latestAssistantActivitySnapshots[conversationId] != nil
+    }
+
+    /// Attempt to reprovision the managed assistant API key after a
+    /// MANAGED_KEY_INVALID error. Clears the stale cached key, calls
+    /// reprovision-api-key, and injects the fresh key into the daemon.
+    private func reprovisionManagedKey() async {
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"), !assistantId.isEmpty else {
+            log.warning("Cannot reprovision — no connected assistant ID")
+            return
+        }
+        log.info("Managed API key invalid — attempting reprovision for \(assistantId, privacy: .public)")
+        let credentialStorage = FileCredentialStorage()
+        let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
+        do {
+            _ = try await bootstrapService.reprovision(
+                runtimeAssistantId: assistantId,
+                clientPlatform: "macos",
+                assistantVersion: connectionManager.assistantVersion
+            )
+            log.info("Managed API key reprovisioned successfully")
+        } catch {
+            log.error("Failed to reprovision managed API key: \(error.localizedDescription)")
+        }
     }
 }

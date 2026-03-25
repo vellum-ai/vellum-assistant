@@ -1670,6 +1670,11 @@ extension ChatViewModel {
                    messages.last?.toolCalls.isEmpty == true {
                     messages.removeAll(where: { $0.id == existingId })
                 }
+                // When the managed API key is invalid, trigger automatic
+                // reprovision in the background so the next retry uses a fresh key.
+                if typedError.isManagedKeyInvalid {
+                    onManagedKeyInvalid?()
+                }
                 if shouldCreateInlineErrorMessage?(typedError) ?? true {
                     let errorMsg = ChatMessage(role: .assistant, text: msg.userMessage, isError: true, conversationError: typedError)
                     messages.append(errorMsg)

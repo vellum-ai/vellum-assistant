@@ -320,8 +320,8 @@ extension AppDelegate {
     ///
     /// Safe to call at any time — exits early if the assistant is managed/remote
     /// or the user isn't authenticated. Always calls through to
-    /// `LocalAssistantBootstrapService.bootstrap()` so existing-key re-injection
-    /// and stale-key reprovisioning are handled (not just credential storage presence).
+    /// `LocalAssistantBootstrapService.bootstrap()` which idempotently registers
+    /// the assistant and ensures a valid API key is injected.
     ///
     /// Waits up to 60s for the actor token to become available, retrying every
     /// 10s, so that assistant switches (which clear then re-bootstrap actor
@@ -377,17 +377,12 @@ extension AppDelegate {
             do {
                 let credentialStorage = FileCredentialStorage()
                 let bootstrapService = LocalAssistantBootstrapService(credentialStorage: credentialStorage)
-                let outcome = try await bootstrapService.bootstrap(
+                let platformId = try await bootstrapService.bootstrap(
                     runtimeAssistantId: assistantId,
                     clientPlatform: "macos",
                     assistantVersion: self.connectionManager.assistantVersion
                 )
-                switch outcome {
-                case .registeredWithExistingKey(let id):
-                    log.info("Local assistant API key re-synced: \(id, privacy: .public)")
-                case .registeredAndProvisioned(let id):
-                    log.info("Local assistant API key provisioned: \(id, privacy: .public)")
-                }
+                log.info("Local assistant registered: \(platformId, privacy: .public)")
 
                 self.localBootstrapDidComplete = true
                 SentryDeviceInfo.updateOrganizationTag(UserDefaults.standard.string(forKey: "connectedOrganizationId"))
