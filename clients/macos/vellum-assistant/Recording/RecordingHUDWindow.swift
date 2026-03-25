@@ -116,6 +116,7 @@ final class RecordingHUDViewModel {
 
     /// Pause the elapsed-time timer (called when recording is paused).
     func pauseTimer() {
+        guard pauseStartTime == nil else { return }
         pauseStartTime = Date()
     }
 

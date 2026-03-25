@@ -35,7 +35,6 @@ final class DictationTextInserter {
         let itemsToRestore = savedItems
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 500_000_000)
-            guard !Task.isCancelled else { return }
             restorePasteboardItems(itemsToRestore, to: NSPasteboard.general)
         }
 
