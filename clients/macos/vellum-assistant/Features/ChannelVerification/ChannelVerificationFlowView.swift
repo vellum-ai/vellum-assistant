@@ -413,11 +413,11 @@ struct ChannelVerificationFlowView: View {
                 maxWidth: 360,
                 isFocused: $isDestinationFocused
             )
-            .onAppear {
+            .task {
                 if autoFocus {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        isDestinationFocused = true
-                    }
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    guard !Task.isCancelled else { return }
+                    isDestinationFocused = true
                 }
             }
 

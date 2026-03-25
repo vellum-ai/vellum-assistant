@@ -98,7 +98,9 @@ struct OnboardingFlowView: View {
                                             guard !isAdvancingFromWakeUp else { return }
                                             isAdvancingFromWakeUp = true
                                             state.hasHatched = true
-                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                            Task { @MainActor in
+                                                try? await Task.sleep(nanoseconds: 300_000_000)
+                                                guard !Task.isCancelled else { return }
                                                 state.advance()
                                             }
                                         },

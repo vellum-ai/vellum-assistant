@@ -119,7 +119,9 @@ struct APIKeyEntryStepView: View {
             withAnimation(.easeOut(duration: 0.5).delay(0.3)) {
                 showContent = true
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                guard !Task.isCancelled else { return }
                 keyFieldFocused = true
             }
         }
@@ -175,7 +177,9 @@ struct APIKeyEntryStepView: View {
                         .vInputChrome()
                         .onTapGesture {
                             isEditing = true
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            Task { @MainActor in
+                                try? await Task.sleep(nanoseconds: 100_000_000)
+                                guard !Task.isCancelled else { return }
                                 keyFieldFocused = true
                             }
                         }

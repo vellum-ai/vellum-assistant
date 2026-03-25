@@ -1051,7 +1051,7 @@ private struct PublishedButton: View {
     @Binding var copied: Bool
 
     @State private var isCopyHovered = false
-    @State private var resetTimer: DispatchWorkItem?
+    @State private var resetTask: Task<Void, Never>?
 
     var body: some View {
         HStack(spacing: VSpacing.xs) {
@@ -1066,13 +1066,15 @@ private struct PublishedButton: View {
                 .animation(VAnimation.fast, value: copied)
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    resetTimer?.cancel()
+                    resetTask?.cancel()
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(url, forType: .string)
                     copied = true
-                    let timer = DispatchWorkItem { copied = false }
-                    resetTimer = timer
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
+                    resetTask = Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        guard !Task.isCancelled else { return }
+                        copied = false
+                    }
                 }
                 .onHover { hovering in
                     isCopyHovered = hovering
