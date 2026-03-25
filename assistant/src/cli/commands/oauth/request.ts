@@ -277,7 +277,7 @@ Examples:
                   if (connections.length === 0) {
                     writeError(
                       `Error: No active platform connection found for "${providerKey}" with account "${opts.account}".\n\n` +
-                        `Run 'assistant oauth platform status' to see connected accounts for this provider.\n` +
+                        `Run 'assistant oauth platform status ${providerKey}' to see connected accounts for this provider.\n` +
                         `To connect a new account, run 'assistant oauth platform connect --help'.`,
                     );
                     return;
@@ -435,7 +435,7 @@ Examples:
             if (managed) {
               writeError(
                 `Error: No active platform OAuth connection found for "${providerKey}".\n\n` +
-                  `Run 'assistant oauth platform status' to check connection status.\n` +
+                  `Run 'assistant oauth platform status ${providerKey}' to check connection status.\n` +
                   `To connect, run 'assistant oauth platform connect --help'.`,
               );
             } else {
