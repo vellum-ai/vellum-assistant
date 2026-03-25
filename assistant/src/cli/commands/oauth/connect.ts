@@ -27,7 +27,7 @@ const log = getCliLogger("cli");
  * platform redirects the user's browser following a managed OAuth flow.
  * Returns the base URL and a cleanup function.
  */
-function startManagedRedirectServer(): Promise<{
+function startManagedRedirectServer(provider: string): Promise<{
   redirectUrl: string;
   cleanup: () => void;
 }> {
@@ -36,17 +36,19 @@ function startManagedRedirectServer(): Promise<{
       const url = new URL(req.url ?? "/", "http://127.0.0.1");
       const error = url.searchParams.get("error");
       const errorDesc = url.searchParams.get("error_description");
+      const providerHint = url.searchParams.get("provider") ?? provider;
 
       if (error) {
         const message = errorDesc ?? error;
         res.writeHead(200, { "Content-Type": "text/html" });
-        res.end(renderOAuthCompletionPage(message, false));
+        res.end(renderOAuthCompletionPage(message, false, providerHint));
       } else {
         res.writeHead(200, { "Content-Type": "text/html" });
         res.end(
           renderOAuthCompletionPage(
-            "You can close this tab and return to your terminal.",
+            "You can close this tab and return to your assistant.",
             true,
+            providerHint,
           ),
         );
       }
@@ -175,7 +177,7 @@ Examples:
               | undefined;
             if (opts.openBrowser) {
               try {
-                redirectServer = await startManagedRedirectServer();
+                redirectServer = await startManagedRedirectServer(provider);
                 body.redirect_after_connect = redirectServer.redirectUrl;
               } catch {
                 // Non-fatal — fall back to platform default redirect

@@ -360,7 +360,7 @@ function startLoopbackServerAndWaitForCode(
       res.writeHead(200, { "Content-Type": "text/html" });
       res.end(
         renderLoopbackPage(
-          "Authorization successful! You can close this tab.",
+          "You can close this tab and return to your assistant.",
           true,
         ),
       );
@@ -626,7 +626,7 @@ function startLoopbackServerForPreparedFlow(
       res.writeHead(200, { "Content-Type": "text/html" });
       res.end(
         renderLoopbackPage(
-          "Authorization successful! You can close this tab.",
+          "You can close this tab and return to your assistant.",
           true,
         ),
       );
