@@ -435,11 +435,12 @@ describe("classifyConversationError", () => {
       expect(result.retryable).toBe(true);
     });
 
-    it("classifies ProviderError with 401 as PROVIDER_BILLING (non-retryable)", () => {
+    it("classifies ProviderError with 401 as PROVIDER_NOT_CONFIGURED (non-retryable)", () => {
       const err = new ProviderError("Unauthorized", "anthropic", 401);
       const result = classifyConversationError(err, baseCtx);
-      expect(result.code).toBe("PROVIDER_BILLING");
+      expect(result.code).toBe("PROVIDER_NOT_CONFIGURED");
       expect(result.retryable).toBe(false);
+      expect(result.errorCategory).toBe("provider_not_configured");
     });
 
     it("classifies ProviderError with 402 as credits_exhausted (non-retryable)", () => {
