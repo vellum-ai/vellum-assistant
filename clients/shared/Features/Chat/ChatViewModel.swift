@@ -2636,6 +2636,7 @@ public final class ChatViewModel: ObservableObject {
     /// Respond to a tool confirmation request displayed inline in the chat.
     public func respondToConfirmation(requestId: String, decision: String) {
         markConfirmationInFlight(requestId: requestId, decision: decision)
+        inlineResponseHandledRequestIds.insert(requestId)
         Task {
             let success = await performConfirmationResponse(
                 requestId: requestId, decision: decision, selectedPattern: nil, selectedScope: nil
@@ -2653,6 +2654,7 @@ public final class ChatViewModel: ObservableObject {
     /// fallback actually went through.
     public func respondToAlwaysAllow(requestId: String, selectedPattern: String, selectedScope: String, decision: String = "always_allow") {
         markConfirmationInFlight(requestId: requestId, decision: decision)
+        inlineResponseHandledRequestIds.insert(requestId)
         Task {
             let success = await interactionClient.sendConfirmationResponse(
                 requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope
