@@ -275,7 +275,7 @@ This replaces provider-specific handlers — any provider in the registry can be
 
 | File                                             | Role                                                                             |
 | ------------------------------------------------ | -------------------------------------------------------------------------------- |
-| `assistant/src/oauth/provider-behaviors.ts`      | Provider behavior registry and alias resolution                                  |
+| `assistant/src/oauth/provider-behaviors.ts`      | Provider behavior registry                                                       |
 | `assistant/src/oauth/scope-policy.ts`            | Scope resolution and policy enforcement (pure, no I/O)                           |
 | `assistant/src/oauth/connect-orchestrator.ts`    | Shared connect orchestrator (profile → scopes → flow → tokens)                   |
 | `assistant/src/oauth/connect-types.ts`           | Shared types (`OAuthProviderBehavior`, `OAuthScopePolicy`, `OAuthConnectResult`) |
