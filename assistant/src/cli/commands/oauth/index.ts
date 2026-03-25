@@ -20,28 +20,28 @@ export function registerOAuthCommand(program: Command): void {
     `
 The oauth command group manages the full OAuth lifecycle:
 
+  connect     Initiate an OAuth flow for a provider (managed or BYO)
+  disconnect  Disconnect an OAuth provider
+  status      Show OAuth connection status for a provider
+  request     Make authenticated HTTP requests (curl-like interface)
   providers   Protocol-level configurations (auth URLs, scopes, endpoints)
   apps        Client credentials (client ID / secret pairs)
-  connections Active token grants per provider (list, get, token, disconnect)
-  platform    Platform-managed OAuth provider status and connections
-  request     Make authenticated HTTP requests (curl-like interface)
-  connect     Initiate an OAuth flow (auto-detects managed vs BYO mode)
-  disconnect  Disconnect a provider and remove credentials (auto-detects mode)
-  status      Show connection status for a provider (auto-detects mode)
+  connections Active token grants per provider (deprecated)
+  platform    Platform-managed OAuth provider status and connections (deprecated)
 
 Providers are seeded on startup for built-in integrations. Apps and connections
 are created during the OAuth authorization flow or can be managed manually via
 their respective subcommands.
 
 Examples:
+  $ assistant oauth connect google --open-browser
+  $ assistant oauth status google
+  $ assistant oauth disconnect google
   $ assistant oauth request --provider integration:google /gmail/v1/users/me/messages
   $ assistant oauth request --provider integration:twitter -X POST -d '{"text":"Hello"}' https://api.x.com/2/tweets
   $ assistant oauth connections token integration:twitter
-  $ assistant oauth connections list
-  $ assistant oauth connections get --provider integration:google
   $ assistant oauth providers list
-  $ assistant oauth providers get integration:google
-  $ assistant oauth providers register --provider-key custom:myapi --auth-url https://example.com/auth --token-url https://example.com/token`,
+  $ assistant oauth providers get integration:google`,
   );
 
   // ---------------------------------------------------------------------------
