@@ -347,66 +347,72 @@ extension AppDelegate {
         statusItem.image = status.statusIcon
         menu.addItem(statusItem)
 
-        menu.addItem(NSMenuItem.separator())
-
-        let currentConversationItem: NSMenuItem = {
-            let shortcut = UserDefaults.standard.string(forKey: "currentConversationShortcut") ?? "cmd+shift+n"
-            guard !shortcut.isEmpty else {
-                return NSMenuItem(title: "Current Conversation", action: #selector(openCurrentConversation), keyEquivalent: "")
-            }
-            let (modifiers, key) = ShortcutHelper.parseShortcut(shortcut)
-            let item = NSMenuItem(title: "Current Conversation", action: #selector(openCurrentConversation), keyEquivalent: key)
-            item.keyEquivalentModifierMask = modifiers
-            return item
-        }()
-        currentConversationItem.target = self
-        currentConversationItem.image = VIcon.messageSquare.nsImage(size: 16)
-        menu.addItem(currentConversationItem)
-
-        let newChatItem: NSMenuItem = {
-            let shortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? "cmd+n"
-            guard !shortcut.isEmpty else {
-                return NSMenuItem(title: "New Conversation", action: #selector(openNewChat), keyEquivalent: "")
-            }
-            let (modifiers, key) = ShortcutHelper.parseShortcut(shortcut)
-            let item = NSMenuItem(title: "New Conversation", action: #selector(openNewChat), keyEquivalent: key)
-            item.keyEquivalentModifierMask = modifiers
-            return item
-        }()
-        newChatItem.target = self
-        newChatItem.image = VIcon.messageCirclePlus.nsImage(size: 16)
-        menu.addItem(newChatItem)
-
-        if MacOSClientFeatureFlagManager.shared.isEnabled("developer-menu-items") {
+        // During onboarding, only show the status line and Quit to prevent
+        // users from bypassing the onboarding flow via Settings or conversations.
+        if onboardingWindow == nil {
             menu.addItem(NSMenuItem.separator())
 
-            let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")
-            onboardingItem.target = self
-            menu.addItem(onboardingItem)
+            let currentConversationItem: NSMenuItem = {
+                let shortcut = UserDefaults.standard.string(forKey: "currentConversationShortcut") ?? "cmd+shift+n"
+                guard !shortcut.isEmpty else {
+                    return NSMenuItem(title: "Current Conversation", action: #selector(openCurrentConversation), keyEquivalent: "")
+                }
+                let (modifiers, key) = ShortcutHelper.parseShortcut(shortcut)
+                let item = NSMenuItem(title: "Current Conversation", action: #selector(openCurrentConversation), keyEquivalent: key)
+                item.keyEquivalentModifierMask = modifiers
+                return item
+            }()
+            currentConversationItem.target = self
+            currentConversationItem.image = VIcon.messageSquare.nsImage(size: 16)
+            menu.addItem(currentConversationItem)
 
-            #if DEBUG
-            let galleryItem = NSMenuItem(title: "Component Gallery", action: #selector(showComponentGallery), keyEquivalent: "")
-            galleryItem.target = self
-            menu.addItem(galleryItem)
-            #endif
+            let newChatItem: NSMenuItem = {
+                let shortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? "cmd+n"
+                guard !shortcut.isEmpty else {
+                    return NSMenuItem(title: "New Conversation", action: #selector(openNewChat), keyEquivalent: "")
+                }
+                let (modifiers, key) = ShortcutHelper.parseShortcut(shortcut)
+                let item = NSMenuItem(title: "New Conversation", action: #selector(openNewChat), keyEquivalent: key)
+                item.keyEquivalentModifierMask = modifiers
+                return item
+            }()
+            newChatItem.target = self
+            newChatItem.image = VIcon.messageCirclePlus.nsImage(size: 16)
+            menu.addItem(newChatItem)
+
+            if MacOSClientFeatureFlagManager.shared.isEnabled("developer-menu-items") {
+                menu.addItem(NSMenuItem.separator())
+
+                let onboardingItem = NSMenuItem(title: "Replay Onboarding", action: #selector(replayOnboarding), keyEquivalent: "")
+                onboardingItem.target = self
+                menu.addItem(onboardingItem)
+
+                #if DEBUG
+                let galleryItem = NSMenuItem(title: "Component Gallery", action: #selector(showComponentGallery), keyEquivalent: "")
+                galleryItem.target = self
+                menu.addItem(galleryItem)
+                #endif
+            }
+
+            menu.addItem(NSMenuItem.separator())
+
+            let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow(_:)), keyEquivalent: ",")
+            settingsItem.target = self
+            settingsItem.image = VIcon.settings.nsImage(size: 16)
+            menu.addItem(settingsItem)
+
+            let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
+            updateItem.target = self
+            updateItem.image = VIcon.circleArrowUp.nsImage(size: 16)
+            menu.addItem(updateItem)
+
+            let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
+            restartItem.target = self
+            restartItem.image = VIcon.refreshCw.nsImage(size: 16)
+            menu.addItem(restartItem)
         }
 
         menu.addItem(NSMenuItem.separator())
-
-        let settingsItem = NSMenuItem(title: "Settings...", action: #selector(showSettingsWindow(_:)), keyEquivalent: ",")
-        settingsItem.target = self
-        settingsItem.image = VIcon.settings.nsImage(size: 16)
-        menu.addItem(settingsItem)
-
-        let updateItem = NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: "")
-        updateItem.target = self
-        updateItem.image = VIcon.circleArrowUp.nsImage(size: 16)
-        menu.addItem(updateItem)
-
-        let restartItem = NSMenuItem(title: "Restart", action: #selector(performRestart), keyEquivalent: "")
-        restartItem.target = self
-        restartItem.image = VIcon.refreshCw.nsImage(size: 16)
-        menu.addItem(restartItem)
 
         let quitItem = NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         quitItem.image = VIcon.power.nsImage(size: 16)
