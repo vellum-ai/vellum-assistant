@@ -68,7 +68,7 @@ public struct VTabs<SelectionValue: Hashable>: View {
             }
             Spacer(minLength: 0)
         }
-        .overlay(alignment: .bottom) {
+        .background(alignment: .bottom) {
             Rectangle()
                 .fill(VColor.borderDisabled)
                 .frame(height: 2)

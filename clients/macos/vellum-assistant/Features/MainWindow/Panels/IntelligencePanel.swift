@@ -53,14 +53,13 @@ struct IntelligencePanel: View {
                     .foregroundStyle(VColor.contentEmphasized)
                 Spacer()
             }
-            .padding(.bottom, VSpacing.md)
+            .padding(.bottom, VSpacing.lg)
 
             // Tab bar
             VTabs(
                 items: visibleTabs.map { (label: $0.rawValue, tag: $0) },
                 selection: $selectedTab
             )
-            .padding(.top, VSpacing.md)
             .padding(.bottom, VSpacing.md)
 
             // Tab content
