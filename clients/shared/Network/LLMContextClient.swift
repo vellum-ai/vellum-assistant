@@ -463,6 +463,41 @@ private extension KeyedEncodingContainer where Key == LLMContextCodingKey {
     }
 }
 
+public struct MemoryRecallCandidate: Codable, Sendable, Equatable {
+    public let key: String
+    public let type: String
+    public let kind: String
+    public let finalScore: Double
+    public let semantic: Double
+    public let recency: Double
+}
+
+public struct MemoryRecallDegradation: Codable, Sendable, Equatable {
+    public let semanticUnavailable: Bool
+    public let reason: String
+    public let fallbackSources: [String]
+}
+
+public struct MemoryRecallData: Codable, Sendable, Equatable {
+    public let enabled: Bool
+    public let degraded: Bool
+    public let provider: String?
+    public let model: String?
+    public let degradation: MemoryRecallDegradation?
+    public let semanticHits: Int
+    public let mergedCount: Int
+    public let selectedCount: Int
+    public let tier1Count: Int
+    public let tier2Count: Int
+    public let hybridSearchLatencyMs: Int
+    public let sparseVectorUsed: Bool
+    public let injectedTokens: Int
+    public let latencyMs: Int
+    public let reason: String?
+    public let topCandidates: [MemoryRecallCandidate]
+    public let injectedText: String?
+}
+
 /// A single LLM request/response log entry returned by the context endpoint.
 public struct LLMRequestLogEntry: Codable, Identifiable, Sendable {
     public let id: String
@@ -478,6 +513,7 @@ public struct LLMRequestLogEntry: Codable, Identifiable, Sendable {
 public struct LLMContextResponse: Codable, Sendable {
     public let messageId: String
     public let logs: [LLMRequestLogEntry]
+    public let memoryRecall: MemoryRecallData?
 }
 
 /// Explicit outcome for an LLM context fetch.
