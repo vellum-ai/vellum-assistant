@@ -23,17 +23,134 @@ final class MessageListScrollCoordinatorTests: XCTestCase {
         super.tearDown()
     }
 
+    // MARK: - Follow/Detach State (migrated from ChatBottomPinCoordinatorTests)
+
+    func testInitialStateIsFollowingBottom() {
+        XCTAssertTrue(coordinator.isFollowingBottom)
+    }
+
+    func testScrollUpDetachesFromBottom() {
+        coordinator.handleScrollUp()
+        XCTAssertFalse(coordinator.isFollowingBottom)
+    }
+
+    func testRepeatedScrollUpDoesNotDuplicateDetach() {
+        var isNearBottomUpdates: [Bool] = []
+        coordinator.isNearBottomBinding = Binding<Bool>(
+            get: { true },
+            set: { isNearBottomUpdates.append($0) }
+        )
+
+        coordinator.handleScrollUp()
+        coordinator.handleScrollUp()
+
+        XCTAssertFalse(coordinator.isFollowingBottom)
+        // Only one state change should fire (first detach).
+        XCTAssertEqual(isNearBottomUpdates, [false])
+    }
+
+    func testScrollToBottomReattaches() {
+        coordinator.handleScrollUp()
+        XCTAssertFalse(coordinator.isFollowingBottom)
+
+        coordinator.handleScrollToBottom()
+        XCTAssertTrue(coordinator.isFollowingBottom)
+    }
+
+    func testPinRequestSuppressedWhileDetached() {
+        let convId = UUID()
+        coordinator.configureScrollCallbacks(
+            scrollViewportHeight: 600,
+            conversationId: convId,
+            isNearBottom: .constant(true)
+        )
+
+        coordinator.handleScrollUp()
+        coordinator.requestBottomPin(reason: .resize, conversationId: convId)
+
+        XCTAssertTrue(scrollToCalls.isEmpty,
+                      "Pin requests should be suppressed while detached")
+    }
+
+    func testPinRequestAllowedAfterReattach() {
+        let convId = UUID()
+        coordinator.configureScrollCallbacks(
+            scrollViewportHeight: 600,
+            conversationId: convId,
+            isNearBottom: .constant(true)
+        )
+
+        coordinator.handleScrollUp()
+        coordinator.requestBottomPin(reason: .messageCount, conversationId: convId)
+        XCTAssertTrue(scrollToCalls.isEmpty)
+
+        coordinator.handleScrollToBottom()
+        coordinator.requestBottomPin(reason: .messageCount, conversationId: convId)
+        XCTAssertFalse(scrollToCalls.isEmpty,
+                       "Pin requests should proceed after reattach")
+    }
+
+    func testPinSuppressedWhileSuppressionActive() {
+        let convId = UUID()
+        coordinator.configureScrollCallbacks(
+            scrollViewportHeight: 600,
+            conversationId: convId,
+            isNearBottom: .constant(true)
+        )
+        coordinator.reattachToBottom()
+
+        coordinator.addSuppression(.expansion)
+        coordinator.requestBottomPin(reason: .messageCount, conversationId: convId)
+
+        XCTAssertTrue(scrollToCalls.isEmpty,
+                      "Pin requests should be suppressed when isSuppressed is true")
+    }
+
+    func testUserInitiatedBypassesBothGuards() {
+        let convId = UUID()
+        coordinator.configureScrollCallbacks(
+            scrollViewportHeight: 600,
+            conversationId: convId,
+            isNearBottom: .constant(true)
+        )
+
+        // Detach AND add suppression — both guards active.
+        coordinator.handleScrollUp()
+        coordinator.addSuppression(.expansion)
+
+        coordinator.requestBottomPin(
+            reason: .initialRestore,
+            conversationId: convId,
+            animated: false,
+            userInitiated: true
+        )
+
+        XCTAssertFalse(scrollToCalls.isEmpty,
+                       "User-initiated requests should bypass both follow-state and suppression checks")
+    }
+
+    func testResetRestoresFollowingState() {
+        coordinator.handleScrollUp()
+        XCTAssertFalse(coordinator.isFollowingBottom)
+
+        coordinator.resetForConversationSwitch(
+            oldConversationId: UUID(),
+            newConversationId: UUID()
+        )
+
+        XCTAssertTrue(coordinator.isFollowingBottom)
+    }
+
     // MARK: - makeResizeTask: Suppression Cleared Before Pin
 
     /// Regression test: `makeResizeTask` must clear suppression BEFORE requesting
     /// a bottom pin. If suppression is still active when the pin fires, the
-    /// `onPinRequested` callback returns false (suppressed) and the scroll-to-
-    /// bottom never happens.
+    /// request is rejected (suppressed) and the scroll-to-bottom never happens.
     func testMakeResizeTaskPinsAfterSuppressionCleared() async throws {
         let convId = UUID()
 
-        // Wire the bottom pin coordinator so pin requests flow through to scrollTo.
-        coordinator.configureBottomPinCoordinator(
+        // Wire the scroll coordinator so pin requests flow through to scrollTo.
+        coordinator.configureScrollCallbacks(
             scrollViewportHeight: 600,
             conversationId: convId,
             isNearBottom: .constant(true)
@@ -41,7 +158,7 @@ final class MessageListScrollCoordinatorTests: XCTestCase {
 
         // Preconditions: near bottom but not at bottom, no anchor.
         coordinator.isAtBottom = false
-        coordinator.bottomPinCoordinator.reattach()
+        coordinator.reattachToBottom()
 
         var wasSuppressedDuringScroll: Bool?
         let originalScrollTo = coordinator.scrollTo
@@ -51,9 +168,9 @@ final class MessageListScrollCoordinatorTests: XCTestCase {
             originalScrollTo?(id, anchor)
         }
 
-        // Re-configure after swapping scrollTo so the pin coordinator callback
+        // Re-configure after swapping scrollTo so the coordinator
         // uses the new closure.
-        coordinator.configureBottomPinCoordinator(
+        coordinator.configureScrollCallbacks(
             scrollViewportHeight: 600,
             conversationId: convId,
             isNearBottom: .constant(true)
@@ -87,13 +204,13 @@ final class MessageListScrollCoordinatorTests: XCTestCase {
     func testRestoreScrollToBottomFallbackFiresWhenNotAtBottom() async throws {
         let convId = UUID()
 
-        // Wire the bottom pin coordinator so pin requests flow through to scrollTo.
-        coordinator.configureBottomPinCoordinator(
+        // Wire the scroll coordinator so pin requests flow through to scrollTo.
+        coordinator.configureScrollCallbacks(
             scrollViewportHeight: 600,
             conversationId: convId,
             isNearBottom: .constant(true)
         )
-        coordinator.bottomPinCoordinator.reattach()
+        coordinator.reattachToBottom()
 
         // Preconditions: not at bottom, no anchor, no scroll events.
         coordinator.isAtBottom = false
@@ -128,13 +245,13 @@ final class MessageListScrollCoordinatorTests: XCTestCase {
     func testRestoreScrollToBottomRespectsDeepLinkAnchor() async throws {
         let convId = UUID()
 
-        // Wire the bottom pin coordinator so pin requests flow through to scrollTo.
-        coordinator.configureBottomPinCoordinator(
+        // Wire the scroll coordinator so pin requests flow through to scrollTo.
+        coordinator.configureScrollCallbacks(
             scrollViewportHeight: 600,
             conversationId: convId,
             isNearBottom: .constant(true)
         )
-        coordinator.bottomPinCoordinator.reattach()
+        coordinator.reattachToBottom()
 
         // Preconditions: not at bottom, no scroll events, but anchor IS set.
         coordinator.isAtBottom = false

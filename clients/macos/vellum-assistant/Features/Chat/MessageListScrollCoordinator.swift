@@ -7,6 +7,20 @@ import VellumAssistantShared
 
 let scrollCoordinatorLog = Logger(subsystem: "com.vellum.vellum-assistant", category: "MessageListScrollCoordinator")
 
+// MARK: - Bottom Pin Types
+
+/// Reasons the system may request a scroll-to-bottom pin.
+enum BottomPinRequestReason: String, Sendable {
+    /// Initial conversation load / restore from disk.
+    case initialRestore
+    /// A new message was appended to the conversation.
+    case messageCount
+    /// An inline element (progress card, tool output) expanded its height.
+    case expansion
+    /// The chat container was resized (sidebar toggle, window drag).
+    case resize
+}
+
 /// Named reasons for suppressing bottom auto-scroll. Each reason has a defined
 /// timeout so callers don't need to manage independent timers.
 ///
@@ -58,8 +72,9 @@ struct ScrollSuppression: OptionSet, Sendable {
 /// - `isAtBottom` — whether the bottom sentinel is the current scroll target.
 /// - `hasReceivedScrollEvent`, `wasPaginationTriggerInRange`,
 ///   `hasLoggedNonFiniteGeometry` — bookkeeping flags that don't drive UI.
-/// - `ChatBottomPinCoordinator`, `ChatScrollLoopGuard` — stateful helpers that
-///   never need to trigger view re-evaluation themselves.
+/// - `isFollowingBottom` — follow/detach state for bottom-pin logic.
+/// - `ChatScrollLoopGuard` — stateful helper that never needs to trigger
+///   view re-evaluation itself.
 /// - All in-flight `Task` references.
 ///
 /// **Reactive (`@Published`):**
@@ -139,9 +154,14 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// bypass `objectWillChange`, preserving the existing perf-critical pattern.
     var scrollTracking = ScrollTrackingState()
 
-    /// Coordinates bounded scroll-to-bottom retry sessions and manages the
-    /// follow/detach state machine.
-    var bottomPinCoordinator = ChatBottomPinCoordinator()
+    /// Whether the viewport is logically following the bottom of the transcript.
+    /// When false (detached), background pin requests are suppressed.
+    var isFollowingBottom: Bool = true
+
+    /// Binding to the view's `isNearBottom` state, updated when follow/detach
+    /// state changes. Stored so `detachFromBottom` / `reattachToBottom` can
+    /// update the view directly without callback indirection.
+    var isNearBottomBinding: Binding<Bool>?
 
     /// Detects runaway scroll-loop patterns and emits one aggregate warning
     /// per cooldown window instead of per-frame log spam.
@@ -272,6 +292,28 @@ final class MessageListScrollCoordinator: ObservableObject {
             suppression = []
             os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged",
                         "off reason=clearAll(was:%{public}s)", reasons)
+        }
+    }
+
+    // MARK: - Follow/Detach State
+
+    /// Transitions to the detached state, suppressing all background pin requests.
+    func detachFromBottom() {
+        let wasFollowing = isFollowingBottom
+        isFollowingBottom = false
+        if wasFollowing {
+            scrollCoordinatorLog.debug("[BottomPin] detach isFollowingBottom=false")
+            isNearBottomBinding?.wrappedValue = false
+        }
+    }
+
+    /// Transitions to the following state, allowing pin requests to proceed.
+    func reattachToBottom() {
+        let wasDetached = !isFollowingBottom
+        isFollowingBottom = true
+        if wasDetached {
+            scrollCoordinatorLog.debug("[BottomPin] reattach isFollowingBottom=true")
+            isNearBottomBinding?.wrappedValue = true
         }
     }
 
@@ -413,8 +455,7 @@ final class MessageListScrollCoordinator: ObservableObject {
         isPaginationInFlight = false
         scrollTracking.snapshotDebounceTask?.cancel()
         scrollTracking.snapshotDebounceTask = nil
-        bottomPinCoordinator.cancelActiveSession(reason: .conversationSwitch)
-        bottomPinCoordinator.onPinRequested = nil
+        isNearBottomBinding = nil
     }
 
     /// Resets state for a conversation switch.
@@ -431,8 +472,9 @@ final class MessageListScrollCoordinator: ObservableObject {
         wasPaginationTriggerInRange = false
         // Update the live conversation ID so closures read the new value.
         currentConversationId = newConversationId
-        // Reset the coordinator for the new conversation.
-        bottomPinCoordinator.reset(newConversationId: newConversationId)
+        // Reset follow state for the new conversation.
+        isFollowingBottom = true
+        isNearBottomBinding?.wrappedValue = true
         pushToTopMessageId = nil
         isAtBottom = true
         hasReceivedScrollEvent = false
