@@ -2464,13 +2464,13 @@ paths:
           in: query
           required: false
           schema:
-            type: string
+            type: integer
           description: Max starters to return (1–20, default 4)
         - name: offset
           in: query
           required: false
           schema:
-            type: string
+            type: integer
           description: Pagination offset (default 0)
         - name: scope_id
           in: query
@@ -2742,13 +2742,13 @@ paths:
           in: query
           required: false
           schema:
-            type: string
+            type: integer
           description: Max results (1–100, default 20)
         - name: before
           in: query
           required: false
           schema:
-            type: string
+            type: number
           description: Cursor for pagination (timestamp)
   /v1/conversations/fork:
     post:
@@ -3515,7 +3515,7 @@ paths:
           in: query
           required: false
           schema:
-            type: string
+            type: integer
           description: Max runs to return (default 20)
   /v1/host-bash-result:
     post:
@@ -4025,13 +4025,13 @@ paths:
           in: query
           required: false
           schema:
-            type: string
+            type: integer
           description: Max results (default 100)
         - name: offset
           in: query
           required: false
           schema:
-            type: string
+            type: integer
           description: Pagination offset
     post:
       operationId: memoryitems_post
@@ -5234,7 +5234,7 @@ paths:
           in: query
           required: false
           schema:
-            type: string
+            type: integer
           description: Max results per category (1–100, default 20)
         - name: categories
           in: query
@@ -6306,13 +6306,13 @@ paths:
           in: query
           required: false
           schema:
-            type: string
+            type: integer
           description: Max events to return
         - name: afterSequence
           in: query
           required: false
           schema:
-            type: string
+            type: integer
           description: Return events after this sequence number
   /v1/trust-rules:
     post:
@@ -6544,13 +6544,13 @@ paths:
           in: query
           required: false
           schema:
-            type: string
+            type: integer
           description: Start epoch millis (required)
         - name: to
           in: query
           required: false
           schema:
-            type: string
+            type: integer
           description: End epoch millis (required)
         - name: groupBy
           in: query
@@ -6585,13 +6585,13 @@ paths:
           in: query
           required: false
           schema:
-            type: string
+            type: integer
           description: Start epoch millis (required)
         - name: to
           in: query
           required: false
           schema:
-            type: string
+            type: integer
           description: End epoch millis (required)
   /v1/usage/totals:
     get:
@@ -6608,13 +6608,13 @@ paths:
           in: query
           required: false
           schema:
-            type: string
+            type: integer
           description: Start epoch millis (required)
         - name: to
           in: query
           required: false
           schema:
-            type: string
+            type: integer
           description: End epoch millis (required)
   /v1/work-items:
     get:
