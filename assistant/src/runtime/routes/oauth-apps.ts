@@ -259,7 +259,7 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
           );
         }
 
-        let body: { scopes?: string[] } = {};
+        let body: { scopes?: string[]; redirect_after_callback?: string } = {};
         try {
           const text = await req.text();
           if (text) {
@@ -277,6 +277,7 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
           clientSecret,
           requestedScopes: body.scopes,
           isInteractive: false,
+          redirectAfterCallback: body.redirect_after_callback,
         });
 
         if (result.success && result.deferred) {
