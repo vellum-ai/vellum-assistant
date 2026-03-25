@@ -156,7 +156,7 @@ struct HatchingStepView: View {
                         .font(.system(size: 24, weight: .regular, design: .serif))
                         .foregroundStyle(VColor.contentDefault)
                     Text("You have an assistant on the hosted platform")
-                        .font(.system(size: 14))
+                        .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentSecondary)
                 } else {
                     Text("Something went wrong")
@@ -164,7 +164,7 @@ struct HatchingStepView: View {
                         .foregroundStyle(VColor.contentDefault)
                     if let reason = failureReason {
                         Text(reason)
-                            .font(.system(size: 14))
+                            .font(VFont.bodyMediumDefault)
                             .foregroundStyle(VColor.contentSecondary)
                             .textSelection(.enabled)
                     }
@@ -182,7 +182,7 @@ struct HatchingStepView: View {
                     .font(.system(size: 24, weight: .regular, design: .serif))
                     .foregroundStyle(VColor.contentDefault)
                 Text("Hang tight \u{2014} your assistant will have a few\nquestions for you once it\u{2019}s up.")
-                    .font(.system(size: 13))
+                    .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentTertiary)
                     .multilineTextAlignment(.center)
             }
@@ -203,6 +203,7 @@ struct HatchingStepView: View {
             TimelineView(.animation) { context in
                 ProgressView(value: progressValue(at: context.date))
                     .progressViewStyle(.linear)
+                    .tint(VColor.primaryBase)
                     .frame(maxWidth: 240)
             }
             if let label = state.hatchStepLabel {
