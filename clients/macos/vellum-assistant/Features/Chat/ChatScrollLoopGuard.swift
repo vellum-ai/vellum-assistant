@@ -12,11 +12,7 @@ import Foundation
 /// `os.Logger` and `ChatDiagnosticsStore`.
 ///
 /// **Thresholds:**
-/// - More than 40 `anchorPreferenceChange` events in 2 seconds
 /// - More than 15 `scrollToRequested` events in 2 seconds
-/// - More than 50 `avatarFollowerUpdate` events in 2 seconds
-/// - More than 30 `avatarDisplayYApplied` events in 2 seconds
-/// - More than 60 `tailAnchorPreferenceChange` events in 2 seconds
 /// - More than 40 `bodyEvaluation` events in 2 seconds
 ///
 /// Once tripped, the guard emits at most one aggregate warning per cooldown
@@ -27,13 +23,9 @@ final class ChatScrollLoopGuard {
     // MARK: - Event Kinds
 
     enum EventKind: String, CaseIterable {
-        case anchorPreferenceChange
         case scrollToRequested
         case repinAttempt
         case suppressionFlip
-        case avatarFollowerUpdate
-        case avatarDisplayYApplied
-        case tailAnchorPreferenceChange
         case bodyEvaluation
     }
 
@@ -52,20 +44,8 @@ final class ChatScrollLoopGuard {
 
     // MARK: - Thresholds (explicit constants)
 
-    /// Maximum anchor preference change events allowed in the detection window.
-    static let anchorThreshold: Int = 40
-
     /// Maximum scrollTo requests allowed in the detection window.
     static let scrollToThreshold: Int = 15
-
-    /// Maximum updateAvatarFollower() calls allowed in the detection window.
-    static let avatarFollowerThreshold: Int = 50
-
-    /// Maximum applyAvatarDisplayY() @State mutations allowed in the detection window.
-    static let avatarApplyThreshold: Int = 30
-
-    /// Maximum ConversationTailAnchorYKey preference fires allowed in the detection window.
-    static let tailAnchorThreshold: Int = 60
 
     /// Maximum body evaluations allowed in the detection window.
     static let bodyEvaluationThreshold: Int = 40
@@ -76,6 +56,11 @@ final class ChatScrollLoopGuard {
     /// After tripping, the guard suppresses further warnings for this duration.
     /// The guard re-arms only after a full quiet window elapses with no events.
     static let cooldownDuration: TimeInterval = 2.0
+
+    /// After the guard trips and cooldown expires with no events for this duration,
+    /// the auto-recovery mechanism schedules a single deferred re-pin attempt.
+    /// This prevents the UI from getting stuck in a "never scrolls again" state.
+    static let autoRecoveryDelay: TimeInterval = 1.0
 
     // MARK: - Internal State
 
@@ -91,11 +76,19 @@ final class ChatScrollLoopGuard {
 
         /// Whether the guard is currently in cooldown (suppressing warnings).
         var inCooldown: Bool = false
+
+        /// Whether the guard has tripped and needs a recovery re-pin once
+        /// cooldown expires. Set to `true` when tripping, cleared when recovery fires.
+        var needsRecoveryRepin: Bool = false
     }
 
     private var states: [String: ConversationState] = [:]
 
     // MARK: - Public API
+
+    /// Callback invoked when the guard recovers from a trip and a re-pin
+    /// should be attempted. Set by the coordinator during configuration.
+    var onRecoveryNeeded: ((_ conversationId: String) -> Void)?
 
     /// Records an event and returns an aggregate snapshot if the guard trips.
     ///
@@ -126,6 +119,16 @@ final class ChatScrollLoopGuard {
         if state.inCooldown, let lastEvent = state.lastEventTime {
             if timestamp - lastEvent >= Self.cooldownDuration {
                 state.inCooldown = false
+                // Auto-recovery: when cooldown expires, schedule a single re-pin
+                // attempt so the UI doesn't get stuck in a "never scrolls" state.
+                if state.needsRecoveryRepin {
+                    state.needsRecoveryRepin = false
+                    // Save state before firing the callback (callback may re-enter).
+                    states[conversationId] = state
+                    onRecoveryNeeded?(conversationId)
+                    // Re-read in case the callback mutated state.
+                    state = states[conversationId] ?? state
+                }
             }
         }
 
@@ -133,24 +136,12 @@ final class ChatScrollLoopGuard {
         state.lastEventTime = timestamp
 
         // Check thresholds.
-        let anchorCount = state.events[.anchorPreferenceChange]?.count ?? 0
         let scrollToCount = state.events[.scrollToRequested]?.count ?? 0
-        let avatarFollowerCount = state.events[.avatarFollowerUpdate]?.count ?? 0
-        let avatarApplyCount = state.events[.avatarDisplayYApplied]?.count ?? 0
-        let tailAnchorCount = state.events[.tailAnchorPreferenceChange]?.count ?? 0
         let bodyEvalCount = state.events[.bodyEvaluation]?.count ?? 0
 
         var trippedBy: EventKind?
-        if anchorCount > Self.anchorThreshold {
-            trippedBy = .anchorPreferenceChange
-        } else if scrollToCount > Self.scrollToThreshold {
+        if scrollToCount > Self.scrollToThreshold {
             trippedBy = .scrollToRequested
-        } else if avatarFollowerCount > Self.avatarFollowerThreshold {
-            trippedBy = .avatarFollowerUpdate
-        } else if avatarApplyCount > Self.avatarApplyThreshold {
-            trippedBy = .avatarDisplayYApplied
-        } else if tailAnchorCount > Self.tailAnchorThreshold {
-            trippedBy = .tailAnchorPreferenceChange
         } else if bodyEvalCount > Self.bodyEvaluationThreshold {
             trippedBy = .bodyEvaluation
         }
@@ -158,7 +149,8 @@ final class ChatScrollLoopGuard {
         var snapshot: AggregateSnapshot?
 
         if let trippedKind = trippedBy, !state.inCooldown {
-            // Build the aggregate counts for all event kinds.
+            // Build the aggregate counts for all event kinds — full histogram
+            // for post-mortem analysis, not just the triggering event kind.
             var counts: [EventKind: Int] = [:]
             for eventKind in EventKind.allCases {
                 let count = state.events[eventKind]?.count ?? 0
@@ -177,6 +169,7 @@ final class ChatScrollLoopGuard {
 
             state.lastTripTime = timestamp
             state.inCooldown = true
+            state.needsRecoveryRepin = true
         }
 
         states[conversationId] = state

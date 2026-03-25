@@ -14,6 +14,7 @@
     "daemon:restart:http": "RUNTIME_HTTP_PORT=7821 bun run src/index.ts daemon restart",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
+    "generate:openapi": "bun run scripts/generate-openapi.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint",

@@ -136,10 +136,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:airtable --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:airtable
 ```
 
 ---
@@ -151,10 +148,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:airtable --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ))" "https://api.airtable.com/v0/meta/whoami" | python3 -m json.tool
+    assistant oauth ping integration:airtable
 ```
 
 **On success:** "Airtable is connected! You can now ask me to read and update records in your Airtable bases."

@@ -69,7 +69,9 @@ struct AppSharePanel: NSViewRepresentable {
                 onDismiss()
                 return
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                guard !Task.isCancelled else { return }
                 self?.presentWhenReady(nsView: nsView, attempt: attempt + 1, onDismiss: onDismiss)
             }
         }

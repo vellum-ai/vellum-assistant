@@ -4,6 +4,8 @@
 
 import { statSync } from "node:fs";
 
+import { z } from "zod";
+
 import { getConfig } from "../../config/loader.js";
 import { countConversations } from "../../memory/conversation-queries.js";
 import { rawAll } from "../../memory/db.js";
@@ -93,7 +95,28 @@ export function debugRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "debug",
       method: "GET",
+      summary: "Debug introspection",
+      description:
+        "Return runtime diagnostics: uptime, provider info, memory stats, job counts, and schedule counts.",
+      tags: ["debug"],
       handler: () => handleDebug(),
+      responseBody: z.object({
+        session: z.object({}).passthrough().describe("Uptime and start time"),
+        provider: z
+          .object({})
+          .passthrough()
+          .describe("Inference provider configuration"),
+        memory: z
+          .object({})
+          .passthrough()
+          .describe("Conversation and memory item counts"),
+        jobs: z.object({}).passthrough().describe("Background job counts"),
+        schedules: z
+          .object({})
+          .passthrough()
+          .describe("Schedule counts (total, enabled)"),
+        timestamp: z.string().describe("Current server timestamp (ISO 8601)"),
+      }),
     },
   ];
 }

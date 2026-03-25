@@ -113,10 +113,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:figma --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:figma
 ```
 
 Send the returned auth URL to the user. Tell them to click **Allow access** on the Figma consent page.

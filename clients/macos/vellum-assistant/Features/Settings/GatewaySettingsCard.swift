@@ -25,12 +25,12 @@ struct GatewaySettingsCard: View {
                 // Local Gateway Target (read-only copyable address)
                 Text("Local Gateway Target")
                     .font(VFont.bodySmallDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
 
                 HStack(spacing: VSpacing.sm) {
                     Text(store.localGatewayTarget)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                         .textSelection(.enabled)
                         .padding(.horizontal, VSpacing.md)
                         .padding(.vertical, VSpacing.xs)
@@ -53,7 +53,7 @@ struct GatewaySettingsCard: View {
                         }
                     } label: {
                         VIconView(gatewayTargetCopied ? .check : .copy, size: 12)
-                            .foregroundColor(gatewayTargetCopied ? VColor.systemPositiveStrong : VColor.contentSecondary)
+                            .foregroundStyle(gatewayTargetCopied ? VColor.systemPositiveStrong : VColor.contentSecondary)
                             .frame(width: 28, height: 28)
                             .contentShape(Rectangle())
                     }
@@ -79,19 +79,19 @@ struct GatewaySettingsCard: View {
 
                 Text("Point your tunnel (ngrok, Cloudflare, etc.) to this address.")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
             }
 
             // Gateway URL field
             Text("Gateway URL")
                 .font(VFont.bodySmallDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             if isManaged {
                 // For managed assistants, show the gateway URL as read-only
                 Text(store.localGatewayTarget)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .textSelection(.enabled)
                     .padding(.horizontal, VSpacing.md)
                     .padding(.vertical, VSpacing.xs)
@@ -135,10 +135,10 @@ struct GatewaySettingsCard: View {
                    store.ingressReachable == false {
                     HStack(spacing: VSpacing.sm) {
                         VIconView(.triangleAlert, size: 12)
-                            .foregroundColor(VColor.systemNegativeHover)
+                            .foregroundStyle(VColor.systemNegativeHover)
                         Text("Gateway is running but tunnel is unreachable. Check your tunnel configuration.")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.systemNegativeHover)
+                            .foregroundStyle(VColor.systemNegativeHover)
                     }
                 }
             }

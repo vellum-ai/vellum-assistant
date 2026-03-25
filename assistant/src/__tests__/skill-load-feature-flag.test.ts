@@ -17,7 +17,7 @@ const TEST_DIR = join(
 let currentConfig: Record<string, unknown> = {};
 
 const DECLARED_SKILL_ID = "contacts";
-const DECLARED_FLAG_KEY = "feature_flags.contacts.enabled";
+const DECLARED_FLAG_KEY = "contacts";
 
 const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   getRootDir: () => TEST_DIR,

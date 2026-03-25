@@ -52,6 +52,7 @@ final class ConversationRestorer {
     private let conversationHistoryClient: any ConversationHistoryClientProtocol
     private var connectionCancellable: AnyCancellable?
     private var disconnectCancellable: AnyCancellable?
+    private var fetchConversationListTask: Task<Void, Never>?
 
     weak var delegate: ConversationRestorerDelegate?
 
@@ -59,6 +60,10 @@ final class ConversationRestorer {
         self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.conversationHistoryClient = conversationHistoryClient
+    }
+
+    deinit {
+        fetchConversationListTask?.cancel()
     }
 
     func startObserving(skipInitialFetch: Bool = false) {
@@ -107,6 +112,8 @@ final class ConversationRestorer {
         guard let viewModel = delegate.chatViewModel(for: localId) else { return }
         guard !viewModel.isHistoryLoaded else { return }
 
+        // Skip if a fetch is already in flight for this conversation.
+        guard pendingHistoryByConversationId[conversationId] == nil else { return }
         pendingHistoryByConversationId[conversationId] = localId
 
         // Wire up the "load more" callback so the view model can request
@@ -115,14 +122,28 @@ final class ConversationRestorer {
             self?.requestPaginatedHistory(conversationId: conversationId, beforeTimestamp: beforeTimestamp)
         }
 
+        let retryDelays: [UInt64] = [500_000_000, 2_000_000_000] // 0.5s, then 2s
         Task { [weak self] in
             guard let self else { return }
-            let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: nil, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
-            if let response {
-                self.handleHistoryResponse(response)
-            } else {
-                self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
+            let maxAttempts = retryDelays.count + 1
+            for attempt in 1...maxAttempts {
+                let response = await self.conversationHistoryClient.fetchHistory(conversationId: conversationId, limit: 50, beforeTimestamp: nil, mode: "light", maxTextChars: nil, maxToolResultChars: 1000)
+                if let response {
+                    self.handleHistoryResponse(response)
+                    return
+                }
+                if attempt < maxAttempts {
+                    let delay = retryDelays[attempt - 1]
+                    log.warning("History fetch attempt \(attempt) of \(maxAttempts) for conversation \(conversationId) failed, retrying in \(Double(delay) / 1_000_000_000)s...")
+                    try? await Task.sleep(nanoseconds: delay)
+                    guard !Task.isCancelled else {
+                        self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
+                        return
+                    }
+                }
             }
+            log.error("All \(maxAttempts) history fetch attempts failed for conversation \(conversationId)")
+            self.pendingHistoryByConversationId.removeValue(forKey: conversationId)
         }
     }
 
@@ -323,13 +344,24 @@ final class ConversationRestorer {
     // MARK: - Private
 
     private func fetchConversationList() {
-        Task { [weak self] in
+        fetchConversationListTask = Task { [weak self] in
             guard let self else { return }
-            if let response = await conversationListClient.fetchConversationList(offset: 0, limit: 50) {
-                self.handleConversationListResponse(response)
-            } else {
-                self.delegate?.restoreLastActiveConversation()
+            // Cap at 2 attempts to limit worst-case restore delay (~32s with 15s
+            // per-request timeout) while still covering the daemon restart race.
+            let maxAttempts = 2
+            for attempt in 1...maxAttempts {
+                if let response = await conversationListClient.fetchConversationList(offset: 0, limit: 50) {
+                    self.handleConversationListResponse(response)
+                    return
+                }
+                if attempt < maxAttempts {
+                    log.warning("Conversation list fetch attempt \(attempt) of \(maxAttempts) failed, retrying in 2 seconds...")
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard !Task.isCancelled else { return }
+                }
             }
+            log.warning("All \(maxAttempts) conversation list fetch attempts failed, falling back to last active conversation")
+            self.delegate?.restoreLastActiveConversation()
         }
     }
 }

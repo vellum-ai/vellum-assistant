@@ -9,6 +9,8 @@
  * PATCH  /v1/contact-channels/:contactChannelId — update a contact channel's status/policy
  */
 
+import { z } from "zod";
+
 import {
   deleteContact,
   getAssistantContactMetadata,
@@ -417,22 +419,82 @@ export function contactRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "contacts",
       method: "GET",
+      summary: "List contacts",
+      description:
+        "Return all contacts, optionally filtered by type or channel status.",
+      tags: ["contacts"],
+      responseBody: z.object({
+        ok: z.boolean(),
+        contacts: z
+          .array(z.unknown())
+          .describe("Contact objects with channels and metadata"),
+      }),
       handler: ({ url }) => handleListContacts(url),
     },
     {
       endpoint: "contacts",
       method: "POST",
+      summary: "Create or update a contact",
+      description:
+        "Create a new contact or update an existing one. Supports upsert by contactId or channel handle.",
+      tags: ["contacts"],
+      requestBody: z.object({
+        contactId: z.string().describe("Existing contact ID (for update)"),
+        displayName: z.string().describe("Display name"),
+        channels: z
+          .array(z.unknown())
+          .describe("Channel objects with channelId, handle, displayName"),
+        assistantMetadata: z
+          .object({})
+          .passthrough()
+          .describe("Assistant-side metadata"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+        contact: z
+          .object({})
+          .passthrough()
+          .describe("Created or updated contact"),
+      }),
       handler: async ({ req }) => handleUpsertContact(req),
     },
     {
       endpoint: "contacts/merge",
       method: "POST",
+      summary: "Merge two contacts",
+      description: "Merge two contacts, keeping one and absorbing the other.",
+      tags: ["contacts"],
+      requestBody: z.object({
+        keepId: z.string().describe("ID of the contact to keep"),
+        mergeId: z
+          .string()
+          .describe("ID of the contact to merge into the kept one"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+        contact: z.object({}).passthrough().describe("Merged contact"),
+      }),
       handler: async ({ req }) => handleMergeContacts(req),
     },
     {
       endpoint: "contact-channels/:contactChannelId",
       method: "PATCH",
       policyKey: "contact-channels",
+      summary: "Update a contact channel",
+      description: "Update status, policy, or reason on a contact's channel.",
+      tags: ["contacts"],
+      requestBody: z.object({
+        status: z.string().describe("Channel status"),
+        policy: z.string().describe("Channel policy"),
+        reason: z.string().describe("Reason for the change"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+        contact: z
+          .object({})
+          .passthrough()
+          .describe("Updated contact (if applicable)"),
+      }),
       handler: async ({ req, params }) =>
         handleUpdateContactChannel(req, params.contactChannelId),
     },
@@ -450,12 +512,27 @@ export function contactCatchAllRouteDefinitions(): RouteDefinition[] {
       endpoint: "contacts/:id",
       method: "GET",
       policyKey: "contacts",
+      summary: "Get a contact",
+      description:
+        "Return a single contact with its channels and assistant metadata.",
+      tags: ["contacts"],
+      responseBody: z.object({
+        ok: z.boolean(),
+        contact: z.object({}).passthrough().describe("Contact details"),
+        assistantMetadata: z
+          .object({})
+          .passthrough()
+          .describe("Assistant-side metadata"),
+      }),
       handler: ({ params }) => handleGetContact(params.id),
     },
     {
       endpoint: "contacts/:id",
       method: "DELETE",
       policyKey: "contacts",
+      summary: "Delete a contact",
+      description: "Delete a contact by ID.",
+      tags: ["contacts"],
       handler: ({ params }) => handleDeleteContact(params.id),
     },
   ];

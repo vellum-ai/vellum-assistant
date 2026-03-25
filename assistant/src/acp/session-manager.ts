@@ -169,8 +169,11 @@ export class AcpSessionManager {
       );
     }
 
-    // Cancel any in-flight prompt before starting a new one
+    // Cancel any in-flight prompt before starting a new one.
+    // Clear currentPrompt BEFORE awaiting cancel so the old prompt's
+    // catch handler sees currentPrompt !== promptPromise and skips teardown.
     if (entry.currentPrompt) {
+      entry.currentPrompt = null;
       try {
         await entry.process.cancel(entry.state.acpSessionId);
       } catch (err) {
@@ -179,7 +182,6 @@ export class AcpSessionManager {
           "Failed to cancel in-flight prompt before steer",
         );
       }
-      entry.currentPrompt = null;
     }
 
     // Fire new prompt in the background with event handlers
@@ -212,8 +214,13 @@ export class AcpSessionManager {
     if (!entry) {
       throw new Error(`ACP session "${acpSessionId}" not found`);
     }
-    // Auto-deny pending ACP permission requests for THIS session only,
-    // so other sessions on the same parent conversation are unaffected.
+    this.teardownSession(acpSessionId, entry);
+  }
+
+  /**
+   * Denies pending ACP permissions, kills the process, and removes the session.
+   */
+  private teardownSession(acpSessionId: string, entry: SessionEntry): void {
     for (const requestId of entry.clientHandler.pendingRequestIds) {
       const interaction = pendingInteractions.resolve(requestId);
       if (interaction?.directResolve) {
@@ -283,6 +290,10 @@ export class AcpSessionManager {
             stopReason: response.stopReason,
           });
 
+          // Free the session slot, deny any pending permissions, and
+          // kill the agent process.
+          this.teardownSession(acpSessionId, current);
+
           // Notify parent session so the LLM sees the agent's output
           if (this.onAcpSessionFinished) {
             const agentLabel = current.state.agentId;
@@ -321,6 +332,9 @@ export class AcpSessionManager {
             acpSessionId,
             error: err.message,
           });
+
+          // Free the session slot and deny any pending permissions.
+          this.teardownSession(acpSessionId, current);
         }
       });
 

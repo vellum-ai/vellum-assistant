@@ -5,6 +5,7 @@
  */
 
 import { and, desc, eq, inArray, like } from "drizzle-orm";
+import { z } from "zod";
 
 import { getDb } from "../../memory/db.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
@@ -199,7 +200,35 @@ export function conversationStarterRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "conversation-starters",
       method: "GET",
+      summary: "List conversation starters",
+      description:
+        "Return conversation starter chips, ordered for category diversity.",
+      tags: ["conversation-starters"],
       handler: (ctx) => handleListConversationStarters(ctx.url),
+      queryParams: [
+        {
+          name: "limit",
+          schema: { type: "integer" },
+          description: "Max starters to return (1–20, default 4)",
+        },
+        {
+          name: "offset",
+          schema: { type: "integer" },
+          description: "Pagination offset (default 0)",
+        },
+        {
+          name: "scope_id",
+          schema: { type: "string" },
+          description: 'Scope ID (default "default")',
+        },
+      ],
+      responseBody: z.object({
+        starters: z
+          .array(z.unknown())
+          .describe("Ordered list of starter chips"),
+        total: z.number().int().describe("Total number of available starters"),
+        status: z.string().describe("One of: ready, empty, generating"),
+      }),
     },
   ];
 }

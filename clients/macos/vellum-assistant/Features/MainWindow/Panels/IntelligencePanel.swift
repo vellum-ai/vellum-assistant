@@ -18,8 +18,8 @@ struct IntelligencePanel: View {
     @State private var cachedAssistantName: String = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
     @State private var isContactsEnabled: Bool = false
     @State private var isEmailEnabled: Bool = false
-    private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
-    private static let emailFeatureFlagKey = "feature_flags.email-channel.enabled"
+    private static let contactsFeatureFlagKey = "contacts"
+    private static let emailFeatureFlagKey = "email-channel"
 
     init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
@@ -50,23 +50,16 @@ struct IntelligencePanel: View {
             HStack(alignment: .center) {
                 Text("About \(cachedAssistantName)")
                     .font(VFont.titleLarge)
-                    .foregroundColor(VColor.contentEmphasized)
+                    .foregroundStyle(VColor.contentEmphasized)
                 Spacer()
             }
-            .padding(.bottom, VSpacing.md)
+            .padding(.bottom, VSpacing.lg)
 
             // Tab bar
-            VStack(spacing: 0) {
-                HStack(spacing: VSpacing.xl) {
-                    ForEach(visibleTabs, id: \.self) { tab in
-                        tabButton(tab.rawValue, tab: tab)
-                    }
-                    Spacer()
-                }
-
-                Divider().background(VColor.borderDisabled)
-            }
-            .padding(.top, VSpacing.md)
+            VTabs(
+                items: visibleTabs.map { (label: $0.rawValue, tag: $0) },
+                selection: $selectedTab
+            )
             .padding(.bottom, VSpacing.md)
 
             // Tab content
@@ -127,30 +120,6 @@ struct IntelligencePanel: View {
         }
     }
 
-    // MARK: - Tab Button
-
-    @ViewBuilder
-    private func tabButton(_ label: String, tab: IntelligenceTab) -> some View {
-        let isActive = selectedTab == tab
-        Button {
-            withAnimation(VAnimation.fast) { selectedTab = tab }
-        } label: {
-            VStack(spacing: VSpacing.sm) {
-                Text(label)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundColor(isActive ? VColor.primaryActive : VColor.contentSecondary)
-                    .padding(.bottom, VSpacing.xs)
-
-                Rectangle()
-                    .fill(isActive ? VColor.borderActive : Color.clear)
-                    .frame(height: 2)
-            }
-            .fixedSize()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .pointerCursor()
-    }
 
     // MARK: - Tab Content
 
@@ -175,7 +144,7 @@ struct IntelligencePanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .workspace:
-            WorkspacePanel(connectionManager: connectionManager)
+            WorkspacePanel()
                 .padding(.top, VSpacing.sm)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 

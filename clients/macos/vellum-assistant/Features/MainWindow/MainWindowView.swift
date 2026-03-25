@@ -9,8 +9,8 @@ extension Notification.Name {
 
 struct MainWindowView: View {
     @ObservedObject var conversationManager: ConversationManager
-    @ObservedObject var appListManager: AppListManager
-    var zoomManager: ZoomManager
+    let appListManager: AppListManager
+    let zoomManager: ZoomManager
     /// Plain `let` instead of `@ObservedObject` so SwiftUI doesn't observe
     /// TraceStore mutations when the DebugPanel isn't visible. DebugPanel
     /// itself uses `@ObservedObject` and is only instantiated when shown.
@@ -51,7 +51,7 @@ struct MainWindowView: View {
     let ambientAgent: AmbientAgent
     let settingsStore: SettingsStore
     let authManager: AuthManager
-    @ObservedObject var documentManager: DocumentManager
+    let documentManager: DocumentManager
     let onMicrophoneToggle: () -> Void
     @ObservedObject var voiceModeManager: VoiceModeManager
     @ObservedObject var updateManager: UpdateManager
@@ -399,7 +399,7 @@ struct MainWindowView: View {
                 onRetry: { rewakeAssistant() },
                 onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .appCrash) }
             )
-            .transition(.opacity)
+            .transition(.identity)
         }
     }
 
@@ -513,14 +513,11 @@ struct MainWindowView: View {
                     onOpenForkParent: { openForkParentConversation() },
                     showDrawer: $showConversationActionsDrawer
                 )
-                .background(GeometryReader { proxy in
-                    Color.clear.onAppear {
-                        conversationTitleFrame = proxy.frame(in: .named("coreLayout"))
-                    }
-                    .onChange(of: proxy.frame(in: .named("coreLayout"))) { _, newFrame in
-                        conversationTitleFrame = newFrame
-                    }
-                })
+                .onGeometryChange(for: CGRect.self) { proxy in
+                    proxy.frame(in: .named("coreLayout"))
+                } action: { newFrame in
+                    conversationTitleFrame = newFrame
+                }
                 // Shift the title right so it centers above the chat content area
                 // (not the full window). Content starts after outer padding (16) +
                 // sidebar + spacing (16), so its center is offset from the window
@@ -908,8 +905,11 @@ struct MainWindowView: View {
         // and the sidebar shows no active highlight.
         // Clear it when entering draft mode (nil) so no conversation appears active.
         windowState.persistentConversationId = newId
-        if case .panel(.intelligence) = windowState.selection {
+        switch windowState.selection {
+        case .panel(.intelligence), .panel(.documentEditor):
             windowState.selection = nil
+        default:
+            break
         }
         windowState.selectedSubagentId = nil
         if let oldId {
@@ -1107,15 +1107,18 @@ struct MainWindowView: View {
             topBarView
 
             // Main container: sidebar + content with uniform padding
-            HStack(spacing: 16) {
-                if !isSettingsOpen {
-                    sidebarView
-                        .animation(VAnimation.panel, value: sidebarExpanded)
-                }
+            HStack(spacing: 0) {
+                sidebarView
+                    .frame(width: isSettingsOpen ? 0 : (sidebarExpanded ? sidebarExpandedWidth : sidebarCollapsedWidth))
+                    .clipped()
+                    .opacity(isSettingsOpen ? 0 : 1)
+                    .allowsHitTesting(!isSettingsOpen)
+                    .padding(.trailing, isSettingsOpen ? 0 : 16)
+                    .animation(VAnimation.panel, value: sidebarExpanded)
+                    .animation(VAnimation.panel, value: isSettingsOpen)
 
                 chatContentView(geometry: geometry)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                    .animation(VAnimation.panel, value: sidebarExpanded)
                     .overlay {
                         assistantLoadingOverlayIfNeeded
                     }
@@ -1233,6 +1236,7 @@ struct MainWindowView: View {
             )
             .frame(width: drawerWidth)
             .offset(x: 16 + VSpacing.sm, y: -drawerY)
+            .animation(VAnimation.snappy, value: sidebarExpanded)
             .zIndex(10)
             .transition(.scale(scale: 0.96, anchor: .bottom).combined(with: .opacity))
         }
@@ -1288,7 +1292,7 @@ struct MainWindowView: View {
 /// the correct conversation's ViewModel — even if the user switches conversations while a
 /// toast is visible.
 private struct ErrorToastOverlay: View {
-    @ObservedObject var errorManager: ChatErrorManager
+    let errorManager: ChatErrorManager
     let onOpenModelsAndServices: () -> Void
     let onRetryConversationError: () -> Void
     let onCopyDebugInfo: () -> Void

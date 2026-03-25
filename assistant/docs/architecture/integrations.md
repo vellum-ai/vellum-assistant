@@ -50,14 +50,7 @@ graph TB
 
     subgraph "Slack Skill (bundled-skills/slack/)"
         SLACK_SKILL_MD["SKILL.md<br/>agent instructions"]
-        SLACK_SCAN["slack_scan_digest"]
-        SLACK_DETAILS["slack_channel_details"]
-        SLACK_CONFIGURE["slack_configure_channels"]
-        SLACK_REACT["slack_add_reaction"]
-        SLACK_DELETE["slack_delete_message"]
-        SLACK_EDIT["slack_edit_message"]
-        SLACK_LEAVE["slack_leave_channel"]
-        SLACK_PERMS["slack_channel_permissions"]
+        SLACK_WEB_API["Web API via bash<br/>(network_mode: proxied)"]
     end
 
     subgraph "Sequences Skill (bundled-skills/sequences/)"
@@ -107,7 +100,7 @@ graph TB
     SEND --> SHARED
     STYLE --> STYLE_ANALYZER
     GMAIL_ARCHIVE --> GMAIL_ADAPTER
-    SLACK_REACT --> SLACK_ADAPTER
+    SLACK_WEB_API --> SLACK_API
 ```
 
 ### Data Flow
@@ -173,7 +166,7 @@ sequenceDiagram
 
 | Decision                                   | Rationale                                                                                                                                                                                                                                        |
 | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| PKCE by default, optional client_secret    | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in the credential store (`oauth_app/{id}/client_secret`) for autonomous refresh                                                                                |
+| PKCE by default, optional client_secret    | Desktop apps prefer PKCE; some providers (Slack) require a secret, which is stored in the credential store (`oauth_app/{id}/client_secret`) for autonomous refresh                                                                               |
 | Shared connect orchestrator                | All OAuth providers route through `orchestrateOAuthConnect()`, which resolves profiles, enforces scope policy, runs the flow, stores tokens, and verifies identity. Adding a provider is a declarative profile entry, not new orchestration code |
 | Canonical credential naming                | All reads and writes use `client_id`/`client_secret` as canonical field names                                                                                                                                                                    |
 | Gateway callback transport                 | OAuth callbacks are now routed through the gateway at `${ingress.publicBaseUrl}/webhooks/oauth/callback` instead of a loopback redirect URI. This enables OAuth flows to work in remote and tunneled deployments.                                |

@@ -8,6 +8,7 @@
  * - channel-guardian-routes.ts — guardian approval interception, expiry sweep
  */
 
+import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { RouteDefinition } from "../http-router.js";
 import type {
   ApprovalConversationGenerator,
@@ -53,17 +54,24 @@ export function channelRouteDefinitions(deps: {
   approvalConversationGenerator?: ApprovalConversationGenerator;
   guardianActionCopyGenerator?: GuardianActionCopyGenerator;
   guardianFollowUpConversationGenerator?: GuardianFollowUpConversationGenerator;
+  getHeartbeatService?: () => HeartbeatService | undefined;
 }): RouteDefinition[] {
   return [
     {
       endpoint: "channels/conversation",
       method: "DELETE",
+      summary: "Delete channel conversation",
+      description: "Delete a conversation by channel source.",
+      tags: ["channels"],
       handler: async ({ req }) =>
         _handleDeleteConversation(req, deps.assistantId),
     },
     {
       endpoint: "channels/inbound",
       method: "POST",
+      summary: "Process inbound channel message",
+      description: "Receive an inbound message from a channel integration.",
+      tags: ["channels"],
       handler: async ({ req }) =>
         _handleChannelInbound(
           req,
@@ -73,21 +81,31 @@ export function channelRouteDefinitions(deps: {
           deps.approvalConversationGenerator,
           deps.guardianActionCopyGenerator,
           deps.guardianFollowUpConversationGenerator,
+          deps.getHeartbeatService?.(),
         ),
     },
     {
       endpoint: "channels/delivery-ack",
       method: "POST",
+      summary: "Acknowledge channel delivery",
+      description: "Acknowledge delivery of a channel message.",
+      tags: ["channels"],
       handler: async ({ req }) => _handleChannelDeliveryAck(req),
     },
     {
       endpoint: "channels/dead-letters",
       method: "GET",
+      summary: "List dead letters",
+      description: "Return undeliverable channel messages.",
+      tags: ["channels"],
       handler: () => _handleListDeadLetters(),
     },
     {
       endpoint: "channels/replay",
       method: "POST",
+      summary: "Replay dead letters",
+      description: "Retry delivery of dead-letter messages.",
+      tags: ["channels"],
       handler: async ({ req }) => _handleReplayDeadLetters(req),
     },
   ];

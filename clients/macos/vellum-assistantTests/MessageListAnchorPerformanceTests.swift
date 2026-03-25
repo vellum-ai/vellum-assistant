@@ -5,7 +5,7 @@ import XCTest
 // MARK: - MessageListView Anchor & Rendering Performance Baselines
 //
 // These tests establish XCTest performance baselines for:
-//   1. AnchorVisibilityTracker hot-path stress (called on every scroll frame)
+//   1. MessageListScrollCoordinator anchor hot-path stress (called on every scroll frame)
 //   2. Large conversation markdown pipeline throughput (cold cache)
 //   3. Attributed string cache hit performance (hot cache)
 //
@@ -13,6 +13,7 @@ import XCTest
 //   swift test --filter MessageListAnchorPerformanceTests  (from clients/macos/)
 // or via Xcode's Test navigator.
 
+@MainActor
 final class MessageListAnchorPerformanceTests: XCTestCase {
 
     // MARK: - Sample Data
@@ -77,29 +78,21 @@ final class MessageListAnchorPerformanceTests: XCTestCase {
     ```
     """
 
-    // MARK: - 1. AnchorVisibilityTracker Rapid-Update Stress Test
+    // MARK: - 1. Coordinator Anchor Rapid-Update Stress Test
 
-    /// Benchmarks calling update(minY:viewportHeight:) and
-    /// updateViewport(height:storedViewportHeight:) 10,000 times each in a
-    /// tight loop. While individually trivial (O(1)), they are called on EVERY
-    /// scroll frame. This test detects if any future refactoring adds overhead.
-    @MainActor
-    func testAnchorVisibilityTrackerRapidUpdateStress() {
-        let tracker = AnchorVisibilityTracker()
-        let viewportHeight: CGFloat = 800.0
+    /// Benchmarks setting `isAtBottom` 10,000 times in a tight loop. While
+    /// individually trivial (O(1)), this mirrors the per-scroll-frame hot path.
+    /// This test detects if any future refactoring adds overhead.
+    func testBottomDetectionRapidUpdateStress() {
+        let coordinator = MessageListScrollCoordinator()
 
         measure(metrics: [XCTClockMetric(), XCTCPUMetric()]) {
-            var storedViewportHeight: CGFloat = 800.0
             for i in 0..<10_000 {
-                // Simulate scrolling: minY varies from well above to well below
-                // the viewport, crossing the visibility boundary frequently.
-                let minY = CGFloat(i % 1600) - 400.0
-                tracker.update(minY: minY, viewportHeight: viewportHeight)
-            }
-            for i in 0..<10_000 {
-                // Simulate viewport resizes mixed with position changes.
-                let height = 600.0 + CGFloat(i % 400)
-                tracker.updateViewport(height: height, storedViewportHeight: &storedViewportHeight)
+                // Simulate scroll position changes: alternate between bottom
+                // anchor and other views to stress isAtBottom updates.
+                // Simulate scroll geometry bottom detection: every 10th
+                // iteration is "at bottom", the rest are not.
+                coordinator.isAtBottom = (i % 10 == 0)
             }
         }
     }

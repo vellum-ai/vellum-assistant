@@ -4,6 +4,8 @@
  * Exposes document CRUD over HTTP, sharing business logic with the
  * handlers in `daemon/handlers/documents.ts`.
  */
+import { z } from "zod";
+
 import { rawAll, rawGet, rawRun } from "../../memory/db.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
@@ -161,6 +163,19 @@ export function documentRouteDefinitions(): RouteDefinition[] {
       endpoint: "documents",
       method: "GET",
       policyKey: "documents",
+      summary: "List documents",
+      description: "Return all documents, optionally filtered by conversation.",
+      tags: ["documents"],
+      queryParams: [
+        {
+          name: "conversationId",
+          schema: { type: "string" },
+          description: "Filter by conversation ID",
+        },
+      ],
+      responseBody: z.object({
+        documents: z.array(z.unknown()).describe("Document summary objects"),
+      }),
       handler: ({ url }) => {
         const conversationId =
           url.searchParams.get("conversationId") ?? undefined;
@@ -172,6 +187,19 @@ export function documentRouteDefinitions(): RouteDefinition[] {
       endpoint: "documents/:id",
       method: "GET",
       policyKey: "documents",
+      summary: "Get a document",
+      description: "Return a single document by surface ID.",
+      tags: ["documents"],
+      responseBody: z.object({
+        success: z.boolean(),
+        surfaceId: z.string(),
+        conversationId: z.string(),
+        title: z.string(),
+        content: z.string(),
+        wordCount: z.number(),
+        createdAt: z.number(),
+        updatedAt: z.number(),
+      }),
       handler: ({ params }) => {
         const result = loadDocument(params.id);
         if (!result.success) {
@@ -184,6 +212,20 @@ export function documentRouteDefinitions(): RouteDefinition[] {
       endpoint: "documents",
       method: "POST",
       policyKey: "documents",
+      summary: "Save a document",
+      description: "Create or upsert a document (by surfaceId).",
+      tags: ["documents"],
+      requestBody: z.object({
+        surfaceId: z.string().describe("Surface ID (unique key)"),
+        conversationId: z.string().describe("Owning conversation"),
+        title: z.string().describe("Document title"),
+        content: z.string().describe("Document content"),
+        wordCount: z.number().describe("Word count"),
+      }),
+      responseBody: z.object({
+        success: z.boolean(),
+        surfaceId: z.string(),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           surfaceId?: string;

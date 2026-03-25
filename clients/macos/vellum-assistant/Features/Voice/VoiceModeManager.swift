@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import Observation
 import VellumAssistantShared
 import os
 
@@ -56,8 +57,8 @@ final class VoiceModeManager: ObservableObject {
     private var messageCancellable: AnyCancellable?
     /// Combine subscription to pause/resume conversation timeout during tool execution.
     private var isThinkingCancellable: AnyCancellable?
-    /// Combine subscription forwarding live partial transcription from the voice service.
-    private var liveTranscriptionCancellable: AnyCancellable?
+    /// Generation counter controlling the lifetime of the voice-service observation loop.
+    private var voiceObservationGeneration: Int = 0
 
     init(voiceService: any VoiceServiceProtocol = OpenAIVoiceService()) {
         self.voiceService = voiceService
@@ -144,14 +145,7 @@ final class VoiceModeManager: ObservableObject {
             }
 
         // Forward live partial transcription when listening
-        if let openAI = voiceService as? OpenAIVoiceService {
-            liveTranscriptionCancellable = openAI.$livePartialText
-                .receive(on: DispatchQueue.main)
-                .sink { [weak self] text in
-                    guard let self, self.state == .listening else { return }
-                    self.liveTranscription = text
-                }
-        }
+        startVoiceServiceObservation()
 
         // Pre-warm audio engine so first recording starts instantly
         voiceService.prewarmEngine()
@@ -208,8 +202,7 @@ final class VoiceModeManager: ObservableObject {
         messageCancellable = nil
         isThinkingCancellable?.cancel()
         isThinkingCancellable = nil
-        liveTranscriptionCancellable?.cancel()
-        liveTranscriptionCancellable = nil
+        stopVoiceServiceObservation()
         pendingPermissionIds = []
 
         chatViewModel = nil
@@ -576,6 +569,41 @@ final class VoiceModeManager: ObservableObject {
                 self.voiceService.stopBargeInMonitor()
                 self.state = .idle
                 self.startListening()
+            }
+        }
+    }
+
+    // MARK: - Voice Service Observation
+
+    /// Start observing the voice service's livePartialText. Called during activation.
+    private func startVoiceServiceObservation() {
+        voiceObservationGeneration += 1
+        observeVoiceServiceLoop(generation: voiceObservationGeneration)
+    }
+
+    /// Stop observing. Called from deactivate().
+    private func stopVoiceServiceObservation() {
+        voiceObservationGeneration += 1  // invalidates any in-flight re-arm
+    }
+
+    private func observeVoiceServiceLoop(generation: Int) {
+        guard generation == voiceObservationGeneration,
+              let service = openAIVoiceService else { return }
+        withObservationTracking {
+            _ = service.livePartialText
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self,
+                      generation == self.voiceObservationGeneration else { return }
+                // Only update liveTranscription while actively listening.
+                // Always re-arm so the loop survives state transitions
+                // (e.g., .processing clears partial text but we need to
+                // keep observing for the next .listening turn).
+                if self.state == .listening,
+                   let service = self.openAIVoiceService {
+                    self.liveTranscription = service.livePartialText
+                }
+                self.observeVoiceServiceLoop(generation: generation) // re-arm
             }
         }
     }

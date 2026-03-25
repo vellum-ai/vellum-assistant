@@ -350,6 +350,129 @@ describe("AcpSessionManager", () => {
     });
   });
 
+  describe("session cleanup after prompt", () => {
+    test("completed session is removed from the session map", async () => {
+      let resolvePrompt: (v: { stopReason: string }) => void;
+      const promptPromise = new Promise<{ stopReason: string }>((r) => {
+        resolvePrompt = r;
+      });
+
+      const manager = new AcpSessionManager(1);
+      const sendToVellum = mock(() => {});
+
+      // Inject a fake session directly into the manager to avoid needing
+      // a real child process.
+      const fakeProcess = {
+        prompt: () => promptPromise,
+        kill: mock(() => {}),
+        spawn: mock(() => {}),
+        initialize: mock(() => Promise.resolve()),
+        createSession: mock(() => Promise.resolve("proto-session")),
+        cancel: mock(() => Promise.resolve()),
+      };
+      const fakeHandler = new VellumAcpClientHandler(
+        "test-session",
+        sendToVellum,
+        "conv-1",
+      );
+
+      // Access private sessions map via any cast
+      const sessions = (manager as any).sessions as Map<string, any>;
+      const entry = {
+        process: fakeProcess,
+        state: {
+          id: "test-session",
+          agentId: "agent-1",
+          acpSessionId: "proto-session",
+          status: "running",
+          startedAt: Date.now(),
+        },
+        clientHandler: fakeHandler,
+        sendToVellum,
+        currentPrompt: null as any,
+        parentConversationId: "conv-1",
+        cwd: "/tmp",
+      };
+      sessions.set("test-session", entry);
+
+      // Fire the prompt in the background via the private method
+      const bgPromise = (manager as any).firePromptInBackground(
+        "test-session",
+        entry,
+        "proto-session",
+        "do something",
+      );
+      entry.currentPrompt = bgPromise;
+
+      // Session exists before completion
+      expect((manager.getStatus() as any[]).length).toBe(1);
+
+      // Complete the prompt
+      resolvePrompt!({ stopReason: "end_turn" });
+      await bgPromise;
+
+      // Session should be cleaned up
+      expect((manager.getStatus() as any[]).length).toBe(0);
+      expect(fakeProcess.kill).toHaveBeenCalled();
+    });
+
+    test("failed session is removed from the session map", async () => {
+      const manager = new AcpSessionManager(1);
+      const sendToVellum = mock(() => {});
+
+      let rejectPrompt: (e: Error) => void;
+      const promptPromise = new Promise<{ stopReason: string }>((_r, rej) => {
+        rejectPrompt = rej;
+      });
+
+      const fakeProcess = {
+        prompt: () => promptPromise,
+        kill: mock(() => {}),
+      };
+      const fakeHandler = new VellumAcpClientHandler(
+        "test-session-2",
+        sendToVellum,
+        "conv-2",
+      );
+
+      const sessions = (manager as any).sessions as Map<string, any>;
+      const entry = {
+        process: fakeProcess,
+        state: {
+          id: "test-session-2",
+          agentId: "agent-1",
+          acpSessionId: "proto-session-2",
+          status: "running",
+          startedAt: Date.now(),
+        },
+        clientHandler: fakeHandler,
+        sendToVellum,
+        currentPrompt: null as any,
+        parentConversationId: "conv-2",
+        cwd: "/tmp",
+      };
+      sessions.set("test-session-2", entry);
+
+      const bgPromise = (manager as any).firePromptInBackground(
+        "test-session-2",
+        entry,
+        "proto-session-2",
+        "do something",
+      );
+      entry.currentPrompt = bgPromise;
+
+      expect((manager.getStatus() as any[]).length).toBe(1);
+
+      // Fail the prompt
+      rejectPrompt!(new Error("agent crashed"));
+      await bgPromise;
+
+      // Session should be cleaned up even on failure
+      expect((manager.getStatus() as any[]).length).toBe(0);
+      expect(fakeProcess.kill).toHaveBeenCalled();
+    });
+  });
+
   describe("closeAll / dispose", () => {
     test("closeAll on empty manager does not throw", () => {
       const manager = new AcpSessionManager(5);

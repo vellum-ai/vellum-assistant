@@ -188,13 +188,19 @@ async function runScheduleOnce(
         );
         const { runTask } = await import("../tasks/task-runner.js");
         const result = await runTask(
-          { taskId, workingDir: process.cwd(), source: "schedule" },
+          { taskId, workingDir: process.cwd(), source: "schedule", scheduleJobId: job.id },
           processMessage as (
             conversationId: string,
             message: string,
             taskRunId: string,
           ) => Promise<void>,
         );
+
+        onScheduleConversationCreated?.({
+          conversationId: result.conversationId,
+          scheduleJobId: job.id,
+          title: result.status === "failed" ? `${job.name}: Error` : job.name,
+        });
 
         // Track the schedule run using the task's conversation
         const runId = createScheduleRun(job.id, result.conversationId);

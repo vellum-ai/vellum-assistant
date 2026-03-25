@@ -3,7 +3,7 @@ import SwiftUI
 import VellumAssistantShared
 
 struct MemoryItemCreateView: View {
-    @ObservedObject var store: MemoryItemsStore
+    var store: MemoryItemsStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var kind: String = "identity"
@@ -37,7 +37,7 @@ struct MemoryItemCreateView: View {
                         if statement.isEmpty {
                             Text("What should the assistant remember?")
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                                 .padding(.top, 8)
                                 .padding(.leading, 4)
                                 .allowsHitTesting(false)
@@ -50,11 +50,11 @@ struct MemoryItemCreateView: View {
                     HStack {
                         Text("Importance")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         Spacer()
                         Text("\(Int(importance * 100))%")
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                     }
                     Slider(value: $importance, in: 0...1, step: 0.1)
                 }

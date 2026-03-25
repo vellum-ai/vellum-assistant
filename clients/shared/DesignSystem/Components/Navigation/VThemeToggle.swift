@@ -34,7 +34,7 @@ public struct VThemeToggle: View {
             if showLabel {
                 Text("Theme")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentDisabled)
+                    .foregroundStyle(VColor.contentDisabled)
                 Spacer()
             }
             segmentedControl
@@ -54,7 +54,7 @@ public struct VThemeToggle: View {
     private var segmentedControl: some View {
         switch style {
         case .iconPill:
-            VSegmentedControl(
+            VTabs(
                 items: [
                     (label: "System", icon: VIcon.monitor.rawValue, tag: "system"),
                     (label: "Light", icon: VIcon.sun.rawValue, tag: "light"),
@@ -65,7 +65,7 @@ public struct VThemeToggle: View {
             )
             .frame(width: pillWidth)
         case .labelPill:
-            VSegmentedControl(
+            VTabs(
                 items: [
                     (label: "System", tag: "system"),
                     (label: "Light", tag: "light"),

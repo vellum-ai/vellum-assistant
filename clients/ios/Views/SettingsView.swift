@@ -199,7 +199,7 @@ struct AccountSection: View {
             if let error = authManager.errorMessage {
                 Text(error)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
             }
         }
     }

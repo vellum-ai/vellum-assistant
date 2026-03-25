@@ -86,7 +86,7 @@ struct AnimatedImageView: View {
                     .frame(maxWidth: maxDimension, maxHeight: maxDimension)
             } else {
                 VIconView(.image, size: 24)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .frame(width: 80, height: 60)
             }
         }

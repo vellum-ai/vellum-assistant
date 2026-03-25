@@ -115,7 +115,8 @@ final class DictationOverlayWindow {
 
     func showDoneAndDismiss() {
         show(state: .done)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 800_000_000)
             self?.dismiss()
         }
     }

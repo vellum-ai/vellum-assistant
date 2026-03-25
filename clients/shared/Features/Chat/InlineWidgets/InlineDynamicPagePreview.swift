@@ -45,13 +45,13 @@ public struct InlineDynamicPagePreview: View {
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text(preview.title)
                             .font(VFont.bodyMediumEmphasised)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                             .lineLimit(2)
 
                         if let subtitle = preview.subtitle {
                             Text(subtitle)
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                                 .lineLimit(1)
                         }
                     }
@@ -60,7 +60,7 @@ public struct InlineDynamicPagePreview: View {
                 if let description = preview.description, !description.isEmpty {
                     Text(description)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .lineLimit(3)
                 }
 
@@ -84,10 +84,10 @@ public struct InlineDynamicPagePreview: View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
                 .font(VFont.labelSmall)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
             Text(value)
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .lineLimit(1)
         }
         .padding(.horizontal, VSpacing.sm)

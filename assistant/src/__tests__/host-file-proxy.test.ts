@@ -184,6 +184,32 @@ describe("HostFileProxy", () => {
       expect(proxy.hasPendingRequest(requestId)).toBe(false);
     });
 
+    test("sends host_file_cancel to client on abort", async () => {
+      setup();
+
+      const controller = new AbortController();
+      const resultPromise = proxy.request(
+        {
+          operation: "read",
+          path: "/tmp/test.txt",
+        },
+        "session-1",
+        controller.signal,
+      );
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      controller.abort();
+      await resultPromise;
+
+      // Second message should be the cancel
+      expect(sentMessages).toHaveLength(2);
+      const cancelMsg = sentMessages[1] as Record<string, unknown>;
+      expect(cancelMsg.type).toBe("host_file_cancel");
+      expect(cancelMsg.requestId).toBe(requestId);
+    });
+
     test("returns immediately if signal already aborted", async () => {
       setup();
 
@@ -246,6 +272,69 @@ describe("HostFileProxy", () => {
 
       expect(proxy.hasPendingRequest(requestId)).toBe(false);
       expect(resultPromise).rejects.toThrow("Host file proxy disposed");
+    });
+
+    test("sends host_file_cancel for each pending request on dispose", () => {
+      setup();
+
+      const p1 = proxy.request(
+        { operation: "read", path: "/tmp/a.txt" },
+        "session-1",
+      );
+      const p2 = proxy.request(
+        { operation: "read", path: "/tmp/b.txt" },
+        "session-1",
+      );
+      p1.catch(() => {}); // Expected rejection on dispose
+      p2.catch(() => {}); // Expected rejection on dispose
+
+      const requestIds = (sentMessages as Array<Record<string, unknown>>).map(
+        (m) => m.requestId as string,
+      );
+      expect(requestIds).toHaveLength(2);
+
+      proxy.dispose();
+
+      // After the 2 request messages, dispose should have sent 2 cancel messages
+      const cancelMessages = sentMessages
+        .slice(2)
+        .filter(
+          (m) => (m as Record<string, unknown>).type === "host_file_cancel",
+        ) as Array<Record<string, unknown>>;
+      expect(cancelMessages).toHaveLength(2);
+      expect(cancelMessages.map((m) => m.requestId)).toContain(requestIds[0]);
+      expect(cancelMessages.map((m) => m.requestId)).toContain(requestIds[1]);
+    });
+  });
+
+  describe("late resolve after abort", () => {
+    test("resolve is a no-op after abort (entry already deleted)", async () => {
+      setup();
+
+      const controller = new AbortController();
+      const resultPromise = proxy.request(
+        {
+          operation: "read",
+          path: "/tmp/test.txt",
+        },
+        "session-1",
+        controller.signal,
+      );
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      controller.abort();
+      const result = await resultPromise;
+      expect(result.content).toBe("Aborted");
+
+      // Late resolve should be silently ignored (no throw, no double-resolve)
+      proxy.resolve(requestId, {
+        content: "late response",
+        isError: false,
+      });
+
+      expect(proxy.hasPendingRequest(requestId)).toBe(false);
     });
   });
 

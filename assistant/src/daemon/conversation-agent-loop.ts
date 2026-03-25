@@ -53,6 +53,7 @@ import {
   queueRegenerateConversationTitle,
   UNTITLED_FALLBACK,
 } from "../memory/conversation-title-service.js";
+import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -236,10 +237,15 @@ export interface AgentLoopConversationContext {
   workspaceTopLevelContext: string | null;
   workspaceTopLevelDirty: boolean;
   channelCapabilities?: ChannelCapabilities;
+  /** Per-turn snapshot of trustContext, frozen at message-processing start. */
+  currentTurnTrustContext?: TrustContext;
+  /** Per-turn snapshot of channelCapabilities, frozen at message-processing start. */
+  currentTurnChannelCapabilities?: ChannelCapabilities;
   commandIntent?: { type: string; payload?: string; languageCode?: string };
   trustContext?: TrustContext;
   assistantId?: string;
   voiceCallControlPrompt?: string;
+  transportHints?: string[];
 
   readonly coreToolNames: Set<string>;
   allowedToolNames?: Set<string>;
@@ -339,6 +345,16 @@ export async function runAgentLoopImpl(
   if (!ctx.abortController) {
     throw new Error("runAgentLoop called without prior persistUserMessage");
   }
+
+  // Initialize per-turn persona snapshots for callers (subagent manager,
+  // voice-session-bridge, regenerate, etc.) that invoke runAgentLoop directly
+  // without going through processMessage/drainQueue. This ensures the system
+  // prompt callback always reads a valid snapshot rather than undefined.
+  // processMessage/drainQueue set these fields before calling runAgentLoop;
+  // those existing assignments remain correct and are merely redundant here.
+  ctx.currentTurnTrustContext = ctx.trustContext;
+  ctx.currentTurnChannelCapabilities = ctx.channelCapabilities;
+
   const abortController = ctx.abortController;
   const reqId = ctx.currentRequestId ?? uuid();
   const rlog = log.child({
@@ -598,6 +614,32 @@ export async function runAgentLoopImpl(
     );
 
     const { recall } = memoryResult;
+
+    try {
+      recordMemoryRecallLog({
+        conversationId: ctx.conversationId,
+        enabled: recall.enabled,
+        degraded: recall.degraded,
+        provider: recall.provider,
+        model: recall.model,
+        degradationJson: recall.degradation,
+        semanticHits: recall.semanticHits,
+        mergedCount: recall.mergedCount,
+        selectedCount: recall.selectedCount,
+        tier1Count: recall.tier1Count ?? 0,
+        tier2Count: recall.tier2Count ?? 0,
+        hybridSearchLatencyMs: recall.hybridSearchMs ?? 0,
+        sparseVectorUsed: recall.sparseVectorUsed ?? false,
+        injectedTokens: recall.injectedTokens,
+        latencyMs: recall.latencyMs,
+        topCandidatesJson: recall.topCandidates,
+        injectedText: recall.injectedText || undefined,
+        reason: recall.reason,
+      });
+    } catch (err) {
+      log.warn({ err }, "Failed to persist memory recall log (non-fatal)");
+    }
+
     runMessages = memoryResult.runMessages;
 
     // Build active surface context
@@ -707,6 +749,7 @@ export async function runAgentLoopImpl(
       temporalContext,
       nowScratchpad,
       voiceCallControlPrompt: ctx.voiceCallControlPrompt ?? null,
+      transportHints: ctx.transportHints ?? null,
       isNonInteractive: !isInteractiveResolved,
     } as const;
 

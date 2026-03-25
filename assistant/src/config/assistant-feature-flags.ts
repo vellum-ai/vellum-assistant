@@ -14,7 +14,7 @@
  *   4. `true`                                     (for undeclared keys)
  *
  * Key format:
- *   Canonical:  `feature_flags.<id>.enabled`
+ *   Canonical:  simple kebab-case string (e.g., "browser", "ces-tools")
  */
 
 import { existsSync, readFileSync } from "node:fs";

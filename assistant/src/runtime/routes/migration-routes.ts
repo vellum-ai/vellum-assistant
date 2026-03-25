@@ -14,6 +14,8 @@
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
+import { z } from "zod";
+
 import { invalidateConfigCache } from "../../config/loader.js";
 import { getDb, resetDb } from "../../memory/db-connection.js";
 import { validateMigrationState } from "../../memory/migrations/validate-migration-state.js";
@@ -474,21 +476,59 @@ export function migrationRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "migrations/validate",
       method: "POST",
+      summary: "Validate a .vbundle archive",
+      description:
+        "Upload a .vbundle archive for validation. Accepts raw binary or multipart form data.",
+      tags: ["migrations"],
+      responseBody: z.object({
+        is_valid: z.boolean(),
+        errors: z.array(z.unknown()),
+        manifest: z.object({}).passthrough(),
+      }),
       handler: async ({ req }) => handleMigrationValidate(req),
     },
     {
       endpoint: "migrations/export",
       method: "POST",
+      summary: "Export a .vbundle archive",
+      description:
+        "Generate and download a .vbundle archive of the assistant's data. Optional JSON body for metadata.",
+      tags: ["migrations"],
+      requestBody: z.object({
+        description: z.string().describe("Human-readable export description"),
+      }),
       handler: async ({ req }) => handleMigrationExport(req),
     },
     {
       endpoint: "migrations/import-preflight",
       method: "POST",
+      summary: "Dry-run import analysis",
+      description:
+        "Validate a .vbundle archive and return a report of what would change on import without modifying data.",
+      tags: ["migrations"],
+      responseBody: z.object({
+        can_import: z.boolean(),
+        summary: z.object({}).passthrough(),
+        files: z.array(z.unknown()),
+        conflicts: z.array(z.unknown()),
+        manifest: z.object({}).passthrough(),
+      }),
       handler: async ({ req }) => handleMigrationImportPreflight(req),
     },
     {
       endpoint: "migrations/import",
       method: "POST",
+      summary: "Import a .vbundle archive",
+      description:
+        "Commit a .vbundle archive import to disk — destructive. Backs up existing files before overwriting.",
+      tags: ["migrations"],
+      responseBody: z.object({
+        success: z.boolean(),
+        summary: z.object({}).passthrough(),
+        files: z.array(z.unknown()),
+        manifest: z.object({}).passthrough(),
+        warnings: z.array(z.unknown()),
+      }),
       handler: async ({ req }) => handleMigrationImport(req),
     },
   ];

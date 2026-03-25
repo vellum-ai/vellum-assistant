@@ -33,14 +33,14 @@ struct CrashReportView: View {
     private var header: some View {
         HStack(alignment: .top, spacing: VSpacing.sm) {
             VIconView(.triangleAlert, size: 22)
-                .foregroundColor(VColor.systemNegativeHover)
+                .foregroundStyle(VColor.systemNegativeHover)
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text("The app crashed last session")
                     .font(VFont.bodySmallEmphasised)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Text("Would you like to send the crash log to help us fix the issue? No personal data or message content is included.")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -50,7 +50,7 @@ struct CrashReportView: View {
         ScrollView {
             Text(crashLog)
                 .font(VFont.bodySmallDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
         }
@@ -63,10 +63,10 @@ struct CrashReportView: View {
     private var sentConfirmation: some View {
         HStack(spacing: VSpacing.xs) {
             VIconView(.circleCheck, size: 14)
-                .foregroundColor(VColor.systemPositiveStrong)
+                .foregroundStyle(VColor.systemPositiveStrong)
             Text("Crash report sent. Thank you!")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         }
     }
 

@@ -58,3 +58,116 @@ does and how to use it.
 
 4. **Use Commander's `.addHelpText("after", ...)`** for extended help. Don't
    cram everything into `.description()`.
+
+### No Redundant Command Lists in `addHelpText`
+
+Commander already renders a `Commands:` section from registered subcommands.
+Never duplicate that list in `.addHelpText("after", ...)`. The `addHelpText`
+block is for **supplementary context only** — domain notes, key concepts, and
+examples. Repeating command names and descriptions wastes vertical space and
+creates a maintenance burden (two places to update when a subcommand changes).
+
+**Bad:**
+
+```ts
+oauth.addHelpText(
+  "after",
+  `
+The oauth command group manages the full OAuth lifecycle:
+
+  connect     Initiate an OAuth flow for a provider
+  disconnect  Disconnect an OAuth provider
+  ...
+`,
+);
+```
+
+**Good:**
+
+```ts
+oauth.addHelpText(
+  "after",
+  `
+Providers are seeded on startup for built-in integrations. Apps and connections
+are created during the OAuth authorization flow or can be managed manually via
+their respective subcommands.
+
+Examples:
+  $ assistant oauth connect google --open-browser
+  $ assistant oauth status google
+`,
+);
+```
+
+### ID and Key Arguments
+
+Options that accept IDs, keys, or opaque identifiers must include a short note
+explaining how to discover the value via another CLI command. Without this,
+users and AI agents have no way to know what to pass.
+
+**Bad:**
+
+```ts
+.option("--app-id <id>", "App ID (UUID)")
+```
+
+**Good:**
+
+```ts
+.option("--app-id <id>", "App ID (UUID) — run 'assistant oauth apps list' to find it")
+```
+
+Common discovery patterns:
+
+| Argument type | Discovery command                   |
+| ------------- | ----------------------------------- |
+| Provider key  | `assistant oauth providers list`    |
+| Connection ID | `assistant oauth status <provider>` |
+| OAuth app ID  | `assistant oauth apps list`         |
+| Contact ID    | `assistant contacts list`           |
+
+### Error Messages
+
+Every error message must be **actionable** — when a command fails, the user or
+AI agent must know what to do next. Each error needs two components:
+
+1. **What went wrong** — a clear description of the failure.
+2. **What to do** — a specific CLI command or next step to resolve it.
+
+**Bad:**
+
+```ts
+throw new Error("Connection not found");
+```
+
+**Good:**
+
+```ts
+throw new Error(
+  `Connection "${id}" not found. Run 'assistant oauth status <provider>' to see available connections.`,
+);
+```
+
+Common error patterns:
+
+| Failure                  | Suggested action                                              |
+| ------------------------ | ------------------------------------------------------------- |
+| Resource not found       | Suggest the `list` or `status` command for that resource type |
+| Missing prerequisite     | Suggest the `create`, `register`, or `connect` command        |
+| Ambiguous input          | List the available options and suggest a disambiguation flag  |
+| Mutually exclusive flags | Name both conflicting flags and explain which to drop         |
+
+### Deprecation Hygiene
+
+When a command is removed, clean up completely:
+
+1. **Remove all implementation code** — the command registration, handler, and
+   any helper functions that only served the removed command.
+2. **Remove test mocks and fixtures** — delete test files, mock data, and helper
+   functions that only existed for the removed command.
+3. **Update references** — search for string references to the old command in
+   docs, skills, fixtures, help text, and comments. Update or remove them.
+4. **No deprecation shims** — do not add shims that forward the old command to
+   the new one unless there is a documented migration window with a specific
+   removal date. Silent forwarding hides technical debt and confuses agents
+   that discover both old and new commands in help output.

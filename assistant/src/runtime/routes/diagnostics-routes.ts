@@ -2,6 +2,8 @@
  * HTTP route handlers for dictation processing.
  */
 
+import { z } from "zod";
+
 import {
   type ProfileResolution,
   resolveProfile,
@@ -435,6 +437,34 @@ export function diagnosticsRouteDefinitions(): RouteDefinition[] {
       endpoint: "dictation",
       method: "POST",
       policyKey: "dictation",
+      summary: "Process dictation",
+      description:
+        "Classify voice input as dictation or action, clean up text, and apply user style preferences.",
+      tags: ["diagnostics"],
+      requestBody: z.object({
+        transcription: z.string().describe("Raw speech transcription"),
+        context: z
+          .object({})
+          .passthrough()
+          .describe(
+            "Dictation context (app name, window title, bundle ID, cursor state, selected text)",
+          ),
+        profileId: z
+          .string()
+          .describe("Optional dictation profile ID")
+          .optional(),
+      }),
+      responseBody: z.object({
+        text: z.string().describe("Processed text output"),
+        mode: z
+          .string()
+          .describe("Detected mode: dictation, command, or action"),
+        actionPlan: z
+          .string()
+          .describe("Action plan (only when mode is action)"),
+        resolvedProfileId: z.string().describe("Resolved dictation profile ID"),
+        profileSource: z.string().describe("How the profile was resolved"),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as DictationBody;
         if (!body.transcription) {

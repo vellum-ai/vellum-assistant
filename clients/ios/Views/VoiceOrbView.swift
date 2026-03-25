@@ -130,7 +130,7 @@ struct VoiceOrbView: View {
 
             // Center icon
             VIconView(orbIcon, size: 18)
-                .foregroundColor(.white.opacity(0.9))
+                .foregroundStyle(.white.opacity(0.9))
         }
         .frame(width: orbSize + 60, height: orbSize + 60)
         .animation(.easeInOut(duration: state == .speaking ? 0.3 : 0.12), value: amp)
@@ -147,7 +147,7 @@ struct VoiceOrbView: View {
     private var stateLabel: some View {
         Text(stateLabelText)
             .font(VFont.labelDefault)
-            .foregroundColor(VColor.contentSecondary)
+            .foregroundStyle(VColor.contentSecondary)
             .animation(VAnimation.standard, value: stateLabelText)
     }
 

@@ -2,7 +2,7 @@ import VellumAssistantShared
 import SwiftUI
 
 struct SurfaceContainerView: View {
-    @ObservedObject var viewModel: SurfaceViewModel
+    var viewModel: SurfaceViewModel
 
     private var surface: Surface { viewModel.surface }
 
@@ -36,12 +36,12 @@ struct SurfaceContainerView: View {
                     if let title = surface.title {
                         Text(title)
                             .font(VFont.bodySmallEmphasised)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                     }
                     Spacer()
                     Button(action: { viewModel.onDismiss() }) {
                         VIconView(.x, size: 10)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                     }
                     .buttonStyle(.plain)
                 }

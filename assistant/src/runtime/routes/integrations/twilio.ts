@@ -271,17 +271,22 @@ export async function handleProvisionTwilioNumber(
   }
 
   let body: { country?: string; areaCode?: string };
-  try {
-    body = (await req.json()) as typeof body;
-  } catch {
-    return Response.json(
-      {
-        success: false,
-        hasCredentials: await hasTwilioCredentials(),
-        error: "Invalid JSON in request body",
-      },
-      { status: 400 },
-    );
+  const provisionText = await req.text();
+  if (!provisionText.trim()) {
+    body = {};
+  } else {
+    try {
+      body = JSON.parse(provisionText) as typeof body;
+    } catch {
+      return Response.json(
+        {
+          success: false,
+          hasCredentials: await hasTwilioCredentials(),
+          error: "Invalid JSON in request body",
+        },
+        { status: 400 },
+      );
+    }
   }
   const { accountSid, authToken } = await getTwilioCredentials();
   const country = body.country ?? "US";
@@ -406,17 +411,22 @@ export async function handleReleaseTwilioNumber(
   }
 
   let body: { phoneNumber?: string };
-  try {
-    body = (await req.json()) as typeof body;
-  } catch {
-    return Response.json(
-      {
-        success: false,
-        hasCredentials: await hasTwilioCredentials(),
-        error: "Invalid JSON in request body",
-      },
-      { status: 400 },
-    );
+  const releaseText = await req.text();
+  if (!releaseText.trim()) {
+    body = {};
+  } else {
+    try {
+      body = JSON.parse(releaseText) as typeof body;
+    } catch {
+      return Response.json(
+        {
+          success: false,
+          hasCredentials: await hasTwilioCredentials(),
+          error: "Invalid JSON in request body",
+        },
+        { status: 400 },
+      );
+    }
   }
   const raw = loadRawConfig();
   const twilio = (raw?.twilio ?? {}) as Record<string, unknown>;

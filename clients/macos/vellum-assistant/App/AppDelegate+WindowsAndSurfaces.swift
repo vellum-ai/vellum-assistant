@@ -130,6 +130,7 @@ extension AppDelegate {
                         requestId: msg.requestId,
                         decision: "allow"
                     )
+                    log.info("[confirm-flow] CU auto-approved requestId=\(msg.requestId, privacy: .public) tool=\(msg.toolName, privacy: .public)")
                 } else {
                     log.error("Failed to auto-approve confirmation")
                 }
@@ -140,11 +141,14 @@ extension AppDelegate {
                 let activeSessionId = mainWindow.conversationManager.activeViewModel?.conversationId
                 let confirmationIsForActiveConversation = msg.conversationId == nil || msg.conversationId == activeSessionId
                 if confirmationIsForActiveConversation {
+                    log.info("[confirm-flow] Skipping notification (app active, inline handles): requestId=\(msg.requestId, privacy: .public) tool=\(msg.toolName, privacy: .public) appActive=\(NSApp.isActive) windowVisible=\(mainWindow.isVisible)")
                     return
                 }
             }
 
+            log.info("[confirm-flow] Posting macOS notification: requestId=\(msg.requestId, privacy: .public) tool=\(msg.toolName, privacy: .public)")
             let decision = await self.toolConfirmationNotificationService.showConfirmation(msg)
+            log.info("[confirm-flow] Notification path resolved: requestId=\(msg.requestId, privacy: .public) decision=\(decision, privacy: .public) isSentinel=\(decision == ToolConfirmationNotificationService.inlineHandledSentinel)")
             guard decision != ToolConfirmationNotificationService.inlineHandledSentinel else {
                 return
             }
@@ -158,7 +162,7 @@ extension AppDelegate {
                     decision: decision
                 )
             } else {
-                log.error("Failed to send confirmation response")
+                log.error("[confirm-flow] Notification-path POST failed: requestId=\(msg.requestId, privacy: .public) decision=\(decision, privacy: .public)")
             }
         }
     }
@@ -211,6 +215,15 @@ extension AppDelegate {
         // Keep the dock icon alive while the user has a connected assistant —
         // they can click the dock icon to re-open the main window.
         if UserDefaults.standard.string(forKey: "connectedAssistantId") != nil {
+            return
+        }
+
+        // Don't revert to .accessory while a computer use session is active —
+        // the session overlay needs to remain visible even when the app loses
+        // focus to another app (e.g. during wizard flows interacting with
+        // browser windows).
+        if currentSession?.state.isActiveSession == true
+            || activeHostCuProxy?.state.isActiveSession == true {
             return
         }
 

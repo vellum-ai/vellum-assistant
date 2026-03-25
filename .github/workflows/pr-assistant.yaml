@@ -179,6 +179,36 @@ jobs:
           vel up assistant --pr $PR_NUMBER
           \`\`\`"
 
+  openapi-check:
+    name: OpenAPI Spec Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: assistant
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.9'
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
+          restore-keys: |
+            bun-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check OpenAPI spec is up to date
+        run: bun run generate:openapi -- --check
+
   lint-bundled-skills:
     name: Lint Bundled Skills
     runs-on: ubuntu-latest

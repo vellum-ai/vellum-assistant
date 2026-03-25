@@ -12,7 +12,8 @@ public protocol WorkspaceClientProtocol {
     func writeWorkspaceFile(path: String, content: Data) async -> Bool
     func createWorkspaceDirectory(path: String) async -> Bool
     func renameWorkspaceItem(oldPath: String, newPath: String) async -> Bool
-    func workspaceFileContentURL(path: String, showHidden: Bool) -> URL?
+    func fetchWorkspaceFileContent(path: String, showHidden: Bool) async throws -> Data
+    func downloadWorkspaceFileContent(path: String, showHidden: Bool) async throws -> URL
 }
 
 /// Gateway-backed implementation of ``WorkspaceClientProtocol``.
@@ -103,11 +104,40 @@ public struct WorkspaceClient: WorkspaceClientProtocol {
         return response?.isSuccess ?? false
     }
 
-    public func workspaceFileContentURL(path: String, showHidden: Bool) -> URL? {
+    /// Fetches the raw binary content for a workspace file via the gateway.
+    ///
+    /// Routes through ``GatewayHTTPClient`` so managed assistants use the
+    /// platform proxy with session-token auth while local assistants hit
+    /// the local gateway with bearer-token auth.
+    public func fetchWorkspaceFileContent(path: String, showHidden: Bool) async throws -> Data {
         var params: [String: String] = ["path": path]
         if showHidden { params["showHidden"] = "true" }
-        return try? GatewayHTTPClient.buildURL(
-            path: "assistants/{assistantId}/workspace/file/content", params: params
+        let response = try await GatewayHTTPClient.get(
+            path: "assistants/{assistantId}/workspace/file/content", params: params, timeout: 120
         )
+        guard response.isSuccess else {
+            log.error("Workspace file content fetch failed (HTTP \(response.statusCode)) for \(path)")
+            throw URLError(.badServerResponse)
+        }
+        return response.data
+    }
+
+    /// Downloads a workspace file directly to a temporary file on disk via the gateway,
+    /// avoiding buffering the entire payload in memory.
+    ///
+    /// Use this for large binary files (e.g. videos) where in-memory buffering
+    /// would cause memory pressure.
+    public func downloadWorkspaceFileContent(path: String, showHidden: Bool) async throws -> URL {
+        var params: [String: String] = ["path": path]
+        if showHidden { params["showHidden"] = "true" }
+        let response = try await GatewayHTTPClient.download(
+            path: "assistants/{assistantId}/workspace/file/content", params: params, timeout: 120
+        )
+        guard response.isSuccess else {
+            try? FileManager.default.removeItem(at: response.fileURL)
+            log.error("Workspace file download failed (HTTP \(response.statusCode)) for \(path)")
+            throw URLError(.badServerResponse)
+        }
+        return response.fileURL
     }
 }

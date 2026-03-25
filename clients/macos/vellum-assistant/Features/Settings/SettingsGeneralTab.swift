@@ -73,7 +73,7 @@ struct SettingsGeneralTab: View {
                     healthzLoaded: healthzLoaded
                 )
             }
-            if MacOSClientFeatureFlagManager.shared.isEnabled("mobile_pairing_enabled") {
+            if MacOSClientFeatureFlagManager.shared.isEnabled("mobile-pairing") {
                 mobilePairingCard
             }
             SettingsAppearanceTab(store: store)
@@ -174,15 +174,15 @@ struct SettingsGeneralTab: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text("Devices")
                         .font(VFont.bodySmallDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
 
                     ForEach(store.approvedDevices, id: \.hashedDeviceId) { device in
                         HStack(spacing: VSpacing.sm) {
                             VIconView(.smartphone, size: 12)
-                                .foregroundColor(VColor.systemPositiveStrong)
+                                .foregroundStyle(VColor.systemPositiveStrong)
                             Text(device.deviceName)
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                             VButton(label: "Remove \(device.deviceName)", iconOnly: VIcon.trash.rawValue, style: .danger) {
                                 store.removeApprovedDevice(hashedDeviceId: device.hashedDeviceId)
                             }
@@ -195,10 +195,10 @@ struct SettingsGeneralTab: View {
             if !hasGateway {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.triangleAlert, size: 12)
-                        .foregroundColor(VColor.systemNegativeHover)
+                        .foregroundStyle(VColor.systemNegativeHover)
                     Text("Configure a gateway URL to enable pairing")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.systemNegativeHover)
+                        .foregroundStyle(VColor.systemNegativeHover)
                 }
             } else {
                 VButton(label: "Pair Device", leftIcon: VIcon.qrCode.rawValue, style: .primary) {
@@ -234,7 +234,7 @@ struct SettingsGeneralTab: View {
                         .controlSize(.small)
                     Text("Checking...")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
             } else if authManager.currentUser != nil {
                 VButton(label: "Log Out", style: .danger) {

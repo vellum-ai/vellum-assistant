@@ -8,6 +8,8 @@
  * GET    /v1/channel-verification-sessions/status   — check guardian binding status
  */
 
+import { z } from "zod";
+
 import type { ChannelId } from "../../channels/types.js";
 import {
   createInboundChallenge,
@@ -243,31 +245,77 @@ export async function handleRevokeVerificationBinding(
 
 export function channelVerificationRouteDefinitions(): RouteDefinition[] {
   return [
-    // Channel verification (unified session API)
     {
       endpoint: "channel-verification-sessions",
       method: "POST",
+      summary: "Create verification session",
+      description:
+        "Create a channel verification session (inbound challenge, outbound, or trusted contact).",
+      tags: ["channel-verification"],
+      requestBody: z.object({
+        channel: z.string().describe("Channel ID"),
+        destination: z.string().describe("Outbound destination"),
+        rebind: z.boolean(),
+        conversationId: z.string(),
+        originConversationId: z.string(),
+        purpose: z.string().describe("guardian or trusted_contact"),
+        contactChannelId: z.string(),
+      }),
       handler: async ({ req, authContext }) =>
         handleCreateVerificationSession(req, authContext.assistantId),
     },
     {
       endpoint: "channel-verification-sessions/resend",
       method: "POST",
+      summary: "Resend verification code",
+      description: "Resend the outbound verification code.",
+      tags: ["channel-verification"],
+      requestBody: z.object({
+        channel: z.string(),
+        originConversationId: z.string().optional(),
+      }),
       handler: async ({ req }) => handleResendVerificationSession(req),
     },
     {
       endpoint: "channel-verification-sessions",
       method: "DELETE",
+      summary: "Cancel verification sessions",
+      description:
+        "Cancel all active inbound and outbound verification sessions.",
+      tags: ["channel-verification"],
+      requestBody: z.object({
+        channel: z.string(),
+      }),
+      responseBody: z.object({
+        success: z.boolean(),
+        channel: z.string(),
+      }),
       handler: async ({ req }) => handleCancelVerificationSession(req),
     },
     {
       endpoint: "channel-verification-sessions/revoke",
       method: "POST",
+      summary: "Revoke verification binding",
+      description: "Cancel all sessions and revoke the guardian binding.",
+      tags: ["channel-verification"],
+      requestBody: z.object({
+        channel: z.string(),
+      }),
       handler: async ({ req }) => handleRevokeVerificationBinding(req),
     },
     {
       endpoint: "channel-verification-sessions/status",
       method: "GET",
+      summary: "Get verification status",
+      description: "Check guardian binding and verification session status.",
+      tags: ["channel-verification"],
+      queryParams: [
+        {
+          name: "channel",
+          schema: { type: "string" },
+          description: "Optional channel ID filter",
+        },
+      ],
       handler: ({ url }) => handleGetVerificationStatus(url),
     },
   ];

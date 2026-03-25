@@ -46,14 +46,14 @@ public struct VButton: View {
                     VIconView(.resolve(iconOnly), size: size == .inline ? 10 : 13)
                         .frame(width: size == .inline ? 12 : 20, height: size == .inline ? 12 : 20)
                 }
-                .foregroundColor(iconColor ?? iconOnlyForegroundColor)
+                .foregroundStyle(iconColor ?? iconOnlyForegroundColor)
             } else {
                 HStack(spacing: 6) {
                     if let leftIcon {
                         VIconView(.resolve(leftIcon), size: textIconSize)
                     }
                     Text(label)
-                        .font(size == .compact || size == .pill ? VFont.labelDefault : VFont.bodyLargeEmphasised)
+                        .font(size == .compact || size == .pill ? VFont.labelDefault : VFont.bodyMediumEmphasised)
                     if isFullWidth && (leftIcon != nil || rightIcon != nil) {
                         Spacer(minLength: 0)
                     }
@@ -135,7 +135,7 @@ public struct VButtonStyle: ButtonStyle {
         let shape = RoundedRectangle(cornerRadius: cornerRadius)
 
         configuration.label
-            .foregroundColor(foregroundColor)
+            .foregroundStyle(foregroundColor)
             .modifier(ButtonLayoutModifier(
                 style: style,
                 size: size,

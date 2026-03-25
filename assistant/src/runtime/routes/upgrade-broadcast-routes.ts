@@ -9,6 +9,8 @@
  * minted service token.
  */
 
+import { z } from "zod";
+
 import type {
   ServiceGroupUpdateComplete,
   ServiceGroupUpdateProgress,
@@ -25,6 +27,42 @@ export function upgradeBroadcastRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "admin/upgrade-broadcast",
       method: "POST",
+      summary: "Broadcast upgrade lifecycle event",
+      description:
+        "Publish a service group update lifecycle event (starting, progress, or complete) to all connected SSE clients.",
+      tags: ["admin"],
+      requestBody: z.object({
+        type: z
+          .string()
+          .describe('Event type: "starting", "progress", or "complete"'),
+        targetVersion: z
+          .string()
+          .describe("Target version (required for starting)")
+          .optional(),
+        expectedDowntimeSeconds: z
+          .number()
+          .describe("Expected downtime in seconds (starting, default 60)")
+          .optional(),
+        statusMessage: z
+          .string()
+          .describe("Status message (required for progress)")
+          .optional(),
+        installedVersion: z
+          .string()
+          .describe("Installed version (required for complete)")
+          .optional(),
+        success: z
+          .boolean()
+          .describe("Whether upgrade succeeded (required for complete)")
+          .optional(),
+        rolledBackToVersion: z
+          .string()
+          .describe("Version rolled back to, if any (complete)")
+          .optional(),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req }) => {
         let body: unknown;
         try {

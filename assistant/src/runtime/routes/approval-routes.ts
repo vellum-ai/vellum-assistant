@@ -8,6 +8,8 @@
  * header. Guardian decisions additionally verify that the actor is the
  * bound guardian.
  */
+import { z } from "zod";
+
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { addRule } from "../../permissions/trust-store.js";
 import type { UserDecision } from "../../permissions/types.js";
@@ -69,6 +71,10 @@ export async function handleConfirm(
   // pending interaction — the client can retry with corrected values.
   const peeked = pendingInteractions.get(requestId);
   if (!peeked) {
+    log.warn(
+      { requestId, decision },
+      "Confirmation POST for unknown requestId (already consumed or never registered)",
+    );
     return httpError(
       "NOT_FOUND",
       "No pending interaction found for this requestId",
@@ -128,6 +134,16 @@ export async function handleConfirm(
 
   // Validation passed — consume the pending interaction.
   const interaction = pendingInteractions.resolve(requestId)!;
+
+  log.info(
+    {
+      requestId,
+      decision,
+      toolName: interaction.confirmationDetails?.toolName,
+      conversationId: interaction.conversationId,
+    },
+    "Confirmation resolved via HTTP",
+  );
 
   // ACP permissions: resolve directly without a Conversation object.
   if (interaction.directResolve) {
@@ -406,22 +422,101 @@ export function approvalRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "confirm",
       method: "POST",
+      summary: "Resolve a pending confirmation",
+      description: "Approve or deny a pending tool confirmation by requestId.",
+      tags: ["approvals"],
+      requestBody: z.object({
+        requestId: z.string().describe("Pending interaction request ID"),
+        decision: z
+          .string()
+          .describe(
+            "One of: allow, allow_10m, allow_conversation, deny, always_allow, always_deny, always_allow_high_risk",
+          ),
+        selectedPattern: z
+          .string()
+          .describe("Allowlist pattern for persistent decisions")
+          .optional(),
+        selectedScope: z
+          .string()
+          .describe("Scope for persistent decisions")
+          .optional(),
+      }),
+      responseBody: z.object({
+        accepted: z.boolean(),
+      }),
       handler: async ({ req, authContext }) => handleConfirm(req, authContext),
     },
     {
       endpoint: "secret",
       method: "POST",
+      summary: "Resolve a pending secret request",
+      description: "Provide a secret value for a pending secret request.",
+      tags: ["approvals"],
+      requestBody: z.object({
+        requestId: z.string().describe("Pending interaction request ID"),
+        value: z.string().describe("Secret value").optional(),
+        delivery: z
+          .string()
+          .describe("Delivery mode: store or transient_send")
+          .optional(),
+      }),
+      responseBody: z.object({
+        accepted: z.boolean(),
+      }),
       handler: async ({ req, authContext }) => handleSecret(req, authContext),
     },
     {
       endpoint: "trust-rules",
       method: "POST",
+      summary: "Add a trust rule for a pending confirmation",
+      description:
+        "Add a trust rule bound to a pending confirmation without resolving it.",
+      tags: ["approvals"],
+      requestBody: z.object({
+        requestId: z.string().describe("Pending confirmation request ID"),
+        pattern: z.string().describe("Allowlist pattern"),
+        scope: z.string().describe("Scope for the rule"),
+        decision: z.string().describe("allow or deny"),
+        allowHighRisk: z
+          .boolean()
+          .describe("Allow high-risk invocations")
+          .optional(),
+      }),
+      responseBody: z.object({
+        accepted: z.boolean(),
+      }),
       handler: async ({ req, authContext }) =>
         handleTrustRule(req, authContext),
     },
     {
       endpoint: "pending-interactions",
       method: "GET",
+      summary: "List pending interactions",
+      description:
+        "Return pending confirmations and secrets for a conversation.",
+      tags: ["approvals"],
+      queryParams: [
+        {
+          name: "conversationKey",
+          schema: { type: "string" },
+          description: "Conversation key",
+        },
+        {
+          name: "conversationId",
+          schema: { type: "string" },
+          description: "Conversation ID",
+        },
+      ],
+      responseBody: z.object({
+        pendingConfirmation: z
+          .object({})
+          .passthrough()
+          .describe("Pending confirmation details or null"),
+        pendingSecret: z
+          .object({})
+          .passthrough()
+          .describe("Pending secret request or null"),
+      }),
       handler: ({ url, authContext }) =>
         handleListPendingInteractions(url, authContext),
     },

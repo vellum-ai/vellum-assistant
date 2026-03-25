@@ -83,7 +83,7 @@ struct ChatTabView: View {
             }
         } label: {
             VIconView(showCopiedConfirmation ? .check : .share, size: 20)
-                .foregroundColor(showCopiedConfirmation ? VColor.systemPositiveStrong : VColor.contentTertiary)
+                .foregroundStyle(showCopiedConfirmation ? VColor.systemPositiveStrong : VColor.contentTertiary)
         }
         .disabled(!hasTextMessages)
     }

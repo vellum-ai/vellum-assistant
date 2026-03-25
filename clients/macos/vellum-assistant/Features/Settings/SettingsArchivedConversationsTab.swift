@@ -49,13 +49,13 @@ private struct ArchivedConversationRow: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text(conversation.title)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
                 Text("\(Self.dateFormatter.string(from: conversation.createdAt)) · \(conversation.source ?? "vellum-assistant")")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .lineLimit(1)
             }
 

@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import {
   setPlatformAssistantId,
   setPlatformBaseUrl,
@@ -532,7 +534,7 @@ export async function handleListSecrets(): Promise<Response> {
       return { type: "api_key" as const, name: account };
     });
 
-    return Response.json({ secrets });
+    return Response.json({ secrets, accounts: secrets });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return httpError("INTERNAL_ERROR", message, 500);
@@ -556,21 +558,81 @@ export function secretRouteDefinitions(
       endpoint: "secrets",
       method: "POST",
       handler: async ({ req }) => handleAddSecret(req, deps?.getCesClient),
+      summary: "Add a secret",
+      description:
+        "Store a new secret (API key, OAuth token, etc.) in the credential vault.",
+      tags: ["secrets"],
+      requestBody: z.object({
+        type: z.string().describe("Secret type: 'api_key' or 'credential'"),
+        name: z.string().describe("Unique name for the secret"),
+        value: z.string().describe("Secret value to store"),
+      }),
+      responseBody: z.object({
+        success: z.boolean(),
+        type: z.string(),
+        name: z.string(),
+      }),
     },
     {
       endpoint: "secrets",
       method: "DELETE",
       handler: async ({ req }) => handleDeleteSecret(req),
+      summary: "Delete a secret",
+      description: "Remove a secret from the credential vault by name.",
+      tags: ["secrets"],
+      requestBody: z.object({
+        type: z.string().describe("Secret type: 'api_key' or 'credential'"),
+        name: z.string().describe("Name of the secret to delete"),
+      }),
+      responseBody: z.object({
+        success: z.boolean(),
+        type: z.string(),
+        name: z.string(),
+      }),
     },
     {
       endpoint: "secrets",
       method: "GET",
       handler: async () => handleListSecrets(),
+      summary: "List secrets",
+      description: "Return the names (not values) of all stored secrets.",
+      tags: ["secrets"],
+      responseBody: z.object({
+        secrets: z
+          .array(z.unknown())
+          .describe("List of secret metadata entries, each with type and name"),
+        accounts: z
+          .array(z.unknown())
+          .describe("Alias for secrets (same data)"),
+      }),
     },
     {
       endpoint: "secrets/read",
       method: "POST",
       handler: async ({ req }) => handleReadSecret(req),
+      summary: "Read a secret value",
+      description: "Retrieve the decrypted value of a stored secret by name.",
+      tags: ["secrets"],
+      requestBody: z.object({
+        type: z.string().describe("Secret type: 'api_key' or 'credential'"),
+        name: z.string().describe("Name of the secret to read"),
+        reveal: z
+          .boolean()
+          .describe(
+            "If true, return the decrypted value; otherwise return a masked version",
+          )
+          .optional(),
+      }),
+      responseBody: z.object({
+        found: z.boolean(),
+        value: z
+          .string()
+          .describe("Decrypted value (only when reveal=true and found)"),
+        masked: z
+          .string()
+          .describe("Masked value (when reveal=false and found)"),
+        unreachable: z.boolean(),
+      }),
     },
   ];
 }

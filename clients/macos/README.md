@@ -69,13 +69,13 @@ All releases are available at [github.com/vellum-ai/velly/releases](https://gith
 ## Requirements
 
 ### Local Mode
-- macOS 14.0 (Sonoma) or later
+- macOS 15.0 (Sequoia) or later
 - Xcode 15+ (for building from source)
 - Anthropic API key
 - Local daemon running (`vellum wake`)
 
 ### Managed Mode
-- macOS 14.0 (Sonoma) or later
+- macOS 15.0 (Sequoia) or later
 - Xcode 15+ (for building from source)
 - Internet connection (assistant runs on the Vellum platform)
 - No API key or local daemon required

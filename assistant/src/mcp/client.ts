@@ -159,12 +159,17 @@ export class McpClient {
   async callTool(
     name: string,
     args: Record<string, unknown>,
+    signal?: AbortSignal,
   ): Promise<McpCallResult> {
     if (!this.connected) {
       throw new Error(`MCP client "${this.serverId}" is not connected`);
     }
 
-    const result = await this.client.callTool({ name, arguments: args });
+    const result = await this.client.callTool(
+      { name, arguments: args },
+      undefined,
+      signal ? { signal } : undefined,
+    );
     const isError = result.isError === true;
 
     // Handle structuredContent if present

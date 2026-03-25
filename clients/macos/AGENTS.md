@@ -230,19 +230,21 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 
 | Pattern | When to use |
 |---------|-------------|
-| `@State` | Local, view-scoped transient state (hover, drag, focus, form fields) |
+| `@State` | Local, view-scoped transient state (hover, drag, focus, form fields). Also owns `@Observable` objects for the view's lifetime. |
 | `@Binding` | Pass mutable state from parent to child view |
-| `@StateObject` | Own an ObservableObject for the view's lifetime (e.g. ConversationManager in MainWindowView) |
-| `@ObservedObject` | Observe an ObservableObject owned elsewhere |
+| `@Bindable` | Derive bindings from an `@Observable` object injected from a parent |
+| `@StateObject` | Own an `ObservableObject` for the view's lifetime (e.g. ConversationManager in MainWindowView) |
+| `@ObservedObject` | Observe an `ObservableObject` owned elsewhere |
 | `@AppStorage` | Persistent user preferences backed by UserDefaults |
-| `@Observable` | Modern Observation framework (used by OnboardingState) |
+| `@Observable` | Macro for model/VM classes — most view models and managers use this. See `clients/AGENTS.md` § "State Management" for the full decision guide, migrated class list, and migration patterns. |
 
 </details>
 
 ### Rules
 
-- **`@MainActor` on all ObservableObject classes** — all view models and managers that touch UI must be `@MainActor`.
+- **`@MainActor` on all view model and manager classes** — whether `@Observable` or `ObservableObject`, all classes that touch UI must be `@MainActor`.
 - **Nested ObservableObject**: When a view reads properties from a nested ObservableObject (e.g. `conversationManager.activeViewModel.messages`), the parent must subscribe to the child's `objectWillChange` and forward it. See `ConversationManager.subscribeToActiveViewModel()`.
+- **`@Observable` → `ObservableObject` bridge**: When an `@Observable` child is owned by an `ObservableObject` parent, use a recursive `withObservationTracking` loop to forward changes. See `ChatViewModel.observeErrorManager()` and `MainWindowState.observeNavigationHistory()`.
 - **Dependency injection**: Pass dependencies (DaemonClient, AmbientAgent) through init parameters, not singletons. Session dependencies use protocols for testability.
 - **Previews**: Do not add `#Preview` or `PreviewProvider` blocks. Use the Component Gallery as the single visual review surface. If you encounter existing `#Preview` blocks, remove them. See `clients/AGENTS.md` § "Preview Policy & Component Gallery" for full rationale and guidance on when to reconsider this policy.
 - **Gallery**: When adding or modifying a design system primitive/component, update the corresponding Gallery section file (`Gallery/Sections/`) so the visual catalog stays current.

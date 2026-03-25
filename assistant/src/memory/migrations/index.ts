@@ -132,6 +132,8 @@ export { migrateCallSessionSkipDisclosure } from "./190-call-session-skip-disclo
 export { migrateBackfillAudioAttachmentMimeTypes } from "./191-backfill-audio-attachment-mime-types.js";
 export { migrateContactsUserFileColumn } from "./192-contacts-user-file-column.js";
 export { migrateAddSourceTypeColumns } from "./193-add-source-type-columns.js";
+export { migrateCreateMemoryRecallLogs } from "./194-memory-recall-logs.js";
+export { migrateOAuthProvidersPingConfig } from "./195-oauth-providers-ping-config.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

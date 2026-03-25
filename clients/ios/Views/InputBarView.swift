@@ -104,7 +104,7 @@ struct InputBarView: View {
             }) {
                 Text("Cancel")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
             .buttonStyle(.plain)
             .padding(.bottom, VSpacing.xs)
@@ -164,7 +164,7 @@ struct InputBarView: View {
             TextField("Message...", text: $text, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .padding(VSpacing.md)
                 .background(VColor.surfaceBase)
                 .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))

@@ -8,7 +8,7 @@ struct QuickInputConversation: Identifiable {
 }
 
 struct QuickInputView: View {
-    @ObservedObject var textModel: QuickInputTextModel
+    @Bindable var textModel: QuickInputTextModel
     let onSubmit: (String) -> Void
     let onDismiss: () -> Void
     let onSelectConversation: ((UUID, String) -> Void)?
@@ -74,13 +74,13 @@ struct QuickInputView: View {
                 if attachedImage != nil {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.scan, size: 11)
-                            .foregroundColor(VColor.primaryBase)
+                            .foregroundStyle(VColor.primaryBase)
                         Text("Screenshot")
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                         Button(action: { onRemoveAttachment?() }) {
                             VIconView(.x, size: 9)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("Remove image")
@@ -101,7 +101,7 @@ struct QuickInputView: View {
                     text: $textModel.text
                 )
                     .font(.system(size: 16))
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .textFieldStyle(.plain)
                     .focused($isFocused)
                     .onSubmit { submit() }
@@ -132,10 +132,10 @@ struct QuickInputView: View {
                     HStack(spacing: VSpacing.xxs) {
                         Text(textModel.selectedConversationTitle ?? "New Conversation")
                             .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                             .lineLimit(1)
                         VIconView(.chevronDown, size: 10)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                     }
                 }
                 .menuStyle(.borderlessButton)
@@ -146,7 +146,7 @@ struct QuickInputView: View {
                 if attachedImage == nil {
                     Button(action: { onScreenCapture?() }) {
                         VIconView(.scan, size: 14)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                             .frame(width: 32, height: 32)
                     }
                     .buttonStyle(.plain)
@@ -158,7 +158,7 @@ struct QuickInputView: View {
                     Button(action: { onMicrophoneToggle?() }) {
                         ZStack {
                             VIconView(.mic, size: 14)
-                                .foregroundColor(VColor.primaryBase)
+                                .foregroundStyle(VColor.primaryBase)
                         }
                         .frame(width: 32, height: 32)
                     }
@@ -175,7 +175,7 @@ struct QuickInputView: View {
                                 .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: false), value: isMicPulsing)
 
                             VIconView(.mic, size: 14)
-                                .foregroundColor(VColor.systemNegativeStrong)
+                                .foregroundStyle(VColor.systemNegativeStrong)
                         }
                         .frame(width: 32, height: 32)
                     }
@@ -190,7 +190,7 @@ struct QuickInputView: View {
                                 .fill(isEmpty ? VColor.primaryBase.opacity(0.4) : VColor.primaryBase)
                                 .frame(width: 32, height: 32)
                             VIconView(.arrowUp, size: 14)
-                                .foregroundColor(VColor.auxWhite)
+                                .foregroundStyle(VColor.auxWhite)
                         }
                     }
                     .buttonStyle(.plain)
@@ -205,18 +205,18 @@ struct QuickInputView: View {
             if showScreenPermissionPrompt {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(.scan, size: 14)
-                        .foregroundColor(VColor.primaryBase)
+                        .foregroundStyle(VColor.primaryBase)
 
                     Text("Allow screen recording to capture screenshots")
                         .font(.system(size: 13))
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
 
                     Spacer()
 
                     Button(action: { onAllowScreenRecording?() }) {
                         Text("Allow")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(VColor.primaryBase)
+                            .foregroundStyle(VColor.primaryBase)
                             .padding(.horizontal, VSpacing.md)
                             .padding(.vertical, VSpacing.xs)
                             .background(

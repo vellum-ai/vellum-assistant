@@ -20,7 +20,7 @@ private struct CodeBlockView: View {
                 if !lang.isEmpty {
                     Text(lang)
                         .font(VFont.bodySmallDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
                 Spacer()
                 Button(action: copyCode) {
@@ -31,7 +31,7 @@ private struct CodeBlockView: View {
                                 .font(VFont.bodySmallDefault)
                         }
                     }
-                    .foregroundColor(showCopied ? VColor.systemPositiveStrong : VColor.contentTertiary)
+                    .foregroundStyle(showCopied ? VColor.systemPositiveStrong : VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
             }
@@ -40,7 +40,7 @@ private struct CodeBlockView: View {
 
             Text(code)
                 .font(VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .padding(VSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
@@ -57,7 +57,9 @@ private struct CodeBlockView: View {
         UIPasteboard.general.string = code
         #endif
         showCopied = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
             showCopied = false
         }
     }
@@ -247,13 +249,13 @@ public struct MarkdownRenderer: View {
         case .heading(let level, let text):
             Text(inlineMarkdown(text))
                 .font(level <= 2 ? VFont.bodySmallEmphasised : VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
         case .paragraph(let text):
             Text(inlineMarkdown(text))
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .tint(VColor.primaryBase)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
@@ -267,11 +269,11 @@ public struct MarkdownRenderer: View {
                     HStack(alignment: .top, spacing: VSpacing.xs) {
                         Text(ordered ? "\(index + 1)." : "•")
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                             .frame(minWidth: ordered ? 24 : 12, alignment: .leading)
                         Text(inlineMarkdown(item))
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                             .tint(VColor.primaryBase)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)

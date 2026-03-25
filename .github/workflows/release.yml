@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'release/v*'
+  workflow_dispatch:
 
 concurrency:
   group: release
@@ -23,23 +24,27 @@ jobs:
         id: extract
         run: |
           BRANCH="${GITHUB_REF_NAME}"
+          if [[ "$BRANCH" != release/v* ]]; then
+            echo "::error::Workflow must run on a release/v* branch, got '$BRANCH'"
+            exit 1
+          fi
           VERSION="${BRANCH#release/v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Detect staging release
         id: detect-staging
         run: |
-          COMMIT_MSG=$(git log -1 --format=%s)
-          if echo "$COMMIT_MSG" | grep -qF '[staging]'; then
-            echo "is_staging=true" >> "$GITHUB_OUTPUT"
-            echo "Staging release detected from commit message: $COMMIT_MSG"
-          else
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "is_staging=false" >> "$GITHUB_OUTPUT"
-            echo "Production release detected from commit message: $COMMIT_MSG"
+            echo "Manual dispatch — full production release"
+          else
+            echo "is_staging=true" >> "$GITHUB_OUTPUT"
+            echo "Commit-triggered release — staging only"
           fi
 
   push-assistant-image:
     needs: [extract-version, ci-assistant]
+    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest-8-cores
     timeout-minutes: 30
     permissions:
@@ -112,9 +117,7 @@ jobs:
 
   push-assistant-manifest:
     needs: [extract-version, push-assistant-image]
-    # Run even when push-assistant-image fails so this job is marked as failed (not skipped),
-    # keeping the dependency graph simple while ensuring accurate Slack reporting.
-    if: always() && !cancelled()
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -223,6 +226,7 @@ jobs:
 
   push-gateway-image:
     needs: [extract-version, ci-gateway]
+    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -294,6 +298,7 @@ jobs:
 
   push-credential-executor-image:
     needs: [extract-version, ci-credential-executor]
+    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -363,9 +368,7 @@ jobs:
 
   push-gateway-manifest:
     needs: [extract-version, push-gateway-image]
-    # Run even when push-gateway-image fails so this job is marked as failed (not skipped),
-    # keeping the dependency graph simple while ensuring accurate Slack reporting.
-    if: always() && !cancelled()
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -474,9 +477,7 @@ jobs:
 
   push-credential-executor-manifest:
     needs: [extract-version, push-credential-executor-image]
-    # Run even when push-credential-executor-image fails so this job is marked as failed (not skipped),
-    # keeping the dependency graph simple while ensuring accurate Slack reporting.
-    if: always() && !cancelled()
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -582,6 +583,7 @@ jobs:
           echo "**Environment:** \`${{ matrix.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Version:** \`${{ needs.extract-version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**SHA tag:** \`${{ steps.release-sha.outputs.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
 
   push-dockerhub-image:
     needs: [extract-version, ci-assistant, ci-gateway, ci-credential-executor]
@@ -666,6 +668,7 @@ jobs:
 
   register-release:
     needs: [extract-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
+    if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -739,8 +742,8 @@ jobs:
           GATEWAY_DIGEST=$(cat /tmp/gateway-digest/digest)
           CREDENTIAL_EXECUTOR_DIGEST=$(cat /tmp/credential-executor-digest/digest)
           echo "assistant_digest=${ASSISTANT_DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "gateway_digest=${GATEWAY_DIGEST}" >> "$GITHUB_OUTPUT"
           echo "credential_executor_digest=${CREDENTIAL_EXECUTOR_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "gateway_digest=${GATEWAY_DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Resolve platform credentials
         id: platform-creds
@@ -760,7 +763,6 @@ jobs:
           ASSISTANT_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.ASSISTANT_IMAGE_NAME }}"
           GATEWAY_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.GATEWAY_IMAGE_NAME }}"
           CREDENTIAL_EXECUTOR_REPO="${{ secrets.GCP_REGISTRY_HOST }}/${{ secrets.GCP_PROJECT_ID }}/${{ secrets.CREDENTIAL_EXECUTOR_IMAGE_NAME }}"
-
           PAYLOAD=$(jq -n \
             --arg version "$VERSION" \
             --arg released_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -869,7 +871,8 @@ jobs:
 
       - name: Install and publish
         run: |
-          cd ${{ matrix.package }}
+          PACKAGE="${{ matrix.package }}"
+          cd "$PACKAGE"
           if ! bun install --frozen-lockfile; then
             echo "bun install --frozen-lockfile failed; regenerating lockfile and retrying..."
             rm -f bun.lock
@@ -1699,7 +1702,27 @@ jobs:
             --body "Automated version bump to $VERSION." \
             --base main \
             --head "$BRANCH")
-          gh pr merge "$PR_URL" --squash --admin --delete-branch
+
+          # Try the normal merge first. If it fails (e.g. due to cherry-picked
+          # commits causing conflicts), rebase onto main to skip already-applied
+          # commits and retry.
+          if ! gh pr merge "$PR_URL" --squash --admin --delete-branch; then
+            echo "Merge failed — rebasing to resolve cherry-pick conflicts"
+
+            git config user.name "vellum-automation[bot]"
+            git config user.email "192048195+vellum-automation[bot]@users.noreply.github.com"
+
+            git fetch origin main
+            git rebase origin/main
+
+            # Append [skip ci] so the force-push doesn't re-trigger this workflow
+            git commit --allow-empty --amend -m "$(git log -1 --format=%B) [skip ci]"
+            git push origin "$BRANCH" --force-with-lease
+
+            # Give GitHub time to process the force-push before retrying
+            sleep 10
+            gh pr merge "$PR_URL" --squash --admin --delete-branch
+          fi
 
   update-platform:
     needs: [extract-version, publish-npm]
@@ -2149,22 +2172,20 @@ jobs:
 
           # Determine release status
           RELEASE_FAILED="false"
+          if [ "$IS_STAGING" != "true" ] && [ "${{ needs.release.result }}" != "success" ]; then
+            RELEASE_FAILED="true"
+          fi
+
+          # For staging releases, check that desktop app artifacts were successfully built
+          STAGING_READY="true"
           if [ "$IS_STAGING" = "true" ]; then
-            # For staging, check that GCP image pushes and register-release succeeded
-            if [ "${{ needs.push-assistant-manifest.result }}" != "success" ] || \
-               [ "${{ needs.push-gateway-manifest.result }}" != "success" ] || \
-               [ "${{ needs.push-credential-executor-manifest.result }}" != "success" ] || \
-               [ "${{ needs.register-release.result }}" != "success" ]; then
-              RELEASE_FAILED="true"
-            fi
-          else
-            if [ "${{ needs.release.result }}" != "success" ]; then
-              RELEASE_FAILED="true"
+            if [ "${{ needs.build-macos-arm64.result }}" != "success" ]; then
+              STAGING_READY="false"
             fi
           fi
 
           if [ "$IS_STAGING" = "true" ]; then
-            if [ "$RELEASE_FAILED" = "true" ]; then
+            if [ "$STAGING_READY" != "true" ]; then
               HEADER="❌ Staging Release ${VERSION_TAG} Failed"
               STYLE="danger"
             else

@@ -1,4 +1,6 @@
-import { loadFeatureFlagDefaults } from "./feature-flag-defaults.js";
+import type { CredentialCache } from "./credential-cache.js";
+import { credentialKey } from "./credential-key.js";
+import { fetchImpl } from "./fetch.js";
 import { writeRemoteFeatureFlags } from "./feature-flag-remote-store.js";
 import { getLogger } from "./logger.js";
 
@@ -21,6 +23,11 @@ function getPollIntervalMs(): number {
   return DEFAULT_POLL_INTERVAL_MS;
 }
 
+export type RemoteFeatureFlagSyncConfig = {
+  /** Credential cache for resolving platform URL, API key, and assistant ID dynamically. */
+  credentials: CredentialCache;
+};
+
 /**
  * Manages the lifecycle of syncing remote feature flags from the platform.
  *
@@ -32,6 +39,11 @@ function getPollIntervalMs(): number {
 export class RemoteFeatureFlagSync {
   private started = false;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly credentials: CredentialCache;
+
+  constructor(config: RemoteFeatureFlagSyncConfig) {
+    this.credentials = config.credentials;
+  }
 
   async start(): Promise<void> {
     this.started = true;
@@ -42,10 +54,6 @@ export class RemoteFeatureFlagSync {
       log.warn({ err }, "Failed to sync remote feature flags on startup");
     }
 
-    // TODO: Replace stub fetch with real platform API call to
-    // GET ${VELLUM_PLATFORM_URL}/v1/feature-flags (or similar).
-    // The poll interval ensures the gateway picks up flag changes
-    // without requiring a restart.
     const intervalMs = getPollIntervalMs();
     this.pollTimer = setInterval(() => {
       this.fetchAndCache().catch((err) => {
@@ -66,6 +74,10 @@ export class RemoteFeatureFlagSync {
 
   private async fetchAndCache(): Promise<void> {
     const values = await this.fetchRemoteFeatureFlags();
+    if (values === null) {
+      log.debug("Skipping cache write — fetch returned no usable data");
+      return;
+    }
     writeRemoteFeatureFlags(values);
     log.info(
       { count: Object.keys(values).length },
@@ -73,18 +85,69 @@ export class RemoteFeatureFlagSync {
     );
   }
 
-  /**
-   * Stub: returns the same values the registry provides so the net effect on
-   * resolution is zero until the real platform API replaces this.
-   */
-  private async fetchRemoteFeatureFlags(): Promise<Record<string, boolean>> {
-    log.debug("Fetching remote feature flags (stub)");
+  private async fetchRemoteFeatureFlags(): Promise<Record<
+    string,
+    boolean
+  > | null> {
+    const [platformUrlRaw, assistantIdRaw, platformApiKeyRaw] =
+      await Promise.all([
+        this.credentials.get(credentialKey("vellum", "platform_base_url")),
+        this.credentials.get(credentialKey("vellum", "platform_assistant_id")),
+        this.credentials.get(credentialKey("vellum", "assistant_api_key")),
+      ]);
 
-    const defaults = loadFeatureFlagDefaults();
-    const result: Record<string, boolean> = {};
-    for (const [key, entry] of Object.entries(defaults)) {
-      result[key] = entry.defaultEnabled;
+    const platformUrl = platformUrlRaw?.trim().replace(/\/+$/, "");
+    const assistantId = assistantIdRaw?.trim();
+    const platformApiKey = platformApiKeyRaw?.trim();
+
+    if (!platformUrl || !assistantId || !platformApiKey) {
+      log.debug(
+        {
+          hasPlatformUrl: !!platformUrl,
+          hasAssistantId: !!assistantId,
+          hasPlatformApiKey: !!platformApiKey,
+        },
+        "Remote feature flag sync skipped: missing credentials",
+      );
+      return null;
     }
+
+    const url = `${platformUrl}/v1/assistants/${assistantId}/feature-flags/`;
+    log.debug({ url }, "Fetching remote feature flags from platform");
+
+    const response = await fetchImpl(url, {
+      method: "GET",
+      headers: {
+        Authorization: `Api-Key ${platformApiKey}`,
+        Accept: "application/json",
+      },
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!response.ok) {
+      log.warn(
+        { status: response.status, url },
+        "Platform feature flags request failed",
+      );
+      return null;
+    }
+
+    const body = (await response.json()) as {
+      flags?: Record<string, boolean>;
+    };
+    if (!body.flags || typeof body.flags !== "object") {
+      log.warn("Platform feature flags response missing 'flags' field");
+      return null;
+    }
+
+    // Filter to boolean values only (defensive)
+    const result: Record<string, boolean> = {};
+    for (const [key, value] of Object.entries(body.flags)) {
+      if (typeof value === "boolean") {
+        result[key] = value;
+      }
+    }
+
     return result;
   }
 }

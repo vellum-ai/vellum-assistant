@@ -11,24 +11,24 @@ struct APIKeyStepView: View {
     @State private var showContent = false
 
     private var userHostedEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("user_hosted_enabled")
+        MacOSClientFeatureFlagManager.shared.isEnabled("user-hosted-enabled")
     }
 
     private var platformHostedEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("platform_hosted_enabled")
+        MacOSClientFeatureFlagManager.shared.isEnabled("platform-hosted-enabled")
     }
 
     var body: some View {
         Text("Hosting")
             .font(.system(size: 32, weight: .regular, design: .serif))
-            .foregroundColor(VColor.contentDefault)
+            .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
 
         Text("Where do you want your assistant to run?")
             .font(VFont.titleSmall)
-            .foregroundColor(VColor.contentSecondary)
+            .foregroundStyle(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.xxl)
@@ -144,20 +144,20 @@ struct APIKeyStepView: View {
         }) {
             HStack(spacing: VSpacing.md) {
                 VIconView(icon, size: 18)
-                    .foregroundColor(isDisabled ? VColor.contentTertiary : (isSelected ? VColor.primaryBase : VColor.contentSecondary))
+                    .foregroundStyle(isDisabled ? VColor.contentTertiary : (isSelected ? VColor.primaryBase : VColor.contentSecondary))
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: VSpacing.sm) {
                         Text(title)
                             .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(isDisabled ? VColor.contentTertiary : VColor.contentDefault)
+                            .foregroundStyle(isDisabled ? VColor.contentTertiary : VColor.contentDefault)
 
                         Spacer()
 
                         if let chipLabel {
                             Text(chipLabel)
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                                 .padding(.horizontal, VSpacing.sm)
                                 .padding(.vertical, VSpacing.xxs)
                                 .background(VColor.surfaceActive)
@@ -166,7 +166,7 @@ struct APIKeyStepView: View {
                     }
                     Text(subtitle)
                         .font(.system(size: 12))
-                        .foregroundColor(isDisabled ? VColor.contentTertiary : VColor.contentSecondary)
+                        .foregroundStyle(isDisabled ? VColor.contentTertiary : VColor.contentSecondary)
                 }
 
                 if chipLabel == nil {

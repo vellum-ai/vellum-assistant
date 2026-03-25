@@ -4,7 +4,7 @@ import VellumAssistantShared
 
 struct ContactDetailView: View {
     let contact: ContactPayload
-    @ObservedObject var contactsStore: ContactsStore
+    var contactsStore: ContactsStore
     @Environment(\.dismiss) private var dismiss
     @State private var showDeleteConfirmation = false
     @State private var channelForPolicyEdit: ContactChannelPayload?
@@ -42,7 +42,7 @@ struct ContactDetailView: View {
                 Section("Notes") {
                     Text(notes)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
             }
 
@@ -110,7 +110,7 @@ struct ContactDetailView: View {
 
             Text(liveContact.displayName)
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             HStack(spacing: VSpacing.sm) {
                 roleBadge(liveContact.role)
@@ -118,7 +118,7 @@ struct ContactDetailView: View {
                 if let contactType = liveContact.contactType, !contactType.isEmpty {
                     Text(contactType.capitalized)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
         }
@@ -136,12 +136,12 @@ struct ContactDetailView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(channel.address)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
 
                     HStack(spacing: 4) {
                         Text(channel.type.capitalized)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
 
                         if channel.isPrimary {
                             Text("Primary")
@@ -149,7 +149,7 @@ struct ContactDetailView: View {
                                 .padding(.horizontal, 4)
                                 .padding(.vertical, 1)
                                 .background(Capsule().fill(Color.blue.opacity(0.15)))
-                                .foregroundColor(.blue)
+                                .foregroundStyle(.blue)
                         }
                     }
                 }
@@ -190,7 +190,7 @@ struct ContactDetailView: View {
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .background(Capsule().fill(color.opacity(0.15)))
-            .foregroundColor(color)
+            .foregroundStyle(color)
     }
 
     private func policyBadge(_ policy: String) -> some View {
@@ -208,7 +208,7 @@ struct ContactDetailView: View {
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .background(Capsule().fill(color.opacity(0.15)))
-            .foregroundColor(color)
+            .foregroundStyle(color)
     }
 
     private func roleBadge(_ role: String) -> some View {
@@ -225,7 +225,7 @@ struct ContactDetailView: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(Capsule().fill(color.opacity(0.15)))
-            .foregroundColor(color)
+            .foregroundStyle(color)
     }
 
     // MARK: - Helpers
@@ -243,7 +243,7 @@ struct ContactDetailView: View {
         }()
 
         return VIconView(icon, size: 16)
-            .foregroundColor(VColor.primaryBase)
+            .foregroundStyle(VColor.primaryBase)
             .frame(width: 28)
     }
 
@@ -256,7 +256,7 @@ struct ContactDetailView: View {
 
         return Text(initials.isEmpty ? "?" : initials)
             .font(.system(size: size * 0.35, weight: .semibold))
-            .foregroundColor(.white)
+            .foregroundStyle(.white)
             .frame(width: size, height: size)
             .background(Circle().fill(VColor.primaryBase))
             .accessibilityHidden(true)
@@ -266,11 +266,11 @@ struct ContactDetailView: View {
         HStack {
             Text(label)
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
             Spacer()
             Text(value)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label): \(value)")

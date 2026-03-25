@@ -25,6 +25,10 @@ struct HatchingStepView: View {
         state.hatchAvatarColor ?? .allCases[0]
     }
     @State private var completionTask: Task<Void, Never>?
+    @State private var isAnimatingProgress: Bool = false
+    @State private var progressStartTime: CFAbsoluteTime?
+    @State private var completionTime: Date?
+    @State private var progressAtCompletion: Double?
 
     var body: some View {
         VStack(spacing: VSpacing.lg) {
@@ -34,6 +38,10 @@ struct HatchingStepView: View {
                 .padding(.bottom, VSpacing.xl)
 
             statusText
+
+            if showProgressBar {
+                progressSection
+            }
 
             if state.hatchFailed {
                 failureButtons
@@ -64,13 +72,33 @@ struct HatchingStepView: View {
                 hatchStarted = true
                 startHatching()
             }
+
+            // In the managed path, hatchStepLabel is set before HatchingStepView
+            // appears, so .onChange(of: hatchStepLabel) never fires. Start the
+            // progress timer eagerly when the label is already present.
+            if state.hatchStepLabel != nil {
+                progressStartTime = CFAbsoluteTimeGetCurrent()
+                isAnimatingProgress = true
+            }
         }
         .onDisappear {
             completionTask?.cancel()
+            isAnimatingProgress = false
+        }
+        .onChange(of: state.hatchStepLabel) { oldLabel, newLabel in
+            if oldLabel == nil, newLabel != nil {
+                progressStartTime = CFAbsoluteTimeGetCurrent()
+                isAnimatingProgress = true
+            }
         }
         .onChange(of: state.hatchCompleted) { _, completed in
             if completed {
                 characterAwake = true
+                // Capture state for the completion ramp animation
+                if completionTime == nil {
+                    progressAtCompletion = progressValue(at: Date())
+                    completionTime = Date()
+                }
             }
         }
         .onChange(of: state.hatchFailed) { _, failed in
@@ -126,41 +154,64 @@ struct HatchingStepView: View {
                 if state.hasExistingManagedAssistant {
                     Text("You already have an assistant")
                         .font(.system(size: 24, weight: .regular, design: .serif))
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                     Text("You have an assistant on the hosted platform")
                         .font(.system(size: 14))
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 } else {
                     Text("Something went wrong")
                         .font(.system(size: 24, weight: .regular, design: .serif))
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                     if let reason = failureReason {
                         Text(reason)
                             .font(.system(size: 14))
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                             .textSelection(.enabled)
                     }
                 }
             } else if state.hatchCompleted {
                 Text(isCustomHardware ? "Your assistant is paired!" : "Your assistant is ready!")
                     .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
             } else if isCustomHardware {
                 Text("Pairing\u{2026}")
                     .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
             } else {
                 Text("Waking up...")
                     .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Text("Hang tight \u{2014} your assistant will have a few\nquestions for you once it\u{2019}s up.")
                     .font(.system(size: 13))
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .multilineTextAlignment(.center)
             }
         }
         .multilineTextAlignment(.center)
         .frame(maxWidth: 320)
+    }
+
+    // MARK: - Progress Bar
+
+    private var showProgressBar: Bool {
+        !state.hatchFailed && !isCustomHardware && state.hatchStepLabel != nil
+            && (!state.hatchCompleted || isAnimatingProgress)
+    }
+
+    private var progressSection: some View {
+        VStack(spacing: VSpacing.xs) {
+            TimelineView(.animation) { context in
+                ProgressView(value: progressValue(at: context.date))
+                    .progressViewStyle(.linear)
+                    .frame(maxWidth: 240)
+            }
+            if let label = state.hatchStepLabel {
+                Text(label)
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+        }
+        .transition(.opacity.animation(.easeOut(duration: 0.3)))
     }
 
     // MARK: - Failure Buttons
@@ -195,6 +246,11 @@ struct HatchingStepView: View {
         state.hasExistingManagedAssistant = false
         state.hatchFailed = false
         state.hatchLogLines = []
+        state.hatchProgressTarget = 0.0
+        state.hatchProgressDisplay = 0.0
+        state.hatchStepLabel = nil
+        state.hatchTotalSteps = 1
+        state.hatchCurrentStep = 0
         hatchStarted = false
         failureReason = nil
     }
@@ -231,10 +287,57 @@ struct HatchingStepView: View {
         // Brief delay so the user sees the waking animation before transition.
         // Stored as a cancellable Task so it's cleaned up if the view disappears.
         completionTask = Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(nanoseconds: 500_000_000)
             guard !Task.isCancelled else { return }
             state.hatchCompleted = true
         }
+    }
+
+    // MARK: - Progress Calculation
+
+    /// Estimated hatch duration per hosting mode, used to pace the progress bar.
+    /// The bar uses an asymptotic curve so it never stalls even if the actual
+    /// duration exceeds this estimate — it just moves more slowly.
+    private var estimatedDuration: TimeInterval {
+        switch state.cloudProvider {
+        case "local": return 10
+        case "docker": return 120
+        case "gcp", "aws": return 300
+        default: return 60
+        }
+    }
+
+    /// Computes the progress bar value for the given point in time.
+    /// Called from within `TimelineView(.animation)` so it runs at display refresh rate.
+    private func progressValue(at date: Date) -> Double {
+        guard state.hatchStepLabel != nil, let startTime = progressStartTime else { return 0 }
+
+        if state.hatchCompleted, let compTime = completionTime, let baseProgress = progressAtCompletion {
+            // Ease-out ramp from current position to 100%
+            let timeSinceCompletion = date.timeIntervalSince(compTime)
+            let rampProgress = min(1.0, 1.0 - exp(-timeSinceCompletion * 3.0))
+            let value = baseProgress + (1.0 - baseProgress) * rampProgress
+            if value >= 0.999 {
+                // Stop the animation once the ramp is effectively complete
+                Task { @MainActor in
+                    isAnimatingProgress = false
+                }
+                return 1.0
+            }
+            return value
+        }
+
+        if state.hatchFailed {
+            // Freeze at the last computed asymptotic value
+            let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+            return 0.95 * (1.0 - exp(-elapsed / estimatedDuration))
+        }
+
+        // Asymptotic time-based progress: 0.95 * (1 - e^(-t/estimated))
+        // Never reaches 95% no matter how long — always appears to be moving.
+        // estimatedDuration controls the pace: at 1x estimate the bar is ~60%.
+        let elapsed = CFAbsoluteTimeGetCurrent() - startTime
+        return 0.95 * (1.0 - exp(-elapsed / estimatedDuration))
     }
 
     // MARK: - Hatching / Pairing
@@ -293,6 +396,26 @@ struct HatchingStepView: View {
                 try await cliLauncher.runRemoteHatch(config: config) { line in
                     Task { @MainActor in
                         log.info("CLI hatch output: \(line, privacy: .public)")
+
+                        // Parse progress sentinel
+                        if line.hasPrefix("HATCH_PROGRESS:") {
+                            // Ignore late events after success
+                            guard !state.hatchCompleted else { return }
+                            let json = String(line.dropFirst("HATCH_PROGRESS:".count))
+                            if let data = json.data(using: .utf8),
+                               let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                               let step = parsed["step"] as? Int,
+                               let total = parsed["total"] as? Int,
+                               let label = parsed["label"] as? String,
+                               total > 0, step >= 0, step <= total {
+                                state.hatchCurrentStep = step
+                                state.hatchTotalSteps = total
+                                state.hatchStepLabel = label
+                                state.hatchProgressTarget = min(Double(step) / Double(total), 0.95)
+                            }
+                            return  // Don't append sentinel lines to hatchLogLines
+                        }
+
                         state.hatchLogLines.append(line)
 
                         // Detect the readiness sentinel from CLI output so we

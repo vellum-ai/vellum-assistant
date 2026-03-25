@@ -155,15 +155,26 @@ extension AppDelegate {
                 case .skillStateChanged:
                     self.refreshSkillsCache()
                 case .openUrl(let msg):
-                    guard let url = URL(string: msg.url) else { break }
-                    let alert = NSAlert()
-                    alert.messageText = "Open External Link?"
-                    alert.informativeText = msg.url
-                    alert.alertStyle = .informational
-                    alert.addButton(withTitle: "Open in Browser")
-                    alert.addButton(withTitle: "Cancel")
-                    if alert.runModal() == .alertFirstButtonReturn {
+                    log.info("[open_url] Received open_url event: urlLength=\(msg.url.count), title=\(msg.title ?? "<none>")")
+                    guard let url = URL(string: msg.url) else {
+                        log.error("[open_url] Failed to parse URL from open_url event: \(msg.url.prefix(80))")
+                        break
+                    }
+                    // Auto-open https URLs (trusted daemon origin); prompt for other schemes
+                    if url.scheme == "https" {
+                        log.info("[open_url] Opening https URL directly in default browser")
                         NSWorkspace.shared.open(url)
+                    } else {
+                        log.info("[open_url] Non-https scheme (\(url.scheme ?? "nil")), showing confirmation")
+                        let alert = NSAlert()
+                        alert.messageText = "Open External Link?"
+                        alert.informativeText = msg.url
+                        alert.alertStyle = .informational
+                        alert.addButton(withTitle: "Open in Browser")
+                        alert.addButton(withTitle: "Cancel")
+                        if alert.runModal() == .alertFirstButtonReturn {
+                            NSWorkspace.shared.open(url)
+                        }
                     }
                 case .navigateSettings(let msg):
                     self.showSettingsTab(msg.tab)
@@ -194,6 +205,13 @@ extension AppDelegate {
                     self.mainWindow?.conversationManager.createScheduleConversation(
                         conversationId: msg.conversationId,
                         scheduleJobId: msg.scheduleJobId,
+                        title: msg.title
+                    )
+                case .heartbeatConversationCreated(let msg):
+                    guard !self.isBootstrapping else { break }
+                    self.ensureMainWindowExists()
+                    self.mainWindow?.conversationManager.createHeartbeatConversation(
+                        conversationId: msg.conversationId,
                         title: msg.title
                     )
                 case .notificationConversationCreated(let msg):
@@ -263,10 +281,36 @@ extension AppDelegate {
                     HostToolExecutor.executeHostFileRequest(msg)
                 case .hostCuRequest(let msg):
                     let proxy = self.getOrCreateHostCuOverlay(conversationId: msg.conversationId, request: msg)
-                    Task { @MainActor in
+                    let task = Task { @MainActor in
+                        defer { self.inFlightCuTasks.removeValue(forKey: msg.requestId) }
+
+                        guard !Task.isCancelled else {
+                            HostCuActionRunner.clearSession(msg.conversationId)
+                            return
+                        }
                         let result = await HostCuActionRunner.perform(msg, overlayProxy: proxy)
+
+                        guard !Task.isCancelled else {
+                            HostCuActionRunner.clearSession(msg.conversationId)
+                            return
+                        }
+
+                        // Suppress stale POST if cancelled
+                        if HostToolExecutor.isCancelledAndConsume(msg.requestId) {
+                            HostCuActionRunner.clearSession(msg.conversationId)
+                            log.debug("Host CU result suppressed (cancelled) — requestId=\(msg.requestId, privacy: .public)")
+                            return
+                        }
                         _ = await HostProxyClient().postCuResult(result)
                     }
+                    self.inFlightCuTasks[msg.requestId] = task
+
+                case .hostBashCancel(let msg):
+                    HostToolExecutor.cancelHostBashRequest(msg.requestId)
+                case .hostFileCancel(let msg):
+                    HostToolExecutor.cancelHostFileRequest(msg.requestId)
+                case .hostCuCancel(let msg):
+                    self.cancelHostCuRequest(msg.requestId)
 
                 // Signing identity
                 case .signBundlePayload(let msg):
@@ -312,6 +356,21 @@ extension AppDelegate {
                 }
             }
         }
+    }
+
+    // MARK: - Host CU Cancel
+
+    /// Cancel an in-flight host CU request: mark it cancelled, cancel the
+    /// Swift Task, and dismiss the overlay.
+    func cancelHostCuRequest(_ requestId: String) {
+        HostToolExecutor.markCancelled(requestId)
+        if let task = inFlightCuTasks.removeValue(forKey: requestId) {
+            task.cancel()
+        }
+        // Always dismiss — the task may have already completed and removed
+        // itself from inFlightCuTasks, but the overlay can still be visible.
+        dismissHostCuOverlay()
+        log.info("Cancelling host CU — requestId=\(requestId, privacy: .public)")
     }
 
     // MARK: - Signing Identity

@@ -5,6 +5,8 @@
  * POST  /v1/channels/readiness/refresh  — invalidate cache and refresh readiness
  */
 
+import { z } from "zod";
+
 import type { ChannelId } from "../../channels/types.js";
 import { getReadinessService } from "../../daemon/handlers/config-channels.js";
 import {
@@ -64,13 +66,18 @@ export async function handleRefreshChannelReadiness(
   req: Request,
 ): Promise<Response> {
   let body: { channel?: ChannelId; includeRemote?: boolean };
-  try {
-    body = (await req.json()) as typeof body;
-  } catch {
-    return Response.json(
-      { success: false, error: "Invalid JSON in request body" },
-      { status: 400 },
-    );
+  const text = await req.text();
+  if (!text.trim()) {
+    body = {};
+  } else {
+    try {
+      body = JSON.parse(text) as typeof body;
+    } catch {
+      return Response.json(
+        { success: false, error: "Invalid JSON in request body" },
+        { status: 400 },
+      );
+    }
   }
 
   const service = getReadinessService();
@@ -123,12 +130,46 @@ export function channelReadinessRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "channels/readiness",
       method: "GET",
+      summary: "Get channel readiness",
+      description: "Return readiness snapshots for one or all channels.",
+      tags: ["channels"],
       handler: async ({ url }) => handleGetChannelReadiness(url),
+      queryParams: [
+        {
+          name: "channel",
+          schema: { type: "string" },
+          description: "Optional channel ID filter",
+        },
+        {
+          name: "includeRemote",
+          schema: { type: "string" },
+          description: "Include remote checks (default true)",
+        },
+      ],
+      responseBody: z.object({
+        success: z.boolean(),
+        snapshots: z.array(z.unknown()).describe("Channel readiness snapshots"),
+      }),
     },
     {
       endpoint: "channels/readiness/refresh",
       method: "POST",
+      summary: "Refresh channel readiness",
+      description: "Invalidate cache and re-evaluate channel readiness.",
+      tags: ["channels"],
       handler: async ({ req }) => handleRefreshChannelReadiness(req),
+      requestBody: z.object({
+        channel: z.string().describe("Optional channel ID to refresh"),
+        includeRemote: z
+          .boolean()
+          .describe("Include remote checks (default true)"),
+      }),
+      responseBody: z.object({
+        success: z.boolean(),
+        snapshots: z
+          .array(z.unknown())
+          .describe("Refreshed readiness snapshots"),
+      }),
     },
   ];
 }

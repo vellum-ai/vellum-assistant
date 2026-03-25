@@ -39,7 +39,7 @@ struct ChatBubble: View {
     var processingStatusText: String?
     /// Whether the message-tts feature flag is enabled. Passed from the parent.
     var isTTSEnabled: Bool = false
-    @StateObject private var audioPlayer = MessageAudioPlayer()
+    @State private var audioPlayer = MessageAudioPlayer()
     @State private var isHovered = false
     /// Stores async-parsed segments for large messages (>500 chars) that missed the
     /// synchronous cache. Keyed by text content so multiple segments can be in flight.
@@ -408,10 +408,10 @@ struct ChatBubble: View {
     private var sendFailedIndicator: some View {
         HStack(spacing: VSpacing.xs) {
             VIconView(.triangleAlert, size: 12)
-                .foregroundColor(VColor.systemNegativeStrong)
+                .foregroundStyle(VColor.systemNegativeStrong)
             Text("Failed to send")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.systemNegativeStrong)
+                .foregroundStyle(VColor.systemNegativeStrong)
             VButton(label: "Retry", style: .ghost, size: .inline) {
                 onRetryFailedMessage?(message.id)
             }
@@ -434,7 +434,7 @@ struct ChatBubble: View {
         HStack(spacing: 2) {
             Text(formattedTimestamp)
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .help(detailedTimestamp)
             if hasCopyableText {
                 VButton(
@@ -608,7 +608,7 @@ struct ChatBubble: View {
                 } else if !message.attachments.isEmpty {
                     Text(attachmentSummary)
                         .font(VFont.labelDefault)
-                        .foregroundColor(isUser ? VColor.contentSecondary : VColor.contentSecondary)
+                        .foregroundStyle(isUser ? VColor.contentSecondary : VColor.contentSecondary)
                 }
 
                 let visibleImages = visibleAttachmentImages(partitioned.images)

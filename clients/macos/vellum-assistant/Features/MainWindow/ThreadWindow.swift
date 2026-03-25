@@ -174,7 +174,7 @@ private struct ThreadWindowContentView: View {
     let conversationLocalId: UUID
     @ObservedObject var conversationManager: ConversationManager
     @ObservedObject var settingsStore: SettingsStore
-    @ObservedObject var ambientAgent: AmbientAgent
+    var ambientAgent: AmbientAgent
     let onFork: (String) -> Void
 
     @State private var anchorMessageId: UUID?

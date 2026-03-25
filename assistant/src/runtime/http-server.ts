@@ -1029,7 +1029,7 @@ export class RuntimeHttpServer {
           const limit = Number(url.searchParams.get("limit") ?? 50);
           const offset = Number(url.searchParams.get("offset") ?? 0);
           const includeBackground = isAssistantFeatureFlagEnabled(
-            "feature_flags.show-background-conversations.enabled",
+            "show-background-conversations",
             getConfig(),
           );
           const conversations = listConversations(
@@ -1176,6 +1176,7 @@ export class RuntimeHttpServer {
         approvalConversationGenerator: this.approvalConversationGenerator,
         suggestionCache: this.suggestionCache,
         suggestionInFlight: this.suggestionInFlight,
+        getHeartbeatService: this.getHeartbeatService,
       }),
       ...globalSearchRouteDefinitions(),
       ...approvalRouteDefinitions(),
@@ -1238,6 +1239,7 @@ export class RuntimeHttpServer {
         guardianActionCopyGenerator: this.guardianActionCopyGenerator,
         guardianFollowUpConversationGenerator:
           this.guardianFollowUpConversationGenerator,
+        getHeartbeatService: this.getHeartbeatService,
       }),
       ...callRouteDefinitions({ assistantId }),
 

@@ -120,10 +120,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:asana --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:asana
 ```
 
 ---
@@ -135,10 +132,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:asana --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ))" "https://app.asana.com/api/1.0/users/me" | python3 -m json.tool
+    assistant oauth ping integration:asana
 ```
 
 **On success:** "Asana is connected! You can now ask me to check your Asana tasks, create projects, manage assignments, and track your work."

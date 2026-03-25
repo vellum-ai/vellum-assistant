@@ -33,12 +33,12 @@ struct IntegrationsSection: View {
                                     .controlSize(.small)
                             } else if integration.connected {
                                 VIconView(.circleCheck, size: 16)
-                                    .foregroundColor(VColor.systemPositiveStrong)
+                                    .foregroundStyle(VColor.systemPositiveStrong)
                                 Button("Disconnect") {
                                     disconnectIntegration(integration.id)
                                 }
                                 .font(.caption)
-                                .foregroundColor(VColor.systemNegativeStrong)
+                                .foregroundStyle(VColor.systemNegativeStrong)
                             } else {
                                 Button("Connect") {
                                     connectIntegration(integration.id)

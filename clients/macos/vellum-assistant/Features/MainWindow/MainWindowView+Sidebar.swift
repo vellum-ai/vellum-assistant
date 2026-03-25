@@ -30,7 +30,11 @@ extension MainWindowView {
     }
 
     var regularConversations: [ConversationModel] {
-        conversationManager.visibleConversations.filter { !$0.isScheduleConversation }
+        conversationManager.visibleConversations.filter { !$0.isScheduleConversation && !$0.isBackgroundConversation }
+    }
+
+    var backgroundConversations: [ConversationModel] {
+        conversationManager.visibleConversations.filter { $0.isBackgroundConversation }
     }
 
     var scheduleConversations: [ConversationModel] {
@@ -45,6 +49,18 @@ extension MainWindowView {
     var displayedScheduleConversations: [ConversationModel] {
         let all = scheduleConversations
         return sidebar.showAllScheduleConversations ? all : Array(all.prefix(3))
+    }
+
+    var displayedBackgroundConversations: [ConversationModel] {
+        let all = backgroundConversations
+        if sidebar.showAllBackgroundConversations { return all }
+        // Auto-expand if any hidden conversation has unread messages.
+        let visible = Array(all.prefix(3))
+        let hidden = all.dropFirst(3)
+        if hidden.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
+            return all
+        }
+        return visible
     }
 
     /// Groups schedule conversations by their scheduleJobId.
@@ -350,7 +366,7 @@ extension MainWindowView {
                         HStack {
                             Text("Scheduled")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                             Spacer()
                         }
                         .padding(.leading, SidebarLayoutMetrics.iconSlotSize)
@@ -396,7 +412,7 @@ extension MainWindowView {
                                     HStack(spacing: VSpacing.xs) {
                                         HStack(spacing: 2) {
                                             VIconView(.chevronRight, size: 10)
-                                                .foregroundColor(VColor.contentTertiary)
+                                                .foregroundStyle(VColor.contentTertiary)
                                                 .rotationEffect(.degrees(isGroupExpanded ? 90 : 0))
                                                 .animation(VAnimation.fast, value: isGroupExpanded)
                                             if hasUnread {
@@ -409,12 +425,12 @@ extension MainWindowView {
                                         .frame(height: SidebarLayoutMetrics.iconSlotSize)
                                         Text(group.label)
                                             .font(.system(size: 13))
-                                            .foregroundColor(VColor.contentDefault)
+                                            .foregroundStyle(VColor.contentDefault)
                                             .lineLimit(1)
                                             .truncationMode(.tail)
                                         Text("\(group.conversations.count)")
                                             .font(.system(size: 10, weight: .medium))
-                                            .foregroundColor(VColor.contentTertiary)
+                                            .foregroundStyle(VColor.contentTertiary)
                                             .padding(.horizontal, 6)
                                             .padding(.vertical, 2)
                                             .background(
@@ -485,6 +501,42 @@ extension MainWindowView {
                             .padding(.bottom, VSpacing.xs)
                         }
                     }
+
+                    if !backgroundConversations.isEmpty {
+                        // Background conversations section
+                        HStack {
+                            Text("Background")
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                            Spacer()
+                        }
+                        .padding(.leading, SidebarLayoutMetrics.iconSlotSize)
+                        .padding(.trailing, VSpacing.md)
+                        .padding(.top, SidebarLayoutMetrics.scheduledHeaderTopGap)
+                        .padding(.bottom, SidebarLayoutMetrics.scheduledHeaderBottomGap)
+
+                        ForEach(displayedBackgroundConversations) { conversation in
+                            makeSidebarRow(conversation: conversation)
+                                .equatable()
+                                .padding(.bottom, SidebarLayoutMetrics.listRowGap)
+                        }
+
+                        if backgroundConversations.count > 3 {
+                            HStack {
+                                VButton(
+                                    label: sidebar.showAllBackgroundConversations ? "Show less" : "Show more",
+                                    style: .ghost,
+                                    size: .compact
+                                ) {
+                                    withAnimation(VAnimation.fast) { sidebar.showAllBackgroundConversations.toggle() }
+                                }
+                                Spacer()
+                            }
+                            .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
+                            .padding(.top, VSpacing.sm)
+                            .padding(.bottom, VSpacing.xs)
+                        }
+                    }
                 }
             }
             .scrollIndicators(.never)
@@ -545,7 +597,7 @@ extension MainWindowView {
                     ZStack(alignment: .bottomTrailing) {
                         Text(switcher.badgeText)
                             .font(.system(size: 11, weight: .semibold))
-                            .foregroundColor(VColor.primaryBase)
+                            .foregroundStyle(VColor.primaryBase)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
                             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
@@ -572,14 +624,11 @@ extension MainWindowView {
                     showConversationSwitcher = false
                 }
                 .pointerCursor()
-                .background(GeometryReader { proxy in
-                    Color.clear.onAppear {
-                        conversationSwitcherTriggerFrame = proxy.frame(in: .named("coreLayout"))
-                    }
-                    .onChange(of: proxy.frame(in: .named("coreLayout"))) { _, newFrame in
-                        conversationSwitcherTriggerFrame = newFrame
-                    }
-                })
+                .onGeometryChange(for: CGRect.self) { proxy in
+                    proxy.frame(in: .named("coreLayout"))
+                } action: { newFrame in
+                    conversationSwitcherTriggerFrame = newFrame
+                }
             }
 
             Spacer()

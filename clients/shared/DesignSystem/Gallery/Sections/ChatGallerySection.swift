@@ -20,7 +20,7 @@ struct ChatGallerySection: View {
                         HStack {
                             Text("Amplitude: \(String(format: "%.2f", voiceComposerAmplitude))")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                             Slider(value: $voiceComposerAmplitude, in: 0...1, step: 0.05)
                                 .frame(maxWidth: 200)
                         }
@@ -29,7 +29,7 @@ struct ChatGallerySection: View {
 
                         Text("Conversation style (voice mode)")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                         VStreamingWaveform(
                             amplitude: voiceComposerAmplitude,
                             isActive: true,
@@ -42,7 +42,7 @@ struct ChatGallerySection: View {
 
                         Text("Dictation style (inline dictation)")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                         VStreamingWaveform(
                             amplitude: voiceComposerAmplitude,
                             isActive: true,
@@ -100,7 +100,7 @@ struct ChatGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("SubagentStatusChip")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
 
                         SubagentStatusChip(
                             subagent: SubagentInfo(id: "g-1", label: "Research Agent", status: .running)
@@ -128,7 +128,7 @@ struct ChatGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("SubagentConversationView")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
 
                         SubagentConversationView(
                             subagent: SubagentInfo(id: "t-1", label: "Research Agent", status: .running),
@@ -175,7 +175,7 @@ struct ChatGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("Completed (success)")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         ToolCallChip(toolCall: ToolCallData(
                             toolName: "bash",
                             inputSummary: "ls -la /Users/test/project",
@@ -187,7 +187,7 @@ struct ChatGallerySection: View {
 
                         Text("Completed (error)")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         ToolCallChip(toolCall: ToolCallData(
                             toolName: "bash",
                             inputSummary: "rm -rf /important",
@@ -200,7 +200,7 @@ struct ChatGallerySection: View {
 
                         Text("File edit (success)")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         ToolCallChip(toolCall: ToolCallData(
                             toolName: "file_edit",
                             inputSummary: "/src/Config.swift",
@@ -212,7 +212,7 @@ struct ChatGallerySection: View {
 
                         Text("In progress")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         ToolCallChip(toolCall: ToolCallData(
                             toolName: "file_read",
                             inputSummary: "/src/main.swift",
@@ -236,7 +236,7 @@ struct ChatGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("CurrentStepIndicator — in progress with multiple steps")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         CurrentStepIndicator(
                             toolCalls: [
                                 ToolCallData(
@@ -263,7 +263,7 @@ struct ChatGallerySection: View {
 
                         Text("CurrentStepIndicator — completed")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         CurrentStepIndicator(
                             toolCalls: [
                                 ToolCallData(
@@ -287,7 +287,7 @@ struct ChatGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("ToolCallProgressBar — multi-step with one in progress")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         ToolCallProgressBar(toolCalls: [
                             ToolCallData(
                                 toolName: "Web Search",
@@ -316,7 +316,7 @@ struct ChatGallerySection: View {
 
                         Text("ToolCallProgressBar — completed with error")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         ToolCallProgressBar(toolCalls: [
                             ToolCallData(
                                 toolName: "Web Search",
@@ -354,7 +354,7 @@ struct ChatGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("TypingIndicatorView — animated dots while assistant is thinking")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
 
                         HStack {
                             TypingIndicatorView()
@@ -365,19 +365,19 @@ struct ChatGallerySection: View {
 
                         Text("AssistantProgressView — macOS only (clients/macos/)")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         Text("Unified container for all tool progress states. Smoothly morphs between thinking, running, streaming code, and completed phases. Not available in the shared gallery because it depends on macOS-only imports.")
                             .font(VFont.labelSmall)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
 
                         Divider().background(VColor.borderBase)
 
                         Text("RunningIndicator — macOS only (clients/macos/)")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         Text("Spinning arc indicator used alongside tool progress views. Not available in the shared gallery because it depends on macOS-only imports.")
                             .font(VFont.labelSmall)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                 }
             }
@@ -396,7 +396,7 @@ struct ChatGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("Collapsed — approved")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         ToolConfirmationBubble(
                             confirmation: ToolConfirmationData(
                                 requestId: "gallery-approved",
@@ -415,7 +415,7 @@ struct ChatGallerySection: View {
 
                         Text("Collapsed — denied")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         ToolConfirmationBubble(
                             confirmation: ToolConfirmationData(
                                 requestId: "gallery-denied",
@@ -434,7 +434,7 @@ struct ChatGallerySection: View {
 
                         Text("Collapsed — timed out")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         ToolConfirmationBubble(
                             confirmation: ToolConfirmationData(
                                 requestId: "gallery-timeout",
@@ -455,7 +455,7 @@ struct ChatGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("Pending — low risk")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         ToolConfirmationBubble(
                             confirmation: ToolConfirmationData(
                                 requestId: "gallery-low",
@@ -474,7 +474,7 @@ struct ChatGallerySection: View {
 
                         Text("Pending — medium risk with always-allow")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         ToolConfirmationBubble(
                             confirmation: ToolConfirmationData(
                                 requestId: "gallery-medium",
@@ -503,7 +503,7 @@ struct ChatGallerySection: View {
 
                         Text("Pending — high risk")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         ToolConfirmationBubble(
                             confirmation: ToolConfirmationData(
                                 requestId: "gallery-high",

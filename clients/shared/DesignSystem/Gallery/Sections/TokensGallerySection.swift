@@ -17,7 +17,7 @@ struct TokensGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("Semantic Tokens")
                             .font(VFont.bodySmallEmphasised)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
 
                         let semanticTokens = VSemanticColorToken.allCases
 
@@ -31,10 +31,10 @@ struct TokensGallerySection: View {
                                     }
                                     Text(token.rawValue)
                                         .font(VFont.labelDefault)
-                                        .foregroundColor(VColor.contentSecondary)
+                                        .foregroundStyle(VColor.contentSecondary)
                                     Text("\(pair.lightHex) / \(pair.darkHex)")
                                         .font(VFont.labelSmall)
-                                        .foregroundColor(VColor.contentTertiary)
+                                        .foregroundStyle(VColor.contentTertiary)
                                 }
                             }
                         }
@@ -45,7 +45,7 @@ struct TokensGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.lg) {
                         Text("Syntax Colors")
                             .font(VFont.bodySmallEmphasised)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
 
                         let syntaxTokens: [(String, Color)] = [
                             ("syntaxString", VColor.syntaxString),
@@ -69,7 +69,7 @@ struct TokensGallerySection: View {
                                         )
                                     Text(name)
                                         .font(VFont.labelDefault)
-                                        .foregroundColor(VColor.contentSecondary)
+                                        .foregroundStyle(VColor.contentSecondary)
                                 }
                             }
                         }
@@ -122,7 +122,7 @@ struct TokensGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Token Reference")
                             .font(VFont.bodySmallEmphasised)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                             .padding(.bottom, VSpacing.xs)
 
                         let tokens: [(String, String, String, Font)] = [
@@ -146,22 +146,22 @@ struct TokensGallerySection: View {
                             HStack(alignment: .top, spacing: VSpacing.lg) {
                                 Text("VFont.\(name)")
                                     .font(VFont.bodySmallDefault)
-                                    .foregroundColor(VColor.contentEmphasized)
+                                    .foregroundStyle(VColor.contentEmphasized)
                                     .frame(width: 200, alignment: .leading)
 
                                 Text(spec)
                                     .font(VFont.bodySmallDefault)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                                     .frame(width: 130, alignment: .leading)
 
                                 Text(usage)
                                     .font(VFont.bodySmallDefault)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
 
                                 Text("Aa")
                                     .font(font)
-                                    .foregroundColor(VColor.contentDefault)
+                                    .foregroundStyle(VColor.contentDefault)
                                     .frame(width: 60, alignment: .trailing)
                             }
                         }
@@ -192,7 +192,7 @@ struct TokensGallerySection: View {
                             HStack(spacing: VSpacing.lg) {
                                 Text("\(name) (\(Int(value))pt)")
                                     .font(VFont.bodySmallDefault)
-                                    .foregroundColor(VColor.contentSecondary)
+                                    .foregroundStyle(VColor.contentSecondary)
                                     .frame(width: 120, alignment: .trailing)
                                 RoundedRectangle(cornerRadius: VRadius.xs)
                                     .fill(VColor.primaryBase)
@@ -233,10 +233,10 @@ struct TokensGallerySection: View {
                                     )
                                 Text(name)
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentSecondary)
+                                    .foregroundStyle(VColor.contentSecondary)
                                 Text("\(Int(radius))pt")
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                             }
                         }
                     }
@@ -269,7 +269,7 @@ struct TokensGallerySection: View {
                                     .vShadow(shadow)
                                 Text(name)
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentSecondary)
+                                    .foregroundStyle(VColor.contentSecondary)
                             }
                         }
                     }
@@ -304,11 +304,11 @@ struct TokensGallerySection: View {
                             HStack(spacing: VSpacing.lg) {
                                 Text(name)
                                     .font(VFont.bodySmallDefault)
-                                    .foregroundColor(VColor.contentDefault)
+                                    .foregroundStyle(VColor.contentDefault)
                                     .frame(width: 80, alignment: .trailing)
                                 Text(description)
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                             }
                         }
                     }
@@ -333,15 +333,15 @@ struct TokensGallerySection: View {
             Color.clear.frame(width: Self.matrixSizeWidth)
             Text("Regular")
                 .font(VFont.bodySmallEmphasised)
-                .foregroundColor(VColor.contentDisabled)
+                .foregroundStyle(VColor.contentDisabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text("Medium")
                 .font(VFont.bodySmallEmphasised)
-                .foregroundColor(VColor.contentDisabled)
+                .foregroundStyle(VColor.contentDisabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text("Semi-bold")
                 .font(VFont.bodySmallEmphasised)
-                .foregroundColor(VColor.contentDisabled)
+                .foregroundStyle(VColor.contentDisabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.horizontal, VSpacing.lg)
@@ -358,11 +358,11 @@ struct TokensGallerySection: View {
         HStack(spacing: 0) {
             Text(group)
                 .font(VFont.bodySmallEmphasised)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .frame(width: Self.matrixGroupWidth, alignment: .leading)
             Text("\(size)px")
                 .font(VFont.bodySmallEmphasised)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .frame(width: Self.matrixSizeWidth, alignment: .leading)
             typeMatrixCell(regular)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -380,7 +380,7 @@ struct TokensGallerySection: View {
         if let (name, font) = token {
             Text(name)
                 .font(font)
-                .foregroundColor(VColor.contentEmphasized)
+                .foregroundStyle(VColor.contentEmphasized)
         } else {
             RoundedRectangle(cornerRadius: VRadius.xs)
                 .fill(VColor.surfaceBase.opacity(0.5))
@@ -400,7 +400,7 @@ struct TokensGallerySection: View {
             .overlay(alignment: .topLeading) {
                 Text(label)
                     .font(VFont.labelSmall)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .padding(4)
             }
     }

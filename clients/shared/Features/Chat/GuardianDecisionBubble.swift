@@ -53,17 +53,17 @@ public struct GuardianDecisionBubble: View {
             // Kind-aware header
             HStack(spacing: VSpacing.sm) {
                 VIconView(config.icon, size: 14)
-                    .foregroundColor(config.accent)
+                    .foregroundStyle(config.accent)
 
                 Text(config.title)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
             }
 
             // Question text (primary interaction prompt)
             Text(decision.questionText)
                 .font(VFont.bodyMediumEmphasised)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .fixedSize(horizontal: false, vertical: true)
 
             // Action buttons (primary interaction)
@@ -82,10 +82,10 @@ public struct GuardianDecisionBubble: View {
                     if let toolName = decision.toolName, !toolName.isEmpty {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.wrench, size: 10)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                             Text(toolName)
                                 .font(VFont.bodySmallDefault)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                         }
                     }
 
@@ -93,10 +93,10 @@ public struct GuardianDecisionBubble: View {
                         HStack(spacing: VSpacing.xs) {
                             Text("Ref:")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                             Text(decision.requestCode)
                                 .font(VFont.bodySmallDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                         }
                     }
                 }

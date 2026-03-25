@@ -8,9 +8,10 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// Handles connecting, streaming output, buffering input, resizing, reconnecting,
 /// and cleaning up sessions. Drives UI state via the published `status` property.
 @MainActor
-final class TerminalSessionManager: ObservableObject {
+@Observable
+final class TerminalSessionManager {
 
-    // MARK: - Published State
+    // MARK: - Reactive State
 
     enum Status: Equatable {
         case idle
@@ -21,34 +22,34 @@ final class TerminalSessionManager: ObservableObject {
         case closed
     }
 
-    @Published private(set) var status: Status = .idle
+    private(set) var status: Status = .idle
 
     // MARK: - Configuration
 
-    private let apiClient: TerminalAPIClient
+    @ObservationIgnored private let apiClient: TerminalAPIClient
 
     /// Called with base64-encoded PTY output bytes as they arrive from the stream.
-    var onData: ((String) -> Void)?
+    @ObservationIgnored var onData: ((String) -> Void)?
 
     // MARK: - Session State
 
-    private var sessionId: String?
-    private var cancelSSE: (() -> Void)?
-    private var sseTask: Task<Void, Never>?
+    @ObservationIgnored private var sessionId: String?
+    @ObservationIgnored private var cancelSSE: (() -> Void)?
+    @ObservationIgnored private var sseTask: Task<Void, Never>?
 
     // Input buffering — batches keystrokes and flushes every 50ms.
-    private var inputBuffer: String = ""
-    private var inputFlushTimer: Timer?
-    private static let inputFlushInterval: TimeInterval = 0.05
+    @ObservationIgnored private var inputBuffer: String = ""
+    @ObservationIgnored private var inputFlushTimer: Timer?
+    @ObservationIgnored private static let inputFlushInterval: TimeInterval = 0.05
 
     // Resize debouncing — only the last resize within 150ms is sent.
-    private var resizeTimer: Timer?
-    private var pendingResize: (cols: Int, rows: Int)?
-    private var lastDimensions: (cols: Int, rows: Int)?
-    private static let resizeDebounceInterval: TimeInterval = 0.15
+    @ObservationIgnored private var resizeTimer: Timer?
+    @ObservationIgnored private var pendingResize: (cols: Int, rows: Int)?
+    @ObservationIgnored private var lastDimensions: (cols: Int, rows: Int)?
+    @ObservationIgnored private static let resizeDebounceInterval: TimeInterval = 0.15
 
     // Sequence deduplication for output events.
-    private var highWaterMark: Int = -1
+    @ObservationIgnored private var highWaterMark: Int = -1
 
     // MARK: - Init
 

@@ -17,6 +17,10 @@ export interface HeartbeatDeps {
     content: string,
   ) => Promise<{ messageId: string }>;
   alerter: (alert: HeartbeatAlert) => void;
+  onConversationCreated?: (info: {
+    conversationId: string;
+    title: string;
+  }) => void;
   /** Override for current hour (0-23), for testing. */
   getCurrentHour?: () => number;
 }
@@ -25,20 +29,34 @@ export class HeartbeatService {
   private readonly deps: HeartbeatDeps;
   private timer: ReturnType<typeof setInterval> | null = null;
   private activeRun: Promise<void> | null = null;
+  private _lastRunAt: number | null = null;
+  private _nextRunAt: number | null = null;
 
   constructor(deps: HeartbeatDeps) {
     this.deps = deps;
+  }
+
+  /** Epoch-ms timestamp of the last completed heartbeat run. */
+  get lastRunAt(): number | null {
+    return this._lastRunAt;
+  }
+
+  /** Epoch-ms timestamp of the next scheduled heartbeat run. */
+  get nextRunAt(): number | null {
+    return this._nextRunAt;
   }
 
   start(): void {
     const config = getConfig().heartbeat;
     if (!config.enabled) {
       log.info("Heartbeat disabled by config");
+      this._nextRunAt = null;
       return;
     }
     if (this.timer) return;
 
     log.info({ intervalMs: config.intervalMs }, "Heartbeat service started");
+    this.scheduleNextRun(config.intervalMs);
     this.timer = setInterval(() => {
       this.runOnce().catch((err) => {
         log.error({ err }, "Heartbeat runOnce failed");
@@ -52,7 +70,25 @@ export class HeartbeatService {
       clearInterval(this.timer);
       this.timer = null;
     }
+    this._nextRunAt = null;
     this.start();
+  }
+
+  /**
+   * Reset the heartbeat timer so the next run is a full interval from now.
+   * Called when the guardian sends a message — no need for a heartbeat shortly
+   * after an active conversation.
+   */
+  resetTimer(): void {
+    if (!this.timer) return;
+    const config = getConfig().heartbeat;
+    clearInterval(this.timer);
+    this.scheduleNextRun(config.intervalMs);
+    this.timer = setInterval(() => {
+      this.runOnce().catch((err) => {
+        log.error({ err }, "Heartbeat runOnce failed");
+      });
+    }, config.intervalMs);
   }
 
   async stop(): Promise<void> {
@@ -60,6 +96,7 @@ export class HeartbeatService {
       clearInterval(this.timer);
       this.timer = null;
     }
+    this._nextRunAt = null;
     if (this.activeRun) {
       let timerId: ReturnType<typeof setTimeout>;
       const timeout = new Promise<void>((resolve) => {
@@ -116,8 +153,14 @@ export class HeartbeatService {
       await run;
     } finally {
       this.activeRun = null;
+      this._lastRunAt = Date.now();
+      this.scheduleNextRun(getConfig().heartbeat.intervalMs);
     }
     return true;
+  }
+
+  private scheduleNextRun(intervalMs: number): void {
+    this._nextRunAt = Date.now() + intervalMs;
   }
 
   private async executeRun(): Promise<void> {
@@ -132,6 +175,11 @@ export class HeartbeatService {
         source: "heartbeat",
         origin: "heartbeat",
         systemHint: "Heartbeat",
+      });
+
+      this.deps.onConversationCreated?.({
+        conversationId: conversation.id,
+        title: "Heartbeat",
       });
 
       await this.deps.processMessage(conversation.id, prompt);

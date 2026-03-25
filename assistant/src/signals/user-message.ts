@@ -30,7 +30,8 @@ type UserMessageCallback = (params: {
   content: string;
   sourceChannel: string;
   sourceInterface: string;
-}) => Promise<{ accepted: boolean }>;
+  bypassSecretCheck?: boolean;
+}) => Promise<{ accepted: boolean; error?: string; message?: string }>;
 
 let _sendUserMessage: UserMessageCallback | null = null;
 
@@ -58,7 +59,13 @@ export async function handleUserMessageSignal(filename: string): Promise<void> {
 
   const writeResult = (
     data:
-      | { ok: true; accepted: boolean; requestId: string }
+      | {
+          ok: true;
+          accepted: boolean;
+          requestId: string;
+          error?: string;
+          message?: string;
+        }
       | { ok: false; error: string; requestId: string | null },
   ): void => {
     try {
@@ -91,6 +98,7 @@ export async function handleUserMessageSignal(filename: string): Promise<void> {
       sourceChannel?: string;
       interface?: string;
       requestId?: string;
+      bypassSecretCheck?: boolean;
     };
     const { requestId } = parsed;
     parsedRequestId = requestId;
@@ -128,13 +136,20 @@ export async function handleUserMessageSignal(filename: string): Promise<void> {
       content: parsed.content,
       sourceChannel: parsed.sourceChannel ?? "vellum",
       sourceInterface: parsed.interface ?? "cli",
+      bypassSecretCheck: parsed.bypassSecretCheck === true,
     });
 
     log.info(
       { accepted: result.accepted },
       "User message dispatched via signal file",
     );
-    writeResult({ ok: true, accepted: result.accepted, requestId });
+    writeResult({
+      ok: true,
+      accepted: result.accepted,
+      requestId,
+      ...(result.error ? { error: result.error } : {}),
+      ...(result.message ? { message: result.message } : {}),
+    });
   } catch (err) {
     log.error({ err }, "Failed to handle user-message signal");
     writeResult({

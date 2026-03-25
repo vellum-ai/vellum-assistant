@@ -1691,8 +1691,7 @@ describe("Memory regressions", () => {
       scopeId: "project-a",
     });
 
-    // With Qdrant mocked, only recency search runs. Recency candidates
-    // don't pass tier classification (score < 0.6), so topCandidates is empty.
+    // Qdrant is mocked empty; no candidates pass tier classification, so topCandidates is empty.
     expect(result.enabled).toBe(true);
   });
 
@@ -2281,55 +2280,67 @@ describe("Memory regressions", () => {
 
   // PR-18: extract_items jobs carry scopeId through the async pipeline
   test("extract_items job payload includes scopeId from private conversation", async () => {
-    const conv = createConversation({
-      title: "Private scope job test",
-      conversationType: "private",
-    });
-    expect(conv.memoryScopeId).toMatch(/^private:/);
+    // These tests verify job payload contents, so LLM extraction must be
+    // enabled — otherwise the indexer skips enqueuing extract_items entirely.
+    TEST_CONFIG.memory.extraction.useLLM = true;
+    try {
+      const conv = createConversation({
+        title: "Private scope job test",
+        conversationType: "private",
+      });
+      expect(conv.memoryScopeId).toMatch(/^private:/);
 
-    await addMessage(
-      conv.id,
-      "user",
-      "Important data that should trigger extraction in private scope.",
-    );
+      await addMessage(
+        conv.id,
+        "user",
+        "Important data that should trigger extraction in private scope.",
+      );
 
-    const db = getDb();
-    const extractJobs = db
-      .select()
-      .from(memoryJobs)
-      .where(eq(memoryJobs.type, "extract_items"))
-      .all();
+      const db = getDb();
+      const extractJobs = db
+        .select()
+        .from(memoryJobs)
+        .where(eq(memoryJobs.type, "extract_items"))
+        .all();
 
-    expect(extractJobs.length).toBeGreaterThan(0);
-    const lastJob = extractJobs[extractJobs.length - 1];
-    const payload = JSON.parse(lastJob.payload) as Record<string, unknown>;
-    expect(payload.scopeId).toBe(conv.memoryScopeId);
+      expect(extractJobs.length).toBeGreaterThan(0);
+      const lastJob = extractJobs[extractJobs.length - 1];
+      const payload = JSON.parse(lastJob.payload) as Record<string, unknown>;
+      expect(payload.scopeId).toBe(conv.memoryScopeId);
+    } finally {
+      TEST_CONFIG.memory.extraction.useLLM = false;
+    }
   });
 
   test("extract_items job payload defaults scopeId to default for standard conversations", async () => {
-    const conv = createConversation({
-      title: "Standard scope job test",
-      conversationType: "standard",
-    });
-    expect(conv.memoryScopeId).toBe("default");
+    TEST_CONFIG.memory.extraction.useLLM = true;
+    try {
+      const conv = createConversation({
+        title: "Standard scope job test",
+        conversationType: "standard",
+      });
+      expect(conv.memoryScopeId).toBe("default");
 
-    await addMessage(
-      conv.id,
-      "user",
-      "Regular content for extraction in default scope.",
-    );
+      await addMessage(
+        conv.id,
+        "user",
+        "Regular content for extraction in default scope.",
+      );
 
-    const db = getDb();
-    const extractJobs = db
-      .select()
-      .from(memoryJobs)
-      .where(eq(memoryJobs.type, "extract_items"))
-      .all();
+      const db = getDb();
+      const extractJobs = db
+        .select()
+        .from(memoryJobs)
+        .where(eq(memoryJobs.type, "extract_items"))
+        .all();
 
-    expect(extractJobs.length).toBeGreaterThan(0);
-    const lastJob = extractJobs[extractJobs.length - 1];
-    const payload = JSON.parse(lastJob.payload) as Record<string, unknown>;
-    expect(payload.scopeId).toBe("default");
+      expect(extractJobs.length).toBeGreaterThan(0);
+      const lastJob = extractJobs[extractJobs.length - 1];
+      const payload = JSON.parse(lastJob.payload) as Record<string, unknown>;
+      expect(payload.scopeId).toBe("default");
+    } finally {
+      TEST_CONFIG.memory.extraction.useLLM = false;
+    }
   });
 
   // PR-19: memory_save respects explicit scopeId parameter

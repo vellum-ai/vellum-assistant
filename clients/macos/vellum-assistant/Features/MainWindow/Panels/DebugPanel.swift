@@ -180,14 +180,14 @@ struct DebugPanel: View {
         VStack(spacing: VSpacing.xxs) {
             HStack(spacing: VSpacing.xs) {
                 VIconView(SFSymbolMapping.icon(forSFSymbol: icon, fallback: .puzzle), size: 10)
-                    .foregroundColor(color)
+                    .foregroundStyle(color)
                 Text(value)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
             }
             Text(label)
                 .font(VFont.labelSmall)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
         }
     }
 

@@ -33,6 +33,8 @@ export interface RunBtwSidechainParams {
   signal?: AbortSignal;
   timeoutMs?: number;
   onEvent?: (event: ProviderEvent) => void;
+  userPersona?: string | null;
+  channelPersona?: string | null;
 }
 
 export interface RunBtwSidechainResult {
@@ -64,7 +66,11 @@ export async function runBtwSidechain(
     params.systemPrompt ??
     (params.conversation?.hasSystemPromptOverride
       ? params.conversation.systemPrompt
-      : buildSystemPrompt({ excludeBootstrap: true }));
+      : buildSystemPrompt({
+          excludeBootstrap: true,
+          userPersona: params.userPersona,
+          channelPersona: params.channelPersona,
+        }));
 
   const { signal: timeoutSignal, cleanup } = createTimeout(
     params.timeoutMs ?? 30_000,

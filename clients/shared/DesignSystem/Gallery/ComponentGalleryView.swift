@@ -116,7 +116,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         case .modifiers:
             return [
                 GalleryComponent("vCardMod", ".vCard()", keywords: ["card modifier"], description: "Apply card styling (background, corner radius, border) to any view with configurable radius and background color."),
-                GalleryComponent("pointerCursor", ".pointerCursor()", keywords: ["pointer", "cursor", "hand"], description: "Show pointing-hand cursor on hover. Uses native .pointerStyle(.link) on macOS 15+, falls back to NSCursor on macOS 14."),
+                GalleryComponent("pointerCursor", ".pointerCursor()", keywords: ["pointer", "cursor", "hand"], description: "Show pointing-hand cursor on hover. Uses native .pointerStyle(.link)."),
                 GalleryComponent("nativeTooltip", ".nativeTooltip()", keywords: ["native tooltip", "help"], description: "Attaches a native macOS tooltip via AppKit. Use instead of .help() where gesture recognizers block tooltip display."),
                 GalleryComponent("vTooltip", ".vTooltip()", keywords: ["tooltip", "popover"], description: "Fast 200ms floating tooltip using NSPanel. Escapes clipping bounds, never steals clicks. Use for quick hints on any view."),
                 GalleryComponent("vPanelBackground", ".vPanelBackground()", keywords: ["panel background"], description: "Fills the view with the subtle background color used for side panels and drawers."),
@@ -126,9 +126,8 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
             ]
         case .navigation:
             return [
-                GalleryComponent("vSegmentedControl", "VSegmentedControl", keywords: ["segmented control", "tabs"], description: "Segmented control with underline, pill, or compact pill styles for switching between views."),
+                GalleryComponent("vSegmentedControl", "VTabs", keywords: ["segmented control", "tabs"], description: "Segmented control with underline, pill, or compact pill styles for switching between views."),
                 GalleryComponent("vSidebarRow", "VSidebarRow", keywords: ["sidebar row", "navigation row"], description: "Sidebar navigation row with icon, label, hover/active states, trailing disclosure icon, and collapsed mode."),
-                GalleryComponent("vTabBar", "VTabBar + VTab", keywords: ["tab bar", "tabs"], description: "Horizontal scrollable tab bar with pill, flat, and rectangular styles. Tabs support selection, close, and icons."),
                 GalleryComponent("vLink", "VLink", keywords: ["link", "url", "external link", "hyperlink"], description: "Styled external link that opens a URL in the default browser. Applies pointer cursor, single-line truncation, and caption font by default."),
                 GalleryComponent("vThemeToggle", "VThemeToggle", keywords: ["theme toggle", "dark mode", "light mode"], description: "Three-way theme toggle (System / Light / Dark). Reads and writes themePreference in UserDefaults."),
             ]

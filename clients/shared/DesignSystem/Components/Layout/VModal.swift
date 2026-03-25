@@ -65,7 +65,7 @@ public struct VModal<Content: View, Footer: View>: View {
                             Text("Back")
                                 .font(VFont.bodyMediumDefault)
                         }
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -80,7 +80,7 @@ public struct VModal<Content: View, Footer: View>: View {
                 if let closeAction {
                     Button(action: closeAction) {
                         VIconView(.x, size: 12)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .frame(width: 32, height: 32)
                             .contentShape(Rectangle())
                     }
@@ -109,10 +109,10 @@ public struct VModal<Content: View, Footer: View>: View {
             }
         }
         .frame(maxHeight: screenMaxHeight)
-        .background(VColor.surfaceOverlay)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .background(VColor.surfaceLift)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .overlay(
-            RoundedRectangle(cornerRadius: VRadius.md)
+            RoundedRectangle(cornerRadius: VRadius.lg)
                 .stroke(VColor.borderBase, lineWidth: 1)
         )
     }
@@ -123,12 +123,12 @@ public struct VModal<Content: View, Footer: View>: View {
             if !title.isEmpty {
                 Text(title)
                     .font(VFont.titleSmall)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
             }
             if let subtitle {
                 Text(subtitle)
-                    .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentSecondary)
             }
         }
     }

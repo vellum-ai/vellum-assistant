@@ -10,7 +10,7 @@ struct PairingApprovalView: View {
     var body: some View {
         VStack(spacing: 16) {
             VIconView(.smartphone, size: 40)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             Text("Pairing Request")
                 .font(.headline)

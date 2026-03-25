@@ -25,13 +25,13 @@ struct ModifiersGallerySection: View {
                             VStack(spacing: VSpacing.md) {
                                 Text("Sample content")
                                     .font(VFont.bodyMediumLighter)
-                                    .foregroundColor(VColor.contentDefault)
+                                    .foregroundStyle(VColor.contentDefault)
                                     .padding(VSpacing.xl)
                                     .vCard(radius: radius)
 
                                 Text(".\(name) (\(Int(radius))pt)")
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                             }
                         }
                     }
@@ -40,7 +40,7 @@ struct ModifiersGallerySection: View {
                 // Background colors
                 Text("Background Colors")
                     .font(VFont.bodySmallEmphasised)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
 
                 VCard {
                     HStack(spacing: VSpacing.lg) {
@@ -54,13 +54,13 @@ struct ModifiersGallerySection: View {
                             VStack(spacing: VSpacing.md) {
                                 Text("Sample content")
                                     .font(VFont.bodyMediumLighter)
-                                    .foregroundColor(VColor.contentDefault)
+                                    .foregroundStyle(VColor.contentDefault)
                                     .padding(VSpacing.xl)
                                     .vCard(background: color)
 
                                 Text(name)
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                             }
                         }
                     }
@@ -74,20 +74,20 @@ struct ModifiersGallerySection: View {
                 // MARK: - .pointerCursor()
                 GallerySectionHeader(
                     title: ".pointerCursor()",
-                    description: "Shows a pointing-hand cursor on hover. Uses native .pointerStyle(.link) on macOS 15+, falls back to NSCursor on macOS 14."
+                    description: "Shows a pointing-hand cursor on hover. Uses native .pointerStyle(.link)."
                 )
 
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Hover over the items below to see the pointer cursor:")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
 
                         HStack(spacing: VSpacing.lg) {
                             Button("Button") {}
                                 .buttonStyle(.plain)
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                                 .padding(VSpacing.md)
                                 .background(VColor.surfaceBase)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
@@ -99,7 +99,7 @@ struct ModifiersGallerySection: View {
 
                             Text("Tappable label")
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.primaryBase)
+                                .foregroundStyle(VColor.primaryBase)
                                 .padding(VSpacing.md)
                                 .contentShape(Rectangle())
                                 .pointerCursor()
@@ -122,25 +122,25 @@ struct ModifiersGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Hover over the items below to see native tooltips:")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
 
                         HStack(spacing: VSpacing.lg) {
                             VIconView(.pin, size: 16)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                                 .frame(width: 32, height: 32)
                                 .background(VColor.surfaceBase)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                                 .nativeTooltip("Pinned")
 
                             VIconView(.circleAlert, size: 16)
-                                .foregroundColor(VColor.systemNegativeStrong)
+                                .foregroundStyle(VColor.systemNegativeStrong)
                                 .frame(width: 32, height: 32)
                                 .background(VColor.surfaceBase)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
                                 .nativeTooltip("Error")
 
                             VIconView(.lock, size: 16)
-                                .foregroundColor(VColor.primaryBase)
+                                .foregroundStyle(VColor.primaryBase)
                                 .frame(width: 32, height: 32)
                                 .background(VColor.surfaceBase)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
@@ -164,7 +164,7 @@ struct ModifiersGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("Hover over the items below (200ms delay):")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
 
                         HStack(spacing: VSpacing.lg) {
                             VButton(label: "Mic", iconOnly: VIcon.mic.rawValue, style: .ghost) {}
@@ -177,7 +177,7 @@ struct ModifiersGallerySection: View {
                                 .vTooltip("Send message")
 
                             VIconView(.info, size: 16)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                                 .frame(width: 32, height: 32)
                                 .background(VColor.surfaceBase)
                                 .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
@@ -186,7 +186,7 @@ struct ModifiersGallerySection: View {
 
                         Text("Bottom edge placement:")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
 
                         HStack(spacing: VSpacing.lg) {
                             VButton(label: "Copy", iconOnly: VIcon.copy.rawValue, style: .ghost) {}
@@ -213,12 +213,12 @@ struct ModifiersGallerySection: View {
                     VStack(spacing: VSpacing.md) {
                         Text("With .vPanelBackground()")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
 
                         VStack(spacing: VSpacing.md) {
                             Text("Panel content")
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                         }
                         .frame(width: 200, height: 100)
                         .vPanelBackground()
@@ -232,12 +232,12 @@ struct ModifiersGallerySection: View {
                     VStack(spacing: VSpacing.md) {
                         Text("Without (default background)")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
 
                         VStack(spacing: VSpacing.md) {
                             Text("Regular content")
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                         }
                         .frame(width: 200, height: 100)
                         .background(VColor.surfaceOverlay)
@@ -264,11 +264,11 @@ struct ModifiersGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Text("condition = true (bold applied)")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
 
                         Text("Hello, world!")
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                             .if(true) { view in
                                 view.bold()
                             }
@@ -277,11 +277,11 @@ struct ModifiersGallerySection: View {
 
                         Text("condition = false (no change)")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
 
                         Text("Hello, world!")
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                             .if(false) { view in
                                 view.bold()
                             }
@@ -331,17 +331,17 @@ struct ModifiersGallerySection: View {
                 VCard {
                     HStack(spacing: VSpacing.lg) {
                         VStack(spacing: VSpacing.md) {
-                            Text("Non-interactive (default)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                            Text("Non-interactive (default)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                             Text("Widget content")
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                                 .inlineWidgetCard()
                         }
                         VStack(spacing: VSpacing.md) {
-                            Text("Interactive (hover highlight)").font(VFont.labelDefault).foregroundColor(VColor.contentTertiary)
+                            Text("Interactive (hover highlight)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
                             Text("Clickable widget")
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                                 .inlineWidgetCard(interactive: true)
                         }
                     }

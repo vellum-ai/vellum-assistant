@@ -151,7 +151,7 @@ export async function indexMessageNow(
       );
     }
 
-    if (shouldExtract && isTrustedActor && !input.automated) {
+    if (shouldExtract && isTrustedActor && !input.automated && config.extraction.useLLM) {
       enqueueMemoryJob(
         "extract_items",
         { messageId: input.messageId, scopeId: input.scopeId ?? "default" },
@@ -159,15 +159,14 @@ export async function indexMessageNow(
         tx,
       );
     }
-  });
 
-  // Debounced outside the transaction — each new message pushes the summary
-  // job's runAfter forward so it only fires once the conversation is idle.
-  upsertDebouncedJob(
-    "build_conversation_summary",
-    { conversationId: input.conversationId },
-    Date.now() + SUMMARY_DEBOUNCE_MS,
-  );
+    upsertDebouncedJob(
+      "build_conversation_summary",
+      { conversationId: input.conversationId },
+      Date.now() + SUMMARY_DEBOUNCE_MS,
+      tx,
+    );
+  });
 
   if (skippedEmbedJobs > 0) {
     log.debug(
@@ -185,7 +184,11 @@ export async function indexMessageNow(
     log.info("Skipping extraction jobs for automated message");
   }
 
-  const extractionGated = !isTrustedActor || !!input.automated;
+  if (!config.extraction.useLLM && shouldExtract && isTrustedActor && !input.automated) {
+    log.info("Skipping extraction job: LLM extraction is disabled (useLLM=false)");
+  }
+
+  const extractionGated = !isTrustedActor || !!input.automated || !config.extraction.useLLM;
   const enqueuedJobs =
     segments.length -
     skippedEmbedJobs +

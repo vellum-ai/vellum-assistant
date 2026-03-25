@@ -120,6 +120,10 @@ const DEPRECATED_FIELDS: Record<string, string> = {
     "rateLimit.maxTokensPerSession has been removed and is no longer enforced. " +
     "Per-session token budget tracking is no longer supported. " +
     "The field will be removed from your config file.",
+  providerOrder:
+    "providerOrder has been removed from the config schema. " +
+    "Provider selection is now handled automatically. " +
+    "The field will be removed from your config file.",
 };
 
 /**

@@ -183,10 +183,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:twitter --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:twitter
 ```
 
 ---
@@ -198,10 +195,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:twitter --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ))" "https://api.x.com/2/users/me" | python3 -m json.tool
+    assistant oauth ping integration:twitter
 ```
 
 **On success:** "Twitter is connected! You can now ask me to read your timeline, post tweets, and check your profile."

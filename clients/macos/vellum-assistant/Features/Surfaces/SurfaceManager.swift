@@ -8,15 +8,16 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// Observable view model that holds the current surface state.
 /// Kept alive across updates so that child SwiftUI views preserve their @State (e.g. form inputs).
 @MainActor
-final class SurfaceViewModel: ObservableObject {
-    @Published var surface: Surface
-    let onAction: (String, [String: Any]?) -> Void
-    let onDismiss: () -> Void
-    let appId: String?
-    let onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?
-    let onCoordinatorReady: ((DynamicPageSurfaceView.Coordinator) -> Void)?
-    let onLinkOpen: ((String, [String: Any]?) -> Void)?
-    let sandboxMode: Bool
+@Observable
+final class SurfaceViewModel {
+    var surface: Surface
+    @ObservationIgnored let onAction: (String, [String: Any]?) -> Void
+    @ObservationIgnored let onDismiss: () -> Void
+    @ObservationIgnored let appId: String?
+    @ObservationIgnored let onDataRequest: ((String, String, String?, [String: Any]?) -> Void)?
+    @ObservationIgnored let onCoordinatorReady: ((DynamicPageSurfaceView.Coordinator) -> Void)?
+    @ObservationIgnored let onLinkOpen: ((String, [String: Any]?) -> Void)?
+    @ObservationIgnored let sandboxMode: Bool
 
     init(
         surface: Surface,
@@ -44,57 +45,58 @@ final class SurfaceViewModel: ObservableObject {
 /// Each surface is displayed in a floating, non-activating panel positioned at the bottom-right
 /// of the screen, using a floating, non-activating NSPanel.
 @MainActor
-final class SurfaceManager: ObservableObject {
+@Observable
+final class SurfaceManager {
 
-    // MARK: - Published State
+    // MARK: - Reactive State
 
-    @Published var activeSurfaces: [String: Surface] = [:]
+    var activeSurfaces: [String: Surface] = [:]
 
-    // MARK: - Private State
+    // MARK: - Non-reactive Bookkeeping
 
-    private var panels: [String: NSPanel] = [:]
-    private var viewModels: [String: SurfaceViewModel] = [:]
+    @ObservationIgnored private var panels: [String: NSPanel] = [:]
+    @ObservationIgnored private var viewModels: [String: SurfaceViewModel] = [:]
 
     /// Tracks appId per surface for persistent app RPC routing.
-    var surfaceAppIds: [String: String] = [:]
+    @ObservationIgnored var surfaceAppIds: [String: String] = [:]
 
     /// Tracks Coordinator per surface for routing data responses back to WebView.
-    var surfaceCoordinators: [String: DynamicPageSurfaceView.Coordinator] = [:]
+    @ObservationIgnored var surfaceCoordinators: [String: DynamicPageSurfaceView.Coordinator] = [:]
 
     /// Ordered list of surface IDs for deterministic stacking positions.
-    private var surfaceOrder: [String] = []
+    @ObservationIgnored private var surfaceOrder: [String] = []
 
     /// Surfaces that have already sent an action to the daemon.
     /// Prevents duplicate actions (e.g. submit followed by dismiss) from racing.
-    private var respondedSurfaces: Set<String> = []
+    @ObservationIgnored private var respondedSurfaces: Set<String> = []
 
     /// Surfaces routed to the workspace instead of floating NSPanels.
     /// Tracked so that update/dismiss messages can be forwarded via notifications.
-    private var workspaceRoutedSurfaces: Set<String> = []
+    @ObservationIgnored private var workspaceRoutedSurfaces: Set<String> = []
 
-    private var closeObservers: [String: Any] = [:]
+    @ObservationIgnored private var closeObservers: [String: Any] = [:]
 
-    private let panelWidth: CGFloat = 380
-    private let panelMargin: CGFloat = 20
-    private let panelSpacing: CGFloat = 10
+    @ObservationIgnored private let panelWidth: CGFloat = 380
+    @ObservationIgnored private let panelMargin: CGFloat = 20
+    @ObservationIgnored private let panelSpacing: CGFloat = 10
 
     // MARK: - Action Callback
 
     /// Called when a user interacts with a surface action button.
     /// Parameters: conversationId (optional), surfaceId, actionId, optional data dictionary.
-    var onAction: ((String?, String, String, [String: Any]?) -> Void)?
+    @ObservationIgnored var onAction: ((String?, String, String, [String: Any]?) -> Void)?
 
     /// Called when a persistent app's JS makes a data request via the RPC bridge.
     /// Parameters: surfaceId, callId, method, appId, recordId, data.
-    var onDataRequest: ((String, String, String, String, String?, [String: Any]?) -> Void)?
+    @ObservationIgnored var onDataRequest: ((String, String, String, String, String?, [String: Any]?) -> Void)?
 
     /// When set, dynamic pages with `display != "inline"` route to the full-window
     /// workspace instead of opening as floating NSPanels.
-    var onDynamicPageShow: ((UiSurfaceShowMessage) -> Void)?
+    @ObservationIgnored var onDynamicPageShow: ((UiSurfaceShowMessage) -> Void)?
 
     /// Called when a dynamic page requests opening an external link.
     /// Parameters: url string, optional metadata dictionary.
-    var onLinkOpen: ((String, [String: Any]?) -> Void)?
+    @ObservationIgnored var onLinkOpen: ((String, [String: Any]?) -> Void)?
 
     // MARK: - Show
 

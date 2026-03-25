@@ -20,7 +20,7 @@ struct ImproveExperienceStepView: View {
     var body: some View {
         Text("Before You Start")
             .font(.system(size: 32, weight: .regular, design: .serif))
-            .foregroundColor(VColor.contentDefault)
+            .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
@@ -28,7 +28,7 @@ struct ImproveExperienceStepView: View {
         Text("Choose your privacy preferences.\nYou can update these anytime in Settings.")
             .font(VFont.titleSmall)
             .multilineTextAlignment(.center)
-            .foregroundColor(VColor.contentSecondary)
+            .foregroundStyle(VColor.contentSecondary)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.xxl)
@@ -106,7 +106,7 @@ struct ImproveExperienceStepView: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text(.init("I agree to the [Terms of Service](https://www.vellum.ai/docs/vellum-terms-of-use) and [Privacy Policy](https://www.vellum.ai/docs/privacy-policy)"))
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .tint(VColor.primaryBase)
                 .environment(\.openURL, OpenURLAction { url in
                     NSWorkspace.shared.open(url)
@@ -163,7 +163,7 @@ private struct VCheckbox: View {
                         .fill(VColor.primaryBase)
 
                     VIconView(.check, size: 12)
-                        .foregroundColor(VColor.auxWhite)
+                        .foregroundStyle(VColor.auxWhite)
                 } else {
                     RoundedRectangle(cornerRadius: cornerRadius)
                         .fill(Color.clear)

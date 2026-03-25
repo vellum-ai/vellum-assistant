@@ -27,13 +27,13 @@ public struct FileUploadSurfaceView: View {
                     Button(action: { withAnimation(VAnimation.fast) { isSuccessExpanded.toggle() } }) {
                         HStack(spacing: VSpacing.sm) {
                             VIconView(.circleCheck, size: 16)
-                                .foregroundColor(VColor.systemPositiveStrong)
+                                .foregroundStyle(VColor.systemPositiveStrong)
                             Text("Uploaded \(selectedFiles.count) file\(selectedFiles.count == 1 ? "" : "s")")
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                             Spacer()
                             VIconView(.chevronRight, size: 10)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                                 .rotationEffect(.degrees(isSuccessExpanded ? 90 : 0))
                         }
                         .contentShape(Rectangle())
@@ -49,11 +49,11 @@ public struct FileUploadSurfaceView: View {
                                     VStack(alignment: .leading, spacing: 1) {
                                         Text(file.filename)
                                             .font(VFont.labelDefault)
-                                            .foregroundColor(VColor.contentDefault)
+                                            .foregroundStyle(VColor.contentDefault)
                                             .lineLimit(1)
                                         Text(formatFileSize(file.size))
                                             .font(VFont.labelSmall)
-                                            .foregroundColor(VColor.contentTertiary)
+                                            .foregroundStyle(VColor.contentTertiary)
                                     }
                                     Spacer()
                                 }
@@ -67,7 +67,7 @@ public struct FileUploadSurfaceView: View {
                 // Prompt text
                 Text(data.prompt)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .textSelection(.enabled)
 
                 // Drop zone
@@ -77,7 +77,7 @@ public struct FileUploadSurfaceView: View {
                 if let errorMessage = errorMessage {
                     Text(errorMessage)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                        .foregroundStyle(VColor.systemNegativeStrong)
                         .textSelection(.enabled)
                 }
 
@@ -96,7 +96,7 @@ public struct FileUploadSurfaceView: View {
                     Button(action: { onCancel() }) {
                         Text("Cancel")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                             .padding(.horizontal, VSpacing.lg)
                             .padding(.vertical, VSpacing.sm)
                             .overlay(
@@ -109,7 +109,7 @@ public struct FileUploadSurfaceView: View {
                     Button(action: { submitFiles() }) {
                         Text("Upload")
                             .font(VFont.labelDefault)
-                            .foregroundColor(selectedFiles.isEmpty ? VColor.contentTertiary : VColor.auxWhite)
+                            .foregroundStyle(selectedFiles.isEmpty ? VColor.contentTertiary : VColor.auxWhite)
                             .padding(.horizontal, VSpacing.lg)
                             .padding(.vertical, VSpacing.sm)
                             .background(
@@ -140,16 +140,16 @@ public struct FileUploadSurfaceView: View {
 
             VStack(spacing: VSpacing.md) {
                 VIconView(.arrowDownToLine, size: 28)
-                    .foregroundColor(isDragOver ? VColor.primaryBase : VColor.contentTertiary)
+                    .foregroundStyle(isDragOver ? VColor.primaryBase : VColor.contentTertiary)
 
                 Text("Drop files here")
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
 
                 Button(action: { browseFiles() }) {
                     Text("Browse files")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.primaryBase)
+                        .foregroundStyle(VColor.primaryBase)
                 }
                 .buttonStyle(.plain)
             }
@@ -174,13 +174,13 @@ public struct FileUploadSurfaceView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(file.filename)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                             .lineLimit(1)
                             .textSelection(.enabled)
 
                         Text(formatFileSize(file.size))
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .textSelection(.enabled)
                     }
 
@@ -188,7 +188,7 @@ public struct FileUploadSurfaceView: View {
 
                     Button(action: { removeFile(at: index) }) {
                         VIconView(.circleX, size: 14)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
                 }
@@ -208,13 +208,13 @@ public struct FileUploadSurfaceView: View {
             if data.maxFiles > 1 {
                 Text("Max \(data.maxFiles) files")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .textSelection(.enabled)
             }
             if let types = data.acceptedTypes, !types.isEmpty {
                 Text(types.joined(separator: ", "))
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .textSelection(.enabled)
             }
         }
@@ -233,7 +233,7 @@ public struct FileUploadSurfaceView: View {
                 .clipped()
         } else {
             VIconView(iconName(for: file.mimeType), size: 20)
-                .foregroundColor(VColor.primaryBase)
+                .foregroundStyle(VColor.primaryBase)
                 .frame(width: 32, height: 32)
         }
     }

@@ -4,6 +4,8 @@
  * Resolves pending host CU proxy requests by requestId when the desktop
  * client returns observation results via HTTP.
  */
+import { z } from "zod";
+
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { AuthContext } from "../auth/types.js";
 import { httpError } from "../http-errors.js";
@@ -90,6 +92,26 @@ export function hostCuRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "host-cu-result",
       method: "POST",
+      summary: "Submit host CU result",
+      description: "Resolve a pending host computer-use request by requestId.",
+      tags: ["host"],
+      requestBody: z.object({
+        requestId: z.string().describe("Pending CU request ID"),
+        axTree: z.string().describe("Accessibility tree").optional(),
+        axDiff: z.string().describe("Accessibility tree diff").optional(),
+        screenshot: z.string().describe("Base64 screenshot").optional(),
+        screenshotWidthPx: z.number().optional(),
+        screenshotHeightPx: z.number().optional(),
+        screenWidthPt: z.number().optional(),
+        screenHeightPt: z.number().optional(),
+        executionResult: z.string().optional(),
+        executionError: z.string().optional(),
+        secondaryWindows: z.string().optional(),
+        userGuidance: z.string().optional(),
+      }),
+      responseBody: z.object({
+        accepted: z.boolean(),
+      }),
       handler: async ({ req, authContext }) =>
         handleHostCuResult(req, authContext),
     },

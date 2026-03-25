@@ -9,6 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { count } from "drizzle-orm";
+import { z } from "zod";
 
 import { getDb } from "../../memory/db.js";
 import { memoryItems } from "../../memory/schema.js";
@@ -136,11 +137,28 @@ export function brainGraphRouteDefinitions(deps: {
     {
       endpoint: "brain-graph",
       method: "GET",
+      summary: "Get brain graph data",
+      description:
+        "Return a knowledge-graph shaped for brain-lobe visualization, with memory items mapped to brain regions.",
+      tags: ["brain-graph"],
+      responseBody: z.object({
+        entities: z.array(z.unknown()).describe("Graph entity nodes"),
+        relations: z.array(z.unknown()).describe("Graph relation edges"),
+        memorySummary: z
+          .array(z.unknown())
+          .describe("Memory kind counts and colors"),
+        totalKnowledgeCount: z.number().int(),
+        generatedAt: z.string().describe("ISO 8601 timestamp"),
+      }),
       handler: () => handleGetBrainGraph(),
     },
     {
       endpoint: "brain-graph-ui",
       method: "GET",
+      summary: "Serve brain graph UI",
+      description:
+        "Return the brain-graph HTML visualization page with an embedded auth token.",
+      tags: ["brain-graph"],
       handler: () => handleServeBrainGraphUI(deps.mintUiPageToken()),
     },
   ];

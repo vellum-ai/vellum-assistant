@@ -669,48 +669,6 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
                       "Should still be following bottom after successful pin")
     }
 
-    // MARK: - VerificationOutcome Policy
-
-    /// Verifies that the anchor policy correctly distinguishes between
-    /// genuinely off-screen anchors and unavailable geometry.
-    func testVerificationOutcomeDistinguishesGeometryStates() {
-        // Finite, in-bounds anchor
-        let anchored = MessageListBottomAnchorPolicy.verify(
-            anchorMinY: 500, viewportHeight: 600
-        )
-        XCTAssertEqual(anchored, .anchored)
-
-        // Finite, genuinely off-screen
-        let offScreen = MessageListBottomAnchorPolicy.verify(
-            anchorMinY: 700, viewportHeight: 600
-        )
-        XCTAssertEqual(offScreen, .needsRepin)
-
-        // Non-finite anchor (geometry not yet measured)
-        let infiniteAnchor = MessageListBottomAnchorPolicy.verify(
-            anchorMinY: .infinity, viewportHeight: 600
-        )
-        XCTAssertEqual(infiniteAnchor, .geometryUnavailable)
-
-        // Non-finite viewport (geometry not yet measured)
-        let infiniteViewport = MessageListBottomAnchorPolicy.verify(
-            anchorMinY: 500, viewportHeight: .infinity
-        )
-        XCTAssertEqual(infiniteViewport, .geometryUnavailable)
-
-        // Both non-finite
-        let bothInfinite = MessageListBottomAnchorPolicy.verify(
-            anchorMinY: .infinity, viewportHeight: .infinity
-        )
-        XCTAssertEqual(bothInfinite, .geometryUnavailable)
-
-        // NaN anchor
-        let nanAnchor = MessageListBottomAnchorPolicy.verify(
-            anchorMinY: .nan, viewportHeight: 600
-        )
-        XCTAssertEqual(nanAnchor, .geometryUnavailable)
-    }
-
     // MARK: - Initial-Load Grace Period
 
     /// Within 500ms of `reset()`, `.initialRestore` and `.messageCount` coalesce
@@ -843,22 +801,4 @@ final class ChatBottomPinCoordinatorTests: XCTestCase {
         XCTAssertFalse(session.canCoalesce(reason: .messageCount, conversationId: convId))
     }
 
-    /// Verifies that the legacy `needsRepin` helper still collapses
-    /// `geometryUnavailable` into `true` for backwards compatibility.
-    func testLegacyNeedsRepinCollapsesGeometryUnavailable() {
-        // geometryUnavailable -> true (backwards-compatible behavior)
-        XCTAssertTrue(MessageListBottomAnchorPolicy.needsRepin(
-            anchorMinY: .infinity, viewportHeight: 600
-        ))
-
-        // anchored -> false
-        XCTAssertFalse(MessageListBottomAnchorPolicy.needsRepin(
-            anchorMinY: 500, viewportHeight: 600
-        ))
-
-        // needsRepin -> true
-        XCTAssertTrue(MessageListBottomAnchorPolicy.needsRepin(
-            anchorMinY: 700, viewportHeight: 600
-        ))
-    }
 }

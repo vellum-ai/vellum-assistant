@@ -294,7 +294,6 @@ describe("handleMemoryRecall", () => {
     );
 
     // With Qdrant mocked empty, hybrid search returns nothing.
-    // Recency search also returns nothing (no conversationId passed to handler).
     // The handler should return a valid result shape with zero results.
     expect(result.isError).toBe(false);
     const parsed = parseResult(result.content);
@@ -376,9 +375,8 @@ describe("handleMemoryRecall", () => {
     // Not degraded because embeddings are optional
     expect(parsed.degraded).toBe(false);
     expect(parsed.sources.semantic).toBe(0);
-    // With FTS/direct-item search removed, only Qdrant hybrid search and
-    // recency search remain. Both return empty here (Qdrant mocked,
-    // no conversationId passed). The handler returns a valid empty result.
+    // Qdrant is mocked empty; hybrid search returns no candidates.
+    // The handler returns a valid empty result.
     expect(parsed.resultCount).toBe(0);
   });
 

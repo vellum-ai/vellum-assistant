@@ -496,7 +496,7 @@ struct ChatContentView: View {
                     if let statusText = viewModel.assistantStatusText, !statusText.isEmpty {
                         Text(statusText)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                     }
                     Spacer()
                 }
@@ -530,7 +530,7 @@ struct ChatContentView: View {
                     if let statusText = viewModel.assistantStatusText, !statusText.isEmpty {
                         Text(statusText)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                     }
                     Spacer()
                 }
@@ -548,16 +548,16 @@ struct ChatContentView: View {
     private func conversationErrorBanner(_ error: ConversationError) -> some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(conversationErrorIcon(error.category), size: 14)
-                .foregroundColor(conversationErrorAccent(error.category))
+                .foregroundStyle(conversationErrorAccent(error.category))
 
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(error.message)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .lineLimit(2)
                 Text(error.recoverySuggestion)
                     .font(VFont.labelSmall)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .lineLimit(1)
             }
 
@@ -567,7 +567,7 @@ struct ChatContentView: View {
                 Button(action: { viewModel.retryAfterConversationError() }) {
                     Text("Retry")
                         .font(VFont.labelDefault)
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
                         .background(conversationErrorAccent(error.category))
@@ -577,7 +577,7 @@ struct ChatContentView: View {
 
             Button(action: { viewModel.dismissConversationError() }) {
                 VIconView(.x, size: 10)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
             .accessibilityLabel("Dismiss")
         }
@@ -597,16 +597,16 @@ struct ChatContentView: View {
     private func genericErrorBanner(_ errorText: String) -> some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.triangleAlert, size: 14)
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(errorText)
                     .font(VFont.labelDefault)
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
                     .lineLimit(2)
                 if viewModel.isConnectionError, let hint = viewModel.connectionDiagnosticHint {
                     Text(hint)
                         .font(VFont.labelSmall)
-                        .foregroundColor(.white.opacity(0.8))
+                        .foregroundStyle(.white.opacity(0.8))
                         .lineLimit(2)
                 }
             }
@@ -615,7 +615,7 @@ struct ChatContentView: View {
                 Button(action: { viewModel.sendAnyway() }) {
                     Text("Send Anyway")
                         .font(VFont.labelDefault)
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
                         .background(Color.white.opacity(0.25)) // Intentional: translucent contrast on VColor.systemNegativeStrong banner
@@ -625,7 +625,7 @@ struct ChatContentView: View {
                 Button(action: { viewModel.retryLastMessage() }) {
                     Text("Retry")
                         .font(VFont.labelDefault)
-                        .foregroundColor(.white)
+                        .foregroundStyle(.white)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
                         .background(Color.white.opacity(0.25)) // Intentional: translucent contrast on VColor.systemNegativeStrong banner
@@ -634,7 +634,7 @@ struct ChatContentView: View {
             }
             Button(action: { viewModel.dismissError() }) {
                 VIconView(.x, size: 14)
-                    .foregroundColor(.white)
+                    .foregroundStyle(.white)
             }
             .accessibilityLabel("Dismiss")
         }
@@ -680,12 +680,12 @@ struct ChatContentView: View {
 
             HStack(spacing: VSpacing.md) {
                 VIconView(.sparkles, size: 48)
-                    .foregroundColor(VColor.primaryBase)
+                    .foregroundStyle(VColor.primaryBase)
 
                 if let greeting = viewModel.emptyStateGreeting {
                     Text(greeting)
                         .font(.system(size: 22, weight: .medium))
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .multilineTextAlignment(.leading)
                         .transition(.opacity)
                 }

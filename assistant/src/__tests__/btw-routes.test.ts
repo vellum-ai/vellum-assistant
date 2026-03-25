@@ -61,6 +61,12 @@ mock.module("../prompts/system-prompt.js", () => ({
   buildSystemPrompt: mockBuildSystemPrompt,
 }));
 
+mock.module("../prompts/persona-resolver.js", () => ({
+  resolveGuardianPersona: () => null,
+  resolveChannelPersona: () => null,
+  resolveUserPersona: () => null,
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
@@ -304,7 +310,9 @@ describe("POST /v1/btw", () => {
     // System prompt built by buildSystemPrompt({ excludeBootstrap: true })
     expect(systemPrompt).toBe(MOCK_SYSTEM_PROMPT);
     expect(mockBuildSystemPrompt).toHaveBeenCalledWith({
+      channelPersona: null,
       excludeBootstrap: true,
+      userPersona: null,
     });
 
     // Options: tool_choice must be "none"

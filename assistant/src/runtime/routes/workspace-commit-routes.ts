@@ -7,6 +7,8 @@
  * the same pattern as other gateway-forwarded control-plane endpoints.
  */
 
+import { z } from "zod";
+
 import { getWorkspaceDir } from "../../util/platform.js";
 import { getWorkspaceGitService } from "../../workspace/git-service.js";
 import { httpError } from "../http-errors.js";
@@ -17,6 +19,16 @@ export function workspaceCommitRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "admin/workspace-commit",
       method: "POST",
+      summary: "Commit workspace changes",
+      description:
+        "Create a git commit in the workspace directory with all pending changes.",
+      tags: ["admin"],
+      requestBody: z.object({
+        message: z.string().describe("Commit message"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req }) => {
         let body: unknown;
         try {

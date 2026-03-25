@@ -1,6 +1,6 @@
 ---
 name: messaging
-description: Read, search, send, and manage messages across Slack, Gmail, Telegram, and other platforms
+description: Read, search, send, and manage messages across Gmail, Telegram, and other platforms
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "\U0001F4AC"
@@ -11,7 +11,9 @@ metadata:
       - "Handles credential flows -- do not improvise setup instructions"
 ---
 
-You are a unified messaging assistant with access to multiple platforms (Slack, Gmail, Telegram, and more). Use the messaging tools to help users read, search, organize, draft, and send messages across all connected platforms.
+You are a unified messaging assistant with access to multiple platforms (Gmail, Telegram, and more). Use the messaging tools to help users read, search, organize, draft, and send messages across all connected platforms.
+
+**Slack is not handled by this skill.** Slack messaging (send, read, search) is handled by the **slack** skill, which uses the Slack Web API directly via CLI. Do not use messaging tools with `platform: "slack"`.
 
 ## External Identity
 
@@ -34,13 +36,15 @@ Do not offer AgentMail as an option or mention it unless the user specifically a
 
 When a platform is connected (auth test succeeds), always use the messaging API tools for that platform. Never fall back to browser automation, shell commands (bash, curl), or any other approach for operations that messaging tools can handle. The messaging tools handle authentication internally - never try to access tokens or call APIs directly. Browser automation is only appropriate for initial credential setup (OAuth consent screens), not for day-to-day messaging operations.
 
+**Exception: Slack.** Slack messaging should use the Slack Web API directly via CLI, not messaging tools. See the **slack** skill for details.
+
 ## Connection Setup
 
 Before using any messaging tool, verify that the platform is connected by calling `messaging_auth_test` with the appropriate `platform` parameter. If the call fails with a token/authorization error, follow the steps below.
 
 ### Public Ingress (required for Telegram)
 
-Telegram setup requires a publicly reachable URL for webhook delivery. The **public-ingress** skill handles ngrok tunnel setup and persists the URL as `ingress.publicBaseUrl`. Slack uses Socket Mode and does not require public ingress. Gmail on the desktop app uses a loopback callback and does not require public ingress; the channel path (Path B in the google-oauth-applescript skill) handles public ingress internally when needed.
+Telegram setup requires webhook routing, but it does **not** always require ngrok. Before suggesting public ingress for Telegram, check managed callback availability with `assistant platform status --json`. If that reports `containerized: true` with a non-empty `assistantId` and `available: true`, use the platform callback route flow and do not prompt for ngrok. Only use the **public-ingress** skill for local assistants that genuinely need a public gateway URL. Slack uses Socket Mode and does not require public ingress. Gmail on the desktop app uses a loopback callback and does not require public ingress; the channel path (Path B in the google-oauth-applescript skill) handles public ingress internally when needed.
 
 ### Email Connection Flow
 
@@ -65,17 +69,13 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
 
 ### Slack
 
-Slack connects via Socket Mode using a bot token and app-level token (not OAuth). Load the **slack-app-setup** skill, which guides the user through creating a Slack app from a pre-configured manifest, collecting tokens securely, and connecting the bot to their workspace:
-
-- Call `skill_load` with `skill: "slack-app-setup"` to load the dependency skill.
-- Tell the user Slack isn't connected yet and briefly explain what the setup involves, then follow the skill's guided flow.
-
-The slack-app-setup skill handles: manifest-driven app creation, app token and bot token collection via secure prompt (never accept tokens pasted in plaintext chat), and Slack connection setup through the same settings handler used by the Settings UI. That handler validates the bot token, stores workspace metadata, and activates Socket Mode. The skill also covers optional identity verification.
+Slack is **not** handled by this skill. For Slack setup, load the **slack-app-setup** skill directly. For Slack messaging, use the **slack** skill which accesses the Slack Web API via CLI.
 
 ### Telegram
 
-Telegram uses a bot token (not OAuth). Load the **telegram-setup** skill (which depends on **public-ingress** for the webhook URL) which automates the full setup:
+Telegram uses a bot token (not OAuth). Load the **telegram-setup** skill, which uses a managed platform callback route in containerized deployments and falls back to **public-ingress** locally when needed:
 
+- First run `assistant platform status --json`. If it shows managed callback routing is available, tell the user you will use the platform callback route and skip ngrok/public-ingress.
 - Call `skill_load` with `skill: "telegram-setup"` to load the dependency skill.
 - Tell the user: _"I've loaded a setup guide for Telegram. It will walk you through connecting a Telegram bot to your assistant."_
 
@@ -109,10 +109,10 @@ When a messaging tool fails with a token or authorization error:
 
 ## Capabilities
 
-### Universal (Slack, Gmail)
+### Universal (Gmail)
 
 - **Auth Test**: Verify connection and show account info
-- **List Conversations**: Show channels, inboxes, DMs with unread counts
+- **List Conversations**: Show inboxes, DMs with unread counts
 - **Read Messages**: Read message history from a conversation
 - **Search**: Search messages with platform-appropriate query syntax
 - **Send / Reply**: Send a message or reply in a thread (via `thread_id`). High risk - requires user approval.
@@ -120,7 +120,7 @@ When a messaging tool fails with a token or authorization error:
 
 ### Telegram
 
-Telegram is supported as a messaging provider with limited capabilities compared to Slack and Gmail due to Bot API constraints:
+Telegram is supported as a messaging provider with limited capabilities compared to Gmail due to Bot API constraints:
 
 - **Send**: Send a message to a known chat ID (high risk - requires user approval)
 - **Auth Test**: Verify bot token and show bot info
@@ -135,29 +135,6 @@ Telegram is supported as a messaging provider with limited capabilities compared
 
 - The bot can only message users or groups that have previously interacted with it (sent `/start` or been added to a group). Bots cannot initiate conversations with arbitrary phone numbers.
 - Future support for MTProto user-account sessions may lift some of these restrictions.
-
-### Slack-specific
-
-- **Add Reaction**: Add an emoji reaction to a message
-- **Leave Channel**: Leave a Slack channel
-- **Edit Message**: `slack_edit_message` - edit a message the assistant previously sent. Requires `channel_id` and the message timestamp (`ts`) from the original send response. High risk - requires confidence score.
-- **Delete Message**: `slack_delete_message` - delete a message the assistant previously sent. Requires `channel_id` and the message timestamp (`ts`). High risk - requires confidence score. This is irreversible.
-
-When sending a Slack message, retain the `ts` (message timestamp) from the send response - it is needed to edit or delete that message later. Only messages sent by the assistant's bot can be edited or deleted.
-
-## Slack Search Syntax
-
-When searching Slack, the query is passed directly to Slack's search API:
-
-| Operator       | Example             | What it finds                  |
-| -------------- | ------------------- | ------------------------------ |
-| `from:`        | `from:@alice`       | Messages from a specific user  |
-| `in:`          | `in:#general`       | Messages in a specific channel |
-| `has:`         | `has:link`          | Messages containing links      |
-| `before:`      | `before:2024-01-01` | Messages before a date         |
-| `after:`       | `after:2024-01-01`  | Messages after a date          |
-| `has:reaction` | `has:reaction`      | Messages with reactions        |
-| `has:star`     | `has:star`          | Starred messages               |
 
 ## Notifications vs Messages
 

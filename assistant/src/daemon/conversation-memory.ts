@@ -187,7 +187,6 @@ export async function prepareMemoryContext(
             }
           : undefined,
         semanticHits: recall.semanticHits,
-        recencyHits: 0,
         tier1Count: recall.tier1Count ?? 0,
         tier2Count: recall.tier2Count ?? 0,
         hybridSearchLatencyMs: recall.hybridSearchMs ?? 0,

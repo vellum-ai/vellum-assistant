@@ -3,6 +3,8 @@
  */
 import { existsSync, statSync } from "node:fs";
 
+import { z } from "zod";
+
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   AttachmentUploadError,
@@ -261,23 +263,66 @@ export function attachmentRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "attachments",
       method: "POST",
+      summary: "Upload attachment",
+      description:
+        "Upload an attachment as base64 data or file path reference.",
+      tags: ["attachments"],
+      requestBody: z.object({
+        filename: z.string(),
+        mimeType: z.string(),
+        data: z.string().describe("Base64-encoded file data").optional(),
+        filePath: z
+          .string()
+          .describe("On-disk file path (file-backed upload)")
+          .optional(),
+      }),
+      responseBody: z.object({
+        id: z.string(),
+        original_filename: z.string(),
+        mime_type: z.string(),
+        size_bytes: z.number(),
+        kind: z.string(),
+      }),
       handler: async ({ req }) => handleUploadAttachment(req),
     },
     {
       endpoint: "attachments",
       method: "DELETE",
+      summary: "Delete attachment",
+      description: "Delete an attachment by ID.",
+      tags: ["attachments"],
+      requestBody: z.object({
+        attachmentId: z.string(),
+      }),
       handler: async ({ req }) => handleDeleteAttachment(req),
     },
     {
       endpoint: "attachments/:id/content",
       method: "GET",
       policyKey: "attachments/content",
+      summary: "Get attachment content",
+      description:
+        "Serve raw file bytes for an attachment. Supports Range headers.",
+      tags: ["attachments"],
       handler: ({ req, params }) => handleGetAttachmentContent(params.id, req),
     },
     {
       endpoint: "attachments/:id",
       method: "GET",
       policyKey: "attachments",
+      summary: "Get attachment metadata",
+      description:
+        "Return metadata and optional base64 data for an attachment.",
+      tags: ["attachments"],
+      responseBody: z.object({
+        id: z.string(),
+        filename: z.string(),
+        mimeType: z.string(),
+        sizeBytes: z.number(),
+        kind: z.string(),
+        data: z.string().describe("Base64-encoded content"),
+        fileBacked: z.boolean(),
+      }),
       handler: ({ params }) => handleGetAttachment(params.id),
     },
   ];

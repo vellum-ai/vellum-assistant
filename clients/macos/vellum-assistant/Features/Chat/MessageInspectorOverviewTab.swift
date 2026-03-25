@@ -65,7 +65,7 @@ struct MessageInspectorOverviewTab: View {
 
                 Text(body)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
@@ -82,7 +82,7 @@ struct MessageInspectorOverviewTab: View {
 
                 Text(message)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
             }
@@ -93,12 +93,12 @@ struct MessageInspectorOverviewTab: View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(title)
                 .font(VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
         }
     }
@@ -107,13 +107,13 @@ struct MessageInspectorOverviewTab: View {
         HStack(alignment: .firstTextBaseline, spacing: VSpacing.md) {
             Text(row.label)
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
 
             Spacer(minLength: VSpacing.sm)
 
             Text(row.value)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .multilineTextAlignment(.trailing)
                 .fixedSize(horizontal: false, vertical: true)
                 .textSelection(.enabled)

@@ -11,7 +11,7 @@ struct InlineVideoEmbedCard: View {
     let videoID: String
     let embedURL: URL
 
-    @StateObject private var stateManager = InlineVideoEmbedStateManager()
+    @State private var stateManager = InlineVideoEmbedStateManager()
 
     /// The embed URL enriched with autoplay/rel query parameters, built on
     /// first play request. Falls back to the raw `embedURL` if the provider
@@ -104,7 +104,7 @@ struct InlineVideoEmbedCard: View {
                 .frame(width: 56, height: 56)
                 .overlay(
                     VIconView(.play, size: 22)
-                        .foregroundColor(VColor.auxWhite)
+                        .foregroundStyle(VColor.auxWhite)
                         .offset(x: 2)
                 )
         }

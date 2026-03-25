@@ -83,15 +83,24 @@ final class RecordingHUDWindow {
 // MARK: - View Model
 
 @MainActor
-final class RecordingHUDViewModel: ObservableObject {
-    @Published var elapsedSeconds: Int = 0
-    @Published var isRecording = true
-    @Published var isPaused = false
-    @Published var failureMessage: String?
+@Observable
+final class RecordingHUDViewModel {
+    var isRecording = true
+    var isPaused = false
+    var failureMessage: String?
 
-    private var timer: Timer?
+    private var recordingStartTime: Date?
+    private var accumulatedPausedDuration: TimeInterval = 0
+    private var pauseStartTime: Date?
     private let onStop: () -> Void
     private let onPauseResume: ((Bool) -> Void)?
+
+    var elapsedSeconds: Int {
+        guard let start = recordingStartTime else { return 0 }
+        let totalElapsed = Date().timeIntervalSince(start)
+        let paused = accumulatedPausedDuration + (pauseStartTime.map { Date().timeIntervalSince($0) } ?? 0)
+        return max(0, Int(totalElapsed - paused))
+    }
 
     init(onStop: @escaping () -> Void, onPauseResume: ((Bool) -> Void)? = nil) {
         self.onStop = onStop
@@ -100,28 +109,29 @@ final class RecordingHUDViewModel: ObservableObject {
     }
 
     func startTimer() {
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.elapsedSeconds += 1
-            }
-        }
+        recordingStartTime = Date()
+        accumulatedPausedDuration = 0
+        pauseStartTime = nil
     }
 
     /// Pause the elapsed-time timer (called when recording is paused).
     func pauseTimer() {
-        timer?.invalidate()
-        timer = nil
+        guard pauseStartTime == nil else { return }
+        pauseStartTime = Date()
     }
 
     /// Resume the elapsed-time timer (called when recording is resumed).
     func resumeTimer() {
-        guard timer == nil else { return }
-        startTimer()
+        if let pauseStart = pauseStartTime {
+            accumulatedPausedDuration += Date().timeIntervalSince(pauseStart)
+            pauseStartTime = nil
+        }
     }
 
     func stopTimer() {
-        timer?.invalidate()
-        timer = nil
+        recordingStartTime = nil
+        accumulatedPausedDuration = 0
+        pauseStartTime = nil
     }
 
     func stop() {
@@ -144,7 +154,7 @@ final class RecordingHUDViewModel: ObservableObject {
 // MARK: - View
 
 struct RecordingHUDView: View {
-    @ObservedObject var viewModel: RecordingHUDViewModel
+    var viewModel: RecordingHUDViewModel
 
     @State private var dotOpacity: Double = 1.0
 
@@ -153,11 +163,11 @@ struct RecordingHUDView: View {
             if let failure = viewModel.failureMessage {
                 // Failure state
                 VIconView(.triangleAlert, size: 12)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
 
                 Text(failure)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
                     .lineLimit(1)
             } else {
                 // Recording/paused indicator dot
@@ -174,16 +184,18 @@ struct RecordingHUDView: View {
                         }
                     }
 
-                // Elapsed time (freezes when paused via timer pause)
-                Text(viewModel.formattedTime)
-                    .font(VFont.bodySmallDefault)
-                    .foregroundColor(viewModel.isPaused ? VColor.contentSecondary : VColor.contentDefault)
-                    .monospacedDigit()
+                // Elapsed time (freezes when paused via computed property)
+                TimelineView(.periodic(from: .now, by: 1)) { _ in
+                    Text(viewModel.formattedTime)
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(viewModel.isPaused ? VColor.contentSecondary : VColor.contentDefault)
+                        .monospacedDigit()
+                }
 
                 if viewModel.isPaused {
                     Text("Paused")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.systemNegativeHover)
+                        .foregroundStyle(VColor.systemNegativeHover)
                 }
 
                 Spacer()
@@ -191,7 +203,7 @@ struct RecordingHUDView: View {
                 // Pause/Resume toggle button
                 Button(action: { viewModel.togglePauseResume() }) {
                     VIconView(viewModel.isPaused ? .play : .square, size: 10)
-                        .foregroundColor(VColor.auxWhite)
+                        .foregroundStyle(VColor.auxWhite)
                         .frame(width: 24, height: 24)
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.md)
@@ -204,7 +216,7 @@ struct RecordingHUDView: View {
                 // Stop button
                 Button(action: { viewModel.stop() }) {
                     VIconView(.square, size: 10)
-                        .foregroundColor(VColor.auxWhite)
+                        .foregroundStyle(VColor.auxWhite)
                         .frame(width: 24, height: 24)
                         .background(
                             RoundedRectangle(cornerRadius: VRadius.md)

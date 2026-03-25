@@ -4,6 +4,8 @@
  * useful for assistant/LLM reporting and UI indicators.
  */
 
+import { z } from "zod";
+
 import {
   type AttentionFilterState,
   listConversationAttention,
@@ -134,6 +136,41 @@ export function conversationAttentionRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "conversations/attention",
       method: "GET",
+      summary: "List conversation attention states",
+      description:
+        "Return attention state (seen/unseen) for conversations, with pagination.",
+      tags: ["conversations"],
+      queryParams: [
+        {
+          name: "state",
+          schema: { type: "string" },
+          description: "Filter: seen, unseen, or all (default all)",
+        },
+        {
+          name: "source",
+          schema: { type: "string" },
+          description: "Filter by source (default all)",
+        },
+        {
+          name: "channel",
+          schema: { type: "string" },
+          description: "Filter by source channel",
+        },
+        {
+          name: "limit",
+          schema: { type: "integer" },
+          description: "Max results (1–100, default 20)",
+        },
+        {
+          name: "before",
+          schema: { type: "number" },
+          description: "Cursor for pagination (timestamp)",
+        },
+      ],
+      responseBody: z.object({
+        conversations: z.array(z.unknown()).describe("Attention state objects"),
+        hasMore: z.boolean(),
+      }),
       handler: ({ url }) => handleListConversationAttention(url),
     },
   ];

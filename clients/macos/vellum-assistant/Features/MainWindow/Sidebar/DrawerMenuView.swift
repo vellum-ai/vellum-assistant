@@ -19,7 +19,7 @@ struct DrawerMenuView: View {
     private var isBillingVisible: Bool {
         let _ = bootstrapGeneration  // Force recomputation when bootstrap completes
         return authManager.isAuthenticated &&
-        MacOSClientFeatureFlagManager.shared.isEnabled("settings_billing_enabled") &&
+        MacOSClientFeatureFlagManager.shared.isEnabled("settings-billing") &&
         connectedOrgId != nil
     }
 
@@ -35,7 +35,7 @@ struct DrawerMenuView: View {
                 HStack {
                     Text("$\(balance) remaining")
                         .font(VFont.bodyMediumDefault)
-                        .foregroundColor(
+                        .foregroundStyle(
                             isZeroBalance ? VColor.systemNegativeStrong :
                             isLowBalance ? VColor.systemMidStrong :
                             VColor.contentDefault
@@ -44,7 +44,7 @@ struct DrawerMenuView: View {
                     if isBillingVisible {
                         Button("Add funds") { onOpenBilling() }
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.primaryBase)
+                            .foregroundStyle(VColor.primaryBase)
                             .buttonStyle(.plain)
                     }
                 }
@@ -59,7 +59,7 @@ struct DrawerMenuView: View {
 
                 Text("Ask the assistant in chat to help you with any settings you wish to alter.")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentDisabled)
+                    .foregroundStyle(VColor.contentDisabled)
                     .padding(.horizontal, VSpacing.sm)
                     .padding(.top, VSpacing.xs)
 

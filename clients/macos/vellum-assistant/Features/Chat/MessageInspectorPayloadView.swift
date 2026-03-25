@@ -30,12 +30,12 @@ struct MessageInspectorPayloadView: View {
         HStack(alignment: .center, spacing: VSpacing.sm) {
             Text(title)
                 .font(VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Spacer(minLength: VSpacing.md)
 
             if model.showsViewModePicker {
-                VSegmentedControl(
+                VTabs(
                     items: model.availableViewModes.map { (label: $0.label, tag: $0) },
                     selection: viewModeBinding,
                     style: .pill,

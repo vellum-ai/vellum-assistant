@@ -1,5 +1,7 @@
 import { join } from "node:path";
 
+import { z } from "zod";
+
 import { getCharacterComponents } from "../../avatar/character-components.js";
 import {
   type CharacterTraits,
@@ -39,11 +41,25 @@ export function avatarRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "avatar/character-components",
       method: "GET",
+      summary: "Get character components",
+      description: "Return available avatar character components.",
+      tags: ["avatar"],
       handler: () => Response.json(getCharacterComponents()),
     },
     {
       endpoint: "avatar/render-from-traits",
       method: "POST",
+      summary: "Render avatar from traits",
+      description: "Write character traits and render an avatar PNG.",
+      tags: ["avatar"],
+      requestBody: z.object({
+        bodyShape: z.string(),
+        eyeStyle: z.string(),
+        color: z.string(),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req }) => {
         let body: CharacterTraits;
         try {

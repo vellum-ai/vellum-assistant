@@ -147,10 +147,7 @@ These scopes are passed during the authorization step below.
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:github --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --scopes repo read:user notifications
+    assistant oauth connect integration:github --scopes repo read:user notifications
 ```
 
 **Milestone (7 of 8):** "Authorization complete - let's verify it works."
@@ -164,10 +161,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:github --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ))" "https://api.github.com/user" | python3 -m json.tool
+    assistant oauth ping integration:github
 ```
 
 **On success:** "GitHub is connected! You can now ask me to check your repositories, notifications, pull requests, and issues."

@@ -16,11 +16,11 @@ struct SettingsCard<Content: View, Accessory: View>: View {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     Text(title)
                         .font(VFont.titleSmall)
-                        .foregroundColor(VColor.contentEmphasized)
+                        .foregroundStyle(VColor.contentEmphasized)
                     if let subtitle {
                         Text(subtitle)
                             .font(VFont.bodyMediumDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                 }
                 Spacer()

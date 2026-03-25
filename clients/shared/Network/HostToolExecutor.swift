@@ -7,6 +7,41 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// These run locally on macOS and post results back via `HostProxyClient`.
 public enum HostToolExecutor {
 
+    // MARK: - Cancelled Request Tracking
+
+    /// Lock guarding `cancelledRequestIds` and `runningProcesses`.
+    private static let lock = NSLock()
+
+    /// Request IDs that have been cancelled, with timestamps for TTL cleanup.
+    /// Entries older than 30 seconds are swept on each `markCancelled` call.
+    private static var cancelledRequestIds: [String: Date] = [:]
+
+    #if os(macOS)
+    /// Currently running bash processes keyed by request ID.
+    private static var runningProcesses: [String: Process] = [:]
+    #endif
+
+    /// Mark a request ID as cancelled and sweep stale entries (>30s old).
+    public static func markCancelled(_ requestId: String) {
+        lock.withLock {
+            let now = Date()
+            cancelledRequestIds[requestId] = now
+            // Sweep entries older than 30 seconds
+            cancelledRequestIds = cancelledRequestIds.filter { now.timeIntervalSince($0.value) < 30 }
+        }
+    }
+
+    /// Check if a request ID was cancelled. If found, removes it (consume-once)
+    /// and returns `true`. Returns `false` if not cancelled.
+    public static func isCancelledAndConsume(_ requestId: String) -> Bool {
+        lock.withLock {
+            if cancelledRequestIds.removeValue(forKey: requestId) != nil {
+                return true
+            }
+            return false
+        }
+    }
+
     // MARK: - Host Bash Execution
 
     #if os(macOS)
@@ -16,6 +51,12 @@ public enum HostToolExecutor {
     @MainActor
     public static func executeHostBashRequest(_ request: HostBashRequest) {
         Task.detached {
+            // If already cancelled before we start, skip entirely
+            if isCancelledAndConsume(request.requestId) {
+                log.debug("Host bash skipped (pre-cancelled) — requestId=\(request.requestId, privacy: .public)")
+                return
+            }
+
             let defaultTimeout: Double = 120
             let timeout = request.timeoutSeconds ?? defaultTimeout
 
@@ -94,6 +135,21 @@ public enum HostToolExecutor {
                 pipeGroup.leave()
             }
 
+            // Register the process so cancel can terminate it
+            lock.withLock { runningProcesses[request.requestId] = process }
+
+            // Re-check cancellation after registration — a cancel may have
+            // arrived between the initial check and the store above.
+            if isCancelledAndConsume(request.requestId) {
+                lock.withLock { runningProcesses.removeValue(forKey: request.requestId) }
+                timerSource.cancel()
+                // Close write ends so the readDataToEndOfFile() GCD blocks can finish
+                try? stdoutPipe.fileHandleForWriting.close()
+                try? stderrPipe.fileHandleForWriting.close()
+                log.debug("Host bash cancelled before launch — requestId=\(request.requestId, privacy: .public)")
+                return
+            }
+
             do {
                 try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
                     process.terminationHandler = { _ in
@@ -111,6 +167,7 @@ public enum HostToolExecutor {
                     }
                 }
             } catch {
+                lock.withLock { runningProcesses.removeValue(forKey: request.requestId) }
                 timerSource.cancel()
                 log.error("Failed to launch host bash process: \(error.localizedDescription)")
                 let result = HostBashResultPayload(
@@ -120,9 +177,12 @@ public enum HostToolExecutor {
                     exitCode: nil,
                     timedOut: false
                 )
-                _ = await HostProxyClient().postBashResult(result)
+                if !isCancelledAndConsume(request.requestId) {
+                    _ = await HostProxyClient().postBashResult(result)
+                }
                 return
             }
+            lock.withLock { runningProcesses.removeValue(forKey: request.requestId) }
             timerSource.cancel()
 
             let stdout = String(data: stdoutBox.value, encoding: .utf8) ?? ""
@@ -139,7 +199,32 @@ public enum HostToolExecutor {
             )
 
             log.debug("Host bash completed — requestId=\(request.requestId, privacy: .public) exitCode=\(exitCode) timedOut=\(timedOut)")
+
+            // Suppress stale POST if cancelled while running
+            if isCancelledAndConsume(request.requestId) {
+                log.debug("Host bash result suppressed (cancelled) — requestId=\(request.requestId, privacy: .public)")
+                return
+            }
             _ = await HostProxyClient().postBashResult(result)
+        }
+    }
+
+    /// Cancel an in-flight host bash request: mark it cancelled and terminate
+    /// the running process (SIGTERM, then SIGKILL after 2s).
+    public static func cancelHostBashRequest(_ requestId: String) {
+        markCancelled(requestId)
+        let process: Process? = lock.withLock { runningProcesses[requestId] }
+        guard let process else { return }
+        log.info("Cancelling host bash — requestId=\(requestId, privacy: .public)")
+        if process.isRunning {
+            process.terminate()
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { [process] in
+                // SIGKILL if still alive after grace period — check liveness first
+                // to avoid killing a reused PID if the process already exited.
+                if process.isRunning {
+                    kill(process.processIdentifier, SIGKILL)
+                }
+            }
         }
     }
     #endif
@@ -152,6 +237,13 @@ public enum HostToolExecutor {
     @MainActor
     public static func executeHostFileRequest(_ request: HostFileRequest) {
         Task.detached {
+            // Check cancellation BEFORE performing the file operation to prevent
+            // cancelled requests from mutating the filesystem.
+            if isCancelledAndConsume(request.requestId) {
+                log.debug("Host file skipped (pre-cancelled) — requestId=\(request.requestId, privacy: .public)")
+                return
+            }
+
             let result: HostFileResultPayload
 
             do {
@@ -208,8 +300,22 @@ public enum HostToolExecutor {
             }
 
             log.debug("Host file completed — requestId=\(request.requestId, privacy: .public) op=\(request.operation, privacy: .public) isError=\(result.isError)")
+
+            // Suppress stale POST if cancelled
+            if isCancelledAndConsume(request.requestId) {
+                log.debug("Host file result suppressed (cancelled) — requestId=\(request.requestId, privacy: .public)")
+                return
+            }
             _ = await HostProxyClient().postFileResult(result)
         }
+    }
+
+    /// Cancel an in-flight host file request. File operations are synchronous
+    /// and short-lived so there is no process to kill — we just mark it
+    /// cancelled so the result POST is suppressed.
+    public static func cancelHostFileRequest(_ requestId: String) {
+        markCancelled(requestId)
+        log.info("Cancelling host file — requestId=\(requestId, privacy: .public)")
     }
 
     // MARK: - File Operations

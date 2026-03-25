@@ -215,6 +215,16 @@ export function eventsRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "events",
       method: "GET",
+      summary: "Subscribe to assistant events",
+      description: "Stream assistant events as Server-Sent Events (SSE).",
+      tags: ["events"],
+      queryParams: [
+        {
+          name: "conversationKey",
+          schema: { type: "string" },
+          description: "Scope to a single conversation",
+        },
+      ],
       handler: ({ req, url, authContext }) =>
         handleSubscribeAssistantEvents(req, url, { authContext }),
     },

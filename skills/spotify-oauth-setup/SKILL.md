@@ -134,10 +134,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:spotify --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:spotify
 ```
 
 The scopes requested will include:
@@ -161,10 +158,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:spotify --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ))" "https://api.spotify.com/v1/me" | python3 -m json.tool
+    assistant oauth ping integration:spotify
 ```
 
 **On success:** "Spotify is connected! You can now ask me to control playback, manage your playlists, check what's playing, and browse your library."

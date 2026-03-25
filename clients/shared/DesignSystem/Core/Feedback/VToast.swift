@@ -47,10 +47,10 @@ public struct VToast: View {
     public var body: some View {
         HStack(spacing: VSpacing.md) {
             VIconView(vIcon, size: 14)
-                .foregroundColor(iconColor)
+                .foregroundStyle(iconColor)
             Text(message)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .lineLimit(3)
 
             Spacer(minLength: 0)
@@ -74,7 +74,7 @@ public struct VToast: View {
                             }
                         } label: {
                             VIconView(showCopied ? .check : .copy, size: 12)
-                                .foregroundColor(showCopied ? VColor.systemPositiveStrong : VColor.contentSecondary)
+                                .foregroundStyle(showCopied ? VColor.systemPositiveStrong : VColor.contentSecondary)
                                 .frame(width: 24, height: 24)
                         }
                         .buttonStyle(.plain)
@@ -90,7 +90,7 @@ public struct VToast: View {
                     if let onDismiss {
                         Button(action: onDismiss) {
                             VIconView(.x, size: 12)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                                 .frame(width: 24, height: 24)
                         }
                         .buttonStyle(.plain)

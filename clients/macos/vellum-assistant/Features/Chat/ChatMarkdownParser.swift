@@ -356,7 +356,7 @@ struct MarkdownTableView: View {
                 ForEach(Array(headers.enumerated()), id: \.offset) { _, header in
                     Text(header)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.sm)
@@ -394,7 +394,7 @@ struct MarkdownTableView: View {
         let attributed = Self.cachedAttributedString(for: text)
         return Text(attributed)
             .font(VFont.bodyMediumLighter)
-            .foregroundColor(VColor.contentDefault)
+            .foregroundStyle(VColor.contentDefault)
             .textSelection(.enabled)
             // lineLimit(nil) ensures text wraps within the column width
             // instead of truncating with "..." on a single line.

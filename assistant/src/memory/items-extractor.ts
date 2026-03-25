@@ -11,7 +11,7 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../providers/provider-send-message.js";
-import { BackendUnavailableError } from "../util/errors.js";
+import { BackendUnavailableError, ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import { maybeEnqueueConversationStartersJob } from "./conversation-starters-cadence.js";
@@ -203,7 +203,7 @@ Rules:
   // Try to extract user name from persona text
   let userName = "the user";
   if (userPersona) {
-    const nameMatch = userPersona.match(/\*\*Name:\*\*\s*(.+)/);
+    const nameMatch = userPersona.match(/Preferred name\/reference:\s*(.+)/);
     if (nameMatch) {
       userName = nameMatch[1].trim();
     }
@@ -486,12 +486,20 @@ async function extractItemsWithLLM(
 
   const toolBlock = extractToolUse(response);
   if (!toolBlock) {
-    throw new Error("No tool_use block in LLM extraction response");
+    throw new ProviderError(
+      "No tool_use block in LLM extraction response",
+      "unknown",
+      502,
+    );
   }
 
   const input = toolBlock.input as { items?: LLMExtractedItem[] };
   if (!Array.isArray(input.items)) {
-    throw new Error("Invalid items structure in LLM extraction response");
+    throw new ProviderError(
+      "Invalid items structure in LLM extraction response",
+      "unknown",
+      502,
+    );
   }
 
   // Build set of known existing item IDs for supersession validation

@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 
 import JSZip from "jszip";
+import { z } from "zod";
 
 import type { AppManifest } from "../../bundler/manifest.js";
 import {
@@ -336,30 +337,60 @@ export function appRouteDefinitions(): RouteDefinition[] {
       endpoint: "apps/:appId/dist/:filename",
       method: "GET",
       policyKey: "apps/dist",
+      summary: "Serve app dist file",
+      description:
+        "Serve a static asset from an app's compiled dist/ directory.",
+      tags: ["apps"],
       handler: ({ params }) =>
         handleServeDistFile(params.appId, params.filename),
     },
     {
       endpoint: "apps/share",
       method: "POST",
+      summary: "Share an app",
+      description: "Upload a zip app bundle and create a shareable link.",
+      tags: ["apps"],
+      responseBody: z.object({
+        shareToken: z.string(),
+        shareUrl: z.string(),
+        bundleSizeBytes: z.number(),
+      }),
       handler: async ({ req }) => handleShareApp(req),
     },
     {
       endpoint: "apps/shared/:token/metadata",
       method: "GET",
       policyKey: "apps/shared/metadata",
+      summary: "Get shared app metadata",
+      description: "Return metadata for a shared app bundle.",
+      tags: ["apps"],
+      responseBody: z.object({
+        name: z.string(),
+        description: z.string(),
+        icon: z.string(),
+        bundleSizeBytes: z.number(),
+      }),
       handler: ({ params }) => handleGetSharedAppMetadata(params.token),
     },
     {
       endpoint: "apps/shared/:token",
       method: "GET",
       policyKey: "apps/shared",
+      summary: "Download shared app",
+      description: "Download a shared app bundle as a zip file.",
+      tags: ["apps"],
       handler: ({ params }) => handleDownloadSharedApp(params.token),
     },
     {
       endpoint: "apps/shared/:token",
       method: "DELETE",
       policyKey: "apps/shared",
+      summary: "Delete shared app",
+      description: "Remove a shared app link.",
+      tags: ["apps"],
+      responseBody: z.object({
+        success: z.boolean(),
+      }),
       handler: ({ params }) => handleDeleteSharedApp(params.token),
     },
   ];

@@ -82,7 +82,7 @@ struct TrustRulesSection: View {
                     editingRule = rule
                 } label: {
                     VIconView(.pencil, size: 16)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
             }
         }
@@ -101,7 +101,7 @@ struct TrustRulesSection: View {
         Text(label)
             .font(.caption2)
             .fontWeight(.medium)
-            .foregroundColor(color)
+            .foregroundStyle(color)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(color.opacity(0.15))

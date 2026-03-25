@@ -15,6 +15,11 @@ export interface HostBashRequest {
   env?: Record<string, string>;
 }
 
+export interface HostBashCancelRequest {
+  type: "host_bash_cancel";
+  requestId: string;
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
-export type _HostBashServerMessages = HostBashRequest;
+export type _HostBashServerMessages = HostBashRequest | HostBashCancelRequest;

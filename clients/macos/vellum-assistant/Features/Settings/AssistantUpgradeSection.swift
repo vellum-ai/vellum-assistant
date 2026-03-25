@@ -155,10 +155,10 @@ struct AssistantUpgradeSection: View {
                         HStack(spacing: VSpacing.sm) {
                             Text("Version:")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                             Text(version)
                                 .font(VFont.bodyMediumDefault)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                         }
                     }
                 } else {
@@ -167,24 +167,24 @@ struct AssistantUpgradeSection: View {
                         HStack(spacing: VSpacing.sm) {
                             Text("App version:")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                             Text(version)
                                 .font(VFont.bodyMediumDefault)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                         }
                     }
                     HStack(spacing: VSpacing.sm) {
                         Text("Service group:")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                         if let sgVersion = currentVersion, !sgVersion.isEmpty {
                             Text(sgVersion)
                                 .font(VFont.bodyMediumDefault)
-                                .foregroundColor(isVersionIncompatible ? VColor.systemNegativeStrong : VColor.contentDefault)
+                                .foregroundStyle(isVersionIncompatible ? VColor.systemNegativeStrong : VColor.contentDefault)
                         } else {
                             Text(healthzLoaded ? "Unavailable" : "Loading...")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                         }
                     }
                 }
@@ -214,18 +214,18 @@ struct AssistantUpgradeSection: View {
                         HStack(spacing: VSpacing.sm) {
                             Text("Update available:")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                             Text(updateVersion)
                                 .font(VFont.bodyMediumDefault)
-                                .foregroundColor(VColor.primaryBase)
+                                .foregroundStyle(VColor.primaryBase)
                         }
                     } else if hasCheckedForUpdates && !effectiveAvailable {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.circleCheck, size: 12)
-                                .foregroundColor(VColor.systemPositiveStrong)
+                                .foregroundStyle(VColor.systemPositiveStrong)
                             Text("You are on the latest version.")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.systemPositiveStrong)
+                                .foregroundStyle(VColor.systemPositiveStrong)
                         }
                     }
 
@@ -235,7 +235,7 @@ struct AssistantUpgradeSection: View {
                                 .controlSize(.small)
                             Text("Checking for updates...")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                         }
                     }
                 }
@@ -261,29 +261,29 @@ struct AssistantUpgradeSection: View {
                 if !upgradeAvailable && !isLoadingReleases && !pickerReleases.isEmpty && topology != .local {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.circleCheck, size: 12)
-                            .foregroundColor(VColor.systemPositiveStrong)
+                            .foregroundStyle(VColor.systemPositiveStrong)
                         Text(selectedVersion == nil
                              ? "You are on the latest version."
                              : "You are already on this version.")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.systemPositiveStrong)
+                            .foregroundStyle(VColor.systemPositiveStrong)
                     }
                 }
 
                 if pickerReleases.isEmpty && !isLoadingReleases && errorMessage == nil && topology != .local {
                     Text("No releases available.")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
 
             if topology == .remote {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.triangleAlert, size: 12)
-                        .foregroundColor(VColor.systemMidStrong)
+                        .foregroundStyle(VColor.systemMidStrong)
                     Text("Automatic upgrades are not available for this deployment. Upgrade your infrastructure manually.")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
 
@@ -332,14 +332,14 @@ struct AssistantUpgradeSection: View {
                         .controlSize(.small)
                     Text(isUpgrading ? (isRollback ? "Rolling back assistant..." : "Upgrading assistant...") : "Checking for updates...")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
 
             if let error = errorMessage {
                 Text(error)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
             }
 
             if showFeedbackOption {
@@ -351,7 +351,7 @@ struct AssistantUpgradeSection: View {
             if let success = successMessage {
                 Text(success)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemPositiveStrong)
+                    .foregroundStyle(VColor.systemPositiveStrong)
             }
 
             if isServiceGroupUpdateInProgress && !isUpgrading && (topology == .managed || topology == .docker) {
@@ -369,7 +369,7 @@ struct AssistantUpgradeSection: View {
         .task { await loadReleases() }
         .task {
             if let flags = try? await featureFlagClient.getFeatureFlags() {
-                backwardReleasesEnabled = flags.first(where: { $0.key == "feature_flags.backward-releases.enabled" })?.enabled ?? false
+                backwardReleasesEnabled = flags.first(where: { $0.key == "backward-releases" })?.enabled ?? false
             }
         }
         .onChange(of: currentVersion) { _, _ in

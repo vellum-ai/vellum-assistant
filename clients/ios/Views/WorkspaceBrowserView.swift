@@ -28,11 +28,11 @@ struct WorkspaceBrowserView: View {
             } else if entries.isEmpty {
                 VStack(spacing: VSpacing.md) {
                     VIconView(.folder, size: 36)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .accessibilityHidden(true)
                     Text("Empty directory")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -78,7 +78,7 @@ struct WorkspaceBrowserView: View {
             handleFileImport(result)
         }
         .sheet(item: $selectedFile) { file in
-            WorkspaceFileSheet(filePath: file.path, mimeType: file.mimeType, client: client, workspaceClient: workspaceClient)
+            WorkspaceFileSheet(filePath: file.path, mimeType: file.mimeType, workspaceClient: workspaceClient)
         }
         .task { await loadDirectory() }
         .alert("New File", isPresented: $showingNewFileAlert) {
@@ -267,13 +267,13 @@ struct WorkspaceBrowserView: View {
     private func directoryRow(_ entry: WorkspaceTreeEntry) -> some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.folder, size: 16)
-                .foregroundColor(VColor.primaryBase)
+                .foregroundStyle(VColor.primaryBase)
                 .frame(width: 24)
                 .accessibilityHidden(true)
 
             Text(entry.name)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Spacer()
         }
@@ -284,26 +284,26 @@ struct WorkspaceBrowserView: View {
     private func fileRow(_ entry: WorkspaceTreeEntry) -> some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(iconForMimeType(entry.mimeType), size: 16)
-                .foregroundColor(VColor.primaryBase)
+                .foregroundStyle(VColor.primaryBase)
                 .frame(width: 24)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.name)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 if let size = entry.size {
                     Text(formatFileSize(size))
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
 
             Spacer()
 
             VIconView(.chevronRight, size: 12)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .accessibilityHidden(true)
         }
         .accessibilityElement(children: .combine)

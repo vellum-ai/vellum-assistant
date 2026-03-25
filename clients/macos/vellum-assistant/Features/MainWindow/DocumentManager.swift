@@ -8,36 +8,37 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// Manages the state of the built-in document editor.
 /// One active document at a time, displayed in the Directory panel's Documents tab.
 @MainActor
-final class DocumentManager: ObservableObject {
-    @Published var hasActiveDocument: Bool = false
-    @Published var title: String = "Untitled Document"
-    @Published var surfaceId: String?
-    @Published var conversationId: String?
-    @Published var isSaving: Bool = false
-    @Published var lastSaveError: String?
+@Observable
+final class DocumentManager {
+    var hasActiveDocument: Bool = false
+    var title: String = "Untitled Document"
+    var surfaceId: String?
+    var conversationId: String?
+    var isSaving: Bool = false
+    var lastSaveError: String?
 
     /// Current document content and metadata.
     /// `nil` means the editor has not yet received any content (uninitialized).
     /// `""` means the user intentionally deleted all text.
     private(set) var currentContent: String? = nil
-    @Published var wordCount: Int = 0
+    var wordCount: Int = 0
 
     /// Initial content from daemon persisted for panel reopen after the coordinator consumes pendingInitialContent
     private(set) var initialContent: String = ""
 
     /// Pending initial content to be set when coordinator becomes ready
-    private var pendingInitialContent: String?
+    @ObservationIgnored private var pendingInitialContent: String?
 
     /// Debounced auto-save task cancelled and rescheduled on every content update
-    private var autoSaveTask: Task<Void, Never>?
+    @ObservationIgnored private var autoSaveTask: Task<Void, Never>?
 
     /// Reference to daemon client for saving documents
-    weak var connectionManager: GatewayConnectionManager?
-    private let documentClient: DocumentClientProtocol = DocumentClient()
+    @ObservationIgnored weak var connectionManager: GatewayConnectionManager?
+    @ObservationIgnored private let documentClient: DocumentClientProtocol = DocumentClient()
 
     /// Reference to the document editor coordinator for sending content updates.
     /// Set by DocumentEditorView when the coordinator is ready.
-    var editorCoordinator: DocumentEditorCoordinator? {
+    @ObservationIgnored var editorCoordinator: DocumentEditorCoordinator? {
         didSet {
             // When coordinator becomes ready, apply any pending initial content
             if let coordinator = editorCoordinator, let content = pendingInitialContent {

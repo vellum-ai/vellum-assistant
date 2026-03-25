@@ -126,7 +126,7 @@ async function retryableFetch<T>(
         description
           ? `Telegram ${method} failed: ${description}`
           : body
-            ? `Telegram ${method} failed with status ${response.status}: ${body}`
+            ? `Telegram ${method} failed with status ${response.status}: ${redactTelegramBotTokens(body)}`
             : `Telegram ${method} failed with status ${response.status}`,
       );
     }
@@ -149,7 +149,7 @@ async function retryableFetch<T>(
         description
           ? `Telegram ${method} failed: ${description}`
           : body
-            ? `Telegram ${method} failed with status ${response.status}: ${body}`
+            ? `Telegram ${method} failed with status ${response.status}: ${redactTelegramBotTokens(body)}`
             : `Telegram ${method} failed with status ${response.status}`,
       );
       log.warn(
@@ -171,7 +171,7 @@ async function retryableFetch<T>(
     } catch {
       throw new Error(
         body
-          ? `Telegram ${method} failed: unparseable response body: ${body}`
+          ? `Telegram ${method} failed: unparseable response body: ${redactTelegramBotTokens(body)}`
           : `Telegram ${method} failed with status ${response.status}: empty response`,
       );
     }

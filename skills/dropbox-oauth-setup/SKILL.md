@@ -160,10 +160,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:dropbox --client-id $(cat <<'EOF'
-    <app-key>
-    EOF
-    )
+    assistant oauth connect integration:dropbox
 ```
 
 ---
@@ -175,10 +172,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -X POST -H "Authorization: Bearer $(assistant oauth connections token integration:dropbox --client-id $(cat <<'EOF'
-    <app-key>
-    EOF
-    ))" "https://api.dropboxapi.com/2/users/get_current_account" | python3 -m json.tool
+    assistant oauth ping integration:dropbox
 ```
 
 **On success:** "Dropbox is connected! You can now ask me to read files, upload documents, and browse your Dropbox."

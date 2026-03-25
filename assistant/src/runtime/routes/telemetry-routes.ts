@@ -4,6 +4,8 @@
  * POST /v1/telemetry/lifecycle — record a lifecycle event (app_open, hatch).
  */
 
+import { z } from "zod";
+
 import { recordLifecycleEvent } from "../../memory/lifecycle-events-store.js";
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
@@ -47,6 +49,16 @@ export function telemetryRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "telemetry/lifecycle",
       method: "POST",
+      summary: "Record lifecycle event",
+      description: "Record a telemetry lifecycle event (app_open, hatch).",
+      tags: ["telemetry"],
+      requestBody: z.object({
+        event_name: z.string().describe("Event name: app_open or hatch"),
+      }),
+      responseBody: z.object({
+        id: z.string().describe("Event ID"),
+        event_name: z.string(),
+      }),
       handler: async ({ req }) => handleRecordLifecycleEvent(req),
     },
   ];

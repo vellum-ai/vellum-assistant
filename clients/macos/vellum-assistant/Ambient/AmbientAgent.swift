@@ -8,15 +8,18 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AmbientAgent")
 
 @MainActor
-public final class AmbientAgent: ObservableObject {
-    let knowledgeStore = KnowledgeStore()
-    var connectionManager: GatewayConnectionManager?
+@Observable
+public final class AmbientAgent {
+    @ObservationIgnored let knowledgeStore = KnowledgeStore()
+    @ObservationIgnored var connectionManager: GatewayConnectionManager?
     weak var appDelegate: AppDelegate?
 
     /// When a WatchSession is active (from chat-initiated watch), capture is skipped.
+    /// Tracked (not @ObservationIgnored) because PanelCoordinator and ThreadWindow
+    /// read this property for watch progress UI.
     var activeWatchSession: WatchSession?
 
-    private var cancellables = Set<AnyCancellable>()
+    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
 
     var knowledge: KnowledgeStore { knowledgeStore }
 

@@ -38,7 +38,7 @@ struct MessageInspectorResponseTab: View {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 Text("Response metadata")
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 HStack(alignment: .top, spacing: VSpacing.xs) {
                     if let stopReason = model.responseStopReason {
@@ -79,13 +79,13 @@ struct MessageInspectorResponseTab: View {
                 if let body = section.bodyText, !body.isEmpty {
                     Text(body)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
                 } else {
                     Text("No assistant text was captured for this section.")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
             }
         }
@@ -108,18 +108,18 @@ struct MessageInspectorResponseTab: View {
                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                         Text("Arguments preview")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
 
                         Text(body)
                             .font(VFont.bodySmallDefault)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                             .fixedSize(horizontal: false, vertical: true)
                             .textSelection(.enabled)
                     }
                 } else {
                     Text("No structured arguments preview is available for this tool call.")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
 
                 VInlineMessage(
@@ -142,13 +142,13 @@ struct MessageInspectorResponseTab: View {
                 if let body = section.bodyText, !body.isEmpty {
                     Text(body)
                         .font(VFont.bodySmallDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .textSelection(.enabled)
                 } else {
                     Text("This normalized section does not currently map to a dedicated response card.")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
             }
         }
@@ -159,11 +159,11 @@ struct MessageInspectorResponseTab: View {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
                 HStack(alignment: .center, spacing: VSpacing.xs) {
                     VIconView(.fileCode, size: 14)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
 
                     Text("Section rendering unavailable")
                         .font(VFont.bodyMediumDefault)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                 }
 
                 Text(
@@ -171,7 +171,7 @@ struct MessageInspectorResponseTab: View {
                     ?? "This response has no rendered sections. Raw payloads remain available in the Raw tab, and any normalized response metadata will still be shown when present."
                 )
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -186,7 +186,7 @@ struct MessageInspectorResponseTab: View {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(title)
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 metadataChip(kindLabel)
             }
@@ -204,7 +204,7 @@ struct MessageInspectorResponseTab: View {
     private func metadataChip(_ label: String) -> some View {
         Text(label)
             .font(VFont.labelDefault)
-            .foregroundColor(VColor.contentSecondary)
+            .foregroundStyle(VColor.contentSecondary)
             .padding(.horizontal, VSpacing.sm)
             .padding(.vertical, VSpacing.xs)
             .background(VColor.surfaceOverlay)

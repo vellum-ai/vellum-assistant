@@ -8,7 +8,7 @@ import SwiftUI
 /// and the `TerminalSessionManager` that communicates with the platform terminal API.
 struct SSHTerminalView: NSViewRepresentable {
 
-    @ObservedObject var sessionManager: TerminalSessionManager
+    var sessionManager: TerminalSessionManager
 
     func makeNSView(context: Context) -> TerminalView {
         let terminalView = TerminalView(frame: .zero)

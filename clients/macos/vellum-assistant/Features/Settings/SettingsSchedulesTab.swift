@@ -137,7 +137,7 @@ struct SettingsSchedulesTab: View {
             statusIndicator(for: schedule)
             Text(schedule.name)
                 .font(VFont.bodyMediumDefault)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .lineLimit(1)
                 .truncationMode(.tail)
         }
@@ -163,7 +163,7 @@ struct SettingsSchedulesTab: View {
     private func scheduleRowDescription(_ schedule: ScheduleItem) -> some View {
         Text(schedule.description)
             .font(VFont.labelDefault)
-            .foregroundColor(VColor.contentTertiary)
+            .foregroundStyle(VColor.contentTertiary)
             .lineLimit(2)
     }
 
@@ -173,12 +173,12 @@ struct SettingsSchedulesTab: View {
             if let nextRun = formatEpochMs(schedule.nextRunAt) {
                 Text("Next: \(nextRun)")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
             if let lastRunAt = schedule.lastRunAt, let lastRun = formatEpochMs(lastRunAt) {
                 Text("Last: \(lastRun)")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
         }
     }
@@ -299,7 +299,7 @@ struct SettingsSchedulesTab: View {
         VStack(spacing: VSpacing.md) {
             Text(error)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.systemNegativeStrong)
+                .foregroundStyle(VColor.systemNegativeStrong)
             VButton(label: "Retry", style: .outlined) {
                 Task { await loadSchedules() }
             }
@@ -470,12 +470,17 @@ struct SettingsSchedulesTab: View {
                             .frame(width: 8, height: 8)
                         Text(config.enabled ? "Enabled" : "Disabled")
                             .font(VFont.bodyMediumDefault)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
+                    }
+                    if let lastRun = config.lastRunAt, let formatted = formatEpochMs(lastRun) {
+                        Text("Last ran \(formatted)")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                     if let nextRun = config.nextRunAt, let formatted = formatEpochMs(nextRun) {
-                        Text("Next run: \(formatted)")
+                        Text("Next run \(formatted)")
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                 }
                 Spacer()

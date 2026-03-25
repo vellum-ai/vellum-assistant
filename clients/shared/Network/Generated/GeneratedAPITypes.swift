@@ -1875,16 +1875,18 @@ public struct HeartbeatConfigResponse: Codable, Sendable {
     public let activeHoursStart: Double?
     public let activeHoursEnd: Double?
     public let nextRunAt: Int?
+    public let lastRunAt: Int?
     public let success: Bool
     public let error: String?
 
-    public init(type: String, enabled: Bool, intervalMs: Double, activeHoursStart: Double?, activeHoursEnd: Double?, nextRunAt: Int?, success: Bool, error: String? = nil) {
+    public init(type: String, enabled: Bool, intervalMs: Double, activeHoursStart: Double?, activeHoursEnd: Double?, nextRunAt: Int?, lastRunAt: Int? = nil, success: Bool, error: String? = nil) {
         self.type = type
         self.enabled = enabled
         self.intervalMs = intervalMs
         self.activeHoursStart = activeHoursStart
         self.activeHoursEnd = activeHoursEnd
         self.nextRunAt = nextRunAt
+        self.lastRunAt = lastRunAt
         self.success = success
         self.error = error
     }
@@ -2435,7 +2437,6 @@ public struct MemoryRecalled: Codable, Sendable {
     public let model: String
     public let degradation: MemoryRecalledDegradation?
     public let semanticHits: Double
-    public let recencyHits: Double
     public let tier1Count: Int?
     public let tier2Count: Int?
     public let hybridSearchLatencyMs: Double?
@@ -2446,13 +2447,12 @@ public struct MemoryRecalled: Codable, Sendable {
     public let latencyMs: Double
     public let topCandidates: [MemoryRecalledCandidateDebug]
 
-    public init(type: String, provider: String, model: String, degradation: MemoryRecalledDegradation? = nil, semanticHits: Double, recencyHits: Double, tier1Count: Int? = nil, tier2Count: Int? = nil, hybridSearchLatencyMs: Double? = nil, sparseVectorUsed: Bool? = nil, mergedCount: Int, selectedCount: Int, injectedTokens: Int, latencyMs: Double, topCandidates: [MemoryRecalledCandidateDebug]) {
+    public init(type: String, provider: String, model: String, degradation: MemoryRecalledDegradation? = nil, semanticHits: Double, tier1Count: Int? = nil, tier2Count: Int? = nil, hybridSearchLatencyMs: Double? = nil, sparseVectorUsed: Bool? = nil, mergedCount: Int, selectedCount: Int, injectedTokens: Int, latencyMs: Double, topCandidates: [MemoryRecalledCandidateDebug]) {
         self.type = type
         self.provider = provider
         self.model = model
         self.degradation = degradation
         self.semanticHits = semanticHits
-        self.recencyHits = recencyHits
         self.tier1Count = tier1Count
         self.tier2Count = tier2Count
         self.hybridSearchLatencyMs = hybridSearchLatencyMs
@@ -3246,6 +3246,19 @@ public struct SchedulesListResponseSchedule: Codable, Sendable {
         self.status = status
         self.routingIntent = routingIntent
         self.isOneShot = isOneShot
+    }
+}
+
+/// Server push — broadcast when a heartbeat creates a conversation, so the client can show it in the sidebar.
+public struct HeartbeatConversationCreated: Codable, Sendable {
+    public let type: String
+    public let conversationId: String
+    public let title: String
+
+    public init(type: String, conversationId: String, title: String) {
+        self.type = type
+        self.conversationId = conversationId
+        self.title = title
     }
 }
 

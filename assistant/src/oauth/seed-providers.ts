@@ -6,7 +6,8 @@ import { seedProviders } from "./oauth-store.js";
  * These values are upserted into the `oauth_providers` SQLite table on
  * every startup. Only Vellum implementation fields (authUrl, tokenUrl,
  * tokenEndpointAuthMethod, userinfoUrl, extraParams, callbackTransport,
- * pingUrl, managedServiceConfigKey) and display metadata (displayName,
+ * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey)
+ * and display metadata (displayName,
  * description, dashboardUrl, clientIdPlaceholder, requiresClientSecret)
  * are overwritten on subsequent startups — user-customizable
  * fields (defaultScopes, scopePolicy, baseUrl) are only
@@ -25,6 +26,9 @@ const PROVIDER_SEED_DATA: Record<
     tokenEndpointAuthMethod?: string;
     userinfoUrl?: string;
     pingUrl?: string;
+    pingMethod?: string;
+    pingHeaders?: Record<string, string>;
+    pingBody?: unknown;
     baseUrl?: string;
     defaultScopes: string[];
     scopePolicy: {
@@ -117,6 +121,7 @@ const PROVIDER_SEED_DATA: Record<
     authUrl: "https://api.notion.com/v1/oauth/authorize",
     tokenUrl: "https://api.notion.com/v1/oauth/token",
     pingUrl: "https://api.notion.com/v1/users/me",
+    pingHeaders: { "Notion-Version": "2022-06-28" },
     baseUrl: "https://api.notion.com",
     displayName: "Notion",
     description: "Pages and databases",
@@ -187,6 +192,9 @@ const PROVIDER_SEED_DATA: Record<
     authUrl: "https://linear.app/oauth/authorize",
     tokenUrl: "https://api.linear.app/oauth/token",
     pingUrl: "https://api.linear.app/graphql",
+    pingMethod: "POST",
+    pingHeaders: { "Content-Type": "application/json" },
+    pingBody: { query: "{ viewer { id name email } }" },
     baseUrl: "https://api.linear.app",
     displayName: "Linear",
     description: "Issues and projects",
@@ -280,6 +288,7 @@ const PROVIDER_SEED_DATA: Record<
     authUrl: "https://www.dropbox.com/oauth2/authorize",
     tokenUrl: "https://api.dropboxapi.com/oauth2/token",
     pingUrl: "https://api.dropboxapi.com/2/users/get_current_account",
+    pingMethod: "POST",
     baseUrl: "https://api.dropboxapi.com/2",
     displayName: "Dropbox",
     description: "Files and folders",

@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 
 extension MainWindowView {
     fileprivate static let conversationStartersFeatureFlagKey =
-        "feature_flags.conversation-starters.enabled"
+        "conversation-starters"
 
     // MARK: - Config-Driven Slot Rendering
 
@@ -150,7 +150,7 @@ extension MainWindowView {
                 Spacer()
                 Text("Surface not available")
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -378,10 +378,13 @@ extension MainWindowView {
                 Self.conversationStartersFeatureFlagKey
             )
             let showInspectButton = assistantFeatureFlagStore.isEnabled(
-                "feature_flags.settings-developer-nav.enabled"
+                "settings-developer-nav"
             )
             let isTTSEnabled = assistantFeatureFlagStore.isEnabled(
-                "feature_flags.message-tts.enabled"
+                "message-tts"
+            )
+            let isVoiceModeEnabled = assistantFeatureFlagStore.isEnabled(
+                "voice-mode"
             )
             ActiveChatViewWrapper(
                 viewModel: viewModel,
@@ -403,9 +406,9 @@ extension MainWindowView {
                 onDictateToggle: {
                     AppDelegate.shared?.voiceInput?.toggleRecording(origin: .chatComposer)
                 },
-                onVoiceModeToggle: {
+                onVoiceModeToggle: isVoiceModeEnabled ? {
                     toggleVoiceMode()
-                },
+                } : nil,
                 conversationId: conversationManager.activeConversationId,
                 anchorMessageId: $conversationManager.pendingAnchorMessageId,
                 highlightedMessageId: $conversationManager.highlightedMessageId
@@ -592,7 +595,7 @@ struct ActiveChatViewWrapper: View {
     var showInspectButton: Bool = false
     var isTTSEnabled: Bool = false
     let connectionManager: GatewayConnectionManager
-    @ObservedObject var ambientAgent: AmbientAgent
+    var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
     let conversationManager: ConversationManager
     let onMicrophoneToggle: () -> Void
@@ -811,7 +814,7 @@ struct DynamicWorkspaceWrapper: View {
     @State private var shareButtonFrame: CGRect = .zero
     @State private var isDeployToVercelEnabled = false
 
-    private static let deployToVercelFlagKey = "feature_flags.deploy-to-vercel.enabled"
+    private static let deployToVercelFlagKey = "deploy-to-vercel"
 
     /// Corner radius for the WKWebView clipping container — no rounding needed since the
     /// outer page container handles corner rounding.
@@ -841,7 +844,7 @@ struct DynamicWorkspaceWrapper: View {
 
                 Text(surface.title ?? data.preview?.title ?? "App")
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .lineLimit(1)
 
                 Spacer(minLength: 0)
@@ -868,12 +871,11 @@ struct DynamicWorkspaceWrapper: View {
                                 VButton(label: "Share", iconOnly: VIcon.share.rawValue, style: .outlined, iconSize: 32, tooltip: "Share") {
                                     showShareDrawer.toggle()
                                 }
-                                .background(GeometryReader { proxy in
-                                    Color.clear.onChange(of: showShareDrawer) { _, _ in
-                                        shareButtonFrame = proxy.frame(in: .named("appPageContainer"))
-                                    }
-                                    .onAppear { shareButtonFrame = proxy.frame(in: .named("appPageContainer")) }
-                                })
+                                .onGeometryChange(for: CGRect.self) { proxy in
+                                    proxy.frame(in: .named("appPageContainer"))
+                                } action: { newFrame in
+                                    shareButtonFrame = newFrame
+                                }
                                 .overlay {
                                     AppSharePanel(
                                         items: sharing.shareFileURL != nil ? [sharing.shareFileURL!] : [],
@@ -923,7 +925,7 @@ struct DynamicWorkspaceWrapper: View {
                     Spacer()
                     Text(error)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                        .foregroundStyle(VColor.systemNegativeStrong)
                         .padding(.horizontal, VSpacing.md)
                         .padding(.vertical, VSpacing.xs)
                         .background(VColor.systemNegativeStrong.opacity(0.8))
@@ -1052,28 +1054,30 @@ private struct PublishedButton: View {
     @Binding var copied: Bool
 
     @State private var isCopyHovered = false
-    @State private var resetTimer: DispatchWorkItem?
+    @State private var resetTask: Task<Void, Never>?
 
     var body: some View {
         HStack(spacing: VSpacing.xs) {
             VIconView(.check, size: 10)
-                .foregroundColor(VColor.systemPositiveStrong)
+                .foregroundStyle(VColor.systemPositiveStrong)
             Text("Published")
                 .font(VFont.labelDefault)
             Divider()
                 .frame(height: 12)
             VIconView(copied ? .check : .copy, size: 10)
-                .foregroundColor(copied ? VColor.systemPositiveStrong : (isCopyHovered ? VColor.contentDefault : VColor.primaryBase))
+                .foregroundStyle(copied ? VColor.systemPositiveStrong : (isCopyHovered ? VColor.contentDefault : VColor.primaryBase))
                 .animation(VAnimation.fast, value: copied)
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    resetTimer?.cancel()
+                    resetTask?.cancel()
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(url, forType: .string)
                     copied = true
-                    let timer = DispatchWorkItem { copied = false }
-                    resetTimer = timer
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
+                    resetTask = Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        guard !Task.isCancelled else { return }
+                        copied = false
+                    }
                 }
                 .onHover { hovering in
                     isCopyHovered = hovering
@@ -1081,7 +1085,7 @@ private struct PublishedButton: View {
                 .pointerCursor()
                 .accessibilityLabel(copied ? "URL copied" : "Copy published URL")
         }
-        .foregroundColor(VColor.primaryBase)
+        .foregroundStyle(VColor.primaryBase)
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.buttonV)
         .frame(height: 24)
@@ -1137,11 +1141,11 @@ private struct ShareDrawerRow: View {
         Button(action: action) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(icon, size: 12)
-                    .foregroundColor(isHovered ? VColor.contentDefault : VColor.contentSecondary)
+                    .foregroundStyle(isHovered ? VColor.contentDefault : VColor.contentSecondary)
                     .frame(width: 18)
                 Text(label)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Spacer()
             }
             .padding(.horizontal, VSpacing.md)
@@ -1176,13 +1180,13 @@ private struct AppLoadingView: View {
             Spacer()
             if timedOut {
                 VIconView(.triangleAlert, size: 28)
-                    .foregroundColor(VColor.systemNegativeHover)
+                    .foregroundStyle(VColor.systemNegativeHover)
                 Text("Failed to load app")
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Text("The app didn't respond in time. It may be unavailable or still starting up.")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 280)
                 HStack(spacing: VSpacing.sm) {
@@ -1204,7 +1208,7 @@ private struct AppLoadingView: View {
                     .controlSize(.regular)
                 Text("Loading app\u{2026}")
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
             Spacer()
         }

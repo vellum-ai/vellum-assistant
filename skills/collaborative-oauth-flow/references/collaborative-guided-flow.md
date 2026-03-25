@@ -40,13 +40,13 @@ host_bash:
     BROWSER=$(plutil -convert json -o - ~/Library/Preferences/com.apple.LaunchServices/com.apple.launchservices.secure.plist 2>/dev/null | python3 -c "import json,sys;[print(h.get('LSHandlerRoleAll','')) for h in json.load(sys.stdin).get('LSHandlers',[]) if h.get('LSHandlerURLScheme')=='https']" 2>/dev/null)
     case "$BROWSER" in
       com.google.chrome)
-        osascript -e "tell application \"Google Chrome\" to set URL of active tab of front window to \"$URL\"" 2>/dev/null || open "$URL" ;;
+        osascript -e "tell application \"Google Chrome\" to tell front window to make new tab with properties {URL:\"$URL\"}" 2>/dev/null || open "$URL" ;;
       com.apple.safari)
-        osascript -e "tell application \"Safari\" to set URL of current tab of front window to \"$URL\"" 2>/dev/null || open "$URL" ;;
+        osascript -e "tell application \"Safari\" to tell front window to set current tab to (make new tab with properties {URL:\"$URL\"})" 2>/dev/null || open "$URL" ;;
       company.thebrowser.Browser)
-        osascript -e "tell application \"Arc\" to set URL of active tab of front window to \"$URL\"" 2>/dev/null || open "$URL" ;;
+        osascript -e "tell application \"Arc\" to tell front window to make new tab with properties {URL:\"$URL\"}" 2>/dev/null || open "$URL" ;;
       com.brave.Browser)
-        osascript -e "tell application \"Brave Browser\" to set URL of active tab of front window to \"$URL\"" 2>/dev/null || open "$URL" ;;
+        osascript -e "tell application \"Brave Browser\" to tell front window to make new tab with properties {URL:\"$URL\"}" 2>/dev/null || open "$URL" ;;
       *)
         open "$URL" ;;
     esac
@@ -62,7 +62,7 @@ host_bash:
   command: /tmp/vellum-nav.sh "TARGET_URL"
 ```
 
-The helper detects the default browser and navigates in the existing tab. Falls back to opening a new tab when no window exists.
+The helper detects the default browser and opens a new tab in the existing window. Falls back to opening a new tab when no window exists.
 
 ### Rules
 
@@ -158,10 +158,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect <provider-key> --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect <provider-key>
 ```
 
 The command prints an authorization URL. Send it to the user. Wait for completion.
@@ -177,10 +174,7 @@ If a ping URL is available:
 ```
 bash:
   command: |
-    curl -H "Authorization: Bearer $(assistant oauth connections token <provider-key> --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ))" "<provider-ping-url>"
+    assistant oauth ping <provider-key>
 ```
 
 ---
@@ -227,7 +221,7 @@ For non-interactive channels, provide all URLs and instructions as text messages
 ## Guardrails
 
 - **No browser automation tools.** Path A uses `host_bash` + `/tmp/vellum-nav.sh` for navigation only.
-- **Browser-aware tab reuse.** The nav helper detects the browser each time. Falls back to `open` for unknown browsers.
+- **Browser-aware new-tab navigation.** The nav helper opens a new tab in the current browser window. Falls back to `open` for unknown browsers.
 - **Do not delete and recreate OAuth clients.** That orphans stored credentials.
 - **Do not leave the credential dialog early.** The Client Secret may be shown only once.
 - **Provider UI drift is normal.** Adapt instructions while preserving the same end state.

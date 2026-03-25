@@ -10,6 +10,8 @@
  * `normalizeEndpointForPolicy`.
  */
 
+import type { z } from "zod";
+
 import { enforcePolicy, getPolicy } from "./auth/route-policy.js";
 import type { AuthContext } from "./auth/types.js";
 import { httpError } from "./http-errors.js";
@@ -31,6 +33,21 @@ export interface RouteContext {
   params: RouteParams;
 }
 
+/** Schema for an OpenAPI query parameter. */
+export interface RouteQueryParam {
+  name: string;
+  /** OpenAPI-style JSON Schema type (e.g. "string", "integer"). Defaults to "string". */
+  type?: string;
+  required?: boolean;
+  description?: string;
+  /** Inline JSON Schema for the parameter (overrides `type` when present). */
+  schema?: Record<string, unknown>;
+}
+
+/** Zod schema used to describe a request or response body.
+ * The generate-openapi script converts these to JSON Schema via z.toJSONSchema(). */
+export type RouteBodySchema = z.ZodType;
+
 /**
  * A single route entry in the declarative table.
  *
@@ -47,6 +64,20 @@ export interface RouteDefinition {
   method: string;
   handler: (ctx: RouteContext) => Promise<Response> | Response;
   policyKey?: string;
+
+  // -- OpenAPI metadata (optional) ------------------------------------------
+  /** Short summary shown next to the operation in generated docs. */
+  summary?: string;
+  /** Longer description (Markdown-safe) for the operation. */
+  description?: string;
+  /** Grouping tags (e.g. "secrets", "identity"). Auto-derived from the route module filename when omitted. */
+  tags?: string[];
+  /** Query parameter definitions for the operation. */
+  queryParams?: RouteQueryParam[];
+  /** Zod schema for the request body (POST/PUT/PATCH/DELETE). */
+  requestBody?: RouteBodySchema;
+  /** Zod schema for the 200 response body. */
+  responseBody?: RouteBodySchema;
 }
 
 // ---------------------------------------------------------------------------

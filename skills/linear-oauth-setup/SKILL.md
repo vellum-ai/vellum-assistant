@@ -137,10 +137,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:linear --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:linear
 ```
 
 ---
@@ -152,10 +149,7 @@ Use the ping URL to verify the connection:
 ```
 bash:
   command: |
-    curl -s -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $(assistant oauth connections token integration:linear --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ))" -d '{"query":"{ viewer { id name email } }"}' "https://api.linear.app/graphql" | python3 -m json.tool
+    assistant oauth ping integration:linear
 ```
 
 **On success:** "Linear is connected! You can now ask me to create issues, check your assignments, search across projects, and manage your Linear workflow."

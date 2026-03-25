@@ -11,6 +11,8 @@
  * Guardian decisions additionally verify the actor is the bound guardian
  * via the AuthContext's actorPrincipalId.
  */
+import { z } from "zod";
+
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import {
@@ -261,12 +263,42 @@ export function guardianActionRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "guardian-actions/pending",
       method: "GET",
+      summary: "List pending guardian actions",
+      description:
+        "Return pending guardian decision prompts for a conversation.",
+      tags: ["guardian"],
+      queryParams: [
+        {
+          name: "conversationId",
+          schema: { type: "string" },
+          description: "Conversation ID (required)",
+        },
+      ],
+      responseBody: z.object({
+        conversationId: z.string(),
+        prompts: z
+          .array(z.unknown())
+          .describe("Guardian decision prompt objects"),
+      }),
       handler: ({ url, authContext }) =>
         handleGuardianActionsPending(url, authContext),
     },
     {
       endpoint: "guardian-actions/decision",
       method: "POST",
+      summary: "Submit guardian decision",
+      description: "Submit a guardian action decision (approve/reject).",
+      tags: ["guardian"],
+      requestBody: z.object({
+        requestId: z.string().describe("Guardian request ID"),
+        action: z.string().describe("Decision action"),
+        conversationId: z.string().describe("Conversation ID").optional(),
+      }),
+      responseBody: z.object({
+        applied: z.boolean(),
+        requestId: z.string(),
+        reason: z.string(),
+      }),
       handler: async ({ req, authContext }) =>
         handleGuardianActionDecision(req, authContext),
     },

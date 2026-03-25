@@ -124,7 +124,7 @@ private struct ElevenLabsKeySection: View {
             if hasExistingKey {
                 HStack {
                     VIconView(.circleCheck, size: 16)
-                        .foregroundColor(.green)
+                        .foregroundStyle(.green)
                     Text("API key saved")
                     Spacer()
                     Button("Remove", role: .destructive) {

@@ -82,10 +82,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:notion --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:notion
 ```
 
 ### Step 5: Verify Connection
@@ -93,8 +90,5 @@ bash:
 ```
 bash:
   command: |
-    curl -s -H "Authorization: Bearer $(assistant oauth connections token integration:notion --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ))" "https://api.notion.com/v1/users/me" -H "Notion-Version: 2022-06-28"
+    assistant oauth ping integration:notion
 ```

@@ -187,10 +187,10 @@ struct SlashCommandRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("/\(command.name)")
                         .font(VFont.bodyMediumEmphasised)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                     Text(command.description)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
                 Spacer()
             }

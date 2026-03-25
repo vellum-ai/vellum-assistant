@@ -38,13 +38,13 @@ struct TwilioSettingsSection: View {
                         Spacer()
                         if hasCredentials {
                             VIconView(.circleCheck, size: 16)
-                                .foregroundColor(VColor.systemPositiveStrong)
+                                .foregroundStyle(VColor.systemPositiveStrong)
                             Text("Connected")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
                             VIconView(.circleX, size: 16)
-                                .foregroundColor(VColor.systemNegativeStrong)
+                                .foregroundStyle(VColor.systemNegativeStrong)
                             Text("Not configured")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -111,7 +111,7 @@ struct TwilioSettingsSection: View {
                                     if number.phoneNumber == phoneNumber {
                                         Text("Active")
                                             .font(.caption)
-                                            .foregroundColor(VColor.systemPositiveStrong)
+                                            .foregroundStyle(VColor.systemPositiveStrong)
                                     } else if assigningNumber == number.phoneNumber {
                                         ProgressView()
                                             .controlSize(.small)
@@ -163,7 +163,7 @@ struct TwilioSettingsSection: View {
                     if let error = errorMessage {
                         Text(error)
                             .font(.caption)
-                            .foregroundColor(VColor.systemNegativeStrong)
+                            .foregroundStyle(VColor.systemNegativeStrong)
                     }
                 }
             }

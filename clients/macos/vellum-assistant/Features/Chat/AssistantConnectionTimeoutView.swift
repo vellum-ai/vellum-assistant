@@ -14,16 +14,16 @@ struct AssistantConnectionTimeoutView: View {
             Spacer()
 
             VIconView(.triangleAlert, size: 28)
-                .foregroundColor(VColor.systemNegativeHover)
+                .foregroundStyle(VColor.systemNegativeHover)
 
             VStack(spacing: VSpacing.sm) {
                 Text("Your assistant is unreachable")
                     .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 Text("We couldn\u{2019}t connect to your assistant. Please try again.")
                     .font(.system(size: 14))
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 380)
             }

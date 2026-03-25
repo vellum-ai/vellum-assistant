@@ -331,8 +331,7 @@ describe("Memory Retriever Pipeline", () => {
     expect(result.enabled).toBe(true);
     expect(result.degraded).toBe(false);
     expect(result.degradation).toBeUndefined();
-    // With mock Qdrant returning empty results and recency-only candidates
-    // scoring below tier thresholds, no candidates are selected.
+    // With Qdrant mocked empty, no candidates are found.
     // The pipeline still completes successfully with tier metadata.
     expect(result.tier1Count).toBeDefined();
     expect(result.tier2Count).toBeDefined();
@@ -345,7 +344,7 @@ describe("Memory Retriever Pipeline", () => {
   // Current-conversation segment filtering
   // -----------------------------------------------------------------------
 
-  test("current-conversation segments are filtered from recency results", async () => {
+  test("current-conversation segments are filtered from search results", async () => {
     const db = getDb();
     const now = Date.now();
     const activeConv = "conv-active";
@@ -613,7 +612,7 @@ describe("Memory Retriever Pipeline", () => {
 
     insertConversation(db, convId, now - MS_PER_DAY * 200);
 
-    // Create a message from 200 days ago to serve as recency source
+    // Create a message from 200 days ago (staleness test anchor)
     insertMessage(
       db,
       "msg-old",
@@ -679,7 +678,7 @@ describe("Memory Retriever Pipeline", () => {
   // Degradation: Qdrant circuit breaker open
   // -----------------------------------------------------------------------
 
-  test("Qdrant unavailable: pipeline completes with recency fallback", async () => {
+  test("Qdrant unavailable: pipeline completes with empty results", async () => {
     seedMemory();
 
     // Force the Qdrant circuit breaker open

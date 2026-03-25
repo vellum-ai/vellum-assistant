@@ -29,12 +29,12 @@ public struct InlineCardWidget: View {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 Text(data.title)
                     .font(VFont.bodySmallEmphasised)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 if let subtitle = data.subtitle {
                     Text(subtitle)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
             }
 
@@ -42,7 +42,7 @@ public struct InlineCardWidget: View {
             if !data.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Text(markdownBody)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .textSelection(.enabled)
             }
 
@@ -63,10 +63,10 @@ public struct InlineCardWidget: View {
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text(item.label)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                     Text(item.value)
                         .font(VFont.bodyMediumDefault)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                 }
             }
         }

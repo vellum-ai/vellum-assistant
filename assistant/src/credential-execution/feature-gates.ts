@@ -5,8 +5,8 @@
  * All checks delegate to the unified feature-flag resolver so that
  * config overrides and registry defaults are respected uniformly.
  *
- * Flag keys follow the canonical `feature_flags.<id>.enabled` format
- * and are declared in `meta/feature-flags/feature-flag-registry.json`.
+ * Flag keys use simple kebab-case format (e.g., "ces-tools") and are
+ * declared in `meta/feature-flags/feature-flag-registry.json`.
  */
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
@@ -17,27 +17,23 @@ import type { AssistantConfig } from "../config/schema.js";
 // ---------------------------------------------------------------------------
 
 /** Gate for CES tool registration (credential-grant, credential-revoke, credential-list). */
-export const CES_TOOLS_FLAG_KEY = "feature_flags.ces-tools.enabled" as const;
+export const CES_TOOLS_FLAG_KEY = "ces-tools" as const;
 
 /** Gate for untrusted-agent shell lockdown when CES credentials are active. */
-export const CES_SHELL_LOCKDOWN_FLAG_KEY =
-  "feature_flags.ces-shell-lockdown.enabled" as const;
+export const CES_SHELL_LOCKDOWN_FLAG_KEY = "ces-shell-lockdown" as const;
 
 /** Gate for secure tool/command installation via CES. */
-export const CES_SECURE_INSTALL_FLAG_KEY =
-  "feature_flags.ces-secure-install.enabled" as const;
+export const CES_SECURE_INSTALL_FLAG_KEY = "ces-secure-install" as const;
 
 /** Gate for credential grant and audit inspection surfaces. */
-export const CES_GRANT_AUDIT_FLAG_KEY =
-  "feature_flags.ces-grant-audit.enabled" as const;
+export const CES_GRANT_AUDIT_FLAG_KEY = "ces-grant-audit" as const;
 
 /** Gate for managed sidecar transport in containerized environments. */
-export const CES_MANAGED_SIDECAR_FLAG_KEY =
-  "feature_flags.ces-managed-sidecar.enabled" as const;
+export const CES_MANAGED_SIDECAR_FLAG_KEY = "ces-managed-sidecar" as const;
 
 /** Gate for routing credential reads/writes through the CES process. */
 export const CES_CREDENTIAL_BACKEND_FLAG_KEY =
-  "feature_flags.ces-credential-backend.enabled" as const;
+  "ces-credential-backend" as const;
 
 // ---------------------------------------------------------------------------
 // Public API — predicate functions
@@ -84,8 +80,5 @@ export function isCesManagedSidecarEnabled(config: AssistantConfig): boolean {
 export function isCesCredentialBackendEnabled(
   config: AssistantConfig,
 ): boolean {
-  return isAssistantFeatureFlagEnabled(
-    CES_CREDENTIAL_BACKEND_FLAG_KEY,
-    config,
-  );
+  return isAssistantFeatureFlagEnabled(CES_CREDENTIAL_BACKEND_FLAG_KEY, config);
 }

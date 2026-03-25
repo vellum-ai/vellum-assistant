@@ -146,7 +146,7 @@ public final class ChatViewModel: ObservableObject {
     /// this interval; subsequent changes within the window piggyback on the
     /// same notification, dramatically reducing view-tree invalidation rate
     /// during streaming bursts.
-    static let subManagerCoalesceInterval: TimeInterval = 0.1 // 100ms
+    static let subManagerCoalesceInterval: TimeInterval = 0.05 // 50ms
 
     /// Coalescing task: fires objectWillChange once per burst window, same
     /// pattern as SubagentDetailStore.scheduleFlush().
@@ -154,7 +154,7 @@ public final class ChatViewModel: ObservableObject {
 
     /// Schedule a single coalesced `objectWillChange` notification.
     /// The first sub-manager mutation in a burst schedules the publish;
-    /// subsequent mutations within the 100ms window piggyback on the same
+    /// subsequent mutations within the 50ms window piggyback on the same
     /// notification instead of firing individually.
     private func scheduleCoalescedPublish() {
         guard subManagerPublishTask == nil else { return }
@@ -168,7 +168,7 @@ public final class ChatViewModel: ObservableObject {
 
     /// Flush any pending coalesced publish immediately.
     /// Used after clearing `inputText` in `sendMessage()` so the TextField
-    /// binding updates without the 100ms delay — preventing the field editor
+    /// binding updates without the 50ms delay — preventing the field editor
     /// from writing stale text back through the binding.
     private func flushCoalescedPublish() {
         subManagerPublishTask?.cancel()
@@ -177,9 +177,38 @@ public final class ChatViewModel: ObservableObject {
         objectWillChange.send()
     }
 
+    // MARK: - @Observable → ObservableObject bridge for ChatErrorManager
+
+    /// Recursively observe all tracked properties on the @Observable
+    /// ChatErrorManager and forward changes into ChatViewModel's
+    /// ObservableObject objectWillChange via the coalesced publish path.
+    private func observeErrorManager() {
+        withObservationTracking {
+            // Touch every tracked property so the observation system
+            // registers interest in all of them.
+            _ = errorManager.errorText
+            _ = errorManager.conversationError
+            _ = errorManager.isConversationErrorDisplayedInline
+            _ = errorManager.connectionDiagnosticHint
+            _ = errorManager.isConnectionError
+            _ = errorManager.isSecretBlockError
+            _ = errorManager.isRetryableError
+            _ = errorManager.hasRetryPayload
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scheduleCoalescedPublish()
+                #if DEBUG
+                self?.trackPublish(source: "errorManager")
+                #endif
+                self?.observeErrorManager() // re-arm
+            }
+        }
+    }
+
     // MARK: - Debug publish-rate counters
 
     private static let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
+    private static let poiLog = OSLog(subsystem: "com.vellum.assistant", category: .pointsOfInterest)
 
     #if DEBUG
     private static let perfLog = OSLog(subsystem: "com.vellum.assistant", category: "PerfCounters")
@@ -642,7 +671,7 @@ public final class ChatViewModel: ObservableObject {
     /// `@Published messages` array.  Coalescing multiple token deltas
     /// into a single array mutation dramatically reduces SwiftUI
     /// view-graph invalidation frequency during streaming.
-    static let streamingFlushInterval: TimeInterval = 0.1 // 100 ms
+    static let streamingFlushInterval: TimeInterval = 0.05 // 50 ms
 
     /// Buffered text that has not yet been flushed to `messages`.
     var streamingDeltaBuffer: String = ""
@@ -722,7 +751,12 @@ public final class ChatViewModel: ObservableObject {
         "Forking is unavailable in private conversations."
 
     /// Whether this view model has had its history loaded from the daemon.
-    public var isHistoryLoaded: Bool = false
+    public var isHistoryLoaded: Bool = false {
+        didSet {
+            guard oldValue != isHistoryLoaded else { return }
+            scheduleCoalescedPublish()
+        }
+    }
 
     /// True while `populateFromHistory` is actively inserting messages.
     /// Observers can check this to avoid treating the history hydration as new activity.
@@ -1064,7 +1098,7 @@ public final class ChatViewModel: ObservableObject {
         // objectWillChange events per second (each @Published property
         // mutation triggers one). Instead of forwarding each immediately —
         // which invalidates the entire view tree every time — we batch them
-        // into a single objectWillChange per 100ms window. Views still
+        // into a single objectWillChange per 50ms window. Views still
         // update promptly, but the SwiftUI diffing cost drops dramatically.
 
         // Keep displayedMessages in sync with messages via publisher subscription.
@@ -1076,11 +1110,11 @@ public final class ChatViewModel: ObservableObject {
         //    `self.messages` inside the sink. @Published fires during willSet, so
         //    the stored property still holds the OLD value when the subscriber runs
         //    — reading it caused displayedMessages to lag one mutation behind.
-        // 2. Throttle to 100ms so displayedMessages (and any SwiftUI views observing
-        //    it) only refresh at most every 100ms, matching the coalesced publish
+        // 2. Throttle to 50ms so displayedMessages (and any SwiftUI views observing
+        //    it) only refresh at most every 50ms, matching the coalesced publish
         //    window used for the rest of the view model.
         messageManager.$messages
-            .throttle(for: .milliseconds(100), scheduler: RunLoop.main, latest: true)
+            .throttle(for: .milliseconds(50), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] newMessages in
                 self?.displayedMessages = ChatVisibleMessageFilter.visibleMessages(from: newMessages)
             }
@@ -1102,14 +1136,11 @@ public final class ChatViewModel: ObservableObject {
                 #endif
             }
             .store(in: &cancellables)
-        errorManager.objectWillChange
-            .sink { [weak self] _ in
-                self?.scheduleCoalescedPublish()
-                #if DEBUG
-                self?.trackPublish(source: "errorManager")
-                #endif
-            }
-            .store(in: &cancellables)
+        // ChatErrorManager is @Observable — bridge its changes into
+        // ChatViewModel's ObservableObject objectWillChange via
+        // withObservationTracking so views that read error state through
+        // ChatViewModel's computed forwarding properties still update.
+        observeErrorManager()
 
         // Surface attachment validation errors in the error manager so the UI
         // can show them without the attachment manager needing a direct reference.
@@ -2609,13 +2640,17 @@ public final class ChatViewModel: ObservableObject {
 
     /// Respond to a tool confirmation request displayed inline in the chat.
     public func respondToConfirmation(requestId: String, decision: String) {
+        log.info("[confirm-flow] respondToConfirmation called: requestId=\(requestId, privacy: .public) decision=\(decision, privacy: .public)")
         markConfirmationInFlight(requestId: requestId, decision: decision)
+        inlineResponseHandledRequestIds.insert(requestId)
         Task {
             let success = await performConfirmationResponse(
                 requestId: requestId, decision: decision, selectedPattern: nil, selectedScope: nil
             )
             if !success {
+                log.error("[confirm-flow] respondToConfirmation POST failed (will show error banner): requestId=\(requestId, privacy: .public) decision=\(decision, privacy: .public)")
                 self.revertConfirmationInFlight(requestId: requestId)
+                self.inlineResponseHandledRequestIds.remove(requestId)
                 self.errorText = "Failed to send confirmation response."
             }
         }
@@ -2627,6 +2662,7 @@ public final class ChatViewModel: ObservableObject {
     /// fallback actually went through.
     public func respondToAlwaysAllow(requestId: String, selectedPattern: String, selectedScope: String, decision: String = "always_allow") {
         markConfirmationInFlight(requestId: requestId, decision: decision)
+        inlineResponseHandledRequestIds.insert(requestId)
         Task {
             let success = await interactionClient.sendConfirmationResponse(
                 requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope
@@ -2638,6 +2674,7 @@ public final class ChatViewModel: ObservableObject {
                 )
                 if !fallbackSuccess {
                     self.revertConfirmationInFlight(requestId: requestId)
+                    self.inlineResponseHandledRequestIds.remove(requestId)
                 }
                 if fallbackSuccess {
                     self.errorText = "Preference could not be saved. This action was allowed once."
@@ -2749,7 +2786,7 @@ public final class ChatViewModel: ObservableObject {
 
     /// Parse string-encoded content order entries ("text:0", "tool:1", "surface:0")
     /// into ContentBlockRef values.
-    private static func parseContentOrder(_ strings: [String]) -> [ContentBlockRef] {
+    nonisolated private static func parseContentOrder(_ strings: [String]) -> [ContentBlockRef] {
         strings.compactMap { str in
             let parts = str.split(separator: ":", maxSplits: 1)
             guard parts.count == 2, let idx = Int(parts[1]) else { return nil }
@@ -2809,203 +2846,17 @@ public final class ChatViewModel: ObservableObject {
         oldestTimestamp: Double? = nil,
         isPaginationLoad: Bool = false
     ) {
-        var chatMessages: [ChatMessage] = []
-        var reconstructedSubagents: [SubagentInfo] = []
-        var spawnParentMap: [String: UUID] = [:]  // subagentId → spawning assistant message UUID
-        for item in historyMessages {
-            let role: ChatRole = item.role == "assistant" ? .assistant : .user
-            var toolCalls: [ToolCallData] = []
-            let toolsBeforeText = item.toolCallsBeforeText ?? true
-            if let historyToolCalls = item.toolCalls {
-                toolCalls = historyToolCalls.map { tc in
-                    // Decode image once — pass decoded image directly to avoid double-decode
-                    // (ToolCallData.init also decodes base64, so skip that by passing imageData: nil)
-                    let decodedImage = ToolCallData.decodeImage(from: tc.imageData)
+        let spid = OSSignpostID(log: Self.poiLog)
+        os_signpost(.begin, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "messages=%d isPagination=%d", historyMessages.count, isPaginationLoad ? 1 : 0)
 
-                    var toolCall = ToolCallData(
-                        toolName: tc.name,
-                        inputSummary: summarizeToolInput(tc.input),
-                        inputFull: "",
-                        inputRawValue: extractToolInput(tc.input),
-                        result: tc.result,
-                        isError: tc.isError ?? false,
-                        isComplete: true,
-                        arrivedBeforeText: toolsBeforeText,
-                        imageData: nil
-                    )
-                    toolCall.cachedImage = decodedImage
-                    toolCall.reasonDescription = (tc.input["activity"]?.value as? String)
-                        ?? (tc.input["reason"]?.value as? String)
-                        ?? (tc.input["reasoning"]?.value as? String)
-                    // Restore persisted timing and confirmation data
-                    if let startMs = tc.startedAt {
-                        toolCall.startedAt = Date(timeIntervalSince1970: Double(startMs) / 1000.0)
-                    }
-                    if let endMs = tc.completedAt {
-                        toolCall.completedAt = Date(timeIntervalSince1970: Double(endMs) / 1000.0)
-                    }
-                    if let decision = tc.confirmationDecision {
-                        switch decision {
-                        case "approved": toolCall.confirmationDecision = .approved
-                        case "denied": toolCall.confirmationDecision = .denied
-                        case "timed_out": toolCall.confirmationDecision = .timedOut
-                        default: break
-                        }
-                    }
-                    toolCall.confirmationLabel = tc.confirmationLabel
-                    // Cap tool input size to prevent unbounded memory from large history
-                    // restores. Check size synchronously to avoid a race where a deferred
-                    // Task might run before self.messages is populated with these new items.
-                    let input = tc.input
-                    let estimatedSize: Int = (try? JSONSerialization.data(withJSONObject: input.mapValues { $0.value ?? NSNull() }))?.count ?? 0
-                    if estimatedSize > 10_000 {
-                        // Too large — format eagerly (with truncation) to free the raw dict.
-                        let formatted = ToolCallData.formatAllToolInput(input)
-                        toolCall.inputFull = formatted
-                        toolCall.inputFullLength = formatted.count
-                    } else {
-                        toolCall.inputRawDict = input
-                    }
-                    return toolCall
-                }
-            }
-            let attachments: [ChatAttachment] = mapMessageAttachments(item.attachments ?? [])
-
-            // Map surfaces from history to inlineSurfaces
-            var inlineSurfaces: [InlineSurfaceData] = []
-            if let historySurfaces = item.surfaces {
-                for surf in historySurfaces {
-                    if let conversationId = self.conversationId,
-                       let surface = Surface.from(surf, conversationId: conversationId) {
-                        // Build a lightweight SurfaceRef so the card remains
-                        // clickable after the app restarts (history restore).
-                        // The full UiSurfaceShowMessage is not retained to avoid
-                        // keeping entire HTML payloads in memory.
-                        // Extract appId from DynamicPageSurfaceData so the
-                        // ref can re-open the real app via app_open_request.
-                        let appId: String? = {
-                            if case .dynamicPage(let dpData) = surface.data {
-                                return dpData.appId
-                            }
-                            return nil
-                        }()
-                        let ref = SurfaceRef(
-                            surfaceId: surf.surfaceId,
-                            conversationId: conversationId,
-                            surfaceType: surf.surfaceType,
-                            title: surf.title,
-                            appId: appId
-                        )
-                        let inlineSurface = InlineSurfaceData(
-                            id: surface.id,
-                            surfaceType: surface.type,
-                            title: surface.title,
-                            data: surface.data,
-                            actions: surface.actions,
-                            surfaceRef: ref
-                        )
-                        inlineSurfaces.append(inlineSurface)
-                    }
-                }
-            }
-
-            // Log surface parsing for debugging widget restoration
-            if !inlineSurfaces.isEmpty {
-                log.info("Mapped \(inlineSurfaces.count) surfaces from history: \(inlineSurfaces.map { $0.id })")
-            } else if let historySurfaces = item.surfaces, !historySurfaces.isEmpty {
-                log.warning("Failed to parse \(historySurfaces.count) surfaces from history")
-            }
-
-            // Skip empty messages (internal tool-result-only turns already filtered by daemon)
-            if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty && inlineSurfaces.isEmpty { continue }
-            let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
-
-            let displayText = item.text
-
-            // Use the database message ID if available (for matching surfaces)
-            var chatMsg: ChatMessage
-            if let dbId = item.id, let uuid = UUID(uuidString: dbId) {
-                chatMsg = ChatMessage(
-                    id: uuid,
-                    role: role,
-                    text: displayText,
-                    timestamp: timestamp,
-                    attachments: attachments,
-                    toolCalls: toolCalls
-                )
-            } else {
-                chatMsg = ChatMessage(
-                    role: role,
-                    text: displayText,
-                    timestamp: timestamp,
-                    attachments: attachments,
-                    toolCalls: toolCalls
-                )
-            }
-
-            // Store the daemon's persisted message ID so fork, inspect, TTS,
-            // and other daemon-anchored actions can locate it. This is the
-            // database ID from the daemon, not the client-side UUID.
-            chatMsg.daemonMessageId = item.id
-
-            // Preserve truncation flag so the UI can offer on-demand rehydration.
-            chatMsg.wasTruncated = item.wasTruncated ?? false
-
-            // Drop base64 data from history attachments — the daemon already
-            // persisted them, so we only need thumbnails for display.
-            for i in chatMsg.attachments.indices {
-                chatMsg.attachments[i].data = ""
-            }
-
-            // Populate inlineSurfaces from history
-            chatMsg.inlineSurfaces = inlineSurfaces
-
-            // Use daemon-provided segments/order.
-            if let segments = item.textSegments {
-                chatMsg.textSegments = segments
-            }
-            if let orderStrings = item.contentOrder {
-                chatMsg.contentOrder = Self.parseContentOrder(orderStrings)
-            }
-
-            // Log contentOrder for debugging widget restoration
-            let surfaceRefs = chatMsg.contentOrder.filter {
-                if case .surface = $0 { return true }
-                return false
-            }
-            if !inlineSurfaces.isEmpty || !surfaceRefs.isEmpty {
-                log.info("Message contentOrder: \(item.contentOrder ?? []), surface refs: \(surfaceRefs.count), inlineSurfaces: \(chatMsg.inlineSurfaces.count)")
-            }
-
-            // Build a map of subagentId → spawning assistant message UUID
-            // by scanning tool call results for subagent_spawn.
-            if role == .assistant {
-                for tc in toolCalls where tc.toolName == "subagent_spawn" {
-                    if let result = tc.result,
-                       let data = result.data(using: .utf8),
-                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let spawnedId = json["subagentId"] as? String {
-                        spawnParentMap[spawnedId] = chatMsg.id
-                    }
-                }
-            }
-
-            // Reconstruct subagent chips from structured notification metadata
-            if let notification = item.subagentNotification {
-                var info = SubagentInfo(
-                    id: notification.subagentId,
-                    label: notification.label,
-                    status: SubagentStatus(wire: notification.status),
-                    parentMessageId: spawnParentMap[notification.subagentId],
-                    conversationId: notification.conversationId
-                )
-                info.error = notification.error
-                reconstructedSubagents.append(info)
-                chatMsg.isSubagentNotification = true
-            }
-
-            chatMessages.append(chatMsg)
-        }
+        // Reconstruct messages using a nonisolated static method.
+        // The heavy work (JSON size estimation, tool input formatting, surface
+        // mapping, image decoding) is isolated in a pure function that accesses
+        // no @MainActor state, enabling future background execution.
+        let convId = self.conversationId
+        let result = Self.reconstructMessages(from: historyMessages, conversationId: convId)
+        let chatMessages = result.messages
+        let reconstructedSubagents = result.subagents
 
         // Merge reconstructed subagents into activeSubagents (avoid duplicates)
         for info in reconstructedSubagents where !activeSubagents.contains(where: { $0.id == info.id }) {
@@ -3040,6 +2891,7 @@ public final class ChatViewModel: ObservableObject {
             self.isLoadingMoreMessages = false
             trimOldMessagesIfNeeded()
             refreshModelMetadataIfNeeded(hasModelCommand)
+            os_signpost(.end, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "path=pagination")
             return
         }
 
@@ -3124,6 +2976,247 @@ public final class ChatViewModel: ObservableObject {
         trimOldMessagesIfNeeded()
         // Fetch pending guardian prompts when history loads (conversation open/restore)
         refreshGuardianPrompts()
+        os_signpost(.end, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "path=initial messages=%d", chatMessages.count)
+    }
+
+    // MARK: - Off-Main History Reconstruction
+
+    /// Result of reconstructing ChatMessages from history response items.
+    struct HistoryReconstructionResult {
+        let messages: [ChatMessage]
+        let subagents: [SubagentInfo]
+    }
+
+    /// Reconstructs ChatMessage and SubagentInfo arrays from raw history items.
+    /// This method is nonisolated and accesses no @MainActor state, so it can
+    /// be called from a background context. Images are decoded eagerly via
+    /// `ToolCallData.decodeImage` and stored in `cachedImage` for display.
+    nonisolated static func reconstructMessages(
+        from historyMessages: [HistoryResponseMessage],
+        conversationId: String?
+    ) -> HistoryReconstructionResult {
+        var chatMessages: [ChatMessage] = []
+        var reconstructedSubagents: [SubagentInfo] = []
+        var spawnParentMap: [String: UUID] = [:]
+
+        for item in historyMessages {
+            let role: ChatRole = item.role == "assistant" ? .assistant : .user
+            var toolCalls: [ToolCallData] = []
+            let toolsBeforeText = item.toolCallsBeforeText ?? true
+            if let historyToolCalls = item.toolCalls {
+                toolCalls = historyToolCalls.map { tc in
+                    // Decode image eagerly — pass imageData:nil to init to skip
+                    // its internal decode, then set cachedImage directly below.
+                    var toolCall = ToolCallData(
+                        toolName: tc.name,
+                        inputSummary: Self.summarizeToolInputStatic(tc.input),
+                        inputFull: "",
+                        inputRawValue: Self.extractToolInputStatic(tc.input),
+                        result: tc.result,
+                        isError: tc.isError ?? false,
+                        isComplete: true,
+                        arrivedBeforeText: toolsBeforeText,
+                        imageData: nil
+                    )
+                    // Decode image eagerly — NSImage/UIImage init from Data is
+                    // thread-safe and the views expect cachedImage to be populated.
+                    toolCall.cachedImage = ToolCallData.decodeImage(from: tc.imageData)
+                    toolCall.reasonDescription = (tc.input["activity"]?.value as? String)
+                        ?? (tc.input["reason"]?.value as? String)
+                        ?? (tc.input["reasoning"]?.value as? String)
+                    if let startMs = tc.startedAt {
+                        toolCall.startedAt = Date(timeIntervalSince1970: Double(startMs) / 1000.0)
+                    }
+                    if let endMs = tc.completedAt {
+                        toolCall.completedAt = Date(timeIntervalSince1970: Double(endMs) / 1000.0)
+                    }
+                    if let decision = tc.confirmationDecision {
+                        switch decision {
+                        case "approved": toolCall.confirmationDecision = .approved
+                        case "denied": toolCall.confirmationDecision = .denied
+                        case "timed_out": toolCall.confirmationDecision = .timedOut
+                        default: break
+                        }
+                    }
+                    toolCall.confirmationLabel = tc.confirmationLabel
+                    let input = tc.input
+                    let estimatedSize: Int = (try? JSONSerialization.data(withJSONObject: input.mapValues { $0.value ?? NSNull() }))?.count ?? 0
+                    if estimatedSize > 10_000 {
+                        let formatted = ToolCallData.formatAllToolInput(input)
+                        toolCall.inputFull = formatted
+                        toolCall.inputFullLength = formatted.count
+                    } else {
+                        toolCall.inputRawDict = input
+                    }
+                    return toolCall
+                }
+            }
+            let attachments: [ChatAttachment] = mapMessageAttachmentsStatic(item.attachments ?? [])
+
+            var inlineSurfaces: [InlineSurfaceData] = []
+            if let historySurfaces = item.surfaces {
+                for surf in historySurfaces {
+                    if let conversationId,
+                       let surface = Surface.from(surf, conversationId: conversationId) {
+                        let appId: String? = {
+                            if case .dynamicPage(let dpData) = surface.data {
+                                return dpData.appId
+                            }
+                            return nil
+                        }()
+                        let ref = SurfaceRef(
+                            surfaceId: surf.surfaceId,
+                            conversationId: conversationId,
+                            surfaceType: surf.surfaceType,
+                            title: surf.title,
+                            appId: appId
+                        )
+                        let inlineSurface = InlineSurfaceData(
+                            id: surface.id,
+                            surfaceType: surface.type,
+                            title: surface.title,
+                            data: surface.data,
+                            actions: surface.actions,
+                            surfaceRef: ref
+                        )
+                        inlineSurfaces.append(inlineSurface)
+                    }
+                }
+            }
+
+            if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty && inlineSurfaces.isEmpty { continue }
+            let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
+
+            var chatMsg: ChatMessage
+            if let dbId = item.id, let uuid = UUID(uuidString: dbId) {
+                chatMsg = ChatMessage(id: uuid, role: role, text: item.text, timestamp: timestamp, attachments: attachments, toolCalls: toolCalls)
+            } else {
+                chatMsg = ChatMessage(role: role, text: item.text, timestamp: timestamp, attachments: attachments, toolCalls: toolCalls)
+            }
+
+            chatMsg.daemonMessageId = item.id
+            chatMsg.wasTruncated = item.wasTruncated ?? false
+            for i in chatMsg.attachments.indices {
+                chatMsg.attachments[i].data = ""
+            }
+            chatMsg.inlineSurfaces = inlineSurfaces
+            if let segments = item.textSegments {
+                chatMsg.textSegments = segments
+            }
+            if let orderStrings = item.contentOrder {
+                chatMsg.contentOrder = Self.parseContentOrder(orderStrings)
+            }
+
+            if role == .assistant {
+                for tc in toolCalls where tc.toolName == "subagent_spawn" {
+                    if let result = tc.result,
+                       let data = result.data(using: .utf8),
+                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                       let spawnedId = json["subagentId"] as? String {
+                        spawnParentMap[spawnedId] = chatMsg.id
+                    }
+                }
+            }
+
+            if let notification = item.subagentNotification {
+                var info = SubagentInfo(
+                    id: notification.subagentId,
+                    label: notification.label,
+                    status: SubagentStatus(wire: notification.status),
+                    parentMessageId: spawnParentMap[notification.subagentId],
+                    conversationId: notification.conversationId
+                )
+                info.error = notification.error
+                reconstructedSubagents.append(info)
+                chatMsg.isSubagentNotification = true
+            }
+
+            chatMessages.append(chatMsg)
+        }
+
+        return HistoryReconstructionResult(messages: chatMessages, subagents: reconstructedSubagents)
+    }
+
+    /// Static version of summarizeToolInput for use in nonisolated context.
+    nonisolated static func summarizeToolInputStatic(_ input: [String: AnyCodable]) -> String {
+        let str = extractToolInputStatic(input)
+        return str.count > 80 ? String(str.prefix(77)) + "..." : str
+    }
+
+    /// Static version of extractToolInput for use in nonisolated context.
+    nonisolated static func extractToolInputStatic(_ input: [String: AnyCodable]) -> String {
+        let key: String
+        let value: AnyCodable
+        if let match = toolInputPriorityKeys.first(where: { input[$0] != nil }),
+           let v = input[match] {
+            key = match
+            value = v
+        } else if let firstKey = input.keys.sorted().first, let v = input[firstKey] {
+            key = firstKey
+            value = v
+        } else {
+            return ""
+        }
+        if isSensitiveKey(key) {
+            return "[redacted]"
+        }
+        if let s = value.value as? String {
+            return s
+        } else if let encoder = try? JSONEncoder().encode(value),
+                  let json = String(data: encoder, encoding: .utf8) {
+            return json
+        } else {
+            return String(describing: value.value ?? "")
+        }
+    }
+
+    /// Static version of mapMessageAttachments for use in nonisolated context.
+    nonisolated static func mapMessageAttachmentsStatic(_ attachments: [UserMessageAttachment]) -> [ChatAttachment] {
+        attachments.compactMap { attachment in
+            let id = attachment.id ?? UUID().uuidString
+            let base64 = attachment.data
+            let dataLength = base64.count
+            let sizeBytes: Int? = attachment.sizeBytes.flatMap { Int(exactly: $0) }
+
+            var thumbnailData: Data?
+            #if os(macOS)
+            var thumbnailImage: NSImage?
+            #elseif os(iOS)
+            var thumbnailImage: UIImage?
+            #else
+            #error("Unsupported platform")
+            #endif
+
+            if attachment.mimeType.hasPrefix("image/"), !base64.isEmpty, let rawData = Data(base64Encoded: base64) {
+                thumbnailData = Self.generateThumbnail(from: rawData, maxDimension: 120)
+                #if os(macOS)
+                thumbnailImage = thumbnailData.flatMap { NSImage(data: $0) }
+                #elseif os(iOS)
+                thumbnailImage = thumbnailData.flatMap { UIImage(data: $0) }
+                #endif
+            } else if let serverThumb = attachment.thumbnailData, !serverThumb.isEmpty,
+                      let thumbData = Data(base64Encoded: serverThumb) {
+                thumbnailData = thumbData
+                #if os(macOS)
+                thumbnailImage = NSImage(data: thumbData)
+                #elseif os(iOS)
+                thumbnailImage = UIImage(data: thumbData)
+                #endif
+            }
+
+            return ChatAttachment(
+                id: id,
+                filename: attachment.filename,
+                mimeType: attachment.mimeType,
+                data: base64,
+                thumbnailData: thumbnailData,
+                dataLength: dataLength,
+                sizeBytes: sizeBytes,
+                thumbnailImage: thumbnailImage,
+                filePath: attachment.filePath,
+                sourceType: attachment.sourceType
+            )
+        }
     }
 
     private func applyHistoryResponseMarkers(to chatMessages: inout [ChatMessage]) -> Bool {

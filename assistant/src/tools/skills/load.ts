@@ -30,7 +30,7 @@ import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 /** Canonical feature flag key for inline skill command expansion. */
-const INLINE_COMMANDS_FLAG_KEY = "feature_flags.inline-skill-commands.enabled";
+const INLINE_COMMANDS_FLAG_KEY = "inline-skill-commands";
 
 /** Skill sources eligible for inline command expansion in v1. */
 const INLINE_COMMAND_ELIGIBLE_SOURCES = new Set([

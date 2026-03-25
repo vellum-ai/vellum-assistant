@@ -51,7 +51,7 @@ clients/
 ## Targets
 
 ### VellumAssistantShared (Library)
-**Platforms**: macOS 14+, iOS 17+
+**Platforms**: macOS 15+, iOS 17+
 **Purpose**: Platform-agnostic code shared between macOS and iOS apps
 
 **Contains**:
@@ -70,7 +70,7 @@ clients/
 **Dependencies**: None (only system frameworks: AuthenticationServices, Network, Security)
 
 ### VellumAssistantLib (Library)
-**Platforms**: macOS 14+ only
+**Platforms**: macOS 15+ only
 **Purpose**: macOS application logic
 
 **Contains**:
@@ -84,7 +84,7 @@ clients/
 **⚠️ iOS apps should NOT depend on this target** - it links macOS-only frameworks.
 
 ### vellum-assistant (Executable)
-**Platforms**: macOS 14+
+**Platforms**: macOS 15+
 **Purpose**: Thin entry point for macOS app
 
 **Contains**: Just `@main` app delegate setup

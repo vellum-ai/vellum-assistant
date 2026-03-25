@@ -47,7 +47,7 @@ struct PermissionRowView: View {
 
     private var statusIcon: some View {
         VIconView(statusVIcon, size: 14)
-            .foregroundColor(statusColor)
+            .foregroundStyle(statusColor)
     }
 
     private var statusVIcon: VIcon {

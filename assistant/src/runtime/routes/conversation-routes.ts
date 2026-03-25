@@ -4,6 +4,8 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import { z } from "zod";
+
 import { enrichMessageWithSourcePaths } from "../../agent/attachments.js";
 import {
   createAssistantMessage,
@@ -35,6 +37,7 @@ import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
 import { HostCuProxy } from "../../daemon/host-cu-proxy.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
+import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import * as attachmentsStore from "../../memory/attachments-store.js";
 import {
   createCanonicalGuardianRequest,
@@ -57,6 +60,7 @@ import {
 import { searchConversations } from "../../memory/conversation-queries.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
+import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getLogger } from "../../util/logger.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
@@ -627,6 +631,7 @@ export async function handleSendMessage(
   deps: {
     sendMessageDeps?: SendMessageDeps;
     approvalConversationGenerator?: ApprovalConversationGenerator;
+    heartbeatService?: HeartbeatService;
   },
   authContext: AuthContext,
 ): Promise<Response> {
@@ -638,6 +643,7 @@ export async function handleSendMessage(
     interface?: string;
     conversationType?: string;
     automated?: boolean;
+    bypassSecretCheck?: boolean;
   };
 
   const { conversationKey, content, attachmentIds } = body;
@@ -705,6 +711,22 @@ export async function handleSendMessage(
     }
   }
 
+  // Block messages containing known-format secrets before any persistence
+  if (trimmedContent.length > 0 && !body.bypassSecretCheck) {
+    const ingressResult = checkIngressForSecrets(trimmedContent);
+    if (ingressResult.blocked) {
+      return Response.json(
+        {
+          accepted: false,
+          error: "secret_blocked",
+          message: ingressResult.userNotice,
+          detectedTypes: ingressResult.detectedTypes,
+        },
+        { status: 422 },
+      );
+    }
+  }
+
   if (!deps.sendMessageDeps) {
     return httpError(
       "SERVICE_UNAVAILABLE",
@@ -712,6 +734,10 @@ export async function handleSendMessage(
       503,
     );
   }
+
+  // Desktop messages are always from the guardian — reset the heartbeat
+  // timer so the next heartbeat is a full interval after this interaction.
+  deps.heartbeatService?.resetTimer();
 
   const conversationType =
     body.conversationType === "private" ? ("private" as const) : undefined;
@@ -1464,22 +1490,48 @@ export function conversationRouteDefinitions(deps: {
   approvalConversationGenerator?: ApprovalConversationGenerator;
   suggestionCache: Map<string, string>;
   suggestionInFlight: Map<string, Promise<string | null>>;
+  getHeartbeatService?: () => HeartbeatService | undefined;
 }): RouteDefinition[] {
   return [
     {
       endpoint: "messages",
       method: "GET",
+      summary: "List messages",
+      description:
+        "Return messages for a conversation, including attachments and interface file metadata.",
+      tags: ["messages"],
+      responseBody: z.object({
+        messages: z.array(z.unknown()).describe("Array of message objects"),
+        interfaceFiles: z
+          .array(z.unknown())
+          .describe("Interface file paths with modification timestamps"),
+      }),
       handler: ({ url }) => handleListMessages(url, deps.interfacesDir),
     },
     {
       endpoint: "messages",
       method: "POST",
+      summary: "Send a message",
+      description:
+        "Send a user message to a conversation and trigger the assistant response.",
+      tags: ["messages"],
+      requestBody: z.object({
+        conversationKey: z.string(),
+        content: z.string().describe("Message text content"),
+        attachments: z
+          .array(z.unknown())
+          .describe("Optional file attachments")
+          .optional(),
+        conversationType: z.string().optional(),
+        slashCommand: z.string().optional(),
+      }),
       handler: async ({ req, authContext }) =>
         handleSendMessage(
           req,
           {
             sendMessageDeps: deps.sendMessageDeps,
             approvalConversationGenerator: deps.approvalConversationGenerator,
+            heartbeatService: deps.getHeartbeatService?.(),
           },
           authContext,
         ),
@@ -1487,11 +1539,27 @@ export function conversationRouteDefinitions(deps: {
     {
       endpoint: "search",
       method: "GET",
+      summary: "Search conversations",
+      description: "Full-text search across all conversations.",
+      tags: ["conversations"],
+      responseBody: z.object({
+        query: z.string(),
+        results: z.array(z.unknown()),
+      }),
       handler: ({ url }) => handleSearchConversations(url),
     },
     {
       endpoint: "suggestion",
       method: "GET",
+      summary: "Get reply suggestion",
+      description:
+        "Return an LLM-generated follow-up suggestion for the most recent assistant message.",
+      tags: ["messages"],
+      responseBody: z.object({
+        suggestion: z.string(),
+        messageId: z.string(),
+        source: z.string(),
+      }),
       handler: async ({ url }) =>
         handleGetSuggestion(url, {
           suggestionCache: deps.suggestionCache,

@@ -88,7 +88,9 @@ export function buildJournalContext(
         const filepath = join(journalDir, f);
         const stat = statSync(filepath);
         if (!stat.isFile()) return [];
-        return [{ filename: f, filepath, birthtimeMs: stat.birthtimeMs }];
+        // Fall back to mtimeMs when birthtimeMs is unavailable (returns 0 on Linux ext4, NFS, Docker overlayfs)
+        const birthtimeMs = stat.birthtimeMs > 0 ? stat.birthtimeMs : stat.mtimeMs;
+        return [{ filename: f, filepath, birthtimeMs }];
       } catch {
         return [];
       }
@@ -128,6 +130,9 @@ export function buildJournalContext(
 
     sections.push(header + "\n" + content);
   }
+
+  // If all readFileSync calls failed, sections only contains the header — return null
+  if (sections.length === 1) return null;
 
   return sections.join("\n\n");
 }

@@ -74,19 +74,19 @@ struct OnboardingView: View {
                     .controlSize(.large)
                 Text("Setting up your assistant...")
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
             } else {
                 VIconView(.triangleAlert, size: 48)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
 
                 Text("Setup Failed")
                     .font(VFont.titleMedium)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 if let error = managedBootstrapError {
                     Text(error)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, VSpacing.xl)
                 }
@@ -101,7 +101,7 @@ struct OnboardingView: View {
                     managedBootstrapError = nil
                     currentStep = .choosePath
                 }
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
             }
 
             Spacer()
@@ -158,12 +158,12 @@ struct WelcomeStep: View {
 
             Text("Welcome to Vellum Assistant")
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .multilineTextAlignment(.center)
 
             Text("AI-powered assistant for your iPhone")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
 
             Spacer()
@@ -188,7 +188,7 @@ struct ChoosePathStep: View {
 
             Text("How would you like to connect?")
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .multilineTextAlignment(.center)
 
             VStack(spacing: VSpacing.lg) {
@@ -197,14 +197,14 @@ struct ChoosePathStep: View {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Log in with Vellum")
                                 .font(VFont.bodyMediumEmphasised)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                             Text("Connect to your cloud assistant")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                         }
                         Spacer()
                         VIconView(.cloud, size: 20)
-                            .foregroundColor(VColor.primaryBase)
+                            .foregroundStyle(VColor.primaryBase)
                     }
                     .padding(VSpacing.lg)
                     .background(VColor.surfaceBase)
@@ -220,14 +220,14 @@ struct ChoosePathStep: View {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Connect to Assistant")
                                 .font(VFont.bodyMediumEmphasised)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                             Text("Connect via your local network")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                         }
                         Spacer()
                         VIconView(.monitor, size: 20)
-                            .foregroundColor(VColor.primaryBase)
+                            .foregroundStyle(VColor.primaryBase)
                     }
                     .padding(VSpacing.lg)
                     .background(VColor.surfaceBase)
@@ -259,11 +259,11 @@ struct DaemonSetupStep: View {
 
             Text("Connect to Assistant")
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Text("Scan the QR code from your Assistant to pair.")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
 
@@ -289,7 +289,7 @@ struct DaemonSetupStep: View {
                         .stroke(VColor.borderBase, lineWidth: 1)
                 )
             }
-            .foregroundColor(VColor.contentDefault)
+            .foregroundStyle(VColor.contentDefault)
             .padding(.horizontal, VSpacing.xl)
 
             Button("Continue") {
@@ -301,7 +301,7 @@ struct DaemonSetupStep: View {
             Button("Skip for now") {
                 onContinue?()
             }
-            .foregroundColor(VColor.contentSecondary)
+            .foregroundStyle(VColor.contentSecondary)
 
             Spacer()
         }
@@ -334,11 +334,11 @@ struct PermissionsStep: View {
 
             Text("Permissions")
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Text("Grant permissions for voice input")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
 
             VStack(spacing: VSpacing.lg) {
@@ -370,11 +370,11 @@ struct ReadyStep: View {
 
             Text("You're All Set!")
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Text("Start chatting with your AI assistant")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
 
             Button("Get Started") {

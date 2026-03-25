@@ -4,6 +4,8 @@
  * GET /v1/trace-events — Returns persisted trace events for a conversation.
  */
 
+import { z } from "zod";
+
 import { getTraceEvents } from "../../memory/trace-event-store.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -17,6 +19,29 @@ export function traceEventRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "trace-events",
       method: "GET",
+      summary: "List trace events",
+      description: "Return persisted trace events for a conversation.",
+      tags: ["trace"],
+      queryParams: [
+        {
+          name: "conversationId",
+          schema: { type: "string" },
+          description: "Conversation ID (required)",
+        },
+        {
+          name: "limit",
+          schema: { type: "integer" },
+          description: "Max events to return",
+        },
+        {
+          name: "afterSequence",
+          schema: { type: "integer" },
+          description: "Return events after this sequence number",
+        },
+      ],
+      responseBody: z.object({
+        events: z.array(z.unknown()).describe("Trace event objects"),
+      }),
       handler: ({ url }) => {
         const conversationId = url.searchParams.get("conversationId");
         if (!conversationId) {

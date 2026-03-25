@@ -19,6 +19,8 @@ export interface TaskRunOptions {
   approvedTools?: string[];
   /** Conversation source to propagate to the created conversation (e.g. 'schedule' when triggered by a schedule). */
   source?: string;
+  /** Schedule job ID to associate with the conversation. Set when the task is triggered by a schedule. */
+  scheduleJobId?: string;
 }
 
 export interface TaskRunResult {
@@ -58,8 +60,12 @@ export async function runTask(
 
   const run = createTaskRun(task.id);
   const conversation = bootstrapConversation({
-    conversationType: "background",
+    // Schedule-triggered tasks use "standard" so they appear in the sidebar's
+    // Scheduled section; non-schedule tasks use "background" to stay out of
+    // the main conversation list.
+    conversationType: opts.source === "schedule" ? undefined : "background",
     source: opts.source,
+    scheduleJobId: opts.scheduleJobId,
     origin: "task",
     systemHint: `Task: ${task.title}`,
   });

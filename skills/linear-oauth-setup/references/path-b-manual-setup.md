@@ -95,10 +95,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:linear --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:linear
 ```
 
 Send the returned auth URL to the user. Tell them to click **Authorize** on the Linear consent page.

@@ -5,6 +5,8 @@
  * the approval-flow trust-rule endpoint in approval-routes.ts.
  * All endpoints are bearer-token authenticated (standard runtime auth).
  */
+import { z } from "zod";
+
 import {
   addRule,
   getAllRules,
@@ -176,21 +178,65 @@ export function trustRulesRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "trust-rules/manage",
       method: "GET",
+      summary: "List all trust rules",
+      description: "Return all persistent trust rules.",
+      tags: ["trust-rules"],
+      responseBody: z.object({
+        type: z.string(),
+        rules: z.array(z.unknown()).describe("Trust rule objects"),
+      }),
       handler: () => handleListTrustRules(),
     },
     {
       endpoint: "trust-rules/manage",
       method: "POST",
+      summary: "Add a trust rule",
+      description:
+        "Create a new persistent trust rule (standalone, not approval-flow).",
+      tags: ["trust-rules"],
+      requestBody: z.object({
+        toolName: z.string().describe("Tool name"),
+        pattern: z.string().describe("Allowlist pattern"),
+        scope: z.string().describe("Scope"),
+        decision: z.string().describe("allow, deny, or ask"),
+        allowHighRisk: z
+          .boolean()
+          .describe("Allow high-risk invocations")
+          .optional(),
+        executionTarget: z.string().describe("Execution target").optional(),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req }) => handleAddTrustRuleManage(req),
     },
     {
       endpoint: "trust-rules/manage/:id",
       method: "DELETE",
+      summary: "Remove a trust rule",
+      description: "Delete a trust rule by ID.",
+      tags: ["trust-rules"],
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: ({ params }) => handleRemoveTrustRuleManage(params.id),
     },
     {
       endpoint: "trust-rules/manage/:id",
       method: "PATCH",
+      summary: "Update a trust rule",
+      description: "Partially update fields on an existing trust rule.",
+      tags: ["trust-rules"],
+      requestBody: z.object({
+        tool: z.string().describe("Tool name"),
+        pattern: z.string().describe("Allowlist pattern"),
+        scope: z.string().describe("Scope"),
+        decision: z.string().describe("allow, deny, or ask"),
+        priority: z.number().describe("Rule priority"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req, params }) =>
         handleUpdateTrustRuleManage(req, params.id),
     },

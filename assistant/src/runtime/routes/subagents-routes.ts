@@ -5,6 +5,8 @@
  * sharing business logic with the handlers in
  * `daemon/handlers/subagents.ts`.
  */
+import { z } from "zod";
+
 import { getMessages } from "../../memory/conversation-crud.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
@@ -121,11 +123,25 @@ export function getSubagentDetail(
 
 export function subagentRouteDefinitions(): RouteDefinition[] {
   return [
-    // GET /v1/subagents/:id — get subagent detail
     {
       endpoint: "subagents/:id",
       method: "GET",
       policyKey: "subagents",
+      summary: "Get subagent detail",
+      description: "Return subagent objective and event history.",
+      tags: ["subagents"],
+      queryParams: [
+        {
+          name: "conversationId",
+          schema: { type: "string" },
+          description: "Parent conversation ID (required)",
+        },
+      ],
+      responseBody: z.object({
+        subagentId: z.string(),
+        objective: z.string(),
+        events: z.array(z.unknown()).describe("Subagent event objects"),
+      }),
       handler: ({ url, params }) => {
         const conversationId = url.searchParams.get("conversationId");
         if (!conversationId) {
@@ -152,11 +168,20 @@ export function subagentRouteDefinitions(): RouteDefinition[] {
       },
     },
 
-    // POST /v1/subagents/:id/abort — abort subagent
     {
       endpoint: "subagents/:id/abort",
       method: "POST",
       policyKey: "subagents/abort",
+      summary: "Abort subagent",
+      description: "Abort a running subagent.",
+      tags: ["subagents"],
+      requestBody: z.object({
+        conversationId: z.string(),
+      }),
+      responseBody: z.object({
+        subagentId: z.string(),
+        aborted: z.boolean(),
+      }),
       handler: async ({ req, params }) => {
         const body = (await req.json()) as { conversationId?: string };
         const conversationId = body.conversationId;
@@ -187,11 +212,21 @@ export function subagentRouteDefinitions(): RouteDefinition[] {
       },
     },
 
-    // POST /v1/subagents/:id/message — send message to subagent
     {
       endpoint: "subagents/:id/message",
       method: "POST",
       policyKey: "subagents/message",
+      summary: "Send message to subagent",
+      description: "Send a text message to a running subagent.",
+      tags: ["subagents"],
+      requestBody: z.object({
+        conversationId: z.string(),
+        content: z.string(),
+      }),
+      responseBody: z.object({
+        subagentId: z.string(),
+        sent: z.boolean(),
+      }),
       handler: async ({ req, params }) => {
         const body = (await req.json()) as {
           conversationId?: string;

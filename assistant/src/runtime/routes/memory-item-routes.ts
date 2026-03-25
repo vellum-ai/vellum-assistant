@@ -10,6 +10,7 @@
 
 import { and, asc, count, desc, eq, inArray, like, ne, or } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
+import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import { getDb } from "../../memory/db.js";
@@ -597,7 +598,11 @@ export async function handleUpdateMemoryItem(
   // If sourceType was set (either directly or via mapping), also write verificationState
   if (body.sourceType !== undefined && body.verificationState === undefined) {
     set.verificationState =
-      body.sourceType === "tool" ? "user_confirmed" : "assistant_inferred";
+      body.sourceType === "tool"
+        ? "user_confirmed"
+        : existing.verificationState === "user_reported"
+          ? "user_reported"
+          : "assistant_inferred";
   }
 
   // If subject, statement, or kind changed, recompute fingerprint
@@ -717,29 +722,122 @@ export function memoryItemRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "memory-items",
       method: "GET",
+      summary: "List memory items",
+      description:
+        "Return memory items with filtering, search, sorting, and pagination.",
+      tags: ["memory"],
+      queryParams: [
+        {
+          name: "kind",
+          schema: { type: "string" },
+          description: "Filter by kind",
+        },
+        {
+          name: "status",
+          schema: { type: "string" },
+          description: "Filter by status (default active)",
+        },
+        {
+          name: "search",
+          schema: { type: "string" },
+          description: "Full-text search query",
+        },
+        {
+          name: "sort",
+          schema: { type: "string" },
+          description: "Sort field (default lastSeenAt)",
+        },
+        {
+          name: "order",
+          schema: { type: "string" },
+          description: "asc or desc (default desc)",
+        },
+        {
+          name: "limit",
+          schema: { type: "integer" },
+          description: "Max results (default 100)",
+        },
+        {
+          name: "offset",
+          schema: { type: "integer" },
+          description: "Pagination offset",
+        },
+      ],
+      responseBody: z.object({
+        items: z.array(z.unknown()).describe("Memory item objects"),
+        total: z.number(),
+      }),
       handler: (ctx) => handleListMemoryItems(ctx.url),
     },
     {
       endpoint: "memory-items/:id",
       method: "GET",
       policyKey: "memory-items",
+      summary: "Get a memory item",
+      description:
+        "Return a single memory item by ID with supersession metadata.",
+      tags: ["memory"],
+      responseBody: z.object({
+        item: z
+          .object({})
+          .passthrough()
+          .describe("Memory item with scopeLabel and supersession info"),
+      }),
       handler: (ctx) => handleGetMemoryItem(ctx),
     },
     {
       endpoint: "memory-items",
       method: "POST",
+      summary: "Create a memory item",
+      description: "Create a new memory item and enqueue embedding.",
+      tags: ["memory"],
+      requestBody: z.object({
+        kind: z
+          .string()
+          .describe("Memory kind (identity, preference, project, etc.)"),
+        subject: z.string().describe("Subject line"),
+        statement: z.string().describe("Statement content"),
+        importance: z
+          .number()
+          .describe("Importance score (default 0.8)")
+          .optional(),
+      }),
+      responseBody: z.object({
+        item: z.object({}).passthrough().describe("Created memory item"),
+      }),
       handler: (ctx) => handleCreateMemoryItem(ctx),
     },
     {
       endpoint: "memory-items/:id",
       method: "PATCH",
       policyKey: "memory-items",
+      summary: "Update a memory item",
+      description: "Partially update fields on an existing memory item.",
+      tags: ["memory"],
+      requestBody: z.object({
+        subject: z.string(),
+        statement: z.string(),
+        kind: z.string(),
+        status: z.string(),
+        importance: z.number(),
+        sourceType: z.string(),
+        verificationState: z.string(),
+      }),
+      responseBody: z.object({
+        item: z.object({}).passthrough().describe("Updated memory item"),
+      }),
       handler: (ctx) => handleUpdateMemoryItem(ctx),
     },
     {
       endpoint: "memory-items/:id",
       method: "DELETE",
       policyKey: "memory-items",
+      summary: "Delete a memory item",
+      description: "Delete a memory item and its embeddings.",
+      tags: ["memory"],
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: (ctx) => handleDeleteMemoryItem(ctx),
     },
   ];

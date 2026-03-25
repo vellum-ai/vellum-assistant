@@ -164,9 +164,8 @@ extension AppDelegate {
 
     @objc public func performLogout() {
         Task {
-            // Capture assistant/org IDs before logout clears them from UserDefaults
+            // Capture assistant ID before logout clears UserDefaults
             let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-            let connectedOrganizationId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
 
             // Capture managed status before logout clears UserDefaults
             let wasManaged = isCurrentAssistantManaged
@@ -237,15 +236,14 @@ extension AppDelegate {
                 // Self-hosted (local or remote): clear auth state but keep the
                 // app running. The user can sign in again from Settings > General.
 
-                // Restore connectedAssistantId and connectedOrganizationId —
-                // authManager.logout() clears both from UserDefaults, but the
-                // app stays running in this path and subsystems (avatar, gateway
-                // resolution, API key sync, Sentry tagging, billing) need them.
+                // Restore connectedAssistantId — authManager.logout() clears it
+                // from UserDefaults, but the app stays running in this path and
+                // the assistant process is still active.
+                // Do NOT restore connectedOrganizationId: the org ID may belong
+                // to a different environment (e.g. dev vs prod). Letting bootstrap
+                // re-resolve it on the next login ensures it matches the session.
                 if let connectedAssistantId {
                     UserDefaults.standard.set(connectedAssistantId, forKey: "connectedAssistantId")
-                }
-                if let connectedOrganizationId {
-                    UserDefaults.standard.set(connectedOrganizationId, forKey: "connectedOrganizationId")
                 }
 
                 actorTokenBootstrapTask?.cancel()

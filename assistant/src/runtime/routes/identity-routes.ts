@@ -7,6 +7,8 @@ import { cpus, totalmem } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { z } from "zod";
+
 import { getBaseDataDir } from "../../config/env-registry.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
@@ -245,16 +247,49 @@ export function identityRouteDefinitions(): RouteDefinition[] {
       endpoint: "health",
       method: "GET",
       handler: () => handleDetailedHealth(),
+      summary: "Detailed health check",
+      description:
+        "Returns runtime health including version, disk, memory, CPU, and migration status.",
+      tags: ["system"],
+      responseBody: z.object({
+        status: z.string(),
+        timestamp: z.string(),
+        version: z.string(),
+        disk: z.object({}).passthrough(),
+        memory: z.object({}).passthrough(),
+        cpu: z.object({}).passthrough(),
+        migrations: z.object({}).passthrough(),
+      }),
     },
     {
       endpoint: "identity",
       method: "GET",
       handler: () => handleGetIdentity(),
+      summary: "Get assistant identity",
+      description:
+        "Returns the assistant's identity fields parsed from IDENTITY.md.",
+      tags: ["identity"],
+      responseBody: z.object({
+        name: z.string(),
+        role: z.string(),
+        personality: z.string(),
+        emoji: z.string(),
+        home: z.string(),
+        version: z.string(),
+        createdAt: z.string(),
+      }),
     },
     {
       endpoint: "identity/intro",
       method: "GET",
       handler: () => handleGetIdentityIntro(),
+      summary: "Get identity intro text",
+      description:
+        "Returns the cached identity intro string, preferring SOUL.md over LLM-generated cache.",
+      tags: ["identity"],
+      responseBody: z.object({
+        text: z.string(),
+      }),
     },
   ];
 }

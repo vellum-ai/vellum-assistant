@@ -101,10 +101,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:spotify --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect integration:spotify
 ```
 
 Send the returned auth URL to the user. Tell them to click **Agree** on the Spotify consent page.

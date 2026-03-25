@@ -11,7 +11,7 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
 
 @MainActor
-public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The canonical product name shown in menus and the About panel.
     /// Use this instead of hardcoding "Vellum" so the name is defined
     /// in one place.
@@ -41,6 +41,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     var hostCuOverlayCleanupTask: Task<Void, Never>?
     /// Combine subscriptions for host CU overlay state observation.
     var hostCuOverlayCancellables = Set<AnyCancellable>()
+    /// In-flight CU tasks keyed by request ID, for cancel support.
+    var inFlightCuTasks: [String: Task<Void, Never>] = [:]
     var isStartingSession = false
     var startSessionTask: Task<Void, Never>?
     var voiceInput: VoiceInputManager?
@@ -244,7 +246,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
         // Apply immediately, and again after a short delay to catch SwiftUI
         // resetting the title after applicationDidFinishLaunching returns.
         applyMenuBarTitlePatch()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 100_000_000)
             self?.applyMenuBarTitlePatch()
         }
     }
@@ -260,8 +263,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
     /// with delays (same pattern as Help menu and app-name patching).
     func installFileMenuDelegate() {
         installFileMenuDelegateOnce()
-        for delay in [0.1, 0.5, 1.0] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+        for delay: UInt64 in [100_000_000, 500_000_000, 1_000_000_000] {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: delay)
                 self?.installFileMenuDelegateOnce()
             }
         }
@@ -317,7 +321,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObjec
             if let existing = others.first {
                 log.info("[singleInstance] Another instance (pid \(existing.processIdentifier)) detected — activating it and terminating self")
                 existing.activate()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 300_000_000)
                     NSApp.terminate(nil)
                 }
                 return

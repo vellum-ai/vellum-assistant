@@ -59,6 +59,8 @@ function parseProviderRow(row: ReturnType<typeof getProvider>) {
     defaultScopes: row.defaultScopes ? JSON.parse(row.defaultScopes) : [],
     scopePolicy: row.scopePolicy ? JSON.parse(row.scopePolicy) : {},
     extraParams: row.extraParams ? JSON.parse(row.extraParams) : null,
+    pingHeaders: row.pingHeaders ? JSON.parse(row.pingHeaders) : null,
+    pingBody: row.pingBody ? JSON.parse(row.pingBody) : null,
     redirectUri: resolveRedirectUri(row.providerKey, row.callbackTransport),
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
@@ -69,7 +71,7 @@ export function registerProviderCommands(oauth: Command): void {
   const providers = oauth
     .command("providers")
     .description(
-      "Manage OAuth provider configurations (auth URLs, scopes, endpoints)",
+      "Fetch configured OAuth providers and register custom providers of your own",
     );
 
   providers.addHelpText(
@@ -175,7 +177,7 @@ Examples:
         if (!row) {
           writeOutput(cmd, {
             ok: false,
-            error: `Provider not found: ${providerKey}`,
+            error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers. To register a custom provider, run 'assistant oauth providers register --help'.`,
           });
           process.exitCode = 1;
           return;
@@ -196,7 +198,10 @@ Examples:
   providers
     .command("register")
     .description("Register a new OAuth provider configuration")
-    .requiredOption("--provider-key <key>", "Provider key")
+    .requiredOption(
+      "--provider-key <key>",
+      "Unique provider key (e.g. \"integration:custom-service\"). Must not collide with an existing key from 'assistant oauth providers list'.",
+    )
     .requiredOption("--auth-url <url>", "Authorization endpoint URL")
     .requiredOption("--token-url <url>", "Token endpoint URL")
     .option("--base-url <url>", "API base URL")
@@ -208,6 +213,15 @@ Examples:
       "--ping-url <url>",
       "Health-check endpoint URL for token validation",
     )
+    .option(
+      "--ping-method <method>",
+      "HTTP method for the ping endpoint (default: GET)",
+    )
+    .option(
+      "--ping-headers <json>",
+      "JSON object of extra headers for the ping request",
+    )
+    .option("--ping-body <json>", "JSON body to send with the ping request")
     .option("--display-name <name>", "Display name for the provider")
     .option("--description <text>", "Short description")
     .option("--dashboard-url <url>", "Developer console URL")
@@ -231,8 +245,13 @@ Arguments (via options):
                         (e.g. "client_secret_post", "client_secret_basic").
   --callback-transport  Transport method for the OAuth callback.
   --ping-url            Optional URL for a lightweight health-check endpoint.
-                        Used by "connections ping" to validate that a stored token
+                        Used by "assistant oauth ping" to validate that a stored token
                         is still functional (e.g. "https://api.example.com/user").
+  --ping-method         HTTP method for the ping health-check (GET, POST). Defaults to GET.
+  --ping-headers        JSON object of extra HTTP headers for the ping request
+                        (e.g. '{"Notion-Version":"2022-06-28"}').
+  --ping-body           JSON body to send with the ping request
+                        (e.g. '{"query":"{ viewer { id } }"}').
   --display-name        Optional human-readable display name for the provider.
   --description         Optional short description of the provider.
   --dashboard-url       Optional URL to the provider's developer console / dashboard.
@@ -272,6 +291,9 @@ Examples:
           tokenAuthMethod?: string;
           callbackTransport?: string;
           pingUrl?: string;
+          pingMethod?: string;
+          pingHeaders?: string;
+          pingBody?: string;
           displayName?: string;
           description?: string;
           dashboardUrl?: string;
@@ -292,6 +314,11 @@ Examples:
             tokenEndpointAuthMethod: opts.tokenAuthMethod,
             callbackTransport: opts.callbackTransport,
             pingUrl: opts.pingUrl,
+            pingMethod: opts.pingMethod,
+            pingHeaders: opts.pingHeaders
+              ? JSON.parse(opts.pingHeaders)
+              : undefined,
+            pingBody: opts.pingBody ? JSON.parse(opts.pingBody) : undefined,
             displayName: opts.displayName,
             description: opts.description,
             dashboardUrl: opts.dashboardUrl,

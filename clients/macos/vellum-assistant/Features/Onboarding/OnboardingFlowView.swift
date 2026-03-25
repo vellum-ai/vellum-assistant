@@ -17,6 +17,8 @@ struct OnboardingFlowView: View {
     @State private var isBootstrappingManaged = false
     @State private var isResolvingAssociatedManagedAssistant = false
     @State private var managedBootstrapError: String?
+    @State private var didCallComplete = false
+    @State private var completionDelayTask: Task<Void, Never>?
 
     private static let appIcon: NSImage? = {
         guard let path = ResourceBundle.bundle.path(forResource: "vellum-app-icon", ofType: "png") else { return nil }
@@ -24,7 +26,7 @@ struct OnboardingFlowView: View {
     }()
 
     private var managedSignInEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
+        MacOSClientFeatureFlagManager.shared.isEnabled("managed-sign-in")
     }
 
     private var maxOnboardingStep: Int {
@@ -96,7 +98,9 @@ struct OnboardingFlowView: View {
                                             guard !isAdvancingFromWakeUp else { return }
                                             isAdvancingFromWakeUp = true
                                             state.hasHatched = true
-                                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                            Task { @MainActor in
+                                                try? await Task.sleep(nanoseconds: 300_000_000)
+                                                guard !Task.isCancelled else { return }
                                                 state.advance()
                                             }
                                         },
@@ -196,6 +200,17 @@ struct OnboardingFlowView: View {
             )
             if !isAuthenticated && managedSignInEnabled && state.currentStep > 0 {
                 log.info("User signed out during managed onboarding — returning to welcome screen")
+                completionDelayTask?.cancel()
+                didCallComplete = false
+                state.isHatching = false
+                state.isManagedHatch = false
+                state.hatchCompleted = false
+                state.hatchFailed = false
+                state.hatchProgressTarget = 0.0
+                state.hatchProgressDisplay = 0.0
+                state.hatchStepLabel = nil
+                state.hatchTotalSteps = 1
+                state.hatchCurrentStep = 0
                 isBootstrappingManaged = false
                 managedBootstrapError = nil
                 withAnimation(.spring(duration: 0.6, bounce: 0.15)) {
@@ -236,8 +251,18 @@ struct OnboardingFlowView: View {
         }
         .onChange(of: state.hatchCompleted) { _, completed in
             if completed {
-                onComplete()
+                guard !didCallComplete else { return }
+                didCallComplete = true
+                completionDelayTask = Task {
+                    try? await Task.sleep(nanoseconds: 1_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    guard state.hatchCompleted else { return }
+                    onComplete()
+                }
             }
+        }
+        .onDisappear {
+            completionDelayTask?.cancel()
         }
     }
 
@@ -287,17 +312,17 @@ struct OnboardingFlowView: View {
                         .progressViewStyle(.circular)
                     Text("Setting up your assistant...")
                         .font(VFont.titleSmall)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
             } else {
                 Text("Setup failed")
                     .font(VFont.titleMedium)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 if let error = managedBootstrapError {
                     Text(error)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                        .foregroundStyle(VColor.systemNegativeStrong)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 280)
                 }
@@ -352,6 +377,12 @@ struct OnboardingFlowView: View {
     /// (`assistants/{assistantId}/health`) until the runtime responds successfully.
     private func awaitManagedAssistantReady(assistantId: String) async {
         // Phase 1: Wait for the platform to finish provisioning.
+        guard !state.hatchCompleted else { return }
+        state.hatchTotalSteps = 3
+        state.hatchCurrentStep = 1
+        state.hatchStepLabel = "Provisioning assistant..."
+        state.hatchProgressTarget = 0.33
+
         do {
             try await ManagedAssistantBootstrapService.shared.awaitAssistantProvisioned(assistantId: assistantId)
         } catch {
@@ -361,6 +392,11 @@ struct OnboardingFlowView: View {
         }
 
         // Phase 2: Poll the assistant-scoped gateway health endpoint.
+        guard !state.hatchCompleted else { return }
+        state.hatchCurrentStep = 2
+        state.hatchStepLabel = "Connecting to assistant..."
+        state.hatchProgressTarget = 0.66
+
         let timeout: TimeInterval = 120
         let start = CFAbsoluteTimeGetCurrent()
         var lastError: Error?
@@ -374,6 +410,9 @@ struct OnboardingFlowView: View {
                 ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
                 if response.isSuccess {
                     log.info("Managed assistant \(assistantId, privacy: .public) is ready")
+                    state.hatchCurrentStep = 3
+                    state.hatchStepLabel = "Ready"
+                    state.hatchProgressTarget = 1.0
                     state.hatchCompleted = true
                     return
                 }

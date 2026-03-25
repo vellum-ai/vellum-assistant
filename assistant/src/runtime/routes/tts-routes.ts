@@ -3,7 +3,7 @@
  *
  * POST /v1/messages/:id/tts?conversationId=... — synthesize message text to audio
  *
- * Gated behind the `feature_flags.message-tts.enabled` assistant feature flag.
+ * Gated behind the `message-tts` assistant feature flag.
  * Uses Fish Audio for synthesis when configured.
  */
 
@@ -18,7 +18,7 @@ import type { RouteDefinition } from "../http-router.js";
 
 const log = getLogger("tts-routes");
 
-const MESSAGE_TTS_FLAG = "feature_flags.message-tts.enabled" as const;
+const MESSAGE_TTS_FLAG = "message-tts" as const;
 
 // ---------------------------------------------------------------------------
 // Route definitions
@@ -30,6 +30,17 @@ export function ttsRouteDefinitions(): RouteDefinition[] {
       endpoint: "messages/:id/tts",
       method: "POST",
       policyKey: "messages/tts",
+      summary: "Synthesize message to speech",
+      description:
+        "Synthesize a message's text content to audio using Fish Audio TTS.",
+      tags: ["messages"],
+      queryParams: [
+        {
+          name: "conversationId",
+          schema: { type: "string" },
+          description: "Conversation that contains the message",
+        },
+      ],
       handler: async ({ url, params }) => {
         const config = getConfig();
 
@@ -50,8 +61,8 @@ export function ttsRouteDefinitions(): RouteDefinition[] {
           return httpError("BAD_REQUEST", "Message has no text content", 400);
         }
 
-        const sanitizedText = sanitizeForTts(result.text);
-        if (!sanitizedText.trim()) {
+        const sanitizedText = sanitizeForTts(result.text).trim();
+        if (!sanitizedText) {
           return httpError(
             "BAD_REQUEST",
             "Message has no speakable text content",

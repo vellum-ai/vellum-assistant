@@ -43,10 +43,10 @@ Returns matching skills with their slug, source, install counts, and security au
 
 ### Installing a community skill
 
-**Trust model - check the source owner before installing:**
+**Trust model - check the source guardian before installing:**
 
 - **Vellum-owned** (`vellum-ai/*`): First-party skills published by the Vellum team. Install these directly without prompting - they are vetted and trusted.
-- **Third-party** (any other owner): Ask the user for permission first. Present the skill name, source, audit results, and install count. Say something like: "I found a community skill that could help, but it's published by a third party - we haven't vetted it. Want to install it anyway?"
+- **Third-party** (any other guardian): Ask the user for permission first. Present the skill name, source, audit results, and install count. Say something like: "I found a community skill that could help, but it's published by a third party - we haven't vetted it. Want to install it anyway?"
 
 ```bash
 assistant skills add <owner>/<repo>@<skill-name>
@@ -69,7 +69,7 @@ Once installed, the skill appears in the workspace skills directory and can be l
 2. **User wants a capability not covered by bundled skills** - "Can you do X?"
    - Search with `assistant skills search "<query>"`
    - Present matching results with descriptions, install counts, and audit badges
-   - Check the source owner to determine trust level (see trust model above)
+   - Check the source guardian to determine trust level (see trust model above)
    - Install with `assistant skills add <owner>/<repo>@<skill-name>`
    - Load it with `skill_load`
 

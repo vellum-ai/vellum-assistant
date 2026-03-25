@@ -45,17 +45,17 @@ public struct ModelListBubble: View {
                 HStack(spacing: VSpacing.sm) {
                     Text(group.name)
                         .font(VFont.labelSmall)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .tracking(0.5)
                     Spacer()
                     if group.hasKey {
                         Text("connected")
                             .font(VFont.labelSmall)
-                            .foregroundColor(VColor.systemPositiveStrong)
+                            .foregroundStyle(VColor.systemPositiveStrong)
                     } else {
                         Text("no key")
                             .font(VFont.labelSmall)
-                            .foregroundColor(VColor.systemNegativeHover)
+                            .foregroundStyle(VColor.systemNegativeHover)
                     }
                 }
                 .padding(.horizontal, VSpacing.lg)
@@ -67,7 +67,7 @@ public struct ModelListBubble: View {
                     HStack(spacing: VSpacing.sm) {
                         if model.isCurrent {
                             VIconView(.circleCheck, size: 11)
-                                .foregroundColor(VColor.primaryBase)
+                                .foregroundStyle(VColor.primaryBase)
                                 .frame(width: 16)
                         } else {
                             Color.clear.frame(width: 16, height: 1)
@@ -75,13 +75,13 @@ public struct ModelListBubble: View {
 
                         Text(model.displayName)
                             .font(model.isCurrent ? VFont.bodyMediumEmphasised : VFont.bodyMediumLighter)
-                            .foregroundColor(group.hasKey ? VColor.contentDefault : VColor.contentTertiary)
+                            .foregroundStyle(group.hasKey ? VColor.contentDefault : VColor.contentTertiary)
 
                         Spacer()
 
                         Text(model.id)
                             .font(VFont.bodySmallDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                     .padding(.horizontal, VSpacing.lg)
                     .padding(.vertical, VSpacing.xs + 2)
@@ -91,7 +91,7 @@ public struct ModelListBubble: View {
             // Footer
             Text("Use Settings -> Models & Services to switch models, or `keys set <provider> <key>` to add a provider.")
                 .font(VFont.labelSmall)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .padding(.horizontal, VSpacing.lg)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.sm)

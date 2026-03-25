@@ -175,10 +175,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect <provider-key> --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    )
+    assistant oauth connect <provider-key>
 ```
 
 If the service shows an "unverified app" or consent warning, tell the user how to proceed.
@@ -192,10 +189,7 @@ If a ping URL is available, verify:
 ```
 bash:
   command: |
-    curl -H "Authorization: Bearer $(assistant oauth connections token <provider-key> --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ))" "<provider-ping-url>"
+    assistant oauth ping <provider-key>
 ```
 
 **On success:** "**{setup.displayName} is connected!** You're all set."

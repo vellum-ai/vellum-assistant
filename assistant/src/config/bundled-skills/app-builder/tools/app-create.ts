@@ -13,7 +13,7 @@ export async function run(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   const multifileEnabled = isAssistantFeatureFlagEnabled(
-    "feature_flags.app-builder-multifile.enabled",
+    "app-builder-multifile",
     getConfig(),
   );
   const createInput: AppCreateInput = {

@@ -81,7 +81,7 @@ struct LogReportFormView: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Category")
                 .font(VFont.bodySmallDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
             ForEach(LogReportReason.allCases) { reason in
                 ReasonCard(reason: reason, isSelected: selectedReason == reason) {
                     selectedReason = reason
@@ -95,7 +95,7 @@ struct LogReportFormView: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("What happened?")
                 .font(VFont.bodySmallDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
             VTextEditor(
                 placeholder: "Describe what happened...",
                 text: $message,
@@ -160,7 +160,7 @@ struct LogReportFormView: View {
                         .controlSize(.small)
                     Text("Sending feedback…")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
             } else {
                 VButton(label: "Cancel", style: .outlined) {
@@ -203,10 +203,10 @@ private struct ReasonCard: View {
         Button(action: action) {
             HStack(spacing: VSpacing.sm) {
                 VIconView(.resolve(reason.icon), size: 14)
-                    .foregroundColor(isSelected ? VColor.primaryBase : VColor.contentSecondary)
+                    .foregroundStyle(isSelected ? VColor.primaryBase : VColor.contentSecondary)
                 Text(reason.displayName)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Spacer()
                 Circle()
                     .fill(isSelected ? VColor.primaryBase : Color.clear)

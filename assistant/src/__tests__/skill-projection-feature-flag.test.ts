@@ -22,7 +22,7 @@ let mockSkillRefCount: Map<string, number> = new Map();
 
 let currentConfig: Record<string, unknown> = {};
 const DECLARED_SKILL_ID = "contacts";
-const DECLARED_FLAG_KEY = "feature_flags.contacts.enabled";
+const DECLARED_FLAG_KEY = "contacts";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -40,9 +40,7 @@ mock.module("../config/loader.js", () => ({
 
 mock.module("../config/skill-state.js", () => ({
   skillFlagKey: (skill: { featureFlag?: string }) =>
-    skill.featureFlag
-      ? `feature_flags.${skill.featureFlag}.enabled`
-      : undefined,
+    skill.featureFlag || undefined,
 }));
 
 // Mock assistant-feature-flags to avoid loading the real module (which

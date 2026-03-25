@@ -6,6 +6,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { desc, eq } from "drizzle-orm";
+import { z } from "zod";
 
 import { getConfig, saveConfig } from "../../config/loader.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
@@ -23,27 +24,34 @@ const log = getLogger("heartbeat-routes");
 // Handlers
 // ---------------------------------------------------------------------------
 
-function handleGetConfig(): Response {
+function handleGetConfig(heartbeatService?: HeartbeatService): Response {
   const config = getConfig().heartbeat;
   return Response.json({
     enabled: config.enabled,
     intervalMs: config.intervalMs,
     activeHoursStart: config.activeHoursStart ?? null,
     activeHoursEnd: config.activeHoursEnd ?? null,
-    nextRunAt: null, // TODO: track next run time in HeartbeatService
+    nextRunAt: heartbeatService?.nextRunAt ?? null,
+    lastRunAt: heartbeatService?.lastRunAt ?? null,
     success: true,
   });
 }
 
-function handleUpdateConfig(body: Record<string, unknown>): Response {
+function handleUpdateConfig(
+  body: Record<string, unknown>,
+  heartbeatService?: HeartbeatService,
+): Response {
   const config = getConfig();
   const heartbeat = { ...config.heartbeat };
 
   if (typeof body.enabled === "boolean") heartbeat.enabled = body.enabled;
-  if (typeof body.intervalMs === "number") heartbeat.intervalMs = body.intervalMs;
+  if (typeof body.intervalMs === "number")
+    heartbeat.intervalMs = body.intervalMs;
   if ("activeHoursStart" in body) {
     heartbeat.activeHoursStart =
-      typeof body.activeHoursStart === "number" ? body.activeHoursStart : undefined;
+      typeof body.activeHoursStart === "number"
+        ? body.activeHoursStart
+        : undefined;
   }
   if ("activeHoursEnd" in body) {
     heartbeat.activeHoursEnd =
@@ -63,7 +71,8 @@ function handleUpdateConfig(body: Record<string, unknown>): Response {
     intervalMs: heartbeat.intervalMs,
     activeHoursStart: heartbeat.activeHoursStart ?? null,
     activeHoursEnd: heartbeat.activeHoursEnd ?? null,
-    nextRunAt: null,
+    nextRunAt: heartbeatService?.nextRunAt ?? null,
+    lastRunAt: heartbeatService?.lastRunAt ?? null,
     success: true,
   });
 }
@@ -147,12 +156,40 @@ export function heartbeatRouteDefinitions(deps: {
       endpoint: "heartbeat/config",
       method: "GET",
       policyKey: "heartbeat",
-      handler: () => handleGetConfig(),
+      summary: "Get heartbeat config",
+      description: "Return the current heartbeat schedule configuration.",
+      tags: ["heartbeat"],
+      responseBody: z.object({
+        enabled: z.boolean(),
+        intervalMs: z.number(),
+        activeHoursStart: z.number(),
+        activeHoursEnd: z.number(),
+        nextRunAt: z.string(),
+        success: z.boolean(),
+      }),
+      handler: () => handleGetConfig(deps.getHeartbeatService?.()),
     },
     {
       endpoint: "heartbeat/config",
       method: "PUT",
       policyKey: "heartbeat",
+      summary: "Update heartbeat config",
+      description: "Update the heartbeat schedule configuration.",
+      tags: ["heartbeat"],
+      requestBody: z.object({
+        enabled: z.boolean().describe("Enable or disable heartbeat"),
+        intervalMs: z.number().describe("Heartbeat interval in ms"),
+        activeHoursStart: z.number().describe("Active hours start (0–23)"),
+        activeHoursEnd: z.number().describe("Active hours end (0–23)"),
+      }),
+      responseBody: z.object({
+        enabled: z.boolean(),
+        intervalMs: z.number(),
+        activeHoursStart: z.number(),
+        activeHoursEnd: z.number(),
+        nextRunAt: z.string(),
+        success: z.boolean(),
+      }),
       handler: async ({ req }) => {
         const body: unknown = await req.json();
         if (typeof body !== "object" || !body || Array.isArray(body)) {
@@ -162,13 +199,29 @@ export function heartbeatRouteDefinitions(deps: {
             400,
           );
         }
-        return handleUpdateConfig(body as Record<string, unknown>);
+        return handleUpdateConfig(
+          body as Record<string, unknown>,
+          deps.getHeartbeatService?.(),
+        );
       },
     },
     {
       endpoint: "heartbeat/runs",
       method: "GET",
       policyKey: "heartbeat",
+      summary: "List heartbeat runs",
+      description: "Return recent heartbeat conversation runs.",
+      tags: ["heartbeat"],
+      queryParams: [
+        {
+          name: "limit",
+          schema: { type: "integer" },
+          description: "Max runs to return (default 20)",
+        },
+      ],
+      responseBody: z.object({
+        runs: z.array(z.unknown()).describe("Heartbeat run records"),
+      }),
       handler: ({ url }) => {
         const limit = Number(url.searchParams.get("limit") ?? 20);
         return handleListRuns(limit);
@@ -178,18 +231,41 @@ export function heartbeatRouteDefinitions(deps: {
       endpoint: "heartbeat/run-now",
       method: "POST",
       policyKey: "heartbeat",
+      summary: "Run heartbeat now",
+      description: "Trigger an immediate heartbeat run.",
+      tags: ["heartbeat"],
+      responseBody: z.object({
+        success: z.boolean(),
+        ran: z.boolean().describe("Whether the heartbeat actually ran"),
+      }),
       handler: () => handleRunNow(deps.getHeartbeatService?.()),
     },
     {
       endpoint: "heartbeat/checklist",
       method: "GET",
       policyKey: "heartbeat",
+      summary: "Get heartbeat checklist",
+      description: "Return the HEARTBEAT.md checklist content.",
+      tags: ["heartbeat"],
+      responseBody: z.object({
+        content: z.string().describe("Checklist markdown content"),
+        isDefault: z.boolean().describe("True when no custom checklist exists"),
+      }),
       handler: () => handleGetChecklist(),
     },
     {
       endpoint: "heartbeat/checklist",
       method: "PUT",
       policyKey: "heartbeat",
+      summary: "Write heartbeat checklist",
+      description: "Overwrite the HEARTBEAT.md checklist content.",
+      tags: ["heartbeat"],
+      requestBody: z.object({
+        content: z.string().describe("Checklist markdown content"),
+      }),
+      responseBody: z.object({
+        success: z.boolean(),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as { content?: string };
         if (typeof body.content !== "string") {

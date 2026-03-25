@@ -31,7 +31,7 @@ struct AppIconPickerSheet: View {
                         selectedIcon = icon
                     } label: {
                         VIconView(icon, size: 16)
-                            .foregroundColor(
+                            .foregroundStyle(
                                 selectedIcon == icon
                                     ? VColor.primaryBase
                                     : VColor.contentSecondary

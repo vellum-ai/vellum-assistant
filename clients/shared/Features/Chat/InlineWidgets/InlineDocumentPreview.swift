@@ -17,18 +17,18 @@ public struct InlineDocumentPreview: View {
         } label: {
             HStack(spacing: VSpacing.sm) {
                 VIconView(.fileText, size: 20)
-                    .foregroundColor(VColor.primaryBase)
+                    .foregroundStyle(VColor.primaryBase)
 
                 VStack(alignment: .leading, spacing: VSpacing.xxs) {
                     Text(data.title)
                         .font(VFont.bodyMediumEmphasised)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                         .lineLimit(2)
 
                     if let subtitle = data.subtitle {
                         Text(subtitle)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .lineLimit(1)
                     }
                 }

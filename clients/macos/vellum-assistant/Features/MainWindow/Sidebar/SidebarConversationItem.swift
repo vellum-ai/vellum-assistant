@@ -55,7 +55,7 @@ struct SidebarConversationItem: View, Equatable {
                         onTogglePin()
                     } label: {
                         VIconView(.pin, size: 13)
-                            .foregroundColor(conversation.isPinned ? VColor.contentTertiary : VColor.contentSecondary)
+                            .foregroundStyle(conversation.isPinned ? VColor.contentTertiary : VColor.contentSecondary)
                             .rotationEffect(.degrees(-45))
                             .frame(width: 20, height: 20)
                             .contentShape(Rectangle())
@@ -73,13 +73,13 @@ struct SidebarConversationItem: View, Equatable {
                             .accessibilityLabel("Processing")
                     case .waitingForInput:
                         VIconView(.circleAlert, size: 12)
-                            .foregroundColor(VColor.systemMidStrong)
+                            .foregroundStyle(VColor.systemMidStrong)
                             .frame(width: 20, height: 20)
                             .nativeTooltip("Waiting for input")
                             .accessibilityLabel("Waiting for input")
                     case .error:
                         VIconView(.circleAlert, size: 12)
-                            .foregroundColor(VColor.systemNegativeStrong)
+                            .foregroundStyle(VColor.systemNegativeStrong)
                             .frame(width: 20, height: 20)
                             .nativeTooltip("Error")
                             .accessibilityLabel("Error")
@@ -93,7 +93,7 @@ struct SidebarConversationItem: View, Equatable {
                                 .transition(.opacity)
                         } else if conversation.isPinned {
                             VIconView(.pin, size: 13)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                                 .rotationEffect(.degrees(-45))
                                 .frame(width: 20, height: 20)
                                 .nativeTooltip("Pinned")
@@ -107,13 +107,13 @@ struct SidebarConversationItem: View, Equatable {
                 }
                 if conversation.kind == .private {
                     VIconView(.lock, size: 13)
-                        .foregroundColor(VColor.primaryBase.opacity(0.7))
+                        .foregroundStyle(VColor.primaryBase.opacity(0.7))
                         .nativeTooltip("Private conversation")
                         .accessibilityLabel("Private conversation")
                 }
                 Text(conversation.title)
                     .font(.system(size: 13))
-                    .foregroundColor(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
+                    .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .nativeTooltip(conversation.title)
@@ -161,7 +161,7 @@ struct SidebarConversationItem: View, Equatable {
                     onBeginArchive()
                 } label: {
                     VIconView(.archive, size: 13)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .frame(width: 20, height: 20)
                         .contentShape(Rectangle())
                 }
@@ -222,7 +222,7 @@ struct SidebarConversationItem: View, Equatable {
             HStack(spacing: VSpacing.xs) {
                 if conversation.isPinned {
                     VIconView(.pin, size: 13)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .rotationEffect(.degrees(-45))
                         .frame(width: 20, height: 20)
                 } else {
@@ -230,7 +230,7 @@ struct SidebarConversationItem: View, Equatable {
                 }
                 Text(conversation.title)
                     .font(.system(size: 13))
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
             }
             .padding(.leading, VSpacing.xs)

@@ -3,19 +3,22 @@ import Combine
 import VellumAssistantShared
 
 @MainActor
-final class SkillsManager: ObservableObject {
+@Observable
+final class SkillsManager {
     let skillsStore: SkillsStore
 
     // Forward all published properties from SkillsStore so existing views
-    // continue to work via @ObservedObject on SkillsManager unchanged.
-    @Published var skills: [SkillInfo] = []
-    @Published var loadedBodies: [String: String] = [:]
-    @Published var isLoading = false
-    @Published var uninstallResult: SkillsStore.UninstallResult?
-    @Published var isUninstalling = false
-    @Published var selectedSkillFiles: SkillDetailFilesHTTPResponse?
-    @Published var isLoadingSkillFiles = false
-    @Published var skillFilesError: String?
+    // continue to work via observation on SkillsManager unchanged.
+    var skills: [SkillInfo] = []
+    var loadedBodies: [String: String] = [:]
+    var isLoading = false
+    var uninstallResult: SkillsStore.UninstallResult?
+    var isUninstalling = false
+    var selectedSkillFiles: SkillDetailFilesHTTPResponse?
+    var isLoadingSkillFiles = false
+    var skillFilesError: String?
+
+    @ObservationIgnored private var cancellables = Set<AnyCancellable>()
 
     // Kept for source compatibility with existing macOS views.
     typealias UninstallResult = SkillsStore.UninstallResult
@@ -27,14 +30,14 @@ final class SkillsManager: ObservableObject {
 
     /// Wire up Combine subscriptions to forward SkillsStore state.
     private func bindStore() {
-        skillsStore.$skills.assign(to: &$skills)
-        skillsStore.$loadedBodies.assign(to: &$loadedBodies)
-        skillsStore.$isLoading.assign(to: &$isLoading)
-        skillsStore.$uninstallResult.assign(to: &$uninstallResult)
-        skillsStore.$isUninstalling.assign(to: &$isUninstalling)
-        skillsStore.$selectedSkillFiles.assign(to: &$selectedSkillFiles)
-        skillsStore.$isLoadingSkillFiles.assign(to: &$isLoadingSkillFiles)
-        skillsStore.$skillFilesError.assign(to: &$skillFilesError)
+        skillsStore.$skills.sink { [weak self] in self?.skills = $0 }.store(in: &cancellables)
+        skillsStore.$loadedBodies.sink { [weak self] in self?.loadedBodies = $0 }.store(in: &cancellables)
+        skillsStore.$isLoading.sink { [weak self] in self?.isLoading = $0 }.store(in: &cancellables)
+        skillsStore.$uninstallResult.sink { [weak self] in self?.uninstallResult = $0 }.store(in: &cancellables)
+        skillsStore.$isUninstalling.sink { [weak self] in self?.isUninstalling = $0 }.store(in: &cancellables)
+        skillsStore.$selectedSkillFiles.sink { [weak self] in self?.selectedSkillFiles = $0 }.store(in: &cancellables)
+        skillsStore.$isLoadingSkillFiles.sink { [weak self] in self?.isLoadingSkillFiles = $0 }.store(in: &cancellables)
+        skillsStore.$skillFilesError.sink { [weak self] in self?.skillFilesError = $0 }.store(in: &cancellables)
     }
 
     // MARK: - Delegated Operations

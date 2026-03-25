@@ -74,7 +74,7 @@ struct IdentityPanel: View {
                                 HStack(spacing: VSpacing.xs) {
                                     Text(introText ?? (hasRealName ? "I'm \(assistantDisplayName)!" : "I need a name!"))
                                         .font(VFont.titleMedium)
-                                        .foregroundColor(VColor.contentDefault)
+                                        .foregroundStyle(VColor.contentDefault)
                                         .multilineTextAlignment(.center)
 
                                     VButton(
@@ -131,7 +131,7 @@ struct IdentityPanel: View {
                                     VStack(alignment: .leading, spacing: VSpacing.xxs) {
                                         Text("Role")
                                             .font(VFont.labelDefault)
-                                            .foregroundColor(VColor.contentTertiary)
+                                            .foregroundStyle(VColor.contentTertiary)
                                         inlineEditField(
                                             text: $editingRoleText,
                                             placeholder: "Enter a role",
@@ -193,38 +193,22 @@ struct IdentityPanel: View {
                 .padding(.trailing, 0)
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFullscreen)
-            .overlay {
-                VColor.auxBlack.opacity(viewingFilePath != nil ? 0.4 : 0)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(viewingFilePath != nil)
-                    .onTapGesture { viewingFilePath = nil }
-
+            .sheet(isPresented: Binding(
+                get: { viewingFilePath != nil },
+                set: { if !$0 { viewingFilePath = nil } }
+            )) {
                 if let path = viewingFilePath {
                     WorkspaceFileSheet(filePath: path, onClose: { viewingFilePath = nil })
                         .frame(width: 600, height: 500)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                        .shadow(color: VColor.auxBlack.opacity(0.5), radius: 20, y: 8)
-                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
             }
-            .animation(VAnimation.standard, value: viewingFilePath != nil)
-            .overlay {
-                VColor.auxBlack.opacity(showAvatarSheet ? 0.4 : 0)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(showAvatarSheet)
-                    .onTapGesture { showAvatarSheet = false }
-
-                if showAvatarSheet {
-                    AvatarManagementSheet(
-                        onClose: { showAvatarSheet = false }
-                    )
-                    .frame(width: 360)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .shadow(color: VColor.auxBlack.opacity(0.5), radius: 20, y: 8)
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                }
+            .sheet(isPresented: $showAvatarSheet) {
+                AvatarManagementSheet(
+                    onClose: { showAvatarSheet = false }
+                )
+                .frame(width: 360)
+                .fixedSize(horizontal: false, vertical: true)
             }
-            .animation(VAnimation.standard, value: showAvatarSheet)
             .onAppear {
                 identity = IdentityInfo.load()
                 metadata = AssistantMetadata.load()
@@ -271,7 +255,7 @@ struct IdentityPanel: View {
         HStack(spacing: VSpacing.xs) {
             TextField(placeholder, text: text)
                 .font(font)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .textFieldStyle(.plain)
                 .onSubmit { onSave() }
 
@@ -436,19 +420,19 @@ struct IdentityPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
 
             if truncate {
                 Text(value)
                     .font(mono ? VFont.bodyMediumDefault : VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(value)
             } else {
                 Text(value)
                     .font(mono ? VFont.bodyMediumDefault : VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .textSelection(.enabled)
             }
         }
@@ -458,10 +442,10 @@ struct IdentityPanel: View {
         VStack(alignment: .leading, spacing: VSpacing.xxs) {
             Text(label)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
             Text(value)
                 .font(VFont.bodyMediumEmphasised)
-                .foregroundColor(VColor.contentEmphasized)
+                .foregroundStyle(VColor.contentEmphasized)
         }
     }
 
@@ -500,14 +484,14 @@ private struct WorkspaceFileSheet: View {
             // Header
             HStack {
                 VIconView(.fileText, size: 13)
-                    .foregroundColor(VColor.systemNegativeHover)
+                    .foregroundStyle(VColor.systemNegativeHover)
                 Text(fileName)
                     .font(VFont.titleSmall)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Spacer()
                 Button(action: onClose) {
                     VIconView(.x, size: 12)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                         .frame(width: 32, height: 32)
                         .contentShape(Rectangle())
                 }

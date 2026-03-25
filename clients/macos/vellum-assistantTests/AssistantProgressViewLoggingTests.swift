@@ -31,7 +31,7 @@ struct AssistantProgressViewLoggingTests {
     }
 
     /// Simulates the auto-expand diagnostic that `onAppear` would emit for a
-    /// completed step group when the `expand_completed_steps` flag is enabled.
+    /// completed step group when the `expand-completed-steps` flag is enabled.
     ///
     /// This mirrors the exact recording logic in AssistantProgressView.onAppear
     /// so that test assertions stay tightly coupled to production behavior.

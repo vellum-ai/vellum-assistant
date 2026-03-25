@@ -6,28 +6,29 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "WatchSession")
 
 @MainActor
-public final class WatchSession: ObservableObject {
+@Observable
+public final class WatchSession {
     public enum State { case idle, capturing, complete, cancelled }
 
-    @Published public var state: State = .idle
-    @Published public var captureCount: Int = 0
-    @Published public var totalExpected: Int = 0
-    @Published public var elapsedSeconds: Double = 0
-    @Published public var currentApp: String = ""
+    public var state: State = .idle
+    public var captureCount: Int = 0
+    public var totalExpected: Int = 0
+    public var elapsedSeconds: Double = 0
+    public var currentApp: String = ""
 
     public let watchId: String
     public let conversationId: String
     public let durationSeconds: Int
     public let intervalSeconds: Int
 
-    private var connectionManager: (GatewayConnectionManager)?
-    private let computerUseClient: any ComputerUseClientProtocol = ComputerUseClient()
-    private var captureTask: Task<Void, Never>?
-    private var elapsedTask: Task<Void, Never>?
-    private var startedAt: Date?
-    private let screenCapture = ScreenCapture()
-    private let ocr = ScreenOCR()
-    private var previousOcrText: String = ""
+    @ObservationIgnored private var connectionManager: (GatewayConnectionManager)?
+    @ObservationIgnored private let computerUseClient: any ComputerUseClientProtocol = ComputerUseClient()
+    @ObservationIgnored private var captureTask: Task<Void, Never>?
+    @ObservationIgnored private var elapsedTask: Task<Void, Never>?
+    @ObservationIgnored private var startedAt: Date?
+    @ObservationIgnored private let screenCapture = ScreenCapture()
+    @ObservationIgnored private let ocr = ScreenOCR()
+    @ObservationIgnored private var previousOcrText: String = ""
 
     public init(watchId: String, conversationId: String, durationSeconds: Int, intervalSeconds: Int) {
         self.watchId = watchId

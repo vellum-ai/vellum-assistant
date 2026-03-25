@@ -4,6 +4,7 @@ import { getChannelInvitePolicy } from "../channels/config.js";
 import { getConfig, loadRawConfig } from "../config/loader.js";
 import { isEmailEnabled } from "../email/feature-gate.js";
 import { getEmailService } from "../email/service.js";
+import { shouldUsePlatformCallbacks } from "../inbound/platform-callback-registration.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { resolveWhatsAppDisplayNumber } from "./channel-invite-transports/whatsapp.js";
@@ -31,6 +32,23 @@ function hasIngressConfigured(): boolean {
   } catch {
     return false;
   }
+}
+
+function hasWebhookRoutingConfigured(allowManagedCallbacks = false): {
+  configured: boolean;
+  usesManagedCallbacks: boolean;
+} {
+  const ingressConfigured = hasIngressConfigured();
+  if (ingressConfigured) {
+    return { configured: true, usesManagedCallbacks: false };
+  }
+
+  const usesManagedCallbacks =
+    allowManagedCallbacks && shouldUsePlatformCallbacks();
+  return {
+    configured: usesManagedCallbacks,
+    usesManagedCallbacks,
+  };
 }
 
 // ── Shared check helpers ────────────────────────────────────────────────────
@@ -62,13 +80,18 @@ async function checkCredential(
 }
 
 /** Check that public ingress is configured and enabled. */
-function checkIngress(): ReadinessCheckResult {
-  const has = hasIngressConfigured();
+function checkIngress(allowManagedCallbacks = false): ReadinessCheckResult {
+  const { configured, usesManagedCallbacks } =
+    hasWebhookRoutingConfigured(allowManagedCallbacks);
   return check(
     "ingress",
-    has,
-    "Public ingress URL is configured",
-    "Public ingress URL is not configured or disabled",
+    configured,
+    usesManagedCallbacks
+      ? "Managed platform callback routing is configured"
+      : "Public ingress URL is configured",
+    allowManagedCallbacks
+      ? "No public ingress URL or managed callback route is configured"
+      : "Public ingress URL is not configured or disabled",
   );
 }
 
@@ -79,7 +102,7 @@ const voiceProbe: ChannelProbe = {
   async runLocalChecks(): Promise<ReadinessCheckResult[]> {
     const hasCreds = await hasTwilioCredentials();
     const hasPhone = !!resolveTwilioPhoneNumber();
-    const ingress = checkIngress();
+    const ingress = checkIngress(true);
 
     return [
       check(
@@ -117,7 +140,7 @@ const telegramProbe: ChannelProbe = {
         "webhook_secret",
         "Telegram webhook secret",
       ),
-      checkIngress(),
+      checkIngress(true),
     ];
   },
 };

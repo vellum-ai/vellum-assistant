@@ -120,10 +120,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:discord --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --scopes identify guilds guilds.members.read messages.read
+    assistant oauth connect integration:discord --scopes identify guilds guilds.members.read messages.read
 ```
 
 Send the returned auth URL to the user. Tell them to click **Authorize** on the Discord consent page.

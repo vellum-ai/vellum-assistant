@@ -55,6 +55,7 @@ import { generateInstanceName } from "../lib/random-name";
 import { validateAssistantName } from "../lib/retire-archive";
 import { leaseGuardianToken } from "../lib/guardian-token";
 import { archiveLogFile, resetLogFile } from "../lib/xdg-log";
+import { emitProgress } from "../lib/desktop-progress.js";
 
 export type { PollResult, WatchHatchingResult } from "../lib/gcp";
 
@@ -645,6 +646,8 @@ async function hatchLocal(
     name ?? process.env.VELLUM_ASSISTANT_NAME,
   );
 
+  emitProgress(1, 7, "Preparing workspace...");
+
   // Clean up stale local state: if daemon/gateway processes are running but
   // the lock file has no entries AND the daemon is not healthy, stop them
   // before starting fresh. A healthy daemon should be reused, not killed —
@@ -702,6 +705,8 @@ async function hatchLocal(
       }
     }
   }
+
+  emitProgress(2, 7, "Allocating resources...");
 
   // Reuse existing resources if re-hatching with --name that matches a known
   // local assistant, otherwise allocate fresh per-instance ports and directories.
@@ -763,10 +768,13 @@ async function hatchLocal(
     process.env.APP_VERSION = cliPkg.version;
   }
 
+  emitProgress(3, 7, "Writing configuration...");
   const defaultWorkspaceConfigPath = writeInitialConfig(configValues);
 
+  emitProgress(4, 7, "Starting assistant...");
   await startLocalDaemon(watch, resources, { defaultWorkspaceConfigPath });
 
+  emitProgress(5, 7, "Starting gateway...");
   let runtimeUrl = `http://127.0.0.1:${resources.gatewayPort}`;
   try {
     runtimeUrl = await startGateway(watch, resources);
@@ -782,6 +790,7 @@ async function hatchLocal(
 
   // Lease a guardian token so the desktop app can import it on first launch
   // instead of hitting /v1/guardian/init itself.
+  emitProgress(6, 7, "Securing connection...");
   try {
     await leaseGuardianToken(runtimeUrl, instanceName);
   } catch (err) {
@@ -813,6 +822,7 @@ async function hatchLocal(
     serviceGroupVersion: cliPkg.version ? `v${cliPkg.version}` : undefined,
     resources,
   };
+  emitProgress(7, 7, "Saving configuration...");
   if (!restart) {
     saveAssistantEntry(localEntry);
     setActiveAssistant(instanceName);

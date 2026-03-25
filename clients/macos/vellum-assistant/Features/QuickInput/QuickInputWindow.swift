@@ -12,12 +12,13 @@ private class KeyablePanel: NSPanel {
 /// Observable model that lets QuickInputWindow inject text (e.g. from voice)
 /// into the SwiftUI QuickInputView's text field.
 @MainActor
-final class QuickInputTextModel: ObservableObject {
-    @Published var text = ""
-    @Published var isRecording = false
+@Observable
+final class QuickInputTextModel {
+    var text = ""
+    var isRecording = false
     /// When set, the user has selected an existing conversation to continue.
-    @Published var selectedConversationId: UUID?
-    @Published var selectedConversationTitle: String?
+    var selectedConversationId: UUID?
+    var selectedConversationTitle: String?
 }
 
 /// A borderless, floating NSPanel that hosts the Quick Input text field.
@@ -163,7 +164,9 @@ final class QuickInputWindow {
                 if let conversationId = self?.textModel.selectedConversationId {
                     self?.onSelectConversation?(conversationId)
                     // Small delay so the conversation switches before we send the message
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    Task { @MainActor [weak self] in
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                        guard !Task.isCancelled else { return }
                         self?.onSubmitToConversation?(message, self?.attachedImageData)
                     }
                 } else {

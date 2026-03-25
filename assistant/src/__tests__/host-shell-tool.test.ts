@@ -850,7 +850,7 @@ describe("host_bash — proxy delegation", () => {
     const { _setOverridesForTesting } =
       await import("../config/assistant-feature-flags.js");
     _setOverridesForTesting({
-      "feature_flags.ces-shell-lockdown.enabled": true,
+      "ces-shell-lockdown": true,
     });
 
     try {

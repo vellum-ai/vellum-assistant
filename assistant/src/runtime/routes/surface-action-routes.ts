@@ -4,6 +4,8 @@
  * POST /v1/surface-actions — dispatch a surface action to an active conversation.
  * Requires the conversation to already exist (does not create new conversations).
  */
+import { z } from "zod";
+
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -218,6 +220,26 @@ export function surfaceActionRouteDefinitions(deps: {
     {
       endpoint: "surface-actions",
       method: "POST",
+      summary: "Trigger a surface action",
+      description:
+        "Execute an interactive action on a surface (e.g. button click, form submit).",
+      tags: ["surfaces"],
+      requestBody: z.object({
+        conversationId: z
+          .string()
+          .describe("Conversation that owns the surface")
+          .optional(),
+        surfaceId: z.string().describe("Surface to act on"),
+        actionId: z.string().describe("Action identifier"),
+        data: z
+          .object({})
+          .passthrough()
+          .describe("Action-specific payload")
+          .optional(),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req, authContext }) => {
         if (!deps.findConversation) {
           return httpError(
@@ -237,6 +259,17 @@ export function surfaceActionRouteDefinitions(deps: {
     {
       endpoint: "surfaces/:id/undo",
       method: "POST",
+      summary: "Undo last surface action",
+      description: "Revert the most recent action on a surface.",
+      tags: ["surfaces"],
+      requestBody: z.object({
+        conversationId: z
+          .string()
+          .describe("Conversation that owns the surface"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req, params }) => {
         if (!deps.findConversation) {
           return httpError(

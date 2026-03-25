@@ -7,6 +7,8 @@
  * the same pattern as other gateway-forwarded control-plane endpoints.
  */
 
+import { z } from "zod";
+
 import { getDb } from "../../memory/db-connection.js";
 import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
 import { rollbackMemoryMigration } from "../../memory/migrations/validate-migration-state.js";
@@ -25,6 +27,29 @@ export function migrationRollbackRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "admin/rollback-migrations",
       method: "POST",
+      summary: "Rollback migrations",
+      description:
+        "Roll back DB and/or workspace migrations to a specified target version. Restricted to gateway service principals.",
+      tags: ["admin"],
+      requestBody: z.object({
+        targetDbVersion: z
+          .number()
+          .int()
+          .describe("Target DB migration version"),
+        targetWorkspaceMigrationId: z
+          .string()
+          .describe("Target workspace migration ID"),
+        rollbackToRegistryCeiling: z
+          .boolean()
+          .describe("Auto-determine targets from daemon registry ceilings"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+        rolledBack: z
+          .object({})
+          .passthrough()
+          .describe("Lists of rolled-back DB and workspace migrations"),
+      }),
       handler: async ({ req }) => {
         let body: unknown;
         try {

@@ -107,7 +107,7 @@ struct ImageGenerationServiceCard: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Log in to Vellum to use managed image generation.")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
             VButton(
                 label: authManager.isSubmitting ? "Logging in..." : "Log In",
                 style: .primary,
@@ -126,7 +126,7 @@ struct ImageGenerationServiceCard: View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Active Model")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
             VDropdown(
                 placeholder: "Select a model\u{2026}",
                 selection: $draftModel,

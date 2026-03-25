@@ -41,6 +41,8 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+import { sql } from "drizzle-orm";
+
 import {
   addMessage,
   createConversation,
@@ -266,5 +268,67 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     const firstTurnLogs = getRequestLogsByMessageId(a1.id);
     expect(firstTurnLogs).toHaveLength(1);
     expect(firstTurnLogs[0]?.messageId).toBe(a1.id);
+  });
+
+  test("recovers orphaned logs from deleted intermediate messages", () => {
+    // Simulate a turn where intermediate messages were deleted but logs remain.
+    // Use explicit timestamps via raw SQL to avoid timing-dependent flakes.
+    const T = 1_700_000_000_000;
+    const db = getDb();
+    const conv = createConversation("orphan-test");
+
+    // Insert messages with controlled timestamps via raw SQL.
+    db.run(
+      sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('u1-o', ${conv.id}, 'user', '"Do the task"', ${T})`,
+    );
+    db.run(
+      sql`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES ('a3-o', ${conv.id}, 'assistant', '"Done!"', ${T + 30000})`,
+    );
+
+    // Orphaned log 1: message_id points to a deleted message
+    db.insert(llmRequestLogs)
+      .values({
+        id: "log-orphan-1",
+        conversationId: conv.id,
+        messageId: "deleted-msg-A1",
+        provider: "anthropic",
+        requestPayload: '{"step":1}',
+        responsePayload: '{"tool":"bash"}',
+        createdAt: T + 5000,
+      })
+      .run();
+
+    // Orphaned log 2
+    db.insert(llmRequestLogs)
+      .values({
+        id: "log-orphan-2",
+        conversationId: conv.id,
+        messageId: "deleted-msg-A2",
+        provider: "anthropic",
+        requestPayload: '{"step":2}',
+        responsePayload: '{"tool":"file_write"}',
+        createdAt: T + 15_000,
+      })
+      .run();
+
+    // Surviving log: backfilled to the surviving assistant message
+    db.insert(llmRequestLogs)
+      .values({
+        id: "log-surviving",
+        conversationId: conv.id,
+        messageId: "a3-o",
+        provider: "anthropic",
+        requestPayload: '{"step":3}',
+        responsePayload: '{"text":"Done!"}',
+        createdAt: T + 29_000,
+      })
+      .run();
+
+    // Query from the surviving assistant message → should find all 3 logs
+    const logs = getRequestLogsByMessageId("a3-o");
+    expect(logs).toHaveLength(3);
+    expect(logs[0]?.id).toBe("log-orphan-1");
+    expect(logs[1]?.id).toBe("log-orphan-2");
+    expect(logs[2]?.id).toBe("log-surviving");
   });
 });

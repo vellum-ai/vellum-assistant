@@ -147,6 +147,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     @Published private(set) var conversationInteractionStates: [UUID: ConversationInteractionState] = [:]
     /// Subscriptions to per-conversation interaction-state changes.
     private var interactionStateCancellables: [UUID: Set<AnyCancellable>] = [:]
+    /// Generation counter per conversation for invalidating withObservationTracking loops
+    /// when subscriptions are cancelled (conversation switch, close, archive).
+    private var errorObservationGenerations: [UUID: Int] = [:]
     /// Pending anchor message ID for scroll-to behavior on notification deep links.
     @Published var pendingAnchorMessageId: UUID?
     /// Message ID to visually highlight after an anchor scroll completes.
@@ -625,6 +628,18 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             markHistoryLoaded: false
         ) else { return }
         log.info("Created notification conversation \(localId) for conversation \(conversationId) (source: \(sourceEventName))")
+    }
+
+    /// Create a visible conversation bound to a heartbeat-created conversation.
+    /// Called when the daemon broadcasts `heartbeat_conversation_created` so the user
+    /// sees heartbeat conversations in the sidebar without a full refresh.
+    func createHeartbeatConversation(conversationId: String, title: String) {
+        guard let localId = createBackgroundConversation(
+            conversationId: conversationId,
+            title: title,
+            source: "heartbeat"
+        ) else { return }
+        log.info("Created heartbeat conversation \(localId) for conversation \(conversationId)")
     }
 
     func closeConversation(id: UUID) {
@@ -2247,6 +2262,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
         busyConversationIds.remove(conversationId)
         interactionStateCancellables.removeValue(forKey: conversationId)
+        // Invalidate any in-flight withObservationTracking loop for error bridging.
+        if let gen = errorObservationGenerations[conversationId] {
+            errorObservationGenerations[conversationId] = gen + 1
+        }
     }
 
     /// Atomically cancel all per-conversation subscriptions and remove cached state
@@ -2261,6 +2280,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         busyConversationIds.remove(id)
         interactionStateCancellables[id] = nil
         conversationInteractionStates.removeValue(forKey: id)
+        // Invalidate any in-flight withObservationTracking loop for error bridging.
+        if let gen = errorObservationGenerations[id] {
+            errorObservationGenerations[id] = gen + 1
+        }
     }
 
     // MARK: - Interaction State
@@ -2281,6 +2304,36 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         let msgMgr = viewModel.messageManager
         let errMgr = viewModel.errorManager
 
+        // Bridge @Observable ChatErrorManager into Combine so the rest of
+        // the pipeline stays unchanged. A withObservationTracking loop
+        // detects changes to errorText / conversationError and pushes
+        // snapshots into a CurrentValueSubject.
+        let errorSubject = CurrentValueSubject<(String?, ConversationError?), Never>(
+            (errMgr.errorText, errMgr.conversationError)
+        )
+
+        // Bump the generation to invalidate any prior observation loop for this conversation.
+        let generation = (errorObservationGenerations[conversationId] ?? 0) + 1
+        errorObservationGenerations[conversationId] = generation
+
+        func observeErrors(generation: Int) {
+            // Stop re-arming if the generation has been invalidated (conversation switched/closed).
+            guard self.errorObservationGenerations[conversationId] == generation else { return }
+            withObservationTracking {
+                _ = errMgr.errorText
+                _ = errMgr.conversationError
+            } onChange: { [weak self, weak errMgr] in
+                Task { @MainActor [weak self, weak errMgr] in
+                    guard let self,
+                          let errMgr,
+                          self.errorObservationGenerations[conversationId] == generation else { return }
+                    errorSubject.send((errMgr.errorText, errMgr.conversationError))
+                    observeErrors(generation: generation) // re-arm
+                }
+            }
+        }
+        observeErrors(generation: generation)
+
         // Combine busy-state publishers with error and message publishers.
         // Error state: errorText or conversationError non-nil.
         // WaitingForInput: hasPendingConfirmation (derived from messages).
@@ -2292,11 +2345,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             msgMgr.$messages
         )
         .combineLatest(
-            errMgr.$errorText,
-            errMgr.$conversationError
+            errorSubject
         )
-        .map { busyTuple, errorText, conversationError in
+        .map { busyTuple, errorTuple in
             let (isSending, isThinking, pendingQueuedCount, messages) = busyTuple
+            let (errorText, conversationError) = errorTuple
             let hasError = errorText != nil || conversationError != nil
             let hasPendingConfirmation = messages.contains(where: { $0.confirmation?.state == .pending })
             let isBusy = isSending || isThinking || pendingQueuedCount > 0

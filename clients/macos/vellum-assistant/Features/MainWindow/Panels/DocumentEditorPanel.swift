@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 struct DocumentEditorPanelView: View {
-    @ObservedObject var documentManager: DocumentManager
+    var documentManager: DocumentManager
     let connectionManager: GatewayConnectionManager
     let onClose: () -> Void
 
@@ -12,14 +12,14 @@ struct DocumentEditorPanelView: View {
             HStack {
                 Text(documentManager.title)
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer()
                 if documentManager.wordCount > 0 {
                     Text("\(documentManager.wordCount) words")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
                 if documentManager.isSaving {
                     ProgressView().controlSize(.small).scaleEffect(0.7)

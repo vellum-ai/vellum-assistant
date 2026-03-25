@@ -27,10 +27,10 @@ struct LayoutGallerySection: View {
                             VStack(alignment: .leading, spacing: VSpacing.xs) {
                                 Text("Tool Name")
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                                 Text("Select a Tool")
                                     .font(VFont.bodyMediumLighter)
-                                    .foregroundColor(VColor.contentSecondary)
+                                    .foregroundStyle(VColor.contentSecondary)
                                     .padding(VSpacing.sm)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .background(VColor.surfaceActive)
@@ -39,10 +39,10 @@ struct LayoutGallerySection: View {
                             VStack(alignment: .leading, spacing: VSpacing.xs) {
                                 Text("Tool Name")
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                                 Text("Select a Tool")
                                     .font(VFont.bodyMediumLighter)
-                                    .foregroundColor(VColor.contentSecondary)
+                                    .foregroundStyle(VColor.contentSecondary)
                                     .padding(VSpacing.sm)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .background(VColor.surfaceActive)
@@ -72,10 +72,10 @@ struct LayoutGallerySection: View {
                         VStack(alignment: .leading, spacing: VSpacing.lg) {
                             Text("Sub-screen content goes here")
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                             Text("Use backAction and closeAction to add navigation controls to the modal header.")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                         }
                     }
                     .frame(width: 360, height: 200)
@@ -98,7 +98,7 @@ struct LayoutGallerySection: View {
                         VStack(alignment: .leading, spacing: VSpacing.xs) {
                             Text("Container Width: \(Int(adaptiveContainerWidth))pt")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                             Slider(value: $adaptiveContainerWidth, in: 150...600, step: 10)
                                 .frame(maxWidth: 300)
                         }
@@ -137,10 +137,10 @@ struct LayoutGallerySection: View {
                         VStack(alignment: .leading, spacing: VSpacing.md) {
                             Text("Panel content goes here")
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                             Text("This panel has a title header with a close button and scrollable content area.")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                         }
                     }
                     .frame(width: 300, height: 200)
@@ -156,7 +156,7 @@ struct LayoutGallerySection: View {
 
                 VCard(padding: 0) {
                     VSidePanel(title: "Control", onClose: {}, pinnedContent: {
-                        VSegmentedControl(
+                        VTabs(
                             items: ["Profile", "Settings", "Channels", "Overview"],
                             selection: $pinnedTabSelection
                         )
@@ -165,10 +165,10 @@ struct LayoutGallerySection: View {
                         VStack(alignment: .leading, spacing: VSpacing.md) {
                             Text("Tab \(pinnedTabSelection + 1) content")
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                             Text("The tab bar above stays pinned while this content scrolls.")
                                 .font(VFont.labelDefault)
-                                .foregroundColor(VColor.contentSecondary)
+                                .foregroundStyle(VColor.contentSecondary)
                         }
                     }
                     .frame(width: 300, height: 250)
@@ -192,7 +192,7 @@ struct LayoutGallerySection: View {
                             VStack(alignment: .leading) {
                                 Text("Panel Width: \(Int(panelWidth))")
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentSecondary)
+                                    .foregroundStyle(VColor.contentSecondary)
                                 Slider(value: $panelWidth, in: 200...400, step: 20)
                                     .frame(maxWidth: 200)
                             }
@@ -207,10 +207,10 @@ struct LayoutGallerySection: View {
                             VStack {
                                 Text("Main Content")
                                     .font(VFont.titleLarge)
-                                    .foregroundColor(VColor.contentDefault)
+                                    .foregroundStyle(VColor.contentDefault)
                                 Text("This is the primary area")
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentSecondary)
+                                    .foregroundStyle(VColor.contentSecondary)
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background(VColor.surfaceBase)
@@ -218,7 +218,7 @@ struct LayoutGallerySection: View {
                             VSidePanel(title: "Details", onClose: { showPanel = false }, pinnedContent: { EmptyView() }) {
                                 Text("Side panel content")
                                     .font(VFont.bodyMediumLighter)
-                                    .foregroundColor(VColor.contentSecondary)
+                                    .foregroundStyle(VColor.contentSecondary)
                             }
                         }
                         .frame(height: 250)
@@ -247,7 +247,7 @@ struct LayoutGallerySection: View {
                             Toggle("Show Dock", isOn: $showDock)
                             Text("Dock Width: \(Int(dockWidth))")
                                 .font(VFont.bodyMediumDefault)
-                                .foregroundColor(VColor.contentTertiary)
+                                .foregroundStyle(VColor.contentTertiary)
                         }
 
                         Divider().background(VColor.borderBase)
@@ -258,20 +258,20 @@ struct LayoutGallerySection: View {
                         ) {
                             VStack {
                                 VIconView(.panelLeft, size: 20)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                                 Text("Dock")
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentSecondary)
+                                    .foregroundStyle(VColor.contentSecondary)
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background(VColor.surfaceOverlay)
                         } workspace: {
                             VStack {
                                 VIconView(.layoutGrid, size: 20)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                                 Text("Workspace")
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentSecondary)
+                                    .foregroundStyle(VColor.contentSecondary)
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background(VColor.surfaceBase)

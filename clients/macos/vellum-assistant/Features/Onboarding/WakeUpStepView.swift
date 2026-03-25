@@ -40,7 +40,7 @@ struct WakeUpStepView: View {
         // Title
         Text("Welcome to Vellum")
             .font(.system(size: 32, weight: .regular, design: .serif))
-            .foregroundColor(VColor.contentDefault)
+            .foregroundStyle(VColor.contentDefault)
             .opacity(showTitle ? 1 : 0)
             .offset(y: showTitle ? 0 : 8)
             .padding(.bottom, VSpacing.md)
@@ -48,7 +48,7 @@ struct WakeUpStepView: View {
         // Subtitle
         Text("Your personal AI assistant,\nrunning on your terms.")
             .font(VFont.titleSmall)
-            .foregroundColor(VColor.contentSecondary)
+            .foregroundStyle(VColor.contentSecondary)
             .multilineTextAlignment(.center)
             .opacity(showSubtext ? 1 : 0)
             .offset(y: showSubtext ? 0 : 8)
@@ -65,7 +65,7 @@ struct WakeUpStepView: View {
                         .progressViewStyle(.circular)
                     Text("Checking...")
                         .font(VFont.titleSmall)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
                 .frame(height: 36)
             } else if authManager?.isSubmitting == true {
@@ -75,7 +75,7 @@ struct WakeUpStepView: View {
                         .progressViewStyle(.circular)
                     Text("Logging in...")
                         .font(VFont.titleSmall)
-                        .foregroundColor(VColor.contentSecondary)
+                        .foregroundStyle(VColor.contentSecondary)
                 }
                 .frame(height: 36)
             } else if managedSignInEnabled {
@@ -100,7 +100,7 @@ struct WakeUpStepView: View {
             if let error = authManager?.errorMessage {
                 Text(error)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
                     .multilineTextAlignment(.center)
             }
         }

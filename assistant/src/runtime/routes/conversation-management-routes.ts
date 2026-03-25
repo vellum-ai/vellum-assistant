@@ -14,6 +14,8 @@
  * POST   /v1/conversations/reorder        — reorder / pin conversations
  */
 
+import { z } from "zod";
+
 import {
   batchSetDisplayOrders,
   deleteConversation,
@@ -73,6 +75,22 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations",
       method: "POST",
       policyKey: "conversations",
+      summary: "Create a conversation",
+      description: "Create or get an existing conversation by key.",
+      tags: ["conversations"],
+      requestBody: z.object({
+        conversationKey: z
+          .string()
+          .describe("Idempotency key for the conversation"),
+        conversationType: z
+          .string()
+          .describe("'standard' (default) or 'private'"),
+      }),
+      responseBody: z.object({
+        id: z.string(),
+        conversationKey: z.string(),
+        conversationType: z.string(),
+      }),
       handler: async ({ req }) => {
         let body: { conversationKey?: string; conversationType?: string } = {};
         try {
@@ -111,6 +129,17 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/fork",
       method: "POST",
       policyKey: "conversations/fork",
+      summary: "Fork a conversation",
+      description:
+        "Create a copy of a conversation, optionally truncated at a specific message.",
+      tags: ["conversations"],
+      requestBody: z.object({
+        conversationId: z.string(),
+        throughMessageId: z
+          .string()
+          .describe("Truncate the fork at this message")
+          .optional(),
+      }),
       handler: async ({ req }) => {
         if (!deps.forkConversation) {
           return httpError(
@@ -172,6 +201,21 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/switch",
       method: "POST",
       policyKey: "conversations/switch",
+      summary: "Switch active conversation",
+      description: "Set the active conversation for the current session.",
+      tags: ["conversations"],
+      requestBody: z.object({
+        conversationId: z.string(),
+        conversationKey: z
+          .string()
+          .describe("Optional key to register for this conversation")
+          .optional(),
+      }),
+      responseBody: z.object({
+        conversationId: z.string(),
+        title: z.string(),
+        conversationType: z.string(),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           conversationId?: string;
@@ -206,6 +250,12 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/:id/name",
       method: "PATCH",
       policyKey: "conversations/name",
+      summary: "Rename a conversation",
+      description: "Update the display name of a conversation.",
+      tags: ["conversations"],
+      requestBody: z.object({
+        name: z.string(),
+      }),
       handler: async ({ req, params }) => {
         const body = (await req.json()) as { name?: string };
         const name = body.name;
@@ -227,6 +277,10 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations",
       method: "DELETE",
       policyKey: "conversations/clear-all",
+      summary: "Clear all conversations",
+      description:
+        "Permanently delete ALL conversations, messages, and memory. Requires X-Confirm-Destructive header.",
+      tags: ["conversations"],
       handler: ({ req }) => {
         const confirm = req.headers.get("x-confirm-destructive");
         if (confirm !== "clear-all-conversations") {
@@ -245,6 +299,16 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/:id/wipe",
       method: "POST",
       policyKey: "conversations/wipe",
+      summary: "Wipe a conversation",
+      description:
+        "Delete all messages in a conversation and revert associated memory changes.",
+      tags: ["conversations"],
+      responseBody: z.object({
+        wiped: z.boolean(),
+        unsupersededItems: z.number().int(),
+        deletedSummaries: z.number().int(),
+        cancelledJobs: z.number().int(),
+      }),
       handler: async ({ params }) => {
         const resolvedId = resolveConversationId(params.id);
         if (!resolvedId) {
@@ -296,6 +360,9 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/:id",
       method: "DELETE",
       policyKey: "conversations",
+      summary: "Delete a conversation",
+      description: "Permanently delete a single conversation and its messages.",
+      tags: ["conversations"],
       handler: async ({ params }) => {
         const resolvedId = resolveConversationId(params.id);
         if (!resolvedId) {
@@ -339,6 +406,10 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/:id/cancel",
       method: "POST",
       policyKey: "conversations/cancel",
+      summary: "Cancel generation",
+      description:
+        "Abort the in-progress assistant response for a conversation.",
+      tags: ["conversations"],
       handler: ({ params }) => {
         const resolvedId = resolveConversationId(params.id) ?? params.id;
         deps.cancelGeneration(resolvedId);
@@ -349,6 +420,14 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/:id/undo",
       method: "POST",
       policyKey: "conversations/undo",
+      summary: "Undo last message",
+      description:
+        "Remove the most recent user+assistant message pair from the conversation.",
+      tags: ["conversations"],
+      responseBody: z.object({
+        removedCount: z.number().int(),
+        conversationId: z.string(),
+      }),
       handler: async ({ params }) => {
         const result = await deps.undoLastMessage(params.id);
         if (!result) {
@@ -368,6 +447,10 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/:id/regenerate",
       method: "POST",
       policyKey: "conversations/regenerate",
+      summary: "Regenerate response",
+      description:
+        "Re-run the assistant for the last user message in a conversation.",
+      tags: ["conversations"],
       handler: async ({ params }) => {
         try {
           const result = await deps.regenerateResponse(params.id);
@@ -397,6 +480,17 @@ export function conversationManagementRouteDefinitions(
       endpoint: "conversations/reorder",
       method: "POST",
       policyKey: "conversations/reorder",
+      summary: "Reorder conversations",
+      description:
+        "Batch-update display order and pin state for conversations.",
+      tags: ["conversations"],
+      requestBody: z.object({
+        updates: z
+          .array(z.unknown())
+          .describe(
+            "Array of { conversationId, displayOrder?, isPinned? } objects",
+          ),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           updates?: Array<{

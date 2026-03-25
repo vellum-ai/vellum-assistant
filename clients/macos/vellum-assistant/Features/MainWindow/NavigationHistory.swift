@@ -1,9 +1,11 @@
 import Foundation
+import Observation
 
 /// Manages back/forward navigation stacks for the main window,
 /// allowing users to retrace their steps through view selections.
 @MainActor
-final class NavigationHistory: ObservableObject {
+@Observable
+final class NavigationHistory {
 
     enum HistoryEntry: Equatable {
         case selection(ViewSelection)
@@ -30,8 +32,8 @@ final class NavigationHistory: ObservableObject {
         }
     }
 
-    @Published private(set) var backStack: [HistoryEntry] = []
-    @Published private(set) var forwardStack: [HistoryEntry] = []
+    private(set) var backStack: [HistoryEntry] = []
+    private(set) var forwardStack: [HistoryEntry] = []
 
     let maxDepth: Int = 50
 

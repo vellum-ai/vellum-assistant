@@ -17,7 +17,7 @@ struct FileTreeRowLabel: View {
             // Expand/collapse chevron for directories, spacer for files
             if isDirectory {
                 VIconView(isExpanded ? .chevronDown : .chevronRight, size: 9)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .frame(width: 12)
             } else {
                 Spacer().frame(width: 12)
@@ -25,12 +25,12 @@ struct FileTreeRowLabel: View {
 
             // File or folder icon
             VIconView(isDirectory ? .folder : fileIcon, size: 12)
-                .foregroundColor(isDirectory ? VColor.primaryBase : VColor.contentSecondary)
+                .foregroundStyle(isDirectory ? VColor.primaryBase : VColor.contentSecondary)
 
             // Name label
             Text(name)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(isDimmed ? VColor.contentTertiary : VColor.contentDefault)
+                .foregroundStyle(isDimmed ? VColor.contentTertiary : VColor.contentDefault)
                 .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.leading, CGFloat(depth) * VSpacing.lg + VSpacing.sm)

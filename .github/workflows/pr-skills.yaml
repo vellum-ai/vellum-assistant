@@ -37,11 +37,15 @@ jobs:
             echo 'changed_skills=[]' >> "$GITHUB_OUTPUT"
           else
             # Filter to only files inside subdirectories (exclude top-level files like catalog.json)
+            # Also filter out deleted skills (directories that no longer exist on HEAD)
             SKILLS=$(echo "$CHANGED_FILES" \
               | sed "s|^$SKILLS_DIR/||" \
               | { grep '/' || true; } \
               | cut -d'/' -f1 \
               | sort -u \
+              | while read -r skill; do
+                  [ -d "$SKILLS_DIR/$skill" ] && echo "$skill"
+                done \
               | jq -R -s -c 'split("\n") | map(select(length > 0))')
             echo "changed_skills=${SKILLS:-[]}" >> "$GITHUB_OUTPUT"
           fi

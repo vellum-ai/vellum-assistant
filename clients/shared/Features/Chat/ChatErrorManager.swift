@@ -11,42 +11,43 @@ import Network
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatErrorManager")
 
-/// Owns error-related @Published properties that were previously part of ChatViewModel.
+/// Owns error-related properties that were previously part of ChatViewModel.
 /// ChatViewModel holds a reference to this object and forwards reads/writes via
 /// computed properties so every existing call site continues to compile without
 /// modification.
 @MainActor
-public final class ChatErrorManager: ObservableObject {
+@Observable
+public final class ChatErrorManager {
 
     /// Human-readable error string shown in the error banner.
-    @Published public var errorText: String?
+    public var errorText: String?
 
     /// Typed conversation error, richer than `errorText` and used for structured retry UI.
-    @Published public var conversationError: ConversationError?
+    public var conversationError: ConversationError?
 
     /// Whether the conversation error is already displayed as an inline error card
     /// in the message list. When true, the toast overlay suppresses its duplicate
     /// display while downstream consumers (credits-exhausted recovery, sidebar state,
     /// iOS banner) continue to see the typed error state.
-    @Published public var isConversationErrorDisplayedInline: Bool = false
+    public var isConversationErrorDisplayedInline: Bool = false
 
     /// Supplemental diagnostic hint shown alongside a daemon connection error.
     /// Nil when no connection error is active or the error has been dismissed.
-    @Published public var connectionDiagnosticHint: String? = nil
+    public var connectionDiagnosticHint: String? = nil
 
     // MARK: - Retry state
 
     /// Whether the current error is a daemon/assistant connection failure.
-    @Published public var isConnectionError: Bool = false
+    public var isConnectionError: Bool = false
 
     /// Whether the current error is a secret-ingress block that can be bypassed.
-    @Published public var isSecretBlockError: Bool = false
+    public var isSecretBlockError: Bool = false
 
     /// Whether the current error is retryable (send failure, not a connection error).
-    @Published public var isRetryableError: Bool = false
+    public var isRetryableError: Bool = false
 
     /// Whether there is a failed user message that can be retried.
-    @Published public var hasRetryPayload: Bool = false
+    public var hasRetryPayload: Bool = false
 
     // MARK: - Connection diagnostics
 

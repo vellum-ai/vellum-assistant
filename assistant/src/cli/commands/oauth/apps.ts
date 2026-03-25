@@ -35,14 +35,15 @@ function formatAppRow(row: {
 export function registerAppCommands(oauth: Command): void {
   const apps = oauth
     .command("apps")
-    .description("Manage OAuth app registrations (client IDs and secrets)");
+    .description("Manage custom OAuth app registrations");
 
   apps.addHelpText(
     "after",
     `
-Apps represent OAuth client registrations — a client_id and optional
+Apps represent custom OAuth client registrations — a client_id and optional
 client_secret linked to a provider. Each provider can have multiple apps
-(e.g. different client IDs for different environments).
+(e.g. different client IDs for different environments). Only needed if using
+a provider with a mode of "your-own" set.
 
 Examples:
   $ assistant oauth apps list
@@ -97,9 +98,15 @@ Examples:
     .description(
       "Look up an OAuth app by ID, provider + client-id, or provider",
     )
-    .option("--id <id>", "App ID (UUID)")
-    .option("--provider <key>", "Provider key (e.g. integration:google)")
-    .option("--client-id <id>", "OAuth client ID (requires --provider)")
+    .option("--id <id>", "App ID (UUID) from 'assistant oauth apps list'")
+    .option(
+      "--provider <key>",
+      "Provider key (e.g. integration:google) from 'assistant oauth providers list'",
+    )
+    .option(
+      "--client-id <id>",
+      "OAuth client ID (requires --provider). Find registered client IDs via 'assistant oauth apps list'.",
+    )
     .addHelpText(
       "after",
       `
@@ -133,14 +140,23 @@ At least --id or --provider must be specified.`,
           } else {
             writeOutput(cmd, {
               ok: false,
-              error: "Provide --id, --provider, or --provider + --client-id",
+              error:
+                "Provide --id, --provider, or --provider + --client-id. Run 'assistant oauth apps list' to see all registered apps.",
             });
             process.exitCode = 1;
             return;
           }
 
           if (!row) {
-            writeOutput(cmd, { ok: false, error: "App not found" });
+            const lookup = opts.id
+              ? `id=${opts.id}`
+              : opts.provider && opts.clientId
+                ? `provider=${opts.provider}, clientId=${opts.clientId}`
+                : `provider=${opts.provider}`;
+            writeOutput(cmd, {
+              ok: false,
+              error: `No app found for ${lookup}. Run 'assistant oauth apps list' to see registered apps, or 'assistant oauth apps upsert --help' to register a new one.`,
+            });
             process.exitCode = 1;
             return;
           }
@@ -163,9 +179,12 @@ At least --id or --provider must be specified.`,
     .description("Create or return an existing OAuth app registration")
     .requiredOption(
       "--provider <key>",
-      "Provider key (e.g. integration:google)",
+      "Provider key (e.g. integration:google) from 'assistant oauth providers list'",
     )
-    .requiredOption("--client-id <id>", "OAuth client ID")
+    .requiredOption(
+      "--client-id <id>",
+      "OAuth client ID from the provider's developer console",
+    )
     .option(
       "--client-secret <secret>",
       "OAuth client secret (stored in credential store)",
@@ -293,7 +312,7 @@ Examples:
         if (!deleted) {
           writeOutput(cmd, {
             ok: false,
-            error: `App not found: ${id}`,
+            error: `App not found: ${id}. Run 'assistant oauth apps list' to see registered apps and their IDs.`,
           });
           process.exitCode = 1;
           return;

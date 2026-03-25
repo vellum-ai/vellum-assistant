@@ -42,13 +42,13 @@ public struct SubagentStatusChip: View {
     private func chipContent(phase: Int) -> some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(statusIcon, size: 11)
-                .foregroundColor(statusColor)
+                .foregroundStyle(statusColor)
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: VSpacing.xs) {
                     Text(subagent.label)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
 
                     if !subagent.isTerminal {
                         // Animated dots
@@ -66,7 +66,7 @@ public struct SubagentStatusChip: View {
                 if let error = subagent.error, !error.isEmpty {
                     Text(error)
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.systemNegativeStrong)
+                        .foregroundStyle(VColor.systemNegativeStrong)
                         .lineLimit(2)
                 }
             }
@@ -75,7 +75,7 @@ public struct SubagentStatusChip: View {
 
             if !subagent.isTerminal, let onAbort {
                 VIconView(.x, size: 9)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .padding(VSpacing.xs)
                     .contentShape(Rectangle())
                     .highPriorityGesture(TapGesture().onEnded { onAbort() })

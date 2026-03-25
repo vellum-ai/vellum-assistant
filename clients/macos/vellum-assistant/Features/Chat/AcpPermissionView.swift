@@ -13,7 +13,7 @@ struct AcpPermissionView: View {
     var body: some View {
         VStack(spacing: 16) {
             VIconView(.shieldCheck, size: 40)
-                .foregroundColor(.secondary)
+                .foregroundStyle(.secondary)
 
             Text("Agent Permission Request")
                 .font(.headline)

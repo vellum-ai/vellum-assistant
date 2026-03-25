@@ -14,7 +14,13 @@
 
 import { existsSync, readFileSync } from "node:fs";
 
+import { z } from "zod";
+
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
+import {
+  resolveChannelPersona,
+  resolveGuardianPersona,
+} from "../../prompts/persona-resolver.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 import type { AuthContext } from "../auth/types.js";
@@ -144,10 +150,14 @@ async function handleBtw(
       (async () => {
         try {
           const isIntroRequest = conversationKey === IDENTITY_INTRO_KEY;
+          const userPersona = resolveGuardianPersona();
+          const channelPersona = resolveChannelPersona(undefined);
           const result = await runBtwSidechain({
             content: trimmedContent,
             conversation,
             signal: req.signal,
+            userPersona,
+            channelPersona,
             onEvent: (event) => {
               if (event.type === "text_delta") {
                 controller.enqueue(
@@ -222,6 +232,16 @@ export function btwRouteDefinitions(deps: {
       endpoint: "btw",
       method: "POST",
       policyKey: "btw",
+      summary: "Run ephemeral LLM side-chain",
+      description:
+        "Stream an ephemeral LLM call reusing the conversation's provider and message history. Response is SSE (btw_text_delta, btw_complete, btw_error).",
+      tags: ["btw"],
+      requestBody: z.object({
+        conversationKey: z
+          .string()
+          .describe("Conversation key to scope the call"),
+        content: z.string().describe("User prompt content"),
+      }),
       handler: async ({ req, authContext }) =>
         handleBtw(req, deps, authContext),
     },

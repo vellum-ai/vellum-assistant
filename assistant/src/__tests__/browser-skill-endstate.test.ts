@@ -39,7 +39,7 @@ describe("browser skill migration end-state", () => {
   beforeAll(async () => {
     __resetRegistryForTesting();
     _setOverridesForTesting({
-      "feature_flags.browser.enabled": true,
+      browser: true,
     });
     await initializeTools();
   });

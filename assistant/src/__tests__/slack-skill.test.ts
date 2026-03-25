@@ -46,75 +46,11 @@ describe("slack adapter isPrivate mapping", () => {
   });
 });
 
-describe("slack skill TOOLS.json", () => {
+describe("slack skill has no TOOLS.json (uses Web API via CLI)", () => {
   const toolsPath = join(BUNDLED_SKILLS_DIR, "slack", "TOOLS.json");
-  const toolsJson = JSON.parse(readFileSync(toolsPath, "utf-8"));
 
-  test("is valid JSON with correct version", () => {
-    expect(toolsJson.version).toBe(1);
-    expect(Array.isArray(toolsJson.tools)).toBe(true);
-  });
-
-  test("has expected tools", () => {
-    const names = toolsJson.tools.map((t: { name: string }) => t.name);
-    expect(names).toContain("slack_scan_digest");
-    expect(names).toContain("slack_channel_details");
-    expect(names).toContain("slack_configure_channels");
-    expect(names).toContain("slack_add_reaction");
-    expect(names).toContain("slack_edit_message");
-    expect(names).toContain("slack_delete_message");
-    expect(names).toContain("slack_leave_channel");
-    expect(names).toContain("slack_channel_permissions");
-  });
-
-  test("has 8 tools total", () => {
-    expect(toolsJson.tools.length).toBe(8);
-  });
-
-  test("all tools have required fields", () => {
-    for (const tool of toolsJson.tools) {
-      expect(tool.name).toBeDefined();
-      expect(tool.description).toBeDefined();
-      expect(tool.category).toBeDefined();
-      expect(tool.risk).toBeDefined();
-      expect(tool.input_schema).toBeDefined();
-      expect(tool.executor).toBeDefined();
-      expect(tool.execution_target).toBeDefined();
-    }
-  });
-
-  test("all executor files exist", () => {
-    const slackSkillDir = join(BUNDLED_SKILLS_DIR, "slack");
-    for (const tool of toolsJson.tools) {
-      const executorPath = join(slackSkillDir, tool.executor);
-      expect(() => readFileSync(executorPath)).not.toThrow();
-    }
-  });
-});
-
-describe("messaging skill no longer has Slack tools", () => {
-  const messagingToolsPath = join(
-    BUNDLED_SKILLS_DIR,
-    "messaging",
-    "TOOLS.json",
-  );
-  const messagingToolsJson = JSON.parse(
-    readFileSync(messagingToolsPath, "utf-8"),
-  );
-
-  test("slack_add_reaction not in messaging TOOLS.json", () => {
-    const names = messagingToolsJson.tools.map((t: { name: string }) => t.name);
-    expect(names).not.toContain("slack_add_reaction");
-  });
-
-  test("slack_delete_message not in messaging TOOLS.json", () => {
-    const names = messagingToolsJson.tools.map((t: { name: string }) => t.name);
-    expect(names).not.toContain("slack_delete_message");
-  });
-
-  test("slack_leave_channel not in messaging TOOLS.json", () => {
-    const names = messagingToolsJson.tools.map((t: { name: string }) => t.name);
-    expect(names).not.toContain("slack_leave_channel");
+  test("TOOLS.json does not exist", () => {
+    expect(() => readFileSync(toolsPath)).toThrow();
   });
 });
 
@@ -129,7 +65,7 @@ describe("slack skill SKILL.md", () => {
   });
 
   test("mentions privacy rules", () => {
-    expect(skillMd).toContain("isPrivate");
-    expect(skillMd).toContain("MUST NEVER be shared");
+    expect(skillMd).toContain("is_private");
+    expect(skillMd).toContain("must NEVER be shared");
   });
 });

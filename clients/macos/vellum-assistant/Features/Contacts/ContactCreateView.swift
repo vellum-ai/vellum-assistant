@@ -40,10 +40,10 @@ struct ContactCreateView: View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             Text("Add Contact")
                 .font(VFont.titleSmall)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
             Text("Create a new contact with optional notes.")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
         }
     }
 
@@ -55,7 +55,7 @@ struct ContactCreateView: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Display Name")
                     .font(VFont.bodySmallDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                 VTextField(placeholder: "e.g. Alice Chen", text: $displayName)
             }
 
@@ -63,18 +63,18 @@ struct ContactCreateView: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text("Notes")
                     .font(VFont.bodySmallDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                 ZStack(alignment: .topLeading) {
                     if notes.isEmpty {
                         Text("e.g. Colleague, prefers casual tone (optional)")
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .padding(.horizontal, VSpacing.xs)
                             .padding(.vertical, VSpacing.sm)
                     }
                     TextEditor(text: $notes)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                         .scrollContentBackground(.hidden)
                         .frame(minHeight: 60, maxHeight: 120)
                 }

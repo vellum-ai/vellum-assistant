@@ -19,7 +19,7 @@ private enum MemoryStatusFilter: String, CaseIterable {
 }
 
 struct MemoriesListView: View {
-    @ObservedObject var store: MemoryItemsStore
+    var store: MemoryItemsStore
     @State private var searchText = ""
     @State private var selectedKind: String? = nil
     @State private var statusFilter: MemoryStatusFilter = .active
@@ -130,7 +130,7 @@ struct MemoriesListView: View {
                     Capsule()
                         .fill(isSelected ? VColor.primaryBase : VColor.surfaceActive)
                 )
-                .foregroundColor(isSelected ? .white : VColor.contentSecondary)
+                .foregroundStyle(isSelected ? .white : VColor.contentSecondary)
         }
         .buttonStyle(.plain)
         .accessibilityLabel("\(label) filter\(isSelected ? ", selected" : "")")
@@ -149,12 +149,12 @@ struct MemoriesListView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.subject)
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
 
                 Text(item.statement)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .lineLimit(2)
             }
 
@@ -162,7 +162,7 @@ struct MemoriesListView: View {
 
             Text(item.relativeLastSeen)
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
         }
         .padding(.vertical, 2)
         .swipeActions(edge: .trailing) {
@@ -179,16 +179,16 @@ struct MemoriesListView: View {
     private var emptyState: some View {
         VStack(spacing: VSpacing.lg) {
             VIconView(.bookOpen, size: 48)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .accessibilityHidden(true)
 
             Text("No Memories Yet")
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             Text("Your assistant learns from conversations.")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, VSpacing.xl)
         }
@@ -202,7 +202,7 @@ struct MemoriesListView: View {
             ProgressView()
             Text("Loading memories...")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

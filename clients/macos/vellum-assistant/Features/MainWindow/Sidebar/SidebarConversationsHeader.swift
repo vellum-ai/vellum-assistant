@@ -20,7 +20,7 @@ struct SidebarConversationsHeader: View {
         HStack {
             Text("Conversations")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
             Spacer()
             if hasUnseenConversations {
                 VButton(

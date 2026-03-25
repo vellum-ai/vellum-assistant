@@ -88,13 +88,13 @@ extension ChatBubble {
                 switch confirmation.state {
                 case .approved:
                     VIconView(.circleCheck, size: 12)
-                        .foregroundColor(chipColor)
+                        .foregroundStyle(chipColor)
                 case .denied:
                     VIconView(.circleAlert, size: 12)
-                        .foregroundColor(chipColor)
+                        .foregroundStyle(chipColor)
                 case .timedOut:
                     VIconView(.clock, size: 12)
-                        .foregroundColor(chipColor)
+                        .foregroundStyle(chipColor)
                 default:
                     EmptyView()
                 }
@@ -103,7 +103,7 @@ extension ChatBubble {
             Text(isApproved || isDenied ? "\(confirmation.toolCategory)" :
                  "Timed Out")
                 .font(VFont.labelDefault)
-                .foregroundColor(chipColor)
+                .foregroundStyle(chipColor)
         }
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)

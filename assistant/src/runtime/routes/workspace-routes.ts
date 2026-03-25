@@ -16,6 +16,8 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
+import { z } from "zod";
+
 import { getWorkspaceDir } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { RouteContext, RouteDefinition } from "../http-router.js";
@@ -382,36 +384,136 @@ export function workspaceRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "workspace/tree",
       method: "GET",
+      summary: "List workspace directory",
+      description: "Return directory entries for a workspace path.",
+      tags: ["workspace"],
+      queryParams: [
+        {
+          name: "path",
+          schema: { type: "string" },
+          description: "Relative path (default root)",
+        },
+        {
+          name: "showHidden",
+          schema: { type: "string" },
+          description: "Include dotfiles (true/false)",
+        },
+      ],
+      responseBody: z.object({
+        path: z.string(),
+        entries: z.array(z.unknown()).describe("Directory entry objects"),
+      }),
       handler: (ctx) => handleWorkspaceTree(ctx),
     },
     {
       endpoint: "workspace/file/content",
       method: "GET",
+      summary: "Get workspace file content",
+      description: "Return raw file bytes with HTTP range support.",
+      tags: ["workspace"],
+      queryParams: [
+        {
+          name: "path",
+          schema: { type: "string" },
+          description: "Relative file path (required)",
+        },
+        {
+          name: "showHidden",
+          schema: { type: "string" },
+          description: "Allow hidden files (true/false)",
+        },
+      ],
       handler: (ctx) => handleWorkspaceFileContent(ctx),
     },
     {
       endpoint: "workspace/file",
       method: "GET",
+      summary: "Get workspace file metadata",
+      description:
+        "Return file metadata and inline text content (if small enough).",
+      tags: ["workspace"],
+      queryParams: [
+        {
+          name: "path",
+          schema: { type: "string" },
+          description: "Relative file path (required)",
+        },
+        {
+          name: "showHidden",
+          schema: { type: "string" },
+          description: "Allow hidden files (true/false)",
+        },
+      ],
+      responseBody: z.object({
+        path: z.string(),
+        name: z.string(),
+        size: z.number(),
+        mimeType: z.string(),
+        modifiedAt: z.string(),
+        content: z.string().describe("Inline text content or null"),
+        isBinary: z.boolean(),
+      }),
       handler: (ctx) => handleWorkspaceFile(ctx),
     },
     {
       endpoint: "workspace/write",
       method: "POST",
+      summary: "Write workspace file",
+      description: "Create or overwrite a file in the workspace.",
+      tags: ["workspace"],
+      requestBody: z.object({
+        path: z.string().describe("Relative file path"),
+        content: z.string().describe("File content").optional(),
+        encoding: z
+          .string()
+          .describe("Content encoding (base64 or utf-8)")
+          .optional(),
+      }),
+      responseBody: z.object({
+        path: z.string(),
+        size: z.number(),
+      }),
       handler: (ctx) => handleWorkspaceWrite(ctx),
     },
     {
       endpoint: "workspace/mkdir",
       method: "POST",
+      summary: "Create workspace directory",
+      description: "Create directories recursively in the workspace.",
+      tags: ["workspace"],
+      requestBody: z.object({
+        path: z.string().describe("Relative directory path"),
+      }),
+      responseBody: z.object({
+        path: z.string(),
+      }),
       handler: (ctx) => handleWorkspaceMkdir(ctx),
     },
     {
       endpoint: "workspace/rename",
       method: "POST",
+      summary: "Rename workspace entry",
+      description: "Rename or move a file or directory in the workspace.",
+      tags: ["workspace"],
+      requestBody: z.object({
+        oldPath: z.string().describe("Current relative path"),
+        newPath: z.string().describe("New relative path"),
+      }),
+      responseBody: z.object({
+        oldPath: z.string(),
+        newPath: z.string(),
+      }),
       handler: (ctx) => handleWorkspaceRename(ctx),
     },
     {
       endpoint: "workspace/delete",
       method: "POST",
+      summary: "Delete workspace entry",
+      description: "Delete a file or directory from the workspace.",
+      tags: ["workspace"],
+      requestBody: z.object({
+        path: z.string().describe("Relative path to delete"),
+      }),
       handler: (ctx) => handleWorkspaceDelete(ctx),
     },
   ];

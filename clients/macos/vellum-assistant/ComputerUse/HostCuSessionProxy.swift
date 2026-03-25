@@ -16,6 +16,18 @@ enum SessionState: Equatable {
     case responded(answer: String, steps: Int)
     case failed(reason: String)
     case cancelled
+
+    /// Whether the session is actively in progress (running, thinking, paused,
+    /// or awaiting confirmation). Used to prevent the app from reverting to
+    /// `.accessory` activation policy while the user needs the overlay visible.
+    var isActiveSession: Bool {
+        switch self {
+        case .running, .thinking, .paused, .awaitingConfirmation:
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 /// Protocol that abstracts the session interface needed by `SessionOverlayWindow`.

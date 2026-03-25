@@ -46,7 +46,7 @@ struct SkillDetailView: View {
                     if !inspected.skill.summary.isEmpty {
                         Text(inspected.skill.summary)
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                     }
 
                     if let owner = inspected.owner {
@@ -64,10 +64,10 @@ struct SkillDetailView: View {
                             VStack(alignment: .leading, spacing: VSpacing.xs) {
                                 Text("Changelog")
                                     .font(VFont.labelDefault)
-                                    .foregroundColor(VColor.contentTertiary)
+                                    .foregroundStyle(VColor.contentTertiary)
                                 Text(changelog)
                                     .font(VFont.bodyMediumLighter)
-                                    .foregroundColor(VColor.contentSecondary)
+                                    .foregroundStyle(VColor.contentSecondary)
                             }
                         }
                     }
@@ -85,7 +85,7 @@ struct SkillDetailView: View {
                 Section("About") {
                     Text(error)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(.red)
+                        .foregroundStyle(.red)
                 }
             }
 
@@ -142,7 +142,7 @@ struct SkillDetailView: View {
                 Section("Files") {
                     Text(error)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(.red)
+                        .foregroundStyle(.red)
                 }
             } else if let filesResponse = skillsStore.selectedSkillFiles, !filesResponse.files.isEmpty {
                 Section("Files") {
@@ -187,12 +187,12 @@ struct SkillDetailView: View {
 
             Text(skill.name)
                 .font(VFont.titleMedium)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             if !skill.description.isEmpty {
                 Text(skill.description)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
             }
 
@@ -202,7 +202,7 @@ struct SkillDetailView: View {
                     Text("Update available")
                         .font(VFont.labelDefault)
                 }
-                .foregroundColor(VColor.primaryBase)
+                .foregroundStyle(VColor.primaryBase)
                 .accessibilityElement(children: .combine)
                 .accessibilityLabel("Update available for this skill")
             }
@@ -217,11 +217,11 @@ struct SkillDetailView: View {
         HStack {
             Text(label)
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
             Spacer()
             Text(value)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label): \(value)")
@@ -244,25 +244,25 @@ struct SkillDetailView: View {
             } label: {
                 HStack(spacing: VSpacing.sm) {
                     VIconView(fileIcon(for: file.mimeType, fileName: file.name), size: 16)
-                        .foregroundColor(VColor.primaryBase)
+                        .foregroundStyle(VColor.primaryBase)
                         .frame(width: 24)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(file.path)
                             .font(VFont.bodyMediumLighter)
-                            .foregroundColor(VColor.contentDefault)
+                            .foregroundStyle(VColor.contentDefault)
                             .lineLimit(1)
 
                         Text(formatFileSize(file.size))
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
 
                     Spacer()
 
                     if isText {
                         VIconView(isExpanded ? .chevronUp : .chevronDown, size: 12)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                 }
             }
@@ -272,7 +272,7 @@ struct SkillDetailView: View {
             if isExpanded, let content = file.content {
                 Text(content)
                     .font(VFont.bodyMediumDefault)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .textSelection(.enabled)
                     .padding(VSpacing.sm)
                     .frame(maxWidth: .infinity, alignment: .leading)

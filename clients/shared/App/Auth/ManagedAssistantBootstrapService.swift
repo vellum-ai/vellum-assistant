@@ -166,15 +166,19 @@ public final class ManagedAssistantBootstrapService {
         log.warning("Provisioning poll timed out for \(assistantId, privacy: .public) after \(timeout)s — proceeding to health check")
     }
 
-    /// Resolve the organization ID, preferring the persisted value.
+    /// Resolve the organization ID, validating any persisted value against the
+    /// user's actual org list to prevent stale cross-environment IDs.
     private func resolveOrganizationId() async throws -> String {
-        if let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") {
-            log.info("Using persisted organization: \(persistedOrgId, privacy: .public)")
-            return persistedOrgId
-        }
-
         do {
             let orgs = try await authService.getOrganizations()
+            let persistedOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId")
+            if let persistedOrgId, orgs.contains(where: { $0.id == persistedOrgId }) {
+                log.info("Validated persisted organization: \(persistedOrgId, privacy: .public)")
+                return persistedOrgId
+            }
+            if persistedOrgId != nil {
+                log.warning("Persisted organization ID not found in user's orgs — re-resolving")
+            }
             switch orgs.count {
             case 0:
                 throw ManagedBootstrapError.serverError(statusCode: 0, detail: "No organizations found for this account")

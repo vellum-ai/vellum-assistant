@@ -647,9 +647,13 @@ export function handleSurfaceAction(
             ? { extractedText: f.extractedText }
             : {}),
         }));
-      // Remove files from the text payload to avoid bloating the context
-      const { files: _files, ...rest } = data;
-      actionDataForText = Object.keys(rest).length > 0 ? rest : undefined;
+      // Only remove files from the text payload when we successfully parsed
+      // attachments — otherwise preserve the original data so the model still
+      // sees the files field (e.g. IDs/paths from dynamic app actions).
+      if (attachments.length > 0) {
+        const { files: _files, ...rest } = data;
+        actionDataForText = Object.keys(rest).length > 0 ? rest : undefined;
+      }
     }
 
     let content: string;
@@ -876,8 +880,13 @@ export function handleSurfaceAction(
           ? { extractedText: f.extractedText }
           : {}),
       }));
-    const { files: _files, ...rest } = mergedData;
-    mergedDataForText = Object.keys(rest).length > 0 ? rest : undefined;
+    // Only remove files from the text payload when we successfully parsed
+    // attachments — otherwise preserve the original data so the model still
+    // sees the files field.
+    if (pendingAttachments.length > 0) {
+      const { files: _files, ...rest } = mergedData;
+      mergedDataForText = Object.keys(rest).length > 0 ? rest : undefined;
+    }
   }
 
   let fallbackContent = `[User action on ${pending.surfaceType} surface: ${summary}]`;

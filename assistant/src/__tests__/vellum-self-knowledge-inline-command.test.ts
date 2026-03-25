@@ -226,7 +226,7 @@ describe("vellum-self-knowledge inline command expansion", () => {
 
     // Enable the feature flag via protected directory override
     _setOverridesForTesting({
-      "feature_flags.inline-skill-commands.enabled": true,
+      "inline-skill-commands": true,
     });
     testConfig.skills = { load: { extraDirs: [] } };
 

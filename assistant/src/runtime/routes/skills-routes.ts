@@ -5,6 +5,8 @@
  * using the standalone functions extracted in `../../daemon/handlers/skills.ts`.
  */
 
+import { z } from "zod";
+
 import type {
   CreateSkillParams,
   SkillOperationContext,
@@ -40,22 +42,29 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
   const ctx = () => deps.getSkillContext();
 
   return [
-    // GET /v1/skills — list all skills
     {
       endpoint: "skills",
       method: "GET",
       policyKey: "skills",
+      summary: "List all skills",
+      description: "Return all installed skills.",
+      tags: ["skills"],
+      responseBody: z.object({
+        skills: z.array(z.unknown()).describe("Skill objects"),
+      }),
       handler: () => {
         const skills = listSkills(ctx());
         return Response.json({ skills });
       },
     },
 
-    // GET /v1/skills/:id/files — skill metadata + directory contents
     {
       endpoint: "skills/:id/files",
       method: "GET",
       policyKey: "skills",
+      summary: "Get skill files",
+      description: "Return skill metadata and directory contents.",
+      tags: ["skills"],
       handler: ({ params }) => {
         const result = getSkillFiles(params.id, ctx());
         if ("error" in result) {
@@ -68,11 +77,16 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       },
     },
 
-    // POST /v1/skills/:id/enable — enable skill
     {
       endpoint: "skills/:id/enable",
       method: "POST",
       policyKey: "skills",
+      summary: "Enable skill",
+      description: "Enable an installed skill.",
+      tags: ["skills"],
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: ({ params }) => {
         const result = enableSkill(params.id, ctx());
         if (!result.success) {
@@ -82,11 +96,16 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       },
     },
 
-    // POST /v1/skills/:id/disable — disable skill
     {
       endpoint: "skills/:id/disable",
       method: "POST",
       policyKey: "skills",
+      summary: "Disable skill",
+      description: "Disable an installed skill.",
+      tags: ["skills"],
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: ({ params }) => {
         const result = disableSkill(params.id, ctx());
         if (!result.success) {
@@ -96,11 +115,21 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       },
     },
 
-    // PATCH /v1/skills/:id/config — configure skill
     {
       endpoint: "skills/:id/config",
       method: "PATCH",
       policyKey: "skills",
+      summary: "Configure skill",
+      description: "Update skill configuration (env, apiKey, config).",
+      tags: ["skills"],
+      requestBody: z.object({
+        env: z.object({}).passthrough().describe("Environment variables"),
+        apiKey: z.string(),
+        config: z.object({}).passthrough().describe("Arbitrary config"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req, params }) => {
         const body = (await req.json()) as {
           env?: Record<string, string>;
@@ -119,11 +148,22 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       },
     },
 
-    // POST /v1/skills/install — install skill
     {
       endpoint: "skills/install",
       method: "POST",
       policyKey: "skills",
+      summary: "Install skill",
+      description: "Install a skill by slug, URL, or spec.",
+      tags: ["skills"],
+      requestBody: z.object({
+        slug: z.string().describe("Skill slug"),
+        url: z.string().describe("Skill URL"),
+        spec: z.string().describe("Skill spec"),
+        version: z.string(),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as {
           slug?: string;
@@ -150,11 +190,16 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       },
     },
 
-    // POST /v1/skills/check-updates — check for updates
     {
       endpoint: "skills/check-updates",
       method: "POST",
       policyKey: "skills",
+      summary: "Check skill updates",
+      description: "Check for available updates to installed skills.",
+      tags: ["skills"],
+      responseBody: z.object({
+        data: z.object({}).passthrough().describe("Update availability info"),
+      }),
       handler: async () => {
         const result = await checkSkillUpdates(ctx());
         if (!result.success) {
@@ -164,11 +209,23 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       },
     },
 
-    // GET /v1/skills/search — search catalog
     {
       endpoint: "skills/search",
       method: "GET",
       policyKey: "skills",
+      summary: "Search skill catalog",
+      description: "Search the skill catalog by query string.",
+      tags: ["skills"],
+      queryParams: [
+        {
+          name: "q",
+          schema: { type: "string" },
+          description: "Search query (required)",
+        },
+      ],
+      responseBody: z.object({
+        data: z.object({}).passthrough().describe("Search results"),
+      }),
       handler: async ({ url }) => {
         const query = url.searchParams.get("q") ?? "";
         if (!query) {
@@ -182,11 +239,16 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       },
     },
 
-    // POST /v1/skills/draft — draft new skill
     {
       endpoint: "skills/draft",
       method: "POST",
       policyKey: "skills",
+      summary: "Draft a skill",
+      description: "Generate a skill draft from source text.",
+      tags: ["skills"],
+      requestBody: z.object({
+        sourceText: z.string().describe("Source text for drafting"),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as { sourceText?: string };
         if (!body.sourceText || typeof body.sourceText !== "string") {
@@ -204,11 +266,22 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       },
     },
 
-    // POST /v1/skills — create skill
     {
       endpoint: "skills",
       method: "POST",
       policyKey: "skills",
+      summary: "Create skill",
+      description: "Create a new skill.",
+      tags: ["skills"],
+      requestBody: z.object({
+        skillId: z.string(),
+        name: z.string(),
+        description: z.string(),
+        bodyMarkdown: z.string(),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as CreateSkillParams;
         if (
@@ -231,11 +304,16 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       },
     },
 
-    // POST /v1/skills/:id/update — update skill
     {
       endpoint: "skills/:id/update",
       method: "POST",
       policyKey: "skills",
+      summary: "Update skill",
+      description: "Update an installed skill to the latest version.",
+      tags: ["skills"],
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ params }) => {
         const result = await updateSkill(params.id, ctx());
         if (!result.success) {
@@ -245,11 +323,13 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       },
     },
 
-    // GET /v1/skills/:id/inspect — inspect skill details
     {
       endpoint: "skills/:id/inspect",
       method: "GET",
       policyKey: "skills",
+      summary: "Inspect skill",
+      description: "Return detailed skill information.",
+      tags: ["skills"],
       handler: async ({ params }) => {
         const result = await inspectSkill(params.id, ctx());
         if (result.error && !result.data) {
@@ -269,13 +349,13 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       },
     },
 
-    // GET /v1/skills/:id — single skill metadata
-    // Registered after all literal-segment GET routes (search, inspect, files)
-    // to avoid shadowing them with the parametric :id match.
     {
       endpoint: "skills/:id",
       method: "GET",
       policyKey: "skills",
+      summary: "Get skill",
+      description: "Return a single skill by ID.",
+      tags: ["skills"],
       handler: ({ params }) => {
         const result = getSkill(params.id, ctx());
         if ("error" in result) {
@@ -288,11 +368,13 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       },
     },
 
-    // DELETE /v1/skills/:id — uninstall skill
     {
       endpoint: "skills/:id",
       method: "DELETE",
       policyKey: "skills",
+      summary: "Uninstall skill",
+      description: "Remove an installed skill.",
+      tags: ["skills"],
       handler: async ({ params }) => {
         const result = await uninstallSkill(params.id, ctx());
         if (!result.success) {

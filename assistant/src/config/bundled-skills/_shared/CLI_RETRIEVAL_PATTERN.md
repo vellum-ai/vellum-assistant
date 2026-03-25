@@ -6,7 +6,7 @@ For account and auth workflows, prefer documented `assistant` CLI commands over
 any generic account registry:
 
 - `assistant credentials list` for discovering stored credential handles
-- `assistant oauth connections list` for discovering OAuth connection handles
+- `assistant oauth status <provider>` for discovering OAuth connection handles
 - `assistant credentials set ...` for storing new credentials
 - `assistant mcp auth <name>` when an MCP server needs browser login
 - `assistant platform status` for platform-linked deployment/auth context

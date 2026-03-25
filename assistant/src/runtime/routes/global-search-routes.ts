@@ -8,6 +8,8 @@
  * and merges results with lexical matches.
  */
 
+import { z } from "zod";
+
 import { getConfig } from "../../config/loader.js";
 import { searchContacts } from "../../contacts/contact-store.js";
 import { searchConversations } from "../../memory/conversation-queries.js";
@@ -273,6 +275,39 @@ export function globalSearchRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "search/global",
       method: "GET",
+      summary: "Global search",
+      description:
+        "Federated search across conversations, memories, schedules, and contacts.",
+      tags: ["search"],
+      queryParams: [
+        {
+          name: "q",
+          schema: { type: "string" },
+          description: "Search query (required)",
+        },
+        {
+          name: "limit",
+          schema: { type: "integer" },
+          description: "Max results per category (1–100, default 20)",
+        },
+        {
+          name: "categories",
+          schema: { type: "string" },
+          description: "Comma-separated categories to search",
+        },
+        {
+          name: "deep",
+          schema: { type: "string" },
+          description: "Enable semantic search for memories (true/false)",
+        },
+      ],
+      responseBody: z.object({
+        query: z.string(),
+        results: z
+          .object({})
+          .passthrough()
+          .describe("Results grouped by category"),
+      }),
       handler: async ({ url }) => handleGlobalSearch(url),
     },
   ];

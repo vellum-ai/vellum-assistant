@@ -113,7 +113,7 @@ struct AppSharePanelView: View {
                             .fill(VColor.surfaceBase)
                         Text(String(appName.prefix(1)).uppercased())
                             .font(.system(size: 28, weight: .bold))
-                            .foregroundColor(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentSecondary)
                     }
                 }
             }
@@ -123,12 +123,12 @@ struct AppSharePanelView: View {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 Text(appName)
                     .font(VFont.bodySmallEmphasised)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .lineLimit(2)
 
                 Text(formattedFileSize)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
         }
     }
@@ -154,7 +154,7 @@ struct AppSharePanelView: View {
 
                 Text(title)
                     .font(VFont.bodyMediumLighter)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
 
                 Spacer()
             }

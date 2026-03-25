@@ -50,8 +50,78 @@ final class MessageInspectorViewTests: XCTestCase {
         XCTAssertEqual(state.selectedDetailTab, .raw)
     }
 
-    private func makeResponse(logs: [LLMRequestLogEntry]) -> LLMContextResponse {
-        LLMContextResponse(messageId: "message-1", logs: logs)
+    func testMemoryRecallIsThreadedThroughViewState() {
+        var state = MessageInspectorViewState()
+
+        let requestToken = state.beginLoading(resetSelection: true)
+        let recall = MemoryRecallData(
+            enabled: true,
+            degraded: false,
+            provider: "anthropic",
+            model: nil,
+            degradation: nil,
+            semanticHits: 3,
+            mergedCount: 2,
+            selectedCount: 1,
+            tier1Count: 1,
+            tier2Count: 0,
+            hybridSearchLatencyMs: 15,
+            sparseVectorUsed: false,
+            injectedTokens: 200,
+            latencyMs: 42,
+            reason: nil,
+            topCandidates: [],
+            injectedText: nil
+        )
+        state.finishLoading(with: .loaded(makeResponse(logs: [
+            makeLog(id: "a", createdAt: 1_000)
+        ], memoryRecall: recall)), requestToken: requestToken)
+
+        XCTAssertEqual(state.memoryRecall?.enabled, true)
+        XCTAssertEqual(state.memoryRecall?.latencyMs, 42)
+        XCTAssertEqual(state.memoryRecall?.semanticHits, 3)
+    }
+
+    func testMemoryRecallClearedOnEmpty() {
+        var state = MessageInspectorViewState()
+
+        let loadToken = state.beginLoading(resetSelection: true)
+        let recall = MemoryRecallData(
+            enabled: true,
+            degraded: false,
+            provider: nil,
+            model: nil,
+            degradation: nil,
+            semanticHits: 0,
+            mergedCount: 0,
+            selectedCount: 0,
+            tier1Count: 0,
+            tier2Count: 0,
+            hybridSearchLatencyMs: 5,
+            sparseVectorUsed: false,
+            injectedTokens: 0,
+            latencyMs: 5,
+            reason: nil,
+            topCandidates: [],
+            injectedText: nil
+        )
+        state.finishLoading(with: .loaded(makeResponse(logs: [
+            makeLog(id: "a", createdAt: 1_000)
+        ], memoryRecall: recall)), requestToken: loadToken)
+        XCTAssertNotNil(state.memoryRecall)
+
+        let emptyToken = state.beginLoading(resetSelection: true)
+        state.finishLoading(with: .empty, requestToken: emptyToken)
+        XCTAssertNil(state.memoryRecall)
+    }
+
+    func testMemoryTabCaseExists() {
+        let tab = MessageInspectorDetailTab.memory
+        XCTAssertEqual(tab.label, "Memory")
+    }
+
+    private func makeResponse(logs: [LLMRequestLogEntry], memoryRecall: MemoryRecallData? = nil) -> LLMContextResponse {
+        LLMContextResponse(messageId: "message-1", logs: logs, memoryRecall: memoryRecall)
     }
 
     private func makeLog(

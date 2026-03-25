@@ -15,24 +15,24 @@ struct ChatSearchBar: View {
     var body: some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.search, size: 12)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
 
             TextField("Find in conversation...", text: $searchText)
                 .textFieldStyle(.plain)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
                 .focused($isFocused)
                 .onSubmit { onNext() }
 
             if !searchText.isEmpty {
                 Text(matchCount > 0 ? "\(currentMatchIndex + 1) of \(matchCount)" : "No results")
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .fixedSize()
 
                 Button(action: onPrevious) {
                     VIconView(.chevronUp, size: 12)
-                        .foregroundColor(matchCount > 0 ? VColor.contentDefault : VColor.contentTertiary)
+                        .foregroundStyle(matchCount > 0 ? VColor.contentDefault : VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
                 .disabled(matchCount == 0)
@@ -40,7 +40,7 @@ struct ChatSearchBar: View {
 
                 Button(action: onNext) {
                     VIconView(.chevronDown, size: 12)
-                        .foregroundColor(matchCount > 0 ? VColor.contentDefault : VColor.contentTertiary)
+                        .foregroundStyle(matchCount > 0 ? VColor.contentDefault : VColor.contentTertiary)
                 }
                 .buttonStyle(.plain)
                 .disabled(matchCount == 0)
@@ -49,7 +49,7 @@ struct ChatSearchBar: View {
 
             Button(action: onDismiss) {
                 VIconView(.x, size: 12)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Close search")

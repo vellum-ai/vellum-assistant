@@ -13,17 +13,17 @@ public struct CompletedSurfaceChip: View {
     public var body: some View {
         HStack(spacing: VSpacing.sm) {
             VIconView(.circleCheck, size: 12)
-                .foregroundColor(VColor.systemPositiveStrong)
+                .foregroundStyle(VColor.systemPositiveStrong)
 
             if let title {
                 Text(title)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
             }
 
             Text(summary)
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.sm)

@@ -155,8 +155,10 @@ export function upsertJournalMemoriesFromDisk(
         const stat = statSync(filepath);
         if (!stat.isFile()) continue;
 
+        // Fall back to mtimeMs when birthtimeMs is unavailable (returns 0 on Linux ext4, NFS, Docker overlayfs)
+        const fileBirthtimeMs = stat.birthtimeMs > 0 ? stat.birthtimeMs : stat.mtimeMs;
         // Only process files created during or after this message
-        if (stat.birthtimeMs < messageCreatedAt) continue;
+        if (fileBirthtimeMs < messageCreatedAt) continue;
 
         if (upsertSingleJournalFile(filepath, filename, messageCreatedAt, scopeId, messageId, db)) {
           upserted += 1;
@@ -185,8 +187,10 @@ export function upsertJournalMemoriesFromDisk(
             const stat = statSync(filepath);
             if (!stat.isFile()) continue;
 
+            // Fall back to mtimeMs when birthtimeMs is unavailable (returns 0 on Linux ext4, NFS, Docker overlayfs)
+            const fileBirthtimeMs = stat.birthtimeMs > 0 ? stat.birthtimeMs : stat.mtimeMs;
             // Only process files created during or after this message
-            if (stat.birthtimeMs < messageCreatedAt) continue;
+            if (fileBirthtimeMs < messageCreatedAt) continue;
 
             if (upsertSingleJournalFile(filepath, filename, messageCreatedAt, scopeId, messageId, db)) {
               upserted += 1;

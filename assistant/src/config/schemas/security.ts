@@ -44,6 +44,12 @@ export const SecretDetectionConfigSchema = z
       .describe(
         "Shannon entropy threshold for detecting high-entropy strings as potential secrets",
       ),
+    blockIngress: z
+      .boolean({ error: "secretDetection.blockIngress must be a boolean" })
+      .default(true)
+      .describe(
+        "Whether to block user messages containing detected secrets at ingress",
+      ),
     allowOneTimeSend: z
       .boolean({ error: "secretDetection.allowOneTimeSend must be a boolean" })
       .default(false)
@@ -74,7 +80,9 @@ export const PermissionsConfigSchema = z
         "Permission mode — 'strict' requires explicit approval for all operations, 'workspace' allows operations within the workspace",
       ),
     dangerouslySkipPermissions: z
-      .boolean({ error: "permissions.dangerouslySkipPermissions must be a boolean" })
+      .boolean({
+        error: "permissions.dangerouslySkipPermissions must be a boolean",
+      })
       .default(false)
       .describe("Auto-accept all permission prompts without asking"),
   })

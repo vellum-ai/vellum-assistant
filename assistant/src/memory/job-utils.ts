@@ -106,6 +106,11 @@ export function classifyError(err: unknown): ErrorCategory {
     }
   }
 
+  // BackendUnavailableError is transient — the provider or backend may come back online
+  if (err instanceof BackendUnavailableError) {
+    return "retryable";
+  }
+
   // Unknown errors default to fatal to avoid infinite retry loops
   return "fatal";
 }

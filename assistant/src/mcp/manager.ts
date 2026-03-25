@@ -127,12 +127,13 @@ export class McpServerManager {
     serverId: string,
     toolName: string,
     args: Record<string, unknown>,
+    signal?: AbortSignal,
   ) {
     const client = this.clients.get(serverId);
     if (!client) {
       throw new Error(`MCP server "${serverId}" not found`);
     }
-    return client.callTool(toolName, args);
+    return client.callTool(toolName, args, signal);
   }
 
   getClient(serverId: string): McpClient | undefined {

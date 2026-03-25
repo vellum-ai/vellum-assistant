@@ -65,7 +65,7 @@ private enum MemoryStatusFilter: String, CaseIterable {
 struct MemoriesPanel: View {
     let connectionManager: GatewayConnectionManager
     @Binding var focusedMemoryId: String?
-    @StateObject private var store: MemoryItemsStore
+    @State private var store: MemoryItemsStore
     @State private var showCreateSheet = false
     @State private var selectedItem: MemoryItemPayload?
     @State private var selectedKind: MemoryKind?
@@ -78,7 +78,7 @@ struct MemoriesPanel: View {
     init(connectionManager: GatewayConnectionManager, focusedMemoryId: Binding<String?> = .constant(nil)) {
         self.connectionManager = connectionManager
         _focusedMemoryId = focusedMemoryId
-        _store = StateObject(wrappedValue: MemoryItemsStore(memoryItemClient: MemoryItemClient()))
+        _store = State(wrappedValue: MemoryItemsStore(memoryItemClient: MemoryItemClient()))
     }
 
     /// Kinds to show in the sidebar filter. Excludes system-managed kinds.
@@ -108,25 +108,13 @@ struct MemoriesPanel: View {
             searchDebounceTask?.cancel()
             searchDebounceTask = nil
         }
-        .overlay {
-            if let item = selectedItem {
-                VColor.auxBlack.opacity(0.3)
-                    .ignoresSafeArea()
-                    .onTapGesture {
-                        withAnimation(VAnimation.fast) { selectedItem = nil }
-                    }
-
-                MemoryItemDetailSheet(
-                    item: item,
-                    store: store,
-                    onDismiss: {
-                        withAnimation(VAnimation.fast) { selectedItem = nil }
-                    }
-                )
-                .transition(.opacity.combined(with: .scale(scale: 0.97)))
-            }
+        .sheet(item: $selectedItem) { item in
+            MemoryItemDetailSheet(
+                item: item,
+                store: store,
+                onDismiss: { selectedItem = nil }
+            )
         }
-        .animation(VAnimation.fast, value: selectedItem?.id)
         .sheet(isPresented: $showCreateSheet) {
             MemoryItemCreateSheet(
                 store: store,
@@ -211,12 +199,12 @@ struct MemoriesPanel: View {
         } label: {
             HStack(spacing: VSpacing.md) {
                 Text(statusFilter.rawValue)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .font(VFont.bodyMediumLighter)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 VIconView(.chevronDown, size: 13)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .accessibilityHidden(true)
             }
             .padding(.horizontal, VSpacing.sm)
@@ -237,15 +225,15 @@ struct MemoriesPanel: View {
                     } label: {
                         HStack(spacing: VSpacing.sm) {
                             VIconView(status.icon, size: 14)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                                 .frame(width: 20)
                             Text(status.rawValue)
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                             Spacer()
                             if statusFilter == status {
                                 VIconView(.check, size: 12)
-                                    .foregroundColor(VColor.primaryBase)
+                                    .foregroundStyle(VColor.primaryBase)
                             }
                         }
                         .padding(.horizontal, VSpacing.md)
@@ -270,12 +258,12 @@ struct MemoriesPanel: View {
         } label: {
             HStack(spacing: VSpacing.md) {
                 Text(sortOption.rawValue)
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                     .font(VFont.bodyMediumLighter)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 VIconView(.chevronDown, size: 13)
-                    .foregroundColor(VColor.contentTertiary)
+                    .foregroundStyle(VColor.contentTertiary)
                     .accessibilityHidden(true)
             }
             .padding(.horizontal, VSpacing.sm)
@@ -297,15 +285,15 @@ struct MemoriesPanel: View {
                     } label: {
                         HStack(spacing: VSpacing.sm) {
                             VIconView(option.icon, size: 14)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                                 .frame(width: 20)
                             Text(option.rawValue)
                                 .font(VFont.bodyMediumLighter)
-                                .foregroundColor(VColor.contentDefault)
+                                .foregroundStyle(VColor.contentDefault)
                             Spacer()
                             if sortOption == option {
                                 VIconView(.check, size: 12)
-                                    .foregroundColor(VColor.primaryBase)
+                                    .foregroundStyle(VColor.primaryBase)
                             }
                         }
                         .padding(.horizontal, VSpacing.md)

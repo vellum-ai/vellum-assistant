@@ -25,6 +25,7 @@ import {
   backfillMessageIdOnLogs,
   recordRequestLog,
 } from "../memory/llm-request-log-store.js";
+import { backfillMemoryRecallLogMessageId } from "../memory/memory-recall-log-store.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
 import type { DirectiveRequest } from "./assistant-attachments.js";
 import {
@@ -736,6 +737,15 @@ export async function handleMessageComplete(
     deps.rlog.warn(
       { err },
       "Failed to backfill message_id on LLM request logs (non-fatal)",
+    );
+  }
+
+  try {
+    backfillMemoryRecallLogMessageId(deps.ctx.conversationId, assistantMsg.id);
+  } catch (err) {
+    deps.rlog.warn(
+      { err },
+      "Failed to backfill message_id on memory recall log (non-fatal)",
     );
   }
 

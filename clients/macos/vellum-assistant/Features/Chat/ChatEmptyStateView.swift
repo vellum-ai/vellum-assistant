@@ -104,7 +104,7 @@ struct ChatEmptyStateView: View {
             if let greeting = effectiveGreeting {
                 Text(greeting)
                     .font(VFont.titleLarge)
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.leading)
                     .transition(.opacity)
             }
@@ -226,7 +226,7 @@ struct ConversationStarterPill: View {
         Button(action: action) {
             Text(label)
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(isHovered ? VColor.contentDefault : VColor.contentSecondary)
+                .foregroundStyle(isHovered ? VColor.contentDefault : VColor.contentSecondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity)
                 .padding(.horizontal, VSpacing.md)
@@ -350,13 +350,13 @@ struct ChatTemporaryChatEmptyStateView: View {
 
             Text("Temporary Chat")
                 .font(.system(size: 28, weight: .medium))
-                .foregroundColor(VColor.contentSecondary)
+                .foregroundStyle(VColor.contentSecondary)
                 .multilineTextAlignment(.center)
                 .padding(.bottom, VSpacing.sm)
 
             Text("Memory is disabled for this chat, and it won\u{2019}t appear in your history.")
                 .font(VFont.bodyMediumLighter)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 400)
                 .padding(.horizontal, VSpacing.xl)

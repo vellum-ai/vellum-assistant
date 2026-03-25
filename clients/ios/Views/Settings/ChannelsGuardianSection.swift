@@ -4,8 +4,8 @@ import VellumAssistantShared
 
 /// Settings section for viewing guardian status and approved contact channel policies.
 struct ChannelsGuardianSection: View {
-    @ObservedObject var channelTrustStore: ChannelTrustStore
-    @ObservedObject var contactsStore: ContactsStore
+    var channelTrustStore: ChannelTrustStore
+    var contactsStore: ContactsStore
     @State private var showRevokeConfirmation = false
     @State private var channelToRevoke: ContactChannelPayload?
 
@@ -80,7 +80,7 @@ struct ChannelsGuardianSection: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 VIconView(.shieldCheck, size: 14)
-                    .foregroundColor(VColor.systemPositiveStrong)
+                    .foregroundStyle(VColor.systemPositiveStrong)
                 Text(guardian.displayName)
                     .font(.body)
             }
@@ -119,7 +119,7 @@ struct ChannelsGuardianSection: View {
                 showRevokeConfirmation = true
             } label: {
                 VIconView(.circleX, size: 14)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Revoke channel \(channel.address)")
@@ -163,7 +163,7 @@ struct ChannelsGuardianSection: View {
         Text(label)
             .font(.caption2)
             .fontWeight(.medium)
-            .foregroundColor(color)
+            .foregroundStyle(color)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(color.opacity(0.15))
@@ -183,7 +183,7 @@ struct ChannelsGuardianSection: View {
         Text(label)
             .font(.caption2)
             .fontWeight(.medium)
-            .foregroundColor(color)
+            .foregroundStyle(color)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(color.opacity(0.15))

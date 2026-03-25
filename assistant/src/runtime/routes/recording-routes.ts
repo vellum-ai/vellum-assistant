@@ -9,6 +9,8 @@
  * require `settings.read`.
  */
 
+import { z } from "zod";
+
 import {
   getActiveRestartToken,
   handleRecordingPause,
@@ -298,36 +300,106 @@ export function recordingRouteDefinitions(deps: {
       endpoint: "recordings/start",
       method: "POST",
       policyKey: "recordings/start",
+      summary: "Start recording",
+      description: "Start a screen recording for a conversation.",
+      tags: ["recordings"],
+      requestBody: z.object({
+        conversationId: z.string(),
+        options: z
+          .object({})
+          .passthrough()
+          .describe("Recording options")
+          .optional(),
+      }),
+      responseBody: z.object({
+        recordingId: z.string(),
+      }),
       handler: async ({ req }) => handleStartRecording(req, getDeps()),
     },
     {
       endpoint: "recordings/stop",
       method: "POST",
       policyKey: "recordings/stop",
+      summary: "Stop recording",
+      description: "Stop the active screen recording.",
+      tags: ["recordings"],
+      requestBody: z.object({
+        conversationId: z.string(),
+      }),
+      responseBody: z.object({
+        recordingId: z.string(),
+        stopped: z.boolean(),
+      }),
       handler: async ({ req }) => handleStopRecording(req, getDeps()),
     },
     {
       endpoint: "recordings/pause",
       method: "POST",
       policyKey: "recordings/pause",
+      summary: "Pause recording",
+      description: "Pause the active screen recording.",
+      tags: ["recordings"],
+      requestBody: z.object({
+        conversationId: z.string(),
+      }),
+      responseBody: z.object({
+        recordingId: z.string(),
+        paused: z.boolean(),
+      }),
       handler: async ({ req }) => handlePauseRecording(req, getDeps()),
     },
     {
       endpoint: "recordings/resume",
       method: "POST",
       policyKey: "recordings/resume",
+      summary: "Resume recording",
+      description: "Resume a paused screen recording.",
+      tags: ["recordings"],
+      requestBody: z.object({
+        conversationId: z.string(),
+      }),
+      responseBody: z.object({
+        recordingId: z.string(),
+        resumed: z.boolean(),
+      }),
       handler: async ({ req }) => handleResumeRecording(req, getDeps()),
     },
     {
       endpoint: "recordings/status",
       method: "GET",
       policyKey: "recordings/status",
+      summary: "Get recording status",
+      description: "Return the current recording state.",
+      tags: ["recordings"],
+      responseBody: z.object({
+        idle: z.boolean(),
+        restartInProgress: z.boolean(),
+      }),
       handler: () => handleGetRecordingStatus(),
     },
     {
       endpoint: "recordings/status",
       method: "POST",
       policyKey: "recordings/status:POST",
+      summary: "Post recording status",
+      description: "Recording lifecycle callback from the client.",
+      tags: ["recordings"],
+      requestBody: z.object({
+        conversationId: z.string(),
+        status: z
+          .string()
+          .describe(
+            "started, stopped, failed, restart_cancelled, paused, resumed",
+          ),
+        filePath: z.string().optional(),
+        durationMs: z.number().optional(),
+        error: z.string().optional(),
+        attachToConversationId: z.string().optional(),
+        operationToken: z.string().optional(),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
       handler: async ({ req }) => handlePostRecordingStatus(req, getDeps()),
     },
   ];

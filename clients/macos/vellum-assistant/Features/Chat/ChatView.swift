@@ -352,10 +352,10 @@ struct ChatView: View {
                     .overlay {
                         VStack(spacing: VSpacing.sm) {
                             VIconView(.arrowDownToLine, size: 28)
-                                .foregroundColor(VColor.primaryBase)
+                                .foregroundStyle(VColor.primaryBase)
                             Text("Drop files here")
                                 .font(VFont.bodyMediumDefault)
-                                .foregroundColor(VColor.primaryBase)
+                                .foregroundStyle(VColor.primaryBase)
                         }
                     }
                     .padding(VSpacing.lg)
@@ -459,11 +459,11 @@ struct ChatView: View {
                 HStack {
                     Text("/btw")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                     Spacer()
                     Button(action: { onDismissBtw?() }) {
                         VIconView(.x, size: 12)
-                            .foregroundColor(VColor.contentTertiary)
+                            .foregroundStyle(VColor.contentTertiary)
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Dismiss btw response")
@@ -472,22 +472,22 @@ struct ChatView: View {
                 if btwLoading && btwText.isEmpty {
                     Text("Thinking...")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 } else if !btwLoading && btwText.isEmpty {
                     Text("No response received.")
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 } else {
                     Text(btwText)
                         .font(VFont.bodyMediumLighter)
-                        .foregroundColor(VColor.contentDefault)
+                        .foregroundStyle(VColor.contentDefault)
                         .textSelection(.enabled)
                 }
 
                 if !btwLoading {
                     Text("Press Escape to dismiss")
                         .font(VFont.labelSmall)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
             .padding(VSpacing.md)
@@ -705,15 +705,15 @@ private struct ChatBootstrapTimeoutView: View {
             Spacer()
 
             VIconView(.triangleAlert, size: 28)
-                .foregroundColor(VColor.systemNegativeHover)
+                .foregroundStyle(VColor.systemNegativeHover)
 
             VStack(spacing: VSpacing.sm) {
                 Text("Something went wrong")
                     .font(.system(size: 24, weight: .regular, design: .serif))
-                    .foregroundColor(VColor.contentDefault)
+                    .foregroundStyle(VColor.contentDefault)
                 Text("Your assistant didn\u{2019}t connect in time. Please quit and reopen the app.")
                     .font(.system(size: 14))
-                    .foregroundColor(VColor.contentSecondary)
+                    .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 320)
                     .textSelection(.enabled)
@@ -733,348 +733,6 @@ private struct ChatBootstrapTimeoutView: View {
             withAnimation(VAnimation.standard) {
                 visible = true
             }
-        }
-    }
-}
-
-// MARK: - Scroll Wheel Detection
-
-/// Detects user-initiated scroll events scoped to the chat scroll view.
-/// Fires `onScrollUp` when the user scrolls toward older content (untethers auto-scroll),
-/// and `onScrollToBottom` when the user manually scrolls back to the bottom (re-tethers).
-struct ScrollWheelDetector: NSViewRepresentable {
-    let onScrollUp: () -> Void
-    let onScrollToBottom: () -> Void
-    var conversationId: UUID?
-
-    /// Shared registry tracking all active detector instances.
-    /// Injected from outside for testability; defaults to the app-wide singleton.
-    var registry: ScrollWheelDetectorRegistry = .shared
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        let coordinator = context.coordinator
-        coordinator.view = view
-        coordinator.onScrollUp = onScrollUp
-        coordinator.onScrollToBottom = onScrollToBottom
-        coordinator.conversationId = conversationId
-        coordinator.registry = registry
-
-        // Register with the detector registry.
-        let now = ProcessInfo.processInfo.systemUptime
-        let convId = conversationId?.uuidString ?? "none"
-        // Window may not be available yet during makeNSView; windowId is resolved
-        // lazily and updated in updateNSView once the view is installed.
-        let winId = view.window.map { String($0.windowNumber) } ?? "pending"
-        registry.register(
-            detectorId: coordinator.detectorId,
-            conversationId: convId,
-            windowId: winId,
-            timestamp: now
-        )
-
-        let activeCount = registry.activeCount
-        let hasDuplicate = registry.hasDuplicates(conversationId: convId, windowId: winId)
-
-        log.info(
-            "ScrollWheelDetector.install detectorId=\(coordinator.detectorId) conv=\(convId) win=\(winId) activeDetectors=\(activeCount) duplicate=\(hasDuplicate)"
-        )
-        ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
-            kind: .detectorInstall,
-            conversationId: convId,
-            reason: "detectorId=\(coordinator.detectorId) win=\(winId) activeDetectors=\(activeCount) duplicate=\(hasDuplicate)"
-        ))
-
-        coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-            // Only process events within this view's bounds (scoped to the chat scroll area)
-            guard let view = coordinator.view,
-                  let window = view.window,
-                  event.window == window else { return event }
-            let locationInView = view.convert(event.locationInWindow, from: nil)
-            guard view.bounds.width > 0, view.bounds.contains(locationInView) else { return event }
-
-            // Skip this event if a duplicate detector exists and this one isn't the most recent.
-            let convId = coordinator.conversationId?.uuidString ?? "none"
-            let winId = window.windowNumber
-            let winIdStr = String(winId)
-            if let registry = coordinator.registry,
-               registry.hasDuplicates(conversationId: convId, windowId: winIdStr) {
-                let entries = registry.entries(conversationId: convId, windowId: winIdStr)
-                // lastUpdatedAt tracks which detector SwiftUI is actively managing.
-                // Per-frame races are transient; leaked detectors are caught by purgeStale().
-                let mostRecent = entries.max(by: { $0.lastUpdatedAt < $1.lastUpdatedAt })
-                if mostRecent?.detectorId != coordinator.detectorId {
-                    // This detector is stale — the most recent one is active for the same conversation/window.
-                    // Suppress callbacks to prevent competing scroll-state fights.
-                    if coordinator.shouldRecordDiagnostic(kind: .detectorUpdate) {
-                        log.debug("ScrollWheelDetector: suppressing event for stale detector \(coordinator.detectorId) (most recent: \(mostRecent?.detectorId ?? "nil"))")
-                    }
-                    return event
-                }
-            }
-
-            if event.scrollingDeltaY > 3 && event.momentumPhase.isEmpty {
-                // Direct user scroll up (toward older content) — untether immediately.
-                // Momentum events are excluded so a flick doesn't accidentally untether.
-                // Called synchronously so isNearBottom is cleared before any competing
-                // layout pass can trigger an auto-scroll-to-bottom.
-                // Guard: only untether if content is actually scrollable (prevents false
-                // untethers on short conversations that can't scroll).
-                let resolvedScrollView: NSScrollView?
-                let lookupPath: String
-                if let cached = coordinator.cachedScrollView, cached.window != nil {
-                    resolvedScrollView = cached
-                    lookupPath = "cached"
-                } else {
-                    let (found, path) = coordinator.findEnclosingScrollViewWithPath()
-                    coordinator.cachedScrollView = found
-                    resolvedScrollView = found
-                    lookupPath = path
-                }
-                if let scrollView = resolvedScrollView {
-                    let clipHeight = scrollView.contentView.bounds.height
-                    let docHeight = scrollView.documentView?.frame.height ?? 0
-                    let isScrollable = docHeight > clipHeight
-                    os_signpost(.event, log: PerfSignposts.log, name: "scrollWheelUntether",
-                                "deltaY=%.1f isScrollable=%d clipH=%.0f docH=%.0f lookup=%{public}@",
-                                event.scrollingDeltaY, isScrollable ? 1 : 0, clipHeight, docHeight, lookupPath as NSString)
-                    if coordinator.shouldRecordDiagnostic(kind: .scrollWheelUntether) {
-                        let diagEvent = ChatDiagnosticEvent.scrollWheelEvent(
-                            kind: .scrollWheelUntether,
-                            conversationId: coordinator.conversationId?.uuidString,
-                            reason: "deltaY=\(String(format: "%.1f", event.scrollingDeltaY)) isScrollable=\(isScrollable) lookup=\(lookupPath)",
-                            contentHeight: docHeight,
-                            viewportHeight: clipHeight
-                        )
-                        ChatDiagnosticsStore.shared.record(diagEvent)
-                        if let dropped = diagEvent.nonFiniteFields {
-                            log.warning("ScrollWheelDetector: non-finite geometry dropped in untether diagnostic: \(dropped)")
-                        }
-                    }
-                    if isScrollable {
-                        coordinator.onScrollUp?()
-                    }
-                } else {
-                    os_signpost(.event, log: PerfSignposts.log, name: "scrollWheelUntether",
-                                "deltaY=%.1f scrollViewNotFound=1 lookup=%{public}@",
-                                event.scrollingDeltaY, lookupPath as NSString)
-                    if coordinator.shouldRecordDiagnostic(kind: .scrollWheelUntether) {
-                        ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
-                            kind: .scrollWheelUntether,
-                            conversationId: coordinator.conversationId?.uuidString,
-                            reason: "deltaY=\(String(format: "%.1f", event.scrollingDeltaY)) scrollViewNotFound=true lookup=\(lookupPath)"
-                        ))
-                    }
-                    coordinator.onScrollUp?()
-                }
-            } else if event.scrollingDeltaY < -1 {
-                // Scrolling down (direct or momentum) — re-tether if at bottom.
-                // Deferred to next run-loop tick so clipBounds reflects the post-scroll position;
-                // reading it synchronously in the event monitor sees the pre-scroll state.
-                DispatchQueue.main.async {
-                    let resolvedScrollView: NSScrollView?
-                    let lookupPath: String
-                    if let cached = coordinator.cachedScrollView, cached.window != nil {
-                        resolvedScrollView = cached
-                        lookupPath = "cached"
-                    } else {
-                        let (found, path) = coordinator.findEnclosingScrollViewWithPath()
-                        coordinator.cachedScrollView = found
-                        resolvedScrollView = found
-                        lookupPath = path
-                    }
-                    if let scrollView = resolvedScrollView {
-                        let clipBounds = scrollView.contentView.bounds
-                        let docHeight = scrollView.documentView?.frame.height ?? 0
-                        let distanceFromBottom = docHeight - clipBounds.maxY
-                        let isScrollable = docHeight > clipBounds.height
-                        if distanceFromBottom < 20 {
-                            os_signpost(.event, log: PerfSignposts.log, name: "scrollWheelRetether",
-                                        "distFromBottom=%.1f isScrollable=%d lookup=%{public}@",
-                                        distanceFromBottom, isScrollable ? 1 : 0, lookupPath as NSString)
-                            if coordinator.shouldRecordDiagnostic(kind: .scrollWheelRetether) {
-                                let diagEvent = ChatDiagnosticEvent.scrollWheelEvent(
-                                    kind: .scrollWheelRetether,
-                                    conversationId: coordinator.conversationId?.uuidString,
-                                    reason: "distFromBottom=\(String(format: "%.1f", distanceFromBottom)) isScrollable=\(isScrollable) lookup=\(lookupPath)",
-                                    contentHeight: docHeight,
-                                    viewportHeight: clipBounds.height
-                                )
-                                ChatDiagnosticsStore.shared.record(diagEvent)
-                                if let dropped = diagEvent.nonFiniteFields {
-                                    log.warning("ScrollWheelDetector: non-finite geometry dropped in retether diagnostic: \(dropped)")
-                                }
-                            }
-                            coordinator.onScrollToBottom?()
-                        }
-                    }
-                }
-            }
-            return event
-        }
-        return view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        let coordinator = context.coordinator
-        coordinator.onScrollUp = onScrollUp
-        coordinator.onScrollToBottom = onScrollToBottom
-        coordinator.conversationId = conversationId
-        coordinator.registry = registry
-
-        // Update the registry entry with the current conversation/window.
-        let now = ProcessInfo.processInfo.systemUptime
-        let convId = conversationId?.uuidString ?? "none"
-        let winId = nsView.window.map { String($0.windowNumber) } ?? "pending"
-        registry.update(
-            detectorId: coordinator.detectorId,
-            timestamp: now,
-            conversationId: convId,
-            windowId: winId
-        )
-
-        let activeCount = registry.activeCount
-        let hasDuplicate = registry.hasDuplicates(conversationId: convId, windowId: winId)
-
-        if coordinator.shouldRecordDiagnostic(kind: .detectorUpdate) {
-            log.debug(
-                "ScrollWheelDetector.update detectorId=\(coordinator.detectorId) conv=\(convId) win=\(winId) activeDetectors=\(activeCount) duplicate=\(hasDuplicate)"
-            )
-            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
-                kind: .detectorUpdate,
-                conversationId: convId,
-                reason: "detectorId=\(coordinator.detectorId) win=\(winId) activeDetectors=\(activeCount) duplicate=\(hasDuplicate)"
-            ))
-        }
-    }
-
-    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        if let monitor = coordinator.monitor {
-            NSEvent.removeMonitor(monitor)
-        }
-
-        // Unregister from the detector registry.
-        let convId = coordinator.conversationId?.uuidString ?? "none"
-        let winId = nsView.window.map { String($0.windowNumber) } ?? "unknown"
-        coordinator.registry?.unregister(detectorId: coordinator.detectorId)
-
-        let activeCount = coordinator.registry?.activeCount ?? 0
-
-        log.info(
-            "ScrollWheelDetector.remove detectorId=\(coordinator.detectorId) conv=\(convId) win=\(winId) activeDetectors=\(activeCount)"
-        )
-        ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
-            kind: .detectorRemove,
-            conversationId: convId,
-            reason: "detectorId=\(coordinator.detectorId) win=\(winId) activeDetectors=\(activeCount)"
-        ))
-    }
-
-    class Coordinator {
-        /// Stable identifier for this detector instance, assigned once at creation.
-        let detectorId: String = UUID().uuidString
-        weak var view: NSView?
-        var onScrollUp: (() -> Void)?
-        var onScrollToBottom: (() -> Void)?
-        var conversationId: UUID?
-        var monitor: Any?
-        /// Reference to the registry for unregistration on dismantle.
-        /// Weak-optional because the registry is @MainActor and may outlive the coordinator.
-        var registry: ScrollWheelDetectorRegistry?
-        /// Cached scroll view to avoid repeated superview-chain walks on every scroll event.
-        /// Weak so it auto-nils when the scroll view is deallocated; the next event re-resolves.
-        weak var cachedScrollView: NSScrollView?
-
-        /// Throttle interval for scroll-wheel diagnostics recording.
-        /// Prevents synchronous JSON-encode + FileHandle.write on every tick.
-        static let diagnosticThrottleInterval: TimeInterval = 0.5
-        /// Throttle interval for detectorUpdate diagnostics. Longer than scroll-wheel
-        /// events because updateNSView fires on every SwiftUI render pass during
-        /// streaming, which can be many times per second.
-        static let detectorUpdateThrottleInterval: TimeInterval = 1.0
-        private var lastUntetherRecordTime: TimeInterval = 0
-        private var lastRetetherRecordTime: TimeInterval = 0
-        private var lastDetectorUpdateRecordTime: TimeInterval = 0
-
-        /// Returns true and updates the timestamp if enough time has elapsed
-        /// since the last recording for the given kind.
-        func shouldRecordDiagnostic(kind: ChatDiagnosticEventKind) -> Bool {
-            let now = ProcessInfo.processInfo.systemUptime
-            switch kind {
-            case .scrollWheelUntether:
-                guard now - lastUntetherRecordTime >= Self.diagnosticThrottleInterval else { return false }
-                lastUntetherRecordTime = now
-                return true
-            case .scrollWheelRetether:
-                guard now - lastRetetherRecordTime >= Self.diagnosticThrottleInterval else { return false }
-                lastRetetherRecordTime = now
-                return true
-            case .detectorUpdate:
-                guard now - lastDetectorUpdateRecordTime >= Self.detectorUpdateThrottleInterval else { return false }
-                lastDetectorUpdateRecordTime = now
-                return true
-            default:
-                return true
-            }
-        }
-
-        /// Resolves the chat's vertical NSScrollView and reports which lookup
-        /// path was used: `"enclosing"` for the fast superview walk, or
-        /// `"hitTest"` for the fallback window-root hit-test.
-        func findEnclosingScrollViewWithPath() -> (NSScrollView?, String) {
-            // Fast path: walk up the superview chain.
-            if let sv = view?.enclosingScrollView, sv.hasVerticalScroller {
-                return (sv, "enclosing")
-            }
-            var current = view?.superview
-            while let v = current {
-                if let sv = v as? NSScrollView, sv.hasVerticalScroller {
-                    return (sv, "enclosing")
-                }
-                current = v.superview
-            }
-            // Fallback: hit-test from the window root for a vertical scroll view.
-            guard let window = view?.window, let contentView = window.contentView else {
-                return (nil, "hitTest")
-            }
-            let probe = view?.convert(
-                NSPoint(x: view?.bounds.midX ?? 0, y: view?.bounds.midY ?? 0),
-                to: nil
-            ) ?? .zero
-            let sv = Self.verticalScrollView(in: contentView, containing: probe)
-            return (sv, "hitTest")
-        }
-
-        /// Resolves the chat's vertical NSScrollView.
-        /// The detector sits in a `.background` modifier (sibling of the scroll view),
-        /// so walking up the superview chain may miss it or find a wrong parent.
-        /// The hit-test fallback searches for a *vertical* scroll view to avoid
-        /// resolving to nested horizontal scrollers (e.g. markdown code blocks).
-        func findEnclosingScrollView() -> NSScrollView? {
-            findEnclosingScrollViewWithPath().0
-        }
-
-        /// Finds the outermost vertical NSScrollView containing `windowPoint`.
-        /// Stops at the first vertical match so nested horizontal scrollers
-        /// (e.g. code-block scroll views) are not returned.
-        private static func verticalScrollView(in view: NSView, containing windowPoint: NSPoint) -> NSScrollView? {
-            let localPoint = view.convert(windowPoint, from: nil)
-            guard view.bounds.contains(localPoint) else { return nil }
-            // If this is a vertical scroll view, return it immediately — don't
-            // recurse into children which may contain nested horizontal scrollers.
-            if let sv = view as? NSScrollView, sv.hasVerticalScroller {
-                return sv
-            }
-            for sub in view.subviews.reversed() {
-                if let sv = verticalScrollView(in: sub, containing: windowPoint) {
-                    return sv
-                }
-            }
-            return nil
         }
     }
 }
@@ -1158,3 +816,4 @@ private struct ChatContainerWidthKey: PreferenceKey {
         value = max(value, nextValue())
     }
 }
+

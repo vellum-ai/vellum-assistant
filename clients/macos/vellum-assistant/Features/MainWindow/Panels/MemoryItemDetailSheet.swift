@@ -47,10 +47,10 @@ struct MemoryItemDetailSheet: View {
                 if let errorMessage {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.circleAlert, size: 11)
-                            .foregroundColor(VColor.systemNegativeStrong)
+                            .foregroundStyle(VColor.systemNegativeStrong)
                         Text(errorMessage)
                             .font(VFont.labelDefault)
-                            .foregroundColor(VColor.systemNegativeStrong)
+                            .foregroundStyle(VColor.systemNegativeStrong)
                     }
                 }
                 HStack {

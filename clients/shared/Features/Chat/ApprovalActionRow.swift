@@ -40,7 +40,7 @@ public struct GuardianApprovalActionRow: View {
                         .controlSize(.small)
                     Text("Submitting...")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
         }

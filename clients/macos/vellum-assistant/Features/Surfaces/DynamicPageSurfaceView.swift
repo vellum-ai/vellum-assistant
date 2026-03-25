@@ -63,7 +63,7 @@ extension DynamicPageSurfaceView {
     static let designSystemCSS: String = {
         guard let url = ResourceBundle.bundle.url(
             forResource: "vellum-design-system", withExtension: "css"
-        ), let css = try? String(contentsOf: url) else {
+        ), let css = try? String(contentsOf: url, encoding: .utf8) else {
             log.error("Failed to load vellum-design-system.css from resource bundle")
             assertionFailure("vellum-design-system.css not found in resource bundle")
             return ""
@@ -79,7 +79,7 @@ extension DynamicPageSurfaceView {
     static let widgetJS: String = {
         guard let url = ResourceBundle.bundle.url(
             forResource: "vellum-widgets", withExtension: "js"
-        ), let js = try? String(contentsOf: url) else {
+        ), let js = try? String(contentsOf: url, encoding: .utf8) else {
             log.error("Failed to load vellum-widgets.js from resource bundle")
             assertionFailure("vellum-widgets.js not found in resource bundle")
             return ""
@@ -310,7 +310,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
 
         // Edit animator — DOM morphing with animation (runs at document end so window.vellum exists).
         if let animatorURL = ResourceBundle.bundle.url(forResource: "vellum-edit-animator", withExtension: "js"),
-           let animatorJS = try? String(contentsOf: animatorURL) {
+           let animatorJS = try? String(contentsOf: animatorURL, encoding: .utf8) {
             let animatorScript = WKUserScript(source: animatorJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
             contentController.addUserScript(animatorScript)
         }
@@ -889,7 +889,9 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             guard let onSnapshotCaptured else { return }
             logPhase("captureSnapshotAfterMorph:start")
             hasCapturedSnapshot = false
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard !Task.isCancelled else { return }
                 guard let self, self.morphGeneration == generation else { return }
                 self.logPhase("captureSnapshotAfterMorph:takeSnapshot")
                 self.captureSnapshot { [weak self] base64 in
@@ -1040,7 +1042,9 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             if !hasCapturedSnapshot, let onSnapshotCaptured {
                 hasCapturedSnapshot = true
                 logPhase("onSnapshotCaptured:scheduled")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 1_500_000_000)
+                    guard !Task.isCancelled else { return }
                     self?.logPhase("onSnapshotCaptured:takeSnapshot")
                     self?.captureSnapshot { base64 in
                         if let base64 {

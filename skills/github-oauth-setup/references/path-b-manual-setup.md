@@ -101,10 +101,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:github --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --scopes repo read:user notifications
+    assistant oauth connect integration:github --scopes repo read:user notifications
 ```
 
 Send the returned auth URL to the user. Tell them to click **Authorize** on the GitHub consent page.

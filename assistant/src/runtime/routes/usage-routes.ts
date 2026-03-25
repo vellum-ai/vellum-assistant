@@ -6,6 +6,8 @@
  * GET /v1/usage/breakdown?from=&to=&groupBy=  — grouped breakdown (actor, provider, model)
  */
 
+import { z } from "zod";
+
 import {
   getUsageDayBuckets,
   getUsageGroupBreakdown,
@@ -63,6 +65,21 @@ export function usageRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "usage/totals",
       method: "GET",
+      summary: "Get usage totals",
+      description: "Return aggregate usage totals for a time range.",
+      tags: ["usage"],
+      queryParams: [
+        {
+          name: "from",
+          schema: { type: "integer" },
+          description: "Start epoch millis (required)",
+        },
+        {
+          name: "to",
+          schema: { type: "integer" },
+          description: "End epoch millis (required)",
+        },
+      ],
       handler: ({ url }) => {
         const range = parseTimeRange(url);
         if (range instanceof Response) return range;
@@ -73,6 +90,24 @@ export function usageRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "usage/daily",
       method: "GET",
+      summary: "Get daily usage",
+      description: "Return per-day usage buckets for a time range.",
+      tags: ["usage"],
+      queryParams: [
+        {
+          name: "from",
+          schema: { type: "integer" },
+          description: "Start epoch millis (required)",
+        },
+        {
+          name: "to",
+          schema: { type: "integer" },
+          description: "End epoch millis (required)",
+        },
+      ],
+      responseBody: z.object({
+        buckets: z.array(z.unknown()).describe("Daily usage bucket objects"),
+      }),
       handler: ({ url }) => {
         const range = parseTimeRange(url);
         if (range instanceof Response) return range;
@@ -83,6 +118,30 @@ export function usageRouteDefinitions(): RouteDefinition[] {
     {
       endpoint: "usage/breakdown",
       method: "GET",
+      summary: "Get usage breakdown",
+      description:
+        "Return grouped usage breakdown (by actor, provider, or model).",
+      tags: ["usage"],
+      queryParams: [
+        {
+          name: "from",
+          schema: { type: "integer" },
+          description: "Start epoch millis (required)",
+        },
+        {
+          name: "to",
+          schema: { type: "integer" },
+          description: "End epoch millis (required)",
+        },
+        {
+          name: "groupBy",
+          schema: { type: "string" },
+          description: "Group by: actor, provider, or model (required)",
+        },
+      ],
+      responseBody: z.object({
+        breakdown: z.array(z.unknown()).describe("Grouped usage entries"),
+      }),
       handler: ({ url }) => {
         const range = parseTimeRange(url);
         if (range instanceof Response) return range;

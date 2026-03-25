@@ -27,7 +27,7 @@ struct OnboardingButton: View {
         Button(action: action) {
             Text(title)
                 .font(isGhost ? VFont.labelDefault : .system(size: 15, weight: .medium))
-                .foregroundColor(foregroundColor)
+                .foregroundStyle(foregroundColor)
                 .if(!isGhost) { $0.frame(maxWidth: .infinity) }
                 .padding(.horizontal, isGhost ? VSpacing.sm : VSpacing.xl)
                 .padding(.vertical, isGhost ? VSpacing.xs : VSpacing.lg)
@@ -58,12 +58,12 @@ struct OnboardingButton: View {
                 isHovered = hovering
             }
         }
-        .onAppear {
+        .task {
             if fadeIn {
-                DispatchQueue.main.asyncAfter(deadline: .now() + fadeDelay) {
-                    withAnimation(.easeOut(duration: 0.5)) {
-                        visible = true
-                    }
+                try? await Task.sleep(nanoseconds: UInt64(fadeDelay * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.5)) {
+                    visible = true
                 }
             } else {
                 visible = true

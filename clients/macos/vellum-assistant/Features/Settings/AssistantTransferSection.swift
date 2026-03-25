@@ -30,7 +30,7 @@ struct AssistantTransferSection: View {
         VStack(alignment: .leading, spacing: VSpacing.md) {
             Text("Transfer")
                 .font(VFont.titleSmall)
-                .foregroundColor(VColor.contentDefault)
+                .foregroundStyle(VColor.contentDefault)
 
             if !assistant.isManaged && !assistant.isRemote {
                 localToManagedContent
@@ -46,14 +46,14 @@ struct AssistantTransferSection: View {
                         .controlSize(.small)
                     Text(currentStep ?? "Transferring...")
                         .font(VFont.labelDefault)
-                        .foregroundColor(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
 
             if let error = errorMessage {
                 Text(error)
                     .font(VFont.labelDefault)
-                    .foregroundColor(VColor.systemNegativeStrong)
+                    .foregroundStyle(VColor.systemNegativeStrong)
             }
         }
         .padding(VSpacing.lg)
@@ -86,7 +86,7 @@ struct AssistantTransferSection: View {
     private var localToManagedContent: some View {
         Text("Move your assistant and all its data to the cloud.")
             .font(VFont.labelDefault)
-            .foregroundColor(VColor.contentTertiary)
+            .foregroundStyle(VColor.contentTertiary)
 
         VButton(
             label: isTransferring ? "Transferring..." : "Transfer to Cloud",
@@ -99,7 +99,7 @@ struct AssistantTransferSection: View {
         if SessionTokenManager.getToken() == nil {
             Text("Sign in to transfer your assistant to the cloud.")
                 .font(VFont.labelDefault)
-                .foregroundColor(VColor.contentTertiary)
+                .foregroundStyle(VColor.contentTertiary)
         }
     }
 
@@ -109,7 +109,7 @@ struct AssistantTransferSection: View {
     private var managedToLocalContent: some View {
         Text("Move your assistant and all its data to this Mac.")
             .font(VFont.labelDefault)
-            .foregroundColor(VColor.contentTertiary)
+            .foregroundStyle(VColor.contentTertiary)
 
         VButton(
             label: isTransferring ? "Transferring..." : "Transfer to Local",

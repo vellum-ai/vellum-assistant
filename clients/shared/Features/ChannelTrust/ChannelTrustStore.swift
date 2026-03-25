@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 
 /// Cross-platform store for guardian state, channel trust/policy management,
@@ -6,30 +5,36 @@ import Foundation
 ///
 /// Composes `ContactsStore` for guardian contact state and `GatewayConnectionManager`
 /// for pending guardian action operations.
-@MainActor
-public final class ChannelTrustStore: ObservableObject {
+@MainActor @Observable
+public final class ChannelTrustStore {
+
+    // MARK: - Computed State (derived from ContactsStore)
+
+    /// The guardian contact, derived from ContactsStore.
+    public var guardianContact: ContactPayload? {
+        contactsStore.contacts.first { $0.role == "guardian" }
+    }
+
+    /// Channels belonging to the guardian contact.
+    public var guardianChannels: [ContactChannelPayload] {
+        guardianContact?.channels ?? []
+    }
 
     // MARK: - Published State
 
-    /// The guardian contact, forwarded from ContactsStore.
-    @Published public var guardianContact: ContactPayload?
-
-    /// Channels belonging to the guardian contact.
-    @Published public var guardianChannels: [ContactChannelPayload] = []
-
     /// Pending guardian decision prompts for the current conversation.
-    @Published public var pendingActions: [GuardianDecisionPromptWire] = []
+    public var pendingActions: [GuardianDecisionPromptWire] = []
 
     /// Whether a pending-actions fetch is in progress.
-    @Published public var isLoadingActions = false
+    public var isLoadingActions = false
 
     // MARK: - Private State
 
-    private let connectionManager: GatewayConnectionManager
+    @ObservationIgnored private let connectionManager: GatewayConnectionManager
     private let contactsStore: ContactsStore
-    private let guardianClient: GuardianClientProtocol
-    private var fetchTask: Task<Void, Never>?
-    private var decideTask: Task<Void, Never>?
+    @ObservationIgnored private let guardianClient: GuardianClientProtocol
+    @ObservationIgnored private var fetchTask: Task<Void, Never>?
+    @ObservationIgnored private var decideTask: Task<Void, Never>?
 
     // MARK: - Init
 
@@ -37,15 +42,6 @@ public final class ChannelTrustStore: ObservableObject {
         self.connectionManager = connectionManager
         self.contactsStore = contactsStore
         self.guardianClient = guardianClient
-
-        // Forward guardian state from ContactsStore
-        contactsStore.$contacts
-            .map { contacts in contacts.first { $0.role == "guardian" } }
-            .assign(to: &$guardianContact)
-
-        $guardianContact
-            .map { $0?.channels ?? [] }
-            .assign(to: &$guardianChannels)
     }
 
     deinit {

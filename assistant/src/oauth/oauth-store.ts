@@ -45,11 +45,12 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
  * Seed well-known provider profiles into the database. Uses INSERT … ON
  * CONFLICT DO UPDATE so that implementation fields (authUrl, tokenUrl,
  * tokenEndpointAuthMethod, userinfoUrl, extraParams, callbackTransport,
- * pingUrl, managedServiceConfigKey) and display metadata (displayName,
- * description, dashboardUrl, clientIdPlaceholder, requiresClientSecret)
- * propagate to existing installations on every startup, while
- * user-customizable fields (defaultScopes, scopePolicy, baseUrl) are
- * only written on the initial insert.
+ * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey)
+ * and display metadata (displayName, description, dashboardUrl,
+ * clientIdPlaceholder, requiresClientSecret) propagate to existing
+ * installations on every startup, while user-customizable fields
+ * (defaultScopes, scopePolicy, baseUrl) are only written on the
+ * initial insert.
  */
 export function seedProviders(
   profiles: Array<{
@@ -59,6 +60,9 @@ export function seedProviders(
     tokenEndpointAuthMethod?: string;
     userinfoUrl?: string;
     pingUrl?: string;
+    pingMethod?: string;
+    pingHeaders?: Record<string, string>;
+    pingBody?: unknown;
     baseUrl?: string;
     defaultScopes: string[];
     scopePolicy: Record<string, unknown>;
@@ -80,6 +84,10 @@ export function seedProviders(
     const tokenEndpointAuthMethod = p.tokenEndpointAuthMethod ?? null;
     const userinfoUrl = p.userinfoUrl ?? null;
     const pingUrl = p.pingUrl ?? null;
+    const pingMethod = p.pingMethod ?? null;
+    const pingHeaders = p.pingHeaders ? JSON.stringify(p.pingHeaders) : null;
+    const pingBody =
+      p.pingBody !== undefined ? JSON.stringify(p.pingBody) : null;
     const baseUrl = p.baseUrl ?? null;
     const defaultScopes = JSON.stringify(p.defaultScopes);
     const scopePolicy = JSON.stringify(p.scopePolicy);
@@ -105,6 +113,9 @@ export function seedProviders(
         extraParams,
         callbackTransport,
         pingUrl,
+        pingMethod,
+        pingHeaders,
+        pingBody,
         managedServiceConfigKey,
         displayName,
         description,
@@ -124,6 +135,9 @@ export function seedProviders(
           extraParams,
           callbackTransport,
           pingUrl,
+          pingMethod,
+          pingHeaders,
+          pingBody,
           managedServiceConfigKey,
           displayName,
           description,
@@ -164,6 +178,9 @@ export function registerProvider(params: {
   tokenEndpointAuthMethod?: string;
   userinfoUrl?: string;
   pingUrl?: string;
+  pingMethod?: string;
+  pingHeaders?: Record<string, string>;
+  pingBody?: unknown;
   baseUrl?: string;
   defaultScopes: string[];
   scopePolicy: Record<string, unknown>;
@@ -196,6 +213,10 @@ export function registerProvider(params: {
     extraParams: params.extraParams ? JSON.stringify(params.extraParams) : null,
     callbackTransport: params.callbackTransport ?? null,
     pingUrl: params.pingUrl ?? null,
+    pingMethod: params.pingMethod ?? null,
+    pingHeaders: params.pingHeaders ? JSON.stringify(params.pingHeaders) : null,
+    pingBody:
+      params.pingBody !== undefined ? JSON.stringify(params.pingBody) : null,
     managedServiceConfigKey: params.managedServiceConfigKey ?? null,
     displayName: params.displayName ?? null,
     description: params.description ?? null,

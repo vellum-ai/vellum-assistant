@@ -10,7 +10,7 @@ struct AgentPanelContent: View {
     var onSkillsChanged: (() -> Void)?
     let connectionManager: GatewayConnectionManager
 
-    @StateObject private var skillsManager: SkillsManager
+    @State private var skillsManager: SkillsManager
     @State private var selectedInstalledSkillId: String?
     @State private var skillToDelete: SkillInfo?
     @State private var selectedCategory: SkillCategory?
@@ -20,7 +20,7 @@ struct AgentPanelContent: View {
         self.onInvokeSkill = onInvokeSkill
         self.onSkillsChanged = onSkillsChanged
         self.connectionManager = connectionManager
-        _skillsManager = StateObject(wrappedValue: SkillsManager(connectionManager: connectionManager))
+        _skillsManager = State(wrappedValue: SkillsManager(connectionManager: connectionManager))
     }
 
     private var normalizedSkillQuery: String {

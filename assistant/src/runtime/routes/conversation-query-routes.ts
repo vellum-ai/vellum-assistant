@@ -20,6 +20,8 @@
  * DELETE /v1/messages/queued/:id        — delete queued message
  */
 
+import { z } from "zod";
+
 import {
   deepMergeOverwrite,
   getConfig,
@@ -43,7 +45,9 @@ import {
   performConversationSearch,
 } from "../../daemon/handlers/conversation-history.js";
 import { deleteQueuedMessage } from "../../daemon/handlers/conversations.js";
+import { getAssistantMessageIdsInTurn } from "../../memory/conversation-crud.js";
 import { getRequestLogsByMessageId } from "../../memory/llm-request-log-store.js";
+import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 import { normalizeLlmContextPayloads } from "./llm-context-normalization.js";
@@ -109,6 +113,10 @@ export function conversationQueryRouteDefinitions(
       endpoint: "model",
       method: "GET",
       policyKey: "model",
+      summary: "Get current model config",
+      description:
+        "Return the active LLM model ID, provider, and available models.",
+      tags: ["config"],
       handler: async () => {
         const info = await getModelInfo();
         return Response.json(info);
@@ -118,6 +126,13 @@ export function conversationQueryRouteDefinitions(
       endpoint: "model",
       method: "PUT",
       policyKey: "model",
+      summary: "Set LLM model",
+      description: "Change the active LLM model and optionally its provider.",
+      tags: ["config"],
+      requestBody: z.object({
+        modelId: z.string(),
+        provider: z.string().describe("Optional provider override").optional(),
+      }),
       handler: async ({ req }) => {
         if (!deps.getModelSetContext) {
           return httpError("INTERNAL_ERROR", "Model set not available", 500);
@@ -165,6 +180,12 @@ export function conversationQueryRouteDefinitions(
       endpoint: "model/image-gen",
       method: "PUT",
       policyKey: "model/image-gen",
+      summary: "Set image generation model",
+      description: "Change the active image generation model.",
+      tags: ["config"],
+      requestBody: z.object({
+        modelId: z.string(),
+      }),
       handler: async ({ req }) => {
         if (!deps.getModelSetContext) {
           return httpError(
@@ -200,6 +221,10 @@ export function conversationQueryRouteDefinitions(
       endpoint: "config/embeddings",
       method: "GET",
       policyKey: "config/embeddings",
+      summary: "Get embedding config",
+      description:
+        "Return the active embedding provider, model, and available options.",
+      tags: ["config"],
       handler: async () => {
         const info = await getEmbeddingConfigInfo();
         return Response.json(info);
@@ -209,6 +234,13 @@ export function conversationQueryRouteDefinitions(
       endpoint: "config/embeddings",
       method: "PUT",
       policyKey: "config/embeddings",
+      summary: "Set embedding config",
+      description: "Change the embedding provider and optionally model.",
+      tags: ["config"],
+      requestBody: z.object({
+        provider: z.string(),
+        model: z.string().optional(),
+      }),
       handler: async ({ req }) => {
         if (!deps.getModelSetContext) {
           return httpError(
@@ -265,6 +297,12 @@ export function conversationQueryRouteDefinitions(
       endpoint: "config/permissions/skip",
       method: "GET",
       policyKey: "config/permissions/skip",
+      summary: "Get permission-skip flag",
+      description: "Return whether dangerouslySkipPermissions is enabled.",
+      tags: ["config"],
+      responseBody: z.object({
+        enabled: z.boolean(),
+      }),
       handler: () => {
         const config = getConfig();
         return Response.json({
@@ -276,6 +314,12 @@ export function conversationQueryRouteDefinitions(
       endpoint: "config/permissions/skip",
       method: "PUT",
       policyKey: "config/permissions/skip",
+      summary: "Set permission-skip flag",
+      description: "Enable or disable dangerouslySkipPermissions.",
+      tags: ["config"],
+      requestBody: z.object({
+        enabled: z.boolean(),
+      }),
       handler: async ({ req }) => {
         const body = (await req.json()) as { enabled?: unknown };
         if (typeof body.enabled !== "boolean") {
@@ -304,6 +348,9 @@ export function conversationQueryRouteDefinitions(
       endpoint: "config",
       method: "GET",
       policyKey: "config",
+      summary: "Get full config",
+      description: "Return the raw settings.json configuration object.",
+      tags: ["config"],
       handler: () => {
         try {
           const raw = loadRawConfig();
@@ -324,6 +371,10 @@ export function conversationQueryRouteDefinitions(
       endpoint: "config",
       method: "PATCH",
       policyKey: "config",
+      summary: "Patch config",
+      description:
+        "Deep-merge a partial JSON object into the settings.json configuration.",
+      tags: ["config"],
       handler: async ({ req }) => {
         const body = (await req.json()) as Record<string, unknown>;
         if (
@@ -359,6 +410,14 @@ export function conversationQueryRouteDefinitions(
       endpoint: "conversations/search",
       method: "GET",
       policyKey: "conversations/search",
+      summary: "Search conversations",
+      description:
+        "Full-text search across conversation titles and message content.",
+      tags: ["conversations"],
+      responseBody: z.object({
+        query: z.string(),
+        results: z.array(z.unknown()),
+      }),
       handler: ({ url }) => {
         const q = url.searchParams.get("q");
         if (!q) {
@@ -388,6 +447,9 @@ export function conversationQueryRouteDefinitions(
       endpoint: "messages/:id/content",
       method: "GET",
       policyKey: "messages/content",
+      summary: "Get message content",
+      description: "Return the full content of a single message by ID.",
+      tags: ["messages"],
       handler: ({ url, params }) => {
         const conversationId = url.searchParams.get("conversationId");
         const result = getMessageContent(
@@ -406,12 +468,23 @@ export function conversationQueryRouteDefinitions(
       endpoint: "messages/:id/llm-context",
       method: "GET",
       policyKey: "messages/llm-context",
+      summary: "Get LLM context for a message",
+      description:
+        "Return request/response logs and memory recall data for a specific message.",
+      tags: ["messages"],
+      responseBody: z.object({
+        messageId: z.string(),
+        logs: z.array(z.unknown()),
+        memoryRecall: z.object({}).passthrough(),
+      }),
       handler: ({ params }) => {
         const messageId = params.id;
         if (!messageId) {
           return httpError("BAD_REQUEST", "message id is required", 400);
         }
         const logs = getRequestLogsByMessageId(messageId);
+        const turnMessageIds = getAssistantMessageIdsInTurn(messageId);
+        const memoryRecallLog = getMemoryRecallLogByMessageIds(turnMessageIds);
         return Response.json({
           messageId,
           logs: logs.map((log) => {
@@ -444,6 +517,7 @@ export function conversationQueryRouteDefinitions(
               ...result,
             };
           }),
+          memoryRecall: memoryRecallLog ?? null,
         });
       },
     },
@@ -453,6 +527,10 @@ export function conversationQueryRouteDefinitions(
       endpoint: "messages/queued/:id",
       method: "DELETE",
       policyKey: "messages/queued",
+      summary: "Delete a queued message",
+      description:
+        "Remove a pending message from the conversation queue before it is processed.",
+      tags: ["messages"],
       handler: ({ url, params }) => {
         if (!deps.findConversationForQueue) {
           return httpError(

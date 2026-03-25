@@ -27,6 +27,7 @@ public struct VSplitView<Main: View, Panel: View>: View {
                     .clipShape(RoundedRectangle(cornerRadius: mainCornerRadius ?? VRadius.lg))
                     .padding([.bottom, .leading], VSpacing.xs)
                     .padding(.trailing, showPanel ? 0 : VSpacing.xs)
+                    .animation(nil, value: showPanel)  // Don't animate main pane resize
 
                 // Panel slides in from right, pushing content
                 if showPanel, let panel = panel {

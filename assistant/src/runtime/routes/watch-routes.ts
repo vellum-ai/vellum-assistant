@@ -5,6 +5,8 @@
  * zero dependency on CU session state.
  */
 
+import { z } from "zod";
+
 import { getLogger } from "../../util/logger.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
@@ -122,7 +124,33 @@ export function watchRouteDefinitions(deps: {
       endpoint: "computer-use/watch",
       method: "POST",
       policyKey: "computer-use/watch",
+      summary: "Submit watch observation",
+      description: "Send a screen observation from ambient watch mode.",
+      tags: ["computer-use"],
       handler: async ({ req }) => handleWatchObservationRoute(req, getDeps()),
+      requestBody: z.object({
+        watchId: z.string().describe("Watch session ID"),
+        conversationId: z.string().describe("Conversation to associate with"),
+        ocrText: z.string().describe("OCR text from screen capture"),
+        appName: z.string().describe("Active application name").optional(),
+        windowTitle: z.string().describe("Active window title").optional(),
+        bundleIdentifier: z
+          .string()
+          .describe("Application bundle identifier")
+          .optional(),
+        timestamp: z.number().describe("Capture timestamp (epoch ms)"),
+        captureIndex: z
+          .number()
+          .int()
+          .describe("Index of this capture in the batch"),
+        totalExpected: z
+          .number()
+          .int()
+          .describe("Total captures expected in the batch"),
+      }),
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
     },
   ];
 }

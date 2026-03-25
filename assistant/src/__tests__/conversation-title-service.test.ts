@@ -28,11 +28,6 @@ const mockGetMessages = mock(() => [
 ]);
 const mockUpdateConversationTitle = mock(() => {});
 const mockGetConfiguredProvider = mock(async () => null);
-const mockGetConfig = mock(() => ({
-  daemon: {
-    titleGenerationMaxTokens: 37,
-  },
-}));
 
 mock.module("../runtime/btw-sidechain.js", () => ({
   runBtwSidechain: mockRunBtwSidechain,
@@ -46,10 +41,6 @@ mock.module("../memory/conversation-crud.js", () => ({
 
 mock.module("../providers/provider-send-message.js", () => ({
   getConfiguredProvider: mockGetConfiguredProvider,
-}));
-
-mock.module("../config/loader.js", () => ({
-  getConfig: mockGetConfig,
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -71,7 +62,6 @@ describe("conversation-title-service", () => {
     mockGetMessages.mockClear();
     mockUpdateConversationTitle.mockClear();
     mockGetConfiguredProvider.mockClear();
-    mockGetConfig.mockClear();
   });
 
   test("uses the BTW side-chain helper for initial title generation", async () => {
@@ -95,8 +85,7 @@ describe("conversation-title-service", () => {
         provider,
         systemPrompt: expect.stringContaining("conversation titles"),
         tools: [],
-        maxTokens: 37,
-        modelIntent: "latency-optimized",
+        modelIntent: "quality-optimized",
         timeoutMs: 10_000,
       }),
     );
@@ -214,8 +203,7 @@ describe("conversation-title-service", () => {
         provider,
         systemPrompt: expect.stringContaining("conversation titles"),
         tools: [],
-        maxTokens: 37,
-        modelIntent: "latency-optimized",
+        modelIntent: "quality-optimized",
         timeoutMs: 10_000,
       }),
     );
@@ -248,6 +236,5 @@ describe("conversation-title-service", () => {
     expect(call.content).not.toContain("Generate a very short title");
     expect(call.content).not.toContain("do NOT respond");
     expect(call.systemPrompt).toContain("Do NOT respond");
-    expect(call.systemPrompt).toContain("Maximum 5 words");
   });
 });

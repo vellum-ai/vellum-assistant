@@ -187,6 +187,7 @@ export class Conversation {
   /** @internal */ authContext?: AuthContext;
   /** @internal */ loadedHistoryTrustClass?: TrustClass;
   /** @internal */ voiceCallControlPrompt?: string;
+  /** @internal */ transportHints?: string[];
   /** @internal */ assistantId?: string;
   /** @internal */ commandIntent?: {
     type: string;
@@ -890,6 +891,10 @@ export class Conversation {
 
   setVoiceCallControlPrompt(prompt: string | null): void {
     this.voiceCallControlPrompt = prompt ?? undefined;
+  }
+
+  setTransportHints(hints: string[] | undefined): void {
+    this.transportHints = hints;
   }
 
   setAssistantId(assistantId: string | null): void {
