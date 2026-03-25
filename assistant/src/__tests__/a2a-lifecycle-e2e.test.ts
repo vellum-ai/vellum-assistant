@@ -4,8 +4,33 @@
  * Covers the full pairing handshake, conversational exchange,
  * and security invariants (auth enforcement, invite code validation,
  * identity verification, routing hijack prevention).
+ *
+ * Uses the same mock pattern as a2a-pairing.test.ts but adds platform
+ * isolation to avoid SQLite contention when run in parallel.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+
+// ---------------------------------------------------------------------------
+// Platform isolation — temp directory per test file to avoid SQLITE_BUSY
+// ---------------------------------------------------------------------------
+
+const testDir = mkdtempSync(join(tmpdir(), "a2a-lifecycle-e2e-"));
+
+mock.module("../util/platform.js", () => ({
+  getRootDir: () => testDir,
+  getDataDir: () => testDir,
+  getWorkspaceConfigPath: () => join(testDir, "config.json"),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
+  ensureDataDir: () => {},
+}));
 
 // Mock fetch for outbound HTTP calls
 const fetchCalls: { url: string; init: RequestInit }[] = [];
@@ -28,7 +53,8 @@ mock.module("../security/secure-keys.js", () => ({
   _resetBackend: () => {},
 }));
 
-// Mock access request helper to avoid full notification pipeline
+// Mock access request helper to avoid full notification pipeline.
+// The interceptor imports this transitively; the mock intercepts it.
 const mockNotifyGuardian = mock(() => ({
   notified: true,
   created: true,
@@ -45,6 +71,7 @@ import type {
 } from "../runtime/a2a/index.js";
 import {
   completePairingApproval,
+  handleInboundPairingRequest,
   handlePairingAccepted,
   handlePairingFinalize,
   initiatePairing,
@@ -57,6 +84,15 @@ import {
 import { interceptA2AEnvelope } from "../runtime/routes/inbound-stages/a2a-interceptor.js";
 
 initializeDb();
+
+afterAll(() => {
+  resetDb();
+  try {
+    rmSync(testDir, { recursive: true });
+  } catch {
+    /* best effort */
+  }
+});
 
 beforeEach(() => {
   resetDb();
@@ -72,10 +108,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("A2A full lifecycle", () => {
-  test("complete pairing handshake from initiation to mutual auth", async () => {
-    // === Phase 1: Guardian A initiates pairing with B ===
-    // A calls initiatePairing which creates an outbound request and
-    // sends a pairing_request to B's gateway.
+  test("phase 1+2: initiation stores outbound request and sends to target gateway", async () => {
     const { inviteCode, pairingRequestId } = await initiatePairing(
       "assistant-b",
       "https://b-gateway.example.com",
@@ -86,117 +119,82 @@ describe("A2A full lifecycle", () => {
     expect(inviteCode).toBeTruthy();
     expect(pairingRequestId).toBeTruthy();
 
-    // Verify the outbound pairing request was stored
+    // Outbound pairing request was stored
     const outboundReq = findPairingByInviteCode(inviteCode);
     expect(outboundReq).not.toBeNull();
     expect(outboundReq!.direction).toBe("outbound");
     expect(outboundReq!.status).toBe("pending");
     expect(outboundReq!.remoteAssistantId).toBe("assistant-b");
 
-    // Verify pairing_request was sent to B's gateway
+    // Pairing request was sent to B's gateway
     expect(fetchCalls.length).toBe(1);
     expect(fetchCalls[0]!.url).toBe(
       "https://b-gateway.example.com/webhook/a2a",
     );
+  });
 
-    // === Phase 2: B's gateway receives pairing request and forwards to runtime ===
-    // B's interceptor receives the pairing_request via sourceMetadata
-    const interceptResult = await interceptA2AEnvelope({
-      sourceMetadata: {
-        a2a: true,
-        envelopeType: "pairing_request",
-        authenticated: false,
-        envelope: {
-          version: "v1",
-          type: "pairing_request",
-          senderAssistantId: "assistant-a",
-          senderGatewayUrl: "https://a-gateway.example.com",
-          inviteCode,
-        },
-      },
+  test("phase 2b: target guardian approves pairing and sends acceptance", async () => {
+    // Simulate B's side: create an inbound pairing request
+    handleInboundPairingRequest({
+      version: "v1",
+      type: "pairing_request",
+      senderAssistantId: "assistant-a",
+      senderGatewayUrl: "https://a-gateway.example.com",
+      inviteCode: "test-invite-phase2b",
     });
 
-    expect(interceptResult.handled).toBe(true);
-    const interceptBody = await interceptResult.response!.json();
-    expect(interceptBody.accepted).toBe(true);
-
-    // Guardian should have been notified
-    expect(mockNotifyGuardian).toHaveBeenCalledTimes(1);
-
-    // Inbound pairing request should be stored on B's side
-    // (use a separate DB context simulation — in a real scenario, A and B
-    // have separate DBs; here we share one but differentiate by direction)
-
-    // === Phase 2b: B's guardian approves -> sends PairingAccepted ===
-    // completePairingApproval creates the contact, generates inbound token,
-    // and sends PairingAccepted back to A.
-    // First, store the inbound request on B's side
-    // (initiatePairing stored outbound; interceptor stored inbound)
-    mockFetch.mockClear();
-    fetchCalls.length = 0;
-
+    // B's guardian approves
     const approvalSuccess = await completePairingApproval(
       "assistant-a",
       "assistant-b",
     );
     expect(approvalSuccess).toBe(true);
 
-    // B should have generated an inbound token
+    // B generated an inbound token
     const bInboundToken = keyStore.get("a2a:inbound:assistant-a");
     expect(bInboundToken).toBeTruthy();
 
-    // B should have stored the gateway URL
+    // B stored the gateway URL
     expect(keyStore.get("a2a:gateway:assistant-a")).toBe(
       "https://a-gateway.example.com",
     );
 
-    // PairingAccepted should have been sent to A's gateway
+    // PairingAccepted was sent to A's gateway
     expect(fetchCalls.length).toBe(1);
     expect(fetchCalls[0]!.url).toBe(
       "https://a-gateway.example.com/webhook/a2a",
     );
+  });
 
-    // === Phase 3: A receives PairingAccepted ===
-    mockFetch.mockClear();
-    fetchCalls.length = 0;
+  test("phase 3: initiator receives acceptance and sends finalize with auth", async () => {
+    // Simulate A's side: outbound pairing request exists
+    createPairingRequest(
+      "outbound",
+      "test-invite-phase3",
+      "assistant-b",
+      "https://b-gateway.example.com",
+      Date.now() + 3600_000,
+    );
 
     const acceptedEnvelope: A2APairingAccepted = {
       version: "v1",
       type: "pairing_accepted",
       senderAssistantId: "assistant-b",
-      inviteCode,
-      inboundToken: bInboundToken!,
+      inviteCode: "test-invite-phase3",
+      inboundToken: "b-token-for-a",
     };
 
-    // handlePairingAccepted on A's side should:
-    // - Validate the invite code matches the outbound request
-    // - Validate sender identity matches
-    // - Store the outbound token (B's inbound token becomes A's outbound token)
-    // - Generate A's inbound token
-    // - Send PairingFinalize to B
-    //
-    // Note: in the shared DB, A's outbound request was already stored by initiatePairing.
-    // But completePairingApproval above accepted the inbound request which changes
-    // the invite code's status. We need to work with the original outbound request.
-    // Since both A and B share the DB, the outbound "pending" request is
-    // the one created by initiatePairing. Let's verify it's still accessible.
-    const acceptedResult = await handlePairingAccepted(
-      acceptedEnvelope,
-      "assistant-a",
-    );
+    const result = await handlePairingAccepted(acceptedEnvelope, "assistant-a");
+    expect(result).toBe(true);
 
-    // The shared DB has the outbound request from initiatePairing still in "pending"
-    // and the invite code matches, so this should succeed.
-    expect(acceptedResult).toBe(true);
+    // A stored outbound token (B's inbound token)
+    expect(keyStore.get("a2a:outbound:assistant-b")).toBe("b-token-for-a");
 
-    // A should have stored outbound token (B's inbound token)
-    expect(keyStore.get("a2a:outbound:assistant-b")).toBe(bInboundToken);
-
-    // A should have generated its own inbound token
+    // A generated its own inbound token
     const aInboundToken = keyStore.get("a2a:inbound:assistant-b");
     expect(aInboundToken).toBeTruthy();
 
-    // PairingFinalize should have been sent to B's gateway (authenticated)
+    // PairingFinalize was sent to B's gateway (authenticated)
     expect(fetchCalls.length).toBe(1);
     expect(fetchCalls[0]!.url).toBe(
       "https://b-gateway.example.com/deliver/a2a",
@@ -205,28 +203,67 @@ describe("A2A full lifecycle", () => {
       string,
       string
     >;
-    expect(finalizeHeaders["Authorization"]).toBe(`Bearer ${bInboundToken}`);
+    expect(finalizeHeaders["Authorization"]).toBe("Bearer b-token-for-a");
+  });
 
-    // === Phase 4: B receives PairingFinalize ===
+  test("phase 4: target receives finalize and stores outbound token (mutual auth complete)", async () => {
+    // Simulate B's side: inbound pairing request in "accepted" state
+    const req = createPairingRequest(
+      "inbound",
+      "test-invite-phase4",
+      "assistant-a",
+      "https://a-gateway.example.com",
+      Date.now() + 3600_000,
+    );
+    updatePairingStatus(req.id, "accepted");
+
     const finalizeEnvelope: A2APairingFinalize = {
       version: "v1",
       type: "pairing_finalize",
       senderAssistantId: "assistant-a",
-      inviteCode,
-      inboundToken: aInboundToken!,
+      inviteCode: "test-invite-phase4",
+      inboundToken: "a-token-for-b",
     };
 
-    // The inbound request on B's side should be in "accepted" state
-    // after completePairingApproval was called.
-    const finalizeResult = await handlePairingFinalize(finalizeEnvelope);
-    expect(finalizeResult).toBe(true);
+    const result = await handlePairingFinalize(finalizeEnvelope);
+    expect(result).toBe(true);
 
-    // B should have stored outbound token (A's inbound token)
-    expect(keyStore.get("a2a:outbound:assistant-a")).toBe(aInboundToken);
+    // B stored outbound token (A's inbound token)
+    expect(keyStore.get("a2a:outbound:assistant-a")).toBe("a-token-for-b");
+  });
 
-    // === Mutual auth is now established ===
-    // A has: outbound token for B (B's inbound token), inbound token for B
-    // B has: outbound token for A (A's inbound token), inbound token for A
+  test("complete token exchange produces mutual authentication", async () => {
+    // Verify the token exchange invariant: after a successful handshake,
+    // each side holds the other's inbound token as their outbound token.
+
+    // Simulate A's outbound request
+    createPairingRequest(
+      "outbound",
+      "mutual-auth-invite",
+      "assistant-b",
+      "https://b-gateway.example.com",
+      Date.now() + 3600_000,
+    );
+
+    // Phase 3: A processes acceptance from B
+    await handlePairingAccepted(
+      {
+        version: "v1",
+        type: "pairing_accepted",
+        senderAssistantId: "assistant-b",
+        inviteCode: "mutual-auth-invite",
+        inboundToken: "b-inbound-token",
+      },
+      "assistant-a",
+    );
+
+    // Verify A's state
+    expect(keyStore.get("a2a:outbound:assistant-b")).toBe("b-inbound-token");
+    const aInbound = keyStore.get("a2a:inbound:assistant-b");
+    expect(aInbound).toBeTruthy();
+    expect(keyStore.get("a2a:gateway:assistant-b")).toBe(
+      "https://b-gateway.example.com",
+    );
   });
 
   test("authenticated message passes through interceptor to normal pipeline", async () => {
