@@ -142,11 +142,27 @@ Examples:
           // -----------------------------------------------------------------
           // 5. Make the ping request
           // -----------------------------------------------------------------
+          const method = (providerRow.pingMethod as string | null) ?? "GET";
+
+          // Parse provider-configured ping headers (JSON string -> Record)
+          const pingHeaders: Record<string, string> = providerRow.pingHeaders
+            ? JSON.parse(providerRow.pingHeaders as string)
+            : {};
+
+          // Parse provider-configured ping body (JSON string -> unknown)
+          const pingBody: unknown = providerRow.pingBody
+            ? JSON.parse(providerRow.pingBody as string)
+            : undefined;
+
           const response = await connection.request({
-            method: "GET",
+            method,
             path,
             baseUrl,
             ...(Object.keys(query).length > 0 ? { query } : {}),
+            ...(Object.keys(pingHeaders).length > 0
+              ? { headers: pingHeaders }
+              : {}),
+            ...(pingBody !== undefined ? { body: pingBody } : {}),
           });
 
           // -----------------------------------------------------------------
