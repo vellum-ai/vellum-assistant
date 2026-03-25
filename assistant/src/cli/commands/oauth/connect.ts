@@ -40,7 +40,7 @@ export function registerConnectCommand(oauth: Command): void {
       "after",
       `
 Arguments:
-  provider   Provider name (e.g. google, slack, gmail).
+  provider   Provider name (e.g. google, slack, notion).
              Run 'assistant oauth providers list' to see available providers.
 
 Options:
@@ -58,7 +58,7 @@ Options:
 
 Examples:
   $ assistant oauth connect google
-  $ assistant oauth connect gmail --open-browser
+  $ assistant oauth connect google --open-browser
   $ assistant oauth connect google --scopes https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events
   $ assistant oauth connect google --client-id abc123 --open-browser`,
     )

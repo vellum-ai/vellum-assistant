@@ -37,7 +37,7 @@ export function registerDisconnectCommand(oauth: Command): void {
       "after",
       `
 Arguments:
-  provider   Provider name (e.g. google, slack, gmail).
+  provider   Provider name (e.g. google, slack, notion).
              Run 'assistant oauth providers list' to see available providers.
 
 Options:

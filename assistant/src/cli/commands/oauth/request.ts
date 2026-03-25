@@ -128,7 +128,7 @@ Note: The Authorization header is set automatically. User-supplied
 
 Examples:
   $ assistant oauth request --provider twitter https://api.x.com/2/tweets
-  $ assistant oauth request --provider gmail /gmail/v1/users/me/messages -G
+  $ assistant oauth request --provider google /gmail/v1/users/me/messages -G
   $ assistant oauth request --provider twitter -X POST -d '{"text":"Hello"}' https://api.x.com/2/tweets
   $ assistant oauth request --provider google -d @body.json https://www.googleapis.com/calendar/v3/calendars
   $ assistant oauth request --provider slack -H "Content-Type: application/json" -d '{"channel":"C123"}' /api/chat.postMessage --json`,
