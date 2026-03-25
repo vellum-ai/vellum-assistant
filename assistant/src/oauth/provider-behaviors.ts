@@ -16,8 +16,8 @@ import type { OAuthProviderBehavior } from "./connect-types.js";
 // ---------------------------------------------------------------------------
 
 const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
-  "integration:google": {
-    service: "integration:google",
+  google: {
+    service: "google",
     // Google APIs for Gmail/Calendar/Contacts span multiple hosts; register
     // all of them so proxied bash can inject the OAuth bearer token reliably.
     injectionTemplates: [
@@ -71,8 +71,8 @@ const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
     },
   },
 
-  "integration:slack": {
-    service: "integration:slack",
+  slack: {
+    service: "slack",
     loopbackPort: 17322,
     injectionTemplates: [
       {
@@ -112,8 +112,8 @@ const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
     },
   },
 
-  "integration:notion": {
-    service: "integration:notion",
+  notion: {
+    service: "notion",
     loopbackPort: 17323,
     injectionTemplates: [
       {
@@ -155,8 +155,8 @@ const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
     },
   },
 
-  "integration:twitter": {
-    service: "integration:twitter",
+  twitter: {
+    service: "twitter",
     injectionTemplates: [
       {
         hostPattern: "api.x.com",
@@ -189,8 +189,8 @@ const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
       return undefined;
     },
   },
-  "integration:github": {
-    service: "integration:github",
+  github: {
+    service: "github",
     loopbackPort: 17332,
     injectionTemplates: [
       {
@@ -225,8 +225,8 @@ const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
     },
   },
 
-  "integration:linear": {
-    service: "integration:linear",
+  linear: {
+    service: "linear",
     loopbackPort: 17324,
     injectionTemplates: [
       {
@@ -268,8 +268,8 @@ const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
     },
   },
 
-  "integration:spotify": {
-    service: "integration:spotify",
+  spotify: {
+    service: "spotify",
     loopbackPort: 17333,
     injectionTemplates: [
       {
@@ -307,8 +307,8 @@ const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
     },
   },
 
-  "integration:todoist": {
-    service: "integration:todoist",
+  todoist: {
+    service: "todoist",
     loopbackPort: 17325,
     injectionTemplates: [
       {
@@ -350,8 +350,8 @@ const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
     },
   },
 
-  "integration:discord": {
-    service: "integration:discord",
+  discord: {
+    service: "discord",
     loopbackPort: 17326,
     injectionTemplates: [
       {
@@ -389,8 +389,8 @@ const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
     },
   },
 
-  "integration:dropbox": {
-    service: "integration:dropbox",
+  dropbox: {
+    service: "dropbox",
     loopbackPort: 17327,
     injectionTemplates: [
       {
@@ -438,8 +438,8 @@ const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
     },
   },
 
-  "integration:asana": {
-    service: "integration:asana",
+  asana: {
+    service: "asana",
     loopbackPort: 17328,
     injectionTemplates: [
       {
@@ -476,8 +476,8 @@ const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
     },
   },
 
-  "integration:airtable": {
-    service: "integration:airtable",
+  airtable: {
+    service: "airtable",
     loopbackPort: 17329,
     injectionTemplates: [
       {
@@ -512,8 +512,8 @@ const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
     },
   },
 
-  "integration:hubspot": {
-    service: "integration:hubspot",
+  hubspot: {
+    service: "hubspot",
     loopbackPort: 17330,
     injectionTemplates: [
       {
@@ -551,8 +551,8 @@ const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
     },
   },
 
-  "integration:figma": {
-    service: "integration:figma",
+  figma: {
+    service: "figma",
     loopbackPort: 17331,
     injectionTemplates: [
       {
@@ -597,33 +597,12 @@ const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
 
 /** Map shorthand aliases to canonical service names. */
 export const SERVICE_ALIASES: Record<string, string> = {
-  gmail: "integration:google",
-  google: "integration:google",
-  slack: "integration:slack",
-  notion: "integration:notion",
-  twitter: "integration:twitter",
-  github: "integration:github",
-  linear: "integration:linear",
-  spotify: "integration:spotify",
-  todoist: "integration:todoist",
-  discord: "integration:discord",
-  dropbox: "integration:dropbox",
-  asana: "integration:asana",
-  airtable: "integration:airtable",
-  hubspot: "integration:hubspot",
-  figma: "integration:figma",
+  gmail: "google",
 };
 
-/**
- * Resolve a service name through aliases, then fall back to `integration:`
- * prefix for providers registered in PROVIDER_BEHAVIORS without a
- * SERVICE_ALIASES entry.
- */
+/** Resolve a service name through aliases. */
 export function resolveService(service: string): string {
-  if (SERVICE_ALIASES[service]) return SERVICE_ALIASES[service];
-  if (!service.includes(":") && PROVIDER_BEHAVIORS[`integration:${service}`])
-    return `integration:${service}`;
-  return service;
+  return SERVICE_ALIASES[service] ?? service;
 }
 
 /** Look up a provider behavior by canonical service name. */
