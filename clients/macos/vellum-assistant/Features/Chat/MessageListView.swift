@@ -746,11 +746,6 @@ struct MessageListView: View {
                         compactingIndicatorRow()
                     }
 
-                    if state.hasMessages && ConversationAvatarFollower.bottomInset > 0 {
-                        Color.clear
-                            .frame(height: ConversationAvatarFollower.bottomInset)
-                            .accessibilityHidden(true)
-                    }
 
                     Color.clear.frame(height: 1)
                         .id("scroll-bottom-anchor")
@@ -855,10 +850,6 @@ struct MessageListView: View {
                     conversationId: conversationId,
                     loadPreviousMessagePage: loadPreviousMessagePage
                 )
-            }
-            .overlay(alignment: .bottom) {
-                conversationTailAvatar
-                    .padding(.bottom, ConversationAvatarFollower.verticalOffset)
             }
             .overlay(alignment: .bottom) {
                 if !isNearBottom && !scrollCoordinator.isAtBottom {

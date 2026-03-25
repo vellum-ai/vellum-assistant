@@ -31,6 +31,7 @@ struct ChatBubble: View {
     var onRetryConversationError: (() -> Void)?
 
     var isLatestAssistantMessage: Bool = false
+    @State private var avatarBounceScale: CGFloat = 1.0
     /// When true, the assistant is still processing after tool calls completed.
     /// Renders an inline loading indicator in trailingStatus to avoid a separate
     /// standalone thinking row (which would stack a duplicate avatar).
@@ -401,6 +402,50 @@ struct ChatBubble: View {
             guard !Task.isCancelled else { return }
             mediaEmbedIntents = resolved
         }
+
+        // Avatar below the latest assistant message
+        if isLatestAssistantMessage && !isUser {
+            inlineAvatar
+                .padding(.top, VSpacing.sm)
+        }
+    }
+
+    // MARK: - Inline Avatar
+
+    @ViewBuilder
+    private var inlineAvatar: some View {
+        let appearance = AvatarAppearanceManager.shared
+        let avatarSize = ConversationAvatarFollower.avatarSize
+
+        if appearance.customAvatarImage != nil {
+            VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+                .scaleEffect(avatarBounceScale)
+                .onTapGesture { triggerBounce() }
+        } else if let bodyShape = appearance.characterBodyShape,
+                  let eyeStyle = appearance.characterEyeStyle,
+                  let color = appearance.characterColor {
+            AnimatedAvatarView(bodyShape: bodyShape, eyeStyle: eyeStyle, color: color,
+                               size: avatarSize, blinkEnabled: true, pokeEnabled: true)
+                .frame(width: avatarSize, height: avatarSize)
+                .modifier(AvatarWiggleModifier(isActive: message.isStreaming))
+                .scaleEffect(avatarBounceScale)
+                .onTapGesture { triggerBounce() }
+        } else {
+            VAvatarImage(image: appearance.chatAvatarImage, size: avatarSize)
+                .scaleEffect(avatarBounceScale)
+                .onTapGesture { triggerBounce() }
+        }
+    }
+
+    private func triggerBounce() {
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.4)) {
+            avatarBounceScale = 1.15
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.5)) {
+                avatarBounceScale = 1.0
+            }
+        }
     }
 
     // MARK: - Send Failed Indicator
@@ -750,6 +795,51 @@ private struct ConditionalCompositingGroup: ViewModifier {
             content.compositingGroup()
         } else {
             content
+        }
+    }
+}
+
+// MARK: - Avatar Wiggle Modifier
+
+/// Applies a gentle wiggle animation (rotation + scale breathing) while active,
+/// signaling the assistant is streaming/thinking.
+struct AvatarWiggleModifier: ViewModifier {
+    let isActive: Bool
+
+    @State private var wiggleAngle: Double = 0
+    @State private var breathScale: CGFloat = 1.0
+
+    func body(content: Content) -> some View {
+        content
+            .rotationEffect(.degrees(wiggleAngle))
+            .scaleEffect(breathScale)
+            .onChange(of: isActive) {
+                if isActive {
+                    startWiggle()
+                } else {
+                    stopWiggle()
+                }
+            }
+            .onAppear {
+                if isActive {
+                    startWiggle()
+                }
+            }
+    }
+
+    private func startWiggle() {
+        withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+            wiggleAngle = 3
+        }
+        withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+            breathScale = 1.03
+        }
+    }
+
+    private func stopWiggle() {
+        withAnimation(.easeOut(duration: 0.3)) {
+            wiggleAngle = 0
+            breathScale = 1.0
         }
     }
 }
