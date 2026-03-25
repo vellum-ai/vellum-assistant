@@ -46,11 +46,21 @@ export interface A2APairingFinalize {
   inboundToken: string; // token for target to use when contacting initiator
 }
 
+/** Pairing verification — sent by initiator to target (unauthenticated). */
+export interface A2APairingVerify {
+  version: "v1";
+  type: "pairing_verify";
+  senderAssistantId: string;
+  inviteCode: string; // binds to the original pairing request
+  verificationCode: string; // 6-digit code from the target's guardian
+}
+
 export type A2AEnvelope =
   | A2AMessageEnvelope
   | A2APairingRequest
   | A2APairingAccepted
-  | A2APairingFinalize;
+  | A2APairingFinalize
+  | A2APairingVerify;
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -61,6 +71,7 @@ const VALID_TYPES = new Set([
   "pairing_request",
   "pairing_accepted",
   "pairing_finalize",
+  "pairing_verify",
 ] as const);
 
 /** Maximum byte length for `content` in message envelopes. 256 KiB. */
@@ -115,6 +126,8 @@ export function parseA2AEnvelope(payload: unknown): A2AEnvelope {
       return parsePairingAccepted(obj);
     case "pairing_finalize":
       return parsePairingFinalize(obj);
+    case "pairing_verify":
+      return parsePairingVerify(obj);
     default: {
       // Exhaustiveness check — should never reach here after the Set guard.
       const _exhaustive: never = type;
@@ -187,6 +200,19 @@ function parsePairingFinalize(
     senderAssistantId: obj.senderAssistantId as string,
     inviteCode: obj.inviteCode as string,
     inboundToken: obj.inboundToken as string,
+  };
+}
+
+function parsePairingVerify(obj: Record<string, unknown>): A2APairingVerify {
+  requireNonEmptyString(obj, "inviteCode");
+  requireNonEmptyString(obj, "verificationCode");
+
+  return {
+    version: "v1",
+    type: "pairing_verify",
+    senderAssistantId: obj.senderAssistantId as string,
+    inviteCode: obj.inviteCode as string,
+    verificationCode: obj.verificationCode as string,
   };
 }
 

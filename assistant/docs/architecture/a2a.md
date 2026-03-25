@@ -1,56 +1,69 @@
 # A2A (Assistant-to-Assistant) Architecture
 
-Inter-assistant communication over the `"vellum"` channel. Two assistants pair via a four-phase invite-code handshake, then exchange authenticated messages through their gateways.
+Inter-assistant communication over the `"vellum"` channel. Two assistants pair via a five-phase invite-code handshake with 6-digit verification ceremony, then exchange authenticated messages through their gateways.
 
 ## Pairing Handshake
 
 ```mermaid
 sequenceDiagram
+    participant IG as Initiator Guardian
     participant I as Initiator
-    participant IG as Initiator Gateway
-    participant TG as Target Gateway
+    participant IGW as Initiator Gateway
+    participant TGW as Target Gateway
     participant T as Target
-    participant G as Target Guardian
+    participant TG as Target Guardian
 
     Note over I,T: Phase 1: Pairing Request (unauthenticated)
-    I->>IG: initiatePairing(targetId, targetGatewayUrl)
+    IG->>I: assistant contacts pair <target-gw> <target-id>
+    I->>IGW: initiatePairing(targetId, targetGatewayUrl)
     Note right of I: Generates inviteCode + stores outbound pairing request
-    IG->>TG: POST /webhook/a2a<br/>{type: "pairing_request", inviteCode, senderGatewayUrl}
-    Note over TG: No auth required — envelope validation only
-    TG->>T: forwardToRuntime (RuntimeInboundPayload)
+    IGW->>TGW: POST /webhook/a2a<br/>{type: "pairing_request", inviteCode, senderGatewayUrl}
+    TGW->>T: forwardToRuntime (RuntimeInboundPayload)
     T->>T: a2a-interceptor intercepts<br/>handleInboundPairingRequest()
-    T->>G: notifyGuardianOfAccessRequest()<br/>"Assistant X wants to pair"
+    T->>TG: notifyGuardianOfAccessRequest()<br/>"Assistant X wants to pair"
 
-    Note over I,T: Phase 2: Pairing Accepted (unauthenticated)
-    G->>T: Guardian approves access request
-    T->>T: completePairingApproval()<br/>- Creates assistant contact<br/>- Generates inbound token<br/>- Stores gateway URL
-    T->>TG: POST senderGatewayUrl/webhook/a2a<br/>{type: "pairing_accepted", inviteCode, inboundToken}
-    Note over TG,IG: No auth — invite-code binding validates origin
-    TG->>IG: (forwarded)
-    IG->>I: forwardToRuntime (RuntimeInboundPayload)
-    I->>I: a2a-interceptor intercepts<br/>handlePairingAccepted()
+    Note over I,T: Phase 2a: Guardian Approval + Verification Code
+    TG->>T: Guardian approves access request
+    T->>T: completePairingApproval()<br/>- Transitions to verification_pending<br/>- Mints 6-digit verification code<br/>(via createOutboundSession)
+    T->>TG: "Share this code: 123456"
 
-    Note over I,T: Phase 3: Pairing Finalize (authenticated)
-    I->>I: Validates invite code + sender identity<br/>Stores outbound token (received inboundToken)<br/>Generates own inbound token<br/>Creates reciprocal contact
-    I->>IG: POST targetGatewayUrl/deliver/a2a<br/>Authorization: Bearer outboundToken<br/>{type: "pairing_finalize", inviteCode, inboundToken}
-    Note over IG: Authenticated — Bearer token verified
-    IG->>TG: (forwarded to /webhook/a2a)
-    TG->>T: forwardToRuntime
-    T->>T: a2a-interceptor intercepts<br/>handlePairingFinalize()
+    Note over IG,TG: Phase 2b: Out-of-band Code Exchange
+    TG-->>IG: Guardian shares code out-of-band<br/>(Slack DM, in person, etc.)
 
-    Note over I,T: Phase 4: Finalize Complete (mutual auth established)
-    T->>T: Validates invite code + sender identity<br/>Stores outbound token (received inboundToken)
-    Note over I,T: Both sides now hold symmetric credentials:<br/>a2a:inbound:&lt;peerId&gt; + a2a:outbound:&lt;peerId&gt; + a2a:gateway:&lt;peerId&gt;
+    Note over I,T: Phase 2c: Verification (unauthenticated)
+    IG->>I: assistant contacts pair-verify 123456
+    I->>IGW: sendPairingVerify(code)
+    IGW->>TGW: POST /webhook/a2a<br/>{type: "pairing_verify", inviteCode, verificationCode}
+    TGW->>T: forwardToRuntime
+    T->>T: handlePairingVerify()<br/>- Validates code via validateAndConsumeVerification()<br/>- completePairingVerification()<br/>  - Creates contact + inbound token
+
+    Note over I,T: Phase 3: Pairing Accepted (unauthenticated)
+    T->>TGW: POST senderGatewayUrl/webhook/a2a<br/>{type: "pairing_accepted", inviteCode, inboundToken}
+    TGW->>IGW: (forwarded)
+    IGW->>I: forwardToRuntime
+    I->>I: handlePairingAccepted()<br/>Stores outbound token, generates inbound token
+
+    Note over I,T: Phase 4: Pairing Finalize (authenticated)
+    I->>IGW: POST targetGatewayUrl/deliver/a2a<br/>Authorization: Bearer outboundToken<br/>{type: "pairing_finalize", inviteCode, inboundToken}
+    IGW->>TGW: (forwarded)
+    TGW->>T: forwardToRuntime
+    T->>T: handlePairingFinalize()<br/>Stores outbound token
+
+    Note over I,T: Phase 5: Mutual Auth Established
+    Note over I,T: Both sides hold symmetric credentials:<br/>a2a:inbound:&lt;peerId&gt; + a2a:outbound:&lt;peerId&gt; + a2a:gateway:&lt;peerId&gt;
 ```
 
 ### Auth state by phase
 
-| Phase       | Envelope type      | Auth         | Binding mechanism                                          |
-| ----------- | ------------------ | ------------ | ---------------------------------------------------------- |
-| 1. Request  | `pairing_request`  | None         | N/A — initiates handshake                                  |
-| 2. Accepted | `pairing_accepted` | None         | Invite code echoed back binds to Phase 1                   |
-| 3. Finalize | `pairing_finalize` | Bearer token | Outbound token from Phase 2 + invite code + identity check |
-| 4. Complete | N/A                | N/A          | Both sides store symmetric tokens                          |
+| Phase             | Envelope type      | Auth         | Binding mechanism                                          |
+| ----------------- | ------------------ | ------------ | ---------------------------------------------------------- |
+| 1. Request        | `pairing_request`  | None         | N/A — initiates handshake                                  |
+| 2a. Approval      | N/A                | N/A          | Guardian approves + verification code minted               |
+| 2b. Code exchange | N/A                | N/A          | Out-of-band between guardians                              |
+| 2c. Verify        | `pairing_verify`   | None         | Invite code binding + 6-digit verification code            |
+| 3. Accepted       | `pairing_accepted` | None         | Invite code echoed back binds to Phase 1                   |
+| 4. Finalize       | `pairing_finalize` | Bearer token | Outbound token from Phase 3 + invite code + identity check |
+| 5. Complete       | N/A                | N/A          | Both sides store symmetric tokens                          |
 
 ## Security Model
 
@@ -66,9 +79,13 @@ When the initiator receives `pairing_accepted`, it verifies that `senderAssistan
 
 Phase 3 uses the outbound token received in Phase 2 as a Bearer credential. The target's gateway validates this token against its `a2a:inbound:<senderId>` credential via constant-time comparison. This ensures the initiator's inbound token (sent in the finalize envelope) only reaches a peer that previously proved possession of the invite code.
 
+### 6-digit verification ceremony prevents unilateral pairing
+
+After the target's guardian approves, a 6-digit verification code is minted via the same `createOutboundSession()` infrastructure used for human trusted contacts. The code must be shared out-of-band between guardians (Slack DM, in person, etc.) and entered by the initiator's guardian via `assistant contacts pair-verify`. This ensures both guardians explicitly participate in the pairing — a compromised or rogue guardian on one side cannot unilaterally establish a connection.
+
 ### Unauthenticated envelopes only reach pairing handlers
 
-The A2A interceptor (`a2a-interceptor.ts`) enforces a safety invariant: unauthenticated envelopes (`authenticated: false` in `sourceMetadata`) can only reach `pairing_request` and `pairing_accepted` handlers. Any other unauthenticated envelope type is rejected with HTTP 403 before touching the conversation pipeline.
+The A2A interceptor (`a2a-interceptor.ts`) enforces a safety invariant: unauthenticated envelopes (`authenticated: false` in `sourceMetadata`) can only reach `pairing_request`, `pairing_accepted`, and `pairing_verify` handlers. Any other unauthenticated envelope type is rejected with HTTP 403 before touching the conversation pipeline.
 
 ### Server-derived conversation routing prevents hijack
 
@@ -120,11 +137,11 @@ All A2A credentials are stored in the secure key store (CES in Docker, encrypted
 | File                                                             | Purpose                                                                |
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | `assistant/src/runtime/a2a/message-contract.ts`                  | Wire-protocol types and envelope validation                            |
-| `assistant/src/runtime/a2a/pairing.ts`                           | Four-phase pairing protocol implementation                             |
+| `assistant/src/runtime/a2a/pairing.ts`                           | Five-phase pairing protocol implementation                             |
 | `assistant/src/runtime/a2a/pairing-store.ts`                     | Pairing request persistence (SQLite)                                   |
 | `assistant/src/runtime/a2a/outbound-client.ts`                   | Outbound message delivery via gateway                                  |
 | `assistant/src/runtime/routes/inbound-stages/a2a-interceptor.ts` | Interceptor that routes pairing envelopes before conversation pipeline |
-| `assistant/src/approvals/guardian-request-resolvers.ts`          | Guardian resolver A2A branch (direct contact activation on approval)   |
+| `assistant/src/approvals/guardian-request-resolvers.ts`          | Guardian resolver A2A branch (verification code minting on approval)   |
 | `gateway/src/http/routes/a2a-webhook.ts`                         | Gateway inbound webhook handler                                        |
 | `gateway/src/http/routes/a2a-deliver.ts`                         | Gateway outbound delivery handler                                      |
 | `gateway/src/a2a/message-contract.ts`                            | Gateway-side envelope types (shared contract)                          |
@@ -135,7 +152,8 @@ All A2A credentials are stored in the secure key store (CES in Docker, encrypted
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Credential exfiltration**           | Invite code (24 bytes, base64url) binds pairing phases. `pairing_accepted` is validated against a stored outbound request keyed by invite code. Without the code, an intercepted acceptance envelope is useless. `pairing_finalize` requires Bearer auth, so the initiator's inbound token is only sent over an authenticated channel.                                |
 | **Routing hijack**                    | `conversationExternalId` is server-derived by the gateway (set to `senderAssistantId`), not from the request body. An attacker cannot inject arbitrary routing to hijack conversations.                                                                                                                                                                               |
-| **Unauthenticated message injection** | The interceptor enforces that unauthenticated envelopes can only reach `pairing_request` and `pairing_accepted` handlers. The `message` type requires Bearer auth validated via constant-time comparison against `a2a:inbound:<senderId>`. Unauthenticated messages are rejected at the gateway before reaching the runtime conversation pipeline.                    |
+| **Unilateral pairing**                | Both guardians must participate: the target's guardian approves and shares a 6-digit code out-of-band, and the initiator's guardian enters it via `assistant contacts pair-verify`. Token exchange only happens after code verification.                                                                                                                              |
+| **Unauthenticated message injection** | The interceptor enforces that unauthenticated envelopes can only reach `pairing_request`, `pairing_accepted`, and `pairing_verify` handlers. The `message` type requires Bearer auth validated via constant-time comparison against `a2a:inbound:<senderId>`. Unauthenticated messages are rejected at the gateway before reaching the runtime conversation pipeline. |
 | **Identity impersonation**            | On `pairing_accepted`, the initiator validates `senderAssistantId` against the `remoteAssistantId` stored in the original outbound request. A mismatch triggers rejection. On `pairing_finalize`, the target similarly validates sender identity. Token validation at the gateway provides a second layer — even if identity is spoofed, the Bearer token must match. |
 | **Replay attacks**                    | Pairing requests have a 1-hour TTL (`PAIRING_REQUEST_TTL_MS`). Invite codes are single-use: once a pairing request transitions from `pending` to `accepted`, the same invite code cannot be reused. Message envelopes include a `messageId` (UUID) for idempotency.                                                                                                   |
 | **Feature flag bypass**               | A2A is gated behind `feature_flags.assistant-a2a.enabled` (default: off). The gateway returns 404 for all A2A webhook requests when the flag is disabled.                                                                                                                                                                                                             |

@@ -71,16 +71,20 @@ import type {
 } from "../runtime/a2a/index.js";
 import {
   completePairingApproval,
+  completePairingVerification,
   handleInboundPairingRequest,
   handlePairingAccepted,
   handlePairingFinalize,
+  handlePairingVerify,
   initiatePairing,
 } from "../runtime/a2a/pairing.js";
 import {
   createPairingRequest,
   findPairingByInviteCode,
+  findPairingByRemoteAssistant,
   updatePairingStatus,
 } from "../runtime/a2a/pairing-store.js";
+import { createOutboundSession } from "../runtime/channel-verification-service.js";
 import { interceptA2AEnvelope } from "../runtime/routes/inbound-stages/a2a-interceptor.js";
 
 initializeDb();
@@ -133,7 +137,7 @@ describe("A2A full lifecycle", () => {
     );
   });
 
-  test("phase 2b: target guardian approves pairing and sends acceptance", async () => {
+  test("phase 2b: target guardian approves pairing — transitions to verification_pending", async () => {
     // Simulate B's side: create an inbound pairing request
     handleInboundPairingRequest({
       version: "v1",
@@ -143,12 +147,57 @@ describe("A2A full lifecycle", () => {
       inviteCode: "test-invite-phase2b",
     });
 
-    // B's guardian approves
-    const approvalSuccess = await completePairingApproval(
-      "assistant-a",
+    // B's guardian approves — this only transitions to verification_pending
+    const approvalSuccess = completePairingApproval("assistant-a");
+    expect(approvalSuccess).toBe(true);
+
+    // No tokens should be generated yet
+    expect(keyStore.get("a2a:inbound:assistant-a")).toBeUndefined();
+    expect(keyStore.get("a2a:gateway:assistant-a")).toBeUndefined();
+
+    // No PairingAccepted should be sent yet
+    expect(fetchCalls.length).toBe(0);
+
+    // Pairing request should be in verification_pending state
+    const pairing = findPairingByRemoteAssistant("assistant-a", "inbound");
+    expect(pairing).not.toBeNull();
+    expect(pairing!.status).toBe("verification_pending");
+  });
+
+  test("phase 2c: verification code exchange completes pairing", async () => {
+    // Simulate B's side: inbound pairing request in verification_pending state
+    handleInboundPairingRequest({
+      version: "v1",
+      type: "pairing_request",
+      senderAssistantId: "assistant-a",
+      senderGatewayUrl: "https://a-gateway.example.com",
+      inviteCode: "test-invite-phase2c",
+    });
+
+    completePairingApproval("assistant-a");
+
+    // B mints a verification session
+    const session = createOutboundSession({
+      channel: "vellum",
+      expectedExternalUserId: "assistant-a",
+      expectedChatId: "assistant-a",
+      identityBindingStatus: "bound",
+      destinationAddress: "assistant-a",
+      verificationPurpose: "trusted_contact",
+    });
+
+    // A sends the verification code to B
+    const verifyResult = await handlePairingVerify(
+      {
+        version: "v1",
+        type: "pairing_verify",
+        senderAssistantId: "assistant-a",
+        inviteCode: "test-invite-phase2c",
+        verificationCode: session.secret,
+      },
       "assistant-b",
     );
-    expect(approvalSuccess).toBe(true);
+    expect(verifyResult.verified).toBe(true);
 
     // B generated an inbound token
     const bInboundToken = keyStore.get("a2a:inbound:assistant-a");
@@ -164,6 +213,45 @@ describe("A2A full lifecycle", () => {
     expect(fetchCalls[0]!.url).toBe(
       "https://a-gateway.example.com/webhook/a2a",
     );
+  });
+
+  test("verification with wrong code is rejected", async () => {
+    // Simulate B's side: inbound pairing request in verification_pending state
+    handleInboundPairingRequest({
+      version: "v1",
+      type: "pairing_request",
+      senderAssistantId: "assistant-a",
+      senderGatewayUrl: "https://a-gateway.example.com",
+      inviteCode: "test-invite-wrong-code",
+    });
+
+    completePairingApproval("assistant-a");
+
+    // B mints a verification session (but A sends a wrong code)
+    createOutboundSession({
+      channel: "vellum",
+      expectedExternalUserId: "assistant-a",
+      expectedChatId: "assistant-a",
+      identityBindingStatus: "bound",
+      destinationAddress: "assistant-a",
+      verificationPurpose: "trusted_contact",
+    });
+
+    const verifyResult = await handlePairingVerify(
+      {
+        version: "v1",
+        type: "pairing_verify",
+        senderAssistantId: "assistant-a",
+        inviteCode: "test-invite-wrong-code",
+        verificationCode: "000000",
+      },
+      "assistant-b",
+    );
+    expect(verifyResult.verified).toBe(false);
+    expect(verifyResult.error).toBeTruthy();
+
+    // No tokens should be generated
+    expect(keyStore.get("a2a:inbound:assistant-a")).toBeUndefined();
   });
 
   test("phase 3: initiator receives acceptance and sends finalize with auth", async () => {
@@ -406,6 +494,25 @@ describe("A2A security — auth enforcement", () => {
           senderAssistantId: "some-asst",
           inviteCode: "no-matching-request",
           inboundToken: "tok",
+        },
+      },
+    });
+    // Handled (intercepted) even if no matching request
+    expect(result.handled).toBe(true);
+  });
+
+  test("unauthenticated pairing_verify is allowed (by design)", async () => {
+    const result = await interceptA2AEnvelope({
+      sourceMetadata: {
+        a2a: true,
+        envelopeType: "pairing_verify",
+        authenticated: false,
+        envelope: {
+          version: "v1",
+          type: "pairing_verify",
+          senderAssistantId: "some-asst",
+          inviteCode: "no-matching-request",
+          verificationCode: "123456",
         },
       },
     });

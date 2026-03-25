@@ -17,6 +17,7 @@ import type {
   A2APairingRequest,
   A2APairingAccepted,
   A2APairingFinalize,
+  A2APairingVerify,
 } from "../../a2a/message-contract.js";
 
 const log = getLogger("a2a-webhook");
@@ -147,7 +148,7 @@ export function createA2AWebhookHandler(
         return Response.json({ error: "Unauthorized" }, { status: 401 });
       }
     }
-    // pairing_request and pairing_accepted: no auth required
+    // pairing_request, pairing_accepted, and pairing_verify: no auth required
 
     // Build RuntimeInboundPayload
     const authenticated = type === "message" || type === "pairing_finalize";
@@ -178,6 +179,15 @@ export function createA2AWebhookHandler(
         senderAssistantId: paEnv.senderAssistantId,
         inviteCode: paEnv.inviteCode,
         inboundToken: paEnv.inboundToken,
+      });
+      externalMessageId = randomUUID();
+    } else if (type === "pairing_verify") {
+      const pvEnv = envelope as A2APairingVerify;
+      content = JSON.stringify({
+        type: pvEnv.type,
+        senderAssistantId: pvEnv.senderAssistantId,
+        inviteCode: pvEnv.inviteCode,
+        verificationCode: pvEnv.verificationCode,
       });
       externalMessageId = randomUUID();
     } else {

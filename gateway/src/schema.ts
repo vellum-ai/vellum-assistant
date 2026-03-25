@@ -2650,7 +2650,7 @@ export function buildSchema(): Record<string, unknown> {
                 schema: {
                   type: "object",
                   description:
-                    "A2A envelope (message, pairing_request, pairing_accepted, or pairing_finalize)",
+                    "A2A envelope (message, pairing_request, pairing_accepted, pairing_finalize, or pairing_verify)",
                   properties: {
                     version: { type: "string", enum: ["v1"] },
                     type: {
@@ -2660,6 +2660,7 @@ export function buildSchema(): Record<string, unknown> {
                         "pairing_request",
                         "pairing_accepted",
                         "pairing_finalize",
+                        "pairing_verify",
                       ],
                     },
                     senderAssistantId: { type: "string" },
