@@ -10,10 +10,30 @@
 import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { isChannelId } from "../channels/types.js";
 import { initConversationDir } from "./conversation-disk-view.js";
 import { GENERATING_TITLE } from "./conversation-title-service.js";
 import { getDb } from "./db.js";
 import { conversationKeys, conversations } from "./schema.js";
+
+/**
+ * Derive a memoryScopeId from a scoped conversation key.
+ * Keys from channel inbound have the shape `asst:<assistantId>:<channel>:<chatId>`.
+ * When the channel segment is a recognised ChannelId (slack, telegram, etc.)
+ * we scope memories to that channel type so desktop memories don't leak into
+ * Slack and vice-versa. Desktop / unknown keys fall back to "default".
+ */
+function deriveChannelScope(conversationKey: string): string {
+  const parts = conversationKey.split(":");
+  // asst:<assistantId>:<channel>:<chatId>
+  if (parts.length >= 4 && parts[0] === "asst") {
+    const channel = parts[2];
+    if (isChannelId(channel) && channel !== "vellum") {
+      return `channel:${channel}`;
+    }
+  }
+  return "default";
+}
 
 export interface ConversationKeyMapping {
   id: string;
@@ -194,7 +214,9 @@ export function getOrCreateConversation(
     const conversationId = uuid();
     const title = GENERATING_TITLE;
     const memoryScopeId =
-      conversationType === "private" ? `private:${conversationId}` : "default";
+      conversationType === "private"
+        ? `private:${conversationId}`
+        : deriveChannelScope(conversationKey);
 
     tx.insert(conversations)
       .values({

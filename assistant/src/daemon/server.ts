@@ -315,6 +315,14 @@ export class DaemonServer {
         strictSideEffects: true,
       };
     }
+    const scopeId = getConversationMemoryScopeId(conversationId);
+    if (scopeId !== "default") {
+      return {
+        scopeId,
+        includeDefaultFallback: true,
+        strictSideEffects: false,
+      };
+    }
     return DEFAULT_MEMORY_POLICY;
   }
 
