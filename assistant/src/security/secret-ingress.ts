@@ -1,16 +1,15 @@
 /**
  * Ingress secret detection for user messages.
  *
- * Uses a curated subset of high-confidence, prefix-based patterns to
- * deterministically block messages containing real secrets. Unlike
- * `scanText()` from `secret-scanner.ts`, this intentionally excludes
- * broad patterns (JWT, DB URLs, generic `password=`/`secret=` assignments,
- * high-entropy hex/base64, encoded-secret detection) that cause false
- * positives on legitimate user input.
+ * Consumes `PREFIX_PATTERNS` from `secret-patterns.ts` — the single source
+ * of truth for prefix-based secret detection.  This module intentionally
+ * does NOT import `scanText()` or any entropy/encoding logic to avoid
+ * false positives on legitimate user input.
  */
 
 import { getConfig } from "../config/loader.js";
 import { isAllowlisted } from "./secret-allowlist.js";
+import { PREFIX_PATTERNS } from "./secret-patterns.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -21,72 +20,6 @@ export interface IngressCheckResult {
   detectedTypes: string[];
   userNotice?: string;
 }
-
-// ---------------------------------------------------------------------------
-// High-confidence prefix-based patterns
-// ---------------------------------------------------------------------------
-
-interface SecretPattern {
-  label: string;
-  regex: RegExp;
-}
-
-const INGRESS_PATTERNS: SecretPattern[] = [
-  // AWS
-  { label: "AWS Access Key", regex: /AKIA[0-9A-Z]{16}/ },
-
-  // GitHub
-  { label: "GitHub Token", regex: /gh[pousr]_[A-Za-z0-9_]{36,}/ },
-  { label: "GitHub PAT", regex: /github_pat_[A-Za-z0-9_]{22,}/ },
-
-  // GitLab
-  { label: "GitLab PAT", regex: /glpat-[A-Za-z0-9\-_]{20,}/ },
-
-  // Stripe
-  { label: "Stripe Secret Key", regex: /sk_live_[A-Za-z0-9]{24,}/ },
-  { label: "Stripe Restricted Key", regex: /rk_live_[A-Za-z0-9]{24,}/ },
-
-  // Slack
-  {
-    label: "Slack Bot Token",
-    regex: /xoxb-[0-9]{10,}-[0-9]{10,}-[A-Za-z0-9]{24,}/,
-  },
-  {
-    label: "Slack User Token",
-    regex: /xoxp-[0-9]{10,}-[0-9]{10,}-[A-Za-z0-9]{24,}/,
-  },
-
-  // Telegram
-  { label: "Telegram Bot Token", regex: /\b[0-9]{8,10}:[A-Za-z0-9_-]{35}\b/ },
-
-  // Anthropic
-  { label: "Anthropic API Key", regex: /sk-ant-[A-Za-z0-9\-_]{80,}/ },
-
-  // OpenAI
-  { label: "OpenAI API Key", regex: /sk-proj-[A-Za-z0-9\-_]{40,}/ },
-
-  // Google
-  { label: "Google API Key", regex: /AIza[A-Za-z0-9\-_]{35}/ },
-  { label: "Google OAuth Secret", regex: /GOCSPX-[A-Za-z0-9\-_]{28}/ },
-
-  // Twilio
-  { label: "Twilio API Key", regex: /\bSK[0-9a-f]{32}\b/ },
-
-  // SendGrid
-  {
-    label: "SendGrid API Key",
-    regex: /SG\.[A-Za-z0-9\-_]{22}\.[A-Za-z0-9\-_]{43}/,
-  },
-
-  // npm
-  { label: "npm Token", regex: /npm_[A-Za-z0-9]{36}/ },
-
-  // Private keys
-  {
-    label: "Private Key",
-    regex: /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
-  },
-];
 
 // ---------------------------------------------------------------------------
 // Placeholder detection (inline — not imported from secret-scanner.ts)
@@ -164,7 +97,7 @@ function isPlaceholder(value: string): boolean {
   // Strip known prefixes to isolate the variable part
   const variablePart = value
     .replace(
-      /^(?:AKIA|gh[pousr]_|github_pat_|glpat-|sk_live_|rk_live_|xoxb-|xoxp-|sk-ant-|sk-proj-|AIza|GOCSPX-|SK|SG\.|npm_|-----BEGIN [A-Z ]*PRIVATE KEY-----)/,
+      /^(?:AKIA|gh[pousr]_|github_pat_|glpat-|sk_live_|rk_live_|xoxb-|xoxp-|xapp-|sk-ant-|sk-proj-|sk-or-v1-|AIza|GOCSPX-|SK|SG\.|npm_|pypi-|key-|lin_api_|ntn_|fw_|pplx-|-----BEGIN [A-Z ]*PRIVATE KEY-----)/,
       "",
     )
     .replace(/[^A-Za-z0-9]/g, "");
@@ -202,7 +135,7 @@ export function checkIngressForSecrets(content: string): IngressCheckResult {
 
   const detectedTypes: string[] = [];
 
-  for (const { label, regex } of INGRESS_PATTERNS) {
+  for (const { label, regex } of PREFIX_PATTERNS) {
     // Use a global version to find all matches
     const globalRegex = new RegExp(regex.source, "g");
     let match: RegExpExecArray | null;

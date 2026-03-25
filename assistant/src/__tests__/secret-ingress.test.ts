@@ -66,7 +66,7 @@ describe("checkIngressForSecrets", () => {
       "My client secret is GOCSPX-abcdefghijklmnopqrstuvwxyz12",
     );
     expect(result.blocked).toBe(true);
-    expect(result.detectedTypes).toContain("Google OAuth Secret");
+    expect(result.detectedTypes).toContain("Google OAuth Client Secret");
     expect(result.userNotice).toBeDefined();
   });
 
@@ -134,7 +134,7 @@ describe("checkIngressForSecrets", () => {
     const key = "sk-proj-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCd";
     const result = checkIngressForSecrets(`My key: ${key}`);
     expect(result.blocked).toBe(true);
-    expect(result.detectedTypes).toContain("OpenAI API Key");
+    expect(result.detectedTypes).toContain("OpenAI Project Key");
   });
 
   test("blocks Google API key (AIza*)", () => {
@@ -148,7 +148,7 @@ describe("checkIngressForSecrets", () => {
   test("blocks GitLab PAT (glpat-*)", () => {
     const result = checkIngressForSecrets("glpat-abcdefghijklmnopqrst");
     expect(result.blocked).toBe(true);
-    expect(result.detectedTypes).toContain("GitLab PAT");
+    expect(result.detectedTypes).toContain("GitLab Token");
   });
 
   test("blocks Telegram Bot Token", () => {
