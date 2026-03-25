@@ -985,8 +985,14 @@ struct MessageListView: View {
                     scrollCoordinator.lastAutoFocusedRequestId = requestId
                 }
             }
-            .onChange(of: scrollPosition.viewID(type: String.self)) { _, newViewID in
+            .onChange(of: scrollPosition.viewID(type: String.self)) { oldViewID, newViewID in
                 scrollCoordinator.updateIsAtBottom(newViewID)
+                // Re-tether immediately when the bottom sentinel scrolls into view,
+                // not just on idle. This makes isNearBottom update in real-time so the
+                // avatar appears and the CTA disappears as the user scrolls down.
+                if newViewID == "scroll-bottom-anchor" && oldViewID != "scroll-bottom-anchor" {
+                    scrollCoordinator.handleScrollToBottom()
+                }
             }
     }
 }
