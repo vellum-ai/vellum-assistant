@@ -29,20 +29,34 @@ export class HeartbeatService {
   private readonly deps: HeartbeatDeps;
   private timer: ReturnType<typeof setInterval> | null = null;
   private activeRun: Promise<void> | null = null;
+  private _lastRunAt: number | null = null;
+  private _nextRunAt: number | null = null;
 
   constructor(deps: HeartbeatDeps) {
     this.deps = deps;
+  }
+
+  /** Epoch-ms timestamp of the last completed heartbeat run. */
+  get lastRunAt(): number | null {
+    return this._lastRunAt;
+  }
+
+  /** Epoch-ms timestamp of the next scheduled heartbeat run. */
+  get nextRunAt(): number | null {
+    return this._nextRunAt;
   }
 
   start(): void {
     const config = getConfig().heartbeat;
     if (!config.enabled) {
       log.info("Heartbeat disabled by config");
+      this._nextRunAt = null;
       return;
     }
     if (this.timer) return;
 
     log.info({ intervalMs: config.intervalMs }, "Heartbeat service started");
+    this.scheduleNextRun(config.intervalMs);
     this.timer = setInterval(() => {
       this.runOnce().catch((err) => {
         log.error({ err }, "Heartbeat runOnce failed");
@@ -56,6 +70,7 @@ export class HeartbeatService {
       clearInterval(this.timer);
       this.timer = null;
     }
+    this._nextRunAt = null;
     this.start();
   }
 
@@ -64,6 +79,7 @@ export class HeartbeatService {
       clearInterval(this.timer);
       this.timer = null;
     }
+    this._nextRunAt = null;
     if (this.activeRun) {
       let timerId: ReturnType<typeof setTimeout>;
       const timeout = new Promise<void>((resolve) => {
@@ -120,8 +136,14 @@ export class HeartbeatService {
       await run;
     } finally {
       this.activeRun = null;
+      this._lastRunAt = Date.now();
+      this.scheduleNextRun(getConfig().heartbeat.intervalMs);
     }
     return true;
+  }
+
+  private scheduleNextRun(intervalMs: number): void {
+    this._nextRunAt = Date.now() + intervalMs;
   }
 
   private async executeRun(): Promise<void> {

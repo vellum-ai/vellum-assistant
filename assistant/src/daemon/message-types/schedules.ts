@@ -98,6 +98,7 @@ export interface HeartbeatConfigResponse {
   activeHoursStart: number | null;
   activeHoursEnd: number | null;
   nextRunAt: number | null;
+  lastRunAt: number | null;
   success: boolean;
   error?: string;
 }
