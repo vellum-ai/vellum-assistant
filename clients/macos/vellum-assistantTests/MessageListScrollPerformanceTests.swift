@@ -186,7 +186,7 @@ final class MessageListScrollPerformanceTests: XCTestCase {
 
             for _ in 0..<100 {
                 loopGuard.record(
-                    .anchorPreferenceChange,
+                    .bodyEvaluation,
                     conversationId: conversationId,
                     timestamp: timestamp
                 )
@@ -198,7 +198,7 @@ final class MessageListScrollPerformanceTests: XCTestCase {
                 conversationId: conversationId,
                 timestamp: timestamp
             )
-            XCTAssertGreaterThan(counts[.anchorPreferenceChange] ?? 0, 0)
+            XCTAssertGreaterThan(counts[.bodyEvaluation] ?? 0, 0)
         }
     }
 }

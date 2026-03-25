@@ -55,26 +55,32 @@ struct ScrollSuppression: OptionSet, Sendable {
 /// - All fields on `ScrollTrackingState` (dead-zone guards, smoothing state,
 ///   precomputed cache) — updated every scroll tick, must never trigger
 ///   `objectWillChange`.
-/// - `anchorLastMinY` — last-known anchor minY, updated on every scroll tick.
-/// - `hasReceivedScrollEvent`, `hasFreshAnchorMeasurement`, `wasPaginationTriggerInRange`,
+/// - `isAtBottom` — whether the bottom sentinel is the current scroll target.
+/// - `hasReceivedScrollEvent`, `wasPaginationTriggerInRange`,
 ///   `hasLoggedNonFiniteGeometry` — bookkeeping flags that don't drive UI.
 /// - `ChatBottomPinCoordinator`, `ChatScrollLoopGuard` — stateful helpers that
 ///   never need to trigger view re-evaluation themselves.
 /// - All in-flight `Task` references.
 ///
 /// **Reactive (`@Published`):**
-/// - `anchorIsVisible` — boundary-crossing only (visible <-> invisible), drives
-///   the "Scroll to latest" button.
 /// - `suppression` / `isSuppressed`, `isPaginationInFlight` — change
 ///   infrequently and legitimately require view updates.
 @MainActor
 final class MessageListScrollCoordinator: ObservableObject {
 
-    // MARK: - Reactive State (@Published)
+    // MARK: - Scroll Position
 
-    /// Whether the scroll-bottom-anchor is physically within the scroll view's
-    /// visible viewport. Only publishes on boundary crossings (visible <-> invisible).
-    @Published var anchorIsVisible: Bool = true
+    /// Closure that performs a programmatic scroll to the given item ID and
+    /// anchor point. Set once during `configureScrollPosition` and captures
+    /// the view-owned `ScrollPosition` binding.
+    var scrollTo: ((_ id: any Hashable, _ anchor: UnitPoint?) -> Void)?
+
+    /// Returns `true` when the bottom sentinel is the current scroll position
+    /// target — i.e., the user is at the bottom of the conversation.
+    /// Replaces the former distance-from-bottom math and `BottomVisibilityPolicy`.
+    var isAtBottom: Bool = true
+
+    // MARK: - Reactive State (@Published)
 
     /// Active scroll suppression reasons. When non-empty, bottom auto-scroll
     /// is suppressed. Each reason has a defined timeout managed by
@@ -110,11 +116,6 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// bypass `objectWillChange`, preserving the existing perf-critical pattern.
     var scrollTracking = ScrollTrackingState()
 
-    /// Last-known anchor minY without triggering SwiftUI re-renders.
-    /// Only `anchorIsVisible` is @Published so re-renders happen only when
-    /// the visible/invisible boundary is crossed — not on every scroll tick.
-    var anchorLastMinY: CGFloat = .infinity
-
     /// Coordinates bounded scroll-to-bottom retry sessions and manages the
     /// follow/detach state machine.
     var bottomPinCoordinator = ChatBottomPinCoordinator()
@@ -126,10 +127,6 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// Whether a physical scroll event (wheel/trackpad) has been received since
     /// the current conversation loaded.
     var hasReceivedScrollEvent: Bool = false
-
-    /// Whether the distance-from-bottom scroll geometry has fired since the
-    /// last scroll restore began.
-    var hasFreshAnchorMeasurement: Bool = false
 
     /// Tracks whether the pagination sentinel was previously inside the trigger band.
     var wasPaginationTriggerInRange: Bool = false
@@ -194,43 +191,14 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// Fires a single deferred re-pin attempt after the cooldown drains.
     var loopGuardRecoveryTask: Task<Void, Never>?
 
-    // MARK: - Anchor Visibility
+    // MARK: - Bottom Detection
 
-    /// Updates the tracked distance-from-bottom and recalculates visibility.
-    /// Only publishes `anchorIsVisible` when the boundary is actually crossed
-    /// (visible <-> invisible), not on every scroll tick.
-    ///
-    /// `distanceFromBottom` is 0 when the scroll view is pinned to the bottom
-    /// and grows as the user scrolls up. The anchor is considered "visible"
-    /// (i.e. the bottom of the content is within the viewport) when the
-    /// distance is at most 20pt.
-    func updateAnchor(distanceFromBottom: CGFloat, viewportHeight: CGFloat) {
-        anchorLastMinY = distanceFromBottom
-        let newVisible = BottomVisibilityPolicy.evaluate(
-            currentlyVisible: anchorIsVisible,
-            distanceFromBottom: distanceFromBottom
-        )
-        if anchorIsVisible != newVisible { anchorIsVisible = newVisible }
-    }
-
-    /// Returns `true` when the viewport height actually changed, so callers
-    /// can refresh any state tied to the visible geometry.
-    @discardableResult
-    func updateAnchorViewport(height: CGFloat, storedViewportHeight: inout CGFloat) -> Bool {
-        guard storedViewportHeight != height else { return false }
-        storedViewportHeight = height
-        currentScrollViewportHeight = height
-        // Don't recompute visibility before the distance-from-bottom has been
-        // measured — anchorLastMinY starts at .infinity, and .infinity <= 20
-        // evaluates to false, incorrectly flipping anchorIsVisible to false and
-        // flashing the "Scroll to latest" button on short conversations.
-        guard anchorLastMinY.isFinite else { return true }
-        let newVisible = BottomVisibilityPolicy.evaluate(
-            currentlyVisible: anchorIsVisible,
-            distanceFromBottom: anchorLastMinY
-        )
-        if anchorIsVisible != newVisible { anchorIsVisible = newVisible }
-        return true
+    /// Updates `isAtBottom` based on the current scroll position's view ID.
+    /// Called from the view's `.onChange(of: scrollPosition.viewID)` handler.
+    /// The bottom sentinel has ID "scroll-bottom-anchor"; when the scroll
+    /// position's viewID matches, the user is at the bottom.
+    func updateIsAtBottom(_ viewID: String?) {
+        isAtBottom = viewID == "scroll-bottom-anchor"
     }
 
     // MARK: - Suppression Management
@@ -298,10 +266,9 @@ final class MessageListScrollCoordinator: ObservableObject {
                 .map { "\($0.rawValue)=\(snapshot.counts[$0] ?? 0)" }
                 .joined(separator: " ")
             scrollCoordinatorLog.warning(
-                "Scroll loop detected — trippedBy=\(snapshot.trippedBy.rawValue) window=\(snapshot.windowDuration)s \(fullHistogram) isNearBottom=\(isNearBottom) hasReceivedScrollEvent=\(self.hasReceivedScrollEvent) anchorMessageId=\(String(describing: anchorMessageId)) anchorLastMinY=\(self.anchorLastMinY) viewportHeight=\(scrollViewportHeight)"
+                "Scroll loop detected — trippedBy=\(snapshot.trippedBy.rawValue) window=\(snapshot.windowDuration)s \(fullHistogram) isNearBottom=\(isNearBottom) hasReceivedScrollEvent=\(self.hasReceivedScrollEvent) anchorMessageId=\(String(describing: anchorMessageId)) isAtBottom=\(self.isAtBottom) viewportHeight=\(scrollViewportHeight)"
             )
             var sanitizer = NumericSanitizer()
-            let safeScrollOffsetY = sanitizer.sanitize(anchorLastMinY, field: "scrollOffsetY")
             let safeViewportHeight = sanitizer.sanitize(scrollViewportHeight, field: "viewportHeight")
             logNonFiniteGeometryOnce(sanitizer: sanitizer)
             ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
@@ -310,7 +277,7 @@ final class MessageListScrollCoordinator: ObservableObject {
                 reason: "trippedBy=\(snapshot.trippedBy.rawValue) \(fullHistogram)",
                 isPinnedToBottom: isNearBottom,
                 isUserScrolling: hasReceivedScrollEvent,
-                scrollOffsetY: safeScrollOffsetY,
+                scrollOffsetY: 0,
                 viewportHeight: safeViewportHeight,
                 nonFiniteFields: sanitizer.nonFiniteFields
             ))
@@ -357,7 +324,6 @@ final class MessageListScrollCoordinator: ObservableObject {
         let totalToolCalls = messages.reduce(0) { $0 + $1.toolCalls.count }
 
         var sanitizer = NumericSanitizer()
-        let safeAnchorMinY = sanitizer.sanitize(anchorLastMinY, field: "anchorMinY")
         let safeViewportHeight = sanitizer.sanitize(scrollViewportHeight, field: "scrollViewportHeight")
         let safeContainerWidth = sanitizer.sanitize(containerWidth, field: "containerWidth")
         logNonFiniteGeometryOnce(sanitizer: sanitizer)
@@ -374,7 +340,7 @@ final class MessageListScrollCoordinator: ObservableObject {
             toolCallCount: totalToolCalls,
             isPinnedToBottom: isNearBottom,
             isUserScrolling: hasReceivedScrollEvent,
-            scrollOffsetY: safeAnchorMinY,
+            scrollOffsetY: 0,
             contentHeight: nil,
             viewportHeight: safeViewportHeight,
             isNearBottom: isNearBottom,
@@ -383,7 +349,7 @@ final class MessageListScrollCoordinator: ObservableObject {
             suppressionReason: isSuppressed ? suppression.reasonDescriptions.joined(separator: ",") : nil,
             anchorMessageId: anchorMessageId?.uuidString,
             highlightedMessageId: highlightedMessageId?.uuidString,
-            anchorMinY: safeAnchorMinY,
+            anchorMinY: 0,
             scrollViewportHeight: safeViewportHeight,
             containerWidth: safeContainerWidth,
             scrollLoopGuardCounts: guardCountsStringKeyed,
@@ -439,8 +405,7 @@ final class MessageListScrollCoordinator: ObservableObject {
         currentConversationId = newConversationId
         // Reset the coordinator for the new conversation.
         bottomPinCoordinator.reset(newConversationId: newConversationId)
-        anchorIsVisible = true
-        anchorLastMinY = .infinity
+        isAtBottom = true
         hasReceivedScrollEvent = false
         // Reset the OLD conversation's scroll-loop guard state.
         if let oldConvId = oldConversationId {

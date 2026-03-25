@@ -26,7 +26,7 @@ extension EnvironmentValues {
 /// evaluations but must NOT trigger SwiftUI re-renders when updated.
 /// These values serve as dead-zone guards and smoothing state — they
 /// are never read during body evaluation for rendering purposes.
-/// Pattern mirrors `anchorLastMinY` on the coordinator (not @Published).
+/// Pattern mirrors non-reactive properties on the coordinator (not @Published).
 @MainActor final class ScrollTrackingState {
     /// Debounced task for transcript snapshot updates, coalescing rapid scroll
     /// events into a single snapshot capture per 150ms window.
@@ -182,6 +182,9 @@ struct MessageListView: View {
     /// Only `.interacting` (direct user gesture) triggers detach — `.decelerating`
     /// (momentum/inertia) is intentionally ignored.
     @State private var scrollPhase: ScrollPhase = .idle
+    /// Native SwiftUI scroll position struct (macOS 15+). Replaces
+    /// `ScrollViewReader` + `proxy.scrollTo()` and distance-from-bottom math.
+    @State private var scrollPosition = ScrollPosition()
 
     /// The subset of messages actually shown, honoring the pagination window.
     /// Uses the shared `ChatVisibleMessageFilter` so hidden automated messages
@@ -509,12 +512,10 @@ struct MessageListView: View {
     }
 
     /// Delegates scroll-to-bottom restoration to the coordinator.
-    private func restoreScrollToBottom(proxy: ScrollViewProxy) {
+    private func restoreScrollToBottom() {
         scrollCoordinator.restoreScrollToBottom(
-            proxy: proxy,
             conversationId: conversationId,
-            anchorMessageId: $anchorMessageId,
-            scrollViewportHeight: scrollViewportHeight
+            anchorMessageId: $anchorMessageId
         )
     }
 
@@ -538,13 +539,11 @@ struct MessageListView: View {
     /// Delegates bottom-pin request to the coordinator.
     private func requestBottomPin(
         reason: BottomPinRequestReason,
-        proxy: ScrollViewProxy,
         animated: Bool = false,
         userInitiated: Bool = false
     ) {
         scrollCoordinator.requestBottomPin(
             reason: reason,
-            proxy: proxy,
             conversationId: conversationId,
             animated: animated,
             userInitiated: userInitiated
@@ -552,9 +551,18 @@ struct MessageListView: View {
     }
 
     /// Delegates bottom-pin coordinator configuration to the scroll coordinator.
-    private func configureBottomPinCoordinator(proxy: ScrollViewProxy) {
+    private func configureBottomPinCoordinator() {
+        // Wire the scrollTo closure so the coordinator can perform programmatic
+        // scrolls without holding a reference to ScrollViewProxy.
+        let binding = $scrollPosition
+        scrollCoordinator.scrollTo = { id, anchor in
+            if let stringId = id as? String {
+                binding.wrappedValue.scrollTo(id: stringId, anchor: anchor)
+            } else if let uuidId = id as? UUID {
+                binding.wrappedValue.scrollTo(id: uuidId, anchor: anchor)
+            }
+        }
         scrollCoordinator.configureBottomPinCoordinator(
-            proxy: proxy,
             scrollViewportHeight: scrollViewportHeight,
             conversationId: conversationId,
             isNearBottom: $isNearBottom
@@ -619,7 +627,6 @@ struct MessageListView: View {
     }
 
     var body: some View {
-        ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: VSpacing.md) {
                     // MARK: - Pagination sentinel
@@ -754,24 +761,18 @@ struct MessageListView: View {
             .plainTextCopy()
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
+            .scrollPosition($scrollPosition)
             .environment(\.suppressAutoScroll, { [self] in
                 scrollCoordinator.handleSuppressAutoScroll(
                     isNearBottom: isNearBottom,
                     conversationId: conversationId,
-                    proxy: proxy,
                     scrollViewportHeight: scrollViewportHeight
                 )
             })
             .onScrollPhaseChange { oldPhase, newPhase in
                 scrollPhase = newPhase
-                if newPhase == .idle && oldPhase != .idle
-                    && BottomVisibilityPolicy.isNearEnoughForReattach(
-                        distanceFromBottom: scrollCoordinator.anchorLastMinY
-                    ) {
-                    // User finished scrolling and ended up near the bottom — re-tether.
-                    // Uses distance-based check instead of anchorIsVisible to avoid
-                    // hysteresis dead zone: a user at 21-30pt who is currently invisible
-                    // should still reattach when they stop scrolling.
+                if newPhase == .idle && oldPhase != .idle && scrollCoordinator.isAtBottom {
+                    // User finished scrolling and ended up at the bottom — re-tether.
                     scrollCoordinator.handleScrollToBottom()
                 }
             }
@@ -810,54 +811,19 @@ struct MessageListView: View {
                 )
                 guard case .accept(let accepted) = decision else { return }
                 os_signpost(.begin, log: PerfSignposts.log, name: "viewportHeightChanged")
-                scrollCoordinator.updateAnchorViewport(
-                    height: accepted,
-                    storedViewportHeight: &scrollViewportHeight
-                )
+                if scrollViewportHeight != accepted {
+                    scrollViewportHeight = accepted
+                    scrollCoordinator.currentScrollViewportHeight = accepted
+                }
                 os_signpost(.end, log: PerfSignposts.log, name: "viewportHeightChanged")
             }
             .scrollIndicators(.automatic)
-            .onScrollGeometryChange(for: CGFloat.self) { geo in
-                // Distance from bottom: how far the visible rect's bottom edge
-                // is from the content bottom. Replaces the AnchorMinYKey preference
-                // + hidden anchor view + GeometryReader + coordinate space conversion.
-                geo.contentSize.height - geo.contentOffset.y - geo.visibleRect.height
-            } action: { _, distanceFromBottom in
-                // Filter non-finite values and apply 2pt dead-zone to reduce
-                // layout invalidation cascades during rapid scroll.
-                let decision = PreferenceGeometryFilter.evaluate(
-                    newValue: distanceFromBottom,
-                    previous: scrollCoordinator.anchorLastMinY
-                )
-                switch decision {
-                case .rejectNonFinite:
-                    scrollCoordinator.handleNonFiniteAnchor()
-                    return
-                case .rejectDeadZone:
-                    return
-                case .accept(let accepted):
-                    os_signpost(.begin, log: PerfSignposts.log, name: "distanceFromBottomChanged")
-                    scrollCoordinator.handleAcceptedAnchorMinY(
-                        accepted: accepted,
-                        scrollViewportHeight: scrollViewportHeight,
-                        anchorMessageId: anchorMessageId,
-                        proxy: proxy,
-                        conversationId: conversationId,
-                        messages: messages,
-                        isNearBottom: isNearBottom,
-                        containerWidth: containerWidth,
-                        highlightedMessageId: highlightedMessageId
-                    )
-                    os_signpost(.end, log: PerfSignposts.log, name: "distanceFromBottomChanged")
-                }
-            }
             .onPreferenceChange(PaginationSentinelMinYKey.self) { sentinelMinY in
                 scrollCoordinator.handlePaginationSentinel(
                     sentinelMinY: sentinelMinY,
                     scrollViewportHeight: scrollViewportHeight,
                     hasMoreMessages: hasMoreMessages,
                     isLoadingMoreMessages: isLoadingMoreMessages,
-                    proxy: proxy,
                     visibleMessages: visibleMessages,
                     conversationId: conversationId,
                     loadPreviousMessagePage: loadPreviousMessagePage
@@ -868,14 +834,13 @@ struct MessageListView: View {
                     .padding(.bottom, ConversationAvatarFollower.verticalOffset)
             }
             .overlay(alignment: .bottom) {
-                if !isNearBottom && !scrollCoordinator.anchorIsVisible
-                    && scrollCoordinator.anchorLastMinY > 0 {
+                if !isNearBottom && !scrollCoordinator.isAtBottom {
                     Button(action: {
                         os_signpost(.event, log: PerfSignposts.log, name: "scrollToLatestPressed")
                         scrollCoordinator.hasReceivedScrollEvent = true
                         // Signal the coordinator to reattach and scroll to bottom.
                         scrollCoordinator.bottomPinCoordinator.handleUserAction(.jumpToLatest)
-                        requestBottomPin(reason: .initialRestore, proxy: proxy, animated: true, userInitiated: true)
+                        requestBottomPin(reason: .initialRestore, animated: true, userInitiated: true)
                     }) {
                         HStack(spacing: VSpacing.xs) {
                             VIconView(.arrowDown, size: 10)
@@ -895,7 +860,7 @@ struct MessageListView: View {
                 }
             }
             .onAppear {
-                configureBottomPinCoordinator(proxy: proxy)
+                configureBottomPinCoordinator()
                 // Seed the confirmation marker on initial mount — conversationSwitched
                 // doesn't fire for the initial value, so a conversation already paused
                 // in awaiting_confirmation at launch or reconnect needs the marker set here.
@@ -908,7 +873,7 @@ struct MessageListView: View {
                     os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=onAppear")
                     os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundOnAppear")
                     recordScrollLoopEvent(.scrollToRequested)
-                    proxy.scrollTo(id, anchor: .center)
+                    $scrollPosition.wrappedValue.scrollTo(id: id, anchor: .center)
                     flashHighlight(messageId: id)
                     anchorMessageId = nil
                     scrollCoordinator.anchorSetTime = nil
@@ -929,11 +894,11 @@ struct MessageListView: View {
                             scrollCoordinator.anchorSetTime = nil
                             scrollCoordinator.anchorTimeoutTask = nil
                             scrollCoordinator.bottomPinCoordinator.reattach()
-                            scrollCoordinator.requestBottomPin(reason: .initialRestore, proxy: proxy, conversationId: conversationId, animated: true)
+                            scrollCoordinator.requestBottomPin(reason: .initialRestore, conversationId: conversationId, animated: true)
                         }
                     }
                 } else {
-                    restoreScrollToBottom(proxy: proxy)
+                    restoreScrollToBottom()
                 }
             }
             .onDisappear {
@@ -950,13 +915,11 @@ struct MessageListView: View {
                     assistantActivityPhase: assistantActivityPhase,
                     messages: messages,
                     hasEverSentMessage: &hasEverSentMessage,
-                    proxy: proxy,
                     conversationId: conversationId
                 )
             }
             .onChange(of: messages.count) {
                 scrollCoordinator.messagesChanged(
-                    proxy: proxy,
                     messages: messages,
                     anchorMessageId: &anchorMessageId,
                     highlightedMessageId: $highlightedMessageId,
@@ -969,11 +932,9 @@ struct MessageListView: View {
             .onChange(of: containerWidth) {
                 resizeScrollTask = scrollCoordinator.containerResized(
                     width: containerWidth,
-                    proxy: proxy,
                     conversationId: conversationId,
                     isNearBottom: isNearBottom,
                     anchorMessageId: anchorMessageId,
-                    scrollViewportHeight: scrollViewportHeight,
                     previousResizeTask: resizeScrollTask,
                     onResizeComplete: { [self] in resizeScrollTask = nil }
                 )
@@ -989,7 +950,6 @@ struct MessageListView: View {
                     highlightedMessageId: $highlightedMessageId,
                     hasPlayedTailEntryAnimation: &hasPlayedTailEntryAnimation,
                     resizeScrollTask: &resizeScrollTask,
-                    proxy: proxy,
                     anchorMessageId: $anchorMessageId,
                     scrollViewportHeight: scrollViewportHeight
                 )
@@ -1010,7 +970,6 @@ struct MessageListView: View {
                 scrollCoordinator.anchorMessageIdChanged(
                     anchorMessageId: $anchorMessageId,
                     messages: messages,
-                    proxy: proxy,
                     conversationId: conversationId,
                     highlightedMessageId: $highlightedMessageId
                 )
@@ -1025,7 +984,9 @@ struct MessageListView: View {
                     scrollCoordinator.lastAutoFocusedRequestId = requestId
                 }
             }
-        }
+            .onChange(of: scrollPosition.viewID(type: String.self)) { _, newViewID in
+                scrollCoordinator.updateIsAtBottom(newViewID)
+            }
     }
 }
 
@@ -1282,60 +1243,6 @@ private struct PaginationSentinelMinYKey: PreferenceKey {
     }
 }
 
-/// Centralizes the "do we still need to scroll?" check for bottom-pinning
-/// paths so expansion/streaming guards stop once the tail anchor re-enters
-/// the viewport.
-enum MessageListBottomAnchorPolicy {
-    /// Distinguishes why a bottom-anchor check passed or failed, so callers
-    /// can handle missing geometry differently from a genuine scroll drift.
-    enum VerificationOutcome: Equatable {
-        /// The anchor is within tolerance of the viewport bottom — no action needed.
-        case anchored
-        /// The anchor has drifted below the viewport and should be re-pinned.
-        case needsRepin
-        /// One or both geometry inputs are non-finite (e.g. `.infinity`, `.nan`),
-        /// meaning the layout has not been measured yet or is in a transient state.
-        case geometryUnavailable
-    }
-
-    static let repinTolerance: CGFloat = 2
-
-    /// Evaluates the distance-from-bottom against a tolerance and returns
-    /// a structured outcome describing the result.
-    ///
-    /// `anchorMinY` now holds the distance-from-bottom (0 at the bottom,
-    /// positive when scrolled up). `viewportHeight` is still passed for
-    /// finite-geometry gating but is not used in the comparison.
-    static func verify(
-        anchorMinY: CGFloat,
-        viewportHeight: CGFloat,
-        tolerance: CGFloat = repinTolerance
-    ) -> VerificationOutcome {
-        guard anchorMinY.isFinite, viewportHeight.isFinite else {
-            return .geometryUnavailable
-        }
-        if anchorMinY > tolerance {
-            return .needsRepin
-        }
-        return .anchored
-    }
-
-    /// Returns `true` when the anchor needs re-pinning OR geometry is unavailable.
-    /// Existing call sites rely on this collapsing `geometryUnavailable` into `true`,
-    /// preserving current behavior until callers adopt `verify(...)` directly.
-    static func needsRepin(
-        anchorMinY: CGFloat,
-        viewportHeight: CGFloat,
-        tolerance: CGFloat = repinTolerance
-    ) -> Bool {
-        switch verify(anchorMinY: anchorMinY, viewportHeight: viewportHeight, tolerance: tolerance) {
-        case .anchored:
-            return false
-        case .needsRepin, .geometryUnavailable:
-            return true
-        }
-    }
-}
 
 // MARK: - Avatar Glow
 

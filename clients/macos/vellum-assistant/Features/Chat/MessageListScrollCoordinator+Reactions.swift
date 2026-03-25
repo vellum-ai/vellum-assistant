@@ -20,7 +20,6 @@ extension MessageListScrollCoordinator {
         assistantActivityPhase: String,
         messages: [ChatMessage],
         hasEverSentMessage: inout Bool,
-        proxy: ScrollViewProxy,
         conversationId: UUID?
     ) {
         if isSending {
@@ -48,7 +47,6 @@ extension MessageListScrollCoordinator {
                 bottomPinCoordinator.reattach()
                 requestBottomPin(
                     reason: .messageCount,
-                    proxy: proxy,
                     conversationId: conversationId,
                     animated: true
                 )
@@ -74,7 +72,6 @@ extension MessageListScrollCoordinator {
     /// `onChange(of: currentPendingRequestId)` still exists in the view
     /// for immediate focus handoff on confirmation appearance.
     func messagesChanged(
-        proxy: ScrollViewProxy,
         messages: [ChatMessage],
         anchorMessageId: inout UUID?,
         highlightedMessageId: Binding<UUID?>,
@@ -93,7 +90,7 @@ extension MessageListScrollCoordinator {
             // Anchor jumps bypass the coordinator — they are higher priority.
             bottomPinCoordinator.cancelActiveSession(reason: .deepLinkAnchorHandoff)
             withAnimation {
-                proxy.scrollTo(id, anchor: .center)
+                scrollTo?(id, .center)
             }
             flashHighlight(messageId: id, highlightedMessageId: highlightedMessageId)
             anchorMessageId = nil
@@ -115,18 +112,18 @@ extension MessageListScrollCoordinator {
                 anchorTimeoutTask?.cancel()
                 anchorTimeoutTask = nil
                 bottomPinCoordinator.reattach()
-                requestBottomPin(reason: .messageCount, proxy: proxy, conversationId: conversationId, animated: true)
+                requestBottomPin(reason: .messageCount, conversationId: conversationId, animated: true)
                 return
             }
         }
 
         // --- Bottom-pin on new messages ---
         if isNearBottom && !isSuppressed && anchorMessageId == nil {
-            requestBottomPin(reason: .messageCount, proxy: proxy, conversationId: conversationId, animated: true)
+            requestBottomPin(reason: .messageCount, conversationId: conversationId, animated: true)
         } else if !hasReceivedScrollEvent && anchorMessageId == nil && !messages.isEmpty {
             // History just loaded but the coordinator's initial-restore session
             // may have already expired. Force a fresh scroll-to-bottom.
-            requestBottomPin(reason: .initialRestore, proxy: proxy, conversationId: conversationId)
+            requestBottomPin(reason: .initialRestore, conversationId: conversationId)
         } else if isSuppressed {
             scrollCoordinatorLog.debug("Auto-scroll suppressed (bottom-scroll suppression active)")
         }
@@ -146,11 +143,9 @@ extension MessageListScrollCoordinator {
     /// the previous one before calling this method.
     func containerResized(
         width: CGFloat,
-        proxy: ScrollViewProxy,
         conversationId: UUID?,
         isNearBottom: Bool,
         anchorMessageId: UUID?,
-        scrollViewportHeight: CGFloat,
         previousResizeTask: Task<Void, Never>?,
         onResizeComplete: @escaping @MainActor () -> Void
     ) -> Task<Void, Never>? {
@@ -158,11 +153,9 @@ extension MessageListScrollCoordinator {
         lastHandledContainerWidth = width
         previousResizeTask?.cancel()
         return makeResizeTask(
-            proxy: proxy,
             conversationId: conversationId,
             isNearBottom: isNearBottom,
             anchorMessageId: anchorMessageId,
-            scrollViewportHeight: scrollViewportHeight,
             onComplete: onResizeComplete
         )
     }
@@ -182,7 +175,6 @@ extension MessageListScrollCoordinator {
         highlightedMessageId: Binding<UUID?>,
         hasPlayedTailEntryAnimation: inout Bool,
         resizeScrollTask: inout Task<Void, Never>?,
-        proxy: ScrollViewProxy,
         anchorMessageId: Binding<UUID?>,
         scrollViewportHeight: CGFloat
     ) {
@@ -208,15 +200,12 @@ extension MessageListScrollCoordinator {
         lastAutoFocusedRequestId = nil
         // Restore scroll to bottom for the new conversation.
         scrollRestoreTask?.cancel()
-        hasFreshAnchorMeasurement = false
         if anchorMessageId.wrappedValue == nil {
-            requestBottomPin(reason: .initialRestore, proxy: proxy, conversationId: newConversationId)
+            requestBottomPin(reason: .initialRestore, conversationId: newConversationId)
         }
         restoreScrollToBottom(
-            proxy: proxy,
             conversationId: newConversationId,
-            anchorMessageId: anchorMessageId,
-            scrollViewportHeight: scrollViewportHeight
+            anchorMessageId: anchorMessageId
         )
     }
 
@@ -230,7 +219,6 @@ extension MessageListScrollCoordinator {
     func anchorMessageIdChanged(
         anchorMessageId: Binding<UUID?>,
         messages: [ChatMessage],
-        proxy: ScrollViewProxy,
         conversationId: UUID?,
         highlightedMessageId: Binding<UUID?>
     ) {
@@ -250,7 +238,7 @@ extension MessageListScrollCoordinator {
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundOnAnchorChange")
             recordScrollLoopEvent(.scrollToRequested, conversationId: conversationId)
             withAnimation {
-                proxy.scrollTo(id, anchor: .center)
+                scrollTo?(id, .center)
             }
             flashHighlight(messageId: id, highlightedMessageId: highlightedMessageId)
             anchorMessageId.wrappedValue = nil
@@ -269,7 +257,7 @@ extension MessageListScrollCoordinator {
                 self.anchorSetTime = nil
                 self.anchorTimeoutTask = nil
                 self.bottomPinCoordinator.reattach()
-                self.requestBottomPin(reason: .initialRestore, proxy: proxy, conversationId: conversationId, animated: true)
+                self.requestBottomPin(reason: .initialRestore, conversationId: conversationId, animated: true)
             }
         }
     }

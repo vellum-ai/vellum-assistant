@@ -81,25 +81,18 @@ final class MessageListAnchorPerformanceTests: XCTestCase {
     // MARK: - 1. Coordinator Anchor Rapid-Update Stress Test
 
     /// Benchmarks calling updateAnchor(distanceFromBottom:viewportHeight:) and
-    /// updateAnchorViewport(height:storedViewportHeight:) 10,000 times each in a
+    /// updateIsAtBottom() 10,000 times in a
     /// tight loop. While individually trivial (O(1)), they are called on EVERY
     /// scroll frame. This test detects if any future refactoring adds overhead.
-    func testAnchorVisibilityTrackerRapidUpdateStress() {
+    func testBottomDetectionRapidUpdateStress() {
         let coordinator = MessageListScrollCoordinator()
-        let viewportHeight: CGFloat = 800.0
 
         measure(metrics: [XCTClockMetric(), XCTCPUMetric()]) {
-            var storedViewportHeight: CGFloat = 800.0
             for i in 0..<10_000 {
-                // Simulate scrolling: distanceFromBottom varies, crossing
-                // the visibility boundary (20pt threshold) frequently.
-                let distanceFromBottom = CGFloat(i % 100) - 10.0
-                coordinator.updateAnchor(distanceFromBottom: distanceFromBottom, viewportHeight: viewportHeight)
-            }
-            for i in 0..<10_000 {
-                // Simulate viewport resizes mixed with position changes.
-                let height = 600.0 + CGFloat(i % 400)
-                coordinator.updateAnchorViewport(height: height, storedViewportHeight: &storedViewportHeight)
+                // Simulate scroll position changes: alternate between bottom
+                // anchor and other views to stress isAtBottom updates.
+                let viewID: String? = i % 10 == 0 ? "scroll-bottom-anchor" : "message-\(i)"
+                coordinator.updateIsAtBottom(viewID)
             }
         }
     }
