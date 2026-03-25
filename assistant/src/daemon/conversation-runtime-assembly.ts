@@ -81,6 +81,8 @@ export interface TrustContext {
   requesterExternalUserId?: string;
   /** Chat/conversation ID the requester is interacting through. */
   requesterChatId?: string;
+  /** Whether the actor is a human or an assistant. Undefined for legacy contexts. */
+  actorKind?: "assistant" | "human";
 }
 
 /**
