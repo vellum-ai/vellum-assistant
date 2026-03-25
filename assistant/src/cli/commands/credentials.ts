@@ -397,10 +397,7 @@ Examples:
   credential
     .command("set <value>")
     .description("Store a secret and create or update its metadata")
-    .requiredOption(
-      "--service <service>",
-      "Service namespace (e.g. integration:google)",
-    )
+    .requiredOption("--service <service>", "Service namespace (e.g. google)")
     .requiredOption("--field <field>", "Field name (e.g. client_secret)")
     .option("--label <label>", 'Human-friendly label (e.g. "prod", "work")')
     .option("--description <description>", "What this credential is used for")
@@ -511,10 +508,7 @@ Examples:
           `${service}:${field}`,
         );
         if (secretResult === "error") {
-          writeError(
-            cmd,
-            "Failed to delete credential from secure storage",
-          );
+          writeError(cmd, "Failed to delete credential from secure storage");
           process.exitCode = 1;
           return;
         }

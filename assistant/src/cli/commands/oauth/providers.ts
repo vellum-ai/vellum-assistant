@@ -200,7 +200,7 @@ Examples:
     .description("Register a new OAuth provider configuration")
     .requiredOption(
       "--provider-key <key>",
-      "Unique provider key (e.g. \"integration:custom-service\"). Must not collide with an existing key from 'assistant oauth providers list'.",
+      "Unique provider key (e.g. \"custom-service\"). Must not collide with an existing key from 'assistant oauth providers list'.",
     )
     .requiredOption("--auth-url <url>", "Authorization endpoint URL")
     .requiredOption("--token-url <url>", "Token endpoint URL")
@@ -234,7 +234,7 @@ Examples:
       "after",
       `
 Arguments (via options):
-  --provider-key        Unique identifier for this provider (e.g. "integration:custom-service").
+  --provider-key        Unique identifier for this provider (e.g. "custom-service").
                         Must not collide with an existing provider key.
   --auth-url            The OAuth authorization endpoint URL.
   --token-url           The OAuth token endpoint URL.
@@ -265,16 +265,16 @@ On success, returns the full provider row including generated timestamps.
 
 Examples:
   $ assistant oauth providers register \\
-      --provider-key integration:custom-api \\
+      --provider-key custom-api \\
       --auth-url https://custom-api.example.com/oauth/authorize \\
       --token-url https://custom-api.example.com/oauth/token
   $ assistant oauth providers register \\
-      --provider-key integration:my-service \\
+      --provider-key my-service \\
       --auth-url https://my-service.com/auth \\
       --token-url https://my-service.com/token \\
       --scopes read,write --json
   $ assistant oauth providers register \\
-      --provider-key integration:custom-api \\
+      --provider-key custom-api \\
       --auth-url https://example.com/auth \\
       --token-url https://example.com/token \\
       --ping-url https://example.com/user`,
