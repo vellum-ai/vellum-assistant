@@ -190,14 +190,14 @@ struct APIKeyStepView: View {
             .frame(minHeight: 64)
             .contentShape(Rectangle())
             .background(
-                RoundedRectangle(cornerRadius: VRadius.lg)
+                RoundedRectangle(cornerRadius: VRadius.xl)
                     .fill(isSelected ? VColor.primaryBase.opacity(0.1) : Color.clear)
                     .overlay(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
+                        RoundedRectangle(cornerRadius: VRadius.xl)
                             .stroke(
                                 isSelected ? VColor.primaryBase.opacity(0.5)
                                     : (isDisabled ? VColor.borderDisabled : VColor.borderBase),
-                                lineWidth: 1
+                                lineWidth: 2
                             )
                     )
             )
