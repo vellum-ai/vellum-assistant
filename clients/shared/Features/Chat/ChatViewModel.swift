@@ -896,6 +896,10 @@ public final class ChatViewModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 30_000_000_000) // 30 seconds
             guard let self, !Task.isCancelled, self.isLoadingMoreMessages else { return }
             log.warning("Pagination request still pending after 30s — daemon may be unresponsive")
+            try? await Task.sleep(nanoseconds: 30_000_000_000) // +30s = 60s total
+            guard let self, !Task.isCancelled, self.isLoadingMoreMessages else { return }
+            log.error("Pagination request timed out after 60s — resetting pagination state")
+            self.resetMessagePagination()
         }
         onLoadMoreHistory?(conversationId, cursor)
         // The loading indicator is cleared by populateFromHistory when the response arrives.
@@ -2889,7 +2893,7 @@ public final class ChatViewModel: ObservableObject {
             self.loadMoreTimeoutTask?.cancel()
             self.loadMoreTimeoutTask = nil
             self.isLoadingMoreMessages = false
-            trimOldMessagesIfNeeded()
+            // TODO: Add pagination-aware trim that doesn't regress historyCursor (follow-up)
             refreshModelMetadataIfNeeded(hasModelCommand)
             os_signpost(.end, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "path=pagination")
             return
