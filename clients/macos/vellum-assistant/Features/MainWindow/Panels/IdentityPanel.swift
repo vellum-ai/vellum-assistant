@@ -193,38 +193,22 @@ struct IdentityPanel: View {
                 .padding(.trailing, 0)
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isFullscreen)
-            .overlay {
-                VColor.auxBlack.opacity(viewingFilePath != nil ? 0.4 : 0)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(viewingFilePath != nil)
-                    .onTapGesture { viewingFilePath = nil }
-
+            .sheet(isPresented: Binding(
+                get: { viewingFilePath != nil },
+                set: { if !$0 { viewingFilePath = nil } }
+            )) {
                 if let path = viewingFilePath {
                     WorkspaceFileSheet(filePath: path, onClose: { viewingFilePath = nil })
                         .frame(width: 600, height: 500)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-                        .shadow(color: VColor.auxBlack.opacity(0.5), radius: 20, y: 8)
-                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
                 }
             }
-            .animation(VAnimation.standard, value: viewingFilePath != nil)
-            .overlay {
-                VColor.auxBlack.opacity(showAvatarSheet ? 0.4 : 0)
-                    .ignoresSafeArea()
-                    .allowsHitTesting(showAvatarSheet)
-                    .onTapGesture { showAvatarSheet = false }
-
-                if showAvatarSheet {
-                    AvatarManagementSheet(
-                        onClose: { showAvatarSheet = false }
-                    )
-                    .frame(width: 360)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .shadow(color: VColor.auxBlack.opacity(0.5), radius: 20, y: 8)
-                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                }
+            .sheet(isPresented: $showAvatarSheet) {
+                AvatarManagementSheet(
+                    onClose: { showAvatarSheet = false }
+                )
+                .frame(width: 360)
+                .fixedSize(horizontal: false, vertical: true)
             }
-            .animation(VAnimation.standard, value: showAvatarSheet)
             .onAppear {
                 identity = IdentityInfo.load()
                 metadata = AssistantMetadata.load()
