@@ -256,6 +256,8 @@ export class DaemonServer {
   private cesClientPromise?: Promise<CesClient | undefined>;
   private cesInitAbortController?: AbortController;
   private cesClientRef?: CesClient;
+  /** Monotonically increasing counter to detect stale client updates. */
+  private cesClientGeneration = 0;
 
   /**
    * Logical assistant identifier used when publishing to the assistant-events hub.
@@ -279,9 +281,14 @@ export class DaemonServer {
     // Wrap the external promise so that cesClientRef stays in sync once the
     // handshake completes — the async work runs in lifecycle.ts but the
     // server needs the resolved client reference for getCesClient().
+    // Use a generation snapshot so a late-resolving promise doesn't overwrite
+    // a newer client set by updateCesClient().
     if (result.clientPromise) {
+      const gen = this.cesClientGeneration;
       this.cesClientPromise = result.clientPromise.then((client) => {
-        this.cesClientRef = client;
+        if (this.cesClientGeneration === gen) {
+          this.cesClientRef = client;
+        }
         return client;
       });
     }
@@ -298,8 +305,11 @@ export class DaemonServer {
   /**
    * Update the CES client reference after a successful reconnection.
    * Called via the `onCesClientChanged` listener registered in lifecycle.ts.
+   * Bumps the generation counter so any pending setCes().then() callback
+   * won't overwrite this newer client.
    */
   updateCesClient(client: CesClient | undefined): void {
+    this.cesClientGeneration++;
     this.cesClientRef = client;
   }
 
