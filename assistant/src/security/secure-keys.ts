@@ -56,12 +56,32 @@ let _encryptedStore: CredentialBackend | undefined;
 let _resolvedBackend: CredentialBackend | undefined;
 let _resolvePromise: Promise<CredentialBackend> | undefined;
 
+/**
+ * Optional callback that attempts to re-establish a CES connection when
+ * the current transport dies. Set by lifecycle.ts after initial CES startup.
+ * Returns a new CesClient on success, or undefined if reconnection failed.
+ */
+let _cesReconnect: (() => Promise<CesClient | undefined>) | undefined;
+
+/** Epoch ms of the last reconnection attempt. Used for cooldown. */
+let _lastReconnectAttempt = 0;
+
+/** Minimum interval between CES reconnection attempts. */
+const RECONNECT_COOLDOWN_MS = 10_000;
+
 /** Inject a CES RPC client for credential routing. Resets the resolved backend. */
 export function setCesClient(client: CesClient | undefined): void {
   _cesClient = client;
   // Reset resolved backend so next call picks up CES
   _resolvedBackend = undefined;
   _resolvePromise = undefined;
+}
+
+/** Register a callback for reconnecting to CES when the transport dies. */
+export function setCesReconnect(
+  fn: (() => Promise<CesClient | undefined>) | undefined,
+): void {
+  _cesReconnect = fn;
 }
 
 function getEncryptedStoreBackend(): CredentialBackend {
@@ -77,28 +97,70 @@ function getEncryptedStoreBackend(): CredentialBackend {
  *   2. Containerized + CES_CREDENTIAL_URL → CES HTTP client (Docker/managed).
  *   3. Encrypted file store → fallback when CES is unavailable.
  *
- * The resolved backend is cached, but if it becomes unavailable (e.g. the
- * CES transport dies) the cache is invalidated and a fresh resolution is
- * performed. This lets the system fall back to the encrypted file store
- * instead of repeatedly failing through a dead transport.
+ * Once resolved, the backend is cached. If it becomes unavailable (e.g. the
+ * CES transport dies), we attempt to reconnect via `_cesReconnect` rather
+ * than falling back to a different backend. In managed cloud mode CES is the
+ * primary credential source — falling back to the encrypted file store would
+ * silently serve stale or empty data.
+ *
+ * If reconnection succeeds the cache is refreshed with the new client.
+ * If reconnection fails (or is on cooldown) the existing unavailable backend
+ * is returned — its methods short-circuit via `isAvailable()` guards and
+ * return `unreachable` results so callers can degrade gracefully.
  *
  * Call `_resetBackend()` in tests to clear the cached resolution.
  */
 async function resolveBackendAsync(): Promise<CredentialBackend> {
   if (_resolvedBackend) {
     if (_resolvedBackend.isAvailable()) return _resolvedBackend;
-    // Backend is no longer reachable — re-resolve.
-    log.warn(
-      { backend: _resolvedBackend.name },
-      "Credential backend is no longer available — re-resolving",
-    );
-    _resolvedBackend = undefined;
-    _resolvePromise = undefined;
+
+    // Backend is no longer reachable — attempt CES reconnection.
+    const reconnected = await attemptCesReconnection();
+    if (reconnected) {
+      // setCesClient() cleared the cache — fall through to re-resolve
+      // with the fresh client.
+    } else {
+      // Reconnection failed or on cooldown — return the existing (dead)
+      // backend. Its methods short-circuit via isAvailable() guards and
+      // return unreachable results. Callers like getProviderKeyAsync fall
+      // back to env vars, and embedding backend selection uses cached
+      // backends.
+      return _resolvedBackend;
+    }
   }
   if (!_resolvePromise) {
     _resolvePromise = doResolveBackend();
   }
   return _resolvePromise;
+}
+
+/**
+ * Try to re-establish a CES connection when the current transport has died.
+ * Returns true if reconnection succeeded (setCesClient was called with a
+ * new client), false otherwise.
+ *
+ * Debounced by RECONNECT_COOLDOWN_MS to avoid reconnection storms when
+ * many credential lookups hit a dead transport concurrently.
+ */
+async function attemptCesReconnection(): Promise<boolean> {
+  if (!_cesReconnect) return false;
+  if (Date.now() - _lastReconnectAttempt < RECONNECT_COOLDOWN_MS) return false;
+
+  _lastReconnectAttempt = Date.now();
+  log.warn("Credential backend unavailable — attempting CES reconnection");
+
+  try {
+    const newClient = await _cesReconnect();
+    if (newClient) {
+      setCesClient(newClient);
+      log.info("CES reconnection successful — credential backend restored");
+      return true;
+    }
+    log.warn("CES reconnection returned no client");
+  } catch (err) {
+    log.warn({ err }, "CES reconnection failed");
+  }
+  return false;
 }
 
 async function doResolveBackend(): Promise<CredentialBackend> {
@@ -277,4 +339,6 @@ export function _resetBackend(): void {
   _encryptedStore = undefined;
   _resolvedBackend = undefined;
   _resolvePromise = undefined;
+  _cesReconnect = undefined;
+  _lastReconnectAttempt = 0;
 }

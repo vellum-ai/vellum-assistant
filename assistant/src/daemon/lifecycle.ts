@@ -77,7 +77,7 @@ import {
 import { ensureVellumGuardianBinding } from "../runtime/guardian-vellum-migration.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { startScheduler } from "../schedule/scheduler.js";
-import { setCesClient } from "../security/secure-keys.js";
+import { setCesClient, setCesReconnect } from "../security/secure-keys.js";
 import { seedCatalogSkillMemories } from "../skills/skill-memory.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getDeviceId } from "../util/device-id.js";
@@ -494,6 +494,39 @@ export async function runDaemon(): Promise<void> {
         if (client) {
           setCesClient(client);
         }
+      }
+
+      // Register CES reconnection callback so the credential layer can
+      // re-establish the connection when the transport dies, instead of
+      // falling back to the encrypted file store.
+      if (cesResult.processManager) {
+        const pm = cesResult.processManager;
+        setCesReconnect(async () => {
+          try {
+            await pm.stop();
+            const transport = await pm.start();
+            const newClient = createCesClient(transport);
+            const proxyCtx = await resolveManagedProxyContext();
+            const { accepted, reason } = await newClient.handshake(
+              proxyCtx.assistantApiKey
+                ? { assistantApiKey: proxyCtx.assistantApiKey }
+                : undefined,
+            );
+            if (accepted) {
+              log.info("CES reconnection handshake accepted");
+              return newClient;
+            }
+            log.warn({ reason }, "CES reconnection handshake rejected");
+            newClient.close();
+            return undefined;
+          } catch (err) {
+            log.warn(
+              { error: err instanceof Error ? err.message : String(err) },
+              "CES reconnection attempt failed",
+            );
+            return undefined;
+          }
+        });
       }
     }
 
