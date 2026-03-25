@@ -6,7 +6,7 @@ private extension View {
         if let w = width {
             self.frame(width: CGFloat(w), alignment: .leading)
         } else {
-            self.frame(maxWidth: .infinity, alignment: .leading)
+            self.frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         }
     }
 }
