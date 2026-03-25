@@ -221,7 +221,7 @@ The OAuth extensibility layer makes adding a new OAuth provider a declarative op
 
 Protocol fields (`authUrl`, `tokenUrl`, `defaultScopes`, `scopePolicy`, `callbackTransport`) are stored in the `oauth_providers` database table rather than in code.
 
-Registered providers: `google`, `slack`, `notion`. The `gmail` alias resolves to the `google` provider.
+Registered providers: `google`, `slack`, `notion`.
 
 ### Scope Policy Engine
 

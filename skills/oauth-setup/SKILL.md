@@ -45,7 +45,7 @@ Well-known services with dedicated setup skills (note: not all follow the `<serv
 
 | Service  | Skill ID                 |
 | -------- | ------------------------ |
-| gmail    | google-oauth-applescript |
+| google   | google-oauth-applescript |
 | notion   | notion-oauth-setup       |
 | twitter  | twitter-oauth-setup      |
 | github   | github-oauth-setup       |
