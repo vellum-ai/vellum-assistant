@@ -22,6 +22,7 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import { stringify } from "yaml";
+import { z } from "zod";
 
 const ROOT = resolve(import.meta.dir, "..");
 const ROUTES_DIR = join(ROOT, "src/runtime/routes");
@@ -29,42 +30,45 @@ const OUTPUT_PATH = join(ROOT, "openapi.yaml");
 const PKG_PATH = join(ROOT, "package.json");
 
 // ---------------------------------------------------------------------------
-// Types
+// Schemas
 // ---------------------------------------------------------------------------
 
-interface RouteQueryParam {
-  name: string;
-  type?: string;
-  required?: boolean;
-  description?: string;
-}
+const RouteQueryParamSchema = z.object({
+  name: z.string(),
+  type: z.string().optional(),
+  required: z.boolean().optional(),
+  description: z.string().optional(),
+});
 
-interface RouteBodySchema {
-  type: string;
-  properties?: Record<string, unknown>;
-  required?: string[];
-  description?: string;
-}
+const RouteBodySchemaSchema = z.object({
+  type: z.string(),
+  properties: z.record(z.string(), z.unknown()).optional(),
+  required: z.array(z.string()).optional(),
+  description: z.string().optional(),
+});
 
-interface RouteEntry {
-  method: string;
+const RouteEntrySchema = z.object({
+  method: z.string(),
   /** Endpoint path relative to /v1/ (e.g. "conversations/:id"). */
-  endpoint: string;
+  endpoint: z.string(),
   /** Short summary for OpenAPI operation. */
-  summary?: string;
+  summary: z.string().optional(),
   /** Longer description for OpenAPI operation. */
-  description?: string;
+  description: z.string().optional(),
   /** Grouping tags. */
-  tags?: string[];
+  tags: z.array(z.string()).optional(),
   /** Query parameter definitions. */
-  queryParams?: RouteQueryParam[];
+  queryParams: z.array(RouteQueryParamSchema).optional(),
   /** JSON Schema for the request body. */
-  requestBody?: RouteBodySchema;
+  requestBody: RouteBodySchemaSchema.optional(),
   /** JSON Schema for the 200 response body. */
-  responseBody?: RouteBodySchema;
+  responseBody: RouteBodySchemaSchema.optional(),
   /** Source module filename, used for auto-deriving tags. */
-  sourceModule?: string;
-}
+  sourceModule: z.string().optional(),
+});
+
+type RouteBodySchema = z.infer<typeof RouteBodySchemaSchema>;
+type RouteEntry = z.infer<typeof RouteEntrySchema>;
 
 // ---------------------------------------------------------------------------
 // Programmatic route extraction
@@ -139,48 +143,22 @@ async function collectRoutesFromModules(): Promise<RouteEntry[]> {
       }
 
       try {
-        const defs = exportValue(createDeepStub()) as Array<{
-          endpoint?: string;
-          method?: string;
-          summary?: string;
-          description?: string;
-          tags?: string[];
-          queryParams?: RouteQueryParam[];
-          requestBody?: RouteBodySchema;
-          responseBody?: RouteBodySchema;
-        }>;
-        if (!Array.isArray(defs)) continue;
-        for (const def of defs) {
+        const rawDefs = exportValue(createDeepStub());
+        if (!Array.isArray(rawDefs)) continue;
+        for (const raw of rawDefs) {
           if (
-            typeof def.endpoint === "string" &&
-            typeof def.method === "string"
+            typeof raw !== "object" ||
+            raw === null ||
+            typeof raw.endpoint !== "string" ||
+            typeof raw.method !== "string"
           ) {
-            routes.push({
-              endpoint: def.endpoint,
-              method: def.method,
-              summary:
-                typeof def.summary === "string" ? def.summary : undefined,
-              description:
-                typeof def.description === "string"
-                  ? def.description
-                  : undefined,
-              tags: Array.isArray(def.tags)
-                ? def.tags.filter((t): t is string => typeof t === "string")
-                : undefined,
-              queryParams: Array.isArray(def.queryParams)
-                ? def.queryParams
-                : undefined,
-              requestBody:
-                def.requestBody && typeof def.requestBody === "object"
-                  ? def.requestBody
-                  : undefined,
-              responseBody:
-                def.responseBody && typeof def.responseBody === "object"
-                  ? def.responseBody
-                  : undefined,
-              sourceModule: file,
-            });
+            continue;
           }
+          const parsed = RouteEntrySchema.parse({
+            ...raw,
+            sourceModule: file,
+          });
+          routes.push(parsed);
         }
       } catch (err) {
         console.warn(
