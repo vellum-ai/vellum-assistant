@@ -9,10 +9,6 @@ extension MessageListScrollCoordinator {
 
     // MARK: - Scroll Methods
 
-    /// Sentinel UUID used for pin requests before the daemon assigns a real
-    /// conversation ID. Lets bootstrap-window requests coalesce normally.
-    static let bootstrapConversationId = UUID(uuidString: "00000000-0000-0000-0000-000000000000")!
-
     /// Performs a programmatic scroll to the given item ID and anchor point,
     /// using the `scrollTo` closure configured during setup.
     func performScrollTo(_ id: any Hashable, anchor: UnitPoint? = nil) {
@@ -207,7 +203,6 @@ extension MessageListScrollCoordinator {
         guard !isPaginationInFlight else { return }
         isPaginationInFlight = true
         // Pagination scroll-position restore is higher priority than bottom-pin.
-        // No active session to cancel (sessions were removed in PR 1).
         let anchorId = visibleMessages.first?.id
         os_signpost(.event, log: PerfSignposts.log, name: "paginationSentinelFired")
         scrollCoordinatorLog.debug("[pagination] fired — anchorId: \(String(describing: anchorId))")
