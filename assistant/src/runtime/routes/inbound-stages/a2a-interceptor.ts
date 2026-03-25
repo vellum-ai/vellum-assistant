@@ -6,11 +6,12 @@
  * by `sourceMetadata.envelopeType`:
  *   - "pairing_request"  → handlePairingRequest()
  *   - "pairing_accepted" → handlePairingAccepted()
+ *   - "pairing_verify"   → handlePairingVerify()
  *   - "pairing_finalize" → handlePairingFinalize()
  *   - "message"          → pass through to normal inbound pipeline
  *
  * Safety invariant: unauthenticated envelopes can only reach pairing
- * handlers (pairing_request, pairing_accepted), never the message pipeline.
+ * handlers (pairing_request, pairing_accepted, pairing_verify), never the message pipeline.
  */
 
 import { getLogger } from "../../../util/logger.js";
@@ -19,6 +20,7 @@ import {
   handleInboundPairingRequest,
   handlePairingAccepted,
   handlePairingFinalize,
+  handlePairingVerify,
 } from "../../a2a/pairing.js";
 import { notifyGuardianOfAccessRequest } from "../../access-request-helper.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
@@ -71,14 +73,15 @@ export async function interceptA2AEnvelope(params: {
   if (
     !authenticated &&
     envelopeType !== "pairing_request" &&
-    envelopeType !== "pairing_accepted"
+    envelopeType !== "pairing_accepted" &&
+    envelopeType !== "pairing_verify"
   ) {
     log.warn(
       {
         event: "a2a_interceptor_unauthenticated_rejected",
         envelopeType,
       },
-      "Rejected unauthenticated A2A envelope — only pairing_request and pairing_accepted allowed",
+      "Rejected unauthenticated A2A envelope — only pairing_request, pairing_accepted, and pairing_verify allowed",
     );
     return {
       handled: true,
@@ -98,6 +101,9 @@ export async function interceptA2AEnvelope(params: {
 
     case "pairing_accepted":
       return handlePairingAcceptedIntercept(rawEnvelope);
+
+    case "pairing_verify":
+      return handlePairingVerifyIntercept(rawEnvelope, canonicalAssistantId);
 
     case "pairing_finalize":
       return handlePairingFinalizeIntercept(rawEnvelope);
@@ -213,6 +219,48 @@ async function handlePairingAcceptedIntercept(
       handled: true,
       response: Response.json(
         { error: "Failed to process pairing accepted" },
+        { status: 500 },
+      ),
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pairing verify handler
+// ---------------------------------------------------------------------------
+
+async function handlePairingVerifyIntercept(
+  rawEnvelope: unknown,
+  canonicalAssistantId: string = DAEMON_INTERNAL_ASSISTANT_ID,
+): Promise<A2AInterceptResult> {
+  try {
+    const envelope = parseA2AEnvelope(rawEnvelope);
+    if (envelope.type !== "pairing_verify") {
+      return {
+        handled: true,
+        response: Response.json(
+          { error: "Expected pairing_verify" },
+          { status: 400 },
+        ),
+      };
+    }
+
+    const result = await handlePairingVerify(envelope, canonicalAssistantId);
+
+    return {
+      handled: true,
+      response: Response.json({
+        verified: result.verified,
+        type: "pairing_verify",
+        ...(result.error ? { error: result.error } : {}),
+      }),
+    };
+  } catch (err) {
+    log.error({ err }, "Error handling A2A pairing verify");
+    return {
+      handled: true,
+      response: Response.json(
+        { error: "Failed to process pairing verify" },
         { status: 500 },
       ),
     };

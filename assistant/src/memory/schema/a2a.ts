@@ -22,7 +22,7 @@ export const a2aPairingRequests = sqliteTable(
     inviteCode: text("invite_code").notNull(),
     remoteAssistantId: text("remote_assistant_id").notNull(),
     remoteGatewayUrl: text("remote_gateway_url").notNull(),
-    status: text("status").notNull(), // "pending" | "accepted" | "expired" | "failed"
+    status: text("status").notNull(), // "pending" | "verification_pending" | "accepted" | "expired" | "failed"
     createdAt: integer("created_at").notNull(),
     expiresAt: integer("expires_at").notNull(),
   },

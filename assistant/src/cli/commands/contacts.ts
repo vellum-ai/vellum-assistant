@@ -16,7 +16,10 @@ import type {
   ContactRole,
   ContactType,
 } from "../../contacts/types.js";
-import { initiatePairing } from "../../runtime/a2a/pairing.js";
+import {
+  initiatePairing,
+  sendPairingVerify,
+} from "../../runtime/a2a/pairing.js";
 import { findPairingByInviteCode } from "../../runtime/a2a/pairing-store.js";
 import {
   createIngressInvite,
@@ -824,4 +827,45 @@ Examples:
         }
       },
     );
+
+  contacts
+    .command("pair-verify <code>")
+    .description(
+      "Verify A2A pairing with a 6-digit code from the remote assistant's guardian",
+    )
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  code   The 6-digit verification code received from the remote assistant's guardian
+
+After initiating pairing with 'contacts pair', the remote assistant's guardian
+receives a verification code upon approving the request. That code must be
+shared out-of-band (e.g. Slack DM, in person) and entered here to complete
+the pairing handshake.
+
+Examples:
+  $ assistant contacts pair-verify 123456
+  $ assistant contacts pair-verify 789012 --json`,
+    )
+    .action(async (code: string, _opts: unknown, cmd: Command) => {
+      try {
+        initializeDb();
+        const result = await sendPairingVerify(code);
+        if (result.ok) {
+          writeOutput(cmd, {
+            ok: true,
+            message:
+              "Verification code sent. If the code is valid, pairing will complete automatically. Check status with `assistant contacts pair-status`.",
+          });
+        } else {
+          writeOutput(cmd, { ok: false, error: result.error });
+          process.exitCode = 1;
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        writeOutput(cmd, { ok: false, error: message });
+        process.exitCode = 1;
+      }
+    });
 }

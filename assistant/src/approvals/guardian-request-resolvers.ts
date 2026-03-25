@@ -486,26 +486,51 @@ const accessRequestResolver: GuardianRequestResolver = {
       };
     }
 
-    // A2A pairing approvals: directly activate the assistant contact without
-    // minting a verification session. Identity is established by the
-    // invite-code handshake, not by channel-native identity verification.
+    // A2A pairing approvals: transition to verification_pending and mint
+    // a verification session (same ceremony as human trusted contacts).
+    // The initiator's guardian must enter the 6-digit code via
+    // `assistant contacts pair-verify <code>` to complete the pairing.
     const a2aPairing = findPairingByRemoteAssistant(
       requesterExternalUserId,
       "inbound",
     );
     if (a2aPairing && a2aPairing.status === "pending") {
       try {
-        const success = await completePairingApproval(requesterExternalUserId);
+        const success = completePairingApproval(requesterExternalUserId);
         if (success) {
+          // Mint a verification session bound to the remote assistant's identity
+          const session = createOutboundSession({
+            channel: "vellum",
+            expectedExternalUserId: requesterExternalUserId,
+            expectedChatId: requesterExternalUserId,
+            identityBindingStatus: "bound",
+            destinationAddress: requesterExternalUserId,
+            verificationPurpose: "trusted_contact",
+          });
+
+          const verificationReplyText =
+            `Pairing approved for Assistant ${requesterExternalUserId}. ` +
+            `Share this verification code with their guardian: \`${session.secret}\`. ` +
+            `They must enter it via \`assistant contacts pair-verify ${session.secret}\`. ` +
+            `The code expires in 10 minutes.`;
+
           log.info(
             {
-              event: "resolver_access_request_a2a_approved",
+              event: "resolver_access_request_a2a_verification_pending",
               requestId: request.id,
               remoteAssistantId: requesterExternalUserId,
+              verificationSessionId: session.sessionId,
             },
-            "Access request resolver: A2A pairing approval — direct assistant contact activation",
+            "Access request resolver: A2A pairing approval — verification code minted",
           );
-          return { ok: true, applied: true };
+
+          return {
+            ok: true,
+            applied: true,
+            ...(ctx.actor.channel === "vellum"
+              ? { guardianReplyText: verificationReplyText }
+              : {}),
+          };
         }
       } catch (err) {
         log.error(

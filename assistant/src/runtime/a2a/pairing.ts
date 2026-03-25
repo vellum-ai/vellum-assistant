@@ -1,11 +1,15 @@
 /**
  * A2A pairing protocol implementation.
  *
- * Implements the four-phase invite-code-gated pairing handshake:
+ * Implements the five-phase invite-code-gated pairing handshake with
+ * 6-digit verification ceremony:
  *   1. Initiator sends PairingRequest (unauthenticated)
- *   2. Target's guardian approves → sends PairingAccepted (unauthenticated)
- *   3. Initiator validates + sends PairingFinalize (authenticated)
- *   4. Target stores outbound token → mutual auth complete
+ *   2. Target's guardian approves → mints verification code
+ *   2b. Guardians exchange code out-of-band
+ *   2c. Initiator sends PairingVerify with code (unauthenticated)
+ *   3. Target validates code → sends PairingAccepted (unauthenticated)
+ *   4. Initiator validates + sends PairingFinalize (authenticated)
+ *   5. Target stores outbound token → mutual auth complete
  *
  * Each phase stores state in the a2a_pairing_requests table and manages
  * inbound/outbound tokens in the secure key store.
@@ -23,15 +27,18 @@ import {
 } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { validateAndConsumeVerification } from "../channel-verification-service.js";
 import type {
   A2APairingAccepted,
   A2APairingFinalize,
   A2APairingRequest,
+  A2APairingVerify,
 } from "./message-contract.js";
 import {
   createPairingRequest,
   findPairingByInviteCode,
   findPairingByRemoteAssistant,
+  findPendingOutboundPairing,
   PAIRING_REQUEST_TTL_MS,
   updatePairingStatus,
 } from "./pairing-store.js";
@@ -200,22 +207,21 @@ export function handleInboundPairingRequest(envelope: A2APairingRequest): void {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2b: Target's guardian approves → send PairingAccepted
+// Phase 2b: Target's guardian approves → transition to verification_pending
 // ---------------------------------------------------------------------------
 
 /**
- * Complete the target side of pairing after guardian approval.
+ * Transition the target side of pairing to verification_pending after
+ * guardian approval.
  *
- * Creates the contact, generates an inbound token, stores gateway URL,
- * and sends PairingAccepted back to the initiator.
+ * Does NOT create contacts, generate tokens, or send pairing_accepted.
+ * Those happen in completePairingVerification() after the 6-digit code
+ * is verified by the initiator's guardian. This mirrors the text-channel
+ * verification ceremony used for human trusted contacts.
  *
- * Returns true if successful, false if the pairing request was not found
- * or could not be processed.
+ * Returns true if the pairing was found and transitioned successfully.
  */
-export async function completePairingApproval(
-  remoteAssistantId: string,
-  localAssistantId: string = DAEMON_INTERNAL_ASSISTANT_ID,
-): Promise<boolean> {
+export function completePairingApproval(remoteAssistantId: string): boolean {
   const pairingRequest = findPairingByRemoteAssistant(
     remoteAssistantId,
     "inbound",
@@ -228,6 +234,55 @@ export async function completePairingApproval(
         remoteAssistantId,
       },
       "No pending inbound pairing request found for approval",
+    );
+    return false;
+  }
+
+  updatePairingStatus(pairingRequest.id, "verification_pending");
+
+  log.info(
+    {
+      event: "a2a_pairing_verification_pending",
+      pairingRequestId: pairingRequest.id,
+      remoteAssistantId,
+    },
+    "A2A pairing approved by guardian — awaiting verification code exchange",
+  );
+
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2c: Verification code confirmed → complete token exchange
+// ---------------------------------------------------------------------------
+
+/**
+ * Complete the target side of pairing after verification code confirmation.
+ *
+ * Creates the contact, generates an inbound token, stores gateway URL,
+ * and sends PairingAccepted back to the initiator. This is only called
+ * after the 6-digit verification code has been confirmed by the
+ * initiator's guardian via `assistant contacts pair-verify`.
+ *
+ * Returns true if successful, false if the pairing request was not found
+ * or could not be processed.
+ */
+export async function completePairingVerification(
+  remoteAssistantId: string,
+  localAssistantId: string = DAEMON_INTERNAL_ASSISTANT_ID,
+): Promise<boolean> {
+  const pairingRequest = findPairingByRemoteAssistant(
+    remoteAssistantId,
+    "inbound",
+  );
+
+  if (!pairingRequest || pairingRequest.status !== "verification_pending") {
+    log.warn(
+      {
+        event: "a2a_pairing_verification_no_request",
+        remoteAssistantId,
+      },
+      "No verification_pending inbound pairing request found",
     );
     return false;
   }
@@ -283,14 +338,194 @@ export async function completePairingApproval(
 
   log.info(
     {
-      event: "a2a_pairing_approved",
+      event: "a2a_pairing_verified_and_accepted",
       pairingRequestId: pairingRequest.id,
       remoteAssistantId,
     },
-    "A2A pairing approved and acceptance sent",
+    "A2A pairing verification complete — acceptance sent",
   );
 
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2d: Initiator sends verification code to target
+// ---------------------------------------------------------------------------
+
+/**
+ * Send the verification code to the target assistant.
+ *
+ * Called by the initiator's guardian via `assistant contacts pair-verify`.
+ * Looks up the pending outbound pairing request and sends a PairingVerify
+ * envelope to the target's gateway (unauthenticated, bound by invite code).
+ */
+export async function sendPairingVerify(
+  verificationCode: string,
+  localAssistantId: string = DAEMON_INTERNAL_ASSISTANT_ID,
+): Promise<{ ok: boolean; error?: string }> {
+  const pairingRequest = findPendingOutboundPairing();
+
+  if (!pairingRequest) {
+    return {
+      ok: false,
+      error:
+        "No pending outbound pairing request found. Start pairing first with `assistant contacts pair`.",
+    };
+  }
+
+  const envelope: A2APairingVerify = {
+    version: "v1",
+    type: "pairing_verify",
+    senderAssistantId: localAssistantId,
+    inviteCode: pairingRequest.inviteCode,
+    verificationCode,
+  };
+
+  try {
+    const url = `${pairingRequest.remoteGatewayUrl}/webhook/a2a`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(envelope),
+    });
+
+    if (!response.ok) {
+      log.warn(
+        {
+          event: "a2a_pairing_verify_delivery_failed",
+          remoteAssistantId: pairingRequest.remoteAssistantId,
+          status: response.status,
+        },
+        "Failed to deliver A2A pairing verify",
+      );
+      return {
+        ok: false,
+        error: "Failed to deliver verification code to the remote assistant.",
+      };
+    }
+  } catch (err) {
+    log.error(
+      { err, remoteAssistantId: pairingRequest.remoteAssistantId },
+      "Error sending A2A pairing verify",
+    );
+    return { ok: false, error: "Error connecting to the remote assistant." };
+  }
+
+  log.info(
+    {
+      event: "a2a_pairing_verify_sent",
+      remoteAssistantId: pairingRequest.remoteAssistantId,
+    },
+    "A2A pairing verification code sent",
+  );
+
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2e: Target receives and validates verification code
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle an incoming PairingVerify envelope on the target side.
+ *
+ * Validates the invite code binding, then validates the verification code
+ * against the pending verification session. If valid, triggers the full
+ * token exchange via completePairingVerification().
+ */
+export async function handlePairingVerify(
+  envelope: A2APairingVerify,
+  localAssistantId: string = DAEMON_INTERNAL_ASSISTANT_ID,
+): Promise<{ verified: boolean; error?: string }> {
+  // Look up the inbound pairing request by invite code
+  const pairingRequest = findPairingByInviteCode(envelope.inviteCode);
+
+  if (!pairingRequest) {
+    log.warn(
+      {
+        event: "a2a_pairing_verify_no_request",
+        inviteCode: envelope.inviteCode.slice(0, 8) + "...",
+      },
+      "Received pairing_verify with no matching inbound request",
+    );
+    return { verified: false, error: "No matching pairing request found." };
+  }
+
+  if (
+    pairingRequest.direction !== "inbound" ||
+    pairingRequest.status !== "verification_pending"
+  ) {
+    log.warn(
+      {
+        event: "a2a_pairing_verify_invalid_state",
+        direction: pairingRequest.direction,
+        status: pairingRequest.status,
+      },
+      "Pairing request in wrong state for pairing_verify",
+    );
+    return {
+      verified: false,
+      error: "Pairing request not in verification pending state.",
+    };
+  }
+
+  // Validate sender identity matches stored remote assistant
+  if (envelope.senderAssistantId !== pairingRequest.remoteAssistantId) {
+    log.warn(
+      {
+        event: "a2a_pairing_verify_identity_mismatch",
+        expected: pairingRequest.remoteAssistantId,
+        received: envelope.senderAssistantId,
+      },
+      "Pairing verify sender identity mismatch",
+    );
+    return { verified: false, error: "Sender identity mismatch." };
+  }
+
+  // Validate the verification code against the pending session
+  const result = validateAndConsumeVerification(
+    "vellum",
+    envelope.verificationCode,
+    envelope.senderAssistantId,
+    envelope.senderAssistantId,
+  );
+
+  if (!result.success) {
+    log.warn(
+      {
+        event: "a2a_pairing_verify_code_invalid",
+        remoteAssistantId: envelope.senderAssistantId,
+      },
+      "A2A pairing verification code invalid or expired",
+    );
+    return {
+      verified: false,
+      error: "The verification code is invalid or has expired.",
+    };
+  }
+
+  // Verification succeeded — complete the token exchange
+  const success = await completePairingVerification(
+    envelope.senderAssistantId,
+    localAssistantId,
+  );
+
+  if (!success) {
+    return {
+      verified: false,
+      error: "Failed to complete pairing after verification.",
+    };
+  }
+
+  log.info(
+    {
+      event: "a2a_pairing_verify_success",
+      remoteAssistantId: envelope.senderAssistantId,
+    },
+    "A2A pairing verification succeeded — token exchange initiated",
+  );
+
+  return { verified: true };
 }
 
 // ---------------------------------------------------------------------------

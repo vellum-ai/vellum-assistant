@@ -12,7 +12,12 @@ import { getDb } from "../../memory/db.js";
 import { a2aPairingRequests } from "../../memory/schema.js";
 
 export type PairingDirection = "outbound" | "inbound";
-export type PairingStatus = "pending" | "accepted" | "expired" | "failed";
+export type PairingStatus =
+  | "pending"
+  | "verification_pending"
+  | "accepted"
+  | "expired"
+  | "failed";
 
 export interface PairingRequest {
   id: string;
@@ -155,6 +160,36 @@ export function findPairingByRemoteAssistant(
   if (parsed.status === "pending" && Date.now() > parsed.expiresAt) {
     updatePairingStatus(parsed.id, "expired");
     return { ...parsed, status: "expired" };
+  }
+
+  return parsed;
+}
+
+/**
+ * Find the most recent pending outbound pairing request.
+ * Used by the CLI `pair-verify` command to find the target gateway.
+ */
+export function findPendingOutboundPairing(): PairingRequest | null {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(a2aPairingRequests)
+    .where(
+      and(
+        eq(a2aPairingRequests.direction, "outbound"),
+        eq(a2aPairingRequests.status, "pending"),
+      ),
+    )
+    .get();
+
+  if (!row) return null;
+
+  const parsed = parseRow(row);
+
+  // Auto-expire stale requests
+  if (Date.now() > parsed.expiresAt) {
+    updatePairingStatus(parsed.id, "expired");
+    return null;
   }
 
   return parsed;
