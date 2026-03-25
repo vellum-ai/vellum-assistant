@@ -28,6 +28,8 @@ The flow has 9 steps total, takes about 3–5 minutes.
 
 > Before we start - fair warning: this setup involves Google's developer console, which can feel pretty technical. Don't worry about that - you don't need to understand any of it. I'll open every page for you and tell you exactly what to click. If anything looks confusing or different from what I describe, just tell me and I'll figure it out.
 >
+> One thing worth knowing upfront: even after setup, I'll only ever create email drafts — I won't send anything without your explicit say-so.
+>
 > Do you have a Google account you'd like to use for this?
 
 If no Google account → guide them to create one or defer.
@@ -147,7 +149,7 @@ host_bash:
 >
 > **Note:** GCP may categorize these scopes differently than you'd expect — that's fine, as long as all 7 are present.
 >
-> **Quick note:** The `gmail.modify` and `gmail.send` scopes are what allow me to draft and send emails on your behalf. If you'd rather I only have read access to your email for now, you can uncheck those two - everything else will still work fine, and you can always come back and add them later.
+> **Quick note on email safety:** The `gmail.modify` and `gmail.send` scopes let me create drafts and, when you explicitly ask, send them. By default I only create drafts — nothing leaves your outbox without your approval. If you'd rather I only have read access to your email for now, you can uncheck those two - everything else will still work fine, and you can always come back and add them later.
 
 **Milestone (5 of 9):** "Over halfway - the fiddliest part is behind us."
 
