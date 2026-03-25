@@ -66,6 +66,9 @@ let _cesReconnect: (() => Promise<CesClient | undefined>) | undefined;
 /** Epoch ms of the last reconnection attempt. Used for cooldown. */
 let _lastReconnectAttempt = 0;
 
+/** In-flight reconnection promise — concurrent callers share the same attempt. */
+let _reconnectInFlight: Promise<boolean> | undefined;
+
 /** Minimum interval between CES reconnection attempts. */
 const RECONNECT_COOLDOWN_MS = 3_000;
 
@@ -139,28 +142,42 @@ async function resolveBackendAsync(): Promise<CredentialBackend> {
  * Returns true if reconnection succeeded (setCesClient was called with a
  * new client), false otherwise.
  *
- * Debounced by RECONNECT_COOLDOWN_MS to avoid reconnection storms when
- * many credential lookups hit a dead transport concurrently.
+ * Concurrent callers share the same in-flight reconnection attempt to avoid
+ * racing on the same process manager. A timestamp cooldown prevents rapid
+ * back-to-back attempts after completion.
  */
 async function attemptCesReconnection(): Promise<boolean> {
   if (!_cesReconnect) return false;
+
+  // If a reconnection is already in flight, share it.
+  if (_reconnectInFlight) return _reconnectInFlight;
+
+  // Cooldown — don't retry immediately after a completed attempt.
   if (Date.now() - _lastReconnectAttempt < RECONNECT_COOLDOWN_MS) return false;
 
   _lastReconnectAttempt = Date.now();
   log.warn("Credential backend unavailable — attempting CES reconnection");
 
-  try {
-    const newClient = await _cesReconnect();
-    if (newClient) {
-      setCesClient(newClient);
-      log.info("CES reconnection successful — credential backend restored");
-      return true;
+  _reconnectInFlight = (async () => {
+    try {
+      const newClient = await _cesReconnect!();
+      if (newClient) {
+        setCesClient(newClient);
+        log.info("CES reconnection successful — credential backend restored");
+        return true;
+      }
+      log.warn("CES reconnection returned no client");
+    } catch (err) {
+      log.warn({ err }, "CES reconnection failed");
     }
-    log.warn("CES reconnection returned no client");
-  } catch (err) {
-    log.warn({ err }, "CES reconnection failed");
+    return false;
+  })();
+
+  try {
+    return await _reconnectInFlight;
+  } finally {
+    _reconnectInFlight = undefined;
   }
-  return false;
 }
 
 async function doResolveBackend(): Promise<CredentialBackend> {
@@ -341,4 +358,5 @@ export function _resetBackend(): void {
   _resolvePromise = undefined;
   _cesReconnect = undefined;
   _lastReconnectAttempt = 0;
+  _reconnectInFlight = undefined;
 }
