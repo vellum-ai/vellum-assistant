@@ -164,9 +164,16 @@ async function resolveBackendAsync(): Promise<CredentialBackend> {
         // backends.
         return _resolvedBackend;
       }
-    } else if (_cesReconnect && _resolvedBackend.name === "encrypted-store") {
-      // CES is the preferred backend but initial startup failed, so we
-      // fell back to the encrypted store. Attempt to upgrade to CES.
+    } else if (
+      _cesReconnect &&
+      (_resolvedBackend.name === "encrypted-store" ||
+        _resolvedBackend.name === "ces-http")
+    ) {
+      // CES RPC is the preferred backend. If we fell back to the encrypted
+      // store (initial CES startup failed) or to CES HTTP (RPC transport
+      // died), attempt to reconnect to CES RPC. This also covers the case
+      // where CesCredentialBackend.isAvailable() returns true (env-var check
+      // only) even when the HTTP endpoint is actually unreachable.
       const reconnected = await attemptCesReconnection();
       if (reconnected) {
         // setCesClient() cleared the cache — fall through to re-resolve.
