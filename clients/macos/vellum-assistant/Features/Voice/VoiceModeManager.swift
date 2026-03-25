@@ -594,10 +594,15 @@ final class VoiceModeManager: ObservableObject {
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self,
-                      generation == self.voiceObservationGeneration,
-                      self.state == .listening,
-                      let service = self.openAIVoiceService else { return }
-                self.liveTranscription = service.livePartialText
+                      generation == self.voiceObservationGeneration else { return }
+                // Only update liveTranscription while actively listening.
+                // Always re-arm so the loop survives state transitions
+                // (e.g., .processing clears partial text but we need to
+                // keep observing for the next .listening turn).
+                if self.state == .listening,
+                   let service = self.openAIVoiceService {
+                    self.liveTranscription = service.livePartialText
+                }
                 self.observeVoiceServiceLoop(generation: generation) // re-arm
             }
         }
