@@ -59,6 +59,18 @@ extension EnvironmentValues {
     var lastKnownLastMessageStreaming: Bool = false
     /// Cached count of incomplete tool calls across all messages.
     var lastKnownIncompleteToolCallCount: Int = 0
+
+    // MARK: - Scroll Geometry (non-reactive, updated every scroll tick)
+
+    /// Content height from scroll geometry, used to guard against false
+    /// detaches on short conversations that can't scroll.
+    var scrollContentHeight: CGFloat = 0
+    /// Container (viewport) height from scroll geometry, used alongside
+    /// scrollContentHeight to determine if content is scrollable.
+    var scrollContainerHeight: CGFloat = 0
+    /// Last content offset Y observed by onScrollGeometryChange, used to
+    /// determine scroll direction (increasing offset = scrolling toward older content).
+    var lastScrollContentOffsetY: CGFloat = 0
 }
 
 /// Lightweight key that captures all inputs to `precomputedState`.
@@ -169,15 +181,6 @@ struct MessageListView: View {
     /// Only `.interacting` (direct user gesture) triggers detach — `.decelerating`
     /// (momentum/inertia) is intentionally ignored.
     @State private var scrollPhase: ScrollPhase = .idle
-    /// Last content offset Y observed by onScrollGeometryChange, used to
-    /// determine scroll direction (increasing offset = scrolling toward older content).
-    @State private var lastScrollContentOffsetY: CGFloat = 0
-    /// Content height from scroll geometry, used to guard against false
-    /// detaches on short conversations that can't scroll.
-    @State private var scrollContentHeight: CGFloat = 0
-    /// Container (viewport) height from scroll geometry, used alongside
-    /// scrollContentHeight to determine if content is scrollable.
-    @State private var scrollContainerHeight: CGFloat = 0
 
     /// The subset of messages actually shown, honoring the pagination window.
     /// Uses the shared `ChatVisibleMessageFilter` so hidden automated messages
@@ -776,11 +779,12 @@ struct MessageListView: View {
                     containerHeight: geometry.containerSize.height
                 )
             } action: { _, newState in
+                let tracking = scrollCoordinator.scrollTracking
                 let isScrollable = newState.contentHeight > newState.containerHeight
-                let isScrollingUp = newState.contentOffsetY < lastScrollContentOffsetY
-                scrollContentHeight = newState.contentHeight
-                scrollContainerHeight = newState.containerHeight
-                lastScrollContentOffsetY = newState.contentOffsetY
+                let isScrollingUp = newState.contentOffsetY < tracking.lastScrollContentOffsetY
+                tracking.scrollContentHeight = newState.contentHeight
+                tracking.scrollContainerHeight = newState.containerHeight
+                tracking.lastScrollContentOffsetY = newState.contentOffsetY
 
                 // Only detach on direct user gesture (interacting), not momentum.
                 // Only detach when content is scrollable (prevents false detaches
