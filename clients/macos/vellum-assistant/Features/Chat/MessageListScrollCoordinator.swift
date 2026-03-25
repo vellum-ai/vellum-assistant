@@ -206,7 +206,10 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// distance is at most 20pt.
     func updateAnchor(distanceFromBottom: CGFloat, viewportHeight: CGFloat) {
         anchorLastMinY = distanceFromBottom
-        let newVisible = distanceFromBottom >= -20 && distanceFromBottom <= 20
+        let newVisible = BottomVisibilityPolicy.evaluate(
+            currentlyVisible: anchorIsVisible,
+            distanceFromBottom: distanceFromBottom
+        )
         if anchorIsVisible != newVisible { anchorIsVisible = newVisible }
     }
 
@@ -222,7 +225,10 @@ final class MessageListScrollCoordinator: ObservableObject {
         // evaluates to false, incorrectly flipping anchorIsVisible to false and
         // flashing the "Scroll to latest" button on short conversations.
         guard anchorLastMinY.isFinite else { return true }
-        let newVisible = anchorLastMinY >= -20 && anchorLastMinY <= 20
+        let newVisible = BottomVisibilityPolicy.evaluate(
+            currentlyVisible: anchorIsVisible,
+            distanceFromBottom: anchorLastMinY
+        )
         if anchorIsVisible != newVisible { anchorIsVisible = newVisible }
         return true
     }

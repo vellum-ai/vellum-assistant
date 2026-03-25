@@ -760,12 +760,14 @@ struct MessageListView: View {
             })
             .onScrollPhaseChange { oldPhase, newPhase in
                 scrollPhase = newPhase
-                if newPhase == .idle && oldPhase != .idle && scrollCoordinator.anchorIsVisible {
+                if newPhase == .idle && oldPhase != .idle
+                    && BottomVisibilityPolicy.isNearEnoughForReattach(
+                        distanceFromBottom: scrollCoordinator.anchorLastMinY
+                    ) {
                     // User finished scrolling and ended up near the bottom — re-tether.
-                    // Uses anchorIsVisible (geometry-derived) instead of isNearBottom
-                    // to break the circular dependency: isNearBottom is only set by
-                    // handleScrollToBottom(), so checking it here would prevent
-                    // users from re-tethering by scrolling back to the bottom.
+                    // Uses distance-based check instead of anchorIsVisible to avoid
+                    // hysteresis dead zone: a user at 21-30pt who is currently invisible
+                    // should still reattach when they stop scrolling.
                     scrollCoordinator.handleScrollToBottom()
                 }
             }
@@ -861,9 +863,7 @@ struct MessageListView: View {
                     .padding(.bottom, ConversationAvatarFollower.verticalOffset)
             }
             .overlay(alignment: .bottom) {
-                if !isNearBottom && !scrollCoordinator.anchorIsVisible
-                    && scrollCoordinator.anchorLastMinY > 20
-                {
+                if !isNearBottom && !scrollCoordinator.anchorIsVisible {
                     Button(action: {
                         os_signpost(.event, log: PerfSignposts.log, name: "scrollToLatestPressed")
                         scrollCoordinator.hasReceivedScrollEvent = true
