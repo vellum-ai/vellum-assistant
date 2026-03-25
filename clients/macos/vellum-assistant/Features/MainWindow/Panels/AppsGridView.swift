@@ -167,7 +167,7 @@ struct AppsGridView: View {
             )
             onOpenApp(app.id)
         } label: {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xl) {
                 // Preview thumbnail or icon placeholder — all corners rounded.
                 // Use a sized container with .overlay so .fill images don't overflow.
                 Group {
@@ -200,9 +200,9 @@ struct AppsGridView: View {
                         .aspectRatio(16.0 / 10.0, contentMode: .fit)
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
+                    RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(VColor.borderBase, lineWidth: 1)
                 )
                 .overlay(alignment: .topTrailing) {
@@ -280,18 +280,17 @@ struct AppsGridView: View {
 
 
                 // Name + date below the image
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
                     Text(app.name)
-                        .font(VFont.bodyMediumEmphasised)
+                        .font(VFont.bodyLargeEmphasised)
                         .foregroundStyle(VColor.contentDefault)
                         .lineLimit(1)
 
                     Text(Self.formatDate(app.lastOpenedAt))
-                        .font(VFont.labelDefault)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentTertiary)
                         .lineLimit(1)
                 }
-                .padding(.horizontal, VSpacing.xs)
             }
             .contentShape(Rectangle())
         }
@@ -334,7 +333,7 @@ struct AppsGridView: View {
         return Button {
             openSharedApp(app)
         } label: {
-            VStack(alignment: .leading, spacing: VSpacing.sm) {
+            VStack(alignment: .leading, spacing: VSpacing.xl) {
                 Group {
                     if let nsImage = AppPreviewImageStore.image(appId: "shared-\(app.uuid)", base64: resolvedPreview) {
                         Color.clear
@@ -355,33 +354,32 @@ struct AppsGridView: View {
                         .aspectRatio(16.0 / 10.0, contentMode: .fit)
                     }
                 }
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
                 .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
+                    RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(VColor.borderBase, lineWidth: 1)
                 )
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: VSpacing.sm) {
                     HStack(spacing: VSpacing.xs) {
                         Text(app.name)
-                            .font(VFont.bodyMediumEmphasised)
+                            .font(VFont.bodyLargeEmphasised)
                             .foregroundStyle(VColor.contentDefault)
                             .lineLimit(1)
 
                         if let signer = app.signerDisplayName {
                             Text("by \(signer)")
-                                .font(VFont.labelDefault)
+                                .font(VFont.bodyMediumDefault)
                                 .foregroundStyle(VColor.contentTertiary)
                                 .lineLimit(1)
                         }
                     }
 
                     Text(Self.formatISO(app.installedAt))
-                        .font(VFont.labelDefault)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentTertiary)
                         .lineLimit(1)
                 }
-                .padding(.horizontal, VSpacing.xs)
             }
             .contentShape(Rectangle())
         }
