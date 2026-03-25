@@ -32,17 +32,10 @@ public struct AssistantFeatureFlag: Decodable, Identifiable, Sendable {
     }
 
     /// Derive a human-readable name from the flag key.
-    /// e.g. "feature_flags.browser.enabled" -> "Browser"
+    /// e.g. "settings-developer-nav" -> "Settings Developer Nav"
     public var displayName: String {
         if let label = label { return label }
-        var name = key
-        if name.hasPrefix("feature_flags.") {
-            name = String(name.dropFirst("feature_flags.".count))
-        }
-        if name.hasSuffix(".enabled") {
-            name = String(name.dropLast(".enabled".count))
-        }
-        return name
+        return key
             .replacingOccurrences(of: "_", with: " ")
             .replacingOccurrences(of: "-", with: " ")
             .replacingOccurrences(of: ".", with: " ")

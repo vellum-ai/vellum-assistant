@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 
 extension MainWindowView {
     fileprivate static let conversationStartersFeatureFlagKey =
-        "feature_flags.conversation-starters.enabled"
+        "conversation-starters"
 
     // MARK: - Config-Driven Slot Rendering
 
@@ -378,10 +378,10 @@ extension MainWindowView {
                 Self.conversationStartersFeatureFlagKey
             )
             let showInspectButton = assistantFeatureFlagStore.isEnabled(
-                "feature_flags.settings-developer-nav.enabled"
+                "settings-developer-nav"
             )
             let isTTSEnabled = assistantFeatureFlagStore.isEnabled(
-                "feature_flags.message-tts.enabled"
+                "message-tts"
             )
             ActiveChatViewWrapper(
                 viewModel: viewModel,
@@ -811,7 +811,7 @@ struct DynamicWorkspaceWrapper: View {
     @State private var shareButtonFrame: CGRect = .zero
     @State private var isDeployToVercelEnabled = false
 
-    private static let deployToVercelFlagKey = "feature_flags.deploy-to-vercel.enabled"
+    private static let deployToVercelFlagKey = "deploy-to-vercel"
 
     /// Corner radius for the WKWebView clipping container — no rounding needed since the
     /// outer page container handles corner rounding.

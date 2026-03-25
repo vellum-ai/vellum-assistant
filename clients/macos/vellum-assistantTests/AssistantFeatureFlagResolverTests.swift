@@ -3,7 +3,7 @@ import XCTest
 @testable import VellumAssistantShared
 
 final class AssistantFeatureFlagResolverTests: XCTestCase {
-    private let conversationStartersKey = "feature_flags.conversation-starters.enabled"
+    private let conversationStartersKey = "conversation-starters"
 
     private func makeRegistry(defaultEnabled: Bool) -> FeatureFlagRegistry {
         FeatureFlagRegistry(
@@ -78,7 +78,7 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
             persistedFlags: persistedFlags,
             registryDefaults: registryDefaults
         )
-        let enabled = resolved["feature_flags.unknown.enabled"] ?? true
+        let enabled = resolved["unknown"] ?? true
 
         XCTAssertTrue(enabled)
     }
