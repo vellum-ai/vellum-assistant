@@ -183,8 +183,7 @@ export async function seedCatalogSkillMemories(): Promise<void> {
       // Skip skills whose feature flag is disabled
       const flagId = entry.metadata?.vellum?.["feature-flag"];
       if (flagId) {
-        const flagKey = `feature_flags.${flagId}.enabled`;
-        if (!isAssistantFeatureFlagEnabled(flagKey, config)) {
+        if (!isAssistantFeatureFlagEnabled(flagId, config)) {
           continue;
         }
       }

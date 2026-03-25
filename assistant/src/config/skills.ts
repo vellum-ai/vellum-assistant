@@ -928,13 +928,11 @@ function applyFeatureGatedSections(body: string): string {
   let result = body;
 
   result = result.replace(mainRe, (_match, flagId: string, content: string) => {
-    const key = `feature_flags.${flagId}.enabled`;
-    return isAssistantFeatureFlagEnabled(key, config) ? content : "";
+    return isAssistantFeatureFlagEnabled(flagId, config) ? content : "";
   });
 
   result = result.replace(altRe, (_match, flagId: string, content: string) => {
-    const key = `feature_flags.${flagId}.enabled`;
-    return isAssistantFeatureFlagEnabled(key, config) ? "" : content;
+    return isAssistantFeatureFlagEnabled(flagId, config) ? "" : content;
   });
 
   return result;
