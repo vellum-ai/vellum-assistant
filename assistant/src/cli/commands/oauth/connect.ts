@@ -169,9 +169,11 @@ Examples:
                 providerKey,
                 cmd,
               );
-              const snapshotIds = new Set(
-                (snapshotEntries ?? []).map((e) => e.id),
-              );
+              if (!snapshotEntries) {
+                // fetchActiveConnections already wrote the error output
+                return;
+              }
+              const snapshotIds = new Set(snapshotEntries.map((e) => e.id));
 
               openInBrowser(result.connect_url);
 
@@ -198,6 +200,7 @@ Examples:
                   client,
                   providerKey,
                   cmd,
+                  { silent: true },
                 );
                 if (!currentEntries) continue;
 
