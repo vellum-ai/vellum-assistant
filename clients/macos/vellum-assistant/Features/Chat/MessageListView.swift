@@ -88,12 +88,13 @@ struct PrecomputedCacheKey: Equatable {
 }
 
 /// Lightweight snapshot of scroll geometry for the onScrollGeometryChange
-/// handler. Captures only the values needed for scroll-direction and
-/// scrollable-content detection.
-private struct ScrollDetectionState: Equatable {
+/// handler. Captures values needed for scroll-direction detection,
+/// scrollable-content detection, and viewport height tracking.
+private struct ScrollGeometrySnapshot: Equatable {
     let contentOffsetY: CGFloat
     let contentHeight: CGFloat
     let containerHeight: CGFloat
+    let visibleRectHeight: CGFloat
 }
 
 struct MessageListView: View {
@@ -774,13 +775,15 @@ struct MessageListView: View {
                     scrollCoordinator.handleScrollToBottom()
                 }
             }
-            .onScrollGeometryChange(for: ScrollDetectionState.self) { geometry in
-                ScrollDetectionState(
+            .onScrollGeometryChange(for: ScrollGeometrySnapshot.self) { geometry in
+                ScrollGeometrySnapshot(
                     contentOffsetY: geometry.contentOffset.y,
                     contentHeight: geometry.contentSize.height,
-                    containerHeight: geometry.containerSize.height
+                    containerHeight: geometry.containerSize.height,
+                    visibleRectHeight: geometry.visibleRect.height
                 )
             } action: { _, newState in
+                // --- Scroll direction detection ---
                 let tracking = scrollCoordinator.scrollTracking
                 let isScrollable = newState.contentHeight > newState.containerHeight
                 let isScrollingUp = newState.contentOffsetY < tracking.lastScrollContentOffsetY
@@ -794,17 +797,14 @@ struct MessageListView: View {
                 if scrollPhase == .interacting && isScrollingUp && isScrollable {
                     scrollCoordinator.handleScrollUp()
                 }
-            }
-            .scrollIndicators(.automatic)
-            .onScrollGeometryChange(for: CGFloat.self) { geo in
-                geo.visibleRect.height
-            } action: { _, newHeight in
+
+                // --- Viewport height update ---
                 // Filter non-finite viewport heights and sub-pixel jitter.
                 // A 0.5pt dead-zone prevents floating-point rounding differences
                 // between render passes from triggering continuous @State mutations
                 // (scrollViewportHeight) which would create a runaway render loop.
                 let decision = PreferenceGeometryFilter.evaluate(
-                    newValue: newHeight,
+                    newValue: newState.visibleRectHeight,
                     previous: scrollViewportHeight,
                     deadZone: 0.5
                 )
@@ -816,6 +816,7 @@ struct MessageListView: View {
                 )
                 os_signpost(.end, log: PerfSignposts.log, name: "viewportHeightChanged")
             }
+            .scrollIndicators(.automatic)
             .onScrollGeometryChange(for: CGFloat.self) { geo in
                 // Distance from bottom: how far the visible rect's bottom edge
                 // is from the content bottom. Replaces the AnchorMinYKey preference
