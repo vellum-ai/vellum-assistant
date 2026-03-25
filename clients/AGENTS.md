@@ -249,10 +249,10 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 | Need | Use this | Not this |
 |------|----------|----------|
 | Multi-line text input (short/medium) | `TextField(axis: .vertical)` + `.lineLimit(1...N)` | Custom `NSTextView` in `NSScrollView` |
-| Multi-line text input (scrollable) | `TextField(axis: .vertical)` inside `ScrollView` with GeometryReader height measurement (see chat composer) | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
+| Multi-line text input (scrollable) | `TextField(axis: .vertical)` inside `ScrollView` with `.onGeometryChange` height measurement (see chat composer). Fall back to `GeometryReader` in `.background()` if needed | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
 | Long-form text editing | `TextEditor` (acceptable for editor-like surfaces where the user expects a full text-editing experience, e.g., contact notes, skill editing, tool permission tester). Editable code views use `HighlightedTextView` with `CodeTextView` (`NSViewRepresentable`). Read-only code views use `VCodeView` (design system), which wraps a non-editable `NSTextView` for native text selection and copy | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
 | Vertical centering in text field | Native `TextField` behavior | Custom `NSClipView` subclass |
-| Auto-growing height | `ScrollView` + `GeometryReader` on inner content + `.frame(height: clamp(measured, min, max))` | Custom AppKit height sync. Note: `.lineLimit(1...N)` truncates instead of scrolling on macOS when content exceeds N lines — only use it for short-form inputs where truncation is acceptable (e.g., `VTextEditor`) |
+| Auto-growing height | `ScrollView` + `.onGeometryChange` on inner content + `.frame(height: clamp(measured, min, max))`. Fall back to `GeometryReader` in `.background()` if needed | Custom AppKit height sync. Note: `.lineLimit(1...N)` truncates instead of scrolling on macOS when content exceeds N lines — only use it for short-form inputs where truncation is acceptable (e.g., `VTextEditor`) |
 | Return-to-send in chat input | `.onSubmit { sendAction() }` (native SwiftUI) | `.onKeyPress(.return)` (returning `.ignored` doesn't fall back to TextField's newline behavior) |
 | Newline in chat input | Shift+Return via AppKit bridge (intercepts before `.onSubmit`); treat default-mode Option+Return as send, not newline | Relying solely on `.onSubmit` modifier detection (SwiftUI's `.onSubmit` cannot distinguish Shift+Return from plain Return) |
 | Keyboard shortcuts | `.onKeyPress()` modifiers | `keyDown(with:)` / `performKeyEquivalent` overrides |
@@ -325,7 +325,7 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
 | Pitfall | Why it's bad | Do this instead |
 |---------|-------------|----------------|
 | `[weak context]` in NSViewRepresentable | `Context` is a struct, not a class — won't compile | Capture `context.coordinator` in a local `let` |
-| `GeometryReader` as layout container | Expands to fill available space, breaking intrinsic sizing | Use `GeometryReader` only in `.background()` for measurement |
+| `GeometryReader` as layout container | Expands to fill available space, breaking intrinsic sizing | Use `.onGeometryChange(for:body:action:)` for measurement (macOS 14+ / iOS 17+). Fall back to `GeometryReader` in `.background()` only if `.onGeometryChange` is insufficient for the use case |
 | View in flexible container without size constraint | View expands to fill parent (e.g., ZStack) | Add `.fixedSize(horizontal: false, vertical: true)` to hug content |
 | Mutable array in `DispatchGroup` callbacks | Race condition — callbacks may run on different threads | Wrap each append in `DispatchQueue.main.async`; for new code, prefer actor isolation or `@Sendable` closures |
 | Duplicated send/action logic across code paths | Paths drift out of sync (e.g., AppKit bridge vs SwiftUI handler) | Extract shared logic into a single function both paths call |
