@@ -369,7 +369,7 @@ struct AssistantUpgradeSection: View {
         .task { await loadReleases() }
         .task {
             if let flags = try? await featureFlagClient.getFeatureFlags() {
-                backwardReleasesEnabled = flags.first(where: { $0.key == "feature_flags.backward-releases.enabled" })?.enabled ?? false
+                backwardReleasesEnabled = flags.first(where: { $0.key == "backward-releases" })?.enabled ?? false
             }
         }
         .onChange(of: currentVersion) { _, _ in

@@ -18,8 +18,8 @@ struct IntelligencePanel: View {
     @State private var cachedAssistantName: String = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
     @State private var isContactsEnabled: Bool = false
     @State private var isEmailEnabled: Bool = false
-    private static let contactsFeatureFlagKey = "feature_flags.contacts.enabled"
-    private static let emailFeatureFlagKey = "feature_flags.email-channel.enabled"
+    private static let contactsFeatureFlagKey = "contacts"
+    private static let emailFeatureFlagKey = "email-channel"
 
     init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
