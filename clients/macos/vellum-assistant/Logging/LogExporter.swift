@@ -26,6 +26,7 @@ private let log = Logger(
 /// - `port-diagnostics.json` — processes listening on assistant-relevant TCP ports
 /// - `config-snapshot.json` — sanitized workspace config (API key values redacted, structure preserved)
 /// - `crash-reports/` — recent macOS crash/hang reports (.ips, .crash, .spin) for assistant-related processes (bun, qdrant, vellum-assistant)
+/// - `app-environment.json` — bundle path, quarantine xattr, and translocation status for diagnosing Gatekeeper-related launch issues
 /// - `os-log.txt` — recent entries from the macOS unified log for the app's subsystem
 /// - `daemon-logs-fallback/` — when daemon is unreachable: vellum.log, recent hatch-*.log, and XDG hatch.log read directly from disk (10 MB cap)
 @MainActor
@@ -251,6 +252,11 @@ enum LogExporter {
             // 8. Port diagnostics — which processes are listening on assistant ports
             PortDiagnostics.write(
                 to: tempDir.appendingPathComponent("port-diagnostics.json")
+            )
+
+            // 8a. App environment — bundle path, quarantine xattr, translocation status
+            BundleEnvironment.write(
+                to: tempDir.appendingPathComponent("app-environment.json")
             )
 
             // 9. macOS crash/hang reports — recent .ips/.crash/.spin files for assistant-related processes

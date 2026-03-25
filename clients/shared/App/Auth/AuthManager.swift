@@ -166,6 +166,9 @@ public final class AuthManager {
             log.info("User cancelled WorkOS login")
         } catch {
             log.error("WorkOS login failed: baseURL=\(self.authService.baseURL, privacy: .public) error=\(error.localizedDescription, privacy: .public)")
+            let bundlePath = Bundle.main.bundlePath
+            let isTranslocated = bundlePath.contains("/AppTranslocation/")
+            log.error("WorkOS login failed environment: bundlePath=\(bundlePath, privacy: .public) isTranslocated=\(isTranslocated, privacy: .public)")
             errorMessage = "Unable to sign in. Please try again."
         }
     }
