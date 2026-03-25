@@ -63,7 +63,7 @@ export function registerModeCommand(oauth: Command): void {
       "after",
       `
 Arguments:
-  provider   Provider key, alias, or ID (e.g. google, integration:google).
+  provider   Provider name (e.g. google, slack).
              Run "assistant oauth providers list" to see available providers.
 
 Options:
