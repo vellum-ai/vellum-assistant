@@ -407,6 +407,32 @@ struct MessageListView: View {
         let canInlineProcessing = wouldShowThinking && lastVisibleIsAssistant
         let shouldShowThinkingIndicator = wouldShowThinking && !canInlineProcessing
 
+        // Compute estimated content height using already-derived data.
+        // Reuses layout.showTimestamp, layout.subagentsByParent, and the
+        // confirmation visibility sets computed above — no duplicate O(n) work.
+        let estimatedContentHeight: CGFloat = {
+            guard !liveMessages.isEmpty else { return 0 }
+            var total: CGFloat = 0
+            for (i, msg) in liveMessages.enumerated() {
+                var isHidden = false
+                if msg.confirmation != nil {
+                    if msg.confirmation?.state == .pending {
+                        isHidden = isConfirmationRenderedInlineByIndex.contains(i)
+                    } else {
+                        isHidden = layout.hasPrecedingAssistantByIndex.contains(i)
+                    }
+                }
+                total += Self.estimatedCellHeight(
+                    for: msg,
+                    showTimestamp: layout.showTimestamp.contains(msg.id),
+                    subagentCount: layout.subagentsByParent[msg.id]?.count ?? 0,
+                    isConfirmationHidden: isHidden
+                )
+            }
+            total += CGFloat(max(0, liveMessages.count - 1)) * VSpacing.md
+            return total
+        }()
+
         let result = MessageListDerivedState(
             displayMessageIds: layout.displayMessageIds,
             messageIndexById: layout.messageIndexById,
@@ -425,7 +451,8 @@ struct MessageListView: View {
             hasActiveToolCall: hasActiveToolCall,
             canInlineProcessing: canInlineProcessing,
             shouldShowThinkingIndicator: shouldShowThinkingIndicator,
-            hasMessages: !liveMessages.isEmpty
+            hasMessages: !liveMessages.isEmpty,
+            estimatedContentHeight: estimatedContentHeight
         )
 
         os_signpost(.end, log: stallLog, name: "DerivedState.resolve")
@@ -525,60 +552,6 @@ struct MessageListView: View {
         height += CGFloat(subagentCount) * 44
 
         return height
-    }
-
-    /// Total estimated content height for all visible messages plus
-    /// inter-item spacing. Provides a stable `minHeight` for the LazyVStack
-    /// so the ScrollView knows the approximate content size before cells
-    /// materialize — preventing scrollbar thumb resizing as LazyVStack
-    /// loads off-screen items with varying heights.
-    private var estimatedContentHeight: CGFloat {
-        let msgs = visibleMessages
-        guard !msgs.isEmpty else { return 0 }
-        let timestamps = timestampIds(for: msgs)
-        let subagentCounts = Dictionary(
-            activeSubagents.compactMap { info -> (UUID, Int)? in
-                guard let parentId = info.parentMessageId else { return nil }
-                return (parentId, 1)
-            },
-            uniquingKeysWith: +
-        )
-        // Determine which confirmation messages are hidden (mirrors MessageCellView.body):
-        // - Pending confirmations rendered inline on the preceding assistant message's tool call
-        // - Decided confirmations preceded by an assistant message
-        var confirmationHiddenIndices = Set<Int>()
-        for i in msgs.indices {
-            guard let confirmation = msgs[i].confirmation else { continue }
-            if confirmation.state == .pending {
-                if let toolUseId = confirmation.toolUseId, !toolUseId.isEmpty {
-                    for j in stride(from: i - 1, through: 0, by: -1) {
-                        let prev = msgs[j]
-                        guard prev.role == .assistant, prev.confirmation == nil else { continue }
-                        if prev.toolCalls.contains(where: { $0.toolUseId == toolUseId && $0.pendingConfirmation != nil }) {
-                            confirmationHiddenIndices.insert(i)
-                        }
-                        break
-                    }
-                }
-            } else {
-                if i > 0 && msgs[i - 1].role == .assistant {
-                    confirmationHiddenIndices.insert(i)
-                }
-            }
-        }
-
-        var total: CGFloat = 0
-        for (i, msg) in msgs.enumerated() {
-            total += Self.estimatedCellHeight(
-                for: msg,
-                showTimestamp: timestamps.contains(msg.id),
-                subagentCount: subagentCounts[msg.id] ?? 0,
-                isConfirmationHidden: confirmationHiddenIndices.contains(i)
-            )
-        }
-        // Inter-item spacing (LazyVStack spacing: VSpacing.md between cells)
-        total += CGFloat(max(0, msgs.count - 1)) * VSpacing.md
-        return total
     }
 
     /// Whether the floating avatar should be visible. Derived from scroll
@@ -786,6 +759,7 @@ struct MessageListView: View {
     }
 
     var body: some View {
+        let state = derivedState
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: VSpacing.md) {
                     // MARK: - Pagination sentinel
@@ -818,7 +792,6 @@ struct MessageListView: View {
 
                     let _ = recordScrollLoopEvent(.bodyEvaluation)
                     let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
-                    let state = derivedState
                     let catalogHash = MessageCellView.hashCatalog(providerCatalog)
                     ForEach(state.displayMessageIds, id: \.self) { messageId in
                         if let message = state.displayMessageById[messageId] {
@@ -908,7 +881,7 @@ struct MessageListView: View {
                             }
                         }
                 }
-                .frame(minHeight: estimatedContentHeight)
+                .frame(minHeight: state.estimatedContentHeight)
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.md)
@@ -1497,4 +1470,7 @@ struct MessageListDerivedState {
     let canInlineProcessing: Bool
     let shouldShowThinkingIndicator: Bool
     let hasMessages: Bool
+
+    // --- Scroll content size estimation ---
+    let estimatedContentHeight: CGFloat
 }
