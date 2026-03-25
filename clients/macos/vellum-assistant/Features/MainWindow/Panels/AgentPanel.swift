@@ -70,7 +70,7 @@ struct AgentPanelContent: View {
                 selectedInstalledSkillId = nil
             }
         }
-        .sheet(isPresented: $showCreateSheet) {
+        .sheet(isPresented: $showCreateSheet, onDismiss: { skillsManager.resetDraftState() }) {
             SkillCreateSheet(
                 skillsManager: skillsManager,
                 onDismiss: { showCreateSheet = false }
