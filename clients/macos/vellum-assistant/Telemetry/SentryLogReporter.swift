@@ -43,6 +43,7 @@ final class SentryLogReporter: @unchecked Sendable {
 
     /// Stop the log forwarder. Called when the user disables diagnostics.
     static func stop() {
+        VLogger.errorReporter = nil
         shared.stopPolling()
     }
 
@@ -51,9 +52,13 @@ final class SentryLogReporter: @unchecked Sendable {
     /// Wire up `VLogger.errorReporter` so that new code using `VLogger`
     /// captures to Sentry immediately (no polling delay).
     private func installVLoggerHook() {
-        // Intentionally import-free: VLogger is in VellumAssistantShared
-        // which is a dependency of VellumAssistantLib.
         VLogger.errorReporter = { message, category in
+            // Record the fingerprint so pollForErrors() skips this entry
+            // when it later reads the same message from OSLogStore.
+            let fingerprint = "\(category):\(message)"
+            SentryLogReporter.shared.queue.async {
+                SentryLogReporter.shared.recentFingerprints.insert(fingerprint)
+            }
             SentryLogReporter.captureToSentry(message: message, category: category)
         }
     }
