@@ -2,6 +2,7 @@ import Foundation
 import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationHistoryClient")
+private let perfLog = OSLog(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: .pointsOfInterest)
 
 /// Focused client for conversation history operations routed through the gateway.
 @MainActor
@@ -41,8 +42,11 @@ public struct ConversationHistoryClient: ConversationHistoryClientProtocol {
             // The HTTP API returns messages with `content` (String) and ISO 8601
             // `timestamp`, but HistoryResponse expects `text` and a Double
             // timestamp (ms since epoch). Transform the raw JSON before decoding.
+            let spid = OSSignpostID(log: perfLog)
+            os_signpost(.begin, log: perfLog, name: "historyJSONTransform", signpostID: spid, "bytes=%d", response.data.count)
             guard let json = try JSONSerialization.jsonObject(with: response.data) as? [String: Any],
                   let messages = json["messages"] as? [[String: Any]] else {
+                os_signpost(.end, log: perfLog, name: "historyJSONTransform", signpostID: spid, "failed=parse")
                 return nil
             }
 
@@ -95,7 +99,9 @@ public struct ConversationHistoryClient: ConversationHistoryClientProtocol {
             }
 
             let historyData = try JSONSerialization.data(withJSONObject: historyPayload)
-            return try JSONDecoder().decode(HistoryResponse.self, from: historyData)
+            let decoded = try JSONDecoder().decode(HistoryResponse.self, from: historyData)
+            os_signpost(.end, log: perfLog, name: "historyJSONTransform", signpostID: spid, "messages=%d", messages.count)
+            return decoded
         } catch {
             log.error("fetchHistory error: \(error.localizedDescription)")
             return nil

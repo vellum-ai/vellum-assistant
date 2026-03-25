@@ -180,6 +180,7 @@ public final class ChatViewModel: ObservableObject {
     // MARK: - Debug publish-rate counters
 
     private static let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
+    private static let poiLog = OSLog(subsystem: "com.vellum.assistant", category: .pointsOfInterest)
 
     #if DEBUG
     private static let perfLog = OSLog(subsystem: "com.vellum.assistant", category: "PerfCounters")
@@ -2809,6 +2810,8 @@ public final class ChatViewModel: ObservableObject {
         oldestTimestamp: Double? = nil,
         isPaginationLoad: Bool = false
     ) {
+        let spid = OSSignpostID(log: Self.poiLog)
+        os_signpost(.begin, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "messages=%d isPagination=%d", historyMessages.count, isPaginationLoad ? 1 : 0)
         var chatMessages: [ChatMessage] = []
         var reconstructedSubagents: [SubagentInfo] = []
         var spawnParentMap: [String: UUID] = [:]  // subagentId → spawning assistant message UUID
@@ -3040,6 +3043,7 @@ public final class ChatViewModel: ObservableObject {
             self.isLoadingMoreMessages = false
             trimOldMessagesIfNeeded()
             refreshModelMetadataIfNeeded(hasModelCommand)
+            os_signpost(.end, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "path=pagination")
             return
         }
 
@@ -3124,6 +3128,7 @@ public final class ChatViewModel: ObservableObject {
         trimOldMessagesIfNeeded()
         // Fetch pending guardian prompts when history loads (conversation open/restore)
         refreshGuardianPrompts()
+        os_signpost(.end, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "path=initial messages=%d", chatMessages.count)
     }
 
     private func applyHistoryResponseMarkers(to chatMessages: inout [ChatMessage]) -> Bool {
