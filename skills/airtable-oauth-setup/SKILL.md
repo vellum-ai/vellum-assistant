@@ -120,7 +120,7 @@ bash:
     assistant oauth apps upsert --provider airtable --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "airtable:oauth_secret"
+    ) --client-secret-credential-path "credential/airtable/oauth_secret"
 ```
 
 **Milestone (6 of 8):** "Credentials saved - just the authorization step left."

@@ -104,7 +104,7 @@ bash:
     assistant oauth apps upsert --provider asana --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "asana:oauth_secret"
+    ) --client-secret-credential-path "credential/asana/oauth_secret"
 ```
 
 ```

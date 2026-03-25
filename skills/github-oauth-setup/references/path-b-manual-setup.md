@@ -95,7 +95,7 @@ bash:
     assistant oauth apps upsert --provider github --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "github:<secret-field>"
+    ) --client-secret-credential-path "credential/github/<secret-field>"
 ```
 
 ```

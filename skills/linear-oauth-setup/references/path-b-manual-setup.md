@@ -89,7 +89,7 @@ bash:
     assistant oauth apps upsert --provider linear --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "linear:oauth_secret"
+    ) --client-secret-credential-path "credential/linear/oauth_secret"
 ```
 
 ```

@@ -125,7 +125,7 @@ bash:
     assistant oauth apps upsert --provider discord --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "discord:oauth_secret"
+    ) --client-secret-credential-path "credential/discord/oauth_secret"
 ```
 
 **Milestone (7 of 9):** "Credentials saved - just the authorization step left."
