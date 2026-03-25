@@ -187,6 +187,32 @@ describe("HostCuProxy", () => {
       expect(proxy.hasPendingRequest(requestId)).toBe(false);
     });
 
+    test("sends host_cu_cancel to client on abort", async () => {
+      setup();
+
+      const controller = new AbortController();
+      const resultPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+        undefined,
+        controller.signal,
+      );
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      controller.abort();
+      await resultPromise;
+
+      // Second message should be the cancel
+      expect(sentMessages).toHaveLength(2);
+      const cancelMsg = sentMessages[1] as Record<string, unknown>;
+      expect(cancelMsg.type).toBe("host_cu_cancel");
+      expect(cancelMsg.requestId).toBe(requestId);
+    });
+
     test("returns immediately if signal already aborted", async () => {
       setup();
 
@@ -683,6 +709,70 @@ describe("HostCuProxy", () => {
 
       expect(proxy.hasPendingRequest(requestId)).toBe(false);
       await expect(resultPromise).rejects.toThrow("Host CU proxy disposed");
+    });
+
+    test("sends host_cu_cancel for each pending request on dispose", () => {
+      setup();
+
+      const p1 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      const p2 = proxy.request(
+        "computer_use_type_text",
+        { text: "hello" },
+        "session-1",
+        2,
+      );
+      p1.catch(() => {}); // Expected rejection on dispose
+      p2.catch(() => {}); // Expected rejection on dispose
+
+      const requestIds = (sentMessages as Array<Record<string, unknown>>).map(
+        (m) => m.requestId as string,
+      );
+      expect(requestIds).toHaveLength(2);
+
+      proxy.dispose();
+
+      // After the 2 request messages, dispose should have sent 2 cancel messages
+      const cancelMessages = sentMessages
+        .slice(2)
+        .filter(
+          (m) => (m as Record<string, unknown>).type === "host_cu_cancel",
+        ) as Array<Record<string, unknown>>;
+      expect(cancelMessages).toHaveLength(2);
+      expect(cancelMessages.map((m) => m.requestId)).toContain(requestIds[0]);
+      expect(cancelMessages.map((m) => m.requestId)).toContain(requestIds[1]);
+    });
+  });
+
+  describe("late resolve after abort", () => {
+    test("resolve is a no-op after abort (entry already deleted)", async () => {
+      setup();
+
+      const controller = new AbortController();
+      const resultPromise = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+        undefined,
+        controller.signal,
+      );
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      controller.abort();
+      const result = await resultPromise;
+      expect(result.content).toContain("Aborted");
+
+      // Late resolve should be silently ignored (no throw, no double-resolve)
+      proxy.resolve(requestId, { axTree: "late response" });
+
+      expect(proxy.hasPendingRequest(requestId)).toBe(false);
     });
   });
 

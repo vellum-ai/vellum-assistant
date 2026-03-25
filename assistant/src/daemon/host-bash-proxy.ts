@@ -86,6 +86,10 @@ export class HostBashProxy {
             clearTimeout(timer);
             this.pending.delete(requestId);
             this.onInternalResolve?.(requestId);
+            this.sendToClient({
+              type: "host_bash_cancel",
+              requestId,
+            } as ServerMessage);
             resolve(formatShellOutput("", "Aborted", null, false, 0));
           }
         };
@@ -144,6 +148,10 @@ export class HostBashProxy {
     for (const [requestId, entry] of this.pending) {
       clearTimeout(entry.timer);
       this.onInternalResolve?.(requestId);
+      this.sendToClient({
+        type: "host_bash_cancel",
+        requestId,
+      } as ServerMessage);
       entry.reject(
         new AssistantError(
           "Host bash proxy disposed",

@@ -82,6 +82,10 @@ export class HostFileProxy {
             clearTimeout(timer);
             this.pending.delete(requestId);
             this.onInternalResolve?.(requestId);
+            this.sendToClient({
+              type: "host_file_cancel",
+              requestId,
+            } as ServerMessage);
             resolve({ content: "Aborted", isError: true });
           }
         };
@@ -123,6 +127,10 @@ export class HostFileProxy {
     for (const [requestId, entry] of this.pending) {
       clearTimeout(entry.timer);
       this.onInternalResolve?.(requestId);
+      this.sendToClient({
+        type: "host_file_cancel",
+        requestId,
+      } as ServerMessage);
       entry.reject(
         new AssistantError(
           "Host file proxy disposed",
