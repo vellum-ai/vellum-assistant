@@ -98,16 +98,71 @@ public struct WeatherForecastData {
         return useFahrenheit ? Int(Double(windSpeed) / 1.60934) : Int(Double(windSpeed) * 1.60934)
     }
 
-    public static func parse(from dict: [String: Any?]) -> WeatherForecastData? {
-        guard let location = dict["location"] as? String else { return nil }
+    // Extract a numeric value from a dict, trying Double then Int, with a fallback.
+    private static func extractDouble(_ dict: [String: Any?], _ key: String, fallback: Double = 0) -> Double {
+        if let v = dict[key] as? Double { return v }
+        if let v = dict[key] as? Int { return Double(v) }
+        return fallback
+    }
 
-        let currentTemp = (dict["currentTemp"] as? Double) ?? Double(dict["currentTemp"] as? Int ?? 0)
-        let feelsLike = (dict["feelsLike"] as? Double) ?? Double(dict["feelsLike"] as? Int ?? 0)
-        let condition = dict["condition"] as? String ?? ""
-        let humidity = dict["humidity"] as? Int ?? 0
-        let windSpeed = dict["windSpeed"] as? Int ?? 0
-        let windDirection = dict["windDirection"] as? String ?? ""
-        let unit = dict["unit"] as? String ?? "F"
+    // Extract a numeric value trying multiple keys in order.
+    private static func extractDouble(_ dict: [String: Any?], _ keys: [String], fallback: Double = 0) -> Double {
+        for key in keys {
+            let val = extractDouble(dict, key, fallback: .nan)
+            if !val.isNaN { return val }
+        }
+        return fallback
+    }
+
+    private static func extractInt(_ dict: [String: Any?], _ keys: [String], fallback: Int = 0) -> Int {
+        for key in keys {
+            if let v = dict[key] as? Int { return v }
+            if let v = dict[key] as? Double { return Int(v) }
+        }
+        return fallback
+    }
+
+    public static func parse(from dict: [String: Any?]) -> WeatherForecastData? {
+        // Support both flat location string and nested { name: "..." } object
+        let location: String
+        if let loc = dict["location"] as? String {
+            location = loc
+        } else if let locDict = dict["location"] as? [String: Any?],
+                  let name = locDict["name"] as? String {
+            location = name
+        } else {
+            return nil
+        }
+
+        // Support flat keys, alternate flat keys, and nested (current.X)
+        let currentDict = dict["current"] as? [String: Any?]
+        let currentTemp = extractDouble(dict, ["currentTemp", "temperature", "temp"],
+            fallback: currentDict.map { extractDouble($0, ["temperature", "temp"]) } ?? 0)
+        let feelsLike = extractDouble(dict, ["feelsLike", "feels_like", "apparentTemperature"],
+            fallback: currentDict.map { extractDouble($0, ["feelsLike", "feels_like", "apparentTemperature"]) } ?? 0)
+        let condition = (dict["condition"] as? String)
+            ?? (currentDict?["condition"] as? String) ?? ""
+        let humidity = extractInt(dict, ["humidity"],
+            fallback: currentDict.map { extractInt($0, ["humidity"]) } ?? 0)
+        let windSpeed = extractInt(dict, ["windSpeed", "wind_speed"],
+            fallback: currentDict.map { extractInt($0, ["windSpeed", "wind_speed"]) } ?? 0)
+        let windDirection = (dict["windDirection"] as? String)
+            ?? (dict["wind_direction"] as? String)
+            ?? (currentDict?["windDirection"] as? String)
+            ?? (currentDict?["wind_direction"] as? String) ?? ""
+
+        // Support flat "unit", nested "units.temperature", or "current.unit"
+        let unit: String
+        if let u = dict["unit"] as? String {
+            unit = u
+        } else if let unitsDict = dict["units"] as? [String: Any?],
+                  let u = unitsDict["temperature"] as? String {
+            unit = u
+        } else if let u = currentDict?["unit"] as? String {
+            unit = u
+        } else {
+            unit = "F"
+        }
         let isFahrenheit = unit == "F"
 
         var hourlyItems: [WeatherHourlyItem] = []
@@ -115,7 +170,9 @@ public struct WeatherForecastData {
             for (index, entry) in hourlyArray.enumerated() {
                 let time = entry["time"] as? String ?? ""
                 let icon = entry["icon"] as? String ?? "cloud.fill"
-                let temp = (entry["temp"] as? Double) ?? Double(entry["temp"] as? Int ?? 0)
+                // Support both "temp" and "temperature"
+                let temp = extractDouble(entry, "temp",
+                    fallback: extractDouble(entry, "temperature"))
                 hourlyItems.append(WeatherHourlyItem(
                     id: "h\(index)-\(time)",
                     time: time,
@@ -127,13 +184,21 @@ public struct WeatherForecastData {
         }
 
         var items: [WeatherForecastItem] = []
-        if let forecastArray = dict["forecast"] as? [[String: Any?]] {
+        // Support both "forecast" and "daily" arrays
+        let forecastArray = (dict["forecast"] as? [[String: Any?]])
+            ?? (dict["daily"] as? [[String: Any?]])
+        if let forecastArray {
             for (index, entry) in forecastArray.enumerated() {
-                let day = entry["day"] as? String ?? ""
+                // Support both "day" and "dayLabel"
+                let day = (entry["day"] as? String)
+                    ?? (entry["dayLabel"] as? String) ?? ""
                 let icon = entry["icon"] as? String ?? "cloud.fill"
-                let low = (entry["low"] as? Double) ?? Double(entry["low"] as? Int ?? 0)
-                let high = (entry["high"] as? Double) ?? Double(entry["high"] as? Int ?? 0)
-                let precip: Int? = entry["precip"] as? Int
+                let low = extractDouble(entry, "low")
+                let high = extractDouble(entry, "high")
+                let precip: Int? = (entry["precip"] as? Int)
+                    ?? (entry["precip"] as? Double).map { Int($0) }
+                    ?? (entry["precipitationProbability"] as? Int)
+                    ?? (entry["precipitationProbability"] as? Double).map { Int($0) }
                 let itemCondition = entry["condition"] as? String ?? ""
                 items.append(WeatherForecastItem(
                     id: "\(index)-\(day)",
