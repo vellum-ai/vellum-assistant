@@ -6,6 +6,7 @@ import { registerConnectionCommands } from "./connections.js";
 import { registerPlatformCommands } from "./platform.js";
 import { registerProviderCommands } from "./providers.js";
 import { registerRequestCommand } from "./request.js";
+import { registerStatusCommand } from "./status.js";
 
 export function registerOAuthCommand(program: Command): void {
   const oauth = program
@@ -24,6 +25,7 @@ The oauth command group manages the full OAuth lifecycle:
   platform    Platform-managed OAuth provider status and connections
   request     Make authenticated HTTP requests (curl-like interface)
   connect     Initiate an OAuth flow (auto-detects managed vs BYO mode)
+  status      Show connection status for a provider (auto-detects mode)
 
 Providers are seeded on startup for built-in integrations. Apps and connections
 are created during the OAuth authorization flow or can be managed manually via
@@ -75,4 +77,10 @@ Examples:
   // ---------------------------------------------------------------------------
 
   registerConnectCommand(oauth);
+
+  // ---------------------------------------------------------------------------
+  // status — unified connection status (auto-detects managed vs BYO)
+  // ---------------------------------------------------------------------------
+
+  registerStatusCommand(oauth);
 }
