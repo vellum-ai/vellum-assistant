@@ -206,10 +206,12 @@ public enum HostToolExecutor {
         log.info("Cancelling host bash — requestId=\(requestId, privacy: .public)")
         if process.isRunning {
             process.terminate()
-            let pid = process.processIdentifier
-            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
-                // SIGKILL if still alive after grace period
-                kill(pid, SIGKILL)
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) { [process] in
+                // SIGKILL if still alive after grace period — check liveness first
+                // to avoid killing a reused PID if the process already exited.
+                if process.isRunning {
+                    kill(process.processIdentifier, SIGKILL)
+                }
             }
         }
     }
@@ -223,6 +225,13 @@ public enum HostToolExecutor {
     @MainActor
     public static func executeHostFileRequest(_ request: HostFileRequest) {
         Task.detached {
+            // Check cancellation BEFORE performing the file operation to prevent
+            // cancelled requests from mutating the filesystem.
+            if isCancelledAndConsume(request.requestId) {
+                log.debug("Host file skipped (pre-cancelled) — requestId=\(request.requestId, privacy: .public)")
+                return
+            }
+
             let result: HostFileResultPayload
 
             do {
