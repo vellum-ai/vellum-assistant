@@ -39,6 +39,7 @@ final class SidebarInteractionState {
     var renameText: String = ""
     var showAllConversations: Bool = false
     var showAllScheduleConversations: Bool = false
+    var showAllBackgroundConversations: Bool = false
     /// Set of schedule group keys (scheduleJobId values) that are currently expanded.
     var expandedScheduleGroups: Set<String> = []
     var showAllApps: Bool = false

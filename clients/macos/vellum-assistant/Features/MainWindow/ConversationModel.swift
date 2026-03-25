@@ -49,6 +49,11 @@ struct ConversationModel: Identifiable, Hashable {
         self.forkParent = forkParent
     }
 
+    /// Whether this conversation was created by a background process (heartbeat, etc.).
+    var isBackgroundConversation: Bool {
+        source == "heartbeat"
+    }
+
     /// Whether this conversation was created by a schedule trigger (including one-shot/reminders).
     /// Checks for legacy "reminder" source for conversations created before unification.
     /// Falls back to title prefix when source is nil (HTTP mode).
