@@ -16,7 +16,8 @@ public enum HealthCheckClient {
         do {
             let response = try await GatewayHTTPClient.get(
                 path: "health",
-                timeout: timeout
+                timeout: timeout,
+                quiet: true
             )
             return response.isSuccess
         } catch {
@@ -47,7 +48,8 @@ public enum HealthCheckClient {
             do {
                 let response = try await GatewayHTTPClient.get(
                     path: "health",
-                    timeout: timeout
+                    timeout: timeout,
+                    quiet: true
                 )
                 return response.isSuccess
             } catch {

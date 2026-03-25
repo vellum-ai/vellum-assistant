@@ -45,10 +45,11 @@ public enum GatewayHTTPClient {
     ///   - params: Optional query parameters. Keys and values are percent-encoded
     ///     using a restricted character set that escapes `&`, `=`, `+`, and `#`.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
+    ///   - quiet: When `true`, suppresses HTTP request/response logging for this request.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
-    public static func get(path: String, params: [String: String]? = nil, timeout: TimeInterval = 30) async throws -> Response {
-        return try await executeWithRetry(path: path, params: params, method: "GET", timeout: timeout)
+    public static func get(path: String, params: [String: String]? = nil, timeout: TimeInterval = 30, quiet: Bool = false) async throws -> Response {
+        return try await executeWithRetry(path: path, params: params, method: "GET", timeout: timeout, quiet: quiet)
     }
 
     /// Performs an authenticated GET request and decodes the JSON response into the given type.
@@ -258,10 +259,10 @@ public enum GatewayHTTPClient {
         let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: nil, method: "GET", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        logOutgoing(request)
+        logOutgoing(request, quiet: false)
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
         if let http = response as? HTTPURLResponse {
-            logResponse(request, http: http)
+            logResponse(request, http: http, quiet: false)
         }
         return (bytes, response)
     }
@@ -282,10 +283,10 @@ public enum GatewayHTTPClient {
         var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.httpBody = body
-        logOutgoing(request)
+        logOutgoing(request, quiet: false)
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
         if let http = response as? HTTPURLResponse {
-            logResponse(request, http: http)
+            logResponse(request, http: http, quiet: false)
         }
         return (bytes, response)
     }
@@ -310,14 +311,14 @@ public enum GatewayHTTPClient {
         var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.httpBody = body
-        logOutgoing(request)
+        logOutgoing(request, quiet: false)
 
         let (bytes, response) = try await URLSession.shared.bytes(for: request)
 
         guard let http = response as? HTTPURLResponse else {
             return (bytes, response)
         }
-        logResponse(request, http: http)
+        logResponse(request, http: http, quiet: false)
 
         guard http.statusCode == 401, !connection.isManaged else {
             return (bytes, response)
@@ -337,10 +338,10 @@ public enum GatewayHTTPClient {
         var retryRequest = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: freshConnection)
         retryRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         retryRequest.httpBody = body
-        logOutgoing(retryRequest)
+        logOutgoing(retryRequest, quiet: false)
         let (retryBytes, retryResponse) = try await URLSession.shared.bytes(for: retryRequest)
         if let retryHttp = retryResponse as? HTTPURLResponse {
-            logResponse(retryRequest, http: retryHttp)
+            logResponse(retryRequest, http: retryHttp, quiet: false)
         }
         return (retryBytes, retryResponse)
     }
@@ -536,14 +537,6 @@ public enum GatewayHTTPClient {
 
     // MARK: - Logging Helpers
 
-    /// Returns `true` when the URL targets a health-check endpoint.
-    /// These requests are exempted from HTTP logging to reduce noise.
-    private static func isHealthCheck(_ url: URL?) -> Bool {
-        guard let path = url?.path else { return false }
-        let normalized = path.hasSuffix("/") ? String(path.dropLast()) : path
-        return normalized.hasSuffix("/health")
-    }
-
     /// Extracts the URL path without query parameters for logging.
     private static func logPath(from url: URL?) -> String {
         guard let url = url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
@@ -553,25 +546,25 @@ public enum GatewayHTTPClient {
         return components.string ?? url.absoluteString
     }
 
-    private static func logOutgoing(_ request: URLRequest) {
-        guard !isHealthCheck(request.url) else { return }
+    private static func logOutgoing(_ request: URLRequest, quiet: Bool) {
+        guard !quiet else { return }
         let path = logPath(from: request.url)
         let bodyLength = request.httpBody?.count ?? 0
         log.info("HTTP \(request.httpMethod ?? "?", privacy: .public) \(path, privacy: .public) body=\(bodyLength)B")
     }
 
-    private static func logResponse(_ request: URLRequest, http: HTTPURLResponse) {
-        guard !isHealthCheck(request.url) else { return }
+    private static func logResponse(_ request: URLRequest, http: HTTPURLResponse, quiet: Bool) {
+        guard !quiet else { return }
         let path = logPath(from: request.url)
         log.info("HTTP \(request.httpMethod ?? "?", privacy: .public) \(path, privacy: .public) → \(http.statusCode) content-length=\(http.expectedContentLength)")
     }
 
     /// Executes a `URLRequest` and wraps the result in a `Response`.
-    private static func execute(_ request: URLRequest) async throws -> Response {
-        logOutgoing(request)
+    private static func execute(_ request: URLRequest, quiet: Bool = false) async throws -> Response {
+        logOutgoing(request, quiet: quiet)
         let (data, response) = try await URLSession.shared.data(for: request)
         if let http = response as? HTTPURLResponse {
-            logResponse(request, http: http)
+            logResponse(request, http: http, quiet: quiet)
         }
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
         return Response(data: data, statusCode: statusCode)
@@ -580,10 +573,10 @@ public enum GatewayHTTPClient {
     /// Executes a `URLRequest` using `URLSession.download(for:)`, streaming the
     /// response body directly to a temporary file on disk.
     private static func executeDownload(_ request: URLRequest) async throws -> DownloadResponse {
-        logOutgoing(request)
+        logOutgoing(request, quiet: false)
         let (tempURL, response) = try await URLSession.shared.download(for: request)
         if let http = response as? HTTPURLResponse {
-            logResponse(request, http: http)
+            logResponse(request, http: http, quiet: false)
         }
         let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
         return DownloadResponse(fileURL: tempURL, statusCode: statusCode)
@@ -599,12 +592,13 @@ public enum GatewayHTTPClient {
         params: [String: String]? = nil,
         method: String,
         timeout: TimeInterval,
+        quiet: Bool = false,
         configure: ((_ request: inout URLRequest) -> Void)? = nil
     ) async throws -> Response {
         let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: params, method: method, timeout: timeout, connection: connection)
         configure?(&request)
-        let response = try await execute(request)
+        let response = try await execute(request, quiet: quiet)
 
         guard response.statusCode == 401, !connection.isManaged else {
             return response
@@ -618,7 +612,7 @@ public enum GatewayHTTPClient {
         let freshConnection = try resolveConnection()
         var retryRequest = try buildRequest(path: path, params: params, method: method, timeout: timeout, connection: freshConnection)
         configure?(&retryRequest)
-        return try await execute(retryRequest)
+        return try await execute(retryRequest, quiet: quiet)
     }
 
     /// Attempts a bearer-token credential refresh.

@@ -274,7 +274,8 @@ public final class GatewayConnectionManager: ObservableObject {
             let healthPath = isManaged ? "assistants/{assistantId}/health" : "health"
             let response = try await GatewayHTTPClient.get(
                 path: healthPath,
-                timeout: 10
+                timeout: 10,
+                quiet: true
             )
 
             guard response.isSuccess else {
