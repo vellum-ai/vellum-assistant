@@ -158,7 +158,7 @@ bash:
 ```
 bash:
   command: |
-    assistant oauth connections connect <provider-key> --client-id $(cat <<'EOF'
+    assistant oauth connect <provider-key> --client-id $(cat <<'EOF'
     <client-id>
     EOF
     )

@@ -5,7 +5,6 @@ import { registerConnectCommand } from "./connect.js";
 import { registerConnectionCommands } from "./connections.js";
 import { registerDisconnectCommand } from "./disconnect.js";
 import { registerPingCommand } from "./ping.js";
-import { registerPlatformCommands } from "./platform.js";
 import { registerProviderCommands } from "./providers.js";
 import { registerRequestCommand } from "./request.js";
 import { registerStatusCommand } from "./status.js";
@@ -29,7 +28,6 @@ The oauth command group manages the full OAuth lifecycle:
   providers   Protocol-level configurations (auth URLs, scopes, endpoints)
   apps        Client credentials (client ID / secret pairs)
   connections Active token grants per provider (deprecated)
-  platform    Platform-managed OAuth provider status and connections (deprecated)
 
 Providers are seeded on startup for built-in integrations. Apps and connections
 are created during the OAuth authorization flow or can be managed manually via
@@ -64,12 +62,6 @@ Examples:
   // ---------------------------------------------------------------------------
 
   registerConnectionCommands(oauth);
-
-  // ---------------------------------------------------------------------------
-  // platform — subcommand group
-  // ---------------------------------------------------------------------------
-
-  registerPlatformCommands(oauth);
 
   // ---------------------------------------------------------------------------
   // request — curl-like authenticated request command

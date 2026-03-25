@@ -150,7 +150,7 @@ Then authorize:
 ```
 bash:
   command: |
-    assistant oauth connections connect integration:hubspot --client-id $(cat <<'EOF'
+    assistant oauth connect integration:hubspot --client-id $(cat <<'EOF'
     <client-id>
     EOF
     )
