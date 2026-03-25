@@ -1111,7 +1111,7 @@ struct MainWindowView: View {
                     .allowsHitTesting(!isSettingsOpen)
                     .padding(.trailing, isSettingsOpen ? 0 : 16)
                     .animation(VAnimation.panel, value: sidebarExpanded)
-                    .animation(nil, value: isSettingsOpen)
+                    .animation(VAnimation.panel, value: isSettingsOpen)
 
                 chatContentView(geometry: geometry)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
@@ -1201,31 +1201,33 @@ struct MainWindowView: View {
             DrawerMenuView(
                 authManager: authManager,
                 onSettings: {
-                    dismissDrawerThenNavigate { windowState.selection = .panel(.settings) }
+                    sidebar.showPreferencesDrawer = false
+                    windowState.selection = .panel(.settings)
                 },
                 onUsage: {
-                    dismissDrawerThenNavigate { windowState.selection = .panel(.usageDashboard) }
+                    sidebar.showPreferencesDrawer = false
+                    windowState.selection = .panel(.usageDashboard)
                 },
                 onDebug: {
-                    dismissDrawerThenNavigate { windowState.selection = .panel(.debug) }
+                    sidebar.showPreferencesDrawer = false
+                    windowState.selection = .panel(.debug)
                 },
                 onLogOut: {
-                    dismissDrawerThenNavigate { AppDelegate.shared?.performLogout() }
+                    sidebar.showPreferencesDrawer = false
+                    AppDelegate.shared?.performLogout()
                 },
                 onSignIn: {
-                    dismissDrawerThenNavigate {
-                        Task {
-                            await authManager.loginWithToast(showToast: { msg, style in
-                                windowState.showToast(message: msg, style: style)
-                            })
-                        }
+                    sidebar.showPreferencesDrawer = false
+                    Task {
+                        await authManager.loginWithToast(showToast: { msg, style in
+                            windowState.showToast(message: msg, style: style)
+                        })
                     }
                 },
                 onOpenBilling: {
-                    dismissDrawerThenNavigate {
-                        settingsStore.pendingSettingsTab = .billing
-                        windowState.selection = .panel(.settings)
-                    }
+                    sidebar.showPreferencesDrawer = false
+                    settingsStore.pendingSettingsTab = .billing
+                    windowState.selection = .panel(.settings)
                 }
             )
             .frame(width: drawerWidth)
@@ -1233,19 +1235,6 @@ struct MainWindowView: View {
             .animation(VAnimation.snappy, value: sidebarExpanded)
             .zIndex(10)
             .transition(.scale(scale: 0.96, anchor: .bottom).combined(with: .opacity))
-        }
-    }
-
-    /// Dismiss the preferences drawer with its scale/opacity transition,
-    /// then perform the navigation action after a short delay so the
-    /// drawer animation completes before the layout changes.
-    private func dismissDrawerThenNavigate(action: @escaping () -> Void) {
-        withAnimation(VAnimation.snappy) {
-            sidebar.showPreferencesDrawer = false
-        }
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 200_000_000)
-            action()
         }
     }
 
