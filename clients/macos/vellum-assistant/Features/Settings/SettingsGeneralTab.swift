@@ -73,7 +73,7 @@ struct SettingsGeneralTab: View {
                     healthzLoaded: healthzLoaded
                 )
             }
-            if MacOSClientFeatureFlagManager.shared.isEnabled("mobile_pairing_enabled") {
+            if MacOSClientFeatureFlagManager.shared.isEnabled("mobile-pairing") {
                 mobilePairingCard
             }
             SettingsAppearanceTab(store: store)

@@ -199,7 +199,7 @@ struct AssistantProgressView: View {
         let derived = _derived.wrappedValue
         let isComplete = derived.hasTools && derived.allComplete
         let isDenied = derived.hasDeniedToolCalls && derived.hasTools && !derived.allComplete
-        let expandFlag = MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+        let expandFlag = MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
         let shouldAutoExpand = (isComplete || isDenied) && expandFlag
         _isExpanded = State(initialValue: shouldAutoExpand || derived.hasPendingConfirmation)
     }
@@ -374,7 +374,7 @@ struct AssistantProgressView: View {
     }
 
     private func handlePhaseChange(_ newPhase: ProgressPhase) {
-        let expandFlag = MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+        let expandFlag = MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
         ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
             kind: .progressCardTransition,
             reason: "phase_change:\(newPhase) group=\(derived.groupId) phase=\(newPhase) expand_flag=\(expandFlag) completed=\(derived.completedToolCount)/\(derived.totalToolCount) denied=\(derived.deniedCount) pending_confirm=\(derived.hasPendingConfirmation) rehydrate=\(onRehydrate != nil)",
@@ -387,7 +387,7 @@ struct AssistantProgressView: View {
         // Auto-expand when a step group completes, if the flag is enabled
         if (newPhase == .complete || newPhase == .denied),
            !isExpanded,
-           MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+           MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
         {
             ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                 kind: .progressCardTransition,
@@ -438,7 +438,7 @@ struct AssistantProgressView: View {
         // expanded groups don't render with empty details.
         if !isExpanded,
            (phase == .complete || phase == .denied),
-           MacOSClientFeatureFlagManager.shared.isEnabled("expand_completed_steps")
+           MacOSClientFeatureFlagManager.shared.isEnabled("expand-completed-steps")
         {
             ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
                 kind: .progressCardTransition,

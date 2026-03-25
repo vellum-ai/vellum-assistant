@@ -26,7 +26,7 @@ struct OnboardingFlowView: View {
     }()
 
     private var managedSignInEnabled: Bool {
-        MacOSClientFeatureFlagManager.shared.isEnabled("managed_sign_in_enabled")
+        MacOSClientFeatureFlagManager.shared.isEnabled("managed-sign-in")
     }
 
     private var maxOnboardingStep: Int {

@@ -121,7 +121,7 @@ struct SettingsPanel: View {
     @State private var bootstrapGeneration: Int = 0
     @AppStorage("connectedOrganizationId") private var connectedOrgId: String?
     private static let schedulesFeatureFlagKey = "feature_flags.settings-schedules.enabled"
-    private static let billingFeatureFlagKey = "settings_billing_enabled"
+    private static let billingFeatureFlagKey = "settings-billing"
     private static let developerFeatureFlagKey = "feature_flags.settings-developer-nav.enabled"
     private static let googleOAuthFeatureFlagKey = "feature_flags.managed-google-oauth.enabled"
     private static let embeddingProviderFeatureFlagKey = "feature_flags.settings-embedding-provider.enabled"
