@@ -56,7 +56,9 @@ struct MarkdownSegmentView: View, Equatable {
                         // the double-measurement that fixedSize causes (measure at ideal
                         // size, then constrain to proposed width).
                         .lineLimit(nil)
-                        .streamingFade(isStreaming: isStreaming, characterCount: attributed.characters.count)
+                        // Text streams at 50ms chunk intervals which is visually smooth;
+                        // the former StreamingFadeRenderer was a no-op that never used its
+                        // animatable data for per-glyph effects, so it was removed.
 
                 case .heading(let level, let headingText):
                     let headingFont: Font = switch level {
@@ -444,20 +446,3 @@ private extension View {
     }
 }
 
-// MARK: - Streaming Typewriter
-
-private extension View {
-    /// Conditionally applies `StreamingFadeRenderer` during streaming.
-    /// Characters appear one by one (typewriter style) as SwiftUI
-    /// interpolates the renderer's animatable `elapsedCount`.
-    @ViewBuilder
-    func streamingFade(isStreaming: Bool, characterCount: Int) -> some View {
-        if isStreaming {
-            self
-                .textRenderer(StreamingFadeRenderer(elapsedCount: Double(characterCount)))
-                .animation(.linear(duration: 0.22), value: characterCount)
-        } else {
-            self
-        }
-    }
-}
