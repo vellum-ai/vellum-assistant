@@ -983,6 +983,7 @@ async function hatchVellumPlatform(): Promise<void> {
     species: "vellum",
     hatchedAt: new Date().toISOString(),
   });
+  setActiveAssistant(result.id);
 
   console.log(`   ${config.hatchedEmoji}  Your assistant has hatched!`);
   console.log("");
