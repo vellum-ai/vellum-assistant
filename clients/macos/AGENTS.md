@@ -315,7 +315,9 @@ When adding a new keyboard shortcut to the macOS app, you **must** also add a co
 
 ### Entitlements and Sandboxing
 - The app is **not sandboxed** — it requires direct access to accessibility APIs, CGEvent injection, and file system paths outside the sandbox container.
-- The app binary is signed ad-hoc (or with a developer certificate); entitlements are only applied to the embedded daemon binary (`daemon-entitlements.plist`: JIT, unsigned executable memory, network client).
+- The main app binary is signed with `app-entitlements.plist` ([`com.apple.security.device.audio-input`](https://developer.apple.com/documentation/BundleResources/Entitlements/com.apple.security.device.audio-input) — required for microphone access under [Hardened Runtime](https://developer.apple.com/documentation/xcode/configuring-the-hardened-runtime)).
+- The embedded daemon binary is signed with `daemon-entitlements.plist` (JIT, unsigned executable memory, network client).
+- If new hardware access is needed (e.g., camera), add the corresponding hardened runtime entitlement to `app-entitlements.plist`.
 - Never add `com.apple.security.app-sandbox` — it would break core functionality.
 
 ### Computer-Use Safety
