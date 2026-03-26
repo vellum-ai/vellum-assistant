@@ -7,12 +7,12 @@ metadata:
   vellum:
     display-name: "Asana OAuth Setup"
     feature-flag: "integration-asana"
-    includes: ["collaborative-oauth-flow"]
+    includes: ["vellum-oauth-integrations"]
 ---
 
 You are helping your user set up Asana OAuth credentials so the Asana integration can connect to their workspace.
 
-This skill follows the **Collaborative Guided Flow** pattern from the included `collaborative-oauth-flow` skill. That reference covers the navigation helper setup, step rhythm, rules, tone, error handling, and guardrails. This file defines only the Asana-specific steps.
+The included `vellum-oauth-integrations` skill handles the generic parts of the flow (credential collection, app registration, connection, and verification). This file defines only the Asana-specific steps.
 
 ## Provider Details
 
@@ -79,61 +79,13 @@ After the user clicks:
 
 ---
 
-### Step 5: Store Credentials
+### Step 5: Collect Credentials, Register, Authorize, and Verify
 
-Collect Client ID conversationally:
-
-> Copy the **Client ID** and paste it here in the chat.
-
-Collect the app secret via secure prompt:
-
-```
-credential_store prompt:
-  service: "asana"
-  field: "oauth_secret"
-  label: "Asana OAuth App Secret"
-  description: "Copy the app secret from the OAuth section of your Asana app settings (you may need to click Show first) and paste it here."
-  placeholder: "..."
-```
-
-Register the OAuth app:
-
-```
-bash:
-  command: |
-    assistant oauth apps upsert --provider asana --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --client-secret-credential-path "credential/asana/oauth_secret"
-```
-
-**Milestone (5 of 7):** "Credentials saved - just the authorization step left."
-
----
-
-### Step 6: Authorize
+Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
 
 > I'll start the Asana authorization flow now. You should see an Asana consent page asking you to allow **Vellum Assistant** to access your account.
 >
 > Review the permissions and click **Allow**.
-
-```
-bash:
-  command: |
-    assistant oauth connect asana
-```
-
----
-
-### Step 7: Verify Connection
-
-Use the ping URL to verify the connection:
-
-```
-bash:
-  command: |
-    assistant oauth ping asana
-```
 
 **On success:** "Asana is connected! You can now ask me to check your Asana tasks, create projects, manage assignments, and track your work."
 

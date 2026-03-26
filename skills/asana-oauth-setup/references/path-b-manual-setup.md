@@ -66,56 +66,17 @@ Tell the user:
 >
 > Send me your **Client ID** first.
 
-Wait for the Client ID, then store it:
-
-```
-credential_store store:
-  service: "asana"
-  field: "client_id"
-  value: "<the client id the user sent>"
-```
-
-Then ask for the secret:
+Wait for the Client ID. Then ask for the secret:
 
 > Now send me the **app secret**. You may need to click **Show** to reveal it. Send it as a standalone message with no other text.
 
-Store the secret:
-
-```
-credential_store store:
-  service: "asana"
-  field: "oauth_secret"
-  value: "<the app secret the user sent>"
-```
-
 Note: Asana app secrets don't have a known prefix that triggers channel scanners, so direct entry is acceptable. Still, keep the secret in its own message to avoid accidental logging with surrounding context.
 
-## Path B Step 6: Authorize
+## Path B Step 6: Authorize and Verify
 
-Tell the user:
-
-> **Step 4: Authorize Asana**
->
-> I'll generate an authorization link for you now.
-
-```
-bash:
-  command: |
-    assistant oauth apps upsert --provider asana --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --client-secret-credential-path "credential/asana/oauth_secret"
-```
-
-```
-bash:
-  command: |
-    assistant oauth connect asana
-```
+Follow the `vellum-oauth-integrations` workflow to register the OAuth app, connect, and verify.
 
 Send the returned auth URL to the user. Tell them to click **Allow** on the Asana consent page.
-
-## Path B Step 7: Done
 
 After authorization:
 
