@@ -250,6 +250,7 @@ struct AppsGridView: View {
                         }
                     }
                     .padding(VSpacing.sm)
+                    .contentShape(Rectangle())
                     .onTapGesture {} // absorb tap so it doesn't propagate to parent Button
                     .opacity(isHovered || menuOpenAppId == app.id || (isBundling && sharingAppId == app.id) ? 1 : 0)
                     .allowsHitTesting(isHovered || menuOpenAppId == app.id || (isBundling && sharingAppId == app.id))

@@ -142,6 +142,11 @@ public struct VMenuItem<Trailing: View>: View {
 
     public var body: some View {
         if size == .regular {
+            let _ = {
+                if variant != .default {
+                    assertionFailure("VMenuItem: variant \(variant) is not supported with .regular size (delegates to VNavItem)")
+                }
+            }()
             VNavItem(
                 icon: icon,
                 label: label,
