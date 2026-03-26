@@ -188,7 +188,6 @@ export interface IntegrationConnectResult {
   accountInfo?: string | null;
   error?: string | null;
   setupRequired?: boolean;
-  setupSkillId?: string;
   setupHint?: string;
 }
 

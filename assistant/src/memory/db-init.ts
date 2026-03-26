@@ -71,6 +71,7 @@ import {
   migrateDropMemorySegmentFts,
   migrateDropOrphanedMediaTables,
   migrateDropRemindersTable,
+  migrateDropSetupSkillIdColumn,
   migrateDropSimplifiedMemory,
   migrateDropUsageCompositeIndexes,
   migrateFkCascadeRebuilds,
@@ -527,6 +528,9 @@ export function initializeDb(): void {
 
   // 95. Add behavioral config columns to oauth_providers (loopback port, injection templates, setup metadata, identity verification)
   migrateOAuthProvidersBehaviorColumns(database);
+
+  // 96. Drop the setup_skill_id column from oauth_providers (concept removed)
+  migrateDropSetupSkillIdColumn(database);
 
   validateMigrationState(database);
 

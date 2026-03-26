@@ -29,7 +29,6 @@ export const oauthProviders = sqliteTable("oauth_providers", {
   requiresClientSecret: integer("requires_client_secret").notNull().default(1),
   loopbackPort: integer("loopback_port"),
   injectionTemplates: text("injection_templates"),
-  setupSkillId: text("setup_skill_id"),
   appType: text("app_type"),
   setupNotes: text("setup_notes"),
   identityUrl: text("identity_url"),

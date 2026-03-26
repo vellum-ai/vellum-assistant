@@ -71,7 +71,6 @@ function parseProviderRow(row: ReturnType<typeof getProvider>) {
     injectionTemplates: row.injectionTemplates
       ? JSON.parse(row.injectionTemplates)
       : null,
-    setupSkillId: row.setupSkillId ?? null,
     appType: row.appType ?? null,
     setupNotes: row.setupNotes ? JSON.parse(row.setupNotes) : null,
     identityUrl: row.identityUrl ?? null,
@@ -290,10 +289,6 @@ Examples:
       'JSON array of token injection templates — each with hostPattern, injectionType, headerName, valuePrefix (e.g. \'[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]\')',
     )
     .option(
-      "--setup-skill-id <id>",
-      'Skill ID that provides guided setup instructions for this provider (e.g. "google-oauth-applescript")',
-    )
-    .option(
       "--app-type <type>",
       'What the provider calls its OAuth apps (e.g. "OAuth App", "Desktop app", "Public integration")',
     )
@@ -393,7 +388,6 @@ Examples:
           clientSecret: boolean;
           loopbackPort?: string;
           injectionTemplates?: string;
-          setupSkillId?: string;
           appType?: string;
           identityUrl?: string;
           identityMethod?: string;
@@ -434,7 +428,6 @@ Examples:
             injectionTemplates: opts.injectionTemplates
               ? JSON.parse(opts.injectionTemplates)
               : undefined,
-            setupSkillId: opts.setupSkillId,
             appType: opts.appType,
             identityUrl: opts.identityUrl,
             identityMethod: opts.identityMethod,
@@ -537,10 +530,6 @@ Examples:
       'JSON array of token injection templates — each with hostPattern, injectionType, headerName, valuePrefix (e.g. \'[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]\')',
     )
     .option(
-      "--setup-skill-id <id>",
-      'Skill ID that provides guided setup instructions for this provider (e.g. "google-oauth-applescript")',
-    )
-    .option(
       "--app-type <type>",
       'What the provider calls its OAuth apps (e.g. "OAuth App", "Desktop app", "Public integration")',
     )
@@ -624,7 +613,6 @@ Examples:
           clientSecret: boolean;
           loopbackPort?: string;
           injectionTemplates?: string;
-          setupSkillId?: string;
           appType?: string;
           identityUrl?: string;
           identityMethod?: string;
@@ -700,8 +688,6 @@ Examples:
             params.loopbackPort = parseInt(opts.loopbackPort, 10);
           if (opts.injectionTemplates !== undefined)
             params.injectionTemplates = JSON.parse(opts.injectionTemplates);
-          if (opts.setupSkillId !== undefined)
-            params.setupSkillId = opts.setupSkillId;
           if (opts.appType !== undefined) params.appType = opts.appType;
           if (opts.identityUrl !== undefined)
             params.identityUrl = opts.identityUrl;
