@@ -10,6 +10,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 ///
 ///     let response = try await GatewayHTTPClient.get(path: "health")
 ///     let response = try await GatewayHTTPClient.post(path: "assistants/upgrade")
+@MainActor
 public enum GatewayHTTPClient {
 
     /// Response from a gateway HTTP request.
@@ -224,7 +225,7 @@ public enum GatewayHTTPClient {
     /// - Returns: A ``DownloadResponse`` with the local file URL and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
     public static func download(path: String, params: [String: String]? = nil, timeout: TimeInterval = 30) async throws -> DownloadResponse {
-        let connection = try await resolveConnection()
+        let connection = try resolveConnection()
         let request = try buildRequest(path: path, params: params, method: "GET", timeout: timeout, connection: connection)
         let response = try await executeDownload(request)
 
@@ -239,7 +240,7 @@ public enum GatewayHTTPClient {
         // Clean up the 401 download only after confirming we will retry.
         try? FileManager.default.removeItem(at: response.fileURL)
 
-        let freshConnection = try await resolveConnection()
+        let freshConnection = try resolveConnection()
         let retryRequest = try buildRequest(path: path, params: params, method: "GET", timeout: timeout, connection: freshConnection)
         return try await executeDownload(retryRequest)
     }
@@ -255,7 +256,7 @@ public enum GatewayHTTPClient {
     /// - Returns: A tuple of `(URLSession.AsyncBytes, URLResponse)` for streaming consumption.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
     public static func stream(path: String, timeout: TimeInterval = 30) async throws -> (URLSession.AsyncBytes, URLResponse) {
-        let connection = try await resolveConnection()
+        let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: nil, method: "GET", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         logOutgoing(request, quiet: false)
@@ -278,7 +279,7 @@ public enum GatewayHTTPClient {
     /// - Returns: A tuple of `(URLSession.AsyncBytes, URLResponse)` for streaming consumption.
     /// - Throws: `ClientError` if the request cannot be constructed, or network errors from `URLSession`.
     public static func streamPost(path: String, body: Data, timeout: TimeInterval = 30) async throws -> (URLSession.AsyncBytes, URLResponse) {
-        let connection = try await resolveConnection()
+        let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.httpBody = body
@@ -306,7 +307,7 @@ public enum GatewayHTTPClient {
     ///   `URLError(.userAuthenticationRequired)` if credential refresh fails,
     ///   or network errors from `URLSession`.
     public static func streamPostWithRetry(path: String, body: Data, timeout: TimeInterval = 30) async throws -> (URLSession.AsyncBytes, URLResponse) {
-        let connection = try await resolveConnection()
+        let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         request.httpBody = body
@@ -333,7 +334,7 @@ public enum GatewayHTTPClient {
         }
 
         // Rebuild with fresh credentials from the credential store.
-        let freshConnection = try await resolveConnection()
+        let freshConnection = try resolveConnection()
         var retryRequest = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: freshConnection)
         retryRequest.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         retryRequest.httpBody = body
@@ -372,7 +373,7 @@ public enum GatewayHTTPClient {
     /// - iOS: Uses UserDefaults for managed assistants (`managed_assistant_id` +
     ///   `managed_platform_base_url`) and QR-paired assistants (`gateway_base_url`),
     ///   with tokens from credential storage via `SessionTokenManager` / `ActorTokenManager`.
-    private static func resolveConnection() async throws -> ConnectionInfo {
+    private static func resolveConnection() throws -> ConnectionInfo {
         #if os(macOS)
         guard let assistant = resolveConnectedAssistant() else {
             throw ClientError.noConnectedAssistant
@@ -382,12 +383,7 @@ public enum GatewayHTTPClient {
             guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
                 throw ClientError.notAuthenticated
             }
-            let baseURL: String
-            if let runtimeUrl = assistant.runtimeUrl {
-                baseURL = runtimeUrl
-            } else {
-                baseURL = await AuthService.shared.baseURL
-            }
+            let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
             return ConnectionInfo(baseURL: baseURL, authHeader: ("X-Session-Token", token), assistantId: assistant.assistantId, isManaged: true)
         } else {
             let token = ActorTokenManager.getToken()
@@ -451,8 +447,8 @@ public enum GatewayHTTPClient {
     /// Callers can use this to decide whether request paths need the
     /// `assistants/{assistantId}/` scope prefix (required by the platform) or
     /// should use flat paths (required by non-managed runtimes).
-    public static func isConnectionManaged() async throws -> Bool {
-        return try await resolveConnection().isManaged
+    public static func isConnectionManaged() throws -> Bool {
+        return try resolveConnection().isManaged
     }
 
     /// Constructs a gateway URL for the given path and query parameters.
@@ -466,8 +462,8 @@ public enum GatewayHTTPClient {
     ///   - params: Optional query parameters.
     /// - Returns: The fully-qualified URL with `{assistantId}` resolved.
     /// - Throws: `ClientError` if the connection cannot be resolved or the URL is invalid.
-    public static func buildURL(path: String, params: [String: String]? = nil) async throws -> URL {
-        let connection = try await resolveConnection()
+    public static func buildURL(path: String, params: [String: String]? = nil) throws -> URL {
+        let connection = try resolveConnection()
         return try constructURL(path: path, params: params, connection: connection)
     }
 
@@ -599,7 +595,7 @@ public enum GatewayHTTPClient {
         quiet: Bool = false,
         configure: ((_ request: inout URLRequest) -> Void)? = nil
     ) async throws -> Response {
-        let connection = try await resolveConnection()
+        let connection = try resolveConnection()
         var request = try buildRequest(path: path, params: params, method: method, timeout: timeout, connection: connection)
         configure?(&request)
         let response = try await execute(request, quiet: quiet)
@@ -613,7 +609,7 @@ public enum GatewayHTTPClient {
         }
 
         // Rebuild with fresh credentials from the credential store.
-        let freshConnection = try await resolveConnection()
+        let freshConnection = try resolveConnection()
         var retryRequest = try buildRequest(path: path, params: params, method: method, timeout: timeout, connection: freshConnection)
         configure?(&retryRequest)
         return try await execute(retryRequest, quiet: quiet)

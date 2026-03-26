@@ -7,6 +7,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 ///
 /// Covers listing, enabling, disabling, configuring, installing, uninstalling,
 /// updating, searching, inspecting, drafting, and creating skills.
+@MainActor
 public protocol SkillsClientProtocol {
     func fetchSkillsList(includeCatalog: Bool) async -> SkillsListResponseMessage?
     func enableSkill(name: String) async -> SkillsOperationResponseMessage?
@@ -25,6 +26,7 @@ public protocol SkillsClientProtocol {
 }
 
 /// Gateway-backed implementation of ``SkillsClientProtocol``.
+@MainActor
 public struct SkillsClient: SkillsClientProtocol {
     nonisolated public init() {}
 

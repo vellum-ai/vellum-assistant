@@ -525,12 +525,14 @@ public enum LLMContextFetchResult: Sendable {
 
 /// Focused client for fetching LLM request/response context for a given message,
 /// routed through the gateway.
+@MainActor
 public protocol LLMContextClientProtocol {
     func fetchContext(messageId: String) async -> LLMContextResponse?
     func fetchContextResult(messageId: String) async throws -> LLMContextFetchResult
 }
 
 /// Gateway-backed implementation of ``LLMContextClientProtocol``.
+@MainActor
 public struct LLMContextClient: LLMContextClientProtocol {
     nonisolated public init() {}
 

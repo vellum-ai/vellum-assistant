@@ -4,6 +4,7 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChannelClient")
 
 /// Focused client for channel readiness operations routed through the gateway.
+@MainActor
 public protocol ChannelClientProtocol {
     func fetchChannelReadiness() async -> [String: ChannelReadinessInfo]
 }
@@ -44,6 +45,7 @@ public struct ReadinessCheck: Sendable {
 }
 
 /// Gateway-backed implementation of ``ChannelClientProtocol``.
+@MainActor
 public struct ChannelClient: ChannelClientProtocol {
     nonisolated public init() {}
 
