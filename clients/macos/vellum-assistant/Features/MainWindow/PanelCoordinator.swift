@@ -647,6 +647,7 @@ struct ActiveChatViewWrapper: View {
             isThinking: viewModel.isThinking,
             isCompacting: viewModel.isCompacting,
             isSending: viewModel.isSending,
+            isAssistantBusy: viewModel.isAssistantBusy,
             suggestion: viewModel.suggestion,
             pendingAttachments: viewModel.pendingAttachments,
             isLoadingAttachment: viewModel.isLoadingAttachment,
