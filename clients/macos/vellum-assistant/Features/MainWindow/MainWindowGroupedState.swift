@@ -33,6 +33,9 @@ final class SharingState {
 @MainActor
 final class SidebarInteractionState {
     var isHoveredConversation: UUID?
+    /// In-flight hover work item — cancelled when a newer hover event arrives
+    /// so that only the latest intent takes effect.
+    private var pendingHoverWork: DispatchWorkItem?
     var isHoveredApp: String?
     var renamingConversationId: UUID?
     var renameText: String = ""
@@ -81,15 +84,24 @@ final class SidebarInteractionState {
         let newValue: UUID? = hovering
             ? conversationId
             : (isHoveredConversation == conversationId ? nil : isHoveredConversation)
+
+        // Cancel any in-flight hover work — only the latest intent matters.
+        // This prevents a deferred hover-out from clobbering a rapid hover-in
+        // that arrives in the same run-loop tick.
+        pendingHoverWork?.cancel()
+        pendingHoverWork = nil
+
         guard isHoveredConversation != newValue else { return }
 
         // Defer to next run-loop tick to escape any in-progress layout pass.
         // Re-check the guard inside the closure in case another event
         // already updated the value before this block executes.
-        DispatchQueue.main.async { [weak self] in
+        let work = DispatchWorkItem { [weak self] in
             guard let self, self.draggingConversationId == nil, self.isHoveredConversation != newValue else { return }
             self.isHoveredConversation = newValue
         }
+        pendingHoverWork = work
+        DispatchQueue.main.async(execute: work)
     }
 
     /// Conversation ID that is currently the drop target during a drag-and-drop reorder.
