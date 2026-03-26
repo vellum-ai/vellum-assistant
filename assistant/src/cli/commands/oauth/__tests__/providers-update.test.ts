@@ -64,10 +64,6 @@ mock.module("../../../../oauth/seed-providers.js", () => ({
   seedAllProviders: () => {},
 }));
 
-mock.module("../../../../oauth/provider-behaviors.js", () => ({
-  getProviderBehavior: () => undefined,
-}));
-
 mock.module("../../../../inbound/public-ingress-urls.js", () => ({
   getOAuthCallbackUrl: () => null,
 }));
@@ -161,6 +157,18 @@ const sampleProviderRow = {
   dashboardUrl: null,
   clientIdPlaceholder: null,
   requiresClientSecret: 1,
+  loopbackPort: null,
+  injectionTemplates: null,
+  setupSkillId: null,
+  appType: null,
+  setupNotes: null,
+  identityUrl: null,
+  identityMethod: null,
+  identityHeaders: null,
+  identityBody: null,
+  identityResponsePaths: null,
+  identityFormat: null,
+  identityOkField: null,
   createdAt: Date.now(),
   updatedAt: Date.now(),
 };
@@ -307,6 +315,108 @@ describe("assistant oauth providers update", () => {
       displayName: "My API",
       defaultScopes: ["read", "write"],
       authUrl: "https://new.example.com/auth",
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Successful update with injection templates, identity config, and setup metadata
+  // -------------------------------------------------------------------------
+
+  test("successful update with injection templates and identity config passes new fields to updateProvider", async () => {
+    const injectionTemplates = [
+      {
+        hostPattern: "api.example.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ];
+    const identityHeaders = { "X-Custom": "value" };
+    const identityBody = { query: "{ viewer { email } }" };
+    const setupNotes = ["Enable the API", "Add test users"];
+
+    mockGetProvider = () => ({ ...sampleProviderRow });
+    mockUpdateProvider = (_key, _params) => ({
+      ...sampleProviderRow,
+      loopbackPort: 17400,
+      injectionTemplates: JSON.stringify(injectionTemplates),
+      setupSkillId: "custom-setup-skill",
+      appType: "OAuth App",
+      setupNotes: JSON.stringify(setupNotes),
+      identityUrl: "https://api.example.com/me",
+      identityMethod: "POST",
+      identityHeaders: JSON.stringify(identityHeaders),
+      identityBody: JSON.stringify(identityBody),
+      identityResponsePaths: JSON.stringify(["email", "name"]),
+      identityFormat: "@{0}",
+      identityOkField: "ok",
+      updatedAt: Date.now(),
+    });
+
+    const { exitCode, stdout } = await runCommand([
+      "providers",
+      "update",
+      "custom-api",
+      "--loopback-port",
+      "17400",
+      "--injection-templates",
+      JSON.stringify(injectionTemplates),
+      "--setup-skill-id",
+      "custom-setup-skill",
+      "--app-type",
+      "OAuth App",
+      "--setup-notes",
+      JSON.stringify(setupNotes),
+      "--identity-url",
+      "https://api.example.com/me",
+      "--identity-method",
+      "POST",
+      "--identity-headers",
+      JSON.stringify(identityHeaders),
+      "--identity-body",
+      JSON.stringify(identityBody),
+      "--identity-response-paths",
+      "email,name",
+      "--identity-format",
+      "@{0}",
+      "--identity-ok-field",
+      "ok",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.providerKey).toBe("custom-api");
+
+    // Verify the new fields are present in the output (parsed from JSON strings)
+    expect(parsed.loopbackPort).toBe(17400);
+    expect(parsed.injectionTemplates).toEqual(injectionTemplates);
+    expect(parsed.setupSkillId).toBe("custom-setup-skill");
+    expect(parsed.appType).toBe("OAuth App");
+    expect(parsed.setupNotes).toEqual(setupNotes);
+    expect(parsed.identityUrl).toBe("https://api.example.com/me");
+    expect(parsed.identityMethod).toBe("POST");
+    expect(parsed.identityHeaders).toEqual(identityHeaders);
+    expect(parsed.identityBody).toEqual(identityBody);
+    expect(parsed.identityResponsePaths).toEqual(["email", "name"]);
+    expect(parsed.identityFormat).toBe("@{0}");
+    expect(parsed.identityOkField).toBe("ok");
+
+    // Verify updateProvider was called with the correct params
+    expect(mockUpdateProviderCalls).toHaveLength(1);
+    expect(mockUpdateProviderCalls[0].key).toBe("custom-api");
+    expect(mockUpdateProviderCalls[0].params).toEqual({
+      loopbackPort: 17400,
+      injectionTemplates,
+      setupSkillId: "custom-setup-skill",
+      appType: "OAuth App",
+      setupNotes,
+      identityUrl: "https://api.example.com/me",
+      identityMethod: "POST",
+      identityHeaders,
+      identityBody,
+      identityResponsePaths: ["email", "name"],
+      identityFormat: "@{0}",
+      identityOkField: "ok",
     });
   });
 });
