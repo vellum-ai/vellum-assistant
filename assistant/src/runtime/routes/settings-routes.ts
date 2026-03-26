@@ -30,7 +30,6 @@ import {
   getMostRecentAppByProvider,
   getProvider,
 } from "../../oauth/oauth-store.js";
-import { getProviderBehavior } from "../../oauth/provider-behaviors.js";
 import {
   check,
   classifyRisk,
@@ -204,11 +203,8 @@ async function handleOAuthConnectStart(body: {
     );
   }
 
-  const behavior = getProviderBehavior(service);
   const providerRow = getProvider(service);
-  const requiresSecret =
-    behavior?.setup?.requiresClientSecret ??
-    !!(providerRow?.tokenEndpointAuthMethod || providerRow?.extraParams);
+  const requiresSecret = !!providerRow?.requiresClientSecret;
   if (requiresSecret && !clientSecret) {
     return httpError(
       "BAD_REQUEST",
