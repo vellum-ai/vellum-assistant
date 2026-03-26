@@ -4,7 +4,6 @@ import SwiftUI
 struct DisplayGallerySection: View {
     var filter: String?
 
-    @State private var cardPadding: CGFloat = 24
     @State private var waveformAmplitude: Float = 0.5
     @State private var waveformActive: Bool = true
 
@@ -14,54 +13,14 @@ struct DisplayGallerySection: View {
                 // MARK: - VCard
                 GallerySectionHeader(
                     title: "VCard",
-                    description: "Container with surface background, border, and configurable padding.",
+                    description: "Container with surface background, border, and 16pt padding.",
                     useInsteadOf: "Manual padding + background + cornerRadius"
                 )
 
                 VCard {
-                    VStack(alignment: .leading, spacing: VSpacing.xl) {
-                        HStack {
-                            Text("Padding: \(Int(cardPadding))pt")
-                                .font(VFont.labelDefault)
-                                .foregroundStyle(VColor.contentSecondary)
-                            Slider(value: $cardPadding, in: 0...48, step: 4)
-                                .frame(maxWidth: 200)
-                        }
-
-                        Divider().background(VColor.borderBase)
-
-                        VCard(padding: cardPadding) {
-                            Text("Card content with \(Int(cardPadding))pt padding")
-                                .font(VFont.bodyMediumLighter)
-                                .foregroundStyle(VColor.contentDefault)
-                        }
-                    }
-                }
-
-                // Padding variants
-                Text("Padding Variants")
-                    .font(VFont.bodySmallEmphasised)
-                    .foregroundStyle(VColor.contentSecondary)
-
-                HStack(spacing: VSpacing.lg) {
-                    ForEach([
-                        ("xs", VSpacing.xs),
-                        ("sm", VSpacing.sm),
-                        ("md", VSpacing.md),
-                        ("lg", VSpacing.lg),
-                        ("xl", VSpacing.xl)
-                    ], id: \.0) { name, padding in
-                        VCard(padding: padding) {
-                            VStack(spacing: VSpacing.xs) {
-                                Text(name)
-                                    .font(VFont.labelDefault)
-                                    .foregroundStyle(VColor.contentDefault)
-                                Text("\(Int(padding))pt")
-                                    .font(VFont.labelDefault)
-                                    .foregroundStyle(VColor.contentTertiary)
-                            }
-                        }
-                    }
+                    Text("Default card with 16pt padding")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentDefault)
                 }
 
                 // Action variants (tappable cards with hover highlight)

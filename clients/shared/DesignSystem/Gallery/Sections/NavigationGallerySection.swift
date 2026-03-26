@@ -78,7 +78,7 @@ struct NavigationGallerySection: View {
                     description: "Compact pill-style segmented control for inline use in toolbars and headers."
                 )
 
-                VCard(padding: VSpacing.lg) {
+                VCard {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Divider().background(VColor.borderBase)
 

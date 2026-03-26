@@ -1,7 +1,7 @@
 import SwiftUI
 
 public struct VCard<Content: View>: View {
-    public var padding: CGFloat = VSpacing.xl
+    public var padding: CGFloat = VSpacing.lg
     public var isActive: Bool = false
     public var action: (() -> Void)?
     @ViewBuilder public let content: () -> Content
@@ -9,7 +9,7 @@ public struct VCard<Content: View>: View {
     @State private var isHovered = false
 
     public init(
-        padding: CGFloat = VSpacing.xl,
+        padding: CGFloat = VSpacing.lg,
         isActive: Bool = false,
         action: (() -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content

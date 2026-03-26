@@ -346,7 +346,7 @@ struct SkillItemRow: View {
     }
 
     var body: some View {
-        VCard(padding: VSpacing.lg, action: onSelect) {
+        VCard(action: onSelect) {
             HStack(alignment: .center, spacing: VSpacing.lg) {
                 if let emoji = skill.emoji, !emoji.isEmpty {
                     Text(emoji)
