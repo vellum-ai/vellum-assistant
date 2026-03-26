@@ -47,7 +47,7 @@ public struct VSplitButton<MenuContent: View>: View {
             Button(action: action) {
                 HStack(spacing: VSpacing.sm) {
                     if let icon {
-                        VIconView(.resolve(icon), size: 13)
+                        VIconView(.resolve(icon), size: VSize.iconDefault)
                     }
                     Text(label)
                         .font(size == .regular ? VFont.bodyMediumDefault : VFont.labelDefault)

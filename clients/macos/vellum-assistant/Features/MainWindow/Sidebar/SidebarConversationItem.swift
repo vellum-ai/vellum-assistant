@@ -172,43 +172,31 @@ struct SidebarConversationItem: View, Equatable {
             }
         }
         .padding(.horizontal, 0)
-        .contextMenu {
-            Button {
+        .vContextMenu(width: 200) {
+            VMenuItem(icon: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue, label: conversation.isPinned ? "Unpin" : "Pin") {
                 onTogglePin()
-            } label: {
-                Label { Text(conversation.isPinned ? "Unpin" : "Pin") } icon: { VIconView(conversation.isPinned ? .pinOff : .pin, size: 14) }
             }
-            Button {
+            VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") {
                 onStartRename()
-            } label: {
-                Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
             }
-            Button {
+            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {
                 onArchive()
-            } label: {
-                Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
             }
-            Button {
+            VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {
                 onMarkUnread()
-            } label: {
-                Label { Text("Mark as unread") } icon: { VIconView(.circle, size: 14) }
             }
             .disabled(!canMarkUnread)
 
             if let onOpenInNewWindow {
-                Button {
+                VMenuItem(icon: VIcon.externalLink.rawValue, label: "Open in New Window") {
                     onOpenInNewWindow()
-                } label: {
-                    Label { Text("Open in New Window") } icon: { VIconView(.externalLink, size: 14) }
                 }
             }
 
-            Divider()
+            VMenuDivider()
 
-            Button {
+            VMenuItem(icon: VIcon.messageCircle.rawValue, label: "Share Feedback") {
                 onShowFeedback?()
-            } label: {
-                Label { Text("Share Feedback") } icon: { VIconView(.messageCircle, size: 14) }
             }
             .disabled(onShowFeedback == nil)
         }
@@ -242,3 +230,4 @@ struct SidebarConversationItem: View, Equatable {
         }
     }
 }
+
