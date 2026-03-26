@@ -55,6 +55,16 @@ extension AppDelegate {
     func setupSurfaceManager() {
         // Surface event handling is now in startDaemonEventSubscription() via subscribe().
 
+        // Sync global app allowed hosts from settings into SurfaceManager.
+        let settingsStore = services.settingsStore
+        surfaceManager.globalAppAllowedHosts = settingsStore.globalAppAllowedHosts
+        settingsStore.$globalAppAllowedHosts
+            .receive(on: RunLoop.main)
+            .sink { [weak self] hosts in
+                self?.surfaceManager.globalAppAllowedHosts = hosts
+            }
+            .store(in: &surfaceManagerCancellables)
+
         // Wire SurfaceManager action callback to SurfaceActionClient
         surfaceManager.onAction = { conversationId, surfaceId, actionId, data in
             let codableData: [String: AnyCodable]? = data?.mapValues { AnyCodable($0) }

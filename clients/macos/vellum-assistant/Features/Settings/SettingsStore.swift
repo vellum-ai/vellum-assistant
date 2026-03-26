@@ -92,6 +92,10 @@ public final class SettingsStore: ObservableObject {
     @Published var mediaEmbedVideoAllowlistDomains: [String]
     @Published var userTimezone: String?
 
+    // MARK: - App Host Allowlist
+
+    @Published var globalAppAllowedHosts: [String]
+
     // MARK: - Permissions Settings
 
     @Published var dangerouslySkipPermissions: Bool
@@ -437,6 +441,9 @@ public final class SettingsStore: ObservableObject {
         self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
         self.userTimezone = Self.loadUserTimezone(config: emptyConfig)
 
+        // Load global app allowed hosts from UserDefaults
+        self.globalAppAllowedHosts = UserDefaults.standard.stringArray(forKey: "app_global_allowed_hosts") ?? []
+
         // Permissions default to false until daemon provides config
         self.dangerouslySkipPermissions = false
 
@@ -487,6 +494,12 @@ public final class SettingsStore: ObservableObject {
             .dropFirst()
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
             .sink { value in UserDefaults.standard.set(value, forKey: "collectUsageData") }
+            .store(in: &cancellables)
+
+        $globalAppAllowedHosts
+            .dropFirst()
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .sink { value in UserDefaults.standard.set(value, forKey: "app_global_allowed_hosts") }
             .store(in: &cancellables)
 
         // Persist shortcut changes immediately so the hotkey re-registers without delay
@@ -2939,6 +2952,12 @@ public final class SettingsStore: ObservableObject {
                 log.error("Failed to patch config for video allowlist domains")
             }
         }
+    }
+
+    /// Replaces the global app allowed hosts list, normalizing the input and
+    /// persisting via the Combine sink to UserDefaults.
+    func setGlobalAppAllowedHosts(_ domains: [String]) {
+        globalAppAllowedHosts = AppHostAllowlist.normalizeDomains(domains)
     }
 
     /// Writes the current `mediaEmbedsEnabled` and `mediaEmbedsEnabledSince` to

@@ -7,7 +7,9 @@ struct SettingsAppearanceTab: View {
 
     @ObservedObject var store: SettingsStore
     @State private var newAllowlistDomain = ""
+    @State private var newAppAllowlistDomain = ""
     @State private var isVideoDomainsExpanded: Bool = false
+    @State private var isAppHostsExpanded: Bool = false
     @State private var isRecordingGlobalHotkey = false
     @State private var isRecordingQuickInputHotkey = false
     @State private var isRecordingSidebarToggle = false
@@ -496,6 +498,55 @@ struct SettingsAppearanceTab: View {
                     }
                 }
             }
+
+            // APP HOST ALLOWLIST section
+            SettingsCard(title: "App Host Allowlist", subtitle: "Allow sandboxed apps to connect to these hosts. Apps may also declare their own allowed hosts in their manifest.") {
+                VDisclosureSection(
+                    title: "Global Allowed Hosts",
+                    isExpanded: $isAppHostsExpanded
+                ) {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        VStack(alignment: .leading, spacing: VSpacing.xs) {
+                            Text("Add Domain")
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+
+                            HStack(spacing: VSpacing.sm) {
+                                VTextField(
+                                    placeholder: "Add domain (e.g. api.example.com)",
+                                    text: $newAppAllowlistDomain,
+                                    onSubmit: { addAppAllowlistDomain() }
+                                )
+
+                                VButton(label: "Add", style: .primary, isDisabled: newAppAllowlistDomain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) {
+                                    addAppAllowlistDomain()
+                                }
+                            }
+                        }
+
+                        ForEach(store.globalAppAllowedHosts, id: \.self) { domain in
+                            HStack {
+                                Text(domain)
+                                    .font(VFont.bodyMediumLighter)
+                                    .foregroundStyle(VColor.contentDefault)
+                                    .textSelection(.enabled)
+                                Spacer()
+                                VButton(label: "Remove domain", iconOnly: VIcon.trash.rawValue, style: .danger) {
+                                    var domains = store.globalAppAllowedHosts
+                                    domains.removeAll { $0 == domain }
+                                    store.setGlobalAppAllowedHosts(domains)
+                                }
+                            }
+                            .padding(.horizontal, VSpacing.md)
+                            .padding(.vertical, VSpacing.sm)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.lg)
+                                    .strokeBorder(VColor.borderBase, lineWidth: 1)
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -508,6 +559,15 @@ struct SettingsAppearanceTab: View {
         domains.append(domain)
         store.setMediaEmbedVideoAllowlistDomains(domains)
         newAllowlistDomain = ""
+    }
+
+    private func addAppAllowlistDomain() {
+        let domain = newAppAllowlistDomain.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !domain.isEmpty else { return }
+        var domains = store.globalAppAllowedHosts
+        domains.append(domain)
+        store.setGlobalAppAllowedHosts(domains)
+        newAppAllowlistDomain = ""
     }
 
     // MARK: - Timezone Helpers
