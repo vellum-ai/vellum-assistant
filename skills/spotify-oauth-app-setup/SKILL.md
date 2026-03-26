@@ -1,6 +1,6 @@
 ---
-name: spotify-oauth-setup
-description: Set up Spotify OAuth credentials using a collaborative guided flow
+name: spotify-oauth-app-setup
+description: Walk the user through creating a Spotify OAuth app in the Spotify Developer Dashboard
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"

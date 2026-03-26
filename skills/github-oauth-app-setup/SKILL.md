@@ -1,6 +1,6 @@
 ---
-name: github-oauth-setup
-description: Set up GitHub OAuth credentials using a collaborative guided flow
+name: github-oauth-app-setup
+description: Walk the user through creating a GitHub OAuth app in GitHub Developer Settings
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"

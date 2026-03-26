@@ -1,6 +1,6 @@
 ---
-name: dropbox-oauth-setup
-description: Set up Dropbox OAuth credentials using a collaborative guided flow
+name: dropbox-oauth-app-setup
+description: Walk the user through creating a Dropbox OAuth app in the Dropbox App Console
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"

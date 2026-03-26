@@ -40,7 +40,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "google-oauth-applescript",
+    setupSkillId: "google-oauth-app-setup",
     setup: {
       displayName: "Google (Gmail & Calendar)",
       dashboardUrl: "https://console.cloud.google.com/apis/credentials",
@@ -123,7 +123,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "notion-oauth-setup",
+    setupSkillId: "notion-oauth-app-setup",
     setup: {
       displayName: "Notion",
       dashboardUrl: "https://www.notion.so/profile/integrations",
@@ -165,7 +165,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "twitter-oauth-setup",
+    setupSkillId: "twitter-oauth-app-setup",
     setup: {
       displayName: "Twitter / X",
       dashboardUrl: "https://developer.x.com/en/portal/dashboard",
@@ -200,7 +200,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "github-oauth-setup",
+    setupSkillId: "github-oauth-app-setup",
     setup: {
       displayName: "GitHub",
       dashboardUrl: "https://github.com/settings/developers",
@@ -236,7 +236,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "linear-oauth-setup",
+    setupSkillId: "linear-oauth-app-setup",
     setup: {
       displayName: "Linear",
       dashboardUrl: "https://linear.app/settings/api",
@@ -279,7 +279,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "spotify-oauth-setup",
+    setupSkillId: "spotify-oauth-app-setup",
     setup: {
       displayName: "Spotify",
       dashboardUrl: "https://developer.spotify.com/dashboard",

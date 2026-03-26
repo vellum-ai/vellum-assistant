@@ -1,6 +1,6 @@
 ---
-name: google-oauth-applescript
-description: Set up Google Cloud OAuth credentials for Gmail and Calendar using a collaborative guided flow
+name: google-oauth-app-setup
+description: Walk the user through creating Google Cloud OAuth credentials for Gmail and Calendar
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"

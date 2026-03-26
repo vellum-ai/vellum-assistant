@@ -1,6 +1,6 @@
 ---
-name: hubspot-oauth-setup
-description: Set up HubSpot OAuth credentials using a collaborative guided flow
+name: hubspot-oauth-app-setup
+description: Walk the user through creating a HubSpot OAuth app in the HubSpot developer portal
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"

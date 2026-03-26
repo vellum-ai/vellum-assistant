@@ -1,6 +1,6 @@
 ---
-name: asana-oauth-setup
-description: Set up Asana OAuth credentials using a collaborative guided flow
+name: asana-oauth-app-setup
+description: Walk the user through creating an Asana OAuth app in the Asana Developer Console
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"

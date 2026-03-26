@@ -1,6 +1,6 @@
 ---
-name: twitter-oauth-setup
-description: Set up Twitter/X OAuth credentials for Twitter integration using a collaborative guided flow
+name: twitter-oauth-app-setup
+description: Walk the user through creating a Twitter/X OAuth 2.0 app in the Twitter Developer Portal
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"

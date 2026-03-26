@@ -1,6 +1,6 @@
 ---
-name: todoist-oauth-setup
-description: Set up Todoist OAuth credentials using a collaborative guided flow
+name: todoist-oauth-app-setup
+description: Walk the user through creating a Todoist OAuth app in the Todoist App Console
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"

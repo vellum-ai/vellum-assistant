@@ -1,6 +1,6 @@
 ---
-name: notion-oauth-setup
-description: Set up Notion integration credentials using a collaborative guided flow (defaults to Internal integration)
+name: notion-oauth-app-setup
+description: Walk the user through setting up a Notion integration (defaults to Internal integration, not OAuth)
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"

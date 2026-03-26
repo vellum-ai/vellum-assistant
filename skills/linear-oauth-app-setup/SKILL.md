@@ -1,6 +1,6 @@
 ---
-name: linear-oauth-setup
-description: Set up Linear OAuth credentials using a collaborative guided flow
+name: linear-oauth-app-setup
+description: Walk the user through creating a Linear OAuth application in Linear API settings
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"

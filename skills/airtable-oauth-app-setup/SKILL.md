@@ -1,6 +1,6 @@
 ---
-name: airtable-oauth-setup
-description: Set up Airtable OAuth credentials using a collaborative guided flow
+name: airtable-oauth-app-setup
+description: Walk the user through creating an Airtable OAuth integration in the Airtable developer console
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"

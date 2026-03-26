@@ -1,6 +1,6 @@
 ---
-name: discord-oauth-setup
-description: Set up Discord OAuth credentials using a collaborative guided flow
+name: discord-oauth-app-setup
+description: Walk the user through creating a Discord OAuth app in the Discord Developer Portal
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"

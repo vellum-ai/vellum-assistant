@@ -1,6 +1,6 @@
 ---
-name: figma-oauth-setup
-description: Set up Figma OAuth credentials using a collaborative guided flow
+name: figma-oauth-app-setup
+description: Walk the user through creating a Figma OAuth app on the Figma developers page
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🔑"
