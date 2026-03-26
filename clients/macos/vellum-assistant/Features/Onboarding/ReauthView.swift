@@ -166,7 +166,9 @@ struct ReauthView: View {
         // Seed AuthService with the platform URL from the existing lockfile entry
         // so that organization resolution hits the correct platform (e.g. dev-platform
         // vs production) before the daemon is connected.
-        if let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.isManaged }),
+        if let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+           let managedAssistant = LockfileAssistant.loadByName(connectedId),
+           managedAssistant.isManaged,
            let runtimeUrl = managedAssistant.runtimeUrl, !runtimeUrl.isEmpty {
             AuthService.shared.configuredBaseURL = runtimeUrl
         }
