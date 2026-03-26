@@ -368,6 +368,16 @@ extension AppDelegate {
                     self.secretPromptManager.showPrompt(msg)
                     SoundManager.shared.play(.needsInput)
 
+                case .conversationError(let msg):
+                    if msg.code == .authenticationRequired && self.isCurrentAssistantManaged {
+                        log.info("Received authenticationRequired error for managed assistant — showing reauth screen")
+                        // Store current assistant as pending so we reconnect after reauth
+                        if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
+                            UserDefaults.standard.set(assistantId, forKey: "pendingManagedSwitchAssistantId")
+                        }
+                        self.showAuthWindow()
+                    }
+
                 default:
                     break
                 }
