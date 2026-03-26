@@ -4,14 +4,12 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SurfaceActionClient")
 
 /// Focused client for surface action and undo operations routed through the gateway.
-@MainActor
 public protocol SurfaceActionClientProtocol {
     func sendSurfaceAction(conversationId: String?, surfaceId: String, actionId: String, data: [String: AnyCodable]?) async
     func sendSurfaceUndo(conversationId: String, surfaceId: String) async
 }
 
 /// Gateway-backed implementation of ``SurfaceActionClientProtocol``.
-@MainActor
 public struct SurfaceActionClient: SurfaceActionClientProtocol {
     nonisolated public init() {}
 

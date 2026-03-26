@@ -10,7 +10,6 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 ///
 ///     let response = try await GatewayHTTPClient.get(path: "health")
 ///     let response = try await GatewayHTTPClient.post(path: "assistants/upgrade")
-@MainActor
 public enum GatewayHTTPClient {
 
     /// Response from a gateway HTTP request.

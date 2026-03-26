@@ -4,13 +4,11 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "NotificationClient")
 
 /// Focused client for notification delivery acknowledgments.
-@MainActor
 public protocol NotificationClientProtocol {
     func sendIntentResult(deliveryId: String, success: Bool, errorMessage: String?, errorCode: String?) async
 }
 
 /// Gateway-backed implementation of ``NotificationClientProtocol``.
-@MainActor
 public struct NotificationClient: NotificationClientProtocol {
     nonisolated public init() {}
 

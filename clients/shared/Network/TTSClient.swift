@@ -18,13 +18,11 @@ public enum TTSResult: Sendable {
 }
 
 /// Focused client for message text-to-speech synthesis routed through the gateway.
-@MainActor
 public protocol TTSClientProtocol {
     func synthesize(messageId: String, conversationId: String?) async -> TTSResult
 }
 
 /// Gateway-backed implementation of ``TTSClientProtocol``.
-@MainActor
 public struct TTSClient: TTSClientProtocol {
     nonisolated public init() {}
 
