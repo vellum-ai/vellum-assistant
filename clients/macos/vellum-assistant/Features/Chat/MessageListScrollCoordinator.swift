@@ -28,7 +28,6 @@ enum BottomPinRequestReason: String, Sendable {
 /// - All fields on `ScrollTrackingState` (dead-zone guards, smoothing state,
 ///   precomputed cache) — updated every scroll tick, must never trigger
 ///   `objectWillChange`.
-/// - `isAtBottom` — whether the bottom sentinel is the current scroll target.
 /// - `hasReceivedScrollEvent`, `wasPaginationTriggerInRange` — bookkeeping
 ///   flags that don't drive UI.
 /// - `isFollowingBottom` — follow/detach state for bottom-pin logic.
@@ -42,6 +41,8 @@ enum BottomPinRequestReason: String, Sendable {
 ///   suppression flip. Managed via per-reason `begin`/`end` helpers.
 ///
 /// **Reactive (`@Published`):**
+/// - `isAtBottom` — drives "Scroll to latest" CTA button visibility and
+///   reattach-on-idle logic.
 /// - `isPaginationInFlight` — changes infrequently and legitimately requires
 ///   view updates.
 @MainActor

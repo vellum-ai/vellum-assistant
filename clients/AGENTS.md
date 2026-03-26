@@ -198,7 +198,7 @@ See `ChatViewModel.observeErrorManager()` and `MainWindowState.observeNavigation
 
 ### Architecture: MessageListScrollCoordinator
 
-All scroll state and reactions for the message list live in `MessageListScrollCoordinator` (`Features/Chat/`), split across two files:
+All scroll state and reactions for the message list live in `MessageListScrollCoordinator` (`Features/Chat/`), split across two files with a supporting diagnostics type:
 
 - **`MessageListScrollCoordinator.swift`** — Core state declarations (`@Published` reactive state, non-reactive bookkeeping, per-reason suppression boolean flags with begin/end helpers, follow/detach state, diagnostics forwarding, cleanup).
 - **`MessageListScrollCoordinator+ScrollBehavior.swift`** — All scroll behavior: state reactions (`sendingStateChanged`, `messagesChanged`, `containerResized`, `conversationSwitched`, `anchorMessageIdChanged`), pin requests (`requestBottomPin`, `configureScrollCallbacks`), scroll restore, user scroll actions (`handleScrollUp`, `handleScrollToBottom`), suppress-auto-scroll, resize task, pagination trigger/execution.
