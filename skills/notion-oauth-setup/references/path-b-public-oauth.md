@@ -76,7 +76,7 @@ bash:
     assistant oauth apps upsert --provider notion --client-id $(cat <<'EOF'
     <client-id>
     EOF
-    ) --client-secret-credential-path "credential/notion/client_secret"
+    ) --client-secret-credential-path "notion:client_secret"
 ```
 
 ```
