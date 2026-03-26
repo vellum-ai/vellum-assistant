@@ -81,7 +81,7 @@ public struct VSplitButton<MenuContent: View>: View {
                 Menu {
                     menuContent()
                 } label: {
-                    Color.clear
+                    Color.white.opacity(0.001)
                         .frame(width: dropdownWidth, height: zoneHeight)
                         .contentShape(Rectangle())
                 }
@@ -90,7 +90,6 @@ public struct VSplitButton<MenuContent: View>: View {
                 .accessibilityLabel("\(label) options")
             }
             .frame(width: dropdownWidth, height: zoneHeight)
-            .clipped()
             .onHover { hovering in
                 isDropdownHovered = isDisabled ? false : hovering
             }
