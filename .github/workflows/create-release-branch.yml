@@ -72,11 +72,17 @@ jobs:
           # Poll for the release workflow run triggered by the branch push
           RUN_URL=""
           for i in $(seq 1 18); do
-            RUN_ID=$(curl -fsSL \
+            RESPONSE=$(curl -sSL \
               -H "Authorization: token $GH_TOKEN" \
               -H "Accept: application/vnd.github+json" \
               "https://api.github.com/repos/${{ github.repository }}/actions/workflows/release.yml/runs?branch=$BRANCH&per_page=1" \
-              | python3 -c "import sys,json; runs=json.load(sys.stdin).get('workflow_runs',[]); print(runs[0]['id'] if runs else '')")
+              2>/dev/null || echo "")
+
+            if [ -n "$RESPONSE" ]; then
+              RUN_ID=$(echo "$RESPONSE" | python3 -c "import sys,json; runs=json.load(sys.stdin).get('workflow_runs',[]); print(runs[0]['id'] if runs else '')" 2>/dev/null || echo "")
+            else
+              RUN_ID=""
+            fi
 
             if [ -n "$RUN_ID" ]; then
               RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/$RUN_ID"
