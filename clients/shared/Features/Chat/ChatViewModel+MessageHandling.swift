@@ -905,6 +905,33 @@ extension ChatViewModel {
         case .messageDequeued(let msg):
             guard belongsToConversation(msg.conversationId) else { return }
             pendingQueuedCount = max(0, pendingQueuedCount - 1)
+            // If the previous assistant turn is still active (the daemon
+            // skipped generation_handoff / message_complete between turns),
+            // finalize it now so subsequent text deltas create a fresh
+            // bubble below the dequeued user message — not appended to
+            // the old one above it.  Mirrors the generationHandoff cleanup.
+            //
+            // Guard: only finalize when the dequeued message is a genuine
+            // user message that appears *after* the current assistant
+            // message.  Synthetic dequeues (inline approval consumption)
+            // have no entry in requestIdToMessageId, so the peek returns
+            // nil and finalization is skipped — preserving the mid-stream
+            // assistant response.
+            if let existingId = currentAssistantMessageId,
+               let assistantIdx = messages.firstIndex(where: { $0.id == existingId }),
+               let userId = requestIdToMessageId[msg.requestId],
+               let userIdx = messages.firstIndex(where: { $0.id == userId }),
+               userIdx > assistantIdx {
+                flushStreamingBuffer(immediate: true)
+                flushPartialOutputBuffer()
+                messages[assistantIdx].isStreaming = false
+                messages[assistantIdx].streamingCodePreview = nil
+                messages[assistantIdx].streamingCodeToolName = nil
+                currentAssistantMessageId = nil
+                currentTurnUserText = nil
+                currentAssistantHasText = false
+                lastContentWasToolCall = false
+            }
             // Mark the associated user message as processing and track its text
             // so assistantTextDelta tags the response correctly.
             if let messageId = requestIdToMessageId.removeValue(forKey: msg.requestId),
