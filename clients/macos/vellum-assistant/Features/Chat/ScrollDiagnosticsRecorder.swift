@@ -81,7 +81,7 @@ final class ScrollDiagnosticsRecorder {
         hasReceivedScrollEvent: Bool,
         isPaginationInFlight: Bool,
         isSuppressed: Bool,
-        suppression: ScrollSuppression,
+        activeSuppressionReasons: [String],
         isAtBottom: Bool
     ) {
         snapshotDebounceTask?.cancel()
@@ -99,7 +99,7 @@ final class ScrollDiagnosticsRecorder {
                 hasReceivedScrollEvent: hasReceivedScrollEvent,
                 isPaginationInFlight: isPaginationInFlight,
                 isSuppressed: isSuppressed,
-                suppression: suppression,
+                activeSuppressionReasons: activeSuppressionReasons,
                 isAtBottom: isAtBottom
             )
         }
@@ -117,7 +117,7 @@ final class ScrollDiagnosticsRecorder {
         hasReceivedScrollEvent: Bool,
         isPaginationInFlight: Bool,
         isSuppressed: Bool,
-        suppression: ScrollSuppression,
+        activeSuppressionReasons: [String],
         isAtBottom: Bool
     ) {
         guard let convId = conversationId else { return }
@@ -146,7 +146,7 @@ final class ScrollDiagnosticsRecorder {
             isNearBottom: isNearBottom,
             hasReceivedScrollEvent: hasReceivedScrollEvent,
             isPaginationInFlight: isPaginationInFlight,
-            suppressionReason: isSuppressed ? suppression.reasonDescriptions.joined(separator: ",") : nil,
+            suppressionReason: isSuppressed ? activeSuppressionReasons.joined(separator: ",") : nil,
             anchorMessageId: anchorMessageId?.uuidString,
             highlightedMessageId: highlightedMessageId?.uuidString,
             anchorMinY: 0,

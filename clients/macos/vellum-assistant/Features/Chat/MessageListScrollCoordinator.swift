@@ -21,47 +21,6 @@ enum BottomPinRequestReason: String, Sendable {
     case resize
 }
 
-/// Named reasons for suppressing bottom auto-scroll. Each reason has a defined
-/// timeout so callers don't need to manage independent timers.
-///
-/// The OptionSet design allows multiple reasons to be active simultaneously
-/// (e.g., a resize and expansion can overlap). `isSuppressed` is true when
-/// any reason is active.
-struct ScrollSuppression: OptionSet, Sendable {
-    let rawValue: Int
-
-    /// Pagination loaded new content above the viewport — suppress for 100ms
-    /// while the scroll position is restored to the pre-pagination anchor.
-    static let pagination = ScrollSuppression(rawValue: 1 << 0)
-
-    /// Content expanded off-bottom (e.g., tool call disclosure) — suppress
-    /// for 200ms to prevent the view from jumping back to the bottom.
-    static let expansion  = ScrollSuppression(rawValue: 1 << 1)
-
-    /// Container width changed (window resize) — suppress for 100ms while
-    /// the layout stabilizes and the scroll position is corrected.
-    static let resize     = ScrollSuppression(rawValue: 1 << 2)
-
-    /// Timeout (in nanoseconds) for each suppression reason.
-    static func timeout(for reason: ScrollSuppression) -> UInt64 {
-        switch reason {
-        case .pagination: return 100_000_000  // 100ms
-        case .expansion:  return 200_000_000  // 200ms
-        case .resize:     return 100_000_000  // 100ms
-        default:          return 100_000_000  // fallback
-        }
-    }
-
-    /// Human-readable description of the active reasons, for diagnostics.
-    var reasonDescriptions: [String] {
-        var reasons: [String] = []
-        if contains(.pagination) { reasons.append("pagination") }
-        if contains(.expansion)  { reasons.append("expansion") }
-        if contains(.resize)     { reasons.append("resize") }
-        return reasons
-    }
-}
-
 /// Consolidates all scroll-related state from `MessageListView` into a single
 /// `ObservableObject` that preserves the reactive / non-reactive split.
 ///
@@ -76,10 +35,15 @@ struct ScrollSuppression: OptionSet, Sendable {
 /// - `ScrollDiagnosticsRecorder` — owns loop guard, snapshot capture,
 ///   and non-finite geometry logging. Never triggers view re-evaluation.
 /// - All in-flight `Task` references.
+/// - `isResizeSuppressed`, `isPaginationSuppressed`, `isExpansionSuppressed` —
+///   plain boolean flags for scroll suppression. NOT `@Published` because the
+///   view never reads suppression state directly for rendering; making them
+///   `@Published` would trigger unnecessary `objectWillChange` on every
+///   suppression flip. Managed via per-reason `begin`/`end` helpers.
 ///
 /// **Reactive (`@Published`):**
-/// - `suppression` / `isSuppressed`, `isPaginationInFlight` — change
-///   infrequently and legitimately require view updates.
+/// - `isPaginationInFlight` — changes infrequently and legitimately requires
+///   view updates.
 @MainActor
 final class MessageListScrollCoordinator: ObservableObject {
 
@@ -120,30 +84,42 @@ final class MessageListScrollCoordinator: ObservableObject {
 
     // MARK: - Reactive State (@Published)
 
-    /// Active scroll suppression reasons. When non-empty, bottom auto-scroll
-    /// is suppressed. Each reason has a defined timeout managed by
-    /// `suppressionTimeoutTasks`. Replaces the former `isSuppressingBottomScroll`
-    /// boolean with a structured OptionSet for diagnostics and correctness.
-    @Published var suppression: ScrollSuppression = [] {
-        didSet {
-            guard suppression != oldValue else { return }
-            let added = suppression.subtracting(oldValue)
-            let removed = oldValue.subtracting(suppression)
-            if !added.isEmpty {
-                scrollCoordinatorLog.debug("Scroll suppression started: \(added.reasonDescriptions.joined(separator: ", ")) — active: \(self.suppression.reasonDescriptions.joined(separator: ", "))")
-            }
-            if !removed.isEmpty {
-                scrollCoordinatorLog.debug("Scroll suppression ended: \(removed.reasonDescriptions.joined(separator: ", ")) — active: \(self.suppression.reasonDescriptions.joined(separator: ", "))")
-            }
-        }
-    }
-
-    /// Whether any scroll suppression reason is currently active.
-    var isSuppressed: Bool { !suppression.isEmpty }
-
     /// Guards the pagination sentinel against re-entry during the brief window
     /// between Task launch and the first `await`.
     @Published var isPaginationInFlight: Bool = false
+
+    // MARK: - Suppression Flags (non-reactive)
+
+    /// Whether resize suppression is currently active. Plain stored `var`
+    /// (not `@Published`) — the view never reads suppression state for
+    /// rendering; only `hideScrollIndicators` is `@Published`.
+    var isResizeSuppressed: Bool = false
+
+    /// Whether pagination suppression is currently active. Plain stored `var`
+    /// (not `@Published`) for the same reason as `isResizeSuppressed`.
+    var isPaginationSuppressed: Bool = false
+
+    /// Whether expansion suppression is currently active. Plain stored `var`
+    /// (not `@Published`) for the same reason as `isResizeSuppressed`.
+    var isExpansionSuppressed: Bool = false
+
+    /// Timeout task for expansion suppression — the only suppression reason
+    /// that uses an auto-timeout (200ms). Resize and pagination manage their
+    /// lifecycle manually within their respective task bodies.
+    var expansionTimeoutTask: Task<Void, Never>?
+
+    /// Whether any scroll suppression reason is currently active.
+    var isSuppressed: Bool { isResizeSuppressed || isPaginationSuppressed || isExpansionSuppressed }
+
+    /// Human-readable names of currently active suppression reasons, for
+    /// diagnostics and transcript snapshots.
+    var activeSuppressionReasons: [String] {
+        var reasons: [String] = []
+        if isResizeSuppressed     { reasons.append("resize") }
+        if isPaginationSuppressed { reasons.append("pagination") }
+        if isExpansionSuppressed  { reasons.append("expansion") }
+        return reasons
+    }
 
 
     // MARK: - Non-Reactive State (plain stored properties)
@@ -233,11 +209,6 @@ final class MessageListScrollCoordinator: ObservableObject {
 
     // MARK: - Tasks
 
-    /// Per-reason timeout tasks that clear individual suppression bits after
-    /// their defined timeout. Keyed by the raw value of the `ScrollSuppression`
-    /// reason so each reason's timeout is independent.
-    var suppressionTimeoutTasks: [Int: Task<Void, Never>] = [:]
-
     /// In-flight pagination load task.
     var paginationTask: Task<Void, Never>?
 
@@ -250,46 +221,82 @@ final class MessageListScrollCoordinator: ObservableObject {
 
     // MARK: - Suppression Management
 
-    /// Adds a suppression reason and schedules its automatic timeout.
-    /// If the reason is already active, the existing timeout is replaced.
-    func addSuppression(_ reason: ScrollSuppression) {
-        suppression.insert(reason)
-        os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged",
-                    "on reason=%{public}s", reason.reasonDescriptions.joined(separator: ","))
+    /// Begins resize suppression. Managed manually by the resize task body.
+    func beginResizeSuppression() {
+        isResizeSuppressed = true
+        logSuppressionChange(started: "resize")
+    }
 
-        // Cancel any existing timeout for this reason before scheduling a new one.
-        let key = reason.rawValue
-        suppressionTimeoutTasks[key]?.cancel()
-        suppressionTimeoutTasks[key] = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: ScrollSuppression.timeout(for: reason))
+    /// Ends resize suppression. No-op if already inactive.
+    func endResizeSuppression() {
+        guard isResizeSuppressed else { return }
+        isResizeSuppressed = false
+        logSuppressionChange(ended: "resize")
+    }
+
+    /// Begins pagination suppression. Managed manually by the pagination task body.
+    func beginPaginationSuppression() {
+        isPaginationSuppressed = true
+        logSuppressionChange(started: "pagination")
+    }
+
+    /// Ends pagination suppression. No-op if already inactive.
+    func endPaginationSuppression() {
+        guard isPaginationSuppressed else { return }
+        isPaginationSuppressed = false
+        logSuppressionChange(ended: "pagination")
+    }
+
+    /// Begins expansion suppression with a 200ms auto-timeout. If expansion
+    /// suppression is already active, the timeout is reset. This is the only
+    /// suppression reason that uses an auto-timeout — resize and pagination
+    /// manage their lifecycle manually within their task bodies.
+    func beginExpansionSuppression() {
+        isExpansionSuppressed = true
+        logSuppressionChange(started: "expansion")
+        expansionTimeoutTask?.cancel()
+        expansionTimeoutTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 200_000_000)
             guard !Task.isCancelled, let self else { return }
-            self.removeSuppression(reason)
+            self.endExpansionSuppression()
         }
     }
 
-    /// Removes a suppression reason and cancels its timeout task.
-    func removeSuppression(_ reason: ScrollSuppression) {
-        let key = reason.rawValue
-        suppressionTimeoutTasks[key]?.cancel()
-        suppressionTimeoutTasks[key] = nil
-        guard suppression.contains(reason) else { return }
-        suppression.remove(reason)
-        os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged",
-                    "off reason=%{public}s", reason.reasonDescriptions.joined(separator: ","))
+    /// Ends expansion suppression and cancels any pending auto-timeout.
+    /// No-op if already inactive.
+    func endExpansionSuppression() {
+        expansionTimeoutTask?.cancel()
+        expansionTimeoutTask = nil
+        guard isExpansionSuppressed else { return }
+        isExpansionSuppressed = false
+        logSuppressionChange(ended: "expansion")
     }
 
-    /// Clears all suppression reasons and cancels all timeout tasks.
+    /// Clears all suppression flags and cancels the expansion timeout task.
     func clearAllSuppression() {
-        for (_, task) in suppressionTimeoutTasks {
-            task.cancel()
-        }
-        suppressionTimeoutTasks.removeAll()
-        if !suppression.isEmpty {
-            let reasons = suppression.reasonDescriptions.joined(separator: ",")
-            suppression = []
+        let wasActive = isSuppressed
+        let reasons = activeSuppressionReasons.joined(separator: ",")
+        endResizeSuppression()
+        endPaginationSuppression()
+        endExpansionSuppression()
+        if wasActive {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged",
                         "off reason=clearAll(was:%{public}s)", reasons)
         }
+    }
+
+    /// Shared logging for suppression state transitions.
+    private func logSuppressionChange(started reason: String) {
+        scrollCoordinatorLog.debug("Scroll suppression started: \(reason) — active: \(self.activeSuppressionReasons.joined(separator: ", "))")
+        os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged",
+                    "on reason=%{public}s", reason)
+    }
+
+    /// Shared logging for suppression state transitions.
+    private func logSuppressionChange(ended reason: String) {
+        scrollCoordinatorLog.debug("Scroll suppression ended: \(reason) — active: \(self.activeSuppressionReasons.joined(separator: ", "))")
+        os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged",
+                    "off reason=%{public}s", reason)
     }
 
     // MARK: - Follow/Detach State
@@ -357,7 +364,7 @@ final class MessageListScrollCoordinator: ObservableObject {
             hasReceivedScrollEvent: hasReceivedScrollEvent,
             isPaginationInFlight: isPaginationInFlight,
             isSuppressed: isSuppressed,
-            suppression: suppression,
+            activeSuppressionReasons: activeSuppressionReasons,
             isAtBottom: isAtBottom
         )
     }
