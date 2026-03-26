@@ -36,7 +36,7 @@ public struct VSkillTypePill: View {
             switch self {
             case .core: return VColor.contentDefault
             case .installed: return VColor.systemPositiveStrong
-            case .created: return VColor.funPurple
+            case .created: return VColor.funBlue
             case .extra: return VColor.contentTertiary
             case .available: return VColor.funTeal
             case .custom(_, _, let fg, _): return fg
@@ -47,7 +47,7 @@ public struct VSkillTypePill: View {
             switch self {
             case .core: return VColor.surfaceBase
             case .installed: return VColor.systemPositiveWeak
-            case .created: return VColor.funPurple.opacity(0.12)
+            case .created: return VColor.funBlue.opacity(0.12)
             case .extra: return VColor.surfaceOverlay
             case .available: return VColor.funTeal.opacity(0.12)
             case .custom(_, _, _, let bg): return bg
