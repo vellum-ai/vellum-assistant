@@ -30,25 +30,23 @@ export interface MessagingProvider {
 
   // ── Universal operations (every platform must implement) ──────────
 
-  testConnection(
-    connectionOrToken: OAuthConnection | string,
-  ): Promise<ConnectionInfo>;
+  testConnection(connection?: OAuthConnection): Promise<ConnectionInfo>;
   listConversations(
-    connectionOrToken: OAuthConnection | string,
+    connection: OAuthConnection | undefined,
     options?: ListOptions,
   ): Promise<Conversation[]>;
   getHistory(
-    connectionOrToken: OAuthConnection | string,
+    connection: OAuthConnection | undefined,
     conversationId: string,
     options?: HistoryOptions,
   ): Promise<Message[]>;
   search(
-    connectionOrToken: OAuthConnection | string,
+    connection: OAuthConnection | undefined,
     query: string,
     options?: SearchOptions,
   ): Promise<SearchResult>;
   sendMessage(
-    connectionOrToken: OAuthConnection | string,
+    connection: OAuthConnection | undefined,
     conversationId: string,
     text: string,
     options?: SendOptions,
@@ -57,26 +55,26 @@ export interface MessagingProvider {
   // ── Optional operations (platforms implement what they support) ───
 
   getThreadReplies?(
-    connectionOrToken: OAuthConnection | string,
+    connection: OAuthConnection | undefined,
     conversationId: string,
     threadId: string,
     options?: HistoryOptions,
   ): Promise<Message[]>;
   markRead?(
-    connectionOrToken: OAuthConnection | string,
+    connection: OAuthConnection | undefined,
     conversationId: string,
     messageId?: string,
   ): Promise<void>;
 
   /** Scan messages and group by sender for bulk cleanup (e.g. newsletter decluttering). */
   senderDigest?(
-    connectionOrToken: OAuthConnection | string,
+    connection: OAuthConnection | undefined,
     query: string,
     options?: { maxMessages?: number; maxSenders?: number; pageToken?: string },
   ): Promise<SenderDigestResult>;
   /** Archive messages matching a search query. */
   archiveByQuery?(
-    connectionOrToken: OAuthConnection | string,
+    connection: OAuthConnection | undefined,
     query: string,
   ): Promise<ArchiveResult>;
 
@@ -95,8 +93,11 @@ export interface MessagingProvider {
    * than the OAuth provider key). When present, getProviderConnection() calls
    * this instead of resolveOAuthConnection(), giving the provider full control
    * over credential lookup including fallback strategies.
+   *
+   * Returns an OAuthConnection if the provider uses OAuth, or undefined if
+   * the provider manages credentials internally (e.g. raw bot tokens).
    */
-  resolveConnection?(account?: string): Promise<OAuthConnection | string>;
+  resolveConnection?(account?: string): Promise<OAuthConnection | undefined>;
 
   /** Platform-specific capabilities for tool routing (e.g. 'reactions', 'threads', 'labels'). */
   capabilities: Set<string>;

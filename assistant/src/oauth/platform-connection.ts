@@ -28,6 +28,9 @@ export interface PlatformOAuthConnectionOptions {
   client: VellumPlatformClient;
   /** Platform-side connection ID used in the proxy URL path. */
   connectionId: string;
+  /** Provider API base URL (e.g. "https://gmail.googleapis.com/gmail/v1/users/me").
+   *  Sent to the proxy so it can construct the full upstream URL. */
+  baseUrl?: string;
 }
 
 export class PlatformOAuthConnection implements OAuthConnection {
@@ -38,6 +41,7 @@ export class PlatformOAuthConnection implements OAuthConnection {
 
   private readonly client: VellumPlatformClient;
   private readonly connectionId: string;
+  private readonly baseUrl: string | undefined;
 
   constructor(options: PlatformOAuthConnectionOptions) {
     if (!options.connectionId) {
@@ -53,6 +57,7 @@ export class PlatformOAuthConnection implements OAuthConnection {
     this.accountInfo = options.accountInfo;
     this.client = options.client;
     this.connectionId = options.connectionId;
+    this.baseUrl = options.baseUrl;
   }
 
   async request(req: OAuthConnectionRequest): Promise<OAuthConnectionResponse> {
@@ -65,7 +70,9 @@ export class PlatformOAuthConnection implements OAuthConnection {
         query: req.query ?? {},
         headers: req.headers ?? {},
         body: req.body ?? null,
-        ...(req.baseUrl ? { baseUrl: req.baseUrl } : {}),
+        ...((req.baseUrl ?? this.baseUrl)
+          ? { baseUrl: req.baseUrl ?? this.baseUrl }
+          : {}),
       },
     };
 

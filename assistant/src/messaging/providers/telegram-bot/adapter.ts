@@ -6,7 +6,7 @@
  * with OAuth tokens, Telegram delivery is proxied through the gateway which
  * owns the bot token and handles Telegram API retries.
  *
- * The `connectionOrToken` parameter in MessagingProvider methods is unused
+ * The `connection` parameter in MessagingProvider methods is unused
  * for Telegram because delivery is authenticated via the gateway's bearer
  * token, not a per-user OAuth token.
  */
@@ -76,9 +76,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
     return !!webhookSecret;
   },
 
-  async testConnection(
-    _connectionOrToken: OAuthConnection | string,
-  ): Promise<ConnectionInfo> {
+  async testConnection(_connection?: OAuthConnection): Promise<ConnectionInfo> {
     const botToken = await getBotToken();
     if (!botToken) {
       return {
@@ -123,7 +121,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
   },
 
   async sendMessage(
-    _connectionOrToken: OAuthConnection | string,
+    _connection: OAuthConnection | undefined,
     conversationId: string,
     text: string,
     _options?: SendOptions,
@@ -161,7 +159,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
   // interact with chats where users have initiated contact or the bot
   // has been added to a group.
   async listConversations(
-    _connectionOrToken: OAuthConnection | string,
+    _connection?: OAuthConnection,
     _options?: ListOptions,
   ): Promise<Conversation[]> {
     return [];
@@ -169,7 +167,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
 
   // Telegram Bot API does not provide message history retrieval.
   async getHistory(
-    _connectionOrToken: OAuthConnection | string,
+    _connection: OAuthConnection | undefined,
     _conversationId: string,
     _options?: HistoryOptions,
   ): Promise<Message[]> {
@@ -178,7 +176,7 @@ export const telegramBotMessagingProvider: MessagingProvider = {
 
   // Telegram Bot API does not support message search.
   async search(
-    _connectionOrToken: OAuthConnection | string,
+    _connection: OAuthConnection | undefined,
     _query: string,
     _options?: SearchOptions,
   ): Promise<SearchResult> {

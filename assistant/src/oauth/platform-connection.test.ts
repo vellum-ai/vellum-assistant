@@ -93,7 +93,7 @@ describe("PlatformOAuthConnection", () => {
     expect(result.body).toEqual(upstreamBody);
   });
 
-  test("forwards baseUrl when provided", async () => {
+  test("forwards per-request baseUrl when provided", async () => {
     const client = makeMockClient(
       mock(async (_url: string | URL | Request, init?: RequestInit) => {
         const parsed = JSON.parse(init?.body as string);
@@ -116,7 +116,57 @@ describe("PlatformOAuthConnection", () => {
     });
   });
 
-  test("omits baseUrl from envelope when not provided", async () => {
+  test("falls back to connection-level baseUrl when per-request baseUrl is absent", async () => {
+    const client = makeMockClient(
+      mock(async (_url: string | URL | Request, init?: RequestInit) => {
+        const parsed = JSON.parse(init?.body as string);
+        expect(parsed.request.baseUrl).toBe(
+          "https://gmail.googleapis.com/gmail/v1/users/me",
+        );
+
+        return new Response(
+          JSON.stringify({ status: 200, headers: {}, body: null }),
+          { status: 200 },
+        );
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({
+      ...DEFAULT_OPTIONS,
+      client,
+      baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
+    });
+    await conn.request({ method: "GET", path: "/messages" });
+  });
+
+  test("per-request baseUrl overrides connection-level baseUrl", async () => {
+    const client = makeMockClient(
+      mock(async (_url: string | URL | Request, init?: RequestInit) => {
+        const parsed = JSON.parse(init?.body as string);
+        expect(parsed.request.baseUrl).toBe(
+          "https://www.googleapis.com/calendar/v3",
+        );
+
+        return new Response(
+          JSON.stringify({ status: 200, headers: {}, body: {} }),
+          { status: 200 },
+        );
+      }) as unknown as typeof globalThis.fetch,
+    );
+
+    const conn = new PlatformOAuthConnection({
+      ...DEFAULT_OPTIONS,
+      client,
+      baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
+    });
+    await conn.request({
+      method: "GET",
+      path: "/calendars/primary/events",
+      baseUrl: "https://www.googleapis.com/calendar/v3",
+    });
+  });
+
+  test("omits baseUrl from envelope when neither connection nor request provides one", async () => {
     const client = makeMockClient(
       mock(async (_url: string | URL | Request, init?: RequestInit) => {
         const parsed = JSON.parse(init?.body as string);

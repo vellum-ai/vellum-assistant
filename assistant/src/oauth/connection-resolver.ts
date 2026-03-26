@@ -72,6 +72,7 @@ export async function resolveOAuthConnection(
         accountInfo: account ?? null,
         client,
         connectionId,
+        baseUrl: provider?.baseUrl ?? undefined,
       });
     }
   }

@@ -24,16 +24,16 @@ const provider: MessagingProvider = {
   getHistory: async () => [],
   search: async () => ({ total: 0, messages: [], hasMore: false }),
   sendMessage: (
-    connectionOrToken: OAuthConnection | string,
+    connection: OAuthConnection | undefined,
     conversationId: string,
     text: string,
     options?: SendOptions,
-  ) => sendMessageMock(connectionOrToken, conversationId, text, options),
+  ) => sendMessageMock(connection, conversationId, text, options),
 };
 
 mock.module("../config/bundled-skills/messaging/tools/shared.js", () => ({
   resolveProvider: () => provider,
-  getProviderConnection: () => "provider-token",
+  getProviderConnection: () => undefined,
   ok: (content: string) => ({ content, isError: false }),
   err: (content: string) => ({ content, isError: true }),
   extractHeader: () => "",
@@ -65,7 +65,7 @@ describe("messaging-send tool", () => {
 
     expect(result.isError).toBe(false);
     expect(sendMessageMock).toHaveBeenCalledWith(
-      "provider-token",
+      undefined,
       "+15550004444",
       "test message",
       {
@@ -95,7 +95,7 @@ describe("messaging-send tool", () => {
 
     expect(result.isError).toBe(false);
     expect(sendMessageMock).toHaveBeenCalledWith(
-      "provider-token",
+      undefined,
       "conv-1",
       "reply text",
       {
