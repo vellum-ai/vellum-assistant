@@ -75,6 +75,14 @@ let _lastReconnectAttempt = 0;
 /** In-flight reconnection promise — concurrent callers share the same attempt. */
 let _reconnectInFlight: Promise<boolean> | undefined;
 
+/**
+ * Set to true when a ces-http operation returns an unreachable result.
+ * Triggers CES RPC reconnection on the next resolveBackendAsync() call so
+ * we don't keep routing to a dead HTTP endpoint. Cleared on reconnection or
+ * backend reset.
+ */
+let _cesHttpUnreachable = false;
+
 /** Minimum interval between CES reconnection attempts. */
 const RECONNECT_COOLDOWN_MS = 3_000;
 
@@ -84,6 +92,7 @@ export function setCesClient(client: CesClient | undefined): void {
   // Reset resolved backend so next call picks up CES
   _resolvedBackend = undefined;
   _resolvePromise = undefined;
+  _cesHttpUnreachable = false;
   _cesClientListener?.(client);
 }
 
@@ -167,13 +176,13 @@ async function resolveBackendAsync(): Promise<CredentialBackend> {
     } else if (
       _cesReconnect &&
       (_resolvedBackend.name === "encrypted-store" ||
-        _resolvedBackend.name === "ces-http")
+        (_resolvedBackend.name === "ces-http" && _cesHttpUnreachable))
     ) {
-      // CES RPC is the preferred backend. If we fell back to the encrypted
-      // store (initial CES startup failed) or to CES HTTP (RPC transport
-      // died), attempt to reconnect to CES RPC. This also covers the case
-      // where CesCredentialBackend.isAvailable() returns true (env-var check
-      // only) even when the HTTP endpoint is actually unreachable.
+      // CES RPC is the preferred backend. Attempt to reconnect when:
+      // - We fell back to the encrypted store (CES startup failed), or
+      // - We're on ces-http but an operation returned unreachable (HTTP
+      //   endpoint is actually down even though isAvailable() returned true,
+      //   since it only checks env vars, not actual connectivity).
       const reconnected = await attemptCesReconnection();
       if (reconnected) {
         // setCesClient() cleared the cache — fall through to re-resolve.
@@ -285,13 +294,26 @@ async function doResolveBackend(): Promise<CredentialBackend> {
 }
 
 /**
+ * Note that the ces-http backend returned an unreachable result.
+ * On the next resolveBackendAsync() call this will trigger a CES RPC
+ * reconnection attempt instead of continuing to route to the dead endpoint.
+ */
+function noteCesHttpUnreachable(): void {
+  if (_resolvedBackend?.name === "ces-http") {
+    _cesHttpUnreachable = true;
+  }
+}
+
+/**
  * List all account names from the resolved backend (async).
  *
  * Queries exactly one backend — no cross-store merge.
  */
 export async function listSecureKeysAsync(): Promise<CredentialListResult> {
   const backend = await resolveBackendAsync();
-  return backend.list();
+  const result = await backend.list();
+  if (result.unreachable) noteCesHttpUnreachable();
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -315,6 +337,7 @@ export async function getSecureKeyResultAsync(
   if (result.value != null) {
     return { value: result.value, unreachable: false };
   }
+  if (result.unreachable) noteCesHttpUnreachable();
   return { value: undefined, unreachable: result.unreachable };
 }
 
@@ -433,4 +456,5 @@ export function _resetBackend(): void {
   _cesClientListener = undefined;
   _lastReconnectAttempt = 0;
   _reconnectInFlight = undefined;
+  _cesHttpUnreachable = false;
 }
