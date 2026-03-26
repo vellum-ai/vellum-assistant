@@ -474,6 +474,7 @@ public struct ToolConfirmationBubble: View {
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .strokeBorder(VColor.systemNegativeStrong, lineWidth: keyboardModel?.selectedAction == .dontAllow ? 2 : 0)
+                    .allowsHitTesting(false)
             )
         }
     }
