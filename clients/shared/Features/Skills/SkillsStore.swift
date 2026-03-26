@@ -118,7 +118,7 @@ public final class SkillsStore: ObservableObject {
         isLoading = true
 
         Task {
-            let response = await skillsClient.fetchSkillsList()
+            let response = await skillsClient.fetchSkillsList(includeCatalog: true)
             if let response {
                 skills = response.skills
             }

@@ -690,7 +690,7 @@ extension AppDelegate {
     func refreshSkillsCache() {
         refreshSkillsTask?.cancel()
         refreshSkillsTask = Task {
-            let response = await SkillsClient().fetchSkillsList()
+            let response = await SkillsClient().fetchSkillsList(includeCatalog: false)
             guard let response else { return }
             self.cachedSkills = response.skills
         }

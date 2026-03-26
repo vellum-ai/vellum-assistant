@@ -912,8 +912,17 @@ extension SkillsListResponseSkill: Identifiable {}
 extension SkillsListResponseSkill {
     /// Returns a copy with a different `state`, preserving all other fields including `id`.
     public func withState(_ newState: String) -> Self {
-        Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, clawhub: clawhub, provenance: provenance)
+        Self(id: id, name: name, description: description, emoji: emoji, homepage: homepage, source: source, state: newState, installStatus: installStatus, installedVersion: installedVersion, latestVersion: latestVersion, updateAvailable: updateAvailable, clawhub: clawhub, provenance: provenance)
     }
+
+    /// Whether the skill is available from the catalog but not yet installed.
+    public var isAvailable: Bool { installStatus == "available" }
+
+    /// Whether the skill is a bundled (core) skill.
+    public var isBundled: Bool { installStatus == "bundled" }
+
+    /// Whether the skill is currently installed (explicitly installed or bundled).
+    public var isInstalled: Bool { installStatus == "installed" || installStatus == "bundled" }
 }
 
 /// Response containing the list of available skills.

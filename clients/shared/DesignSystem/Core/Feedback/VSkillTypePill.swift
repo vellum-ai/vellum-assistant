@@ -7,6 +7,7 @@ public struct VSkillTypePill: View {
         case installed
         case created
         case extra
+        case available
         case custom(label: String, icon: String, foreground: Color, background: Color)
 
         var label: String {
@@ -15,6 +16,7 @@ public struct VSkillTypePill: View {
             case .installed: return "Installed"
             case .created: return "Created"
             case .extra: return "Extra"
+            case .available: return "Available"
             case .custom(let label, _, _, _): return label
             }
         }
@@ -25,6 +27,7 @@ public struct VSkillTypePill: View {
             case .installed: return .circleCheck
             case .created: return .sparkles
             case .extra: return .puzzle
+            case .available: return .arrowDownToLine
             case .custom(_, let icon, _, _): return .resolve(icon)
             }
         }
@@ -35,6 +38,7 @@ public struct VSkillTypePill: View {
             case .installed: return VColor.systemPositiveStrong
             case .created: return VColor.contentSecondary
             case .extra: return VColor.contentTertiary
+            case .available: return VColor.funTeal
             case .custom(_, _, let fg, _): return fg
             }
         }
@@ -45,6 +49,7 @@ public struct VSkillTypePill: View {
             case .installed: return VColor.systemPositiveWeak
             case .created: return VColor.surfaceBase
             case .extra: return VColor.surfaceOverlay
+            case .available: return VColor.funTeal.opacity(0.12)
             case .custom(_, _, _, let bg): return bg
             }
         }
@@ -67,6 +72,8 @@ public struct VSkillTypePill: View {
             self.type = .created
         case "extra":
             self.type = .extra
+        case "catalog":
+            self.type = .available
         default:
             self.type = .custom(
                 label: source.replacingOccurrences(of: "-", with: " ").capitalized,

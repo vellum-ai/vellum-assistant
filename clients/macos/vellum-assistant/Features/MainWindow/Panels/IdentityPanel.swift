@@ -359,7 +359,7 @@ struct IdentityPanel: View {
 
     private func fetchSkills() {
         Task {
-            let response = await SkillsClient().fetchSkillsList()
+            let response = await SkillsClient().fetchSkillsList(includeCatalog: false)
             if let response {
                 skills = response.skills.filter { $0.state == "enabled" }
             }
