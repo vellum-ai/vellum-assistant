@@ -374,39 +374,64 @@ extension ChatViewModel {
         streamingFlushTask?.cancel()
         streamingFlushTask = nil
         streamingDeltaBuffer = ""
+        typewriterDripTask?.cancel()
+        typewriterDripTask = nil
+        typewriterQueue = ""
     }
 
     /// Flush any buffered streaming text into the messages array.
     /// Called on a timer and also eagerly on `messageComplete`.
-    func flushStreamingBuffer() {
+    ///
+    /// When `immediate` is false (the normal streaming path), this
+    /// transfers buffered text into a typewriter drip queue that emits
+    /// characters a few at a time. When `immediate` is true (e.g.
+    /// messageComplete), all remaining text is flushed at once so the
+    /// final message is never incomplete.
+    func flushStreamingBuffer(immediate: Bool = false) {
         // Always clear the task reference so scheduleStreamingFlush() can
         // schedule a new flush even if the buffer was empty this time.
         streamingFlushTask?.cancel()
         streamingFlushTask = nil
-        guard !streamingDeltaBuffer.isEmpty else { return }
+        guard !streamingDeltaBuffer.isEmpty else {
+            // If immediate, also drain any remaining typewriter queue.
+            if immediate { drainTypewriterBuffer() }
+            return
+        }
         let buffered = streamingDeltaBuffer
         streamingDeltaBuffer = ""
 
+        if immediate {
+            // Dump everything at once (message complete, cancel, etc.)
+            typewriterDripTask?.cancel()
+            typewriterDripTask = nil
+            appendTextToCurrentMessage(buffered)
+            drainTypewriterBuffer()
+        } else {
+            // Feed into the typewriter drip queue.
+            typewriterQueue += buffered
+            startTypewriterDripIfNeeded()
+        }
+    }
+
+    /// Append a chunk of text to the current assistant message.
+    private func appendTextToCurrentMessage(_ text: String) {
+        guard !text.isEmpty else { return }
         if let existingId = currentAssistantMessageId,
            let index = messages.firstIndex(where: { $0.id == existingId }) {
             if lastContentWasToolCall || messages[index].textSegments.isEmpty {
                 let segIdx = messages[index].textSegments.count
-                messages[index].textSegments.append(buffered)
+                messages[index].textSegments.append(text)
                 messages[index].contentOrder.append(.text(segIdx))
                 lastContentWasToolCall = false
             } else {
-                messages[index].textSegments[messages[index].textSegments.count - 1] += buffered
+                messages[index].textSegments[messages[index].textSegments.count - 1] += text
             }
         } else if currentAssistantMessageId != nil {
-            // Message ID is set but message not found — stale reference after
-            // history replacement or reconnect. Discard the buffer to avoid
-            // creating an orphan message.
-            log.warning("Stale currentAssistantMessageId \(self.currentAssistantMessageId!.uuidString) — discarding \(buffered.count) buffered chars")
+            log.warning("Stale currentAssistantMessageId \(self.currentAssistantMessageId!.uuidString) — discarding \(text.count) buffered chars")
             currentAssistantMessageId = nil
             return
         } else {
-            // No existing assistant message — create a new one (first text delta)
-            var msg = ChatMessage(role: .assistant, text: buffered, isStreaming: true)
+            var msg = ChatMessage(role: .assistant, text: text, isStreaming: true)
             if currentTurnUserText == "/models" {
                 msg.modelList = ModelListData()
             } else if currentTurnUserText == "/commands" {
@@ -415,6 +440,32 @@ extension ChatViewModel {
             currentAssistantMessageId = msg.id
             messages.append(msg)
             lastContentWasToolCall = false
+        }
+    }
+
+    /// Start the typewriter drip loop if it isn't already running.
+    private func startTypewriterDripIfNeeded() {
+        guard typewriterDripTask == nil else { return }
+        typewriterDripTask = Task { @MainActor [weak self] in
+            while let self, !Task.isCancelled, !self.typewriterQueue.isEmpty {
+                let count = min(Self.typewriterCharsPerTick, self.typewriterQueue.count)
+                let endIndex = self.typewriterQueue.index(self.typewriterQueue.startIndex, offsetBy: count)
+                let chunk = String(self.typewriterQueue[..<endIndex])
+                self.typewriterQueue = String(self.typewriterQueue[endIndex...])
+                self.appendTextToCurrentMessage(chunk)
+                try? await Task.sleep(nanoseconds: UInt64(Self.typewriterTickInterval * 1_000_000_000))
+            }
+            self?.typewriterDripTask = nil
+        }
+    }
+
+    /// Immediately flush all remaining typewriter queue text.
+    private func drainTypewriterBuffer() {
+        typewriterDripTask?.cancel()
+        typewriterDripTask = nil
+        if !typewriterQueue.isEmpty {
+            appendTextToCurrentMessage(typewriterQueue)
+            typewriterQueue = ""
         }
     }
 
@@ -573,7 +624,7 @@ extension ChatViewModel {
         case .messageComplete(let complete):
             guard belongsToConversation(complete.conversationId) else { return }
             // Flush any buffered streaming text before finalizing the message.
-            flushStreamingBuffer()
+            flushStreamingBuffer(immediate: true)
             flushPartialOutputBuffer()
             // Backfill the daemon's persisted message ID so fork, inspect,
             // TTS, and other daemon-anchored actions work without a history reload.
@@ -904,7 +955,7 @@ extension ChatViewModel {
             // created by the preceding assistant_text_delta so it doesn't remain
             // stuck in streaming state or cause subsequent deltas to append to it.
             if msg.runStillActive != true {
-                flushStreamingBuffer()
+                flushStreamingBuffer(immediate: true)
                 flushPartialOutputBuffer()
                 if let existingId = currentAssistantMessageId,
                    let index = messages.firstIndex(where: { $0.id == existingId }) {
@@ -930,7 +981,7 @@ extension ChatViewModel {
             isThinking = false
             // Flush buffered text so it lands on the current assistant message
             // before we clear the ID and hand off to the next queued turn.
-            flushStreamingBuffer()
+            flushStreamingBuffer(immediate: true)
             flushPartialOutputBuffer()
             // Must run before currentAssistantMessageId is cleared so attachments land on the right message
             ingestAssistantAttachments(handoff.attachments)
@@ -989,7 +1040,7 @@ extension ChatViewModel {
             let savedTurnUserText = currentTurnUserText
             // Flush any buffered text so already-received tokens are preserved
             // in the assistant message before we clear the turn state.
-            flushStreamingBuffer()
+            flushStreamingBuffer(immediate: true)
             flushPartialOutputBuffer()
             // Mark current assistant message as no longer streaming
             if let existingId = currentAssistantMessageId,
@@ -1108,7 +1159,7 @@ extension ChatViewModel {
         case .confirmationRequest(let msg):
             guard !isLoadingHistory else { return }
             // Flush buffered text before inserting the confirmation message.
-            flushStreamingBuffer()
+            flushStreamingBuffer(immediate: true)
             flushPartialOutputBuffer()
             // Route using conversationId when available (daemon >= v1.x includes
             // the conversationId). Fall back to the timestamp-based heuristic
@@ -1169,7 +1220,7 @@ extension ChatViewModel {
                 break
             }
             // Flush buffered text so it lands before the tool call in content order.
-            flushStreamingBuffer()
+            flushStreamingBuffer(immediate: true)
             flushPartialOutputBuffer()
             // If a chip with the same toolUseId already exists (e.g. toolUseStart
             // arrived before this preview), ignore the late preview.
@@ -1213,7 +1264,7 @@ extension ChatViewModel {
             guard !isLoadingHistory else { return }
             guard !isWorkspaceRefinementInFlight else { return }
             // Flush buffered text so it lands before the tool call in content order.
-            flushStreamingBuffer()
+            flushStreamingBuffer(immediate: true)
             flushPartialOutputBuffer()
             lastToolUseReceivedAt = Date()
             // Suppress ToolCallChip for ui_show — the inline surface widget replaces it.
@@ -1636,7 +1687,7 @@ extension ChatViewModel {
             // `messages` before we try to finalize it below. This mirrors
             // the `messageComplete` path and preserves partial assistant
             // text for the user to see alongside the error.
-            flushStreamingBuffer()
+            flushStreamingBuffer(immediate: true)
             if let existingId = currentAssistantMessageId,
                let index = messages.firstIndex(where: { $0.id == existingId }) {
                 messages[index].isStreaming = false
