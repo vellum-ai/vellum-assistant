@@ -87,8 +87,27 @@ public struct FeatureFlagClient: FeatureFlagClientProtocol {
         }
         // Fall back to platform dict format: { "flags": { "key": bool } }
         let platform = try JSONDecoder().decode(PlatformFeatureFlagsResponse.self, from: response.data)
+        // Build a lookup from registry keys to their definitions so we can
+        // enrich each flag with defaultEnabled, description, and label.
+        let registryByKey: [String: FeatureFlagDefinition] = {
+            guard let registry = loadFeatureFlagRegistry() else { return [:] }
+            return Dictionary(uniqueKeysWithValues: registry.assistantScopeFlags().map { ($0.key, $0) })
+        }()
         return platform.flags.map { key, enabled in
-            AssistantFeatureFlag(key: key, enabled: enabled)
+            // Platform keys use LaunchDarkly format like "feature_flags.browser.enabled".
+            // Extract the middle segment(s) to match the registry's kebab-case key.
+            let registryKey: String = {
+                let stripped = key.hasPrefix("feature_flags.") ? String(key.dropFirst("feature_flags.".count)) : key
+                return stripped.hasSuffix(".enabled") ? String(stripped.dropLast(".enabled".count)) : stripped
+            }()
+            let def = registryByKey[registryKey]
+            return AssistantFeatureFlag(
+                key: key,
+                enabled: enabled,
+                defaultEnabled: def?.defaultEnabled,
+                description: def?.description,
+                label: def?.label
+            )
         }
     }
 
