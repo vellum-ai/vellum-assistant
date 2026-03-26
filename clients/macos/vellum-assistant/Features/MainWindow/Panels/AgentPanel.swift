@@ -1,6 +1,20 @@
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - Skill Filter
+
+private enum SkillFilter: String, CaseIterable {
+    case all = "All"
+    case installed = "Installed"
+
+    var icon: VIcon {
+        switch self {
+        case .all: return .circle
+        case .installed: return .circleCheck
+        }
+    }
+}
+
 // MARK: - Agent Panel Content (embeddable)
 
 /// The installed skills management content, usable standalone
@@ -15,7 +29,8 @@ struct AgentPanelContent: View {
     @State private var skillToDelete: SkillInfo?
     @State private var selectedCategory: SkillCategory?
     @State private var globalSkillSearchQuery = ""
-    @State private var showAllSkills = false
+    @State private var skillFilter: SkillFilter = .all
+    @State private var showSkillFilterPopover = false
 
     init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, connectionManager: GatewayConnectionManager) {
         self.onInvokeSkill = onInvokeSkill
@@ -70,7 +85,7 @@ struct AgentPanelContent: View {
                 selectedInstalledSkillId = nil
             }
         }
-        .onChange(of: showAllSkills) {
+        .onChange(of: skillFilter) {
             if let selectedId = selectedInstalledSkillId,
                !filteredSkills.contains(where: { $0.id == selectedId }) {
                 selectedInstalledSkillId = nil
@@ -96,22 +111,64 @@ struct AgentPanelContent: View {
     private var filterBar: some View {
         HStack(spacing: VSpacing.sm) {
             VSearchBar(placeholder: "Search Skills", text: $globalSkillSearchQuery)
-            filterPill(label: "Installed", isActive: !showAllSkills) {
-                withAnimation(VAnimation.fast) { showAllSkills = false }
-            }
-            filterPill(label: "All", isActive: showAllSkills) {
-                withAnimation(VAnimation.fast) { showAllSkills = true }
-            }
+            skillFilterDropdown
+                .frame(width: 130)
         }
     }
 
-    private func filterPill(label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
-        VButton(
-            label: label,
-            style: isActive ? .primary : .ghost,
-            size: .pill,
-            action: action
-        )
+    private var skillFilterDropdown: some View {
+        Button {
+            showSkillFilterPopover.toggle()
+        } label: {
+            HStack(spacing: VSpacing.md) {
+                Text(skillFilter.rawValue)
+                    .foregroundStyle(VColor.contentDefault)
+                    .font(VFont.bodyMediumLighter)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                VIconView(.chevronDown, size: 13)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .accessibilityHidden(true)
+            }
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .frame(height: 32)
+            .vInputChrome()
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Skill filter: \(skillFilter.rawValue)")
+        .popover(isPresented: $showSkillFilterPopover, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(SkillFilter.allCases, id: \.self) { filter in
+                    Button {
+                        withAnimation(VAnimation.fast) { skillFilter = filter }
+                        showSkillFilterPopover = false
+                    } label: {
+                        HStack(spacing: VSpacing.sm) {
+                            VIconView(filter.icon, size: 14)
+                                .foregroundStyle(VColor.contentDefault)
+                                .frame(width: 20)
+                            Text(filter.rawValue)
+                                .font(VFont.bodyMediumLighter)
+                                .foregroundStyle(VColor.contentDefault)
+                            Spacer()
+                            if skillFilter == filter {
+                                VIconView(.check, size: 12)
+                                    .foregroundStyle(VColor.primaryBase)
+                            }
+                        }
+                        .padding(.horizontal, VSpacing.md)
+                        .padding(.vertical, VSpacing.sm)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(filter.rawValue) skills")
+                    .accessibilityAddTraits(skillFilter == filter ? .isSelected : [])
+                }
+            }
+            .padding(.vertical, VSpacing.sm)
+            .frame(width: 180)
+        }
     }
 
     // MARK: - Category Sidebar
@@ -151,7 +208,7 @@ struct AgentPanelContent: View {
     // MARK: - Filtering
 
     private var userSkills: [SkillInfo] {
-        if showAllSkills {
+        if skillFilter == .all {
             return skillsManager.skills
         }
         return skillsManager.skills.filter { $0.isInstalled }
@@ -214,15 +271,15 @@ struct AgentPanelContent: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if filteredSkills.isEmpty {
             VEmptyState(
-                title: showAllSkills
+                title: skillFilter == .all
                     ? "No Skills Available"
                     : (selectedCategory == nil ? "No Skills Installed" : "No \(selectedCategory!.displayName) Skills"),
-                subtitle: showAllSkills
+                subtitle: skillFilter == .all
                     ? "Check your connection to the Vellum catalog."
                     : (selectedCategory == nil
                         ? "Ask your assistant in chat to search for and install new skills."
                         : "Try selecting a different category or clearing the filter."),
-                icon: showAllSkills ? VIcon.cloudOff.rawValue : VIcon.zap.rawValue
+                icon: skillFilter == .all ? VIcon.cloudOff.rawValue : VIcon.zap.rawValue
             )
         } else {
             ScrollView {
