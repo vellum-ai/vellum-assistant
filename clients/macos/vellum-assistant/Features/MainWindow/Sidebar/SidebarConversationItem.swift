@@ -154,7 +154,7 @@ struct SidebarConversationItem: View, Equatable {
             .background {
                 if isSelected {
                     VColor.surfaceActive
-                } else if isHovered {
+                } else if isHovered || isMenuOpen {
                     VColor.surfaceBase
                 } else if conversation.kind == .private {
                     VColor.primaryBase.opacity(0.04)
