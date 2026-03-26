@@ -57,14 +57,24 @@ export async function handleSmsWebhook(
     );
   }
 
+  const numMedia = parseInt(params.NumMedia ?? "0", 10);
+
+  // MMS with media-only (no text body) can't be processed through the channel
+  // pipeline yet because media URLs aren't extracted into attachments. Return
+  // 200 to prevent Twilio retry storms.
+  if (!body && numMedia > 0) {
+    log.warn(
+      { messageSid, from, numMedia },
+      "Dropping media-only MMS — media attachment processing not yet supported",
+    );
+    return new Response(null, { status: 200 });
+  }
+
   log.info({ messageSid, from, to }, "Processing inbound SMS");
 
-  // Use the sender's phone number as the conversation ID and actor ID,
-  // so all messages from the same number are grouped into one conversation.
   const conversationExternalId = from;
   const actorExternalId = from;
 
-  // Build a synthetic inbound request for the channel pipeline.
   const channelPayload = {
     sourceChannel: "phone",
     interface: "phone",
