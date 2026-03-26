@@ -58,10 +58,14 @@ final class DebugStateWriter {
         // Encode and write on a background thread to avoid blocking the main
         // thread with JSON serialization and disk I/O every 5 seconds.
         // Task.detached is used intentionally to leave @MainActor isolation.
-        let encoder = self.encoder
+        // A fresh encoder is created per task because JSONEncoder is a mutable
+        // reference type and concurrent encode() calls would race.
         let fileURL = self.fileURL
         Task.detached(priority: .utility) {
             do {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                encoder.dateEncodingStrategy = .iso8601
                 let data = try encoder.encode(snapshot)
                 try data.write(to: fileURL, options: .atomic)
             } catch {
