@@ -46,7 +46,7 @@ public enum AppHostAllowlist {
 
     /// Generates the WKContentRuleList JSON that blocks all requests except `vellumapp://`,
     /// `about:blank`, and the allowed hosts (each as an `ignore-previous-rules` entry with a
-    /// url-filter matching `^https://([^/]*\\.)?<escaped-host>/`).
+    /// url-filter matching `^(https|wss)://([^/]*\\.)?<escaped-host>(/|$)`).
     public static func contentRuleListJSON(allowedHosts: [String]) -> String {
         var rules: [[String: Any]] = []
 
@@ -72,7 +72,7 @@ public enum AppHostAllowlist {
         for host in allowedHosts {
             let escaped = NSRegularExpression.escapedPattern(for: host)
             rules.append([
-                "trigger": ["url-filter": "^https://([^/]*\\.)?\(escaped)/"],
+                "trigger": ["url-filter": "^(https|wss)://([^/]*\\.)?\(escaped)(/|$)"],
                 "action": ["type": "ignore-previous-rules"]
             ])
         }

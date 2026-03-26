@@ -148,9 +148,9 @@ final class SurfaceManager {
         let allowedHosts: [String]
         if isSandboxed, let appId, let metadata = BundleSandbox.metadata(for: appId) {
             let merged = Set(metadata.allowedHosts).union(globalAppAllowedHosts)
-            allowedHosts = Array(merged).sorted()
+            allowedHosts = AppHostAllowlist.normalizeDomains(Array(merged)).sorted()
         } else if isSandboxed, !globalAppAllowedHosts.isEmpty {
-            allowedHosts = globalAppAllowedHosts
+            allowedHosts = AppHostAllowlist.normalizeDomains(globalAppAllowedHosts)
         } else {
             allowedHosts = []
         }

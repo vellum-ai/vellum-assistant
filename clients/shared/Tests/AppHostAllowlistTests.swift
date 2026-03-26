@@ -172,6 +172,19 @@ final class AppHostAllowlistTests: XCTestCase {
         XCTAssertEqual(rules.count, 5)
     }
 
+    func testContentRuleListJSON_hostPatternMatchesBareDomain() {
+        let json = AppHostAllowlist.contentRuleListJSON(allowedHosts: ["example.com"])
+        // The url-filter should use (/|$) to match bare-domain URLs without trailing slash
+        XCTAssertTrue(json.contains("(/|$)"), "Host pattern should use (/|$) to match bare-domain URLs")
+        XCTAssertFalse(json.contains("example\\\\.com/\""), "Host pattern should NOT require trailing slash")
+    }
+
+    func testContentRuleListJSON_hostPatternIncludesWss() {
+        let json = AppHostAllowlist.contentRuleListJSON(allowedHosts: ["example.com"])
+        // The url-filter should match both https and wss schemes
+        XCTAssertTrue(json.contains("(https|wss)"), "Host pattern should match both https and wss schemes")
+    }
+
     func testContentRuleListJSON_emptyHostsStillHasBaseRules() {
         let json = AppHostAllowlist.contentRuleListJSON(allowedHosts: [])
         let data = json.data(using: .utf8)!
