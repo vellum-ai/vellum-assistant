@@ -162,7 +162,7 @@ extension AppDelegate {
                         surfaceId: surfaceId,
                         surfaceType: "dynamic_page",
                         title: manifest.name,
-                        data: AnyCodable(["html": html]),
+                        data: AnyCodable(["html": html, "appId": uuid]),
                         actions: nil,
                         display: "panel",
                         messageId: nil

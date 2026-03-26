@@ -413,7 +413,7 @@ struct AppsGridView: View {
             surfaceId: "shared-app-\(app.uuid)",
             surfaceType: "dynamic_page",
             title: app.name,
-            data: AnyCodable(["html": html]),
+            data: AnyCodable(["html": html, "appId": app.uuid]),
             actions: nil,
             display: "panel",
             messageId: nil
