@@ -16,14 +16,9 @@ Integrating with a third-party software via OAuth is typically used to perform a
 
 ## The Assistant OAuth CLI
 
-You are provided with a rich CLI for performing all necessary oauth-related actions. Lean on it and its help documentation heavily. 
+You are provided with the `assistant oauth` CLI for performing all necessary oauth-related actions.
 
-```bash
-assistant oauth --help
-```
-
-**Important: **When in doubt how a command works or how to do something, read the references at the bottom and use `--help` with the CLI.
-
+**Important:** When in doubt how a command works or how to do something, read the references at the bottom. Never guess at how the CLI works. Read references and use the `--help` flag for any command you're about to run.
 
 ## Viewing Available OAuth Providers
 
