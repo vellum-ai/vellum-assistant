@@ -161,6 +161,36 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
     expect(risk).toBe(RiskLevel.Medium);
   });
 
+  test("assistant oauth connect is Medium risk (modifies OAuth connections)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant oauth connect",
+    });
+    expect(risk).toBe(RiskLevel.Medium);
+  });
+
+  test("assistant oauth disconnect is Medium risk (removes OAuth connections)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant oauth disconnect",
+    });
+    expect(risk).toBe(RiskLevel.Medium);
+  });
+
+  test("--help on elevated subcommands is Low risk (read-only)", async () => {
+    const helpCommands = [
+      "assistant oauth token --help",
+      "assistant oauth mode --set --help",
+      "assistant credentials reveal --help",
+      "assistant oauth request --help",
+      "assistant oauth connect --help",
+      "assistant oauth disconnect -h",
+    ];
+
+    for (const command of helpCommands) {
+      const risk = await classifyRisk("bash", { command });
+      expectLowRisk(command, risk);
+    }
+  });
+
   test("non-sensitive oauth subcommands remain Low risk", async () => {
     const lowRiskOauthCommands = [
       "assistant oauth apps",

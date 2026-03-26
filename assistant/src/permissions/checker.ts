@@ -204,6 +204,9 @@ const LOW_RISK_GIT_SUBCOMMANDS = new Set([
  * (e.g. `assistant oauth token`) are matched by walking the positional args.
  */
 function classifyAssistantSubcommand(args: string[]): RiskLevel {
+  // `--help` on any subcommand is read-only, always Low risk.
+  if (args.some((a) => a === "--help" || a === "-h")) return RiskLevel.Low;
+
   const sub = firstPositionalArg(args);
   if (!sub) return RiskLevel.Low;
 
@@ -218,6 +221,8 @@ function classifyAssistantSubcommand(args: string[]): RiskLevel {
       return RiskLevel.Low;
     }
     if (oauthSub === "request") return RiskLevel.Medium;
+    if (oauthSub === "connect" || oauthSub === "disconnect")
+      return RiskLevel.Medium;
     return RiskLevel.Low;
   }
 
