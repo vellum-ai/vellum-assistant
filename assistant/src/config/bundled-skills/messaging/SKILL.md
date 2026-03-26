@@ -65,7 +65,7 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
      - **confirmLabel:** "Get Started"
      - **cancelLabel:** "Not Now"
    - If the user confirms, briefly acknowledge (e.g., "Setting up Gmail now...") and proceed with the setup guide. If they decline, acknowledge and let them know they can set it up later.
-3. **If the user provides a client_id directly in chat:** Call `credential_store` with `action: "oauth2_connect"`, `service: "google"`, and `client_id: "<their value>"`. If a client_secret is also needed, collect it via `credential_store` with `action: "prompt"`, `service: "google"`, `field: "client_secret"` — never accept it pasted in chat. Everything else is auto-filled.
+3. **If the user provides a client_id directly in chat:** Call `credential_store` with `action: "oauth2_connect"`, `service: "google"`, and `client_id: "<their value>"`. If a `client_secret` is also needed, collect it securely via `credential_store` with `action: "prompt"` — never accept it pasted in chat. Everything else is auto-filled.
 
 ### Slack
 
