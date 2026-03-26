@@ -136,6 +136,7 @@ export { migrateCreateMemoryRecallLogs } from "./194-memory-recall-logs.js";
 export { migrateOAuthProvidersPingConfig } from "./195-oauth-providers-ping-config.js";
 export { migrateMessagesConversationCreatedAtIndex } from "./196-messages-conversation-created-at-index.js";
 export { migrateStripIntegrationPrefixFromProviderKeys } from "./196-strip-integration-prefix-from-provider-keys.js";
+export { migrateOAuthProvidersBehaviorColumns } from "./197-oauth-providers-behavior-columns.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,
