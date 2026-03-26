@@ -14,7 +14,6 @@ import {
   registerProvider,
   updateProvider,
 } from "../../../oauth/oauth-store.js";
-import { getProviderBehavior } from "../../../oauth/provider-behaviors.js";
 import { SEEDED_PROVIDER_KEYS } from "../../../oauth/seed-providers.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
@@ -25,13 +24,12 @@ const LOOPBACK_CALLBACK_PATH = "/oauth/callback";
 
 /** Resolve the redirect URI for a provider based on its callback transport. */
 function resolveRedirectUri(
-  providerKey: string,
   callbackTransport: string | null,
+  loopbackPort: number | null,
 ): string | null {
   const transport = callbackTransport ?? "loopback";
   if (transport === "loopback") {
-    const behavior = getProviderBehavior(providerKey);
-    const port = behavior?.loopbackPort;
+    const port = loopbackPort;
     if (!port) {
       // No fixed port — loopback still works at runtime with an OS-assigned
       // port, but we can't predict the redirect URI ahead of time.  Return
@@ -69,7 +67,7 @@ function parseProviderRow(row: ReturnType<typeof getProvider>) {
     extraParams: row.extraParams ? JSON.parse(row.extraParams) : null,
     pingHeaders: row.pingHeaders ? JSON.parse(row.pingHeaders) : null,
     pingBody: row.pingBody ? JSON.parse(row.pingBody) : null,
-    redirectUri: resolveRedirectUri(row.providerKey, row.callbackTransport),
+    redirectUri: resolveRedirectUri(row.callbackTransport, row.loopbackPort),
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
   };
