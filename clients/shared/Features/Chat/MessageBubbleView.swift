@@ -83,11 +83,6 @@ public struct MessageBubbleView: View {
                 } else if message.role == .assistant && hasInterleavedContent {
                     interleavedContent
                 } else {
-                    // Skill invocation chip (shown above message text)
-                    if let skillInvocation = message.skillInvocation {
-                        SkillInvocationChip(data: skillInvocation)
-                    }
-
                     // Pre-text tool calls render above the bubble
                     let preTextCalls = message.toolCalls.filter { $0.arrivedBeforeText }
                     if !preTextCalls.isEmpty {

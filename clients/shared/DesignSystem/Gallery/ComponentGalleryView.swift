@@ -58,7 +58,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         case .chat:
             return [
                 GalleryComponent("voiceComposer", "VStreamingWaveform", keywords: ["voice composer", "waveform", "dictation"], description: "Animated waveform for voice dictation and conversation audio feedback."),
-                GalleryComponent("skillInvocation", "SkillInvocationChip", keywords: ["skill invocation", "skill chip"], description: "Compact pill showing a skill being invoked with its name and status."),
+
                 GalleryComponent("subagentStatus", "SubagentStatusChip", keywords: ["subagent status", "subagent conversation"], description: "Status chip for subagent conversations showing name and activity state."),
                 GalleryComponent("toolChips", "ToolCallChip", keywords: ["tool chips", "tool call"], description: "Compact chip showing a tool call with name, status icon, and optional duration."),
                 GalleryComponent("stepIndicators", "CurrentStepIndicator", keywords: ["step indicators", "progress bar", "tool call progress"], description: "Progress bar showing the current step in a multi-step tool call."),

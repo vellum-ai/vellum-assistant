@@ -630,10 +630,6 @@ struct ChatBubble: View {
         let partitioned = partitionedAttachments
         return bubbleChrome {
             VStack(alignment: .leading, spacing: VSpacing.sm) {
-                if let skillInvocation = message.skillInvocation {
-                    SkillInvocationChip(data: skillInvocation)
-                }
-
                 if hasText {
                     let segments = resolveSegments(for: message.text, isStreaming: message.isStreaming)
                     // Always render through MarkdownSegmentView to keep view
