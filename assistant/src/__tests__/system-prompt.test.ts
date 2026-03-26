@@ -24,6 +24,7 @@ mock.module("../util/platform.js", () => ({
   getWorkspaceConfigPath: () => join(TEST_DIR, "config.json"),
   getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
   getWorkspaceHooksDir: () => join(TEST_DIR, "hooks"),
+  getConversationsDir: () => join(TEST_DIR, "conversations"),
   getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
   ensureDataDir: () => {},
   getPidPath: () => join(TEST_DIR, "vellum.pid"),
@@ -559,5 +560,43 @@ describe("ensurePromptFiles", () => {
 
     const bootstrapPath = join(TEST_DIR, "BOOTSTRAP.md");
     expect(existsSync(bootstrapPath)).toBe(false);
+  });
+
+  test("auto-deletes stale BOOTSTRAP.md when prior conversations exist", () => {
+    // Simulate a non-first-run workspace: core files + BOOTSTRAP.md still present
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "My identity");
+    writeFileSync(join(TEST_DIR, "SOUL.md"), "My soul");
+    writeFileSync(join(TEST_DIR, "USER.md"), "My user");
+    writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# Stale bootstrap");
+
+    // Create a conversations directory with at least one entry
+    const convDir = join(TEST_DIR, "conversations");
+    mkdirSync(convDir, { recursive: true });
+    writeFileSync(join(convDir, "conv-001.json"), "{}");
+
+    ensurePromptFiles();
+
+    expect(existsSync(join(TEST_DIR, "BOOTSTRAP.md"))).toBe(false);
+  });
+
+  test("keeps BOOTSTRAP.md on first run even if conversations dir exists", () => {
+    // First run: no core files exist, BOOTSTRAP.md should be created and kept
+    const convDir = join(TEST_DIR, "conversations");
+    mkdirSync(convDir, { recursive: true });
+    writeFileSync(join(convDir, "conv-001.json"), "{}");
+
+    ensurePromptFiles();
+
+    expect(existsSync(join(TEST_DIR, "BOOTSTRAP.md"))).toBe(true);
+  });
+
+  test("keeps BOOTSTRAP.md when no conversations exist yet", () => {
+    // Non-first-run but no conversations — user hasn't chatted yet
+    writeFileSync(join(TEST_DIR, "IDENTITY.md"), "My identity");
+    writeFileSync(join(TEST_DIR, "BOOTSTRAP.md"), "# Bootstrap");
+
+    ensurePromptFiles();
+
+    expect(existsSync(join(TEST_DIR, "BOOTSTRAP.md"))).toBe(true);
   });
 });
