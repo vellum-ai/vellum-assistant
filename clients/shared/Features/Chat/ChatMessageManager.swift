@@ -38,6 +38,10 @@ public final class ChatMessageManager: ObservableObject {
     private var activePendingRequestIdSub: AnyCancellable?
 
     init() {
+        // Uses visibleMessages (all non-hidden) rather than paginatedMessages
+        // because pending confirmations are always near the end of the list,
+        // within the initial pagination window. The broader scope ensures the
+        // model always knows the true pending state regardless of pagination.
         activePendingRequestIdSub = $messages
             .map { messages in
                 PendingConfirmationFocusSelector.activeRequestId(
