@@ -447,10 +447,11 @@ export async function enforceIngressAcl(
           );
         }
 
+        const replyText = guardianNotified
+          ? `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(sourceChannel, canonicalAssistantId)} know you tried talking to me and get back to you.`
+          : "Sorry, you haven't been approved to message this assistant.";
+        let replyDelivered = false;
         if (replyCallbackUrl) {
-          const replyText = guardianNotified
-            ? `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(sourceChannel, canonicalAssistantId)} know you tried talking to me and get back to you.`
-            : "Sorry, you haven't been approved to message this assistant.";
           const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
             chatId: conversationExternalId,
             text: replyText,
@@ -467,6 +468,7 @@ export async function enforceIngressAcl(
               replyPayload,
               mintBearerToken(),
             );
+            replyDelivered = true;
           } catch (err) {
             log.error(
               { err, conversationExternalId },
@@ -481,6 +483,9 @@ export async function enforceIngressAcl(
             accepted: true,
             denied: true,
             reason: "not_a_member",
+            // Include reply text so the gateway can deliver directly when
+            // callback delivery failed (e.g. signing-key mismatch → 401).
+            ...(!replyDelivered && { replyText }),
           }),
           guardianVerifyCode,
         };
@@ -714,15 +719,16 @@ export async function enforceIngressAcl(
             }
           }
 
+          const inactiveReplyText = guardianNotified
+            ? `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(sourceChannel, canonicalAssistantId)} know you tried talking to me and get back to you.`
+            : "Sorry, you haven't been approved to message this assistant.";
+          let inactiveReplyDelivered = false;
           if (replyCallbackUrl) {
-            const replyText = guardianNotified
-              ? `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(sourceChannel, canonicalAssistantId)} know you tried talking to me and get back to you.`
-              : "Sorry, you haven't been approved to message this assistant.";
             const inactiveReplyPayload: Parameters<
               typeof deliverChannelReply
             >[1] = {
               chatId: conversationExternalId,
-              text: replyText,
+              text: inactiveReplyText,
               assistantId,
             };
             // On Slack, send as ephemeral so only the requester sees the rejection
@@ -739,6 +745,7 @@ export async function enforceIngressAcl(
                 inactiveReplyPayload,
                 mintBearerToken(),
               );
+              inactiveReplyDelivered = true;
             } catch (err) {
               log.error(
                 { err, conversationExternalId },
@@ -752,6 +759,7 @@ export async function enforceIngressAcl(
               accepted: true,
               denied: true,
               reason: `member_${channelStatusToMemberStatus(resolvedMember.channel.status)}`,
+              ...(!inactiveReplyDelivered && { replyText: inactiveReplyText }),
             }),
             guardianVerifyCode,
           };
@@ -763,10 +771,13 @@ export async function enforceIngressAcl(
           { sourceChannel, channelId: resolvedMember.channel.id },
           "Ingress ACL: member policy deny",
         );
+        const denyReplyText =
+          "Sorry, you haven't been approved to message this assistant.";
+        let denyReplyDelivered = false;
         if (replyCallbackUrl) {
           const denyPayload: Parameters<typeof deliverChannelReply>[1] = {
             chatId: conversationExternalId,
-            text: "Sorry, you haven't been approved to message this assistant.",
+            text: denyReplyText,
             assistantId,
           };
           if (sourceChannel === "slack" && (canonicalSenderId ?? rawSenderId)) {
@@ -779,6 +790,7 @@ export async function enforceIngressAcl(
               denyPayload,
               mintBearerToken(),
             );
+            denyReplyDelivered = true;
           } catch (err) {
             log.error(
               { err, conversationExternalId },
@@ -792,6 +804,7 @@ export async function enforceIngressAcl(
             accepted: true,
             denied: true,
             reason: "policy_deny",
+            ...(!denyReplyDelivered && { replyText: denyReplyText }),
           }),
           guardianVerifyCode,
         };

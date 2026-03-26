@@ -436,6 +436,27 @@ export function createTelegramWebhookHandler(
           });
         } else {
           tlog.info({ status: "forwarded" }, "Forwarded /start to runtime");
+
+          // Fallback: if the runtime denied the message and could not
+          // deliver the rejection reply via callback, send it directly.
+          const startRuntimeResp = result.runtimeResponse;
+          if (startRuntimeResp?.denied && startRuntimeResp.replyText) {
+            sendTelegramReply(
+              config,
+              normalized.message.conversationExternalId,
+              startRuntimeResp.replyText,
+              undefined,
+              {
+                credentials: caches?.credentials,
+                configFile: caches?.configFile,
+              },
+            ).catch((err) => {
+              tlog.error(
+                { err, chatId: normalized.message.conversationExternalId },
+                "Failed to send ACL denial fallback reply",
+              );
+            });
+          }
         }
       } catch (err) {
         if (err instanceof CircuitBreakerOpenError) {
@@ -702,6 +723,21 @@ export function createTelegramWebhookHandler(
       }
 
       tlog.info({ status: "forwarded" }, "Forwarded to runtime");
+
+      // Fallback: if the runtime denied the message and could not
+      // deliver the rejection reply via callback, send it directly.
+      const runtimeResp = result.runtimeResponse;
+      if (runtimeResp?.denied && runtimeResp.replyText) {
+        sendTelegramReply(config, chatId, runtimeResp.replyText, undefined, {
+          credentials: caches?.credentials,
+          configFile: caches?.configFile,
+        }).catch((err) => {
+          tlog.error(
+            { err, chatId },
+            "Failed to send ACL denial fallback reply",
+          );
+        });
+      }
 
       // Acknowledge the callback query to clear the button spinner in the
       // Telegram client. Best-effort — log errors but don't fail the flow.

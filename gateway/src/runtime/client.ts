@@ -179,6 +179,14 @@ export type RuntimeInboundResponse = {
     timestamp: string;
     attachments: RuntimeAttachmentMeta[];
   };
+  /** When true, the runtime denied the inbound message (e.g. ACL rejection). */
+  denied?: boolean;
+  /**
+   * A user-facing rejection message that the runtime could not deliver via
+   * the callback URL (e.g. due to auth failure). When present, the gateway
+   * should deliver it directly to the channel.
+   */
+  replyText?: string;
 };
 
 export type ForwardOptions = {
