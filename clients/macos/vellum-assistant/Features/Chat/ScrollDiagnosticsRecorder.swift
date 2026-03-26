@@ -1,5 +1,6 @@
 import Foundation
 import os
+import VellumAssistantShared
 
 /// Owns all scroll-related diagnostic recording — loop detection, transcript
 /// snapshot capture, and non-finite geometry logging — extracted from
