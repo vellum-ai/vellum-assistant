@@ -270,7 +270,7 @@ public final class GatewayConnectionManager: ObservableObject {
 
     private func performHealthCheck() async throws {
         do {
-            let isManaged = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
+            let isManaged = (try? await GatewayHTTPClient.isConnectionManaged()) ?? false
             let healthPath = isManaged ? "assistants/{assistantId}/health" : "health"
             let response = try await GatewayHTTPClient.get(
                 path: healthPath,
@@ -280,8 +280,8 @@ public final class GatewayConnectionManager: ObservableObject {
 
             guard response.isSuccess else {
                 if response.statusCode == 401 {
-                    handleAuthenticationFailure()
-                    let isManaged = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
+                    await handleAuthenticationFailure()
+                    let isManaged = (try? await GatewayHTTPClient.isConnectionManaged()) ?? false
                     if isManaged {
                         shouldReconnect = false
                     }
@@ -481,8 +481,8 @@ public final class GatewayConnectionManager: ObservableObject {
 
     // MARK: - 401 Recovery
 
-    private func handleAuthenticationFailure() {
-        let isManaged = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
+    private func handleAuthenticationFailure() async {
+        let isManaged = (try? await GatewayHTTPClient.isConnectionManaged()) ?? false
         if isManaged {
             log.warning("401 in managed mode — session token may be expired")
             eventStreamClient.broadcastMessage(.conversationError(ConversationErrorMessage(

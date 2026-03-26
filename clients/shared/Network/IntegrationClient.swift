@@ -4,7 +4,6 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "IntegrationClient")
 
 /// Focused client for integration status operations routed through the gateway.
-@MainActor
 public protocol IntegrationClientProtocol {
     func fetchIntegrationsStatus() async -> IntegrationsStatusResponse?
 }
@@ -18,7 +17,6 @@ public struct IntegrationsStatusResponse: Decodable, Sendable {
 }
 
 /// Gateway-backed implementation of ``IntegrationClientProtocol``.
-@MainActor
 public struct IntegrationClient: IntegrationClientProtocol {
     nonisolated public init() {}
 

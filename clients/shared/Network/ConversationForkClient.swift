@@ -4,13 +4,11 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationForkClient")
 
 /// Focused client for creating conversation forks through the gateway.
-@MainActor
 public protocol ConversationForkClientProtocol {
     func forkConversation(conversationId: String, throughMessageId: String?) async -> ConversationListResponseItem?
 }
 
 /// Gateway-backed implementation of ``ConversationForkClientProtocol``.
-@MainActor
 public struct ConversationForkClient: ConversationForkClientProtocol {
     nonisolated public init() {}
 

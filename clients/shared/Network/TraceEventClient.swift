@@ -4,13 +4,11 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "TraceEventClient")
 
 /// Focused client for trace event history operations routed through the gateway.
-@MainActor
 public protocol TraceEventClientProtocol {
     func fetchHistory(conversationId: String) async throws -> [TraceEventMessage]
 }
 
 /// Gateway-backed implementation of ``TraceEventClientProtocol``.
-@MainActor
 public struct TraceEventClient: TraceEventClientProtocol {
     nonisolated public init() {}
 
