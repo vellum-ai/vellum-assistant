@@ -70,6 +70,12 @@ struct AgentPanelContent: View {
                 selectedInstalledSkillId = nil
             }
         }
+        .onChange(of: showAllSkills) {
+            if let selectedId = selectedInstalledSkillId,
+               !filteredSkills.contains(where: { $0.id == selectedId }) {
+                selectedInstalledSkillId = nil
+            }
+        }
         .sheet(item: $skillToDelete) { skill in
             SkillDeleteConfirmView(
                 skillName: skill.name,
