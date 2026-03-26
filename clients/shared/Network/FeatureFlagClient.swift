@@ -50,6 +50,11 @@ private struct FeatureFlagsResponse<Flag: Decodable>: Decodable {
     let flags: [Flag]
 }
 
+/// Wrapper for the platform's dict-format response: `{ "flags": { "key": bool } }`.
+private struct PlatformFeatureFlagsResponse: Decodable {
+    let flags: [String: Bool]
+}
+
 public enum FeatureFlagError: Error, LocalizedError {
     case requestFailed(Int)
 
@@ -76,8 +81,15 @@ public struct FeatureFlagClient: FeatureFlagClientProtocol {
             log.error("getFeatureFlags failed (HTTP \(response.statusCode))")
             throw FeatureFlagError.requestFailed(response.statusCode)
         }
-        let decoded = try JSONDecoder().decode(FeatureFlagsResponse<AssistantFeatureFlag>.self, from: response.data)
-        return decoded.flags
+        // Try gateway array format first: { "flags": [{ key, enabled, ... }] }
+        if let decoded = try? JSONDecoder().decode(FeatureFlagsResponse<AssistantFeatureFlag>.self, from: response.data) {
+            return decoded.flags
+        }
+        // Fall back to platform dict format: { "flags": { "key": bool } }
+        let platform = try JSONDecoder().decode(PlatformFeatureFlagsResponse.self, from: response.data)
+        return platform.flags.map { key, enabled in
+            AssistantFeatureFlag(key: key, enabled: enabled)
+        }
     }
 
     public func setFeatureFlag(key: String, enabled: Bool) async throws {
