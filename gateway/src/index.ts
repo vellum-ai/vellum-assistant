@@ -640,7 +640,7 @@ async function main() {
         if (!result.ok) {
           authRateLimiter.recordFailure(getClientIp());
           log.warn(
-            { reason: result.reason },
+            { path: new URL(req.url).pathname, reason: result.reason },
             "Guardian refresh auth rejected: token validation failed",
           );
           return Response.json({ error: "Unauthorized" }, { status: 401 });
