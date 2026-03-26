@@ -461,64 +461,8 @@ struct MessageListView: View {
         return result
     }
 
-    /// Whether the floating avatar should be visible. Derived from scroll
-    /// proximity to the bottom — the avatar appears when the user is near
-    /// the bottom of the conversation and disappears when scrolled up.
-    private var shouldShowConversationTailAvatar: Bool {
-        guard !visibleMessages.isEmpty else { return false }
-        return isNearBottom
-    }
-
     private var shouldPlayTailEntryAnimation: Bool {
         !hasPlayedTailEntryAnimation && messages.count <= 2
-    }
-
-    @ViewBuilder
-    private var conversationTailAvatar: some View {
-        if shouldShowConversationTailAvatar {
-            if appearance.customAvatarImage != nil {
-                HStack {
-                    VAvatarImage(image: appearance.chatAvatarImage, size: ConversationAvatarFollower.avatarSize)
-                        .modifier(AvatarGlowModifier(isActive: isSending))
-                    Spacer()
-                }
-                .padding(.horizontal, VSpacing.xl)
-                .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-                .frame(maxWidth: .infinity)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            } else if let body = appearance.characterBodyShape,
-               let eyes = appearance.characterEyeStyle,
-               let color = appearance.characterColor {
-                AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
-                                   size: ConversationAvatarFollower.avatarSize,
-                                   entryAnimationEnabled: shouldPlayTailEntryAnimation)
-                    .frame(width: ConversationAvatarFollower.avatarSize,
-                           height: ConversationAvatarFollower.avatarSize)
-                    .modifier(AvatarGlowModifier(isActive: isSending))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, VSpacing.xl)
-                    .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-                    .frame(maxWidth: .infinity)
-                    .accessibilityHidden(true)
-                    .onAppear {
-                        if shouldPlayTailEntryAnimation {
-                            hasPlayedTailEntryAnimation = true
-                        }
-                    }
-            } else {
-                HStack {
-                    VAvatarImage(image: appearance.chatAvatarImage, size: ConversationAvatarFollower.avatarSize)
-                        .modifier(AvatarGlowModifier(isActive: isSending))
-                    Spacer()
-                }
-                .padding(.horizontal, VSpacing.xl)
-                .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-                .frame(maxWidth: .infinity)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            }
-        }
     }
 
     /// Delegates scroll-to-bottom restoration to the coordinator.
@@ -872,9 +816,21 @@ struct MessageListView: View {
                     os_signpost(.end, log: PerfSignposts.log, name: "viewportHeightChanged")
                 }
 
-                // --- Bottom detection ---
+                // --- Bottom detection (with hysteresis) ---
+                // Asymmetric thresholds prevent oscillation during streaming:
+                // content-height growth can briefly push distanceFromBottom past
+                // the "at bottom" threshold before the scroll position catches
+                // up, causing rapid true→false→true flips. A wider leave
+                // threshold absorbs those transient spikes.
                 let distanceFromBottom = effectiveContentHeight - newState.contentOffsetY - newState.visibleRectHeight
-                let nowAtBottom = distanceFromBottom.isFinite && distanceFromBottom <= 20
+                let nowAtBottom: Bool
+                if scrollCoordinator.isAtBottom {
+                    // Stay "at bottom" until clearly scrolled away.
+                    nowAtBottom = distanceFromBottom.isFinite && distanceFromBottom <= 50
+                } else {
+                    // Only re-enter "at bottom" when truly close.
+                    nowAtBottom = distanceFromBottom.isFinite && distanceFromBottom <= 10
+                }
                 if scrollCoordinator.isAtBottom != nowAtBottom {
                     scrollCoordinator.isAtBottom = nowAtBottom
                     if nowAtBottom {
@@ -905,7 +861,7 @@ struct MessageListView: View {
                 )
             }
             .overlay(alignment: .bottom) {
-                if !isNearBottom && !scrollCoordinator.isAtBottom {
+                if !isNearBottom {
                     Button(action: {
                         os_signpost(.event, log: PerfSignposts.log, name: "scrollToLatestPressed")
                         scrollCoordinator.hasReceivedScrollEvent = true

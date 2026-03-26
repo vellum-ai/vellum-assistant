@@ -97,7 +97,7 @@ These classes stay `ObservableObject` because they have deep Combine integration
 | `RecordingSourcePickerViewModel` | ScreenCaptureKit async sequences + Combine |
 | `HostCuSessionProxy` | Conforms to `SessionOverlayProviding` protocol requiring `ObservableObject` |
 | `ToolPermissionTesterModel` | Combine-based test execution pipeline |
-| `MessageListScrollCoordinator` | Intentional `@Published` / non-reactive split for scroll performance |
+| `MessageListScrollCoordinator` | Intentional `@Published` / non-reactive split for scroll performance; `isAtBottom` is deliberately non-reactive to prevent scroll-loop feedback |
 
 </details>
 
