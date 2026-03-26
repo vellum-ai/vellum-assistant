@@ -197,6 +197,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // System Permissions section removed — guidance lives in request_system_permission tool description.
   // Parallel Task Orchestration section removed — orchestration skill description + hints cover this.
   staticParts.push(buildAccessPreferenceSection(hasNoClient));
+  staticParts.push(buildCredentialSecuritySection());
   // Memory Persistence, Memory Recall, Workspace Reflection, Learning from Mistakes
   // sections removed — guidance lives in memory_manage/memory_recall tool descriptions
   // and the Proactive Workspace Editing subsection in Configuration.
@@ -331,6 +332,14 @@ function buildAccessPreferenceSection(hasNoClient: boolean): string {
           "On macOS, prefer osascript/CLI via `host_bash` over computer use tools, which take over the user's cursor. Use foreground computer use only when no scripting alternative exists or the user explicitly asks.",
         ]
       : []),
+  ].join("\n");
+}
+
+function buildCredentialSecuritySection(): string {
+  return [
+    "## Credential Security",
+    "",
+    'Never ask users to share secrets (API keys, tokens, passwords, webhook secrets) in chat — secret messages may be blocked at ingress. Use the `credential_store` tool with `action: "prompt"` instead; it collects secrets through a secure UI that never exposes the value in the conversation. Non-secret values (Client IDs, Account SIDs, usernames) may be collected conversationally.',
   ].join("\n");
 }
 
