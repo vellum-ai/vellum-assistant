@@ -203,6 +203,9 @@ declare -a SAFE_LINE_PATTERNS=(
     # Only whitelist specific known key-name constants — a broad `*Key` pattern
     # would let real credentials like `let apiKey = "sk_live_..."` slip through.
     "(private[[:space:]]+)?(let|var)[[:space:]]+(archivedConversationsKey)[[:space:]]*[:=][[:space:]]*['\"][a-zA-Z][a-zA-Z0-9_]*['\"]"
+    # Swift static let feature-flag key constants — values are plain kebab-case
+    # flag names, not secrets.
+    "(private[[:space:]]+static[[:space:]]+)?(let|var)[[:space:]]+[a-zA-Z]*FeatureFlagKey[[:space:]]*[:=][[:space:]]*['\"][a-z][a-z0-9-]*['\"]"
 )
 
 matches_safe_line_pattern() {
@@ -220,7 +223,7 @@ matches_safe_line_pattern() {
             # Skip the guard for explicitly-allowlisted variable names that contain
             # sensitive substrings but are known UserDefaults/storage key constants.
             if printf '%s\n' "$text" | grep -iE "(let|var|val)[[:space:]]+[a-zA-Z0-9_]*[Kk]ey[[:space:]]*=" >/dev/null 2>&1; then
-                if ! printf '%s\n' "$text" | grep -E "(let|var|val)[[:space:]]+(archivedConversationsKey)[[:space:]]*[:=]" >/dev/null 2>&1; then
+                if ! printf '%s\n' "$text" | grep -E "(let|var|val)[[:space:]]+(archivedConversationsKey|[a-zA-Z]*FeatureFlagKey)[[:space:]]*[:=]" >/dev/null 2>&1; then
                     if printf '%s\n' "$text" | grep -iE "(let|var|val)[[:space:]]+[a-zA-Z0-9_]*(api|access|private|secret|client|encryption|encrypt|jwt|signing|sign|auth|hmac|master|symmetric|asymmetric|shared|session|verification|verify|decryption|decrypt|service|deploy|registry|webhook|database|db)[a-zA-Z0-9_]*[Kk]ey" >/dev/null 2>&1; then
                         continue
                     fi

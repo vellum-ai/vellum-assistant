@@ -7,7 +7,6 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 ///
 /// Covers Vercel API config, model info, Telegram config, and channel
 /// verification status — the endpoints invoked during `SettingsStore.init()`.
-@MainActor
 public protocol SettingsClientProtocol {
     func fetchVercelConfig() async -> VercelApiConfigResponseMessage?
     func saveVercelConfig(apiToken: String) async -> VercelApiConfigResponseMessage?
@@ -48,7 +47,6 @@ public protocol SettingsClientProtocol {
 }
 
 /// Gateway-backed implementation of ``SettingsClientProtocol``.
-@MainActor
 public struct SettingsClient: SettingsClientProtocol {
     nonisolated public init() {}
 

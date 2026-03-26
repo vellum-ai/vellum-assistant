@@ -132,6 +132,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var refreshSkillsTask: Task<Void, Never>?
     var cachedApps: [AppItem] = []
     var refreshAppsTask: Task<Void, Never>?
+    /// The currently-active SSE event subscription task. Stored so it can be
+    /// cancelled before creating a new subscription (e.g. on reconnection or
+    /// assistant switch), preventing duplicate event processing.
+    var eventSubscriptionTask: Task<Void, Never>?
     /// Pending fallback notification tokens, keyed by conversationId.
     /// Used to avoid duplicate native alerts when notification_intent arrives.
     var pendingFallbackNotifications: [String: UUID] = [:]
@@ -482,6 +486,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         guard !hasSetupApp else {
+            // Check for a pending managed assistant switch (set by performSwitchAssistant
+            // when the user was logged out). Now that the user has re-authenticated and
+            // the app is already set up, complete the switch.
+            if let pendingId = UserDefaults.standard.string(forKey: "pendingManagedSwitchAssistantId"),
+               !pendingId.isEmpty {
+                UserDefaults.standard.removeObject(forKey: "pendingManagedSwitchAssistantId")
+                if let assistant = LockfileAssistant.loadByName(pendingId) {
+                    performSwitchAssistant(to: assistant)
+                    return
+                }
+            }
             showMainWindow()
             return
         }
@@ -605,6 +620,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.onboardingState = nil
                 }
             }
+
+            // Check for a pending managed assistant switch (set by performSwitchAssistant
+            // when the user was logged out). Now that the user has authenticated and all
+            // essential setup has completed, perform the switch.
+            if let pendingId = UserDefaults.standard.string(forKey: "pendingManagedSwitchAssistantId"),
+               !pendingId.isEmpty {
+                UserDefaults.standard.removeObject(forKey: "pendingManagedSwitchAssistantId")
+                if let assistant = LockfileAssistant.loadByName(pendingId) {
+                    performSwitchAssistant(to: assistant)
+                    return
+                }
+            }
+
             showMainWindow()
             debugStateWriter.start(appDelegate: self)
         }
@@ -652,6 +680,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         recordingManager.forceStop()
         recordingHUDWindow?.dismiss()
         e2eStatusOverlayWindow?.dismiss()
+        eventSubscriptionTask?.cancel()
         debugStateWriter.stop()
         RandomSoundTimer.shared.stop()
         SoundManager.shared.stop()

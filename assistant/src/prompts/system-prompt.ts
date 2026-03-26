@@ -232,7 +232,15 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const userIsTemplate = isTemplateContent(user, "USER.md");
 
   if (identity && !identityIsTemplate) {
-    dynamicParts.push(identity);
+    // Strip placeholder lines (e.g. "- **Name:** _(not yet chosen)_") so
+    // the model doesn't treat unresolved fields as prompts to ask the user.
+    const cleanedIdentity = identity
+      .split("\n")
+      .filter((line) => !/_\(not yet (?:chosen|established)\)_/.test(line))
+      .join("\n");
+    if (cleanedIdentity.trim()) {
+      dynamicParts.push(cleanedIdentity);
+    }
   }
   if (soul) dynamicParts.push(soul);
   if (options?.userPersona) dynamicParts.push(options.userPersona);

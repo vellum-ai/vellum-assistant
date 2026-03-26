@@ -88,10 +88,9 @@ public struct VNavItem<Trailing: View>: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .contentShape(Rectangle())
         .onTapGesture { action() }
-        .onHover { isHovered = $0 }
         .padding(.horizontal, 0)
         .help(isExpanded ? "" : label)
-        .pointerCursor()
+        .pointerCursor(onHover: { isHovered = $0 })
     }
 }
 

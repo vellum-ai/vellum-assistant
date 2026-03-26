@@ -4,7 +4,6 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ToolClient")
 
 /// Focused client for tool-related operations routed through the gateway.
-@MainActor
 public protocol ToolClientProtocol {
     func fetchToolNamesList() async throws -> ToolNamesListResponseMessage
     func simulateToolPermission(
@@ -17,7 +16,6 @@ public protocol ToolClientProtocol {
 }
 
 /// Gateway-backed implementation of ``ToolClientProtocol``.
-@MainActor
 public struct ToolClient: ToolClientProtocol {
     nonisolated public init() {}
 
