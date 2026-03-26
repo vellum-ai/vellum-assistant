@@ -848,14 +848,16 @@ struct MainWindowView: View {
     }
 
     private func handleUpdateOutcome(_ outcome: UpdateOutcome) {
+        // Any update attempt may have restarted the daemon, losing all
+        // injected secrets (platform API key, base URL, org/user IDs).
+        // Re-inject unconditionally — the call is idempotent and harmless
+        // when the daemon still has valid credentials.
+        AppDelegate.shared?.localBootstrapDidComplete = false
+        AppDelegate.shared?.ensureLocalAssistantApiKey()
+
         switch outcome.result {
         case .succeeded(let version):
             AppDelegate.shared?.updateManager.clearServiceGroupFlags()
-            // The restarted daemon lost all injected secrets (platform API key,
-            // base URL, org/user IDs). Re-inject so managed-credential
-            // assistants can reach the platform after the upgrade.
-            AppDelegate.shared?.localBootstrapDidComplete = false
-            AppDelegate.shared?.ensureLocalAssistantApiKey()
             windowState.showToast(
                 message: "Assistant updated to \(version)",
                 style: .success,
