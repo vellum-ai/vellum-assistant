@@ -513,10 +513,30 @@ class IOSConversationStore: ObservableObject {
         let currentGeneration = conversationListGeneration
         Task { [weak self] in
             guard let self else { return }
-            if let response = await conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize) {
+            // Fetch foreground and background conversations in parallel so
+            // background conversations don't consume pagination slots.
+            async let foregroundResult = conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize, conversationType: nil)
+            async let backgroundResult = conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize, conversationType: "background")
+            let foreground = await foregroundResult
+            let background = await backgroundResult
+
+            if let foreground {
                 guard currentGeneration == self.conversationListGeneration else { return }
+                // Deduplicate by conversation ID so that daemons that don't
+                // yet support the conversationType query param (which return
+                // the same conversations for both requests) don't produce
+                // duplicate sidebar entries.
+                var seenIds = Set(foreground.conversations.map(\.id))
+                let uniqueBackground = (background?.conversations ?? []).filter {
+                    seenIds.insert($0.id).inserted
+                }
+                let merged = ConversationListResponse(
+                    type: foreground.type,
+                    conversations: foreground.conversations + uniqueBackground,
+                    hasMore: foreground.hasMore
+                )
                 self.expectedConversationListGeneration = currentGeneration
-                self.handleConversationListResponse(response)
+                self.handleConversationListResponse(merged)
             } else {
                 guard currentGeneration == self.conversationListGeneration else { return }
                 self.isLoadingInitialConversations = false
@@ -771,7 +791,7 @@ class IOSConversationStore: ObservableObject {
         let capturedOffset = conversationListOffset
         Task { [weak self] in
             guard let self else { return }
-            if let response = await conversationListClient.fetchConversationList(offset: nextOffset, limit: Self.conversationPageSize) {
+            if let response = await conversationListClient.fetchConversationList(offset: nextOffset, limit: Self.conversationPageSize, conversationType: nil) {
                 guard capturedGeneration == self.conversationListGeneration else { return }
                 self.handleConversationListResponse(response)
             } else {

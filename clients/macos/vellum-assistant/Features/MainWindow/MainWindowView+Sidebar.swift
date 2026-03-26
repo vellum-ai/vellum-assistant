@@ -177,7 +177,6 @@ extension MainWindowView {
             isSelected: isConversationSelected(conversation),
             interactionState: conversationManager.interactionState(for: conversation.id),
             isHovered: sidebar.isHoveredConversation == conversation.id,
-            isPendingDeletion: sidebar.conversationPendingDeletion == conversation.id,
             selectConversation: { selectConversation(conversation) },
             onSelect: onSelect,
             onTogglePin: {
@@ -190,11 +189,6 @@ extension MainWindowView {
                 }
             },
             onArchive: { conversationManager.archiveConversation(id: conversation.id) },
-            onBeginArchive: { sidebar.conversationPendingDeletion = conversation.id },
-            onConfirmArchive: {
-                conversationManager.archiveConversation(id: conversation.id)
-                sidebar.conversationPendingDeletion = nil
-            },
             onStartRename: {
                 sidebar.renamingConversationId = conversation.id
                 sidebar.renameText = conversation.title
@@ -357,7 +351,6 @@ extension MainWindowView {
                             Spacer()
                         }
                         .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
-                        .padding(.top, VSpacing.sm)
                         .padding(.bottom, VSpacing.xs)
                     }
 
@@ -497,7 +490,6 @@ extension MainWindowView {
                                 Spacer()
                             }
                             .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
-                            .padding(.top, VSpacing.sm)
                             .padding(.bottom, VSpacing.xs)
                         }
                     }
@@ -533,7 +525,6 @@ extension MainWindowView {
                                 Spacer()
                             }
                             .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
-                            .padding(.top, VSpacing.sm)
                             .padding(.bottom, VSpacing.xs)
                         }
                     }

@@ -55,7 +55,7 @@ import { buildCesEgressHooks } from "./commands/egress-hooks.js";
 import { resolveManagedSubject } from "./subjects/managed.js";
 import { materializeManagedToken } from "./materializers/managed-platform.js";
 import { HandleType, parseHandle } from "@vellumai/ces-contracts";
-import { buildLazyGetters, type ApiKeyRef } from "./managed-lazy-getters.js";
+import { buildLazyGetters, type ApiKeyRef, type AssistantIdRef } from "./managed-lazy-getters.js";
 import { MANAGED_LOCAL_STATIC_REJECTION_ERROR } from "./managed-errors.js";
 import type { SecureKeyBackend } from "@vellumai/credential-storage";
 import { createLocalSecureKeyBackend } from "./materializers/local-secure-key-backend.js";
@@ -91,7 +91,7 @@ function ensureDataDirs(): void {
 // Build RPC handler registry (managed mode)
 // ---------------------------------------------------------------------------
 
-function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef, secureKeyBackend: SecureKeyBackend): RpcHandlerRegistry {
+function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef, assistantIdRef: AssistantIdRef, secureKeyBackend: SecureKeyBackend): RpcHandlerRegistry {
   // -- Grant stores ----------------------------------------------------------
   const persistentGrantStore = new PersistentGrantStore(
     getCesGrantsDir("managed"),
@@ -112,20 +112,19 @@ function buildHandlers(sessionIdRef: SessionIdRef, apiKeyRef: ApiKeyRef, secureK
   // We use a lazy getter so the handshake-provided key takes effect even
   // though handlers are built before the handshake completes.
   const platformBaseUrl = process.env["VELLUM_PLATFORM_URL"] ?? "";
-  const assistantId = process.env["PLATFORM_ASSISTANT_ID"] ?? "";
 
   const { getAssistantApiKey, getManagedSubjectOptions, getManagedMaterializerOptions } =
     buildLazyGetters({
       platformBaseUrl,
-      assistantId,
+      assistantIdRef,
       apiKeyRef,
       envApiKey: process.env["ASSISTANT_API_KEY"] || "",
     });
 
-  if (!platformBaseUrl || !assistantId) {
+  if (!platformBaseUrl) {
     warn(
-      "VELLUM_PLATFORM_URL and/or PLATFORM_ASSISTANT_ID not set. " +
-        "Managed credential materialisation will depend on the handshake-provided API key.",
+      "VELLUM_PLATFORM_URL not set. " +
+        "Managed credential materialisation will depend on the handshake-provided values.",
     );
   }
 
@@ -570,7 +569,8 @@ async function main(): Promise<void> {
   // are available to handlers at call time (after the handshake completes).
   const sessionIdRef: SessionIdRef = { current: `ces-managed-${Date.now()}` };
   const apiKeyRef: ApiKeyRef = { current: "" };
-  const handlers = buildHandlers(sessionIdRef, apiKeyRef, secureKeyBackend);
+  const assistantIdRef: AssistantIdRef = { current: process.env["PLATFORM_ASSISTANT_ID"] ?? "" };
+  const handlers = buildHandlers(sessionIdRef, apiKeyRef, assistantIdRef, secureKeyBackend);
 
   const server = new CesRpcServer({
     input: connection.readable,
@@ -585,16 +585,24 @@ async function main(): Promise<void> {
         process.stderr.write(`[ces-managed] ERROR: ${msg} ${args.map(String).join(" ")}\n`),
     },
     signal: controller.signal,
-    onHandshakeComplete: (hsSessionId, hsApiKey) => {
+    onHandshakeComplete: (hsSessionId, hsApiKey, hsAssistantId) => {
       sessionIdRef.current = hsSessionId;
       if (hsApiKey) {
         apiKeyRef.current = hsApiKey;
         log(`Received assistant API key via handshake`);
       }
+      if (hsAssistantId) {
+        assistantIdRef.current = hsAssistantId;
+        log(`Received assistant ID via handshake`);
+      }
     },
-    onApiKeyUpdate: (newKey) => {
+    onApiKeyUpdate: (newKey, newAssistantId) => {
       apiKeyRef.current = newKey;
       log(`Assistant API key updated via RPC`);
+      if (newAssistantId) {
+        assistantIdRef.current = newAssistantId;
+        log(`Assistant ID updated via RPC`);
+      }
     },
   });
 

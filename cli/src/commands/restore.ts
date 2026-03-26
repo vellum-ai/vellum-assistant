@@ -179,7 +179,7 @@ async function restorePlatform(
 
   let orgId: string;
   try {
-    orgId = await fetchOrganizationId(token);
+    orgId = await fetchOrganizationId(token, entry.runtimeUrl);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("401") || msg.includes("403")) {
@@ -206,6 +206,7 @@ async function restorePlatform(
         new Uint8Array(bundleData),
         token,
         orgId,
+        entry.runtimeUrl,
       );
     } catch (err) {
       if (err instanceof Error && err.name === "TimeoutError") {
@@ -315,7 +316,12 @@ async function restorePlatform(
     );
 
     try {
-      await rollbackPlatformAssistant(token, orgId, opts.version);
+      await rollbackPlatformAssistant(
+        token,
+        orgId,
+        opts.version,
+        entry.runtimeUrl,
+      );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("401") || msg.includes("403")) {
@@ -340,6 +346,7 @@ async function restorePlatform(
       new Uint8Array(bundleData),
       token,
       orgId,
+      entry.runtimeUrl,
     );
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {

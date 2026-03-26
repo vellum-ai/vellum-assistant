@@ -164,7 +164,7 @@ struct MemoriesPanel: View {
     }
 
     private func kindFilterRow(icon: String, label: String, kind: MemoryKind?) -> some View {
-        VSidebarRow(
+        VNavItem(
             icon: icon,
             label: label,
             isActive: selectedKind == kind,

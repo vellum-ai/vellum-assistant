@@ -88,10 +88,10 @@ export interface CesServerOptions {
   logger?: Pick<Console, "log" | "warn" | "error">;
   /** Optional abort signal to shut down the server. */
   signal?: AbortSignal;
-  /** Callback invoked when the handshake completes with the negotiated session ID and optional API key. */
-  onHandshakeComplete?: (sessionId: string, assistantApiKey?: string) => void;
-  /** Callback invoked when the assistant pushes an updated API key after hatch. */
-  onApiKeyUpdate?: (assistantApiKey: string) => void;
+  /** Callback invoked when the handshake completes with the negotiated session ID and optional API key / assistant ID. */
+  onHandshakeComplete?: (sessionId: string, assistantApiKey?: string, assistantId?: string) => void;
+  /** Callback invoked when the assistant pushes an updated API key (and optionally assistant ID) after hatch. */
+  onApiKeyUpdate?: (assistantApiKey: string, assistantId?: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,7 +104,7 @@ export class CesRpcServer {
   private readonly handlers: RpcHandlerRegistry;
   private readonly logger: Pick<Console, "log" | "warn" | "error">;
   private readonly signal?: AbortSignal;
-  private readonly onHandshakeComplete?: (sessionId: string, assistantApiKey?: string) => void;
+  private readonly onHandshakeComplete?: (sessionId: string, assistantApiKey?: string, assistantId?: string) => void;
 
   private handshakeComplete = false;
   private sessionId: string | null = null;
@@ -123,8 +123,8 @@ export class CesRpcServer {
     if (options.onApiKeyUpdate) {
       const onUpdate = options.onApiKeyUpdate;
       this.handlers[CesRpcMethod.UpdateManagedCredential] = (request: unknown) => {
-        const { assistantApiKey } = request as { assistantApiKey: string };
-        onUpdate(assistantApiKey);
+        const { assistantApiKey, assistantId } = request as { assistantApiKey: string; assistantId?: string };
+        onUpdate(assistantApiKey, assistantId);
         return { updated: true };
       };
     }
@@ -267,7 +267,7 @@ export class CesRpcServer {
       this.handshakeComplete = true;
       this.sessionId = req.sessionId;
       this.logger.log(`[ces-server] Handshake accepted for session ${req.sessionId}`);
-      this.onHandshakeComplete?.(req.sessionId, req.assistantApiKey);
+      this.onHandshakeComplete?.(req.sessionId, req.assistantApiKey, req.assistantId);
     } else {
       this.logger.warn(
         `[ces-server] Handshake rejected: version mismatch (got ${req.protocolVersion}, expected ${CES_PROTOCOL_VERSION})`,

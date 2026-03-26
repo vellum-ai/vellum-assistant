@@ -38,7 +38,7 @@ struct MarkdownSegmentView: View, Equatable {
 
     var body: some View {
         let groups = groupedSegments
-        let scaledBodySize: CGFloat = 14
+        let chatFont = VFont.chat
         let scaledCodeLabelSize: CGFloat = 11
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
@@ -46,7 +46,7 @@ struct MarkdownSegmentView: View, Equatable {
                 case .selectableRun(let runSegments):
                     let attributed = buildCombinedAttributedString(from: runSegments)
                     Text(attributed)
-                        .font(.system(size: scaledBodySize))
+                        .font(chatFont)
                         .lineSpacing(4)
                         .foregroundStyle(textColor)
                         .tint(tintColor)
@@ -56,7 +56,9 @@ struct MarkdownSegmentView: View, Equatable {
                         // the double-measurement that fixedSize causes (measure at ideal
                         // size, then constrain to proposed width).
                         .lineLimit(nil)
-                        .streamingFade(isStreaming: isStreaming, characterCount: attributed.characters.count)
+                        // Text streams at 50ms chunk intervals which is visually smooth;
+                        // the former StreamingFadeRenderer was a no-op that never used its
+                        // animatable data for per-glyph effects, so it was removed.
 
                 case .heading(let level, let headingText):
                     let headingFont: Font = switch level {
@@ -314,7 +316,7 @@ struct MarkdownSegmentView: View, Equatable {
                     if let cached = prefixWidthCache[prefixText] {
                         prefixWidth = cached
                     } else {
-                        let font = NSFont.systemFont(ofSize: 14)
+                        let font = NSFont(name: "DMSans-Regular", size: 16) ?? NSFont.systemFont(ofSize: 16)
                         let prefixNS = NSString(string: prefixText)
                         prefixWidth = prefixNS.size(withAttributes: [.font: font]).width
                         if prefixWidthCache.count < 200 {
@@ -444,20 +446,3 @@ private extension View {
     }
 }
 
-// MARK: - Streaming Typewriter
-
-private extension View {
-    /// Conditionally applies `StreamingFadeRenderer` during streaming.
-    /// Characters appear one by one (typewriter style) as SwiftUI
-    /// interpolates the renderer's animatable `elapsedCount`.
-    @ViewBuilder
-    func streamingFade(isStreaming: Bool, characterCount: Int) -> some View {
-        if isStreaming {
-            self
-                .textRenderer(StreamingFadeRenderer(elapsedCount: Double(characterCount)))
-                .animation(.linear(duration: 0.22), value: characterCount)
-        } else {
-            self
-        }
-    }
-}

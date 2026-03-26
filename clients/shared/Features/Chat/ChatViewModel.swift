@@ -678,21 +678,10 @@ public final class ChatViewModel: ObservableObject {
     /// view-graph invalidation frequency during streaming.
     static let streamingFlushInterval: TimeInterval = 0.05 // 50 ms
 
-    /// Number of characters to emit per typewriter tick. Small batches
-    /// (2-4 chars) feel letter-by-letter while keeping CPU overhead low.
-    static let typewriterCharsPerTick: Int = 3
-
-    /// Interval between typewriter ticks when dripping characters.
-    static let typewriterTickInterval: TimeInterval = 0.012 // 12 ms
-
     /// Buffered text that has not yet been flushed to `messages`.
     var streamingDeltaBuffer: String = ""
     /// Scheduled flush work item; cancelled and re-created on each delta.
     var streamingFlushTask: Task<Void, Never>?
-    /// Typewriter drip task that emits characters one-by-one from the buffer.
-    var typewriterDripTask: Task<Void, Never>?
-    /// Accumulated text waiting to be dripped out character by character.
-    var typewriterQueue: String = ""
 
     // MARK: - Partial Output Coalescing
 
@@ -2161,7 +2150,7 @@ public final class ChatViewModel: ObservableObject {
 
         // Flush any buffered streaming text so already-received tokens are
         // visible before we set isCancelling (which suppresses future deltas).
-        flushStreamingBuffer(immediate: true)
+        flushStreamingBuffer()
 
         // Set cancelling flag so late-arriving deltas are suppressed.
         // isSending stays true until the daemon acknowledges the cancel
@@ -3292,7 +3281,6 @@ public final class ChatViewModel: ObservableObject {
         subManagerPublishTask?.cancel()
         messageLoopTask?.cancel()
         streamingFlushTask?.cancel()
-        typewriterDripTask?.cancel()
         partialOutputFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
         loadMoreTimeoutTask?.cancel()

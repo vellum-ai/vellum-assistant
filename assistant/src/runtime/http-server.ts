@@ -27,13 +27,11 @@ import {
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
 import { parseChannelId } from "../channels/types.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   getGatewayInternalBaseUrl,
   hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
 } from "../config/env.js";
-import { getConfig } from "../config/loader.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { PairingStore } from "../daemon/pairing-store.js";
 import {
@@ -1030,17 +1028,11 @@ export class RuntimeHttpServer {
         handler: ({ url }) => {
           const limit = Number(url.searchParams.get("limit") ?? 50);
           const offset = Number(url.searchParams.get("offset") ?? 0);
-          const includeBackground = isAssistantFeatureFlagEnabled(
-            "show-background-conversations",
-            getConfig(),
-          );
-          const conversations = listConversations(
-            limit,
-            includeBackground,
-            offset,
-          );
-          const totalCount = countConversations(includeBackground);
-          const conversationIds = conversations.map((c) => c.id);
+          const backgroundOnly =
+            url.searchParams.get("conversationType") === "background";
+          const rows = listConversations(limit, backgroundOnly, offset);
+          const totalCount = countConversations(backgroundOnly);
+          const conversationIds = rows.map((c) => c.id);
           const displayMeta = getDisplayMetaForConversations(conversationIds);
           const bindings =
             externalConversationStore.getBindingsForConversations(
@@ -1050,7 +1042,7 @@ export class RuntimeHttpServer {
             getAttentionStateByConversationIds(conversationIds);
           const parentCache = new Map<string, ConversationRow | null>();
           return Response.json({
-            conversations: conversations.map((conversation) =>
+            conversations: rows.map((conversation) =>
               this.serializeConversationSummary({
                 conversation,
                 binding: bindings.get(conversation.id),
@@ -1059,7 +1051,7 @@ export class RuntimeHttpServer {
                 parentCache,
               }),
             ),
-            hasMore: offset + conversations.length < totalCount,
+            hasMore: offset + rows.length < totalCount,
           });
         },
       },

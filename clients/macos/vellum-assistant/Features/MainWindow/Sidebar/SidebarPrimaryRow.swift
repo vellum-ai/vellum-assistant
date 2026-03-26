@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Unified sidebar row used by both nav items and pinned apps.
-/// Delegates to the shared `VSidebarRow` for layout and styling.
+/// Delegates to the shared `VNavItem` for layout and styling.
 struct SidebarPrimaryRow: View {
     let icon: String
     let label: String
@@ -13,7 +13,7 @@ struct SidebarPrimaryRow: View {
 
     var body: some View {
         if let trailingIcon {
-            VSidebarRow(
+            VNavItem(
                 icon: icon,
                 label: label,
                 isActive: isActive,
@@ -22,7 +22,7 @@ struct SidebarPrimaryRow: View {
                 action: action
             )
         } else {
-            VSidebarRow(
+            VNavItem(
                 icon: icon,
                 label: label,
                 isActive: isActive,

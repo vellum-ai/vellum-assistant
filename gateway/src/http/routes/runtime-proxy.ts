@@ -44,12 +44,19 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
     if (config.runtimeProxyRequireAuth && req.method !== "OPTIONS") {
       const authHeader = req.headers.get("authorization");
       if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
+        log.warn(
+          { method: req.method, path: url.pathname },
+          "Runtime proxy auth rejected: missing or malformed Authorization header",
+        );
         return Response.json({ error: "Unauthorized" }, { status: 401 });
       }
       const edgeJwt = authHeader.slice(7);
       const result = validateEdgeToken(edgeJwt);
       if (!result.ok) {
-        log.debug({ reason: result.reason }, "Edge token validation failed");
+        log.warn(
+          { method: req.method, path: url.pathname, reason: result.reason },
+          "Runtime proxy auth rejected: edge token validation failed",
+        );
         return Response.json({ error: "Unauthorized" }, { status: 401 });
       }
       exchangeToken = mintExchangeToken(

@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildLazyGetters,
   type ApiKeyRef,
+  type AssistantIdRef,
 } from "../managed-lazy-getters.js";
 
 // ---------------------------------------------------------------------------
@@ -20,9 +21,10 @@ import {
 describe("managed lazy getters — before API key arrives", () => {
   test("apiKeyRef starts empty and managed subject options are undefined", () => {
     const apiKeyRef: ApiKeyRef = { current: "" };
+    const assistantIdRef: AssistantIdRef = { current: "ast_abc123" };
     const { getManagedSubjectOptions } = buildLazyGetters({
       platformBaseUrl: "https://api.vellum.ai",
-      assistantId: "ast_abc123",
+      assistantIdRef,
       apiKeyRef,
     });
 
@@ -32,9 +34,10 @@ describe("managed lazy getters — before API key arrives", () => {
 
   test("apiKeyRef starts empty and managed materializer options are undefined", () => {
     const apiKeyRef: ApiKeyRef = { current: "" };
+    const assistantIdRef: AssistantIdRef = { current: "ast_abc123" };
     const { getManagedMaterializerOptions } = buildLazyGetters({
       platformBaseUrl: "https://api.vellum.ai",
-      assistantId: "ast_abc123",
+      assistantIdRef,
       apiKeyRef,
     });
 
@@ -43,9 +46,10 @@ describe("managed lazy getters — before API key arrives", () => {
 
   test("getAssistantApiKey returns empty string when ref is empty and no env var", () => {
     const apiKeyRef: ApiKeyRef = { current: "" };
+    const assistantIdRef: AssistantIdRef = { current: "ast_abc123" };
     const { getAssistantApiKey } = buildLazyGetters({
       platformBaseUrl: "https://api.vellum.ai",
-      assistantId: "ast_abc123",
+      assistantIdRef,
       apiKeyRef,
     });
 
@@ -60,9 +64,10 @@ describe("managed lazy getters — before API key arrives", () => {
 describe("managed lazy getters — after API key arrives via handshake", () => {
   test("setting apiKeyRef.current enables managed subject options", () => {
     const apiKeyRef: ApiKeyRef = { current: "" };
+    const assistantIdRef: AssistantIdRef = { current: "ast_abc123" };
     const { getManagedSubjectOptions } = buildLazyGetters({
       platformBaseUrl: "https://api.vellum.ai",
-      assistantId: "ast_abc123",
+      assistantIdRef,
       apiKeyRef,
     });
 
@@ -79,9 +84,10 @@ describe("managed lazy getters — after API key arrives via handshake", () => {
 
   test("setting apiKeyRef.current enables managed materializer options", () => {
     const apiKeyRef: ApiKeyRef = { current: "" };
+    const assistantIdRef: AssistantIdRef = { current: "ast_abc123" };
     const { getManagedMaterializerOptions } = buildLazyGetters({
       platformBaseUrl: "https://api.vellum.ai",
-      assistantId: "ast_abc123",
+      assistantIdRef,
       apiKeyRef,
     });
 
@@ -98,10 +104,11 @@ describe("managed lazy getters — after API key arrives via handshake", () => {
 
   test("returned options contain the exact key from the ref (not a stale copy)", () => {
     const apiKeyRef: ApiKeyRef = { current: "" };
+    const assistantIdRef: AssistantIdRef = { current: "ast_abc123" };
     const { getManagedSubjectOptions, getManagedMaterializerOptions } =
       buildLazyGetters({
         platformBaseUrl: "https://api.vellum.ai",
-        assistantId: "ast_abc123",
+        assistantIdRef,
         apiKeyRef,
       });
 
@@ -122,11 +129,12 @@ describe("managed lazy getters — after API key arrives via handshake", () => {
 describe("managed lazy getters — lazy resolution timing", () => {
   test("handlers built before key arrives resolve the key at call time", () => {
     const apiKeyRef: ApiKeyRef = { current: "" };
+    const assistantIdRef: AssistantIdRef = { current: "ast_abc123" };
 
     const { getManagedSubjectOptions, getManagedMaterializerOptions } =
       buildLazyGetters({
         platformBaseUrl: "https://api.vellum.ai",
-        assistantId: "ast_abc123",
+        assistantIdRef,
         apiKeyRef,
       });
 
@@ -147,10 +155,11 @@ describe("managed lazy getters — lazy resolution timing", () => {
 
   test("deps object with getter properties resolves lazily (mirrors httpDeps pattern)", () => {
     const apiKeyRef: ApiKeyRef = { current: "" };
+    const assistantIdRef: AssistantIdRef = { current: "ast_abc123" };
     const { getManagedSubjectOptions, getManagedMaterializerOptions } =
       buildLazyGetters({
         platformBaseUrl: "https://api.vellum.ai",
-        assistantId: "ast_abc123",
+        assistantIdRef,
         apiKeyRef,
       });
 
@@ -182,9 +191,10 @@ describe("managed lazy getters — lazy resolution timing", () => {
 
   test("env var fallback is used when ref is empty", () => {
     const apiKeyRef: ApiKeyRef = { current: "" };
+    const assistantIdRef: AssistantIdRef = { current: "ast_abc123" };
     const { getAssistantApiKey, getManagedSubjectOptions } = buildLazyGetters({
       platformBaseUrl: "https://api.vellum.ai",
-      assistantId: "ast_abc123",
+      assistantIdRef,
       apiKeyRef,
       envApiKey: "vak_env_fallback",
     });
@@ -198,9 +208,10 @@ describe("managed lazy getters — lazy resolution timing", () => {
 
   test("handshake-provided key takes precedence over env var", () => {
     const apiKeyRef: ApiKeyRef = { current: "" };
+    const assistantIdRef: AssistantIdRef = { current: "ast_abc123" };
     const { getAssistantApiKey } = buildLazyGetters({
       platformBaseUrl: "https://api.vellum.ai",
-      assistantId: "ast_abc123",
+      assistantIdRef,
       apiKeyRef,
       envApiKey: "vak_env_key",
     });
@@ -219,10 +230,11 @@ describe("managed lazy getters — lazy resolution timing", () => {
 describe("managed lazy getters — missing platform config fields", () => {
   test("missing platformBaseUrl returns undefined even with API key", () => {
     const apiKeyRef: ApiKeyRef = { current: "vak_test_key" };
+    const assistantIdRef: AssistantIdRef = { current: "ast_abc123" };
     const { getManagedSubjectOptions, getManagedMaterializerOptions } =
       buildLazyGetters({
         platformBaseUrl: "",
-        assistantId: "ast_abc123",
+        assistantIdRef,
         apiKeyRef,
       });
 
@@ -232,14 +244,51 @@ describe("managed lazy getters — missing platform config fields", () => {
 
   test("missing assistantId returns undefined even with API key", () => {
     const apiKeyRef: ApiKeyRef = { current: "vak_test_key" };
+    const assistantIdRef: AssistantIdRef = { current: "" };
     const { getManagedSubjectOptions, getManagedMaterializerOptions } =
       buildLazyGetters({
         platformBaseUrl: "https://api.vellum.ai",
-        assistantId: "",
+        assistantIdRef,
         apiKeyRef,
       });
 
     expect(getManagedSubjectOptions()).toBeUndefined();
     expect(getManagedMaterializerOptions()).toBeUndefined();
+  });
+
+  test("assistantIdRef updated after build enables options (warm-pool scenario)", () => {
+    /**
+     * Verifies that updating assistantIdRef.current after buildLazyGetters
+     * makes previously-undefined options become defined — the core fix for
+     * warm-pool pods where PLATFORM_ASSISTANT_ID is empty at CES startup.
+     */
+
+    // GIVEN an API key is available but assistant ID is empty (warm-pool startup)
+    const apiKeyRef: ApiKeyRef = { current: "vak_test_key" };
+    const assistantIdRef: AssistantIdRef = { current: "" };
+    const { getManagedSubjectOptions, getManagedMaterializerOptions } =
+      buildLazyGetters({
+        platformBaseUrl: "https://api.vellum.ai",
+        assistantIdRef,
+        apiKeyRef,
+      });
+
+    // WHEN options are checked before assistant ID arrives
+    // THEN they are undefined
+    expect(getManagedSubjectOptions()).toBeUndefined();
+    expect(getManagedMaterializerOptions()).toBeUndefined();
+
+    // WHEN the assistant ID arrives via handshake/RPC
+    assistantIdRef.current = "ast_provisioned_123";
+
+    // THEN the same getter functions now return valid options
+    const subOpts = getManagedSubjectOptions();
+    expect(subOpts).toBeDefined();
+    expect(subOpts!.assistantId).toBe("ast_provisioned_123");
+    expect(subOpts!.assistantApiKey).toBe("vak_test_key");
+
+    const matOpts = getManagedMaterializerOptions();
+    expect(matOpts).toBeDefined();
+    expect(matOpts!.assistantId).toBe("ast_provisioned_123");
   });
 });

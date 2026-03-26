@@ -32,7 +32,6 @@ struct ConversationSwitcherDrawer: View {
                         isSelected: isConversationSelected(conversation),
                         interactionState: conversationManager.interactionState(for: conversation.id),
                         isHovered: sidebar.isHoveredConversation == conversation.id,
-                        isPendingDeletion: sidebar.conversationPendingDeletion == conversation.id,
                         selectConversation: { selectConversation(conversation) },
                         onSelect: onDismiss,
                         onTogglePin: {
@@ -45,11 +44,6 @@ struct ConversationSwitcherDrawer: View {
                             }
                         },
                         onArchive: { conversationManager.archiveConversation(id: conversation.id) },
-                        onBeginArchive: { sidebar.conversationPendingDeletion = conversation.id },
-                        onConfirmArchive: {
-                            conversationManager.archiveConversation(id: conversation.id)
-                            sidebar.conversationPendingDeletion = nil
-                        },
                         onStartRename: {
                             sidebar.renamingConversationId = conversation.id
                             sidebar.renameText = conversation.title
@@ -83,7 +77,6 @@ struct ConversationSwitcherDrawer: View {
             if sidebar.isHoveredConversation != nil {
                 sidebar.isHoveredConversation = nil
             }
-            sidebar.conversationPendingDeletion = nil
         }
     }
 }

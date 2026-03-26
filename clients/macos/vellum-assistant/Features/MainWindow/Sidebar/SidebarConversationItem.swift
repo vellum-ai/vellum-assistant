@@ -11,15 +11,12 @@ struct SidebarConversationItem: View, Equatable {
     let isSelected: Bool
     let interactionState: ConversationInteractionState
     let isHovered: Bool
-    let isPendingDeletion: Bool
 
     // Action closures — not compared in Equatable
     var selectConversation: () -> Void
     var onSelect: (() -> Void)? = nil
     var onTogglePin: () -> Void
     var onArchive: () -> Void
-    var onBeginArchive: () -> Void
-    var onConfirmArchive: () -> Void
     var onStartRename: () -> Void
     var onMarkUnread: () -> Void
     var onHoverChange: (Bool) -> Void
@@ -31,15 +28,45 @@ struct SidebarConversationItem: View, Equatable {
         lhs.conversation == rhs.conversation &&
         lhs.isSelected == rhs.isSelected &&
         lhs.interactionState == rhs.interactionState &&
-        lhs.isHovered == rhs.isHovered &&
-        lhs.isPendingDeletion == rhs.isPendingDeletion
+        lhs.isHovered == rhs.isHovered
     }
 
-    private var hasTrailingIcon: Bool { isHovered || isPendingDeletion }
+    @State private var isMenuOpen: Bool = false
+    private var hasTrailingIcon: Bool { isHovered || isMenuOpen }
     private var canMarkUnread: Bool {
         !conversation.hasUnseenLatestAssistantMessage &&
             conversation.conversationId != nil &&
             conversation.latestAssistantMessageAt != nil
+    }
+
+    @ViewBuilder
+    private var contextMenuContent: some View {
+        VMenuItem(icon: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue, label: conversation.isPinned ? "Unpin" : "Pin") {
+            onTogglePin()
+        }
+        VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") {
+            onStartRename()
+        }
+        VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {
+            onArchive()
+        }
+        VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {
+            onMarkUnread()
+        }
+        .disabled(!canMarkUnread)
+
+        if let onOpenInNewWindow {
+            VMenuItem(icon: VIcon.externalLink.rawValue, label: "Open in New Window") {
+                onOpenInNewWindow()
+            }
+        }
+
+        VMenuDivider()
+
+        VMenuItem(icon: VIcon.messageCircle.rawValue, label: "Share Feedback") {
+            onShowFeedback?()
+        }
+        .disabled(onShowFeedback == nil)
     }
 
     var body: some View {
@@ -121,13 +148,13 @@ struct SidebarConversationItem: View, Equatable {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.xs)
-            .padding(.trailing, isPendingDeletion ? SidebarLayoutMetrics.archiveConfirmTrailingPadding : hasTrailingIcon ? SidebarLayoutMetrics.archiveIconTrailingPadding : VSpacing.sm)
+            .padding(.trailing, hasTrailingIcon ? SidebarLayoutMetrics.trailingIconPadding : VSpacing.sm)
             .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
             .background {
                 if isSelected {
                     VColor.surfaceActive
-                } else if isHovered {
+                } else if isHovered || isMenuOpen {
                     VColor.surfaceBase
                 } else if conversation.kind == .private {
                     VColor.primaryBase.opacity(0.04)
@@ -138,6 +165,7 @@ struct SidebarConversationItem: View, Equatable {
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
             .animation(VAnimation.fast, value: isHovered)
+            .animation(VAnimation.fast, value: isMenuOpen)
         }
         .onTapGesture {
             selectConversation()
@@ -149,56 +177,36 @@ struct SidebarConversationItem: View, Equatable {
             selectConversation()
         }
         .overlay(alignment: .trailing) {
-            if isPendingDeletion {
-                VButton(label: "Confirm", style: .dangerOutline, size: .pill) {
-                    onConfirmArchive()
-                }
-                .fixedSize()
-                .padding(.trailing, VSpacing.xs)
-                .accessibilityLabel("Confirm archive \(conversation.title)")
-            } else if isHovered {
+            if isHovered || isMenuOpen {
                 Button {
-                    onBeginArchive()
+                    guard !isMenuOpen else { return }
+                    isMenuOpen = true
+                    let appearance = NSApp.keyWindow?.effectiveAppearance
+                    VMenuPanel.show(
+                        at: NSEvent.mouseLocation,
+                        sourceAppearance: appearance
+                    ) {
+                        VMenu(width: 200) {
+                            contextMenuContent
+                        }
+                    } onDismiss: {
+                        isMenuOpen = false
+                    }
                 } label: {
-                    VIconView(.archive, size: 13)
+                    VIconView(.ellipsis, size: 13)
                         .foregroundStyle(VColor.contentSecondary)
                         .frame(width: 20, height: 20)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .nativeTooltip("Archive")
+                .nativeTooltip("More options")
                 .padding(.trailing, VSpacing.xs)
-                .accessibilityLabel("Archive \(conversation.title)")
+                .accessibilityLabel("More options for \(conversation.title)")
             }
         }
         .padding(.horizontal, 0)
         .vContextMenu(width: 200) {
-            VMenuItem(icon: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue, label: conversation.isPinned ? "Unpin" : "Pin") {
-                onTogglePin()
-            }
-            VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") {
-                onStartRename()
-            }
-            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {
-                onArchive()
-            }
-            VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {
-                onMarkUnread()
-            }
-            .disabled(!canMarkUnread)
-
-            if let onOpenInNewWindow {
-                VMenuItem(icon: VIcon.externalLink.rawValue, label: "Open in New Window") {
-                    onOpenInNewWindow()
-                }
-            }
-
-            VMenuDivider()
-
-            VMenuItem(icon: VIcon.messageCircle.rawValue, label: "Share Feedback") {
-                onShowFeedback?()
-            }
-            .disabled(onShowFeedback == nil)
+            contextMenuContent
         }
         .pointerCursor { hovering in
             onHoverChange(hovering)

@@ -88,6 +88,12 @@ export interface CesClientHandshakeOptions {
    * credential materialisation without relying on env vars.
    */
   assistantApiKey?: string;
+  /**
+   * Optional platform assistant ID to pass to CES during the handshake.
+   * For warm-pool pods the PLATFORM_ASSISTANT_ID env var is empty at CES
+   * startup, so the assistant forwards it here once it is known.
+   */
+  assistantId?: string;
 }
 
 export interface CesClient {
@@ -111,13 +117,16 @@ export interface CesClient {
   ): Promise<CesRpcContract[M]["response"]>;
 
   /**
-   * Push an updated assistant API key to CES.
+   * Push an updated assistant API key (and optionally assistant ID) to CES.
    *
    * In managed mode the API key is provisioned after hatch, so the initial
    * handshake may have been sent without one. This method pushes the key
    * to CES after it arrives, without requiring a re-handshake.
    */
-  updateAssistantApiKey(assistantApiKey: string): Promise<{ updated: boolean }>;
+  updateAssistantApiKey(
+    assistantApiKey: string,
+    assistantId?: string,
+  ): Promise<{ updated: boolean }>;
 
   /** Whether the client has completed a successful handshake. */
   isReady(): boolean;
@@ -312,6 +321,7 @@ export function createCesClient(
           ...(options?.assistantApiKey
             ? { assistantApiKey: options.assistantApiKey }
             : {}),
+          ...(options?.assistantId ? { assistantId: options.assistantId } : {}),
         });
       } catch (err) {
         const entry = pending.get("handshake");
@@ -341,9 +351,11 @@ export function createCesClient(
 
     async updateAssistantApiKey(
       assistantApiKey: string,
+      assistantId?: string,
     ): Promise<{ updated: boolean }> {
       return call(CesRpcMethod.UpdateManagedCredential, {
         assistantApiKey,
+        ...(assistantId ? { assistantId } : {}),
       });
     },
 

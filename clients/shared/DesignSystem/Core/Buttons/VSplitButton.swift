@@ -90,7 +90,6 @@ public struct VSplitButton<MenuContent: View>: View {
                 .accessibilityLabel("\(label) options")
             }
             .frame(width: dropdownWidth, height: zoneHeight)
-            .clipped()
             .onHover { hovering in
                 isDropdownHovered = isDisabled ? false : hovering
             }

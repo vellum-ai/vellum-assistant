@@ -34,7 +34,6 @@ final class SharingState {
 final class SidebarInteractionState {
     var isHoveredConversation: UUID?
     var isHoveredApp: String?
-    var conversationPendingDeletion: UUID?
     var renamingConversationId: UUID?
     var renameText: String = ""
     var showAllConversations: Bool = false
@@ -45,9 +44,8 @@ final class SidebarInteractionState {
     var showAllApps: Bool = false
     var showPreferencesDrawer: Bool = false
 
-    /// Updates conversation hover state and clears stale pending-deletion when hover
-    /// moves to a different conversation. Centralises the invariant so callers don't
-    /// need to coordinate.
+    /// Updates conversation hover state. Centralises the invariant so callers
+    /// don't need to coordinate.
     ///
     /// During an active drag, hover updates are suppressed to avoid triggering
     /// icon-swap animations and unnecessary re-renders across sibling rows.
@@ -66,18 +64,10 @@ final class SidebarInteractionState {
         }
 
         if hovering {
-            // Moving to a new conversation clears pending archive of the old one
-            if let pending = conversationPendingDeletion, pending != conversationId {
-                conversationPendingDeletion = nil
-            }
             isHoveredConversation = conversationId
         } else {
             if isHoveredConversation == conversationId {
                 isHoveredConversation = nil
-            }
-            // Leaving a pending-deletion conversation clears the confirmation
-            if conversationPendingDeletion == conversationId {
-                conversationPendingDeletion = nil
             }
         }
     }

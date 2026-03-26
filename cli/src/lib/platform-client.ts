@@ -75,16 +75,19 @@ interface OrganizationListResponse {
   results: { id: string; name: string }[];
 }
 
-export async function fetchOrganizationId(token: string): Promise<string> {
-  const platformUrl = getPlatformUrl();
-  const url = `${platformUrl}/v1/organizations/`;
+export async function fetchOrganizationId(
+  token: string,
+  platformUrl?: string,
+): Promise<string> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const url = `${resolvedUrl}/v1/organizations/`;
   const response = await fetch(url, {
     headers: { "X-Session-Token": token },
   });
 
   if (!response.ok) {
     throw new Error(
-      `Failed to fetch organizations from ${platformUrl} (${response.status}). Try logging in again.`,
+      `Failed to fetch organizations from ${resolvedUrl} (${response.status}). Try logging in again.`,
     );
   }
 
@@ -107,8 +110,12 @@ interface AllauthSessionResponse {
   };
 }
 
-export async function fetchCurrentUser(token: string): Promise<PlatformUser> {
-  const url = `${getPlatformUrl()}/_allauth/app/v1/auth/session`;
+export async function fetchCurrentUser(
+  token: string,
+  platformUrl?: string,
+): Promise<PlatformUser> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const url = `${resolvedUrl}/_allauth/app/v1/auth/session`;
   const response = await fetch(url, {
     headers: { "X-Session-Token": token },
   });
@@ -138,9 +145,10 @@ export async function rollbackPlatformAssistant(
   token: string,
   orgId: string,
   version?: string,
+  platformUrl?: string,
 ): Promise<{ detail: string; version: string | null }> {
-  const platformUrl = getPlatformUrl();
-  const response = await fetch(`${platformUrl}/v1/assistants/rollback/`, {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const response = await fetch(`${resolvedUrl}/v1/assistants/rollback/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -182,9 +190,10 @@ export async function platformInitiateExport(
   token: string,
   orgId: string,
   description?: string,
+  platformUrl?: string,
 ): Promise<{ jobId: string; status: string }> {
-  const platformUrl = getPlatformUrl();
-  const response = await fetch(`${platformUrl}/v1/migrations/export/`, {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const response = await fetch(`${resolvedUrl}/v1/migrations/export/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -215,10 +224,11 @@ export async function platformPollExportStatus(
   jobId: string,
   token: string,
   orgId: string,
+  platformUrl?: string,
 ): Promise<{ status: string; downloadUrl?: string; error?: string }> {
-  const platformUrl = getPlatformUrl();
+  const resolvedUrl = platformUrl || getPlatformUrl();
   const response = await fetch(
-    `${platformUrl}/v1/migrations/export/${jobId}/status/`,
+    `${resolvedUrl}/v1/migrations/export/${jobId}/status/`,
     {
       headers: {
         "X-Session-Token": token,
@@ -269,10 +279,11 @@ export async function platformImportPreflight(
   bundleData: Uint8Array<ArrayBuffer>,
   token: string,
   orgId: string,
+  platformUrl?: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
-  const platformUrl = getPlatformUrl();
+  const resolvedUrl = platformUrl || getPlatformUrl();
   const response = await fetch(
-    `${platformUrl}/v1/migrations/import-preflight/`,
+    `${resolvedUrl}/v1/migrations/import-preflight/`,
     {
       method: "POST",
       headers: {
@@ -296,9 +307,10 @@ export async function platformImportBundle(
   bundleData: Uint8Array<ArrayBuffer>,
   token: string,
   orgId: string,
+  platformUrl?: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
-  const platformUrl = getPlatformUrl();
-  const response = await fetch(`${platformUrl}/v1/migrations/import/`, {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const response = await fetch(`${resolvedUrl}/v1/migrations/import/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/octet-stream",
