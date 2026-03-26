@@ -54,11 +54,19 @@ final class DebugStateWriter {
     private func captureAndWrite() {
         guard let appDelegate else { return }
         let snapshot = captureSnapshot(from: appDelegate)
-        do {
-            let data = try encoder.encode(snapshot)
-            try data.write(to: fileURL, options: .atomic)
-        } catch {
-            log.error("Failed to write debug state snapshot: \(error)")
+
+        // Encode and write on a background thread to avoid blocking the main
+        // thread with JSON serialization and disk I/O every 5 seconds.
+        // Task.detached is used intentionally to leave @MainActor isolation.
+        let encoder = self.encoder
+        let fileURL = self.fileURL
+        Task.detached(priority: .utility) {
+            do {
+                let data = try encoder.encode(snapshot)
+                try data.write(to: fileURL, options: .atomic)
+            } catch {
+                log.error("Failed to write debug state snapshot: \(error)")
+            }
         }
     }
 
