@@ -816,12 +816,14 @@ struct MessageListView: View {
                 // content-height growth can briefly push distanceFromBottom past
                 // the "at bottom" threshold before the scroll position catches
                 // up, causing rapid true→false→true flips. A wider leave
-                // threshold absorbs those transient spikes.
+                // threshold absorbs those transient spikes without overly
+                // widening the idle-reattach zone (onScrollPhaseChange reattaches
+                // when isAtBottom is true on idle).
                 let distanceFromBottom = effectiveContentHeight - newState.contentOffsetY - newState.visibleRectHeight
                 let nowAtBottom: Bool
                 if scrollCoordinator.isAtBottom {
                     // Stay "at bottom" until clearly scrolled away.
-                    nowAtBottom = distanceFromBottom.isFinite && distanceFromBottom <= 50
+                    nowAtBottom = distanceFromBottom.isFinite && distanceFromBottom <= 30
                 } else {
                     // Only re-enter "at bottom" when truly close.
                     nowAtBottom = distanceFromBottom.isFinite && distanceFromBottom <= 10

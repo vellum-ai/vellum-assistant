@@ -45,12 +45,13 @@ enum BottomPinRequestReason: String, Sendable {
 ///   view updates.
 ///
 /// **Non-reactive scroll geometry (plain stored `var`):**
-/// - `isAtBottom` — updated on every scroll-geometry tick. NOT `@Published`
-///   because frequent toggles during streaming feed back into
-///   `objectWillChange`, causing cascading body re-evaluations that
-///   trigger the scroll-loop guard. The "Scroll to latest" CTA relies
-///   on the `isNearBottom` `@Binding` (updated by `detachFromBottom` /
-///   `reattachToBottom` on user gestures) for reactivity instead.
+/// - `isAtBottom` — updated on every scroll-geometry tick with asymmetric
+///   hysteresis (10pt enter / 30pt leave). NOT `@Published` because
+///   frequent toggles during streaming feed back into `objectWillChange`,
+///   causing cascading body re-evaluations that trigger the scroll-loop
+///   guard. The "Scroll to latest" CTA relies on the `isNearBottom`
+///   `@Binding` (updated by `detachFromBottom` / `reattachToBottom` on
+///   user gestures) for reactivity instead.
 @MainActor
 final class MessageListScrollCoordinator: ObservableObject {
 
