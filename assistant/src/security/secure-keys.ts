@@ -372,6 +372,7 @@ export async function setSecureKeyAsync(
       "Credential backend set failed",
     );
   }
+  updateCesHttpReachability(backend, !ok);
   return ok;
 }
 
@@ -384,7 +385,9 @@ export async function deleteSecureKeyAsync(
   account: string,
 ): Promise<DeleteResult> {
   const backend = await resolveBackendAsync();
-  return backend.delete(account);
+  const result = await backend.delete(account);
+  updateCesHttpReachability(backend, result === "error");
+  return result;
 }
 
 // ---------------------------------------------------------------------------
