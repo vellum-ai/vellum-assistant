@@ -23,11 +23,11 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - API Key State
 
-    @Published var hasKey: Bool
-    @Published var hasBraveKey: Bool
-    @Published var hasPerplexityKey: Bool
-    @Published var hasImageGenKey: Bool
-    @Published var hasElevenLabsKey: Bool
+    @Published var hasKey: Bool = false
+    @Published var hasBraveKey: Bool = false
+    @Published var hasPerplexityKey: Bool = false
+    @Published var hasImageGenKey: Bool = false
+    @Published var hasElevenLabsKey: Bool = false
     @Published var hasVercelKey: Bool = false
 
     // MARK: - Embedding Config State
@@ -378,22 +378,10 @@ public final class SettingsStore: ObservableObject {
         self.verificationStatusPollInterval = max(0.05, verificationStatusPollInterval)
         self.verificationStatusPollWindow = max(self.verificationStatusPollInterval, verificationStatusPollWindow)
 
-        // Seed from UserDefaults / credential storage
-        let anthropicKey = APIKeyManager.getKey(for: "anthropic")
-        self.hasKey = anthropicKey != nil
-        self.maskedKey = Self.maskKey(anthropicKey)
-        let braveKey = APIKeyManager.getKey(for: "brave")
-        self.hasBraveKey = braveKey != nil
-        self.maskedBraveKey = Self.maskKey(braveKey)
-        let perplexityKey = APIKeyManager.getKey(for: "perplexity")
-        self.hasPerplexityKey = perplexityKey != nil
-        self.maskedPerplexityKey = Self.maskKey(perplexityKey)
-        let imageGenKey = APIKeyManager.getKey(for: "gemini")
-        self.hasImageGenKey = imageGenKey != nil
-        self.maskedImageGenKey = Self.maskKey(imageGenKey)
-        let elevenLabsKey = APIKeyManager.getKey(for: "elevenlabs")
-        self.hasElevenLabsKey = elevenLabsKey != nil
-        self.maskedElevenLabsKey = Self.maskKey(elevenLabsKey)
+        // Credential reads are deferred to a Task so that file-backed
+        // CredentialStorage I/O does not block the main thread during init.
+        // refreshAPIKeyState() updates the same @Published properties that
+        // were previously seeded inline here.
         // Restore persisted image-gen model as a local fallback so the
         // user's selection survives restarts even if the daemon is unreachable.
         // loadServiceModes() will override with the daemon's authoritative
@@ -465,6 +453,11 @@ public final class SettingsStore: ObservableObject {
             .sink { [weak self] _ in self?.refreshAPIKeyState() }
             .store(in: &cancellables)
 
+        // Load credential state asynchronously to avoid blocking the main
+        // thread with file-backed CredentialStorage reads during init.
+        Task { @MainActor [weak self] in
+            self?.refreshAPIKeyState()
+        }
 
         // Debounce UserDefaults writes so rapid toggle changes don't thrash disk I/O.
         // dropFirst must come before debounce: it consumes the synchronous initial emission so that

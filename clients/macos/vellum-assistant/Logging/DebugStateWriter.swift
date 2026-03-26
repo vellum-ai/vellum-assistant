@@ -14,7 +14,6 @@ final class DebugStateWriter {
     private weak var appDelegate: AppDelegate?
 
     let fileURL: URL
-    private let encoder: JSONEncoder
     private let diagnosticsStore: ChatDiagnosticsStore
 
     init(directory: URL? = nil, diagnosticsStore: ChatDiagnosticsStore? = nil) {
@@ -30,10 +29,6 @@ final class DebugStateWriter {
         self.fileURL = dir.appendingPathComponent("debug-state.json")
 
         self.diagnosticsStore = diagnosticsStore ?? ChatDiagnosticsStore.shared
-
-        self.encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
     }
 
     func start(appDelegate: AppDelegate) {
@@ -54,11 +49,23 @@ final class DebugStateWriter {
     private func captureAndWrite() {
         guard let appDelegate else { return }
         let snapshot = captureSnapshot(from: appDelegate)
-        do {
-            let data = try encoder.encode(snapshot)
-            try data.write(to: fileURL, options: .atomic)
-        } catch {
-            log.error("Failed to write debug state snapshot: \(error)")
+
+        // Encode and write on a background thread to avoid blocking the main
+        // thread with JSON serialization and disk I/O every 5 seconds.
+        // Task.detached is used intentionally to leave @MainActor isolation.
+        // A fresh encoder is created per task because JSONEncoder is a mutable
+        // reference type and concurrent encode() calls would race.
+        let fileURL = self.fileURL
+        Task.detached(priority: .utility) {
+            do {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                encoder.dateEncodingStrategy = .iso8601
+                let data = try encoder.encode(snapshot)
+                try data.write(to: fileURL, options: .atomic)
+            } catch {
+                log.error("Failed to write debug state snapshot: \(error)")
+            }
         }
     }
 

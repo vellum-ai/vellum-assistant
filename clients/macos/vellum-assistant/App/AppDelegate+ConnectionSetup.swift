@@ -377,13 +377,13 @@ extension AppDelegate {
 
     /// Handle a sign_bundle_payload request from the assistant.
     private func handleSignBundlePayload(_ msg: SignBundlePayloadMessage) {
-        do {
-            let payloadData = Data(msg.payload.utf8)
-            let signature = try SigningIdentityManager.shared.sign(payloadData)
-            let keyId = try SigningIdentityManager.shared.getKeyId()
-            let publicKey = try SigningIdentityManager.shared.getPublicKey()
+        Task {
+            do {
+                let payloadData = Data(msg.payload.utf8)
+                let signature = try await SigningIdentityManager.shared.sign(payloadData)
+                let keyId = try await SigningIdentityManager.shared.getKeyId()
+                let publicKey = try await SigningIdentityManager.shared.getPublicKey()
 
-            Task {
                 _ = try? await GatewayHTTPClient.post(
                     path: "assistants/{assistantId}/sign-bundle-response",
                     json: [
@@ -393,19 +393,26 @@ extension AppDelegate {
                         "publicKey": publicKey.rawRepresentation.base64EncodedString()
                     ] as [String: Any]
                 )
+            } catch {
+                log.error("Failed to sign bundle payload: \(error.localizedDescription)")
+                _ = try? await GatewayHTTPClient.post(
+                    path: "assistants/{assistantId}/sign-bundle-response",
+                    json: [
+                        "requestId": msg.requestId,
+                        "error": error.localizedDescription
+                    ] as [String: Any]
+                )
             }
-        } catch {
-            log.error("Failed to sign bundle payload: \(error.localizedDescription)")
         }
     }
 
     /// Handle a get_signing_identity request from the assistant.
     private func handleGetSigningIdentity(_ msg: GetSigningIdentityRequest) {
-        do {
-            let keyId = try SigningIdentityManager.shared.getKeyId()
-            let publicKey = try SigningIdentityManager.shared.getPublicKey()
+        Task {
+            do {
+                let keyId = try await SigningIdentityManager.shared.getKeyId()
+                let publicKey = try await SigningIdentityManager.shared.getPublicKey()
 
-            Task {
                 _ = try? await GatewayHTTPClient.post(
                     path: "assistants/{assistantId}/signing-identity-response",
                     json: [
@@ -414,9 +421,16 @@ extension AppDelegate {
                         "publicKey": publicKey.rawRepresentation.base64EncodedString()
                     ] as [String: Any]
                 )
+            } catch {
+                log.error("Failed to get signing identity: \(error.localizedDescription)")
+                _ = try? await GatewayHTTPClient.post(
+                    path: "assistants/{assistantId}/signing-identity-response",
+                    json: [
+                        "requestId": msg.requestId,
+                        "error": error.localizedDescription
+                    ] as [String: Any]
+                )
             }
-        } catch {
-            log.error("Failed to get signing identity: \(error.localizedDescription)")
         }
     }
 
