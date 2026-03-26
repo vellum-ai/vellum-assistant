@@ -106,7 +106,7 @@ CU execution dependencies are protocol-based for testability:
 
 All inference (both computer-use sessions and ambient analysis) goes through the assistant's HTTP API:
 - `DaemonClient` — HTTP+SSE transport; auto-reconnect, `AsyncStream<ServerMessage>` (legacy — being migrated to `GatewayHTTPClient`)
-- `GatewayHTTPClient` — stateless HTTP client (enum with static async methods). Currently `@MainActor` but being migrated to nonisolated (see LUM-492). New network client protocols and structs should be nonisolated. See `clients/AGENTS.md` § "@MainActor Isolation Boundaries" and § "Networking: Use GatewayHTTPClient for New HTTP APIs".
+- `GatewayHTTPClient` — stateless HTTP client (enum with static async methods). Must be `nonisolated`. See `clients/AGENTS.md` § "@MainActor Isolation Boundaries" and § "Networking: Use GatewayHTTPClient for New HTTP APIs".
 - `MessageTypes.swift` — Codable structs for HTTP request/response types: `host_cu_request`, `host_cu_result`, `cu_error`, `ambient_analyze`, `trace_event`, etc.
 - `Network/Generated/GeneratedAPITypes.swift` — Codable Swift types used for JSON serialization. Use these generated types directly in Swift code instead of hand-writing structs.
 
@@ -243,7 +243,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 
 ### Rules
 
-- **`@MainActor` on view models and UI state managers only** — `@Observable` and `ObservableObject` classes whose `@Published` properties drive SwiftUI view rendering must be `@MainActor` (e.g., ViewModels, `ConversationManager`, `GatewayConnectionManager`). **Do NOT apply `@MainActor` to stateless network clients, I/O utilities, or CPU-bound helpers** — these should be `nonisolated` so their work runs on the cooperative thread pool, not the main thread. See `clients/AGENTS.md` § "@MainActor Isolation Boundaries" for the full rule and reference links. (Ref: [WWDC25 — Embracing Swift concurrency](https://developer.apple.com/videos/play/wwdc2025/232/))
+- **`@MainActor` on view models and UI state managers only** — see `clients/AGENTS.md` § "@MainActor Isolation Boundaries" for the full rule, reference links, and examples.
 - **Nested ObservableObject**: When a view reads properties from a nested ObservableObject (e.g. `conversationManager.activeViewModel.messages`), the parent must subscribe to the child's `objectWillChange` and forward it. See `ConversationManager.subscribeToActiveViewModel()`.
 - **`@Observable` → `ObservableObject` bridge**: When an `@Observable` child is owned by an `ObservableObject` parent, use a recursive `withObservationTracking` loop to forward changes. See `ChatViewModel.observeErrorManager()` and `MainWindowState.observeNavigationHistory()`.
 - **Dependency injection**: Pass dependencies (DaemonClient, AmbientAgent) through init parameters, not singletons. Session dependencies use protocols for testability.
