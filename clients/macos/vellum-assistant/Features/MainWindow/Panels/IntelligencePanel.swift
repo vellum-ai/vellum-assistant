@@ -6,6 +6,7 @@ import VellumAssistantShared
 struct IntelligencePanel: View {
     var onClose: () -> Void
     var onInvokeSkill: ((SkillInfo) -> Void)?
+    var onCreateSkill: (() -> Void)?
     let connectionManager: GatewayConnectionManager
     let eventStreamClient: EventStreamClient?
     var store: SettingsStore?
@@ -21,9 +22,10 @@ struct IntelligencePanel: View {
     private static let contactsFeatureFlagKey = "contacts"
     private static let emailFeatureFlagKey = "email-channel"
 
-    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil)) {
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
         self.onInvokeSkill = onInvokeSkill
+        self.onCreateSkill = onCreateSkill
         self.connectionManager = connectionManager
         self.eventStreamClient = eventStreamClient
         self.store = store
@@ -138,6 +140,7 @@ struct IntelligencePanel: View {
         case .installedSkills:
             AgentPanelContent(
                 onInvokeSkill: onInvokeSkill,
+                onCreateSkill: onCreateSkill,
                 connectionManager: connectionManager
             )
             .padding(.top, VSpacing.sm)

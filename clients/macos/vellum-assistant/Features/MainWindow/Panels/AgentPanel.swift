@@ -21,6 +21,7 @@ private enum SkillFilter: String, CaseIterable {
 /// (e.g. inside IntelligencePanel).
 struct AgentPanelContent: View {
     var onInvokeSkill: ((SkillInfo) -> Void)?
+    var onCreateSkill: (() -> Void)?
     var onSkillsChanged: (() -> Void)?
     let connectionManager: GatewayConnectionManager
 
@@ -31,9 +32,11 @@ struct AgentPanelContent: View {
     @State private var globalSkillSearchQuery = ""
     @State private var skillFilter: SkillFilter = .all
     @State private var showSkillFilterPopover = false
+    @AppStorage("skillsBannerDismissed") private var bannerDismissed = false
 
-    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, connectionManager: GatewayConnectionManager) {
+    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, connectionManager: GatewayConnectionManager) {
         self.onInvokeSkill = onInvokeSkill
+        self.onCreateSkill = onCreateSkill
         self.onSkillsChanged = onSkillsChanged
         self.connectionManager = connectionManager
         _skillsManager = State(wrappedValue: SkillsManager(connectionManager: connectionManager))
@@ -52,6 +55,43 @@ struct AgentPanelContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if !isShowingDetail {
+                if !bannerDismissed {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.sparkles, size: 14)
+                            .foregroundStyle(VColor.primaryBase)
+                        Text("Tip: ").bold() +
+                        Text("You can ") +
+                        Text("create a new custom skill")
+                            .foregroundStyle(VColor.primaryBase) +
+                        Text(" by describing what you want in chat.")
+                        Spacer()
+                        Button(action: {
+                            withAnimation(VAnimation.fast) { bannerDismissed = true }
+                        }) {
+                            VIconView(.x, size: 12)
+                                .foregroundStyle(VColor.contentTertiary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Dismiss tip")
+                    }
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.sm)
+                    .background(VColor.primaryBase.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.primaryBase.opacity(0.18), lineWidth: 1)
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture { onCreateSkill?() }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Tip: You can create a new custom skill by describing what you want in chat.")
+                    .accessibilityAddTraits(.isButton)
+                    .padding(.bottom, VSpacing.lg)
+                }
                 filterBar
             }
             HStack(alignment: .top, spacing: VSpacing.xxl) {
