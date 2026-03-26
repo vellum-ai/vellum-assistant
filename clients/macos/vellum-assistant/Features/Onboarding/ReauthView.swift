@@ -171,6 +171,9 @@ struct ReauthView: View {
            managedAssistant.isManaged,
            let runtimeUrl = managedAssistant.runtimeUrl, !runtimeUrl.isEmpty {
             AuthService.shared.configuredBaseURL = runtimeUrl
+        } else if let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.isManaged }),
+                  let runtimeUrl = managedAssistant.runtimeUrl, !runtimeUrl.isEmpty {
+            AuthService.shared.configuredBaseURL = runtimeUrl
         }
 
         do {
