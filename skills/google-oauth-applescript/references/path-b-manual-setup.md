@@ -128,15 +128,6 @@ Tell the user:
 >
 > Send me the **Client ID** from the dialog. It looks like `123456789-xxxxx.apps.googleusercontent.com`.
 
-After the user sends it:
-
-```
-credential_store store:
-  service: "google"
-  field: "client_id"
-  value: "<the client id the user sent>"
-```
-
 ### Path B Step 6b: Client Secret Split Entry
 
 The Google client secret starts with `GOCSPX-`, which can trigger channel secret scanners. Ask for only the suffix.
@@ -147,33 +138,12 @@ Tell the user:
 >
 > Your Client Secret starts with `GOCSPX-`. Please send me only the part **after** `GOCSPX-` as a standalone message with no other text.
 
-After the user sends the suffix, reconstruct and store the full secret:
+After the user sends the suffix, reconstruct the full secret as `GOCSPX-<suffix>`.
 
-```
-credential_store store:
-  service: "google"
-  field: "client_secret"
-  value: "GOCSPX-<the suffix the user sent>"
-```
+## Path B Step 7: Register, Authorize, and Verify
 
-## Path B Step 7: Authorize
-
-Tell the user:
-
-> **Step 6: Authorize Gmail and Calendar**
->
-> I'll generate an authorization link for you now.
-
-```
-credential_store:
-  action: "oauth2_connect"
-  service: "google"
-```
+Follow the `vellum-oauth-integrations` workflow to register the OAuth app, connect, and verify.
 
 Send the returned auth URL to the user. If they see **This app isn't verified**, tell them to click **Advanced** and continue to **Vellum Assistant**.
 
-## Path B Step 8: Done
-
-After authorization:
-
-> **Gmail and Calendar are connected!**
+**On success:** "Gmail and Calendar are connected!"

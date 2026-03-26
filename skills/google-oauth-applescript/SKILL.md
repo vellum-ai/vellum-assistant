@@ -6,12 +6,12 @@ metadata:
   emoji: "🔑"
   vellum:
     display-name: "Google OAuth Setup"
-    includes: ["collaborative-oauth-flow"]
+    includes: ["vellum-oauth-integrations"]
 ---
 
 You are helping your user set up Google Cloud OAuth credentials so Gmail and Google Calendar integrations can connect.
 
-This skill follows the **Collaborative Guided Flow** pattern from the included `collaborative-oauth-flow` skill. That reference covers the navigation helper setup, step rhythm, rules, tone, error handling, and guardrails. This file defines only the Google-specific steps.
+The included `vellum-oauth-integrations` skill handles the generic parts of the flow (credential collection, app registration, connection, and verification). This file defines only the Google-specific steps.
 
 ## Provider Details
 
@@ -124,18 +124,18 @@ Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`
 
 #### Step 5c: Add scopes
 
-Copy scopes to clipboard, then open Data Access:
+Open: `https://console.cloud.google.com/auth/scopes?project=PROJECT_ID`
 
-```
-host_bash:
-  command: |
-    echo -n "https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly" | pbcopy && /tmp/vellum-nav.sh "https://console.cloud.google.com/auth/scopes?project=PROJECT_ID"
-```
-
-> I've opened **Data Access** and copied the scopes to your clipboard.
+> I've opened **Data Access**.
 >
-> 1. Click **Add or Remove Scopes** → scroll to **"Manually add scopes"** → **paste** (Cmd+V) → click **Update**
+> 1. Click **Add or Remove Scopes** → scroll to **"Manually add scopes"** → paste the comma-separated scopes below → click **Update**
 > 2. Back on the main page, scroll down and click **Save**
+
+The scopes to paste:
+
+```
+https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly
+```
 >
 > You should see all 7 scopes listed across the three categories (Non-sensitive, Sensitive, Restricted):
 >
@@ -167,27 +167,15 @@ A modal should appear with the **Client ID** and **Client Secret**. Tell the use
 
 ---
 
-### Step 7: Store Credentials
+### Steps 7–9: Store Credentials, Authorize, and Verify
 
-Collect Client ID conversationally, Client Secret via `credential_store prompt`. Register via `assistant oauth apps upsert`. See the collaborative guided flow reference for the exact commands.
-
-**Milestone (7 of 9):** "Credentials saved - just two steps left."
-
----
-
-### Step 8: Authorize
+Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
 
 > I'll start the Google authorization flow now.
 >
 > If you see **"This app isn't verified"**, click **Advanced** then **Go to Vellum Assistant (unsafe)**. This is normal for apps in testing mode.
 >
 > Review the permissions and click **Allow**.
-
----
-
-### Step 9: Verify Connection
-
-Use the ping URL from the provider registration to verify the connection.
 
 **On success:** "Gmail and Calendar are connected! You can now ask me to check your inbox, manage emails, or look at your calendar."
 
