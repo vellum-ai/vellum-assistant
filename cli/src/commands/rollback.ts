@@ -185,7 +185,7 @@ async function rollbackPlatformViaEndpoint(
 
   let orgId: string;
   try {
-    orgId = await fetchOrganizationId(token);
+    orgId = await fetchOrganizationId(token, entry.runtimeUrl);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("401") || msg.includes("403")) {
@@ -206,7 +206,12 @@ async function rollbackPlatformViaEndpoint(
 
   let result: { detail: string; version: string | null };
   try {
-    result = await rollbackPlatformAssistant(token, orgId, version);
+    result = await rollbackPlatformAssistant(
+      token,
+      orgId,
+      version,
+      entry.runtimeUrl,
+    );
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
 
