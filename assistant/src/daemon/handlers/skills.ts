@@ -25,6 +25,7 @@ import {
   userMessage,
 } from "../../providers/provider-send-message.js";
 import { isTextMimeType as isTextMime } from "../../runtime/routes/workspace-utils.js";
+import { filterByQuery } from "../../skills/catalog-search.js";
 import {
   clawhubCheckUpdates,
   clawhubInspect,
@@ -662,13 +663,11 @@ export async function searchSkills(
   try {
     // Search the loaded skill catalog (bundled + installed) for matches
     const catalog = loadSkillCatalog();
-    const lowerQuery = query.toLowerCase();
-    const catalogMatches = catalog.filter(
-      (s) =>
-        s.id.toLowerCase().includes(lowerQuery) ||
-        s.displayName.toLowerCase().includes(lowerQuery) ||
-        s.description.toLowerCase().includes(lowerQuery),
-    );
+    const catalogMatches = filterByQuery(catalog, query, [
+      (s) => s.id,
+      (s) => s.displayName,
+      (s) => s.description,
+    ]);
 
     // Shape that matches ClawhubSearchResultItem so the client
     // (Swift ClawhubSkillItem) can decode results uniformly.

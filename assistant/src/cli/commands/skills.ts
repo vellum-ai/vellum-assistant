@@ -11,6 +11,7 @@ import {
   readLocalCatalog,
   uninstallSkillLocally,
 } from "../../skills/catalog-install.js";
+import { filterByQuery } from "../../skills/catalog-search.js";
 import type {
   AuditResponse,
   SkillsShSearchResult,
@@ -148,13 +149,11 @@ Examples:
           }
         }
 
-        const lowerQuery = query.toLowerCase();
-        const catalogMatches = catalog.filter(
-          (s) =>
-            s.id.toLowerCase().includes(lowerQuery) ||
-            s.name.toLowerCase().includes(lowerQuery) ||
-            s.description.toLowerCase().includes(lowerQuery),
-        );
+        const catalogMatches = filterByQuery(catalog, query, [
+          (s) => s.id,
+          (s) => s.name,
+          (s) => s.description,
+        ]);
 
         // ── Community registry search (non-fatal on failure) ─────────
         let registryResults: SkillsShSearchResult[] = [];
