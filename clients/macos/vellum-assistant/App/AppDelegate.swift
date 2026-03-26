@@ -379,7 +379,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 if !crashLogURLs.isEmpty {
                     options.onCrashedLastRun = { _ in crashedLastRun = true }
                 }
+
+                // Configure initialScope so all telemetry tags are present
+                // BEFORE the SDK flushes stored crash events, ensuring
+                // user_id and standard tags ride along with the crash event.
+                options.initialScope = { scope in
+                    SentryDeviceInfo.applyTags(to: scope)
+                    return scope
+                }
             }
+            // Also configure the live scope for events after start().
             SentryDeviceInfo.configureSentryScope()
 
             // Only send IPS files when the SDK confirms the previous session
