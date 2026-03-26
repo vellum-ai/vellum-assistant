@@ -153,6 +153,7 @@ mock.module("../oauth/oauth-store.js", () => ({
   getProvider: (providerKey: string) => mockGetProvider(providerKey),
   listProviders: () => mockListProviders(),
   registerProvider: () => ({}),
+  deleteProvider: () => false,
   seedProviders: () => {},
   getActiveConnection: () => undefined,
   listActiveConnectionsByProvider: () => [],
@@ -215,6 +216,18 @@ mock.module("../oauth/connect-orchestrator.js", () => ({
 mock.module("../oauth/provider-behaviors.js", () => ({
   getProviderBehavior: (providerKey: string) =>
     mockGetProviderBehavior(providerKey),
+}));
+
+mock.module("../oauth/seed-providers.js", () => ({
+  SEEDED_PROVIDER_KEYS: new Set([
+    "google",
+    "slack",
+    "github",
+    "notion",
+    "twitter",
+    "linear",
+  ]),
+  seedOAuthProviders: () => {},
 }));
 
 // ---------------------------------------------------------------------------
