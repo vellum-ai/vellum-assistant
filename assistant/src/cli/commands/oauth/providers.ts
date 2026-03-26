@@ -29,15 +29,14 @@ function resolveRedirectUri(
 ): string | null {
   const transport = callbackTransport ?? "loopback";
   if (transport === "loopback") {
-    const port = loopbackPort;
-    if (!port) {
+    if (!loopbackPort) {
       // No fixed port — loopback still works at runtime with an OS-assigned
       // port, but we can't predict the redirect URI ahead of time.  Return
       // a sentinel so callers know the transport is loopback-dynamic rather
       // than unsupported.
       return "http://localhost:<dynamic>/oauth/callback";
     }
-    return `http://localhost:${port}${LOOPBACK_CALLBACK_PATH}`;
+    return `http://localhost:${loopbackPort}${LOOPBACK_CALLBACK_PATH}`;
   }
   // Gateway transport — resolve from public ingress config.
   // Try the explicit publicBaseUrl first, then fall back to platform
@@ -67,6 +66,24 @@ function parseProviderRow(row: ReturnType<typeof getProvider>) {
     extraParams: row.extraParams ? JSON.parse(row.extraParams) : null,
     pingHeaders: row.pingHeaders ? JSON.parse(row.pingHeaders) : null,
     pingBody: row.pingBody ? JSON.parse(row.pingBody) : null,
+    loopbackPort: row.loopbackPort ?? null,
+    injectionTemplates: row.injectionTemplates
+      ? JSON.parse(row.injectionTemplates)
+      : null,
+    setupSkillId: row.setupSkillId ?? null,
+    appType: row.appType ?? null,
+    setupNotes: row.setupNotes ? JSON.parse(row.setupNotes) : null,
+    identityUrl: row.identityUrl ?? null,
+    identityMethod: row.identityMethod ?? null,
+    identityHeaders: row.identityHeaders
+      ? JSON.parse(row.identityHeaders)
+      : null,
+    identityBody: row.identityBody ? JSON.parse(row.identityBody) : null,
+    identityResponsePaths: row.identityResponsePaths
+      ? JSON.parse(row.identityResponsePaths)
+      : null,
+    identityFormat: row.identityFormat ?? null,
+    identityOkField: row.identityOkField ?? null,
     redirectUri: resolveRedirectUri(row.callbackTransport, row.loopbackPort),
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
@@ -263,6 +280,54 @@ Examples:
       "--no-client-secret",
       "Mark this provider as not requiring a client secret (default: required)",
     )
+    .option(
+      "--loopback-port <port>",
+      "Fixed port for the local OAuth callback server (e.g. 17322). When set, the redirect URI is http://localhost:<port>/oauth/callback",
+    )
+    .option(
+      "--injection-templates <json>",
+      'JSON array of token injection templates — each with hostPattern, injectionType, headerName, valuePrefix (e.g. \'[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]\')',
+    )
+    .option(
+      "--setup-skill-id <id>",
+      'Skill ID that provides guided setup instructions for this provider (e.g. "google-oauth-applescript")',
+    )
+    .option(
+      "--app-type <type>",
+      'What the provider calls its OAuth apps (e.g. "OAuth App", "Desktop app", "Public integration")',
+    )
+    .option(
+      "--identity-url <url>",
+      "Identity verification endpoint URL — called after OAuth to identify the connected account",
+    )
+    .option(
+      "--identity-method <method>",
+      "HTTP method for the identity endpoint: GET (default) or POST",
+    )
+    .option(
+      "--identity-headers <json>",
+      'JSON object of extra headers for the identity request (e.g. \'{"Notion-Version":"2022-06-28"}\')',
+    )
+    .option(
+      "--identity-body <body>",
+      'JSON body to send with the identity request (e.g. \'{"query":"{ viewer { email } }"}\')',
+    )
+    .option(
+      "--identity-response-paths <paths>",
+      'Comma-separated dot-notation paths to extract identity from the response (e.g. "email,name,person.email")',
+    )
+    .option(
+      "--identity-format <template>",
+      'Format template for the extracted identity (e.g. "@{0}" to prefix with @). Uses {0}, {1}, etc. for extracted values',
+    )
+    .option(
+      "--identity-ok-field <field>",
+      'Dot-notation path to a boolean field that must be truthy for the response to be considered valid (e.g. "ok")',
+    )
+    .option(
+      "--setup-notes <json>",
+      'JSON array of setup instruction notes shown during guided setup (e.g. \'["Enable the Gmail API","Add test users"]\')',
+    )
     .addHelpText(
       "after",
       `
@@ -274,6 +339,10 @@ Run 'assistant oauth providers list' to see existing keys.
 On success, returns the full provider row including generated timestamps.
 After registering, create an OAuth app with 'assistant oauth apps create'
 and then connect with 'assistant oauth connect <provider-key>'.
+
+Token injection templates control how the OAuth access token is injected
+into outgoing HTTP requests matched by host pattern. Identity config
+defines how the assistant verifies the connected account after OAuth.
 
 Examples:
   $ assistant oauth providers register \\
@@ -291,7 +360,15 @@ Examples:
       --token-url https://example.com/token \\
       --ping-url https://example.com/graphql \\
       --ping-method POST \\
-      --ping-body '{"query":"{ viewer { id } }"}'`,
+      --ping-body '{"query":"{ viewer { id } }"}'
+  $ assistant oauth providers register \\
+      --provider-key my-api \\
+      --auth-url https://example.com/auth \\
+      --token-url https://example.com/token \\
+      --loopback-port 17400 \\
+      --injection-templates '[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]' \\
+      --identity-url https://api.example.com/me \\
+      --identity-response-paths email,name`,
     )
     .action(
       (
@@ -313,6 +390,18 @@ Examples:
           dashboardUrl?: string;
           clientIdPlaceholder?: string;
           clientSecret: boolean;
+          loopbackPort?: string;
+          injectionTemplates?: string;
+          setupSkillId?: string;
+          appType?: string;
+          identityUrl?: string;
+          identityMethod?: string;
+          identityHeaders?: string;
+          identityBody?: string;
+          identityResponsePaths?: string;
+          identityFormat?: string;
+          identityOkField?: string;
+          setupNotes?: string;
         },
         cmd: Command,
       ) => {
@@ -338,6 +427,30 @@ Examples:
             dashboardUrl: opts.dashboardUrl,
             clientIdPlaceholder: opts.clientIdPlaceholder,
             requiresClientSecret: opts.clientSecret ? 1 : 0,
+            loopbackPort: opts.loopbackPort
+              ? parseInt(opts.loopbackPort, 10)
+              : undefined,
+            injectionTemplates: opts.injectionTemplates
+              ? JSON.parse(opts.injectionTemplates)
+              : undefined,
+            setupSkillId: opts.setupSkillId,
+            appType: opts.appType,
+            identityUrl: opts.identityUrl,
+            identityMethod: opts.identityMethod,
+            identityHeaders: opts.identityHeaders
+              ? JSON.parse(opts.identityHeaders)
+              : undefined,
+            identityBody: opts.identityBody
+              ? JSON.parse(opts.identityBody)
+              : undefined,
+            identityResponsePaths: opts.identityResponsePaths
+              ? opts.identityResponsePaths.split(",")
+              : undefined,
+            identityFormat: opts.identityFormat,
+            identityOkField: opts.identityOkField,
+            setupNotes: opts.setupNotes
+              ? JSON.parse(opts.setupNotes)
+              : undefined,
           });
 
           writeOutput(cmd, parseProviderRow(row));
@@ -414,6 +527,54 @@ Examples:
       "--no-client-secret",
       "Mark this provider as not requiring a client secret (default: required)",
     )
+    .option(
+      "--loopback-port <port>",
+      "Fixed port for the local OAuth callback server (e.g. 17322). When set, the redirect URI is http://localhost:<port>/oauth/callback",
+    )
+    .option(
+      "--injection-templates <json>",
+      'JSON array of token injection templates — each with hostPattern, injectionType, headerName, valuePrefix (e.g. \'[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]\')',
+    )
+    .option(
+      "--setup-skill-id <id>",
+      'Skill ID that provides guided setup instructions for this provider (e.g. "google-oauth-applescript")',
+    )
+    .option(
+      "--app-type <type>",
+      'What the provider calls its OAuth apps (e.g. "OAuth App", "Desktop app", "Public integration")',
+    )
+    .option(
+      "--identity-url <url>",
+      "Identity verification endpoint URL — called after OAuth to identify the connected account",
+    )
+    .option(
+      "--identity-method <method>",
+      "HTTP method for the identity endpoint: GET (default) or POST",
+    )
+    .option(
+      "--identity-headers <json>",
+      'JSON object of extra headers for the identity request (e.g. \'{"Notion-Version":"2022-06-28"}\')',
+    )
+    .option(
+      "--identity-body <body>",
+      'JSON body to send with the identity request (e.g. \'{"query":"{ viewer { email } }"}\')',
+    )
+    .option(
+      "--identity-response-paths <paths>",
+      'Comma-separated dot-notation paths to extract identity from the response (e.g. "email,name,person.email")',
+    )
+    .option(
+      "--identity-format <template>",
+      'Format template for the extracted identity (e.g. "@{0}" to prefix with @). Uses {0}, {1}, etc. for extracted values',
+    )
+    .option(
+      "--identity-ok-field <field>",
+      'Dot-notation path to a boolean field that must be truthy for the response to be considered valid (e.g. "ok")',
+    )
+    .option(
+      "--setup-notes <json>",
+      'JSON array of setup instruction notes shown during guided setup (e.g. \'["Enable the Gmail API","Add test users"]\')',
+    )
     .addHelpText(
       "after",
       `
@@ -426,10 +587,19 @@ Built-in providers (e.g. "google", "slack") cannot be updated; they are
 managed by the system and reset on startup. To create a custom provider with
 different settings, use 'assistant oauth providers register'.
 
+Token injection templates control how the OAuth access token is injected
+into outgoing HTTP requests matched by host pattern. Identity config
+defines how the assistant verifies the connected account after OAuth.
+
 Examples:
   $ assistant oauth providers update custom-api --display-name "My Custom API"
   $ assistant oauth providers update custom-api --scopes read,write --auth-url https://new.example.com/auth
-  $ assistant oauth providers update custom-api --ping-url https://api.example.com/me --json`,
+  $ assistant oauth providers update custom-api --ping-url https://api.example.com/me --json
+  $ assistant oauth providers update custom-api \\
+      --identity-url https://api.example.com/me \\
+      --identity-response-paths email,name
+  $ assistant oauth providers update custom-api \\
+      --injection-templates '[{"hostPattern":"api.example.com","injectionType":"header","headerName":"Authorization","valuePrefix":"Bearer "}]'`,
     )
     .action(
       (
@@ -451,6 +621,18 @@ Examples:
           dashboardUrl?: string;
           clientIdPlaceholder?: string;
           clientSecret: boolean;
+          loopbackPort?: string;
+          injectionTemplates?: string;
+          setupSkillId?: string;
+          appType?: string;
+          identityUrl?: string;
+          identityMethod?: string;
+          identityHeaders?: string;
+          identityBody?: string;
+          identityResponsePaths?: string;
+          identityFormat?: string;
+          identityOkField?: string;
+          setupNotes?: string;
         },
         cmd: Command,
       ) => {
@@ -512,6 +694,31 @@ Examples:
           if (cmd.getOptionValueSource("clientSecret") === "cli") {
             params.requiresClientSecret = opts.clientSecret ? 1 : 0;
           }
+
+          if (opts.loopbackPort !== undefined)
+            params.loopbackPort = parseInt(opts.loopbackPort, 10);
+          if (opts.injectionTemplates !== undefined)
+            params.injectionTemplates = JSON.parse(opts.injectionTemplates);
+          if (opts.setupSkillId !== undefined)
+            params.setupSkillId = opts.setupSkillId;
+          if (opts.appType !== undefined) params.appType = opts.appType;
+          if (opts.identityUrl !== undefined)
+            params.identityUrl = opts.identityUrl;
+          if (opts.identityMethod !== undefined)
+            params.identityMethod = opts.identityMethod;
+          if (opts.identityHeaders !== undefined)
+            params.identityHeaders = JSON.parse(opts.identityHeaders);
+          if (opts.identityBody !== undefined)
+            params.identityBody = JSON.parse(opts.identityBody);
+          if (opts.identityResponsePaths !== undefined)
+            params.identityResponsePaths =
+              opts.identityResponsePaths.split(",");
+          if (opts.identityFormat !== undefined)
+            params.identityFormat = opts.identityFormat;
+          if (opts.identityOkField !== undefined)
+            params.identityOkField = opts.identityOkField;
+          if (opts.setupNotes !== undefined)
+            params.setupNotes = JSON.parse(opts.setupNotes);
 
           // Check if any fields were actually provided
           if (Object.keys(params).length === 0) {
