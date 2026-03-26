@@ -60,12 +60,10 @@ public struct VScrollableText: View {
         #if !os(macOS)
         .task(id: text) {
             let input = text
-            let result = await Task.detached(priority: .userInitiated) {
-                input.split(separator: "\n", omittingEmptySubsequences: false)
-                    .map(String.init)
-            }.value
+            let lines = input.split(separator: "\n", omittingEmptySubsequences: false)
+                .map(String.init)
             guard !Task.isCancelled else { return }
-            preparedLines = result
+            preparedLines = lines
         }
         #endif
     }
@@ -118,6 +116,41 @@ public struct VScrollableText: View {
 
 #if os(macOS)
 
+/// NSScrollView subclass that forwards vertical scroll events to the parent
+/// responder chain when the content is at its scroll bounds, so the outer
+/// SwiftUI ScrollView (chat message list) remains scrollable.
+private class VerticalForwardingScrollView: NSScrollView {
+    override func scrollWheel(with event: NSEvent) {
+        guard let clipView = contentView as? NSClipView,
+              let documentView = documentView else {
+            super.scrollWheel(with: event)
+            return
+        }
+
+        let contentHeight = documentView.frame.height
+        let visibleHeight = clipView.bounds.height
+
+        // If content fits within the visible area, always forward.
+        guard contentHeight > visibleHeight else {
+            nextResponder?.scrollWheel(with: event)
+            return
+        }
+
+        let currentY = clipView.bounds.origin.y
+        let maxY = contentHeight - visibleHeight
+        let atTop = currentY <= 0
+        let atBottom = currentY >= maxY
+        let scrollingDown = event.scrollingDeltaY < 0
+        let scrollingUp = event.scrollingDeltaY > 0
+
+        if (atTop && scrollingUp) || (atBottom && scrollingDown) {
+            nextResponder?.scrollWheel(with: event)
+        } else {
+            super.scrollWheel(with: event)
+        }
+    }
+}
+
 /// Wraps a non-editable `NSTextView` for efficient large-text display.
 ///
 /// TextKit 1 handles layout virtualization internally — only visible text
@@ -159,7 +192,7 @@ private struct ScrollableNSTextView: NSViewRepresentable {
         textView.font = nsFont
         textView.textColor = NSColor(foregroundStyle)
 
-        let scrollView = NSScrollView()
+        let scrollView = VerticalForwardingScrollView()
         scrollView.documentView = textView
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
