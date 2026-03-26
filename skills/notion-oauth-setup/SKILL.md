@@ -7,12 +7,12 @@ metadata:
   vellum:
     display-name: "Notion Setup"
     feature-flag: "integration-notion"
-    includes: ["collaborative-oauth-flow"]
+    includes: ["vellum-oauth-integrations"]
 ---
 
 You are helping your user set up Notion credentials so the Notion integration can connect to their workspace.
 
-This skill follows the **Collaborative Guided Flow** pattern from the included `collaborative-oauth-flow` skill. That reference covers the navigation helper setup, step rhythm, rules, tone, error handling, and guardrails. This file defines only the Notion-specific steps.
+The included `vellum-oauth-integrations` skill handles the generic parts of the flow (credential collection, app registration, connection, and verification). This file defines only the Notion-specific steps.
 
 ## Provider Details
 
