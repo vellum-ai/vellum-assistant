@@ -17,6 +17,7 @@ struct AgentPanelContent: View {
     @State private var selectedCategory: SkillCategory?
     @State private var globalSkillSearchQuery = ""
     @State private var showAllSkills = false
+    @AppStorage("skillsBannerDismissed") private var bannerDismissed = false
 
     init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, connectionManager: GatewayConnectionManager) {
         self.onInvokeSkill = onInvokeSkill
@@ -39,29 +40,39 @@ struct AgentPanelContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if !isShowingDetail {
-                filterBar
-                HStack(spacing: VSpacing.xs) {
-                    VIconView(.sparkles, size: 14)
-                        .foregroundStyle(VColor.primaryBase)
-                    Text("You can ") +
-                    Text("create custom skill")
-                        .foregroundColor(VColor.primaryBase) +
-                    Text(" by describing what you want in chat.")
+                if !bannerDismissed {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.sparkles, size: 14)
+                            .foregroundStyle(VColor.primaryBase)
+                        Text("Tip: You can ") +
+                        Text("create a new custom skill")
+                            .foregroundColor(VColor.primaryBase) +
+                        Text(" by describing what you want in chat.")
+                        Spacer()
+                        Button(action: {
+                            withAnimation(VAnimation.fast) { bannerDismissed = true }
+                        }) {
+                            VIconView(.x, size: 12)
+                                .foregroundStyle(VColor.contentTertiary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.sm)
+                    .background(VColor.primaryBase.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.primaryBase.opacity(0.18), lineWidth: 1)
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture { onCreateSkill?() }
+                    .padding(.bottom, VSpacing.lg)
                 }
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(VColor.contentDefault)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, VSpacing.md)
-                .padding(.vertical, VSpacing.sm)
-                .background(VColor.primaryBase.opacity(0.10))
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                .overlay(
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(VColor.primaryBase.opacity(0.18), lineWidth: 1)
-                )
-                .contentShape(Rectangle())
-                .onTapGesture { onCreateSkill?() }
-                .padding(.top, VSpacing.lg)
+                filterBar
             }
             HStack(alignment: .top, spacing: VSpacing.xxl) {
                 if !isShowingDetail {
