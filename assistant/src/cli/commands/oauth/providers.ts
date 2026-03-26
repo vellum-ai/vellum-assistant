@@ -318,7 +318,7 @@ Examples:
     )
     .option(
       "--identity-format <template>",
-      'Format template for the extracted identity (e.g. "@{0}" to prefix with @). Uses {0}, {1}, etc. for extracted values',
+      'Format template for the extracted identity using ${pathName} tokens from --identity-response-paths (e.g. "@${login}" or "@${user} (${team})")',
     )
     .option(
       "--identity-ok-field <field>",
@@ -565,7 +565,7 @@ Examples:
     )
     .option(
       "--identity-format <template>",
-      'Format template for the extracted identity (e.g. "@{0}" to prefix with @). Uses {0}, {1}, etc. for extracted values',
+      'Format template for the extracted identity using ${pathName} tokens from --identity-response-paths (e.g. "@${login}" or "@${user} (${team})")',
     )
     .option(
       "--identity-ok-field <field>",

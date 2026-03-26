@@ -348,7 +348,7 @@ describe("assistant oauth providers update", () => {
       identityHeaders: JSON.stringify(identityHeaders),
       identityBody: JSON.stringify(identityBody),
       identityResponsePaths: JSON.stringify(["email", "name"]),
-      identityFormat: "@{0}",
+      identityFormat: "@${email}",
       identityOkField: "ok",
       updatedAt: Date.now(),
     });
@@ -378,7 +378,7 @@ describe("assistant oauth providers update", () => {
       "--identity-response-paths",
       "email,name",
       "--identity-format",
-      "@{0}",
+      "@${email}",
       "--identity-ok-field",
       "ok",
       "--json",
@@ -398,7 +398,7 @@ describe("assistant oauth providers update", () => {
     expect(parsed.identityHeaders).toEqual(identityHeaders);
     expect(parsed.identityBody).toEqual(identityBody);
     expect(parsed.identityResponsePaths).toEqual(["email", "name"]);
-    expect(parsed.identityFormat).toBe("@{0}");
+    expect(parsed.identityFormat).toBe("@${email}");
     expect(parsed.identityOkField).toBe("ok");
 
     // Verify updateProvider was called with the correct params
@@ -415,7 +415,7 @@ describe("assistant oauth providers update", () => {
       identityHeaders,
       identityBody,
       identityResponsePaths: ["email", "name"],
-      identityFormat: "@{0}",
+      identityFormat: "@${email}",
       identityOkField: "ok",
     });
   });
