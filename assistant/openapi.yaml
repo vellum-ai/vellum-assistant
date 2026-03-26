@@ -5533,7 +5533,7 @@ paths:
     get:
       operationId: skills_get
       summary: List all skills
-      description: Return all installed skills.
+      description: Return all installed skills. Pass ?include=catalog to also include available catalog skills.
       tags:
         - skills
       responses:
@@ -5546,11 +5546,82 @@ paths:
                 properties:
                   skills:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+                        description:
+                          type: string
+                        emoji:
+                          type: string
+                        homepage:
+                          type: string
+                        source:
+                          type: string
+                          enum:
+                            - bundled
+                            - managed
+                            - workspace
+                            - clawhub
+                            - extra
+                            - catalog
+                        state:
+                          type: string
+                          enum:
+                            - enabled
+                            - disabled
+                        installStatus:
+                          type: string
+                          enum:
+                            - bundled
+                            - installed
+                            - available
+                        updateAvailable:
+                          type: boolean
+                        provenance:
+                          type: object
+                          properties:
+                            kind:
+                              type: string
+                              enum:
+                                - first-party
+                                - third-party
+                                - local
+                            provider:
+                              type: string
+                            originId:
+                              type: string
+                            sourceUrl:
+                              type: string
+                          required:
+                            - kind
+                          additionalProperties: false
+                      required:
+                        - id
+                        - name
+                        - description
+                        - source
+                        - state
+                        - installStatus
+                        - updateAvailable
+                        - provenance
+                      additionalProperties: false
                     description: Skill objects
                 required:
                   - skills
                 additionalProperties: false
+      parameters:
+        - name: include
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - catalog
+          description: Optional inclusion flag. Use 'catalog' to merge available Vellum catalog skills into the response.
     post:
       operationId: skills_post
       summary: Create skill

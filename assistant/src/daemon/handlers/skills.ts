@@ -25,6 +25,7 @@ import {
   userMessage,
 } from "../../providers/provider-send-message.js";
 import { isTextMimeType as isTextMime } from "../../runtime/routes/workspace-utils.js";
+import { getCatalog } from "../../skills/catalog-cache.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
 import {
   clawhubCheckUpdates,
@@ -233,8 +234,9 @@ export interface SkillListItem {
   description: string;
   emoji?: string;
   homepage?: string;
-  source: "bundled" | "managed" | "workspace" | "clawhub" | "extra";
+  source: "bundled" | "managed" | "workspace" | "clawhub" | "extra" | "catalog";
   state: "enabled" | "disabled";
+  installStatus: "bundled" | "installed" | "available";
   updateAvailable: boolean;
   provenance: SkillProvenance;
 }
@@ -260,6 +262,9 @@ export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
     homepage: r.summary.homepage,
     source: r.summary.source,
     state: r.state,
+    installStatus: (r.summary.source === "bundled"
+      ? "bundled"
+      : "installed") as SkillListItem["installStatus"],
     updateAvailable: false,
     provenance: resolveProvenance(r.summary),
   }));
@@ -274,6 +279,54 @@ export function listSkills(_ctx: SkillOperationContext): SkillListItem[] {
   });
 
   return items;
+}
+
+/**
+ * List installed skills merged with available catalog skills.
+ * Installed skills take precedence when deduplicating by ID.
+ */
+export async function listSkillsWithCatalog(
+  ctx: SkillOperationContext,
+): Promise<SkillListItem[]> {
+  const installed = listSkills(ctx);
+  const installedIds = new Set(installed.map((s) => s.id));
+
+  let catalogSkills: import("../../skills/catalog-install.js").CatalogSkill[];
+  try {
+    catalogSkills = await getCatalog();
+  } catch {
+    // If catalog fetch fails, return installed-only
+    return installed;
+  }
+
+  // All entries from the Vellum platform API are first-party.
+  // Create SkillListItems for catalog skills not already installed.
+  const available: SkillListItem[] = catalogSkills
+    .filter((cs) => !installedIds.has(cs.id))
+    .map((cs) => ({
+      id: cs.id,
+      name: cs.metadata?.vellum?.["display-name"] ?? cs.name,
+      description: cs.description,
+      emoji: cs.emoji,
+      homepage: undefined,
+      source: "catalog" as const,
+      state: "disabled" as const,
+      installStatus: "available" as const,
+      updateAvailable: false,
+      provenance: { kind: "first-party" as const, provider: "Vellum" },
+    }));
+
+  const merged = [...installed, ...available];
+
+  // Sort using the same provenance sort + alphabetical
+  merged.sort((a, b) => {
+    const rankDiff =
+      provenanceSortRank(a.provenance) - provenanceSortRank(b.provenance);
+    if (rankDiff !== 0) return rankDiff;
+    return a.name.localeCompare(b.name);
+  });
+
+  return merged;
 }
 
 /** Look up a single skill by ID from the resolved catalog, returning its SkillListItem. */
@@ -295,6 +348,7 @@ function findSkillById(
     homepage: r.summary.homepage,
     source: r.summary.source,
     state: r.state,
+    installStatus: r.summary.source === "bundled" ? "bundled" : "installed",
     updateAvailable: false,
     provenance: resolveProvenance(r.summary),
   };

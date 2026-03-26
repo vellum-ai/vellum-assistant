@@ -23,6 +23,7 @@ import {
   inspectSkill,
   installSkill,
   listSkills,
+  listSkillsWithCatalog,
   searchSkills,
   uninstallSkill,
   updateSkill,
@@ -47,13 +48,53 @@ export function skillRouteDefinitions(deps: SkillRouteDeps): RouteDefinition[] {
       method: "GET",
       policyKey: "skills",
       summary: "List all skills",
-      description: "Return all installed skills.",
+      description:
+        "Return all installed skills. Pass ?include=catalog to also include available catalog skills.",
       tags: ["skills"],
+      queryParams: [
+        {
+          name: "include",
+          schema: { type: "string", enum: ["catalog"] },
+          description:
+            "Optional inclusion flag. Use 'catalog' to merge available Vellum catalog skills into the response.",
+        },
+      ],
       responseBody: z.object({
-        skills: z.array(z.unknown()).describe("Skill objects"),
+        skills: z
+          .array(
+            z.object({
+              id: z.string(),
+              name: z.string(),
+              description: z.string(),
+              emoji: z.string().optional(),
+              homepage: z.string().optional(),
+              source: z.enum([
+                "bundled",
+                "managed",
+                "workspace",
+                "clawhub",
+                "extra",
+                "catalog",
+              ]),
+              state: z.enum(["enabled", "disabled"]),
+              installStatus: z.enum(["bundled", "installed", "available"]),
+              updateAvailable: z.boolean(),
+              provenance: z.object({
+                kind: z.enum(["first-party", "third-party", "local"]),
+                provider: z.string().optional(),
+                originId: z.string().optional(),
+                sourceUrl: z.string().optional(),
+              }),
+            }),
+          )
+          .describe("Skill objects"),
       }),
-      handler: () => {
-        const skills = listSkills(ctx());
+      handler: async ({ url }) => {
+        const include = url.searchParams.get("include");
+        const skills =
+          include === "catalog"
+            ? await listSkillsWithCatalog(ctx())
+            : listSkills(ctx());
         return Response.json({ skills });
       },
     },
