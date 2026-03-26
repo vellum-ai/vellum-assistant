@@ -6,7 +6,6 @@ Note that this section is only applicable for providers whose mode is set to "yo
 
 If you're trying to create an OAuth application for a provider that doesn't yet exist, see [Registering New OAuth Providers](REGISTERING_PROVIDERS.md).
 
-
 ## Evaluating if Custom OAuth Apps Are a Good Fit
 
 Your user will need to manually create the OAuth application in the third party's web UI. This process is typically more technical in nature. Before embarking on it, check to see if Vellum supports the provider-of-interest in their managed offerings:

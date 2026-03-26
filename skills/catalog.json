@@ -238,7 +238,7 @@
         "vellum": {
           "display-name": "Google OAuth Setup",
           "includes": [
-            "collaborative-oauth-flow"
+            "vellum-oauth-integrations"
           ]
         }
       },
@@ -464,7 +464,7 @@
           "display-name": "Spotify OAuth Setup",
           "feature-flag": "integration-spotify",
           "includes": [
-            "collaborative-oauth-flow"
+            "vellum-oauth-integrations"
           ]
         }
       },
@@ -576,6 +576,18 @@
         "emoji": "🎨",
         "vellum": {
           "display-name": "Avatar"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
+      "id": "vellum-oauth-integrations",
+      "name": "vellum-oauth-integrations",
+      "description": "Act on behalf of your user in any third-party software that supports OAuth 2.0",
+      "metadata": {
+        "emoji": "🔌",
+        "vellum": {
+          "display-name": "Vellum OAuth Integrations"
         }
       },
       "compatibility": "Designed for Vellum personal assistants"

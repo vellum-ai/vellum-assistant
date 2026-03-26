@@ -14,8 +14,8 @@ Integrating with a third-party software via OAuth is typically used to perform a
 
 **Important:** Avoid reaching for an OAuth integration if your intent is to act as yourself rather than as your user.
 
-
 ## The Assistant OAuth CLI
+
 You are provided with a rich CLI for performing all necessary oauth-related actions. Lean on it and its help documentation heavily.
 
 ```bash
@@ -36,22 +36,26 @@ You can also search for specific providers. Here's an example that searches for 
 assistant oauth providers list --provider-key google
 ```
 
-
 ## Managed vs Your-Own Mode
-All providers support "your-own" mode and some support "managed" mode. 
+
+All providers support "your-own" mode and some support "managed" mode.
 
 ### Managed Mode
+
 "managed" mode relies on a first-class integration with the Vellum Platform. Managed mode is typically easier to set up and get going, often only requiring the user to log in with no additional configuration needed before they can begin using the integration. Managed mode is the recommended method for most users, especially those that are less technical or newer to their Vellum assistant.
 
 Note that using managed mode:
+
 - Requires an account with the Vellum Platform
 - May result in billable usage
 - Requires that requests to the third party are sent through Vellum's servers
 
 ### Your-Own Mode
+
 "your-own" mode requires that the user creates their own OAuth application directly with the third-party and then enter the application's Client ID and Client Secret into Vellum.
 
 Your-own mode is typically best if:
+
 - Vellum does not have a first-party integration with the provider and managed mode is not supported
 - The user is more tech-savvy and comfortable setting up OAuth apps
 - The user does not want to create an account with the Vellum Platform
@@ -59,7 +63,9 @@ Your-own mode is typically best if:
 - The user is sensitive to their data going to the Vellum Platform
 
 ### Differentiating & Setting a Provider's Mode
+
 You can determine whether a given provider supports managed mode based on the details returned by:
+
 ```bash
 # Find the provider of interest in the list response
 assistant oauth providers list
@@ -69,11 +75,13 @@ assistant oauth providers get
 ```
 
 You can determine what mode the provider is currently set to use with:
+
 ```bash
 assistant oauth mode <provider-key>
 ```
 
 You can update which mode a given provider should use with:
+
 ```bash
 assistant oauth mode <provider-key> --set "managed"|"your-own"
 ```

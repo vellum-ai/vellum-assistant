@@ -36,7 +36,6 @@ assistant oauth request --help
 
 You should err towards asking your user for permission to make the request, especially if it performs side-effects (e.g. updates data, sends an email, etc.)
 
-
 ### OAuth Token Escape Hatch
 
 In some rare cases, you may need access to the OAuth token directly. This is heavily discouraged and should generally be avoided, but it is a valid escape hatch if:

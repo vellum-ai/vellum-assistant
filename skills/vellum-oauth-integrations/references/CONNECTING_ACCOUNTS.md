@@ -3,7 +3,9 @@
 Your user must connect their account for you to be able to make requests on their behalf. This typically requires that they sign in to the third-party provider using their own credentials through a typical OAuth flow.
 
 ## Pre-Requisites
+
 Before the user can connect to a provider, they must:
+
 1. Have the provider configured to use "managed" mode, and the provider must support it; or
 2. Have the provider configured to use "your-own" mode, and have created an OAuth app
 
@@ -20,7 +22,6 @@ assistant oauth apps list --provider-key <provider-key>
 ```
 
 If there are none, they will either need to opt in to using "managed" mode or they will need to create an OAuth app (see [Configuring a New OAuth Application](CONFIGURING_APPLICATIONS.md)).
-
 
 ## Initiating the Connection
 
@@ -66,17 +67,15 @@ assistant oauth ping <provider-key> --account <account-identifier>
 
 Where `<account-identifier>` is a provider-specific identifier for the account (e.g. in the case of google, this is the user's email address).
 
-
 ## Disconnecting Accounts
 
 The user may later want to disconnect an account. You should happily do this via:
 
 ```bash
-assistant oauth disconnect <provider-key> 
+assistant oauth disconnect <provider-key>
 ```
 
 If there are multiple connected accounts, you will need to provide the `--account` flag to specify which you want to disconnect.
-
 
 ## Making Requests
 
