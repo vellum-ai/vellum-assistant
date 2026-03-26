@@ -33,6 +33,13 @@ export const HandshakeRequestSchema = z.object({
    * can use it for platform credential materialisation.
    */
   assistantApiKey: z.string().optional(),
+  /**
+   * Optional platform assistant ID passed from the assistant runtime.
+   * In managed (sidecar) mode with warm pools, the PLATFORM_ASSISTANT_ID
+   * env var may not be set at CES startup. The assistant forwards it here
+   * so CES can use it for platform credential materialisation.
+   */
+  assistantId: z.string().optional(),
 });
 export type HandshakeRequest = z.infer<typeof HandshakeRequestSchema>;
 
