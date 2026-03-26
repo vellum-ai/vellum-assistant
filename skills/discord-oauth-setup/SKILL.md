@@ -7,12 +7,12 @@ metadata:
   vellum:
     display-name: "Discord OAuth Setup"
     feature-flag: "integration-discord"
-    includes: ["collaborative-oauth-flow"]
+    includes: ["vellum-oauth-integrations"]
 ---
 
 You are helping your user set up Discord OAuth credentials so the Discord integration can connect to their account and servers.
 
-This skill follows the **Collaborative Guided Flow** pattern from the included `collaborative-oauth-flow` skill. That reference covers the navigation helper setup, step rhythm, rules, tone, error handling, and guardrails. This file defines only the Discord-specific steps.
+The included `vellum-oauth-integrations` skill handles the generic parts of the flow (credential collection, app registration, connection, and verification). This file defines only the Discord-specific steps.
 
 ## Provider Details
 
@@ -104,57 +104,15 @@ Wait for the user to provide the Client ID.
 
 ---
 
-### Step 7: Store Credentials
+### Step 7: Collect Credentials, Register, Authorize, and Verify
 
-Collect the app secret via secure prompt:
+Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
 
-```
-credential_store prompt:
-  service: "discord"
-  field: "oauth_secret"
-  label: "Discord OAuth App Secret"
-  description: "Paste the app secret you just copied from the OAuth2 page."
-  placeholder: "..."
-```
-
-Register the OAuth app:
-
-```
-bash:
-  command: |
-    assistant oauth apps upsert --provider discord --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --client-secret-credential-path "credential/discord/oauth_secret"
-```
-
-**Milestone (7 of 9):** "Credentials saved - just the authorization step left."
-
----
-
-### Step 8: Authorize
+Scopes to request: `identify guilds guilds.members.read messages.read`
 
 > I'll start the Discord authorization flow now. You should see a Discord consent page asking you to authorize **Vellum Assistant** to access your account.
 >
 > Review the permissions and click **Authorize**.
-
-```
-bash:
-  command: |
-    assistant oauth connect discord --scopes identify guilds guilds.members.read messages.read
-```
-
----
-
-### Step 9: Verify Connection
-
-Use the ping URL to verify the connection:
-
-```
-bash:
-  command: |
-    assistant oauth ping discord
-```
 
 **On success:** "Discord is connected! You can now ask me to check your Discord servers, read messages, and look up server members."
 
