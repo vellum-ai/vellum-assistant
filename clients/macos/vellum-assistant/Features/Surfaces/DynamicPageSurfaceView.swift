@@ -344,22 +344,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         // When sandbox mode is enabled, compile a content rule list that blocks
         // all network requests except those to the vellumapp:// scheme.
         if sandboxMode {
-            let ruleJSON = """
-            [
-                {
-                    "trigger": { "url-filter": ".*" },
-                    "action": { "type": "block" }
-                },
-                {
-                    "trigger": { "url-filter": "^vellumapp://.*" },
-                    "action": { "type": "ignore-previous-rules" }
-                },
-                {
-                    "trigger": { "url-filter": "^about:blank$" },
-                    "action": { "type": "ignore-previous-rules" }
-                }
-            ]
-            """
+            let ruleJSON = AppHostAllowlist.contentRuleListJSON(allowedHosts: allowedHosts)
             WKContentRuleListStore.default().compileContentRuleList(
                 forIdentifier: "sandbox-block-external",
                 encodedContentRuleList: ruleJSON
@@ -721,6 +706,13 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             // Handle openExternal requests from the JS bridge.
             if let type = body["type"] as? String, type == "open_external" {
                 if sandboxMode {
+                    // Allow URLs whose host matches the allowedHosts list.
+                    if let urlString = body["url"] as? String,
+                       let url = URL(string: urlString),
+                       AppHostAllowlist.isAllowed(url, allowedHosts: allowedHosts) {
+                        NSWorkspace.shared.open(url)
+                        return
+                    }
                     log.warning("open_external: blocked in sandbox mode")
                     return
                 }
@@ -744,10 +736,12 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                     log.warning("open_link: invalid URL")
                     return
                 }
-                // Sandbox: only allow the Vellum branding domain.
+                // Sandbox: only allow the Vellum branding domain and allowedHosts.
                 if sandboxMode {
                     let host = url.host?.lowercased() ?? ""
-                    guard host == "vellum.ai" || host.hasSuffix(".vellum.ai") else {
+                    let isVellumDomain = host == "vellum.ai" || host.hasSuffix(".vellum.ai")
+                    let isAllowedHost = AppHostAllowlist.isAllowed(url, allowedHosts: allowedHosts)
+                    guard isVellumDomain || isAllowedHost else {
                         log.warning("open_link: blocked in sandbox mode (host=\(host, privacy: .public))")
                         return
                     }
@@ -1079,6 +1073,11 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                     }
                     // Allow initial HTML load via https://*.vellum.local/
                     if scheme == "https" && (url.host?.hasSuffix(".vellum.local") == true) && navigationAction.navigationType == .other {
+                        decisionHandler(.allow)
+                        return
+                    }
+                    // Allow HTTPS/WSS requests to hosts in the allowlist.
+                    if (scheme == "https" || scheme == "wss") && AppHostAllowlist.isAllowed(url, allowedHosts: allowedHosts) {
                         decisionHandler(.allow)
                         return
                     }
