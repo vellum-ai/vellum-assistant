@@ -33,6 +33,7 @@ export const VALID_REMOTE_HOSTS = [
   "aws",
   "docker",
   "custom",
+  "vellum",
 ] as const;
 export type RemoteHost = (typeof VALID_REMOTE_HOSTS)[number];
 export const VALID_SPECIES = ["openclaw", "vellum"] as const;
