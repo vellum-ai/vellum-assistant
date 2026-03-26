@@ -397,6 +397,10 @@ struct MainWindowView: View {
         if showDaemonLoading && !isSettingsOpen {
             AssistantLoadingOverlayContent(
                 onRetry: { rewakeAssistant() },
+                onOpenSettings: {
+                    settingsStore.pendingSettingsTab = .general
+                    windowState.selection = .panel(.settings)
+                },
                 onSendLogs: { AppDelegate.shared?.showLogReportWindow(reason: .appCrash) }
             )
             .transition(.identity)
@@ -1344,20 +1348,34 @@ private struct ErrorToastOverlay: View {
 // MARK: - Assistant Loading Overlay Content
 
 /// Standalone view for the assistant loading overlay that shows either a
-/// connection timeout error or the default skeleton placeholder.
+/// platform URL mismatch error, a connection timeout error, or the default
+/// skeleton placeholder.
 /// Extracted from MainWindowView to reduce type-checker complexity in
 /// `coreLayoutView`.
 private struct AssistantLoadingOverlayContent: View {
     let onRetry: () -> Void
+    let onOpenSettings: () -> Void
     let onSendLogs: () -> Void
 
     /// How long to wait before showing the timeout error state.
     private static let timeoutSeconds: UInt64 = 15
 
     @State private var timedOut = false
+    @State private var mismatch: PlatformURLMismatchInfo?
 
     var body: some View {
-        if timedOut {
+        if let mismatch {
+            ZStack {
+                VColor.surfaceBase
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                PlatformURLMismatchView(
+                    configuredURL: mismatch.configuredURL,
+                    lockfileURL: mismatch.lockfileURL,
+                    onOpenSettings: onOpenSettings,
+                    onSendLogs: onSendLogs
+                )
+            }
+        } else if timedOut {
             ZStack {
                 VColor.surfaceBase
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
@@ -1372,6 +1390,8 @@ private struct AssistantLoadingOverlayContent: View {
         } else {
             DaemonLoadingChatSkeleton()
                 .task {
+                    mismatch = Self.detectPlatformURLMismatch()
+                    guard mismatch == nil else { return }
                     try? await Task.sleep(nanoseconds: Self.timeoutSeconds * 1_000_000_000)
                     guard !Task.isCancelled else { return }
                     withAnimation(VAnimation.standard) {
@@ -1380,4 +1400,43 @@ private struct AssistantLoadingOverlayContent: View {
                 }
         }
     }
+
+    /// Checks whether the connected managed assistant's lockfile runtime URL
+    /// matches the app's configured platform URL. Returns mismatch details
+    /// when they differ, or nil when there is no mismatch (or the assistant
+    /// is not managed).
+    @MainActor
+    private static func detectPlatformURLMismatch() -> PlatformURLMismatchInfo? {
+        #if os(macOS)
+        guard let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+              let assistant = LockfileAssistant.loadByName(assistantId),
+              assistant.isManaged,
+              let lockfileURL = assistant.runtimeUrl,
+              !lockfileURL.isEmpty else {
+            return nil
+        }
+
+        let configuredURL = AuthService.shared.baseURL
+        let normalizedConfigured = configuredURL
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+            .lowercased()
+        let normalizedLockfile = lockfileURL
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+            .lowercased()
+
+        guard normalizedConfigured != normalizedLockfile else { return nil }
+        return PlatformURLMismatchInfo(configuredURL: configuredURL, lockfileURL: lockfileURL)
+        #else
+        return nil
+        #endif
+    }
+}
+
+/// Details of a platform URL mismatch between the app configuration and
+/// the lockfile assistant entry.
+private struct PlatformURLMismatchInfo {
+    let configuredURL: String
+    let lockfileURL: String
 }
