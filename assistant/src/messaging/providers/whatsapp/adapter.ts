@@ -5,7 +5,7 @@
  * endpoint. Delivery is proxied through the gateway which owns the Meta Cloud API
  * credentials (phone_number_id + access_token).
  *
- * The `connectionOrToken` parameter in MessagingProvider methods is unused
+ * The `connection` parameter in MessagingProvider methods is unused
  * for WhatsApp because delivery is authenticated via the gateway's bearer
  * token, not a per-user OAuth token.
  */
@@ -66,9 +66,7 @@ export const whatsappMessagingProvider: MessagingProvider = {
     return hasWhatsAppCredentials();
   },
 
-  async testConnection(
-    _connectionOrToken: OAuthConnection | string,
-  ): Promise<ConnectionInfo> {
+  async testConnection(_connection?: OAuthConnection): Promise<ConnectionInfo> {
     if (!(await hasWhatsAppCredentials())) {
       return {
         connected: false,
@@ -96,7 +94,7 @@ export const whatsappMessagingProvider: MessagingProvider = {
   },
 
   async sendMessage(
-    _connectionOrToken: OAuthConnection | string,
+    _connection: OAuthConnection | undefined,
     conversationId: string,
     text: string,
     options?: SendOptions,
@@ -140,7 +138,7 @@ export const whatsappMessagingProvider: MessagingProvider = {
 
   // WhatsApp does not support listing conversations via this provider.
   async listConversations(
-    _connectionOrToken: OAuthConnection | string,
+    _connection?: OAuthConnection,
     _options?: ListOptions,
   ): Promise<Conversation[]> {
     return [];
@@ -148,7 +146,7 @@ export const whatsappMessagingProvider: MessagingProvider = {
 
   // WhatsApp does not provide message history retrieval via the gateway.
   async getHistory(
-    _connectionOrToken: OAuthConnection | string,
+    _connection: OAuthConnection | undefined,
     _conversationId: string,
     _options?: HistoryOptions,
   ): Promise<Message[]> {
@@ -157,7 +155,7 @@ export const whatsappMessagingProvider: MessagingProvider = {
 
   // WhatsApp does not support message search.
   async search(
-    _connectionOrToken: OAuthConnection | string,
+    _connection: OAuthConnection | undefined,
     _query: string,
     _options?: SearchOptions,
   ): Promise<SearchResult> {
