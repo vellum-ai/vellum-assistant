@@ -28,6 +28,7 @@ import type {
   OAuthProviderBehavior,
   OAuthScopePolicy,
 } from "./connect-types.js";
+import { verifyIdentity } from "./identity-verifier.js";
 import { getProvider } from "./oauth-store.js";
 import { getProviderBehavior } from "./provider-behaviors.js";
 import { resolveScopes } from "./scope-policy.js";
@@ -44,7 +45,6 @@ const log = getLogger("oauth-connect-orchestrator");
  * Returns an empty object when no behavior is registered.
  */
 function resolveBehavior(providerKey: string): {
-  identityVerifier?: OAuthProviderBehavior["identityVerifier"];
   setup?: OAuthProviderBehavior["setup"];
   setupSkillId?: string;
   postConnectHookId?: string;
@@ -53,7 +53,6 @@ function resolveBehavior(providerKey: string): {
   const behavior = getProviderBehavior(providerKey);
   if (!behavior) return {};
   return {
-    identityVerifier: behavior.identityVerifier,
     setup: behavior.setup,
     setupSkillId: behavior.setupSkillId,
     postConnectHookId: behavior.postConnectHookId,
@@ -274,19 +273,12 @@ export async function orchestrateOAuthConnect(
       prepared.completion
         .then(async (result) => {
           try {
-            let parsedAccountIdentifier: string | undefined;
-
             // Parse account identifier from the provider's identity endpoint.
             // Best-effort — format varies by provider and may fail.
-            if (behavior.identityVerifier) {
-              try {
-                parsedAccountIdentifier = await behavior.identityVerifier(
-                  result.tokens.accessToken,
-                );
-              } catch {
-                // Non-fatal
-              }
-            }
+            const parsedAccountIdentifier = await verifyIdentity(
+              providerRow,
+              result.tokens.accessToken,
+            );
 
             const stored = await storeOAuth2Tokens({
               ...storageParams,
@@ -395,19 +387,15 @@ export async function orchestrateOAuthConnect(
 
     // Parse account identifier from the provider's identity endpoint.
     // Best-effort — format varies by provider and may fail.
-    let parsedAccountIdentifier: string | undefined;
-    if (behavior.identityVerifier) {
-      try {
-        parsedAccountIdentifier = await behavior.identityVerifier(
-          tokens.accessToken,
-        );
-        log.info(
-          { service: options.service, parsedAccountIdentifier },
-          "orchestrateOAuthConnect: identity verified",
-        );
-      } catch {
-        // Non-fatal
-      }
+    const parsedAccountIdentifier = await verifyIdentity(
+      providerRow,
+      tokens.accessToken,
+    );
+    if (parsedAccountIdentifier) {
+      log.info(
+        { service: options.service, parsedAccountIdentifier },
+        "orchestrateOAuthConnect: identity verified",
+      );
     }
 
     const { accountInfo } = await storeOAuth2Tokens({
