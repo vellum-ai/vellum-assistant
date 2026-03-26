@@ -2899,6 +2899,9 @@ final class ChatViewModelTests: XCTestCase {
         viewModel.conversationId = "sess-err"
         viewModel.isSending = true
         viewModel.isThinking = true
+        // Suppress the inline error message so the test stays focused on
+        // verifying buffered text preservation, not error message creation.
+        viewModel.shouldCreateInlineErrorMessage = { _ in false }
 
         viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial response")))
         // Don't manually flush — conversationError should flush internally.
