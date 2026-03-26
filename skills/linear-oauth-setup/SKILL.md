@@ -7,12 +7,12 @@ metadata:
   vellum:
     display-name: "Linear OAuth Setup"
     feature-flag: "integration-linear"
-    includes: ["collaborative-oauth-flow"]
+    includes: ["vellum-oauth-integrations"]
 ---
 
 You are helping your user set up Linear OAuth credentials so the Linear integration can connect to their workspace.
 
-This skill follows the **Collaborative Guided Flow** pattern from the included `collaborative-oauth-flow` skill. That reference covers the navigation helper setup, step rhythm, rules, tone, error handling, and guardrails. This file defines only the Linear-specific steps.
+The included `vellum-oauth-integrations` skill handles the generic parts of the flow (credential collection, app registration, connection, and verification). This file defines only the Linear-specific steps.
 
 ## Provider Details
 
@@ -82,17 +82,6 @@ If the user missed it:
 
 > If you navigated away and the secret is no longer visible, you'll need to generate a new one. Look for a **Regenerate** or **New secret** option on the application details page.
 
-Collect the secret via secure prompt:
-
-```
-credential_store prompt:
-  service: "linear"
-  field: "oauth_secret"
-  label: "Linear OAuth App Secret"
-  description: "Copy the app secret from the Linear OAuth application page and paste it here."
-  placeholder: "lin_oauth_..."
-```
-
 **Milestone (4 of 8):** "Credentials captured - let's add the scopes next."
 
 ---
@@ -111,46 +100,13 @@ credential_store prompt:
 
 ---
 
-### Step 6: Store Credentials
+### Step 6: Store Credentials, Authorize, and Verify
 
-Register the OAuth app:
-
-```
-bash:
-  command: |
-    assistant oauth apps upsert --provider linear --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --client-secret-credential-path "credential/linear/oauth_secret"
-```
-
-**Milestone (6 of 8):** "Credentials saved - just the authorization step left."
-
----
-
-### Step 7: Authorize
+Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
 
 > I'll start the Linear authorization flow now. You should see a Linear consent page asking you to allow **Vellum Assistant** to access your workspace.
 >
 > Review the permissions and click **Authorize**.
-
-```
-bash:
-  command: |
-    assistant oauth connect linear
-```
-
----
-
-### Step 8: Verify Connection
-
-Use the ping URL to verify the connection:
-
-```
-bash:
-  command: |
-    assistant oauth ping linear
-```
 
 **On success:** "Linear is connected! You can now ask me to create issues, check your assignments, search across projects, and manage your Linear workflow."
 

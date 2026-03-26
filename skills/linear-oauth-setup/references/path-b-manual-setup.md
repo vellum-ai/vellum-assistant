@@ -51,57 +51,18 @@ Tell the user:
 >
 > You should now see the application details. Send me the **Client ID** (also called **Application ID**) first.
 
-Wait for the Client ID, then store it:
-
-```
-credential_store store:
-  service: "linear"
-  field: "client_id"
-  value: "<the client id the user sent>"
-```
+Wait for the Client ID.
 
 Then ask for the secret:
 
 > Now send me the **app secret**. It's shown only once right after creation. If you can still see it, copy and send it as a standalone message with no other text.
 
-Store the secret:
-
-```
-credential_store store:
-  service: "linear"
-  field: "oauth_secret"
-  value: "<the secret the user sent>"
-```
-
 Note: If the user navigated away and can no longer see the secret, they'll need to regenerate it from the application settings page.
 
-## Path B Step 5: Authorize
+## Path B Step 5: Authorize and Verify
 
-Tell the user:
-
-> **Step 3: Authorize Linear**
->
-> I'll generate an authorization link for you now.
-
-```
-bash:
-  command: |
-    assistant oauth apps upsert --provider linear --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --client-secret-credential-path "credential/linear/oauth_secret"
-```
-
-```
-bash:
-  command: |
-    assistant oauth connect linear
-```
+Follow the `vellum-oauth-integrations` workflow to register the OAuth app, connect, and verify.
 
 Send the returned auth URL to the user. Tell them to click **Authorize** on the Linear consent page.
-
-## Path B Step 6: Done
-
-After authorization:
 
 > **Linear is connected!** You can now ask me to create issues, check your assignments, search across projects, and manage your Linear workflow.
