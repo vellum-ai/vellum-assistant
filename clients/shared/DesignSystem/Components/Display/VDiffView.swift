@@ -55,7 +55,7 @@ public struct VDiffView: View {
 
     private func diffScrollView(lines: [Substring], axes: Axis.Set) -> some View {
         ScrollView(axes, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                     diffLine(line)
                 }

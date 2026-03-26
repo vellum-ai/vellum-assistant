@@ -14,12 +14,19 @@ public struct ToolCallChip: View {
         self.onRehydrate = onRehydrate
     }
     @State private var isExpanded = false
+    /// Whether the output section is showing its full height (vs collapsed to ~80 lines).
+    @State private var isOutputExpanded = false
     /// Cached formatted input — computed once on first expand to avoid re-running
     /// `formatAllToolInput` on every SwiftUI render pass.
     @State private var cachedInputFull: String?
     /// Cached line count for the result text — avoids O(n) `components(separatedBy:)`
     /// array allocation on every SwiftUI render pass when the chip is expanded.
     @State private var cachedResultLineCount: Int?
+
+    /// Height threshold for collapsing the output section (~80 lines at ~15pt line height).
+    private static let collapsedOutputMaxHeight: CGFloat = 1200
+    /// Line count above which the output is considered "large" and gets a collapsed state.
+    private static let largeOutputLineThreshold = 80
 
     /// Parse a `<command_exit code="N" />` tag from the result string and return the exit code.
     static func parseExitCode(from result: String) -> Int? {
@@ -228,24 +235,31 @@ public struct ToolCallChip: View {
                                 }
                             } else {
                                 let lineCount = cachedResultLineCount ?? Self.countLines(in: result)
+                                let isLarge = lineCount > Self.largeOutputLineThreshold
                                 if Self.isFileEditTool(toolCall.toolName) {
-                                    VDiffView(result, maxHeight: lineCount > 500 ? 400 : nil)
-                                } else if lineCount > 500 {
-                                    ScrollView {
-                                        Text(result)
-                                            .font(VFont.bodySmallDefault)
-                                            .foregroundStyle(VColor.contentSecondary)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .textSelection(.enabled)
-                                    }
-                                    .frame(maxHeight: 400)
+                                    VDiffView(
+                                        result,
+                                        maxHeight: isOutputExpanded ? nil : (lineCount > Self.largeOutputLineThreshold ? Self.collapsedOutputMaxHeight : nil)
+                                    )
                                 } else {
-                                    Text(result)
-                                        .font(VFont.bodySmallDefault)
-                                        .foregroundStyle(VColor.contentSecondary)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .textSelection(.enabled)
-                                        .fixedSize(horizontal: false, vertical: true)
+                                    VScrollableText(
+                                        result,
+                                        maxHeight: isOutputExpanded ? nil : (isLarge ? Self.collapsedOutputMaxHeight : nil)
+                                    )
+                                }
+                                if isLarge {
+                                    Button {
+                                        withAnimation(VAnimation.fast) {
+                                            isOutputExpanded.toggle()
+                                        }
+                                    } label: {
+                                        Text(isOutputExpanded ? "Show less" : "Show more")
+                                            .font(VFont.labelDefault)
+                                            .foregroundStyle(VColor.primaryBase)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .pointerCursor()
+                                    .padding(.top, VSpacing.xs)
                                 }
                             }
                         }
@@ -314,6 +328,7 @@ public struct ToolCallChip: View {
             } else {
                 cachedResultLineCount = nil
             }
+            isOutputExpanded = false
         }
     }
 }
