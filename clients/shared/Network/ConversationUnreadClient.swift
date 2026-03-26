@@ -16,13 +16,11 @@ public enum ConversationUnreadError: LocalizedError {
 }
 
 /// Focused client for marking conversations as unread through the gateway.
-@MainActor
 public protocol ConversationUnreadClientProtocol {
     func sendConversationUnread(_ signal: ConversationUnreadSignal) async throws
 }
 
 /// Gateway-backed implementation of ``ConversationUnreadClientProtocol``.
-@MainActor
 public struct ConversationUnreadClient: ConversationUnreadClientProtocol {
     nonisolated public init() {}
 

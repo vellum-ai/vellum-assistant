@@ -8,7 +8,6 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// Local assistants are checked by hitting their own gateway's `/readyz` endpoint
 /// directly (unauthenticated). Remote/managed assistants route through
 /// `GatewayHTTPClient` which handles URL resolution, authentication, and 401 retry.
-@MainActor
 public enum HealthCheckClient {
 
     /// Check whether the currently connected assistant is reachable.

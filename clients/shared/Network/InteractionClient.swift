@@ -5,14 +5,12 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 
 /// Focused client for user interaction responses (confirmations, secrets)
 /// routed through the gateway.
-@MainActor
 public protocol InteractionClientProtocol {
     func sendConfirmationResponse(requestId: String, decision: String, selectedPattern: String?, selectedScope: String?) async -> Bool
     func sendSecretResponse(requestId: String, value: String?, delivery: String?) async -> Bool
 }
 
 /// Gateway-backed implementation of ``InteractionClientProtocol``.
-@MainActor
 public struct InteractionClient: InteractionClientProtocol {
     nonisolated public init() {}
 

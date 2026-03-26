@@ -4,7 +4,6 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationListClient")
 
 /// Focused client for conversation list and management operations via the gateway.
-@MainActor
 public protocol ConversationListClientProtocol {
     func fetchConversationList(offset: Int, limit: Int, conversationType: String?) async -> ConversationListResponse?
     func switchConversation(conversationId: String) async -> Bool
@@ -18,7 +17,6 @@ public protocol ConversationListClientProtocol {
 }
 
 /// Gateway-backed implementation of ``ConversationListClientProtocol``.
-@MainActor
 public struct ConversationListClient: ConversationListClientProtocol {
     nonisolated public init() {}
 

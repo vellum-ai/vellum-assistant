@@ -163,10 +163,12 @@ extension AppDelegate {
     /// Subscribe to the event stream and dispatch events to their handlers.
     /// Each event type is handled in a single switch statement.
     private func startEventSubscription() {
-        Task { @MainActor [weak self] in
+        eventSubscriptionTask?.cancel()
+        eventSubscriptionTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let stream = self.eventStreamClient.subscribe()
             for await message in stream {
+                guard !Task.isCancelled else { break }
                 switch message {
                 case .notificationIntent(let msg):
                     self.deliverNotificationIntent(msg)
@@ -372,8 +374,9 @@ extension AppDelegate {
                 case .conversationError(let msg):
                     if msg.code == .authenticationRequired && self.isCurrentAssistantManaged {
                         log.info("Received authenticationRequired error for managed assistant — showing reauth screen")
-                        // Store current assistant as pending so we reconnect after reauth
-                        if let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
+                        // Only set pending if not already set (preserve user's intended switch target)
+                        if UserDefaults.standard.string(forKey: "pendingManagedSwitchAssistantId") == nil,
+                           let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
                             UserDefaults.standard.set(assistantId, forKey: "pendingManagedSwitchAssistantId")
                         }
                         self.showAuthWindow()

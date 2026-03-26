@@ -4,13 +4,11 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationDetailClient")
 
 /// Focused client for fetching a single conversation summary through the gateway.
-@MainActor
 public protocol ConversationDetailClientProtocol {
     func fetchConversation(conversationId: String) async -> ConversationListResponseItem?
 }
 
 /// Gateway-backed implementation of ``ConversationDetailClientProtocol``.
-@MainActor
 public struct ConversationDetailClient: ConversationDetailClientProtocol {
     nonisolated public init() {}
 

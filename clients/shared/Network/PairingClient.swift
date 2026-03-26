@@ -4,7 +4,6 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "PairingClient")
 
 /// Focused client for pairing approval and device management operations routed through the gateway.
-@MainActor
 public protocol PairingClientProtocol {
     func sendPairingApprovalResponse(pairingRequestId: String, decision: String) async throws -> Bool
     func fetchApprovedDevices() async throws -> [ApprovedDevicesListResponseMessage.Device]
@@ -13,7 +12,6 @@ public protocol PairingClientProtocol {
 }
 
 /// Gateway-backed implementation of ``PairingClientProtocol``.
-@MainActor
 public struct PairingClient: PairingClientProtocol {
     nonisolated public init() {}
 
