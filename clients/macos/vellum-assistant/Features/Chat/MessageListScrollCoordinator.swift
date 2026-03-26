@@ -70,11 +70,11 @@ struct ScrollSuppression: OptionSet, Sendable {
 ///   precomputed cache) — updated every scroll tick, must never trigger
 ///   `objectWillChange`.
 /// - `isAtBottom` — whether the bottom sentinel is the current scroll target.
-/// - `hasReceivedScrollEvent`, `wasPaginationTriggerInRange`,
-///   `hasLoggedNonFiniteGeometry` — bookkeeping flags that don't drive UI.
+/// - `hasReceivedScrollEvent`, `wasPaginationTriggerInRange` — bookkeeping
+///   flags that don't drive UI.
 /// - `isFollowingBottom` — follow/detach state for bottom-pin logic.
-/// - `ChatScrollLoopGuard` — stateful helper that never needs to trigger
-///   view re-evaluation itself.
+/// - `ScrollDiagnosticsRecorder` — owns loop guard, snapshot capture,
+///   and non-finite geometry logging. Never triggers view re-evaluation.
 /// - All in-flight `Task` references.
 ///
 /// **Reactive (`@Published`):**
@@ -163,9 +163,10 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// update the view directly without callback indirection.
     var isNearBottomBinding: Binding<Bool>?
 
-    /// Detects runaway scroll-loop patterns and emits one aggregate warning
-    /// per cooldown window instead of per-frame log spam.
-    var scrollLoopGuard = ChatScrollLoopGuard()
+    /// Owns all diagnostic recording — loop detection, snapshot capture,
+    /// non-finite geometry logging. Extracted to keep the coordinator focused
+    /// on scroll mechanics.
+    var diagnostics = ScrollDiagnosticsRecorder()
 
     /// Whether a physical scroll event (wheel/trackpad) has been received since
     /// the current conversation loaded.
@@ -182,10 +183,6 @@ final class MessageListScrollCoordinator: ObservableObject {
 
     /// Tracks whether the pagination sentinel was previously inside the trigger band.
     var wasPaginationTriggerInRange: Bool = false
-
-    /// One-shot flag: logs a warning the first time anchor, tail, or viewport
-    /// geometry is non-finite during a render pass.
-    var hasLoggedNonFiniteGeometry: Bool = false
 
     /// The conversation ID currently being displayed. Updated in
     /// `conversationSwitched` so closures that capture `[weak self]`
@@ -317,7 +314,7 @@ final class MessageListScrollCoordinator: ObservableObject {
         }
     }
 
-    // MARK: - Diagnostics
+    // MARK: - Diagnostics (forwarded to ScrollDiagnosticsRecorder)
 
     /// Records a scroll-related event into the loop guard and emits a
     /// diagnostic warning if the guard trips.
@@ -328,32 +325,15 @@ final class MessageListScrollCoordinator: ObservableObject {
         scrollViewportHeight: CGFloat = .infinity,
         anchorMessageId: UUID? = nil
     ) {
-        let convId = conversationId?.uuidString ?? "unknown"
-        let timestamp = ProcessInfo.processInfo.systemUptime
-
-        if let snapshot = scrollLoopGuard.record(kind, conversationId: convId, timestamp: timestamp) {
-            // Log the full event histogram (all event kinds, including zeros)
-            // for post-mortem analysis — not just the kinds with non-zero counts.
-            let fullHistogram = ChatScrollLoopGuard.EventKind.allCases
-                .map { "\($0.rawValue)=\(snapshot.counts[$0] ?? 0)" }
-                .joined(separator: " ")
-            scrollCoordinatorLog.warning(
-                "Scroll loop detected — trippedBy=\(snapshot.trippedBy.rawValue) window=\(snapshot.windowDuration)s \(fullHistogram) isNearBottom=\(isNearBottom) hasReceivedScrollEvent=\(self.hasReceivedScrollEvent) anchorMessageId=\(String(describing: anchorMessageId)) isAtBottom=\(self.isAtBottom) viewportHeight=\(scrollViewportHeight)"
-            )
-            var sanitizer = NumericSanitizer()
-            let safeViewportHeight = sanitizer.sanitize(scrollViewportHeight, field: "viewportHeight")
-            logNonFiniteGeometryOnce(sanitizer: sanitizer)
-            ChatDiagnosticsStore.shared.record(ChatDiagnosticEvent(
-                kind: .scrollLoopDetected,
-                conversationId: convId,
-                reason: "trippedBy=\(snapshot.trippedBy.rawValue) \(fullHistogram)",
-                isPinnedToBottom: isNearBottom,
-                isUserScrolling: hasReceivedScrollEvent,
-                scrollOffsetY: 0,
-                viewportHeight: safeViewportHeight,
-                nonFiniteFields: sanitizer.nonFiniteFields
-            ))
-        }
+        diagnostics.recordScrollLoopEvent(
+            kind,
+            conversationId: conversationId,
+            isNearBottom: isNearBottom,
+            scrollViewportHeight: scrollViewportHeight,
+            anchorMessageId: anchorMessageId,
+            hasReceivedScrollEvent: hasReceivedScrollEvent,
+            isAtBottom: isAtBottom
+        )
     }
 
     /// Schedules a debounced transcript snapshot capture.
@@ -366,74 +346,20 @@ final class MessageListScrollCoordinator: ObservableObject {
         anchorMessageId: UUID?,
         highlightedMessageId: UUID?
     ) {
-        scrollTracking.snapshotDebounceTask?.cancel()
-        scrollTracking.snapshotDebounceTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(150))
-            guard !Task.isCancelled, let self else { return }
-            self.updateTranscriptSnapshot(
-                conversationId: conversationId,
-                messages: messages,
-                isNearBottom: isNearBottom,
-                scrollViewportHeight: scrollViewportHeight,
-                containerWidth: containerWidth,
-                anchorMessageId: anchorMessageId,
-                highlightedMessageId: highlightedMessageId
-            )
-        }
-    }
-
-    /// Captures a point-in-time transcript snapshot into `ChatDiagnosticsStore`.
-    private func updateTranscriptSnapshot(
-        conversationId: UUID?,
-        messages: [ChatMessage],
-        isNearBottom: Bool,
-        scrollViewportHeight: CGFloat,
-        containerWidth: CGFloat,
-        anchorMessageId: UUID?,
-        highlightedMessageId: UUID?
-    ) {
-        guard let convId = conversationId else { return }
-        let totalToolCalls = messages.reduce(0) { $0 + $1.toolCalls.count }
-
-        var sanitizer = NumericSanitizer()
-        let safeViewportHeight = sanitizer.sanitize(scrollViewportHeight, field: "scrollViewportHeight")
-        let safeContainerWidth = sanitizer.sanitize(containerWidth, field: "containerWidth")
-        logNonFiniteGeometryOnce(sanitizer: sanitizer)
-
-        let guardCounts = scrollLoopGuard.currentCounts(conversationId: convId.uuidString)
-        let guardCountsStringKeyed: [String: Int]? = guardCounts.isEmpty ? nil : Dictionary(
-            uniqueKeysWithValues: guardCounts.map { ($0.key.rawValue, $0.value) }
-        )
-
-        ChatDiagnosticsStore.shared.updateSnapshot(ChatTranscriptSnapshot(
-            conversationId: convId.uuidString,
-            capturedAt: Date(),
-            messageCount: messages.count,
-            toolCallCount: totalToolCalls,
-            isPinnedToBottom: isNearBottom,
-            isUserScrolling: hasReceivedScrollEvent,
-            scrollOffsetY: 0,
-            contentHeight: nil,
-            viewportHeight: safeViewportHeight,
+        diagnostics.scheduleTranscriptSnapshot(
+            conversationId: conversationId,
+            messages: messages,
             isNearBottom: isNearBottom,
+            scrollViewportHeight: scrollViewportHeight,
+            containerWidth: containerWidth,
+            anchorMessageId: anchorMessageId,
+            highlightedMessageId: highlightedMessageId,
             hasReceivedScrollEvent: hasReceivedScrollEvent,
             isPaginationInFlight: isPaginationInFlight,
-            suppressionReason: isSuppressed ? suppression.reasonDescriptions.joined(separator: ",") : nil,
-            anchorMessageId: anchorMessageId?.uuidString,
-            highlightedMessageId: highlightedMessageId?.uuidString,
-            anchorMinY: 0,
-            scrollViewportHeight: safeViewportHeight,
-            containerWidth: safeContainerWidth,
-            scrollLoopGuardCounts: guardCountsStringKeyed,
-            nonFiniteFields: sanitizer.nonFiniteFields
-        ))
-    }
-
-    /// Logs a one-time warning when scroll geometry first becomes non-finite.
-    func logNonFiniteGeometryOnce(sanitizer: NumericSanitizer) {
-        guard !hasLoggedNonFiniteGeometry, let fields = sanitizer.nonFiniteFields else { return }
-        hasLoggedNonFiniteGeometry = true
-        scrollCoordinatorLog.warning("Non-finite scroll geometry detected — sanitized fields: \(fields.joined(separator: ", "))")
+            isSuppressed: isSuppressed,
+            suppression: suppression,
+            isAtBottom: isAtBottom
+        )
     }
 
     // MARK: - Cleanup
@@ -453,8 +379,7 @@ final class MessageListScrollCoordinator: ObservableObject {
         scrollIndicatorRestoreTask = nil
         hideScrollIndicators = false
         isPaginationInFlight = false
-        scrollTracking.snapshotDebounceTask?.cancel()
-        scrollTracking.snapshotDebounceTask = nil
+        diagnostics.cancel()
         isNearBottomBinding = nil
     }
 
@@ -464,8 +389,7 @@ final class MessageListScrollCoordinator: ObservableObject {
         newConversationId: UUID?
     ) {
         clearAllSuppression()
-        scrollTracking.snapshotDebounceTask?.cancel()
-        scrollTracking.snapshotDebounceTask = nil
+        diagnostics.reset(oldConversationId: oldConversationId)
         paginationTask?.cancel()
         paginationTask = nil
         isPaginationInFlight = false
@@ -487,10 +411,6 @@ final class MessageListScrollCoordinator: ObservableObject {
             guard !Task.isCancelled, let self else { return }
             self.hideScrollIndicators = false
             self.scrollIndicatorRestoreTask = nil
-        }
-        // Reset the OLD conversation's scroll-loop guard state.
-        if let oldConvId = oldConversationId {
-            scrollLoopGuard.reset(conversationId: oldConvId.uuidString)
         }
     }
 }
