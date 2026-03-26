@@ -4,8 +4,8 @@ import { loadConfig } from "../../../config/loader.js";
 import { getOAuthCallbackUrl } from "../../../inbound/public-ingress-urls.js";
 import {
   deleteApp,
-  deleteConnection,
   deleteProvider,
+  disconnectOAuthProvider,
   getProvider,
   listApps,
   listConnections,
@@ -360,33 +360,60 @@ Examples:
   providers
     .command("update <provider-key>")
     .description("Update an existing custom OAuth provider configuration")
-    .option("--auth-url <url>", "Authorization endpoint URL")
-    .option("--token-url <url>", "Token endpoint URL")
-    .option("--base-url <url>", "API base URL")
-    .option("--userinfo-url <url>", "Userinfo endpoint URL")
-    .option("--scopes <scopes>", "Comma-separated default scopes")
-    .option("--token-auth-method <method>", "Token endpoint auth method")
-    .option("--callback-transport <transport>", "Callback transport")
+    .option(
+      "--auth-url <url>",
+      "OAuth authorization endpoint URL (e.g. https://accounts.example.com/o/oauth2/auth)",
+    )
+    .option(
+      "--token-url <url>",
+      "OAuth token endpoint URL (e.g. https://oauth2.example.com/token)",
+    )
+    .option("--base-url <url>", "API base URL for the service")
+    .option("--userinfo-url <url>", "OpenID Connect userinfo endpoint URL")
+    .option(
+      "--scopes <scopes>",
+      'Comma-separated default scopes (e.g. "read,write,profile")',
+    )
+    .option(
+      "--token-auth-method <method>",
+      'How the client authenticates at the token endpoint: "client_secret_post" or "client_secret_basic"',
+    )
+    .option(
+      "--callback-transport <transport>",
+      'OAuth callback transport: "loopback" (local HTTP server, default) or "gateway" (public ingress)',
+    )
     .option(
       "--ping-url <url>",
-      "Health-check endpoint URL for token validation",
+      'Health-check endpoint URL for token validation (e.g. "https://api.example.com/user"). Used by "assistant oauth ping" to verify a stored token.',
     )
     .option(
       "--ping-method <method>",
-      "HTTP method for the ping endpoint (default: GET)",
+      "HTTP method for the ping endpoint: GET (default) or POST",
     )
     .option(
       "--ping-headers <json>",
-      "JSON object of extra headers for the ping request",
+      'JSON object of extra headers for the ping request (e.g. \'{"Notion-Version":"2022-06-28"}\')',
     )
-    .option("--ping-body <json>", "JSON body to send with the ping request")
-    .option("--display-name <name>", "Display name for the provider")
-    .option("--description <text>", "Short description")
-    .option("--dashboard-url <url>", "Developer console URL")
-    .option("--client-id-placeholder <text>", "Placeholder for client ID field")
+    .option(
+      "--ping-body <json>",
+      'JSON body to send with the ping request (e.g. \'{"query":"{ viewer { id } }"}\')',
+    )
+    .option(
+      "--display-name <name>",
+      "Human-readable display name for the provider",
+    )
+    .option("--description <text>", "Short description of the provider")
+    .option(
+      "--dashboard-url <url>",
+      "URL to the provider's developer console / dashboard",
+    )
+    .option(
+      "--client-id-placeholder <text>",
+      "Placeholder text shown in the client ID input field",
+    )
     .option(
       "--no-client-secret",
-      "Set requires_client_secret to false (default is true)",
+      "Mark this provider as not requiring a client secret (default: required)",
     )
     .addHelpText(
       "after",
@@ -479,6 +506,13 @@ Examples:
             params.dashboardUrl = opts.dashboardUrl;
           if (opts.clientIdPlaceholder !== undefined)
             params.clientIdPlaceholder = opts.clientIdPlaceholder;
+
+          // Handle the negated --no-client-* flag: Commander defaults
+          // opts.clientSecret to true; the negated form sets it to false.
+          // Use getOptionValueSource to detect explicit user intent.
+          if (cmd.getOptionValueSource("clientSecret") === "cli") {
+            params.requiresClientSecret = opts.clientSecret ? 1 : 0;
+          }
 
           // Check if any fields were actually provided
           if (Object.keys(params).length === 0) {
@@ -579,8 +613,19 @@ Examples:
           }
 
           // Cascade-delete connections first, then apps, then the provider.
+          // Use disconnectOAuthProvider to clean up OAuth tokens from secure
+          // storage in addition to deleting the connection DB row.
           for (const conn of dependentConnections) {
-            deleteConnection(conn.id);
+            const result = await disconnectOAuthProvider(
+              providerKey,
+              undefined,
+              conn.id as string,
+            );
+            if (result === "error") {
+              log.info(
+                `Warning: failed to clean up tokens for connection ${conn.id} — continuing cascade delete.`,
+              );
+            }
           }
           for (const app of dependentApps) {
             await deleteApp(app.id);
