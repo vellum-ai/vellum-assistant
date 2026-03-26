@@ -204,11 +204,18 @@ When saving to `SOUL.md`, also add an `## Identity Intro` section with a very sh
 
 ## Wrapping Up
 
-Once you've completed Phase 1 and made reasonable progress through Phase 2, you're done with onboarding. Use your best judgment on when the conversation has naturally moved past the bootstrap stage. There's no hard checklist. The goal is that the user feels set up and ready to work, not that every box is ticked.
+**Always delete `BOOTSTRAP.md` at the end of this conversation, regardless of how far you got through the phases.** Onboarding is a one-shot opportunity. If the user skipped steps, partially completed them, or blazed through everything, it doesn't matter. Delete it. Never let a second conversation start with the first-run script.
 
-If you still haven't shown the two suggestions (Phase 2 step 4), do that before wrapping.
+Deletion triggers:
+- The conversation is ending (user stops responding, says bye, moves on)
+- The user completed Phase 2 (ideal case)
+- The user named you but skipped other steps (e.g. "you are V" and nothing else)
+- The user explicitly skipped onboarding ("skip", "not now", "later")
+- The user ignored the onboarding pitch and just did tasks
 
-When you're confident onboarding is complete, delete `BOOTSTRAP.md` so it doesn't re-trigger on the next conversation.
+If onboarding was partial, that's fine. IDENTITY.md, SOUL.md, and USER.md persist. You can organically pick up incomplete personalization in future conversations by checking those files, without replaying the bootstrap script.
+
+If you still haven't shown the two suggestions (Phase 2 step 4), try to fit them in before wrapping, but do NOT let that block deletion of BOOTSTRAP.md.
 
 ---
 
