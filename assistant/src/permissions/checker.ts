@@ -211,8 +211,10 @@ function classifyAssistantSubcommand(args: string[]): RiskLevel {
     const oauthSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
     if (oauthSub === "token") return RiskLevel.High;
     if (oauthSub === "mode") {
-      // `oauth mode --set` is high risk; bare `oauth mode` (read) is low
-      if (args.includes("--set")) return RiskLevel.High;
+      // `oauth mode --set` is high risk; bare `oauth mode` (read) is low.
+      // Match both `--set value` (two tokens) and `--set=value` (one token).
+      if (args.some((a) => a === "--set" || a.startsWith("--set=")))
+        return RiskLevel.High;
       return RiskLevel.Low;
     }
     if (oauthSub === "request") return RiskLevel.Medium;

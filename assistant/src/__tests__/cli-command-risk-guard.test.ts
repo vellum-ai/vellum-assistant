@@ -133,6 +133,13 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
     expect(risk).toBe(RiskLevel.High);
   });
 
+  test("assistant oauth mode --set=value is High risk (equals syntax)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant oauth mode google --set=managed",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
   test("assistant oauth mode without --set is Low risk (read-only)", async () => {
     const risk = await classifyRisk("bash", {
       command: "assistant oauth mode",
