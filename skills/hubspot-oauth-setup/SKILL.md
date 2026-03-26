@@ -7,12 +7,12 @@ metadata:
   vellum:
     display-name: "HubSpot OAuth Setup"
     feature-flag: "integration-hubspot"
-    includes: ["collaborative-oauth-flow"]
+    includes: ["vellum-oauth-integrations"]
 ---
 
 You are helping your user set up HubSpot OAuth credentials so the HubSpot CRM integration can connect to their account.
 
-This skill follows the **Collaborative Guided Flow** pattern from the included `collaborative-oauth-flow` skill. That reference covers the navigation helper setup, step rhythm, rules, tone, error handling, and guardrails. This file defines only the HubSpot-specific steps.
+The included `vellum-oauth-integrations` skill handles the generic parts of the flow (credential collection, app registration, connection, and verification). This file defines only the HubSpot-specific steps.
 
 ## Provider Details
 
@@ -113,59 +113,13 @@ Wait for the user to confirm all 5 scopes are added.
 
 ---
 
-### Step 9: Store Credentials
+### Step 9: Store Credentials, Authorize, and Verify
 
-Collect Client ID conversationally:
-
-> Copy the **Client ID** and paste it here in the chat.
-
-Collect the app secret via secure prompt:
-
-```
-credential_store prompt:
-  service: "hubspot"
-  field: "oauth_secret"
-  label: "HubSpot OAuth App Secret"
-  description: "Copy the App Secret from the Auth tab and paste it here."
-  placeholder: "..."
-```
-
-Register the OAuth app:
-
-```
-bash:
-  command: |
-    assistant oauth apps upsert --provider hubspot --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --client-secret-credential-path "credential/hubspot/oauth_secret"
-```
-
-Then authorize:
+Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
 
 > I'll start the HubSpot authorization flow now. You should see a HubSpot consent page asking you to allow **Vellum Assistant** to access your account.
 >
 > Select the HubSpot account you want to connect, review the permissions, and click **Grant access**.
-
-```
-bash:
-  command: |
-    assistant oauth connect hubspot
-```
-
-**Milestone (9 of 10):** "Credentials saved and authorized - let's verify."
-
----
-
-### Step 10: Verify Connection
-
-Use the ping URL to verify the connection:
-
-```
-bash:
-  command: |
-    assistant oauth ping hubspot
-```
 
 **On success:** "HubSpot is connected! You can now ask me to look up contacts, manage deals, and browse company records in your HubSpot CRM."
 
