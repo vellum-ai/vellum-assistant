@@ -7,12 +7,12 @@ metadata:
   vellum:
     display-name: "GitHub OAuth Setup"
     feature-flag: "integration-github"
-    includes: ["collaborative-oauth-flow"]
+    includes: ["vellum-oauth-integrations"]
 ---
 
 You are helping your user set up GitHub OAuth credentials so the GitHub integration can connect to their account.
 
-This skill follows the **Collaborative Guided Flow** pattern from the included `collaborative-oauth-flow` skill. That reference covers the navigation helper setup, step rhythm, rules, tone, error handling, and guardrails. This file defines only the GitHub-specific steps.
+The included `vellum-oauth-integrations` skill handles the generic parts of the flow (credential collection, app registration, connection, and verification). This file defines only the GitHub-specific steps.
 
 ## Provider Details
 
@@ -92,37 +92,9 @@ Then:
 
 ---
 
-### Step 5: Store Credentials
+### Step 5: Collect Credentials, Register, Authorize, and Verify
 
-Collect Client ID conversationally:
-
-> Paste the **Client ID** here in the chat.
-
-Collect the app secret via secure prompt:
-
-```
-credential_store prompt:
-  service: "github"
-  field: <secret-field>
-  label: "GitHub OAuth App Secret"
-  description: "Paste the app secret you just generated from the GitHub OAuth App page."
-  placeholder: "..."
-```
-
-<!-- Note: <secret-field> maps to the provider's secret credential field name for the OAuth token exchange. -->
-
-Register the OAuth app:
-
-```
-bash:
-  command: |
-    assistant oauth apps upsert --provider github --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --client-secret-credential-path "credential/github/<secret-field>"
-```
-
-**Milestone (5 of 8):** "Credentials saved - just the authorization step left."
+Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
 
 ---
 
@@ -138,31 +110,9 @@ These scopes are passed during the authorization step below.
 
 ---
 
-### Step 7: Authorize
-
 > I'll start the GitHub authorization flow now. You should see a GitHub consent page asking you to allow **Vellum Assistant** to access your account.
 >
 > Review the permissions and click **Authorize**.
-
-```
-bash:
-  command: |
-    assistant oauth connect github --scopes repo read:user notifications
-```
-
-**Milestone (7 of 8):** "Authorization complete - let's verify it works."
-
----
-
-### Step 8: Verify Connection
-
-Use the ping URL to verify the connection:
-
-```
-bash:
-  command: |
-    assistant oauth ping github
-```
 
 **On success:** "GitHub is connected! You can now ask me to check your repositories, notifications, pull requests, and issues."
 
