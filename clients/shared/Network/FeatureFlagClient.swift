@@ -102,7 +102,7 @@ public struct FeatureFlagClient: FeatureFlagClientProtocol {
             }()
             let def = registryByKey[registryKey]
             return AssistantFeatureFlag(
-                key: key,
+                key: registryKey,
                 enabled: enabled,
                 defaultEnabled: def?.defaultEnabled,
                 description: def?.description,
