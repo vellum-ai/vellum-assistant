@@ -14,7 +14,6 @@ final class DebugStateWriter {
     private weak var appDelegate: AppDelegate?
 
     let fileURL: URL
-    private let encoder: JSONEncoder
     private let diagnosticsStore: ChatDiagnosticsStore
 
     init(directory: URL? = nil, diagnosticsStore: ChatDiagnosticsStore? = nil) {
@@ -30,10 +29,6 @@ final class DebugStateWriter {
         self.fileURL = dir.appendingPathComponent("debug-state.json")
 
         self.diagnosticsStore = diagnosticsStore ?? ChatDiagnosticsStore.shared
-
-        self.encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
     }
 
     func start(appDelegate: AppDelegate) {
