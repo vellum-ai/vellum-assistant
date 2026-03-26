@@ -178,7 +178,6 @@ struct MessageListView: View {
     @StateObject private var scrollCoordinator = MessageListScrollCoordinator()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State private var resizeScrollTask: Task<Void, Never>?
-    @State private var hasPlayedTailEntryAnimation = false
     /// Native SwiftUI scroll position struct (macOS 15+). Replaces
     /// `ScrollViewReader` + `proxy.scrollTo()` and distance-from-bottom math.
     @State private var scrollPosition = ScrollPosition()
@@ -459,10 +458,6 @@ struct MessageListView: View {
             }
         }
         return result
-    }
-
-    private var shouldPlayTailEntryAnimation: Bool {
-        !hasPlayedTailEntryAnimation && messages.count <= 2
     }
 
     /// Delegates scroll-to-bottom restoration to the coordinator.
@@ -978,7 +973,6 @@ struct MessageListView: View {
                     containerWidth: containerWidth,
                     isNearBottom: &isNearBottom,
                     highlightedMessageId: $highlightedMessageId,
-                    hasPlayedTailEntryAnimation: &hasPlayedTailEntryAnimation,
                     resizeScrollTask: &resizeScrollTask,
                     anchorMessageId: $anchorMessageId,
                     scrollViewportHeight: scrollCoordinator.currentScrollViewportHeight
@@ -1273,43 +1267,6 @@ private struct PaginationSentinelMinYKey: PreferenceKey {
     }
 }
 
-
-// MARK: - Avatar Glow
-
-/// Pulsing glow effect applied to the conversation tail avatar while the
-/// assistant is generating a response, making the "still working" state
-/// visible near the content area.
-private struct AvatarGlowModifier: ViewModifier {
-    let isActive: Bool
-
-    @State private var glowIntensity: CGFloat = 0
-
-    func body(content: Content) -> some View {
-        content
-            .shadow(color: VColor.primaryActive.opacity(glowIntensity), radius: 6 + glowIntensity * 10, x: 0, y: 0)
-            .shadow(color: VColor.primaryActive.opacity(glowIntensity * 0.5), radius: 2 + glowIntensity * 4, x: 0, y: 0)
-            .onChange(of: isActive) {
-                if isActive {
-                    withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
-                        glowIntensity = 0.25
-                    }
-                } else {
-                    withAnimation(.easeOut(duration: 0.4)) {
-                        glowIntensity = 0
-                    }
-                }
-            }
-            .onAppear {
-                if isActive {
-                    DispatchQueue.main.async {
-                        withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
-                            glowIntensity = 0.25
-                        }
-                    }
-                }
-            }
-    }
-}
 
 // MARK: - Cached Message Layout Metadata
 
