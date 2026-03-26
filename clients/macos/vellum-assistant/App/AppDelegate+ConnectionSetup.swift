@@ -82,6 +82,7 @@ extension AppDelegate {
     /// user signs in from Settings. Resets `hasSetupDaemon` so the next call
     /// to `setupGatewayConnectionManager()` runs the full setup again.
     func reconnectManagedAssistant() {
+        UserDefaults.standard.removeObject(forKey: "pendingManagedSwitchAssistantId")
         hasSetupDaemon = false
         setupGatewayConnectionManager()
     }
