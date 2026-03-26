@@ -38,7 +38,7 @@ struct MarkdownSegmentView: View, Equatable {
 
     var body: some View {
         let groups = groupedSegments
-        let scaledBodySize: CGFloat = 14
+        let chatFont = VFont.chat
         let scaledCodeLabelSize: CGFloat = 11
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
@@ -46,7 +46,7 @@ struct MarkdownSegmentView: View, Equatable {
                 case .selectableRun(let runSegments):
                     let attributed = buildCombinedAttributedString(from: runSegments)
                     Text(attributed)
-                        .font(.system(size: scaledBodySize))
+                        .font(chatFont)
                         .lineSpacing(4)
                         .foregroundStyle(textColor)
                         .tint(tintColor)
@@ -316,7 +316,7 @@ struct MarkdownSegmentView: View, Equatable {
                     if let cached = prefixWidthCache[prefixText] {
                         prefixWidth = cached
                     } else {
-                        let font = NSFont.systemFont(ofSize: 14)
+                        let font = NSFont(name: "DMSans-Regular", size: 16) ?? NSFont.systemFont(ofSize: 16)
                         let prefixNS = NSString(string: prefixText)
                         prefixWidth = prefixNS.size(withAttributes: [.font: font]).width
                         if prefixWidthCache.count < 200 {
