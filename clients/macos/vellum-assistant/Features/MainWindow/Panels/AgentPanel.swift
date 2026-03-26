@@ -225,7 +225,6 @@ struct AgentPanelContent: View {
                         if skill.isAvailable {
                             AvailableSkillItemRow(
                                 skill: skill,
-                                onSelect: { selectedInstalledSkillId = skill.id },
                                 onInstall: { skillsManager.installSkill(slug: skill.id) },
                                 isInstalling: skillsManager.installingSkillId == skill.id
                             )
@@ -334,11 +333,8 @@ struct SkillItemRow: View {
 
 struct AvailableSkillItemRow: View {
     let skill: SkillInfo
-    let onSelect: () -> Void
     let onInstall: () -> Void
     var isInstalling: Bool = false
-
-    @State private var isHovered = false
 
     var body: some View {
         HStack(alignment: .center, spacing: VSpacing.lg) {
@@ -375,7 +371,6 @@ struct AvailableSkillItemRow: View {
             }
         }
         .padding(VSpacing.lg)
-        .background(isHovered ? VColor.surfaceBase : Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .overlay(
             RoundedRectangle(cornerRadius: VRadius.xl)
@@ -384,10 +379,5 @@ struct AvailableSkillItemRow: View {
                     style: StrokeStyle(lineWidth: 2, dash: [6, 4])
                 )
         )
-        .contentShape(RoundedRectangle(cornerRadius: VRadius.xl))
-        .onHover { isHovered = $0 }
-        .animation(VAnimation.fast, value: isHovered)
-        .onTapGesture { onSelect() }
-        .pointerCursor()
     }
 }
