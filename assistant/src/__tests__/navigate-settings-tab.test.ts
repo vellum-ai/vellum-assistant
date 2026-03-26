@@ -9,11 +9,13 @@ function makeContext(sendToClient?: (msg: unknown) => void): ToolContext {
 
 const CANONICAL_TABS = [
   "General",
-  "Channels",
   "Models & Services",
   "Voice",
+  "Sounds",
   "Permissions & Privacy",
-  "Contacts",
+  "Billing",
+  "Archived Conversations",
+  "Schedules",
   "Developer",
 ];
 
@@ -28,6 +30,8 @@ const LEGACY_TABS = [
   "Privacy",
   "Sentry Testing",
   "Automation",
+  "Channels",
+  "Contacts",
 ];
 
 describe("navigate-settings-tab", () => {

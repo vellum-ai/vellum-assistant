@@ -133,7 +133,7 @@ const TASK_DEFINITIONS: readonly TaskDefinition[] = [
       "Ensure all webhook URLs registered with external services point to the new instance's public ingress URL.",
     required: false,
     helpText:
-      "Review the public ingress URL in Settings > General. Update any external services (GitHub, calendar providers, etc.) that send webhooks to this assistant.",
+      "Review the public ingress URL in Settings > Developer. Update any external services (GitHub, calendar providers, etc.) that send webhooks to this assistant.",
   },
 ] as const;
 
