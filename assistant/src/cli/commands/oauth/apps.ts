@@ -45,6 +45,7 @@ a provider with a mode of "your-own" set.
 
 Examples:
   $ assistant oauth apps list
+  $ assistant oauth apps list --provider-key google
   $ assistant oauth apps get --id <uuid>
   $ assistant oauth apps get --provider google
   $ assistant oauth apps upsert --provider google --client-id abc123
@@ -58,22 +59,34 @@ Examples:
   apps
     .command("list")
     .description("List all OAuth app registrations")
+    .option(
+      "--provider-key <key>",
+      "Filter by provider key (exact match). Only apps associated with this provider are returned. Run 'assistant oauth providers list' to see available keys.",
+    )
     .addHelpText(
       "after",
       `
-Returns all registered OAuth apps with their provider key, client ID, and
+Returns registered OAuth apps with their provider key, client ID, and
 timestamps. Output is an array of app objects.
+
+When --provider-key is specified, only apps whose providerKey exactly matches
+the given value are returned. Without the flag, all apps are listed.
 
 In JSON mode (--json), returns the array directly. In human mode, logs a
 summary count and prints the formatted list.
 
 Examples:
   $ assistant oauth apps list
-  $ assistant oauth apps list --json`,
+  $ assistant oauth apps list --provider-key google
+  $ assistant oauth apps list --provider-key slack --json`,
     )
-    .action((_opts: unknown, cmd: Command) => {
+    .action((opts: { providerKey?: string }, cmd: Command) => {
       try {
-        const rows = listApps().map(formatAppRow);
+        let rows = listApps().map(formatAppRow);
+
+        if (opts.providerKey) {
+          rows = rows.filter((r) => r.providerKey === opts.providerKey);
+        }
 
         if (!shouldOutputJson(cmd)) {
           log.info(`Found ${rows.length} app(s)`);
