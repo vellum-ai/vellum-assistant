@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import os
 
@@ -687,6 +688,27 @@ public final class GatewayConnectionManager: ObservableObject {
         }
     }
     #endif
+
+    // MARK: - Cancellation-Safe Async Observation
+
+    /// Returns an `AsyncStream` that mirrors `$isConnected` but properly
+    /// supports Swift task cancellation.
+    ///
+    /// Combine's `AsyncPublisher` (`.values`) does **not** cooperate with
+    /// task cancellation — a cancelled `for await` on `.values` never
+    /// terminates, which causes `withTaskGroup` to hang. `AsyncStream`
+    /// returns `nil` from its iterator when the consuming task is cancelled,
+    /// allowing structured concurrency groups to complete promptly.
+    var isConnectedStream: AsyncStream<Bool> {
+        AsyncStream { continuation in
+            let cancellable = self.$isConnected.sink { value in
+                continuation.yield(value)
+            }
+            continuation.onTermination = { _ in
+                cancellable.cancel()
+            }
+        }
+    }
 
     // MARK: - Helpers
 
