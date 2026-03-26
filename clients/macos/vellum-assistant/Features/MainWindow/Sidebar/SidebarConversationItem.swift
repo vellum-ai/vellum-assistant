@@ -42,6 +42,36 @@ struct SidebarConversationItem: View, Equatable {
             conversation.latestAssistantMessageAt != nil
     }
 
+    @ViewBuilder
+    private var contextMenuContent: some View {
+        VMenuItem(icon: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue, label: conversation.isPinned ? "Unpin" : "Pin") {
+            onTogglePin()
+        }
+        VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") {
+            onStartRename()
+        }
+        VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {
+            onArchive()
+        }
+        VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {
+            onMarkUnread()
+        }
+        .disabled(!canMarkUnread)
+
+        if let onOpenInNewWindow {
+            VMenuItem(icon: VIcon.externalLink.rawValue, label: "Open in New Window") {
+                onOpenInNewWindow()
+            }
+        }
+
+        VMenuDivider()
+
+        VMenuItem(icon: VIcon.messageCircle.rawValue, label: "Share Feedback") {
+            onShowFeedback?()
+        }
+        .disabled(onShowFeedback == nil)
+    }
+
     var body: some View {
         // Always reserve 20pt leading slot so text never shifts.
         // Use a tap gesture instead of Button so .onDrag can coexist —
@@ -158,47 +188,30 @@ struct SidebarConversationItem: View, Equatable {
                 .accessibilityLabel("Confirm archive \(conversation.title)")
             } else if isHovered {
                 Button {
-                    onBeginArchive()
+                    let appearance = NSApp.keyWindow?.effectiveAppearance
+                    VMenuPanel.show(
+                        at: NSEvent.mouseLocation,
+                        sourceAppearance: appearance
+                    ) {
+                        VMenu(width: 200) {
+                            contextMenuContent
+                        }
+                    } onDismiss: {}
                 } label: {
-                    VIconView(.archive, size: 13)
+                    VIconView(.ellipsis, size: 13)
                         .foregroundStyle(VColor.contentSecondary)
                         .frame(width: 20, height: 20)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .nativeTooltip("Archive")
+                .nativeTooltip("More options")
                 .padding(.trailing, VSpacing.xs)
-                .accessibilityLabel("Archive \(conversation.title)")
+                .accessibilityLabel("More options for \(conversation.title)")
             }
         }
         .padding(.horizontal, 0)
         .vContextMenu(width: 200) {
-            VMenuItem(icon: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue, label: conversation.isPinned ? "Unpin" : "Pin") {
-                onTogglePin()
-            }
-            VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") {
-                onStartRename()
-            }
-            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {
-                onArchive()
-            }
-            VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {
-                onMarkUnread()
-            }
-            .disabled(!canMarkUnread)
-
-            if let onOpenInNewWindow {
-                VMenuItem(icon: VIcon.externalLink.rawValue, label: "Open in New Window") {
-                    onOpenInNewWindow()
-                }
-            }
-
-            VMenuDivider()
-
-            VMenuItem(icon: VIcon.messageCircle.rawValue, label: "Share Feedback") {
-                onShowFeedback?()
-            }
-            .disabled(onShowFeedback == nil)
+            contextMenuContent
         }
         .pointerCursor { hovering in
             onHoverChange(hovering)
