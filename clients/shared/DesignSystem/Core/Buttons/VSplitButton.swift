@@ -59,7 +59,9 @@ public struct VSplitButton<MenuContent: View>: View {
             }
             .buttonStyle(.plain)
             .onHover { hovering in
-                isPrimaryHovered = isDisabled ? false : hovering
+                withAnimation(VAnimation.fast) {
+                    isPrimaryHovered = isDisabled ? false : hovering
+                }
             }
             .pointerCursor()
 
@@ -91,7 +93,9 @@ public struct VSplitButton<MenuContent: View>: View {
             }
             .frame(width: dropdownWidth, height: zoneHeight)
             .onHover { hovering in
-                isDropdownHovered = isDisabled ? false : hovering
+                withAnimation(VAnimation.fast) {
+                    isDropdownHovered = isDisabled ? false : hovering
+                }
             }
             .pointerCursor()
         }
@@ -107,8 +111,6 @@ public struct VSplitButton<MenuContent: View>: View {
         .disabled(isDisabled)
         .accessibilityElement(children: .contain)
         .optionalSplitButtonAccessibilityID(accessibilityID)
-        .animation(VAnimation.fast, value: isPrimaryHovered)
-        .animation(VAnimation.fast, value: isDropdownHovered)
     }
 
     // MARK: - Divider
