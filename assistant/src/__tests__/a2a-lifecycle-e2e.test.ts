@@ -71,7 +71,6 @@ import type {
 } from "../runtime/a2a/index.js";
 import {
   completePairingApproval,
-  completePairingVerification,
   handleInboundPairingRequest,
   handlePairingAccepted,
   handlePairingFinalize,
