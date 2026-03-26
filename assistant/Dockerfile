@@ -47,9 +47,24 @@ RUN apt-get update && apt-get install -y \
     git \
     htop \
     jq \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libcairo2 \
+    libcups2 \
     libfreetype6 \
+    libgbm1 \
     libharfbuzz0b \
+    libnspr4 \
     libnss3 \
+    libpango-1.0-0 \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
+    libxshmfence1 \
     lsof \
     make \
     openssl \
