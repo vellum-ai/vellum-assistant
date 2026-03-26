@@ -35,6 +35,8 @@ struct SidebarConversationItem: View, Equatable {
         lhs.isPendingDeletion == rhs.isPendingDeletion
     }
 
+    @State private var showContextMenu = false
+
     private var hasTrailingIcon: Bool { isHovered || isPendingDeletion }
     private var canMarkUnread: Bool {
         !conversation.hasUnseenLatestAssistantMessage &&
@@ -172,45 +174,44 @@ struct SidebarConversationItem: View, Equatable {
             }
         }
         .padding(.horizontal, 0)
-        .contextMenu {
-            Button {
-                onTogglePin()
-            } label: {
-                Label { Text(conversation.isPinned ? "Unpin" : "Pin") } icon: { VIconView(conversation.isPinned ? .pinOff : .pin, size: 14) }
-            }
-            Button {
-                onStartRename()
-            } label: {
-                Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
-            }
-            Button {
-                onArchive()
-            } label: {
-                Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
-            }
-            Button {
-                onMarkUnread()
-            } label: {
-                Label { Text("Mark as unread") } icon: { VIconView(.circle, size: 14) }
-            }
-            .disabled(!canMarkUnread)
-
-            if let onOpenInNewWindow {
-                Button {
-                    onOpenInNewWindow()
-                } label: {
-                    Label { Text("Open in New Window") } icon: { VIconView(.externalLink, size: 14) }
+        .onRightClick { showContextMenu = true }
+        .popover(isPresented: $showContextMenu, arrowEdge: .trailing) {
+            VMenu(width: 200) {
+                VMenuItem(icon: VIcon.pin.rawValue, label: conversation.isPinned ? "Unpin" : "Pin") {
+                    showContextMenu = false
+                    onTogglePin()
                 }
-            }
+                VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") {
+                    showContextMenu = false
+                    onStartRename()
+                }
+                VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {
+                    showContextMenu = false
+                    onArchive()
+                }
+                VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {
+                    showContextMenu = false
+                    onMarkUnread()
+                }
+                .opacity(canMarkUnread ? 1 : 0.4)
+                .disabled(!canMarkUnread)
 
-            Divider()
+                if let onOpenInNewWindow {
+                    VMenuItem(icon: VIcon.externalLink.rawValue, label: "Open in New Window") {
+                        showContextMenu = false
+                        onOpenInNewWindow()
+                    }
+                }
 
-            Button {
-                onShowFeedback?()
-            } label: {
-                Label { Text("Share Feedback") } icon: { VIconView(.messageCircle, size: 14) }
+                VMenuDivider()
+
+                VMenuItem(icon: VIcon.messageCircle.rawValue, label: "Share Feedback") {
+                    showContextMenu = false
+                    onShowFeedback?()
+                }
+                .opacity(onShowFeedback != nil ? 1 : 0.4)
+                .disabled(onShowFeedback == nil)
             }
-            .disabled(onShowFeedback == nil)
         }
         .pointerCursor { hovering in
             onHoverChange(hovering)
@@ -239,6 +240,67 @@ struct SidebarConversationItem: View, Equatable {
             .frame(width: 220, alignment: .leading)
             .background(VColor.surfaceBase.opacity(0.9))
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        }
+    }
+}
+
+// MARK: - Right-click detection (local prototype only)
+
+private struct RightClickView: NSViewRepresentable {
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> RightClickNSView {
+        RightClickNSView(action: action)
+    }
+
+    func updateNSView(_ nsView: RightClickNSView, context: Context) {
+        nsView.action = action
+    }
+
+    class RightClickNSView: NSView {
+        var action: () -> Void
+        private var monitor: Any?
+
+        init(action: @escaping () -> Void) {
+            self.action = action
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            monitor.flatMap(NSEvent.removeMonitor)
+            monitor = nil
+            guard window != nil else { return }
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
+                guard let self, let window = self.window else { return event }
+                let locationInView = self.convert(event.locationInWindow, from: nil)
+                if self.bounds.contains(locationInView) {
+                    self.action()
+                    return nil // consume the right-click
+                }
+                return event // pass through if not in our bounds
+            }
+        }
+
+        override func removeFromSuperview() {
+            monitor.flatMap(NSEvent.removeMonitor)
+            monitor = nil
+            super.removeFromSuperview()
+        }
+
+        // Return nil from hitTest so this view never intercepts left clicks,
+        // hover, drag, or any other mouse events from reaching SwiftUI content.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
+}
+
+private extension View {
+    func onRightClick(perform action: @escaping () -> Void) -> some View {
+        background {
+            RightClickView(action: action)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }

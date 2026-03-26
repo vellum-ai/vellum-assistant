@@ -39,14 +39,34 @@ public struct VMenu<Content: View>: View {
     }
 }
 
+// MARK: - VMenuItemSize
+
+/// Size variants for `VMenuItem`.
+public enum VMenuItemSize {
+    /// Compact menu item — 13pt DM Sans, matching sidebar conversation rows.
+    case compact
+    /// Regular menu item — delegates to `VSidebarRow` (14pt `VFont.bodyMediumDefault`).
+    case regular
+
+    fileprivate var font: Font { self == .compact ? VFont.menuCompact : VFont.bodyMediumDefault }
+    fileprivate var iconSize: CGFloat { 13 }
+    fileprivate static var iconSlotSize: CGFloat { 20 }
+    fileprivate static var rowMinHeight: CGFloat { 32 }
+}
+
 // MARK: - VMenuItem
 
-/// A tappable menu row that delegates to `VSidebarRow` for consistent styling.
-/// Supports an optional leading icon, active state, and trailing content.
+/// A tappable menu row with optional leading icon, active state, and trailing content.
+///
+/// Defaults to `.compact` size (13pt) to match sidebar conversation rows. Use `.regular`
+/// for 14pt rows that match `VSidebarRow`.
 ///
 /// Usage:
 /// ```swift
 /// VMenuItem(icon: VIcon.settings.rawValue, label: "Settings") { openSettings() }
+///
+/// // Regular size (14pt, same as VSidebarRow):
+/// VMenuItem(icon: VIcon.settings.rawValue, label: "Settings", size: .regular) { openSettings() }
 ///
 /// // With trailing content:
 /// VMenuItem(label: "Theme", isActive: true) { toggleTheme() } trailing: {
@@ -57,32 +77,79 @@ public struct VMenuItem<Trailing: View>: View {
     public let icon: String?
     public let label: String
     public let isActive: Bool
+    public let size: VMenuItemSize
     public let action: () -> Void
     public let trailing: Trailing
+
+    @State private var isHovered = false
 
     public init(
         icon: String? = nil,
         label: String,
         isActive: Bool = false,
+        size: VMenuItemSize = .compact,
         action: @escaping () -> Void,
         @ViewBuilder trailing: () -> Trailing
     ) {
         self.icon = icon
         self.label = label
         self.isActive = isActive
+        self.size = size
         self.action = action
         self.trailing = trailing()
     }
 
+    private var iconColor: Color {
+        isActive ? VColor.primaryActive : VColor.primaryBase
+    }
+
+    private var textColor: Color {
+        isActive ? VColor.contentEmphasized : VColor.contentSecondary
+    }
+
     public var body: some View {
-        VSidebarRow(
-            icon: icon,
-            label: label,
-            isActive: isActive,
-            isExpanded: true,
-            action: action
-        ) {
-            trailing
+        if size == .regular {
+            VSidebarRow(
+                icon: icon,
+                label: label,
+                isActive: isActive,
+                isExpanded: true,
+                action: action
+            ) {
+                trailing
+            }
+        } else {
+            HStack(spacing: VSpacing.xs) {
+                if let icon {
+                    VIconView(.resolve(icon), size: size.iconSize)
+                        .foregroundStyle(iconColor)
+                        .frame(width: VMenuItemSize.iconSlotSize, height: VMenuItemSize.iconSlotSize)
+                }
+                Text(label)
+                    .font(size.font)
+                    .foregroundStyle(textColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .allowsHitTesting(false)
+                Spacer()
+                trailing
+            }
+            .padding(.leading, VSpacing.xs)
+            .padding(.trailing, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .frame(minHeight: VMenuItemSize.rowMinHeight)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                isActive ? VColor.surfaceActive :
+                isHovered ? VColor.surfaceBase :
+                Color.clear
+            )
+            .animation(VAnimation.fast, value: isHovered)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(Rectangle())
+            .onTapGesture { action() }
+            .onHover { isHovered = $0 }
+            .pointerCursor()
         }
     }
 }
@@ -95,9 +162,10 @@ public extension VMenuItem where Trailing == EmptyView {
         icon: String? = nil,
         label: String,
         isActive: Bool = false,
+        size: VMenuItemSize = .compact,
         action: @escaping () -> Void
     ) {
-        self.init(icon: icon, label: label, isActive: isActive, action: action) {
+        self.init(icon: icon, label: label, isActive: isActive, size: size, action: action) {
             EmptyView()
         }
     }
