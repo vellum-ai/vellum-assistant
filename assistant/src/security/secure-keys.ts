@@ -294,13 +294,17 @@ async function doResolveBackend(): Promise<CredentialBackend> {
 }
 
 /**
- * Note that the ces-http backend returned an unreachable result.
- * On the next resolveBackendAsync() call this will trigger a CES RPC
- * reconnection attempt instead of continuing to route to the dead endpoint.
+ * Update the ces-http reachability latch after any get/list operation.
+ * Sets `_cesHttpUnreachable = true` on failure so the next
+ * resolveBackendAsync() call triggers a CES RPC reconnection attempt.
+ * Clears it on success so a transient blip doesn't cause endless churn.
  */
-function noteCesHttpUnreachable(): void {
-  if (_resolvedBackend?.name === "ces-http") {
-    _cesHttpUnreachable = true;
+function updateCesHttpReachability(
+  backend: CredentialBackend,
+  unreachable: boolean,
+): void {
+  if (backend.name === "ces-http") {
+    _cesHttpUnreachable = unreachable;
   }
 }
 
@@ -312,7 +316,7 @@ function noteCesHttpUnreachable(): void {
 export async function listSecureKeysAsync(): Promise<CredentialListResult> {
   const backend = await resolveBackendAsync();
   const result = await backend.list();
-  if (result.unreachable) noteCesHttpUnreachable();
+  updateCesHttpReachability(backend, result.unreachable);
   return result;
 }
 
@@ -334,10 +338,10 @@ export async function getSecureKeyResultAsync(
 ): Promise<SecureKeyResult> {
   const backend = await resolveBackendAsync();
   const result = await backend.get(account);
+  updateCesHttpReachability(backend, result.unreachable);
   if (result.value != null) {
     return { value: result.value, unreachable: false };
   }
-  if (result.unreachable) noteCesHttpUnreachable();
   return { value: undefined, unreachable: result.unreachable };
 }
 
