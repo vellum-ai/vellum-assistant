@@ -96,7 +96,7 @@ extension MainWindowView {
                 },
                 onCreateSkill: {
                     conversationManager.openConversation(
-                        message: "I'd like to create a new custom skill.",
+                        message: "I want to create a new custom skill. Ask me what kind of skill I'd like to build.",
                         forceNew: true
                     )
                     windowState.selection = nil
@@ -491,7 +491,7 @@ extension MainWindowView {
                 },
                 onCreateSkill: {
                     conversationManager.openConversation(
-                        message: "I'd like to create a new custom skill.",
+                        message: "I want to create a new custom skill. Ask me what kind of skill I'd like to build.",
                         forceNew: true
                     )
                     windowState.dismissOverlay()

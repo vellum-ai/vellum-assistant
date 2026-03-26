@@ -40,6 +40,8 @@ struct AgentPanelContent: View {
         VStack(alignment: .leading, spacing: 0) {
             if !isShowingDetail {
                 filterBar
+                CreateSkillRow(action: { onCreateSkill?() })
+                    .padding(.top, VSpacing.sm)
             }
             HStack(alignment: .top, spacing: VSpacing.xxl) {
                 if !isShowingDetail {
@@ -250,8 +252,6 @@ struct AgentPanelContent: View {
                             )
                         }
                     }
-
-                    CreateSkillRow(action: { onCreateSkill?() })
                 }
                 .background { OverlayScrollerStyle() }
             }
