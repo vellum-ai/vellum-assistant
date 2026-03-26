@@ -2342,9 +2342,9 @@ public final class ChatViewModel: ObservableObject {
         // Remove this message from local state (it will be re-added by sendMessage)
         messages.remove(at: index)
 
-        // If nothing is actively sending, stopGenerating() will no-op and no
+        // If the assistant is not busy, stopGenerating() will no-op and no
         // cancel-completion event will fire. Dispatch immediately instead.
-        guard isSending else {
+        guard isAssistantBusy else {
             inputText = text
             pendingAttachments = attachments
             pendingSkillInvocation = skillInvocation
