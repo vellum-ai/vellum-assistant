@@ -353,7 +353,7 @@ final class ConversationRestorer {
                 // Fetch foreground and background conversations in parallel so
                 // background conversations don't consume pagination slots from
                 // the main list.
-                async let foregroundResult = conversationListClient.fetchConversationList(offset: 0, limit: 50)
+                async let foregroundResult = conversationListClient.fetchConversationList(offset: 0, limit: 50, conversationType: nil)
                 async let backgroundResult = conversationListClient.fetchConversationList(offset: 0, limit: 50, conversationType: "background")
                 let foreground = await foregroundResult
                 let background = await backgroundResult
