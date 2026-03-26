@@ -95,9 +95,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     var pairingApprovalWindow: PairingApprovalWindow?
     var acpPermissionWindow: AcpPermissionWindow?
-    /// IPS crash log URLs found at launch, attached to the Sentry scope so
-    /// they accompany the automatic crash event. Cleared after Sentry flushes.
-    var pendingCrashLogURLs: [URL] = []
+    /// Task that clears IPS scope attachments after Sentry flushes the crash event.
+    var crashLogCleanupTask: Task<Void, Never>?
     var logReportWindow: NSWindow?
     var logReportWindowObserver: NSObjectProtocol?
     /// Background task that retries actor-token bootstrap until success.
@@ -379,26 +378,31 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 options.sendDefaultPii = false
                 options.maxAttachmentSize = MetricKitManager.sentryMaxAttachmentSize
+
+                // Attach IPS files via initialScope so they are present
+                // BEFORE the SDK flushes stored crash events, eliminating
+                // the race between start() and scope configuration.
+                if !crashLogURLs.isEmpty {
+                    options.initialScope = { scope in
+                        for url in crashLogURLs {
+                            scope.addAttachment(
+                                Attachment(path: url.path, filename: url.lastPathComponent)
+                            )
+                        }
+                        return scope
+                    }
+                }
             }
             SentryDeviceInfo.configureSentryScope()
 
-            // Attach IPS files to the Sentry scope so they accompany the
-            // automatic crash event. Cleared after a short delay to avoid
-            // leaking into unrelated events.
             if !crashLogURLs.isEmpty {
-                SentrySDK.configureScope { scope in
-                    for url in crashLogURLs {
-                        scope.addAttachment(
-                            Attachment(path: url.path, filename: url.lastPathComponent)
-                        )
-                    }
-                }
                 CrashReporter.markAsSeen(crashLogURLs)
-                pendingCrashLogURLs = crashLogURLs
                 // Clear scope attachments after Sentry has had time to flush
-                // the crash event so they don't attach to later events.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
-                    self?.pendingCrashLogURLs = []
+                // the crash event so they don't leak into later events.
+                crashLogCleanupTask = Task { @MainActor [weak self] in
+                    try? await Task.sleep(nanoseconds: 10_000_000_000)
+                    guard !Task.isCancelled else { return }
+                    self?.crashLogCleanupTask = nil
                     SentrySDK.configureScope { scope in
                         scope.clearAttachments()
                     }
