@@ -515,7 +515,7 @@ class IOSConversationStore: ObservableObject {
             guard let self else { return }
             // Fetch foreground and background conversations in parallel so
             // background conversations don't consume pagination slots.
-            async let foregroundResult = conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize)
+            async let foregroundResult = conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize, conversationType: nil)
             async let backgroundResult = conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize, conversationType: "background")
             let foreground = await foregroundResult
             let background = await backgroundResult
@@ -783,7 +783,7 @@ class IOSConversationStore: ObservableObject {
         let capturedOffset = conversationListOffset
         Task { [weak self] in
             guard let self else { return }
-            if let response = await conversationListClient.fetchConversationList(offset: nextOffset, limit: Self.conversationPageSize) {
+            if let response = await conversationListClient.fetchConversationList(offset: nextOffset, limit: Self.conversationPageSize, conversationType: nil) {
                 guard capturedGeneration == self.conversationListGeneration else { return }
                 self.handleConversationListResponse(response)
             } else {
