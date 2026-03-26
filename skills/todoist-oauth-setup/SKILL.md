@@ -7,12 +7,12 @@ metadata:
   vellum:
     display-name: "Todoist OAuth Setup"
     feature-flag: "integration-todoist"
-    includes: ["collaborative-oauth-flow"]
+    includes: ["vellum-oauth-integrations"]
 ---
 
 You are helping your user set up Todoist OAuth credentials so the Todoist integration can connect to their account.
 
-This skill follows the **Collaborative Guided Flow** pattern from the included `collaborative-oauth-flow` skill. That reference covers the navigation helper setup, step rhythm, rules, tone, error handling, and guardrails. This file defines only the Todoist-specific steps.
+The included `vellum-oauth-integrations` skill handles the generic parts of the flow (credential collection, app registration, connection, and verification). This file defines only the Todoist-specific steps.
 
 ## Provider Details
 
@@ -67,61 +67,13 @@ Then:
 
 ---
 
-### Step 5: Store Credentials
+### Step 5: Store Credentials, Authorize, and Verify
 
-Collect Client ID conversationally:
-
-> Copy the **Client ID** and paste it here in the chat.
-
-Collect the app secret via secure prompt:
-
-```
-credential_store prompt:
-  service: "todoist"
-  field: "app_secret"
-  label: "Todoist OAuth App Secret"
-  description: "Copy the app secret from the Todoist app settings page and paste it here."
-  placeholder: "..."
-```
-
-Register the OAuth app:
-
-```
-bash:
-  command: |
-    assistant oauth apps upsert --provider todoist --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --client-secret-credential-path "credential/todoist/app_secret"
-```
-
-**Milestone (5 of 7):** "Credentials saved - just the authorization step left."
-
----
-
-### Step 6: Authorize
+Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
 
 > I'll start the Todoist authorization flow now. You should see a Todoist consent page asking you to allow **Vellum Assistant** to access your account.
 >
 > Review the permissions and click **Agree**.
-
-```
-bash:
-  command: |
-    assistant oauth connect todoist
-```
-
----
-
-### Step 7: Verify Connection
-
-Use the ping URL to verify the connection:
-
-```
-bash:
-  command: |
-    assistant oauth ping todoist
-```
 
 **On success:** "Todoist is connected! You can now ask me to manage your tasks, create projects, and organize your to-do lists."
 

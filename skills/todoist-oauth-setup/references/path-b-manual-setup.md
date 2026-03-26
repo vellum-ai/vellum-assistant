@@ -64,57 +64,18 @@ Tell the user:
 >
 > Send me your **Client ID** first.
 
-Wait for the Client ID, then store it:
-
-```
-credential_store store:
-  service: "todoist"
-  field: "client_id"
-  value: "<the client id the user sent>"
-```
+Wait for the Client ID.
 
 Then ask for the secret:
 
 > Now send me the **app secret**. Send it as a standalone message with no other text.
 
-Store the secret:
-
-```
-credential_store store:
-  service: "todoist"
-  field: "app_secret"
-  value: "<the secret the user sent>"
-```
-
 Note: Todoist app secrets don't have a known prefix that triggers channel scanners, so direct entry is acceptable. Still, keep the secret in its own message to avoid accidental logging with surrounding context.
 
-## Path B Step 6: Authorize
+## Path B Step 6: Authorize and Verify
 
-Tell the user:
-
-> **Step 4: Authorize Todoist**
->
-> I'll generate an authorization link for you now.
-
-```
-bash:
-  command: |
-    assistant oauth apps upsert --provider todoist --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --client-secret-credential-path "credential/todoist/app_secret"
-```
-
-```
-bash:
-  command: |
-    assistant oauth connect todoist
-```
+Follow the `vellum-oauth-integrations` workflow to register the OAuth app, connect, and verify.
 
 Send the returned auth URL to the user. Tell them to click **Agree** on the Todoist consent page.
-
-## Path B Step 7: Done
-
-After authorization:
 
 > **Todoist is connected!** You can now ask me to manage your tasks, create projects, and organize your to-do lists.
