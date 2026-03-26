@@ -4,18 +4,18 @@ Read this section to learn how to make authenticated requests to third-party OAu
 
 ## Pre-Requisites
 
-This section requires that the user had previously created a connection for a given provider. You can check a provider's status with:
+This section requires that the user has previously created a connection for a given provider. You can check a provider's status with:
 
 ```bash
 assistant oauth status <provider-key>
 ```
 
-If there are no active connections, refer to [Connecting Accounts](references/CONNECTING_ACCOUNTS.md).
+If there are no active connections, refer to [Connecting Accounts](CONNECTING_ACCOUNTS.md).
 
 If you have any doubt in the validity of the connection, you can ping the provider with:
 
 ```bash
-assistant oauth status <provider-key>
+assistant oauth ping <provider-key>
 ```
 
 ## Making Requests
@@ -41,7 +41,7 @@ You should err towards asking your user for permission to make the request, espe
 
 In some rare cases, you may need access to the OAuth token directly. This is heavily discouraged and should generally be avoided, but it is a valid escape hatch if:
 
-1. You need it outside of the context of a standlone curl-liek request (e.g. you're writing a script and the script needs the token to run)
+1. You need it outside of the context of a standalone curl-like request (e.g. you're writing a script and the script needs the token to run)
 2. You've asked explicit permission from your user to use the token for a specific reason
 3. You don't use the token for anything other than that reason.
 

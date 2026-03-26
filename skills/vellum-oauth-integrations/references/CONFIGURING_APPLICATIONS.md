@@ -2,9 +2,9 @@
 
 Read this section to learn about how to register a new OAuth application for an existing provider.
 
-Note that this section is only applicable for providers whose mode is set yo "your-own". If the provider's mode is set to "managed" then you do not need to create an OAuth application.
+Note that this section is only applicable for providers whose mode is set to "your-own". If the provider's mode is set to "managed" then you do not need to create an OAuth application.
 
-If you're trying to create an OAuth application for a provider that doesn't yet exist, see [Registering New OAuth Providers](references/REGISTERING_PROVIDERS.md).
+If you're trying to create an OAuth application for a provider that doesn't yet exist, see [Registering New OAuth Providers](REGISTERING_PROVIDERS.md).
 
 
 ## Evaluating if Custom OAuth Apps Are a Good Fit
@@ -33,7 +33,7 @@ You'll know they've succeeded once they're able to see a "Client ID" and "Client
 
 ## Registering the OAuth App
 
-Once your user has gone through the setup process and has a Client ID and Client Secret hany, you're ready to register the OAuth app for use.
+Once your user has gone through the setup process and has a Client ID and Client Secret handy, you're ready to register the OAuth app for use.
 
 **Step 1:**
 Prompt the user to enter the Client ID conversationally through chat. This is safe because Client ID is not a secret value.
@@ -59,6 +59,6 @@ assistant oauth apps upsert --provider <provider-key> --client-id <client-id> --
 
 ## Connecting Accounts
 
-Once the OAuth app has been created and registered, its ready to be connected to. Created a connection is the last step needed before you're able to make requests to the provider.
+Once the OAuth app has been created and registered, it's ready to be connected to. Creating a connection is the last step needed before you're able to make requests to the provider.
 
-For details on how to connect, see [Connecting Accounts](references/CONNECTING_ACCOUNTS.md).
+For details on how to connect, see [Connecting Accounts](CONNECTING_ACCOUNTS.md).
