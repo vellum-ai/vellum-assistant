@@ -44,7 +44,8 @@ struct AgentPanelContent: View {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.sparkles, size: 14)
                             .foregroundStyle(VColor.primaryBase)
-                        Text("Tip: You can ") +
+                        Text("Tip: ").bold() +
+                        Text("You can ") +
                         Text("create a new custom skill")
                             .foregroundColor(VColor.primaryBase) +
                         Text(" by describing what you want in chat.")
