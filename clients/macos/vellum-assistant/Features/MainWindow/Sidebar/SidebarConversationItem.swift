@@ -179,6 +179,7 @@ struct SidebarConversationItem: View, Equatable {
         .overlay(alignment: .trailing) {
             if isHovered || isMenuOpen {
                 Button {
+                    guard !isMenuOpen else { return }
                     isMenuOpen = true
                     let appearance = NSApp.keyWindow?.effectiveAppearance
                     VMenuPanel.show(
