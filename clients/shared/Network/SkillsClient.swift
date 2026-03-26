@@ -9,7 +9,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// updating, searching, inspecting, drafting, and creating skills.
 @MainActor
 public protocol SkillsClientProtocol {
-    func fetchSkillsList() async -> SkillsListResponseMessage?
+    func fetchSkillsList(includeCatalog: Bool) async -> SkillsListResponseMessage?
     func enableSkill(name: String) async -> SkillsOperationResponseMessage?
     func disableSkill(name: String) async -> SkillsOperationResponseMessage?
     func configureSkill(name: String, env: [String: String]?, apiKey: String?, config: [String: AnyCodable]?) async -> SkillsOperationResponseMessage?
@@ -41,10 +41,11 @@ public struct SkillsClient: SkillsClientProtocol {
         value.addingPercentEncoding(withAllowedCharacters: pathComponentAllowed) ?? value
     }
 
-    public func fetchSkillsList() async -> SkillsListResponseMessage? {
+    public func fetchSkillsList(includeCatalog: Bool) async -> SkillsListResponseMessage? {
         do {
+            let params: [String: String]? = includeCatalog ? ["include": "catalog"] : nil
             let response = try await GatewayHTTPClient.get(
-                path: "assistants/{assistantId}/skills", timeout: 10
+                path: "assistants/{assistantId}/skills", params: params, timeout: 10
             )
             guard response.isSuccess else {
                 log.error("fetchSkillsList failed (HTTP \(response.statusCode))")

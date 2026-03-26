@@ -461,6 +461,7 @@ struct FeedbackGallerySection: View {
                         VSkillTypePill(type: .installed)
                         VSkillTypePill(type: .created)
                         VSkillTypePill(type: .extra)
+                        VSkillTypePill(type: .available)
                     }
                 }
             }
