@@ -1,6 +1,7 @@
 import {
   clearPlatformToken,
   fetchCurrentUser,
+  fetchOrganizationId,
   readPlatformToken,
   savePlatformToken,
 } from "../lib/platform-client";
@@ -44,9 +45,17 @@ export async function login(): Promise<void> {
   console.log("Validating token...");
 
   try {
-    const user = await fetchCurrentUser(token);
-    savePlatformToken(token);
-    console.log(`✅ Logged in as ${user.email}`);
+    if (token.startsWith("vak_")) {
+      // Platform API keys can't use the allauth session endpoint.
+      // Validate by fetching the organization instead.
+      await fetchOrganizationId(token);
+      savePlatformToken(token);
+      console.log("✅ Logged in with platform API key");
+    } else {
+      const user = await fetchCurrentUser(token);
+      savePlatformToken(token);
+      console.log(`✅ Logged in as ${user.email}`);
+    }
   } catch (error) {
     console.error(
       `❌ Login failed: ${error instanceof Error ? error.message : error}`,
@@ -86,12 +95,18 @@ export async function whoami(): Promise<void> {
   }
 
   try {
-    const user = await fetchCurrentUser(token);
-    console.log(`Email: ${user.email}`);
-    if (user.display) {
-      console.log(`Name:  ${user.display}`);
+    if (token.startsWith("vak_")) {
+      const orgId = await fetchOrganizationId(token);
+      console.log("Authenticated with platform API key");
+      console.log(`Organization: ${orgId}`);
+    } else {
+      const user = await fetchCurrentUser(token);
+      console.log(`Email: ${user.email}`);
+      if (user.display) {
+        console.log(`Name:  ${user.display}`);
+      }
+      console.log(`ID:    ${user.id}`);
     }
-    console.log(`ID:    ${user.id}`);
   } catch (error) {
     console.error(`Error: ${error instanceof Error ? error.message : error}`);
     process.exit(1);
