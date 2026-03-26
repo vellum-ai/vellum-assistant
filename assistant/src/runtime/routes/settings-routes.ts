@@ -835,6 +835,36 @@ export function settingsRouteDefinitions(): RouteDefinition[] {
       },
     },
 
+    // Platform connect — broadcast navigate_settings to open the
+    // General settings tab (which contains the Vellum Platform login card)
+    // on all connected clients.
+    {
+      endpoint: "platform/connect",
+      method: "POST",
+      policyKey: "platform/connect",
+      summary: "Trigger platform connect flow",
+      description:
+        "Broadcast a navigate_settings message so connected clients open the platform login UI.",
+      tags: ["platform"],
+      responseBody: z.object({
+        ok: z.boolean(),
+      }),
+      handler: () => {
+        assistantEventHub
+          .publish(
+            buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+              type: "navigate_settings",
+              tab: "General",
+            }),
+          )
+          .catch((err) => {
+            log.warn({ err }, "Failed to publish navigate_settings event");
+          });
+
+        return Response.json({ ok: true });
+      },
+    },
+
     // Ingress config (GET / PUT)
     {
       endpoint: "integrations/ingress/config",

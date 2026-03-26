@@ -1,7 +1,10 @@
 import type { Command } from "commander";
 
 import { credentialKey } from "../../../security/credential-key.js";
-import { getSecureKeyViaDaemon } from "../../lib/daemon-credential-client.js";
+import {
+  daemonFetch,
+  getSecureKeyViaDaemon,
+} from "../../lib/daemon-credential-client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
@@ -83,15 +86,35 @@ Examples:
           return;
         }
 
-        // TODO: Send a UI component to collect credentials from the user
-        writeError(
-          "Platform connect UI component not yet implemented. " +
-            "Credentials will be collected via a secure client-side flow.",
-        );
+        // Ask the daemon to broadcast a navigate_settings message so
+        // connected clients (e.g. macOS app) open the General settings
+        // tab which contains the Vellum Platform login card.
+        const res = await daemonFetch("/v1/platform/connect", {
+          method: "POST",
+        });
+
+        if (!res) {
+          writeError(
+            "Could not reach the assistant daemon. " +
+              "Please ensure the assistant is running and try again.",
+          );
+          return;
+        }
+
+        if (!res.ok) {
+          writeError(
+            "The assistant daemon rejected the platform connect request. " +
+              `(HTTP ${String(res.status)})`,
+          );
+          return;
+        }
+
+        writeOutput(cmd, { ok: true, navigatedToSettings: true });
 
         if (!jsonMode) {
           log.info(
-            "Platform connect will be available once the client-side credential flow is implemented.",
+            "Opening the platform login screen on connected clients. " +
+              "Please complete the sign-in flow in the app.",
           );
         }
       } catch (err) {
