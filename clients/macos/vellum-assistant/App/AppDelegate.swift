@@ -476,6 +476,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         authWindow?.close()
         authWindow = nil
 
+        // Check for a pending managed assistant switch (set by performSwitchAssistant
+        // when the user was logged out). Now that the user has authenticated, complete
+        // the switch.
+        if let pendingId = UserDefaults.standard.string(forKey: "pendingManagedSwitchAssistantId"),
+           !pendingId.isEmpty {
+            UserDefaults.standard.removeObject(forKey: "pendingManagedSwitchAssistantId")
+            if let assistant = LockfileAssistant.loadByName(pendingId) {
+                performSwitchAssistant(to: assistant)
+                return
+            }
+        }
+
         if !isFirstLaunch && isBootstrapping {
             log.warning("Stale bootstrap state detected on non-first-launch — resetting to complete")
             transitionBootstrap(to: .complete)
