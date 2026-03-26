@@ -1,11 +1,4 @@
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { verifyIdentity } from "../identity-verifier.js";
 import type { OAuthProviderRow } from "../oauth-store.js";
@@ -18,9 +11,7 @@ const originalFetch = globalThis.fetch;
 let mockFetch: ReturnType<typeof mock<any>>;
 
 beforeEach(() => {
-  mockFetch = mock(() =>
-    Promise.resolve(new Response("{}", { status: 200 })),
-  );
+  mockFetch = mock(() => Promise.resolve(new Response("{}", { status: 200 })));
   globalThis.fetch = mockFetch as unknown as typeof fetch;
 });
 
@@ -60,7 +51,6 @@ function makeProviderRow(
     requiresClientSecret: 1,
     loopbackPort: null,
     injectionTemplates: null,
-    setupSkillId: null,
     appType: null,
     setupNotes: null,
     identityUrl: null,
@@ -288,9 +278,7 @@ describe("verifyIdentity", () => {
       identityHeaders: JSON.stringify({
         "Content-Type": "application/x-www-form-urlencoded",
       }),
-      identityBody: JSON.stringify(
-        "sync_token=*&resource_types=[%22user%22]",
-      ),
+      identityBody: JSON.stringify("sync_token=*&resource_types=[%22user%22]"),
       identityResponsePaths: JSON.stringify(["user.full_name", "user.email"]),
     });
 
@@ -444,8 +432,7 @@ describe("verifyIdentity", () => {
   describe("Dropbox pattern", () => {
     const dropboxRow = makeProviderRow({
       providerKey: "dropbox",
-      identityUrl:
-        "https://api.dropboxapi.com/2/users/get_current_account",
+      identityUrl: "https://api.dropboxapi.com/2/users/get_current_account",
       identityMethod: "POST",
       identityResponsePaths: JSON.stringify(["name.display_name", "email"]),
     });

@@ -137,6 +137,7 @@ export { migrateOAuthProvidersPingConfig } from "./195-oauth-providers-ping-conf
 export { migrateMessagesConversationCreatedAtIndex } from "./196-messages-conversation-created-at-index.js";
 export { migrateStripIntegrationPrefixFromProviderKeys } from "./196-strip-integration-prefix-from-provider-keys.js";
 export { migrateOAuthProvidersBehaviorColumns } from "./197-oauth-providers-behavior-columns.js";
+export { migrateDropSetupSkillIdColumn } from "./198-drop-setup-skill-id-column.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

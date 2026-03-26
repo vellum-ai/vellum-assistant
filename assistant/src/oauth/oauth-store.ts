@@ -46,7 +46,7 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
  * CONFLICT DO UPDATE so that implementation fields (authUrl, tokenUrl,
  * tokenEndpointAuthMethod, userinfoUrl, extraParams, callbackTransport,
  * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
- * loopbackPort, injectionTemplates, setupSkillId, appType, setupNotes,
+ * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
  * identityResponsePaths, identityFormat, identityOkField)
  * and display metadata (displayName, description, dashboardUrl,
@@ -86,7 +86,6 @@ export function seedProviders(
       headerName: string;
       valuePrefix: string;
     }>;
-    setupSkillId?: string;
     appType?: string;
     setupNotes?: string[];
     identityUrl?: string;
@@ -125,7 +124,6 @@ export function seedProviders(
     const injectionTemplates = p.injectionTemplates
       ? JSON.stringify(p.injectionTemplates)
       : null;
-    const setupSkillId = p.setupSkillId ?? null;
     const appType = p.appType ?? null;
     const setupNotes = p.setupNotes ? JSON.stringify(p.setupNotes) : null;
     const identityUrl = p.identityUrl ?? null;
@@ -165,7 +163,6 @@ export function seedProviders(
         requiresClientSecret,
         loopbackPort,
         injectionTemplates,
-        setupSkillId,
         appType,
         setupNotes,
         identityUrl,
@@ -200,7 +197,6 @@ export function seedProviders(
           requiresClientSecret,
           loopbackPort,
           injectionTemplates,
-          setupSkillId,
           appType,
           setupNotes,
           identityUrl,
@@ -265,7 +261,6 @@ export function registerProvider(params: {
     headerName: string;
     valuePrefix: string;
   }>;
-  setupSkillId?: string;
   appType?: string;
   setupNotes?: string[];
   identityUrl?: string;
@@ -310,7 +305,6 @@ export function registerProvider(params: {
     injectionTemplates: params.injectionTemplates
       ? JSON.stringify(params.injectionTemplates)
       : null,
-    setupSkillId: params.setupSkillId ?? null,
     appType: params.appType ?? null,
     setupNotes: params.setupNotes ? JSON.stringify(params.setupNotes) : null,
     identityUrl: params.identityUrl ?? null,
@@ -373,7 +367,6 @@ export function updateProvider(
       headerName: string;
       valuePrefix: string;
     }>;
-    setupSkillId: string;
     appType: string;
     setupNotes: string[];
     identityUrl: string;
@@ -421,7 +414,6 @@ export function updateProvider(
   if (params.loopbackPort !== undefined) set.loopbackPort = params.loopbackPort;
   if (params.injectionTemplates !== undefined)
     set.injectionTemplates = JSON.stringify(params.injectionTemplates);
-  if (params.setupSkillId !== undefined) set.setupSkillId = params.setupSkillId;
   if (params.appType !== undefined) set.appType = params.appType;
   if (params.setupNotes !== undefined)
     set.setupNotes = JSON.stringify(params.setupNotes);

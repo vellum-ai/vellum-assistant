@@ -221,7 +221,7 @@ Each provider row includes:
 | **Scopes**                | `defaultScopes`, `scopePolicy`                                                                                                   | Deterministic scope resolution (user-customizable, preserved across seed restarts)     |
 | **Identity verification** | `identityUrl`, `identityMethod`, `identityHeaders`, `identityBody`, `identityResponsePaths`, `identityFormat`, `identityOkField` | Data-driven identity verifier fetches human-readable account info after token exchange |
 | **Injection templates**   | `injectionTemplates`                                                                                                             | Auto-applied credential injection rules for the script proxy                           |
-| **Setup metadata**        | `displayName`, `description`, `dashboardUrl`, `appType`, `setupSkillId`, `setupNotes`, `requiresClientSecret`                    | Metadata for the generic OAuth setup skill                                             |
+| **Setup metadata**        | `displayName`, `description`, `dashboardUrl`, `appType`, `setupNotes`, `requiresClientSecret`                                    | Metadata for the generic OAuth setup skill                                             |
 | **Ping config**           | `pingUrl`, `pingMethod`, `pingHeaders`, `pingBody`                                                                               | Health-check endpoint for `assistant oauth ping`                                       |
 
 ### Scope Policy Engine
@@ -268,7 +268,7 @@ This replaces provider-specific handlers — any provider in the registry can be
    - Set protocol fields: `authUrl`, `tokenUrl`, `defaultScopes`, `scopePolicy`, `callbackTransport`.
    - Set identity verification: `identityUrl`, `identityMethod`, `identityHeaders`, `identityResponsePaths`, `identityFormat`.
    - Set injection templates: `injectionTemplates` for providers whose tokens should be auto-injected by the script proxy.
-   - Set setup metadata: `displayName`, `dashboardUrl`, `appType`, `setupSkillId` enable the generic OAuth setup skill to guide users through app creation.
+   - Set setup metadata: `displayName`, `dashboardUrl`, `appType` enable the generic OAuth setup skill to guide users through app creation.
 2. **Alternatively, register dynamically** via the CLI: `assistant oauth providers register <key> --auth-url ... --token-url ...`.
 3. **No handler code needed** — the generic `oauth_connect_start` handler and the connect orchestrator handle the flow automatically.
 
