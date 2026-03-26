@@ -22,9 +22,6 @@ private let _defaultBaseURL: String = {
 @MainActor
 public final class AuthService {
     public static let shared = AuthService()
-    private static let platformURLOverrideEnvironmentKey = _platformURLOverrideEnvironmentKey
-    private static let authServiceBaseURLDefaultsName = _authServiceBaseURLDefaultsName
-    private static let defaultBaseURL: String = _defaultBaseURL
 
     /// Platform base URL from daemon config. Set by SettingsStore when the
     /// `platform_config_response` arrives. When non-empty, takes precedence
