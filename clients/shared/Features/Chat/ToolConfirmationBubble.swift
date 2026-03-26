@@ -205,15 +205,12 @@ public struct ToolConfirmationBubble: View {
             // switches, preventing stale hit regions on macOS 26.
             let adaptiveLayout = useCompactConfirmationLayout
                 ? AnyLayout(VStackLayout(alignment: .leading, spacing: VSpacing.sm))
-                : AnyLayout(HStackLayout(alignment: .top, spacing: VSpacing.sm))
+                : AnyLayout(HStackLayout(alignment: .top, spacing: VSpacing.md))
 
             adaptiveLayout {
                 confirmationDescription
-                if useCompactConfirmationLayout {
-                    Spacer(minLength: 0)
-                } else {
-                    Spacer(minLength: VSpacing.md)
-                }
+                    .frame(maxWidth: useCompactConfirmationLayout ? nil : .infinity,
+                           alignment: .leading)
                 confirmationActions
                     .frame(maxWidth: useCompactConfirmationLayout ? .infinity : nil,
                            alignment: .trailing)
