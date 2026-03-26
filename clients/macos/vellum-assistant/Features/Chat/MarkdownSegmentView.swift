@@ -50,7 +50,6 @@ struct MarkdownSegmentView: View, Equatable {
                         .lineSpacing(4)
                         .foregroundStyle(textColor)
                         .tint(tintColor)
-                        .textSelection(.enabled)
                         .optionalMaxWidth(maxContentWidth)
                         // lineLimit(nil) wraps text in a single measurement pass, avoiding
                         // the double-measurement that fixedSize causes (measure at ideal
@@ -70,7 +69,6 @@ struct MarkdownSegmentView: View, Equatable {
                     Text(headingText)
                         .font(headingFont)
                         .foregroundStyle(textColor)
-                        .textSelection(.enabled)
                         .optionalMaxWidth(maxContentWidth)
                         // lineLimit(nil) avoids the double-measurement from fixedSize.
                         .lineLimit(nil)
@@ -399,7 +397,6 @@ private struct CodeBlockView: View {
                 Text(code)
                     .font(.custom("DMMono-Regular", size: 13))
                     .foregroundStyle(textColor)
-                    .textSelection(.enabled)
                     .fixedSize(horizontal: true, vertical: true)
                     .padding(VSpacing.sm)
             }
