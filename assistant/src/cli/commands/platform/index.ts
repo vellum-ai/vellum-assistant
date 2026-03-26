@@ -74,72 +74,78 @@ Examples:
   $ assistant platform status --json`,
     )
     .action(async (_opts: Record<string, unknown>, cmd: Command) => {
-      const context = await resolvePlatformCallbackRegistrationContext();
+      try {
+        const context = await resolvePlatformCallbackRegistrationContext();
 
-      const storedBaseUrl =
-        (await getSecureKeyViaDaemon(
+        const storedBaseUrl =
+          (await getSecureKeyViaDaemon(
+            credentialKey(
+              CREDENTIAL_KEYS.baseUrl.service,
+              CREDENTIAL_KEYS.baseUrl.field,
+            ),
+          )) ?? "";
+        const hasStoredApiKey = !!(await getSecureKeyViaDaemon(
           credentialKey(
-            CREDENTIAL_KEYS.baseUrl.service,
-            CREDENTIAL_KEYS.baseUrl.field,
+            CREDENTIAL_KEYS.apiKey.service,
+            CREDENTIAL_KEYS.apiKey.field,
           ),
-        )) ?? "";
-      const hasStoredApiKey = !!(await getSecureKeyViaDaemon(
-        credentialKey(
-          CREDENTIAL_KEYS.apiKey.service,
-          CREDENTIAL_KEYS.apiKey.field,
-        ),
-      ));
-      const organizationId =
-        (
-          await getSecureKeyViaDaemon(
-            credentialKey(
-              CREDENTIAL_KEYS.organizationId.service,
-              CREDENTIAL_KEYS.organizationId.field,
-            ),
-          )
-        )?.trim() ?? "";
-      const userId =
-        (
-          await getSecureKeyViaDaemon(
-            credentialKey(
-              CREDENTIAL_KEYS.userId.service,
-              CREDENTIAL_KEYS.userId.field,
-            ),
-          )
-        )?.trim() ?? "";
+        ));
+        const organizationId =
+          (
+            await getSecureKeyViaDaemon(
+              credentialKey(
+                CREDENTIAL_KEYS.organizationId.service,
+                CREDENTIAL_KEYS.organizationId.field,
+              ),
+            )
+          )?.trim() ?? "";
+        const userId =
+          (
+            await getSecureKeyViaDaemon(
+              credentialKey(
+                CREDENTIAL_KEYS.userId.service,
+                CREDENTIAL_KEYS.userId.field,
+              ),
+            )
+          )?.trim() ?? "";
 
-      const connected = !!storedBaseUrl && hasStoredApiKey;
+        const connected = !!storedBaseUrl && hasStoredApiKey;
 
-      const result = {
-        containerized: context.containerized,
-        baseUrl: context.platformBaseUrl,
-        assistantId: context.assistantId,
-        hasInternalApiKey: context.hasInternalApiKey,
-        hasAssistantApiKey: context.hasAssistantApiKey,
-        available: context.enabled,
-        connected,
-        organizationId: organizationId || null,
-        userId: userId || null,
-      };
+        const result = {
+          containerized: context.containerized,
+          baseUrl: context.platformBaseUrl,
+          assistantId: context.assistantId,
+          hasInternalApiKey: context.hasInternalApiKey,
+          hasAssistantApiKey: context.hasAssistantApiKey,
+          available: context.enabled,
+          connected,
+          organizationId: organizationId || null,
+          userId: userId || null,
+        };
 
-      writeOutput(cmd, result);
+        writeOutput(cmd, result);
 
-      if (!shouldOutputJson(cmd)) {
-        log.info(`Containerized: ${result.containerized}`);
-        log.info(`Base URL: ${result.baseUrl || "(not set)"}`);
-        log.info(`Assistant ID: ${result.assistantId || "(not set)"}`);
-        log.info(
-          `Internal API key: ${result.hasInternalApiKey ? "set" : "not set"}`,
-        );
-        log.info(
-          `Assistant API key: ${result.hasAssistantApiKey ? "set" : "not set"}`,
-        );
-        log.info(
-          `Callback registration available: ${result.available ? "yes" : "no"}`,
-        );
-        log.info(`Connected: ${connected}`);
-        log.info(`Organization ID: ${organizationId || "(not set)"}`);
-        log.info(`User ID: ${userId || "(not set)"}`);
+        if (!shouldOutputJson(cmd)) {
+          log.info(`Containerized: ${result.containerized}`);
+          log.info(`Base URL: ${result.baseUrl || "(not set)"}`);
+          log.info(`Assistant ID: ${result.assistantId || "(not set)"}`);
+          log.info(
+            `Internal API key: ${result.hasInternalApiKey ? "set" : "not set"}`,
+          );
+          log.info(
+            `Assistant API key: ${result.hasAssistantApiKey ? "set" : "not set"}`,
+          );
+          log.info(
+            `Callback registration available: ${result.available ? "yes" : "no"}`,
+          );
+          log.info(`Connected: ${connected}`);
+          log.info(`Organization ID: ${organizationId || "(not set)"}`);
+          log.info(`User ID: ${userId || "(not set)"}`);
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        writeOutput(cmd, { ok: false, error: message });
+        process.exitCode = 1;
       }
     });
 
