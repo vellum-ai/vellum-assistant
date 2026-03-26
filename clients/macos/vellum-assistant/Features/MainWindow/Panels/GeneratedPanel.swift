@@ -600,7 +600,7 @@ struct GeneratedPanel: View {
                 surfaceId: "shared-app-\(uuid)",
                 surfaceType: "dynamic_page",
                 title: item.name,
-                data: AnyCodable(["html": html]),
+                data: AnyCodable(["html": html, "appId": uuid]),
                 actions: nil,
                 display: "panel",
                 messageId: nil
