@@ -386,7 +386,15 @@ public enum GatewayHTTPClient {
             if let runtimeUrl = assistant.runtimeUrl {
                 baseURL = runtimeUrl
             } else {
-                baseURL = AuthService.shared.baseURL
+                // Call the nonisolated pure function directly to avoid
+                // crossing into @MainActor isolation. The instance property
+                // `AuthService.shared.baseURL` is @MainActor-isolated and
+                // cannot be read from a nonisolated synchronous context.
+                baseURL = AuthService.resolveBaseURL(
+                    configuredBaseURL: AuthService.currentConfiguredBaseURL,
+                    environment: ProcessInfo.processInfo.environment,
+                    userDefaults: .standard
+                )
             }
             return ConnectionInfo(baseURL: baseURL, authHeader: ("X-Session-Token", token), assistantId: assistant.assistantId, isManaged: true)
         } else {
