@@ -7,12 +7,12 @@ metadata:
   vellum:
     display-name: "Twitter / X OAuth Setup"
     feature-flag: "integration-twitter"
-    includes: ["collaborative-oauth-flow"]
+    includes: ["vellum-oauth-integrations"]
 ---
 
 You are helping your user set up Twitter/X OAuth credentials so the Twitter integration can post tweets, read timelines, and access user data.
 
-This skill follows the **Collaborative Guided Flow** pattern from the included `collaborative-oauth-flow` skill. That reference covers the navigation helper setup, step rhythm, rules, tone, error handling, and guardrails. This file defines only the Twitter-specific steps.
+The included `vellum-oauth-integrations` skill handles the generic parts of the flow (credential collection, app registration, connection, and verification). This file defines only the Twitter-specific steps.
 
 ## Provider Details
 
@@ -142,61 +142,15 @@ Note: The token endpoint auth method (`basic`) requires both a Client ID and a s
 
 ---
 
-### Step 6: Store Credentials
+### Step 6: Store Credentials, Authorize, and Verify
 
-Collect Client ID conversationally:
+<details>
+<summary>Follow the <code>vellum-oauth-integrations</code> workflow to collect credentials, register the OAuth app, connect, and verify.</summary>
+</details>
 
-> Copy the **Client ID** (it's a long string, sometimes called "OAuth 2.0 Client ID") and paste it here in the chat.
-
-Collect Client Secret via secure prompt:
-
-```
-credential_store prompt:
-  service: "twitter"
-  field: "client_secret"
-  label: "Twitter OAuth 2.0 Client Secret"
-  description: "Copy the Client Secret from the Keys and tokens page and paste it here."
-  placeholder: "..."
-```
-
-Register the OAuth app:
-
-```
-bash:
-  command: |
-    assistant oauth apps upsert --provider twitter --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --client-secret-credential-path "credential/twitter/client_secret"
-```
-
-**Milestone (6 of 8):** "Credentials saved - just the authorization step left."
-
----
-
-### Step 7: Authorize
-
-> I'll start the Twitter authorization flow now. You should see a Twitter consent page asking you to authorize **Vellum Assistant** to access your account.
+> You should see a Twitter consent page asking you to authorize **Vellum Assistant** to access your account.
 >
 > Review the permissions - it will ask for permission to read your tweets, post tweets, and read your profile info. Click **Authorize app**.
-
-```
-bash:
-  command: |
-    assistant oauth connect twitter
-```
-
----
-
-### Step 8: Verify Connection
-
-Use the ping URL to verify the connection:
-
-```
-bash:
-  command: |
-    assistant oauth ping twitter
-```
 
 **On success:** "Twitter is connected! You can now ask me to read your timeline, post tweets, and check your profile."
 

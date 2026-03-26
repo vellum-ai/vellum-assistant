@@ -77,56 +77,17 @@ Tell the user:
 >
 > Send me your **Client ID** first.
 
-Wait for the Client ID, then store it:
-
-```
-credential_store store:
-  service: "twitter"
-  field: "client_id"
-  value: "<the client id the user sent>"
-```
-
-Then ask for the secret:
+Wait for the Client ID, then ask for the secret:
 
 > Now send me the **Client Secret**. Send it as a standalone message with no other text.
 
-Store the secret:
-
-```
-credential_store store:
-  service: "twitter"
-  field: "client_secret"
-  value: "<the client secret the user sent>"
-```
-
 Note: Twitter OAuth 2.0 Client Secrets don't have a known prefix that triggers channel scanners, so direct entry is acceptable. Still, keep the secret in its own message to avoid accidental logging with surrounding context.
 
-## Path B Step 6: Authorize
+## Path B Step 6: Authorize and Done
 
-Tell the user:
-
-> **Step 4: Authorize Twitter**
->
-> I'll generate an authorization link for you now.
-
-```
-bash:
-  command: |
-    assistant oauth apps upsert --provider twitter --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --client-secret-credential-path "credential/twitter/client_secret"
-```
-
-```
-bash:
-  command: |
-    assistant oauth connect twitter
-```
+Follow the `vellum-oauth-integrations` workflow to register the OAuth app, connect, and verify.
 
 Send the returned auth URL to the user. Tell them to review the permissions and click **Authorize app**.
-
-## Path B Step 7: Done
 
 After authorization:
 
