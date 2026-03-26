@@ -99,7 +99,7 @@ final class MessageListScrollCoordinatorTests: XCTestCase {
         )
         coordinator.reattachToBottom()
 
-        coordinator.addSuppression(.expansion)
+        coordinator.beginExpansionSuppression()
         coordinator.requestBottomPin(reason: .messageCount, conversationId: convId)
 
         XCTAssertTrue(scrollToCalls.isEmpty,
@@ -116,7 +116,7 @@ final class MessageListScrollCoordinatorTests: XCTestCase {
 
         // Detach AND add suppression — both guards active.
         coordinator.handleScrollUp()
-        coordinator.addSuppression(.expansion)
+        coordinator.beginExpansionSuppression()
 
         coordinator.requestBottomPin(
             reason: .initialRestore,
@@ -274,5 +274,154 @@ final class MessageListScrollCoordinatorTests: XCTestCase {
         // The fallback should NOT have fired because anchorMessageId is non-nil.
         XCTAssertTrue(scrollToCalls.isEmpty,
                       "restoreScrollToBottom must not fire requestBottomPin when a deep-link anchor is set")
+    }
+
+    // MARK: - Suppression: Overlapping Reasons
+
+    /// Expansion + pagination overlap: clearing one reason leaves the other active.
+    func testExpansionAndPaginationOverlap() {
+        coordinator.beginExpansionSuppression()
+        coordinator.beginPaginationSuppression()
+        XCTAssertTrue(coordinator.isSuppressed)
+
+        coordinator.endPaginationSuppression()
+        XCTAssertTrue(coordinator.isSuppressed, "Expansion is still active")
+
+        coordinator.endExpansionSuppression()
+        XCTAssertFalse(coordinator.isSuppressed, "All reasons cleared")
+    }
+
+    /// Expansion + resize overlap: clearing one reason leaves the other active.
+    func testExpansionAndResizeOverlap() {
+        coordinator.beginExpansionSuppression()
+        coordinator.beginResizeSuppression()
+        XCTAssertTrue(coordinator.isSuppressed)
+
+        coordinator.endResizeSuppression()
+        XCTAssertTrue(coordinator.isSuppressed, "Expansion is still active")
+
+        coordinator.endExpansionSuppression()
+        XCTAssertFalse(coordinator.isSuppressed, "All reasons cleared")
+    }
+
+    // MARK: - Suppression: clearAllSuppression
+
+    /// Setting all three flags then calling clearAllSuppression clears everything.
+    func testClearAllSuppression() {
+        coordinator.beginResizeSuppression()
+        coordinator.beginPaginationSuppression()
+        coordinator.beginExpansionSuppression()
+
+        XCTAssertTrue(coordinator.isResizeSuppressed)
+        XCTAssertTrue(coordinator.isPaginationSuppressed)
+        XCTAssertTrue(coordinator.isExpansionSuppressed)
+
+        coordinator.clearAllSuppression()
+
+        XCTAssertFalse(coordinator.isResizeSuppressed)
+        XCTAssertFalse(coordinator.isPaginationSuppressed)
+        XCTAssertFalse(coordinator.isExpansionSuppressed)
+        XCTAssertFalse(coordinator.isSuppressed)
+        XCTAssertNil(coordinator.expansionTimeoutTask,
+                     "Expansion timeout task should be cancelled and nil'd")
+    }
+
+    // MARK: - Suppression: Conversation Switch / Disappear Cleanup
+
+    /// resetForConversationSwitch clears all suppression flags.
+    func testResetForConversationSwitchClearsSuppression() {
+        coordinator.beginResizeSuppression()
+        coordinator.beginPaginationSuppression()
+        coordinator.beginExpansionSuppression()
+
+        coordinator.resetForConversationSwitch(
+            oldConversationId: UUID(),
+            newConversationId: UUID()
+        )
+
+        XCTAssertFalse(coordinator.isResizeSuppressed)
+        XCTAssertFalse(coordinator.isPaginationSuppressed)
+        XCTAssertFalse(coordinator.isExpansionSuppressed)
+        XCTAssertFalse(coordinator.isSuppressed)
+    }
+
+    /// cancelAllTasks clears all suppression flags.
+    func testCancelAllTasksClearsSuppression() {
+        coordinator.beginResizeSuppression()
+        coordinator.beginPaginationSuppression()
+        coordinator.beginExpansionSuppression()
+
+        coordinator.cancelAllTasks()
+
+        XCTAssertFalse(coordinator.isResizeSuppressed)
+        XCTAssertFalse(coordinator.isPaginationSuppressed)
+        XCTAssertFalse(coordinator.isExpansionSuppressed)
+        XCTAssertFalse(coordinator.isSuppressed)
+    }
+
+    // MARK: - Suppression: Expansion 200ms Auto-Clear
+
+    /// Expansion suppression auto-clears after the 200ms timeout.
+    func testExpansionAutoClears() async throws {
+        coordinator.beginExpansionSuppression()
+        XCTAssertTrue(coordinator.isExpansionSuppressed)
+
+        // Wait 250ms (200ms timeout + 50ms tolerance).
+        try await Task.sleep(nanoseconds: 250_000_000)
+
+        XCTAssertFalse(coordinator.isExpansionSuppressed,
+                       "Expansion suppression should auto-clear after 200ms")
+        XCTAssertFalse(coordinator.isSuppressed)
+    }
+
+    // MARK: - Suppression: Expansion Timer Reset
+
+    /// Triggering expansion suppression a second time resets the 200ms timer.
+    func testExpansionTimerReset() async throws {
+        coordinator.beginExpansionSuppression()
+        XCTAssertTrue(coordinator.isExpansionSuppressed)
+
+        // Wait 100ms (halfway through original timeout).
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        // Re-trigger — this should reset the 200ms timer.
+        coordinator.beginExpansionSuppression()
+        XCTAssertTrue(coordinator.isExpansionSuppressed)
+
+        // Wait 150ms — past the original 200ms but before the reset 200ms.
+        try await Task.sleep(nanoseconds: 150_000_000)
+
+        XCTAssertTrue(coordinator.isExpansionSuppressed,
+                      "Timer was reset — should still be suppressed")
+
+        // Wait remaining 100ms + tolerance (50ms past the reset timeout).
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        XCTAssertFalse(coordinator.isExpansionSuppressed,
+                       "Expansion suppression should auto-clear after the reset timeout")
+    }
+
+    // MARK: - Suppression: Diagnostic Reason Output
+
+    /// activeSuppressionReasons returns correct strings when multiple reasons are active.
+    func testActiveSuppressionReasons() {
+        XCTAssertEqual(coordinator.activeSuppressionReasons, [],
+                       "No reasons active initially")
+
+        coordinator.beginResizeSuppression()
+        XCTAssertEqual(coordinator.activeSuppressionReasons, ["resize"])
+
+        coordinator.beginExpansionSuppression()
+        XCTAssertEqual(coordinator.activeSuppressionReasons, ["resize", "expansion"])
+
+        coordinator.beginPaginationSuppression()
+        XCTAssertEqual(coordinator.activeSuppressionReasons, ["resize", "pagination", "expansion"])
+
+        coordinator.endResizeSuppression()
+        XCTAssertEqual(coordinator.activeSuppressionReasons, ["pagination", "expansion"])
+
+        coordinator.clearAllSuppression()
+        XCTAssertEqual(coordinator.activeSuppressionReasons, [],
+                       "Empty after clearAll")
     }
 }

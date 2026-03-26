@@ -141,7 +141,7 @@ extension MessageListScrollCoordinator {
         scrollViewportHeight: CGFloat
     ) {
         // Cancel any pending expansion timeout before re-evaluating.
-        removeSuppression(.expansion)
+        endExpansionSuppression()
         if isNearBottom {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=expansionPinning")
             recordScrollLoopEvent(.suppressionFlip, conversationId: conversationId, isNearBottom: isNearBottom, scrollViewportHeight: scrollViewportHeight)
@@ -149,10 +149,9 @@ extension MessageListScrollCoordinator {
         } else {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=offBottomExpansion")
             recordScrollLoopEvent(.suppressionFlip, conversationId: conversationId, isNearBottom: isNearBottom, scrollViewportHeight: scrollViewportHeight)
-            // Add expansion suppression with auto-timeout. Each OptionSet bit
-            // is independent, so removal is unconditional — no resize/pagination
-            // guards needed (those have their own suppression bits and timeouts).
-            addSuppression(.expansion)
+            // Begin expansion suppression with 200ms auto-timeout. Resize and
+            // pagination have their own independent boolean flags — no guards needed.
+            beginExpansionSuppression()
         }
     }
 
@@ -169,22 +168,19 @@ extension MessageListScrollCoordinator {
     ) -> Task<Void, Never> {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            // Use inline suppression for resize since we manage the lifecycle
-            // within this task (similar to pagination). Cancel the auto-timeout
-            // from addSuppression so the defer block controls removal.
-            self.addSuppression(.resize)
-            self.suppressionTimeoutTasks[ScrollSuppression.resize.rawValue]?.cancel()
-            self.suppressionTimeoutTasks[ScrollSuppression.resize.rawValue] = nil
+            // Suppress auto-scroll while the layout stabilizes. Managed
+            // inline — no timeout Task needed (begin/end bracket the sleep).
+            self.beginResizeSuppression()
             defer {
                 if !Task.isCancelled { onComplete() }
             }
             try? await Task.sleep(nanoseconds: 100_000_000)
             guard !Task.isCancelled else {
-                self.removeSuppression(.resize)
+                self.endResizeSuppression()
                 return
             }
             // Remove suppression BEFORE the pin request so it isn't rejected.
-            self.removeSuppression(.resize)
+            self.endResizeSuppression()
             if isNearBottom && anchorMessageId == nil && !self.isAtBottom {
                 self.requestBottomPin(reason: .resize, conversationId: conversationId)
             }
@@ -219,24 +215,19 @@ extension MessageListScrollCoordinator {
             let hadMore = await loadPreviousMessagePage?() ?? false
             scrollCoordinatorLog.debug("[pagination] loadPreviousMessagePage returned hadMore=\(hadMore)")
             if hadMore, let id = anchorId {
-                // Use inline suppression for pagination since we need to
-                // hold suppression across the sleep + scroll restore sequence.
-                // The timeout task from addSuppression is cancelled immediately
-                // after the scroll restore to keep the inline timing exact.
-                addSuppression(.pagination)
-                // Cancel the auto-timeout — we manage the lifecycle inline.
-                suppressionTimeoutTasks[ScrollSuppression.pagination.rawValue]?.cancel()
-                suppressionTimeoutTasks[ScrollSuppression.pagination.rawValue] = nil
+                // Suppress auto-scroll while restoring the scroll position.
+                // Managed inline — no timeout Task needed.
+                beginPaginationSuppression()
                 try? await Task.sleep(nanoseconds: 100_000_000)
                 guard !Task.isCancelled else {
-                    removeSuppression(.pagination)
+                    endPaginationSuppression()
                     return
                 }
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=paginationAnchor")
                 recordScrollLoopEvent(.scrollToRequested, conversationId: conversationId)
                 performScrollTo(id, anchor: .top)
                 scrollCoordinatorLog.debug("[pagination] scroll restored to anchor \(id)")
-                removeSuppression(.pagination)
+                endPaginationSuppression()
             }
         }
     }
