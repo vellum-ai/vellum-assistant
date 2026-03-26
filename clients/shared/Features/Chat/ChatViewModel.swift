@@ -256,6 +256,15 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.isThinking }
         set { messageManager.isThinking = newValue }
     }
+    /// Whether the assistant is actively working on a response — covers sending,
+    /// extended-thinking, and any in-progress assistant message. Use this for UI
+    /// elements (stop button, placeholder text, paperclip hide) instead of
+    /// `isSending` alone, because the "thinking" activity phase sets
+    /// `isSending = false` to prevent the 60s watchdog from firing.
+    public var isAssistantBusy: Bool {
+        isSending || isThinking || currentAssistantMessageId != nil
+    }
+
     public var isSending: Bool {
         get { messageManager.isSending }
         set {
@@ -2031,7 +2040,7 @@ public final class ChatViewModel: ObservableObject {
     }
 
     public func stopGenerating() {
-        guard isSending else { return }
+        guard isAssistantBusy else { return }
 
         pendingVoiceMessage = false
 
