@@ -200,19 +200,23 @@ public struct ToolConfirmationBubble: View {
     private var pendingContent: some View {
         let actions = topLevelActions
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Adaptive layout: horizontal when wide, vertical when narrow
-            if useCompactConfirmationLayout {
+            // Adaptive layout: horizontal when wide, vertical when narrow.
+            // Uses AnyLayout to preserve child view identity across layout
+            // switches, preventing stale hit regions on macOS 26.
+            let adaptiveLayout = useCompactConfirmationLayout
+                ? AnyLayout(VStackLayout(alignment: .leading, spacing: VSpacing.sm))
+                : AnyLayout(HStackLayout(alignment: .top, spacing: VSpacing.sm))
+
+            adaptiveLayout {
                 confirmationDescription
-                HStack {
-                    Spacer()
-                    confirmationActions
-                }
-            } else {
-                HStack(alignment: .top, spacing: VSpacing.sm) {
-                    confirmationDescription
+                if useCompactConfirmationLayout {
+                    Spacer(minLength: 0)
+                } else {
                     Spacer(minLength: VSpacing.md)
-                    confirmationActions
                 }
+                confirmationActions
+                    .frame(maxWidth: useCompactConfirmationLayout ? .infinity : nil,
+                           alignment: .trailing)
             }
 
             // First-time educational banner for command confirmations
@@ -236,7 +240,7 @@ public struct ToolConfirmationBubble: View {
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentDefault)
                     }
-                    .offset(x: -1)
+                    .padding(.leading, -1)
                 }
                 .buttonStyle(.plain)
 
@@ -268,7 +272,9 @@ public struct ToolConfirmationBubble: View {
         .onGeometryChange(for: Bool.self) { proxy in
             proxy.size.width < 450
         } action: { isCompact in
-            useCompactConfirmationLayout = isCompact
+            withAnimation(.none) {
+                useCompactConfirmationLayout = isCompact
+            }
         }
         .onAppear {
             if isKeyboardActive {
