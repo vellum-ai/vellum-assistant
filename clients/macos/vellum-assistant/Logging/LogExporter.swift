@@ -230,24 +230,8 @@ enum LogExporter {
         return "vellum-assistant-logs-\(timestamp).tar.gz"
     }
 
-    /// Builds a tar.gz archive containing all discoverable log files.
-    /// Runs file I/O and the tar process off the main actor to avoid blocking the UI.
-    private nonisolated static func buildArchive(destination: URL, formData: LogReportFormData? = nil) async throws {
-        let fileManager = FileManager.default
-        let tempDir = fileManager.temporaryDirectory
-            .appendingPathComponent("vellum-log-export-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
-
-        defer {
-            try? fileManager.removeItem(at: tempDir)
-        }
-
-        try await populateStagingDirectory(at: tempDir, formData: formData, fileManager: fileManager)
-        try await createTarArchive(from: tempDir, destination: destination)
-    }
-
-    /// Populates a staging directory with all log sources, then creates a tar.gz
-    /// archive from it. The staging directory is managed by the caller.
+    /// Populates a staging directory with all log sources.
+    /// The staging directory is managed by the caller.
     private nonisolated static func buildStagingDirectory(
         at stagingDir: URL,
         formData: LogReportFormData? = nil
