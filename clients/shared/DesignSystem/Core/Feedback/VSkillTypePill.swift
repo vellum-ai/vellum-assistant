@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A pill badge indicating the type/source of a skill (Core, Installed, Created).
+/// A pill badge indicating the type/source of a skill (Core, Installed, Custom).
 public struct VSkillTypePill: View {
     public enum SkillType {
         case core
@@ -14,7 +14,7 @@ public struct VSkillTypePill: View {
             switch self {
             case .core: return "Core"
             case .installed: return "Installed"
-            case .created: return "Created"
+            case .created: return "Custom"
             case .extra: return "Extra"
             case .available: return "Available"
             case .custom(let label, _, _, _): return label
@@ -25,7 +25,7 @@ public struct VSkillTypePill: View {
             switch self {
             case .core: return .package
             case .installed: return .circleCheck
-            case .created: return .sparkles
+            case .created: return .user
             case .extra: return .puzzle
             case .available: return .arrowDownToLine
             case .custom(_, let icon, _, _): return .resolve(icon)
@@ -36,7 +36,7 @@ public struct VSkillTypePill: View {
             switch self {
             case .core: return VColor.contentDefault
             case .installed: return VColor.systemPositiveStrong
-            case .created: return VColor.contentSecondary
+            case .created: return VColor.contentDefault
             case .extra: return VColor.contentTertiary
             case .available: return VColor.funTeal
             case .custom(_, _, let fg, _): return fg
@@ -47,7 +47,7 @@ public struct VSkillTypePill: View {
             switch self {
             case .core: return VColor.surfaceBase
             case .installed: return VColor.systemPositiveWeak
-            case .created: return VColor.surfaceBase
+            case .created: return VColor.funBlue.opacity(0.12)
             case .extra: return VColor.surfaceOverlay
             case .available: return VColor.funTeal.opacity(0.12)
             case .custom(_, _, _, let bg): return bg
