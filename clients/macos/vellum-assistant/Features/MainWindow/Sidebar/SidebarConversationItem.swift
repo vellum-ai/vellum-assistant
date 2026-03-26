@@ -76,19 +76,18 @@ struct SidebarConversationItem: View, Equatable {
             // Leading 20x20 slot: single render path.
             // Hovered -> interactive pin button; not hovered -> status indicator.
             if isHovered {
-                Button {
+                VButton(
+                    label: conversation.isPinned ? "Unpin \(conversation.title)" : "Pin \(conversation.title)",
+                    iconOnly: VIcon.pin.rawValue,
+                    style: .ghost,
+                    iconSize: 20,
+                    tooltip: conversation.isPinned ? "Unpin" : "Pin",
+                    iconColor: conversation.isPinned ? VColor.contentTertiary : VColor.contentSecondary,
+                    iconRotation: .degrees(-45)
+                ) {
                     onTogglePin()
-                } label: {
-                    VIconView(.pin, size: 13)
-                        .foregroundStyle(conversation.isPinned ? VColor.contentTertiary : VColor.contentSecondary)
-                        .rotationEffect(.degrees(-45))
-                        .frame(width: 20, height: 20)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
                 .transition(.opacity)
-                .nativeTooltip(conversation.isPinned ? "Unpin" : "Pin")
-                .accessibilityLabel(conversation.isPinned ? "Unpin \(conversation.title)" : "Pin \(conversation.title)")
             } else {
                 switch interactionState {
                 case .processing:
