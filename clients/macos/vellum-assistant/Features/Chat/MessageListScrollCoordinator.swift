@@ -381,6 +381,15 @@ final class MessageListScrollCoordinator: ObservableObject {
         paginationTask = nil
         isPaginationInFlight = false
         wasPaginationTriggerInRange = false
+        // Invalidate the layout cache so the new conversation doesn't
+        // hit a stale cache from the previous conversation.
+        scrollTracking.cachedLayoutKey = nil
+        scrollTracking.cachedLayoutMetadata = nil
+        scrollTracking.messageListVersion = 0
+        scrollTracking.lastKnownRawMessageCount = 0
+        scrollTracking.lastKnownVisibleMessageCount = 0
+        scrollTracking.lastKnownLastMessageStreaming = false
+        scrollTracking.lastKnownIncompleteToolCallCount = 0
         // Update the live conversation ID so closures read the new value.
         currentConversationId = newConversationId
         // Reset follow state for the new conversation.
