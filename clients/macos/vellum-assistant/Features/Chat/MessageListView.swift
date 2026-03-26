@@ -64,6 +64,10 @@ extension EnvironmentValues {
     var lastKnownLastMessageStreaming: Bool = false
     /// Cached count of incomplete tool calls across visible messages.
     var lastKnownIncompleteToolCallCount: Int = 0
+    /// Lightweight identity fingerprint of visible message IDs. Catches
+    /// "same count, different IDs" scenarios where hasRenderableContent
+    /// changes cause different messages to pass the visibility filter.
+    var lastKnownVisibleIdFingerprint: Int = 0
 
     // MARK: - Scroll Geometry (non-reactive, updated every scroll tick)
 
@@ -209,6 +213,13 @@ struct MessageListView: View {
         let currentLastStreaming = visibleMessages.last?.isStreaming ?? false
         let currentIncompleteToolCalls = visibleMessages.last?.toolCalls.filter { !$0.isComplete }.count ?? 0
 
+        // O(n) hash of visible message IDs — catches "same count, different
+        // IDs" scenarios where hasRenderableContent changes cause different
+        // messages to pass the visibility filter without changing the count.
+        var idHasher = Hasher()
+        for msg in visibleMessages { idHasher.combine(msg.id) }
+        let currentIdFingerprint = idHasher.finalize()
+
         var changed = false
 
         if currentRawCount != scrollCoordinator.scrollTracking.lastKnownRawMessageCount {
@@ -225,6 +236,10 @@ struct MessageListView: View {
         }
         if currentIncompleteToolCalls != scrollCoordinator.scrollTracking.lastKnownIncompleteToolCallCount {
             scrollCoordinator.scrollTracking.lastKnownIncompleteToolCallCount = currentIncompleteToolCalls
+            changed = true
+        }
+        if currentIdFingerprint != scrollCoordinator.scrollTracking.lastKnownVisibleIdFingerprint {
+            scrollCoordinator.scrollTracking.lastKnownVisibleIdFingerprint = currentIdFingerprint
             changed = true
         }
 

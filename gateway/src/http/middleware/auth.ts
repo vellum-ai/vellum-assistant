@@ -4,7 +4,10 @@ import { validateEdgeToken } from "../../auth/token-exchange.js";
 import { resolveScopeProfile } from "../../auth/scopes.js";
 import type { Scope } from "../../auth/types.js";
 import type { AuthRateLimiter } from "../../auth-rate-limiter.js";
+import { getLogger } from "../../logger.js";
 import { isLoopbackPeer } from "../routes/browser-relay-websocket.js";
+
+const log = getLogger("auth");
 
 type GetClientIp = () => string;
 
@@ -34,11 +37,19 @@ export function createAuthMiddleware(
     const token = extractBearerToken(req);
     if (!token) {
       authRateLimiter.recordFailure(getClientIp());
+      log.warn(
+        { path: new URL(req.url).pathname },
+        "Edge auth rejected: missing or malformed Authorization header",
+      );
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
     const result = validateEdgeToken(token);
     if (!result.ok) {
       authRateLimiter.recordFailure(getClientIp());
+      log.warn(
+        { path: new URL(req.url).pathname, reason: result.reason },
+        "Edge auth rejected: token validation failed",
+      );
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
     return null;
@@ -60,11 +71,19 @@ export function createAuthMiddleware(
     const token = extractBearerToken(req);
     if (!token) {
       authRateLimiter.recordFailure(getClientIp());
+      log.warn(
+        { path: new URL(req.url).pathname, scope },
+        "Scoped edge auth rejected: missing or malformed Authorization header",
+      );
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
     const result = validateEdgeToken(token);
     if (!result.ok) {
       authRateLimiter.recordFailure(getClientIp());
+      log.warn(
+        { path: new URL(req.url).pathname, scope, reason: result.reason },
+        "Scoped edge auth rejected: token validation failed",
+      );
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
     const scopes = resolveScopeProfile(result.claims.scope_profile);

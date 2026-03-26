@@ -407,6 +407,7 @@ final class MessageListScrollCoordinator: ObservableObject {
         scrollTracking.lastKnownVisibleMessageCount = 0
         scrollTracking.lastKnownLastMessageStreaming = false
         scrollTracking.lastKnownIncompleteToolCallCount = 0
+        scrollTracking.lastKnownVisibleIdFingerprint = 0
         // Update the live conversation ID so closures read the new value.
         currentConversationId = newConversationId
         // Reset follow state for the new conversation.
