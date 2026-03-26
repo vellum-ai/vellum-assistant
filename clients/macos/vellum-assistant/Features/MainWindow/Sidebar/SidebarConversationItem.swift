@@ -70,103 +70,100 @@ struct SidebarConversationItem: View, Equatable {
     }
 
     var body: some View {
-        // Always reserve 20pt leading slot so text never shifts.
         // Use a tap gesture instead of Button so .onDrag can coexist —
         // Button captures mouse-down and prevents drag initiation on macOS.
-        Group {
-            HStack(spacing: VSpacing.xs) {
-                // Leading 20x20 slot: single render path.
-                // Hovered -> interactive pin button; not hovered -> status indicator.
-                if isHovered {
-                    Button {
-                        onTogglePin()
-                    } label: {
+        HStack(spacing: VSpacing.xs) {
+            // Leading 20x20 slot: single render path.
+            // Hovered -> interactive pin button; not hovered -> status indicator.
+            if isHovered {
+                Button {
+                    onTogglePin()
+                } label: {
+                    VIconView(.pin, size: 13)
+                        .foregroundStyle(conversation.isPinned ? VColor.contentTertiary : VColor.contentSecondary)
+                        .rotationEffect(.degrees(-45))
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .transition(.opacity)
+                .nativeTooltip(conversation.isPinned ? "Unpin" : "Pin")
+                .accessibilityLabel(conversation.isPinned ? "Unpin \(conversation.title)" : "Pin \(conversation.title)")
+            } else {
+                switch interactionState {
+                case .processing:
+                    VBusyIndicator()
+                        .frame(width: 20, height: 20)
+                        .nativeTooltip("Processing")
+                        .accessibilityLabel("Processing")
+                case .waitingForInput:
+                    VIconView(.circleAlert, size: 12)
+                        .foregroundStyle(VColor.systemMidStrong)
+                        .frame(width: 20, height: 20)
+                        .nativeTooltip("Waiting for input")
+                        .accessibilityLabel("Waiting for input")
+                case .error:
+                    VIconView(.circleAlert, size: 12)
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                        .frame(width: 20, height: 20)
+                        .nativeTooltip("Error")
+                        .accessibilityLabel("Error")
+                        .transition(.opacity)
+                case .idle:
+                    if conversation.hasUnseenLatestAssistantMessage {
+                        VBadge(style: .dot, color: VColor.systemMidStrong)
+                            .accessibilityLabel("Unread")
+                            .frame(width: 20, height: 20)
+                            .nativeTooltip("Unread")
+                            .transition(.opacity)
+                    } else if conversation.isPinned {
                         VIconView(.pin, size: 13)
-                            .foregroundStyle(conversation.isPinned ? VColor.contentTertiary : VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .rotationEffect(.degrees(-45))
                             .frame(width: 20, height: 20)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .transition(.opacity)
-                    .nativeTooltip(conversation.isPinned ? "Unpin" : "Pin")
-                    .accessibilityLabel(conversation.isPinned ? "Unpin \(conversation.title)" : "Pin \(conversation.title)")
-                } else {
-                    switch interactionState {
-                    case .processing:
-                        VBusyIndicator()
-                            .frame(width: 20, height: 20)
-                            .nativeTooltip("Processing")
-                            .accessibilityLabel("Processing")
-                    case .waitingForInput:
-                        VIconView(.circleAlert, size: 12)
-                            .foregroundStyle(VColor.systemMidStrong)
-                            .frame(width: 20, height: 20)
-                            .nativeTooltip("Waiting for input")
-                            .accessibilityLabel("Waiting for input")
-                    case .error:
-                        VIconView(.circleAlert, size: 12)
-                            .foregroundStyle(VColor.systemNegativeStrong)
-                            .frame(width: 20, height: 20)
-                            .nativeTooltip("Error")
-                            .accessibilityLabel("Error")
+                            .nativeTooltip("Pinned")
+                            .accessibilityLabel("Pinned")
                             .transition(.opacity)
-                    case .idle:
-                        if conversation.hasUnseenLatestAssistantMessage {
-                            VBadge(style: .dot, color: VColor.systemMidStrong)
-                                .accessibilityLabel("Unread")
-                                .frame(width: 20, height: 20)
-                                .nativeTooltip("Unread")
-                                .transition(.opacity)
-                        } else if conversation.isPinned {
-                            VIconView(.pin, size: 13)
-                                .foregroundStyle(VColor.contentTertiary)
-                                .rotationEffect(.degrees(-45))
-                                .frame(width: 20, height: 20)
-                                .nativeTooltip("Pinned")
-                                .accessibilityLabel("Pinned")
-                                .transition(.opacity)
-                        } else {
-                            Color.clear
-                                .frame(width: 20, height: 20)
-                        }
+                    } else {
+                        Color.clear
+                            .frame(width: 20, height: 20)
                     }
                 }
-                if conversation.kind == .private {
-                    VIconView(.lock, size: 13)
-                        .foregroundStyle(VColor.primaryBase.opacity(0.7))
-                        .nativeTooltip("Private conversation")
-                        .accessibilityLabel("Private conversation")
-                }
-                Text(conversation.title)
-                    .font(.system(size: 13))
-                    .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .nativeTooltip(conversation.title)
+            }
+            if conversation.kind == .private {
+                VIconView(.lock, size: 13)
+                    .foregroundStyle(VColor.primaryBase.opacity(0.7))
+                    .nativeTooltip("Private conversation")
+                    .accessibilityLabel("Private conversation")
+            }
+            Text(conversation.title)
+                .font(.system(size: 13))
+                .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .nativeTooltip(conversation.title)
 
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, VSpacing.xs)
-            .padding(.trailing, hasTrailingIcon ? SidebarLayoutMetrics.trailingIconPadding : VSpacing.sm)
-            .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
-            .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
-            .background {
-                if isSelected {
-                    VColor.surfaceActive
-                } else if isHovered || isMenuOpen {
-                    VColor.surfaceBase
-                } else if conversation.kind == .private {
-                    VColor.primaryBase.opacity(0.04)
-                } else {
-                    VColor.surfaceBase.opacity(0)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .contentShape(Rectangle())
-            .animation(VAnimation.fast, value: isHovered)
-            .animation(VAnimation.fast, value: isMenuOpen)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, VSpacing.xs)
+        .padding(.trailing, hasTrailingIcon ? SidebarLayoutMetrics.trailingIconPadding : VSpacing.sm)
+        .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+        .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
+        .background {
+            if isSelected {
+                VColor.surfaceActive
+            } else if isHovered || isMenuOpen {
+                VColor.surfaceBase
+            } else if conversation.kind == .private {
+                VColor.primaryBase.opacity(0.04)
+            } else {
+                VColor.surfaceBase.opacity(0)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .contentShape(Rectangle())
+        .animation(VAnimation.fast, value: isHovered)
+        .animation(VAnimation.fast, value: isMenuOpen)
         .onTapGesture {
             selectConversation()
             onSelect?()
