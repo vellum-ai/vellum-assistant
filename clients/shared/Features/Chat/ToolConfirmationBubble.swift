@@ -1,7 +1,40 @@
 import SwiftUI
+import os
 #if os(macOS)
 import AppKit
 #endif
+
+// MARK: - Debug Layout (TEMPORARY — remove before merging)
+
+private let jitterLog = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum",
+    category: "JitterDebug"
+)
+
+/// Logs proposed width and resulting size on every layout pass.
+/// Use to detect sub-pixel width variation causing non-deterministic text wrap heights.
+private struct DebugSizeLayout: Layout {
+    let label: String
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout CGSize?) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        let size = child.sizeThatFits(proposal)
+        let pw = proposal.width ?? -1
+        let ph = proposal.height ?? -1
+        // Only log when size actually differs from last cached value
+        if cache == nil || cache!.width != size.width || cache!.height != size.height {
+            jitterLog.debug("📐 [\(self.label)] proposed: \(pw, format: .fixed(precision: 4)) × \(ph, format: .fixed(precision: 4)) → size: \(size.width, format: .fixed(precision: 4)) × \(size.height, format: .fixed(precision: 4))")
+            cache = size
+        }
+        return size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout CGSize?) {
+        subviews.first?.place(at: bounds.origin, proposal: proposal)
+    }
+
+    func makeCache(subviews: Subviews) -> CGSize? { nil }
+}
 
 public struct ToolConfirmationBubble: View {
     public let confirmation: ToolConfirmationData
@@ -265,6 +298,12 @@ public struct ToolConfirmationBubble: View {
                         .stroke(VColor.borderBase, lineWidth: 0.5)
                 )
         )
+        // DEBUG: Track bubble position and total size (TEMPORARY — remove before merging)
+        .onGeometryChange(for: CGRect.self) { proxy in
+            proxy.frame(in: .global)
+        } action: { frame in
+            jitterLog.debug("📍 [bubble-frame] y: \(frame.origin.y, format: .fixed(precision: 4))  h: \(frame.size.height, format: .fixed(precision: 4))  w: \(frame.size.width, format: .fixed(precision: 4))")
+        }
         .onGeometryChange(for: Bool.self) { proxy in
             proxy.size.width < 450
         } action: { isCompact in
@@ -454,10 +493,12 @@ public struct ToolConfirmationBubble: View {
     }
 
     private var confirmationDescription: some View {
-        Text(confirmation.humanDescription)
-            .font(VFont.bodyMediumEmphasised)
-            .foregroundStyle(VColor.contentDefault)
-            .fixedSize(horizontal: false, vertical: true)
+        DebugSizeLayout(label: "desc") {
+            Text(confirmation.humanDescription)
+                .font(VFont.bodyMediumEmphasised)
+                .foregroundStyle(VColor.contentDefault)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var confirmationActions: some View {

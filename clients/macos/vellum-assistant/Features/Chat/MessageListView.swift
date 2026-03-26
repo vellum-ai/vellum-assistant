@@ -1164,10 +1164,19 @@ private struct MessageCellView: View, Equatable {
             showIcon: false
         )
         .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+        // DEBUG: Track thinking indicator height (TEMPORARY — remove before merging)
+        .onGeometryChange(for: CGFloat.self) { proxy in
+            proxy.size.height
+        } action: { height in
+            Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum", category: "JitterDebug")
+                .debug("📐 [thinkingRow] height: \(height, format: .fixed(precision: 4))")
+        }
         .id("thinking-indicator")
     }
 
     var body: some View {
+        let _ = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum", category: "JitterDebug")
+            .debug("🔄 [MessageCell] body eval id=\(self.message.id) hasConfirmation=\(self.message.confirmation != nil) thinkingVisible=\(self.shouldShowThinkingIndicator && self.anchoredThinkingIndex == self.index)")
         if showTimestamp {
             TimestampDivider(date: message.timestamp)
         }
