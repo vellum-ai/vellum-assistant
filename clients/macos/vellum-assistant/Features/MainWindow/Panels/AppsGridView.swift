@@ -236,7 +236,7 @@ struct AppsGridView: View {
                                             editingApp = app
                                         }
                                         VMenuDivider()
-                                        VMenuItem(icon: VIcon.trash.rawValue, label: "Delete") {
+                                        VMenuItem(icon: VIcon.trash.rawValue, label: "Delete", variant: .destructive) {
                                             hoveredAppId = nil
                                             Task { await AppsClient().deleteApp(id: app.id) }
                                             appListManager.removeApp(id: app.id)
