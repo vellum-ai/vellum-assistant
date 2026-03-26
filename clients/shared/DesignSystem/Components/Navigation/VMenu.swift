@@ -98,10 +98,10 @@ public struct VMenuItem<Trailing: View>: View {
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
 
-    /// Icon slot size — all leading icons occupy a uniform 20x20 frame.
-    private static let iconSlotSize: CGFloat = 20
-    /// Minimum row height for accessible touch/click targets.
-    private static let rowMinHeight: CGFloat = 32
+    /// Icon slot size — matches `VSidebarRow.iconSlotSize`.
+    private static var iconSlotSize: CGFloat { 20 }
+    /// Minimum row height — matches `VSidebarRow.rowMinHeight`.
+    private static var rowMinHeight: CGFloat { 32 }
 
     public init(
         icon: String? = nil,
@@ -141,7 +141,7 @@ public struct VMenuItem<Trailing: View>: View {
         } else {
             HStack(spacing: VSpacing.xs) {
                 if let icon {
-                    VIconView(.resolve(icon), size: 13)
+                    VIconView(.resolve(icon), size: Self.iconSlotSize)
                         .foregroundStyle(iconColor)
                         .frame(width: Self.iconSlotSize, height: Self.iconSlotSize)
                 }
