@@ -622,20 +622,9 @@ struct MessageListView: View {
                         .padding(.vertical, VSpacing.sm)
                         .id("page-loading-indicator")
                     } else if hasMoreMessages {
-                        // Invisible sentinel: geometry-reported position gates
-                        // pagination on actual viewport entry rather than
-                        // LazyVStack prefetch (which fires several screens early).
                         Color.clear
                             .frame(height: 1)
                             .id("page-load-trigger")
-                            .background {
-                                GeometryReader { geo in
-                                    Color.clear.preference(
-                                        key: PaginationSentinelMinYKey.self,
-                                        value: geo.frame(in: .named("chatScrollView")).minY
-                                    )
-                                }
-                            }
                     }
 
                     let _ = recordScrollLoopEvent(.bodyEvaluation)
@@ -844,11 +833,16 @@ struct MessageListView: View {
                         animated: true
                     )
                 }
-            }
-            .scrollIndicators(scrollCoordinator.hideScrollIndicators ? .hidden : .automatic)
-            .onPreferenceChange(PaginationSentinelMinYKey.self) { sentinelMinY in
+
+                // --- Pagination trigger ---
+                // Derive pagination from scroll offset instead of a
+                // GeometryReader+PreferenceKey sentinel inside the
+                // LazyVStack. contentOffsetY represents how far the
+                // content is scrolled — small values mean the top of
+                // the content (where older messages load) is near the
+                // viewport top, equivalent to the old sentinel minY.
                 scrollCoordinator.handlePaginationSentinel(
-                    sentinelMinY: sentinelMinY,
+                    sentinelMinY: newState.contentOffsetY,
                     scrollViewportHeight: scrollCoordinator.currentScrollViewportHeight,
                     hasMoreMessages: hasMoreMessages,
                     isLoadingMoreMessages: isLoadingMoreMessages,
@@ -857,6 +851,7 @@ struct MessageListView: View {
                     loadPreviousMessagePage: loadPreviousMessagePage
                 )
             }
+            .scrollIndicators(scrollCoordinator.hideScrollIndicators ? .hidden : .automatic)
             .overlay(alignment: .bottom) {
                 if !isNearBottom {
                     Button(action: {
@@ -1259,15 +1254,6 @@ private struct MessageCellView: View, Equatable {
     }
 }
 
-/// Preference key that propagates the pagination sentinel's minY (in the
-/// `chatScrollView` coordinate space) so the geometry-based pagination
-/// trigger can evaluate whether the sentinel has entered the top band.
-private struct PaginationSentinelMinYKey: PreferenceKey {
-    static var defaultValue: CGFloat = .infinity
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = min(value, nextValue())
-    }
-}
 
 
 // MARK: - Cached Message Layout Metadata
