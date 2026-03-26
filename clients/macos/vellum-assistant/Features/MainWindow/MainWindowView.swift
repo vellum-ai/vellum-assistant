@@ -1119,6 +1119,7 @@ struct MainWindowView: View {
 
                 chatContentView(geometry: geometry)
                     .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+                    .animation(VAnimation.panel, value: sidebarExpanded)
                     .overlay {
                         assistantLoadingOverlayIfNeeded
                     }
