@@ -47,20 +47,11 @@ extension AppDelegate {
         }
     }
 
-    /// Reactively waits for `connectionManager.isConnected` to become `true`,
-    /// or until the timeout expires. Uses a cancellation-safe `AsyncStream`
-    /// bridge over `$isConnected` to suspend without polling, following the
-    /// same `withTaskGroup` racing pattern as `awaitLocalBootstrapCompleted()`.
+    /// Waits for `connectionManager.isConnected` to become `true`, or until
+    /// the timeout expires — whichever comes first.
     ///
     /// Does NOT call `connect()` itself — that is the sole responsibility of
     /// `setupGatewayConnectionManager()`.
-    ///
-    /// Note: Combine's `AsyncPublisher` (`.values`) does not cooperate with
-    /// Swift task cancellation — a cancelled `for await` on `.values` never
-    /// terminates, which causes `withTaskGroup` to hang (it waits for **all**
-    /// children before returning). `AsyncStream` handles cancellation
-    /// correctly: its iterator returns `nil` when the task is cancelled,
-    /// allowing the child to exit and the group to complete.
     func awaitDaemonReady(timeout: TimeInterval) async -> Bool {
         log.info("Waiting for assistant to become ready (timeout: \(timeout)s)")
 
@@ -265,9 +256,8 @@ extension AppDelegate {
         }
     }
 
-    /// Suspends until `connectionManager.isConnected` becomes `true`.
-    /// Uses a cancellation-safe `AsyncStream` bridge to avoid main-actor
-    /// polling and to properly terminate when the parent task is cancelled.
+    /// Suspends until `connectionManager.isConnected` becomes `true`,
+    /// or the task is cancelled.
     @MainActor
     private func awaitConnectionEstablished() async {
         guard !connectionManager.isConnected else { return }
