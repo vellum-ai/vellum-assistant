@@ -65,9 +65,6 @@ public enum VMenuItemSize {
     case regular
 
     fileprivate var font: Font { self == .compact ? VFont.menuCompact : VFont.bodyMediumDefault }
-    fileprivate var iconSize: CGFloat { 13 }
-    fileprivate static var iconSlotSize: CGFloat { 20 }
-    fileprivate static var rowMinHeight: CGFloat { 32 }
 }
 
 // MARK: - VMenuItem
@@ -98,7 +95,13 @@ public struct VMenuItem<Trailing: View>: View {
     public let trailing: Trailing
 
     @Environment(\.vMenuDismiss) private var dismissMenu
+    @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
+
+    /// Icon slot size — all leading icons occupy a uniform 20x20 frame.
+    private static let iconSlotSize: CGFloat = 20
+    /// Minimum row height for accessible touch/click targets.
+    private static let rowMinHeight: CGFloat = 32
 
     public init(
         icon: String? = nil,
@@ -138,13 +141,13 @@ public struct VMenuItem<Trailing: View>: View {
         } else {
             HStack(spacing: VSpacing.xs) {
                 if let icon {
-                    VIconView(.resolve(icon), size: size.iconSize)
+                    VIconView(.resolve(icon), size: 13)
                         .foregroundStyle(iconColor)
-                        .frame(width: VMenuItemSize.iconSlotSize, height: VMenuItemSize.iconSlotSize)
+                        .frame(width: Self.iconSlotSize, height: Self.iconSlotSize)
                 }
                 Text(label)
                     .font(size.font)
-                    .foregroundStyle(textColor)
+                    .foregroundStyle(isEnabled ? textColor : VColor.contentDisabled)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .allowsHitTesting(false)
@@ -154,17 +157,17 @@ public struct VMenuItem<Trailing: View>: View {
             .padding(.leading, VSpacing.xs)
             .padding(.trailing, VSpacing.sm)
             .padding(.vertical, VSpacing.xs)
-            .frame(minHeight: VMenuItemSize.rowMinHeight)
+            .frame(minHeight: Self.rowMinHeight)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 isActive ? VColor.surfaceActive :
-                isHovered ? VColor.surfaceBase :
+                isHovered && isEnabled ? VColor.surfaceBase :
                 Color.clear
             )
             .animation(VAnimation.fast, value: isHovered)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
-            .onTapGesture { dismissMenu?(); action() }
+            .onTapGesture { guard isEnabled else { return }; dismissMenu?(); action() }
             .onHover { isHovered = $0 }
             .pointerCursor()
         }

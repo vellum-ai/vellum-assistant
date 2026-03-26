@@ -185,7 +185,6 @@ struct SidebarConversationItem: View, Equatable {
             VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {
                 onMarkUnread()
             }
-            .opacity(canMarkUnread ? 1 : 0.4)
             .disabled(!canMarkUnread)
 
             if let onOpenInNewWindow {
@@ -199,7 +198,6 @@ struct SidebarConversationItem: View, Equatable {
             VMenuItem(icon: VIcon.messageCircle.rawValue, label: "Share Feedback") {
                 onShowFeedback?()
             }
-            .opacity(onShowFeedback != nil ? 1 : 0.4)
             .disabled(onShowFeedback == nil)
         }
         .pointerCursor { hovering in

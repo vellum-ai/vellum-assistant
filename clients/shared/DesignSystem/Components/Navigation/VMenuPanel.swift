@@ -72,11 +72,12 @@ public class VMenuPanel: NSPanel {
         ])
         panel.contentView = container
 
-        // Size and position
-        let intrinsicSize = hostingView.intrinsicContentSize
+        // Size and position — fittingSize is more reliable than intrinsicContentSize
+        // which can return NSView.noIntrinsicMetric (-1) before layout settles.
+        let fittingSize = hostingView.fittingSize
         let menuSize = CGSize(
-            width: max(intrinsicSize.width, 1),
-            height: max(intrinsicSize.height, 1)
+            width: max(fittingSize.width, 1),
+            height: max(fittingSize.height, 1)
         )
 
         // Clamp to screen bounds so the menu doesn't go off-screen
@@ -100,9 +101,11 @@ public class VMenuPanel: NSPanel {
         return panel
     }
 
-    /// Calculate panel origin clamped to visible screen bounds.
+    /// Calculate panel origin clamped to the visible bounds of the screen containing the cursor.
     private func clampedOrigin(for size: CGSize, cursorAt cursor: CGPoint) -> CGPoint {
-        let screen = NSScreen.main?.visibleFrame ?? NSScreen.screens.first?.visibleFrame ?? .zero
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(cursor) })?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+            ?? .zero
 
         // Default: menu top-left at cursor, growing down-right.
         // Offset by shadowInset so the VMenu's visual edge aligns with the cursor.
@@ -181,38 +184,42 @@ private struct VContextMenuModifier<MenuContent: View>: ViewModifier {
     let menuWidth: CGFloat?
     @ViewBuilder let menuContent: () -> MenuContent
 
-    @State private var panel: VMenuPanel?
-    @State private var sourceAppearance: NSAppearance?
+    /// Weak reference avoids retain cycles — the window server keeps the panel
+    /// alive while it's visible; we only need this to close on re-open.
+    @State private var panelRef = WeakPanel()
 
     func body(content: Content) -> some View {
         content
             .onRightClick { screenPoint in
-                panel?.close()
+                // Close any existing panel synchronously before creating a new one.
+                // Nil the ref first so the old panel's onDismiss doesn't race.
+                let oldPanel = panelRef.value
+                panelRef.value = nil
+                oldPanel?.close()
 
-                // Capture appearance from the current window
-                let appearance = sourceAppearance
+                // Capture appearance from the window under the cursor at click time
+                let appearance = NSApp.windows
+                    .first(where: { $0.frame.contains(screenPoint) })?
+                    .effectiveAppearance
 
-                panel = VMenuPanel.show(
+                let newPanel = VMenuPanel.show(
                     at: screenPoint,
                     sourceAppearance: appearance
                 ) {
                     VMenu(width: menuWidth) {
                         menuContent()
                     }
-                } onDismiss: {
-                    panel = nil
+                } onDismiss: { [weak panelRef] in
+                    panelRef?.value = nil
                 }
-            }
-            .background {
-                // Capture the source window's appearance for the panel
-                GeometryReader { _ in
-                    Color.clear
-                        .onAppear {
-                            sourceAppearance = NSApp.keyWindow?.effectiveAppearance
-                        }
-                }
-                .frame(width: 0, height: 0)
+                panelRef.value = newPanel
             }
     }
+}
+
+/// Weak box for VMenuPanel so @State doesn't create a strong retain cycle
+/// with the panel's dismiss handler.
+private class WeakPanel {
+    weak var value: VMenuPanel?
 }
 #endif
