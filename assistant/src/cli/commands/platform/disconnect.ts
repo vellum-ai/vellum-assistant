@@ -80,11 +80,20 @@ Examples:
           CREDENTIAL_KEYS.userId,
         ] as const;
 
+        const failedKeys: string[] = [];
         for (const key of keysToDelete) {
-          await deleteSecureKeyViaDaemon(
+          const result = await deleteSecureKeyViaDaemon(
             "credential",
             `${key.service}:${key.field}`,
           );
+          if (result === "error") {
+            failedKeys.push(`${key.service}:${key.field}`);
+          }
+        }
+
+        if (failedKeys.length > 0) {
+          writeError(`Failed to delete credentials: ${failedKeys.join(", ")}`);
+          return;
         }
 
         // ---------------------------------------------------------------
