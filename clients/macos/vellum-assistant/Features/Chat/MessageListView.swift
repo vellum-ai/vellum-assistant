@@ -41,7 +41,9 @@ extension EnvironmentValues {
     /// Monotonically increasing counter that replaces the O(n) per-body-eval
     /// `computeMessageFingerprint()` hash. Incremented when any of the following
     /// triggers fire:
-    /// - visible message count changes (filtering by hidden/subagent status)
+    /// - raw `messages.count` changes (new message appended, deletion, or
+    ///   pagination load — also catches paginated-window shifts)
+    /// - visible message count changes (hidden/subagent visibility transitions)
     /// - `isSending` or `isThinking` transitions (activity state change)
     /// - `visibleMessages.last?.isStreaming` transitions (end of streaming)
     /// - A tool call's `isComplete` transitions (observable via messages array
@@ -50,9 +52,13 @@ extension EnvironmentValues {
     /// Over-invalidation is safe (triggers a recompute); under-invalidation is not.
     var messageListVersion: Int = 0
 
-    /// Cached visible message count for detecting structural changes.
-    /// Tracks the filtered (non-hidden, non-subagent) count so that
-    /// visibility transitions properly invalidate the layout cache.
+    /// Cached raw (unfiltered) message count. Detects new arrivals,
+    /// deletions, and pagination loads — including cases where the
+    /// paginated visible window shifts at a fixed size.
+    var lastKnownRawMessageCount: Int = 0
+    /// Cached visible (paginated) message count. Detects changes in
+    /// message visibility (hidden/subagent transitions) that don't
+    /// alter the raw count.
     var lastKnownVisibleMessageCount: Int = 0
     /// Cached streaming state of the last visible message.
     var lastKnownLastMessageStreaming: Bool = false
@@ -193,21 +199,25 @@ struct MessageListView: View {
     /// O(1) version counter. Over-invalidation is safe (triggers a recompute);
     /// under-invalidation is not.
     ///
-    /// Operates on the already-filtered `visibleMessages` so that changes in
-    /// message visibility (hidden/subagent transitions) correctly invalidate
-    /// the layout cache. All checks are O(1) — we only inspect the visible
-    /// count, `last?.isStreaming`, and the last message's tool call completion
-    /// states. `isSending` / `isThinking` transitions are handled via
-    /// `PrecomputedCacheKey` fields directly.
+    /// Tracks both the raw `messages.count` (catches new arrivals and
+    /// paginated-window shifts at fixed length) and the filtered
+    /// `visibleMessages.count` (catches hidden/subagent visibility
+    /// transitions). All checks are O(1). `isSending` / `isThinking`
+    /// transitions are handled via `PrecomputedCacheKey` fields directly.
     private func refreshMessageListVersionIfNeeded(visibleMessages: [ChatMessage]) {
-        let currentCount = visibleMessages.count
+        let currentRawCount = messages.count
+        let currentVisibleCount = visibleMessages.count
         let currentLastStreaming = visibleMessages.last?.isStreaming ?? false
         let currentIncompleteToolCalls = visibleMessages.last?.toolCalls.filter { !$0.isComplete }.count ?? 0
 
         var changed = false
 
-        if currentCount != scrollCoordinator.scrollTracking.lastKnownVisibleMessageCount {
-            scrollCoordinator.scrollTracking.lastKnownVisibleMessageCount = currentCount
+        if currentRawCount != scrollCoordinator.scrollTracking.lastKnownRawMessageCount {
+            scrollCoordinator.scrollTracking.lastKnownRawMessageCount = currentRawCount
+            changed = true
+        }
+        if currentVisibleCount != scrollCoordinator.scrollTracking.lastKnownVisibleMessageCount {
+            scrollCoordinator.scrollTracking.lastKnownVisibleMessageCount = currentVisibleCount
             changed = true
         }
         if currentLastStreaming != scrollCoordinator.scrollTracking.lastKnownLastMessageStreaming {
