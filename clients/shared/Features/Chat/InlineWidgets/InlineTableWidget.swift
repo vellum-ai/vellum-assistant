@@ -216,7 +216,7 @@ public struct InlineTableWidget: View {
             horizontalScrollableTable
         } else {
             tableContent
-                .frame(width: minimumTableWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
