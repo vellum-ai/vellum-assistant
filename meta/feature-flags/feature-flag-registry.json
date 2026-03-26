@@ -255,7 +255,7 @@
       "key": "managed-google-oauth",
       "label": "Managed Google OAuth",
       "description": "Show the Google OAuth service card in Models & Services settings",
-      "defaultEnabled": false
+      "defaultEnabled": true
     },
     {
       "id": "settings-embedding-provider",
