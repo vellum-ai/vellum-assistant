@@ -148,7 +148,7 @@ struct SidebarConversationItem: View, Equatable {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.xs)
-            .padding(.trailing, hasTrailingIcon ? SidebarLayoutMetrics.archiveIconTrailingPadding : VSpacing.sm)
+            .padding(.trailing, hasTrailingIcon ? SidebarLayoutMetrics.trailingIconPadding : VSpacing.sm)
             .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
             .background {

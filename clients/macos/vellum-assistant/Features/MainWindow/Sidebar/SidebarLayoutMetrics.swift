@@ -39,9 +39,9 @@ enum SidebarLayoutMetrics {
 
     // MARK: - Trailing Icon
 
-    /// Trailing padding reserved for the archive icon overlay on hover
+    /// Trailing padding reserved for the overflow menu icon overlay on hover
     /// (20pt icon + 4pt trailing padding on the overlay + 8pt gap).
-    static let archiveIconTrailingPadding: CGFloat = 32
+    static let trailingIconPadding: CGFloat = 32
 
     // MARK: - Section Divider
 
