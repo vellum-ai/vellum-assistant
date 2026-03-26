@@ -2795,4 +2795,125 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.currentAssistantMessageId,
                      "Stale flush should reset currentAssistantMessageId to nil")
     }
+
+    // MARK: - Buffered Text Before Finalize Invariant
+
+    func testMessageCompleteFlushesBufferedText() {
+        // Buffered text in streamingDeltaBuffer must appear in the final
+        // message when messageComplete arrives.
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Hello ")))
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "world")))
+        // Don't manually flush — messageComplete should flush internally.
+        viewModel.handleServerMessage(.messageComplete(MessageCompleteMessage()))
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].text, "Hello world",
+                       "messageComplete should flush all buffered text")
+        XCTAssertFalse(viewModel.messages[0].isStreaming,
+                       "Message should no longer be streaming after messageComplete")
+    }
+
+    func testToolUseStartFlushesBufferedTextBeforeChip() {
+        // Buffered text must be flushed before the tool call chip so that
+        // text appears before the chip in contentOrder.
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Searching...")))
+        // Don't manually flush — toolUseStart should flush internally.
+        viewModel.handleServerMessage(.toolUseStart(ToolUseStartMessage(
+            type: "tool_use_start",
+            toolName: "bash",
+            input: ["command": AnyCodable("ls")],
+            conversationId: nil
+        )))
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        XCTAssertEqual(msg.textSegments, ["Searching..."],
+                       "Buffered text should be flushed before tool call chip")
+        XCTAssertEqual(msg.toolCalls.count, 1)
+        // Text must come before tool call in content order.
+        XCTAssertEqual(msg.contentOrder, [.text(0), .toolCall(0)],
+                       "Text should appear before tool call in contentOrder")
+    }
+
+    func testToolUsePreviewStartFlushesBufferedTextBeforeChip() {
+        // Buffered text must be flushed before the preview chip so that
+        // text appears before the chip in contentOrder.
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Let me check...")))
+        // Don't manually flush — toolUsePreviewStart should flush internally.
+        viewModel.handleServerMessage(.toolUsePreviewStart(ToolUsePreviewStartMessage(
+            type: "tool_use_preview_start",
+            toolUseId: "tu-1",
+            toolName: "bash",
+            conversationId: nil
+        )))
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        XCTAssertEqual(msg.textSegments, ["Let me check..."],
+                       "Buffered text should be flushed before preview chip")
+        XCTAssertEqual(msg.toolCalls.count, 1)
+        XCTAssertEqual(msg.contentOrder, [.text(0), .toolCall(0)],
+                       "Text should appear before preview chip in contentOrder")
+    }
+
+    func testUiSurfaceShowFlushesBufferedTextBeforeSurface() {
+        // Buffered text must be flushed before the inline surface so that
+        // text appears before the surface in contentOrder.
+        viewModel.conversationId = "sess-surface"
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Here is the result:")))
+        // Don't manually flush — uiSurfaceShow should flush internally.
+        let surfaceMsg = UiSurfaceShowMessage(
+            conversationId: "sess-surface",
+            surfaceId: "surface-flush-test",
+            surfaceType: "card",
+            title: "Test Card",
+            data: AnyCodable(["title": "Test Card", "body": "Card body"]),
+            actions: nil,
+            display: "inline",
+            messageId: nil
+        )
+        viewModel.handleServerMessage(.uiSurfaceShow(surfaceMsg))
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        let msg = viewModel.messages[0]
+        XCTAssertEqual(msg.textSegments, ["Here is the result:"],
+                       "Buffered text should be flushed before inline surface")
+        XCTAssertEqual(msg.inlineSurfaces.count, 1)
+        // Text must come before surface in content order.
+        XCTAssertTrue(msg.contentOrder.contains(.text(0)),
+                      "Content order should include text segment")
+        XCTAssertTrue(msg.contentOrder.contains(.surface(0)),
+                      "Content order should include surface")
+        guard let textIdx = msg.contentOrder.firstIndex(of: .text(0)),
+              let surfIdx = msg.contentOrder.firstIndex(of: .surface(0)) else {
+            XCTFail("Expected both text and surface in contentOrder")
+            return
+        }
+        XCTAssertTrue(textIdx < surfIdx,
+                      "Text should appear before surface in contentOrder")
+    }
+
+    func testConversationErrorPreservesBufferedText() {
+        // Buffered text must be preserved in the assistant message when an
+        // error arrives mid-stream.
+        viewModel.conversationId = "sess-err"
+        viewModel.isSending = true
+        viewModel.isThinking = true
+
+        viewModel.handleServerMessage(.assistantTextDelta(AssistantTextDeltaMessage(text: "Partial response")))
+        // Don't manually flush — conversationError should flush internally.
+        let errorMsg = ConversationErrorMessage(
+            conversationId: "sess-err",
+            code: .conversationProcessingFailed,
+            userMessage: "Something went wrong",
+            retryable: true
+        )
+        viewModel.handleServerMessage(.conversationError(errorMsg))
+
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].text, "Partial response",
+                       "Buffered text should be preserved when error arrives mid-stream")
+        XCTAssertFalse(viewModel.messages[0].isStreaming,
+                       "Message should no longer be streaming after error")
+    }
 }
