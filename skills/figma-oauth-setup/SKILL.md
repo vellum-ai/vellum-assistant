@@ -7,12 +7,12 @@ metadata:
   vellum:
     display-name: "Figma OAuth Setup"
     feature-flag: "integration-figma"
-    includes: ["collaborative-oauth-flow"]
+    includes: ["vellum-oauth-integrations"]
 ---
 
 You are helping your user set up Figma OAuth credentials so the Figma integration can access their design files and comments.
 
-This skill follows the **Collaborative Guided Flow** pattern from the included `collaborative-oauth-flow` skill. That reference covers the navigation helper setup, step rhythm, rules, tone, error handling, and guardrails. This file defines only the Figma-specific steps.
+The included `vellum-oauth-integrations` skill handles the generic parts of the flow (credential collection, app registration, connection, and verification). This file defines only the Figma-specific steps.
 
 ## Provider Details
 
@@ -100,57 +100,13 @@ Wait for the user to confirm scopes are set.
 
 ---
 
-### Step 6: Store Credentials
+### Step 6: Collect Credentials, Register, Authorize, and Verify
 
-Collect Client ID conversationally:
-
-> Copy the **Client ID** and paste it here in the chat.
-
-Collect the app secret via secure prompt:
-
-```
-credential_store prompt:
-  service: "figma"
-  field: "oauth_secret"
-  label: "Figma OAuth App Secret"
-  description: "Copy the app secret from the Figma app settings page and paste it here."
-  placeholder: "..."
-```
-
-Register the OAuth app:
-
-```
-bash:
-  command: |
-    assistant oauth apps upsert --provider figma --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --client-secret-credential-path "credential/figma/oauth_secret"
-```
-
-**Milestone (6 of 7):** "Credentials saved - just the authorization step left."
-
----
-
-### Step 7: Authorize and Verify
+Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
 
 > I'll start the Figma authorization flow now. You should see a Figma consent page asking you to allow **Vellum Assistant** to access your account.
 >
 > Review the permissions and click **Allow access**.
-
-```
-bash:
-  command: |
-    assistant oauth connect figma
-```
-
-After authorization completes, verify the connection:
-
-```
-bash:
-  command: |
-    assistant oauth ping figma
-```
 
 **On success:** "Figma is connected! You can now ask me to browse your design files, inspect components, and post comments."
 
