@@ -71,6 +71,8 @@ struct MainWindowView: View {
     @State private var showComingAlive: Bool
     /// Whether the daemon-loading skeleton overlay is currently showing.
     @State var showDaemonLoading: Bool
+    /// Whether the daemon loading has timed out (assistant unreachable).
+    @State var daemonLoadingTimedOut = false
     /// Whether the main window is in native macOS fullscreen (traffic lights hidden).
     @State private var isInFullscreen: Bool = false
 
@@ -396,6 +398,7 @@ struct MainWindowView: View {
     private var assistantLoadingOverlayIfNeeded: some View {
         if showDaemonLoading && !isSettingsOpen {
             AssistantLoadingOverlayContent(
+                timedOut: $daemonLoadingTimedOut,
                 onRetry: { rewakeAssistant() },
                 onOpenSettings: {
                     settingsStore.pendingSettingsTab = .general
@@ -1359,6 +1362,7 @@ private struct ErrorToastOverlay: View {
 /// Extracted from MainWindowView to reduce type-checker complexity in
 /// `coreLayoutView`.
 private struct AssistantLoadingOverlayContent: View {
+    @Binding var timedOut: Bool
     let onRetry: () -> Void
     let onOpenSettings: () -> Void
     let onSendLogs: () -> Void
@@ -1366,7 +1370,6 @@ private struct AssistantLoadingOverlayContent: View {
     /// How long to wait before showing the timeout error state.
     private static let timeoutSeconds: UInt64 = 15
 
-    @State private var timedOut = false
     @State private var mismatch: PlatformURLMismatchInfo?
 
     var body: some View {
