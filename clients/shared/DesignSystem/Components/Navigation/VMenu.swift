@@ -141,7 +141,7 @@ public struct VMenuItem<Trailing: View>: View {
         } else {
             HStack(spacing: VSpacing.xs) {
                 if let icon {
-                    VIconView(.resolve(icon), size: Self.iconSlotSize)
+                    VIconView(.resolve(icon), size: 13)
                         .foregroundStyle(iconColor)
                         .frame(width: Self.iconSlotSize, height: Self.iconSlotSize)
                 }
