@@ -100,7 +100,7 @@ enum LogExporter {
                     throw ExportError.requestTooLarge
                 }
 
-                let trimResult = await trimStagingAndRebuildArchive(
+                let trimResult = try await trimStagingAndRebuildArchive(
                     stagingDir: stagingDir,
                     archiveURL: archiveURL,
                     previouslyRemoved: removedItems
@@ -1337,7 +1337,7 @@ enum LogExporter {
         stagingDir: URL,
         archiveURL: URL,
         previouslyRemoved: [String]
-    ) async -> String? {
+    ) async throws -> String? {
         let fileManager = FileManager.default
 
         guard let removed = removeLargestItem(in: stagingDir, fileManager: fileManager) else {
@@ -1353,7 +1353,7 @@ enum LogExporter {
         )
 
         try? fileManager.removeItem(at: archiveURL)
-        try? await createTarArchive(from: stagingDir, destination: archiveURL)
+        try await createTarArchive(from: stagingDir, destination: archiveURL)
 
         return removed
     }
