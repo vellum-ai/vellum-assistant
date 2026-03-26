@@ -153,7 +153,7 @@ See `ChatViewModel.observeErrorManager()` and `MainWindowState.observeNavigation
 
 ### Concurrency and Task Management
 
-- **Prefer async/await and structured concurrency.** Use `Task {}` with proper cancellation over raw GCD or unstructured `Task.detached` unless there is a specific reason.
+- **Prefer async/await and structured concurrency.** Use `Task {}` with proper cancellation over raw GCD. `Task.detached` is appropriate when you need to **escape actor isolation** for CPU-bound work (e.g., image resize, data encoding, file I/O from a `@MainActor` context). In Swift 6.2+, prefer [`@concurrent` functions](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0461-async-function-isolation.md) instead of `Task.detached` for this purpose — they achieve the same isolation escape with structured concurrency benefits. (Ref: [WWDC25 — Embracing Swift concurrency](https://developer.apple.com/videos/play/wwdc2025/232/))
 - **Always cancel subscriptions and tasks.** Store `AnyCancellable` tokens and cancel them in `deinit` or `onDisappear`. For `Task {}` started in `onAppear`, cancel in `onDisappear`. For `@StateObject` / `@ObservedObject` view models, cancel in `deinit`.
 - **Remove observers and listeners.** Unsubscribe from `NotificationCenter`, KVO, and any custom event systems when the owning object is deallocated or the view disappears. Prefer the `task {}` modifier with implicit cancellation over manual `NotificationCenter.addObserver`.
 <details>
@@ -167,6 +167,24 @@ See `ChatViewModel.observeErrorManager()` and `MainWindowState.observeNavigation
 - **Replace `DispatchQueue.main.asyncAfter` with `Task.sleep` in new code.** `asyncAfter` blocks cannot be cancelled. Use `Task { try? await Task.sleep(nanoseconds: N); guard !Task.isCancelled else { return }; ... }` and store the task in a `Task<Void, Never>?` property for cancellation. In SwiftUI views, prefer `.task { }` or `.task(id:)` modifiers which auto-cancel on view removal or identity change. **Note:** `DispatchQueue.main.async { }` (no delay) is still valid for synchronous main-thread hops. **Note:** `DispatchWorkItem`-based cancelable patterns (e.g., SettingsStore verification timeouts) are a separate idiom — do not blindly convert those to `Task.sleep`.
 
 </details>
+
+### @MainActor Isolation Boundaries
+
+Apply `@MainActor` only to types whose stored properties drive SwiftUI view rendering. Everything else should be `nonisolated` so it runs on the cooperative thread pool. This is the single most important rule for preventing app hangs. (Ref: [WWDC25 — Embracing Swift concurrency](https://developer.apple.com/videos/play/wwdc2025/232/), [Apple — Swift concurrency documentation](https://developer.apple.com/documentation/swift/concurrency))
+
+| Use `@MainActor` | Keep `nonisolated` |
+|---|---|
+| ViewModels (`@Observable` / `ObservableObject`) | Stateless network clients (enums, structs with static methods) |
+| UI-facing managers with `@Published` properties | Network client protocols and their implementations |
+| `ObservableObject` classes read by SwiftUI views | File I/O utilities (lockfile readers, path resolvers) |
+| Classes that mutate UI state (connection status, loading flags) | CPU-bound helpers (image resize, data encoding, JSON parsing) |
+
+**Key principles:**
+- **I/O belongs off the main thread.** Network requests (`URLSession`), file reads (`Data(contentsOf:)`), and keychain lookups should run on the cooperative thread pool. These APIs are all thread-safe and do not need main-actor protection. (Ref: [Apple — URLSession documentation](https://developer.apple.com/documentation/foundation/urlsession))
+- **CPU-bound work belongs off the main thread.** Image resizing, compression, base64 encoding, and JSON serialization should use `Task.detached` or `nonisolated` functions to avoid blocking the UI.
+- **When nonisolated code needs a single `@MainActor` value**, use `await` to hop to the main actor for that one read — do not make the entire function or type `@MainActor`. If the function is synchronous and the access is a simple property read of a value type (e.g., `String`), the Swift 5 compiler issues a warning (not an error) for cross-isolation access; this is acceptable as a pragmatic bridge until the codebase adopts Swift 6. (Ref: [SE-0401 — Remove Actor Isolation Inference caused by Property Wrappers](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0401-remove-property-wrapper-isolation.md))
+- **Beware async cascading.** Making a synchronous function `async` forces all callers to become `async` too. If a `@MainActor`-isolated caller awaits an async chain that eventually needs to hop back to the main actor, it creates a **deadlock** — the main actor is blocked waiting for the async chain, which is blocked waiting for the main actor. Keep functions synchronous unless they genuinely need to suspend. (Ref: [Apple — Diagnosing memory, thread, and crash issues early](https://developer.apple.com/documentation/xcode/diagnosing-memory-thread-and-crash-issues-early))
+- **`DispatchQueue.main.sync` from `@MainActor` context deadlocks.** If code is already on the main thread (or inside a `@MainActor` context), calling `DispatchQueue.main.sync` will deadlock. Use `Thread.isMainThread` guards or prefer `await MainActor.run {}` from async contexts. (Ref: [Apple — DispatchQueue.sync documentation](https://developer.apple.com/documentation/dispatch/dispatchqueue/sync(execute:)-3gef0))
 
 ### Memory Management
 
@@ -186,6 +204,7 @@ See `ChatViewModel.observeErrorManager()` and `MainWindowState.observeNavigation
 
 - **Asynchronous loading.** Load data (network responses, file contents, images) asynchronously off the main thread. Show loading states while data is in flight. Never block the main thread waiting for data.
 - **Image loading must be async.** Use `AsyncImage` (built-in) or a library like Kingfisher for image loading. Never decode or resize images synchronously on the main thread — this is a common source of scroll jank in image-heavy views.
+- **(macOS) `NSImage` is NOT thread-safe.** Per [Apple documentation](https://developer.apple.com/documentation/appkit/nsimage), `NSImage` operations (`lockFocus`, `draw`, `unlockFocus`, `tiffRepresentation`) must run on the main thread. However, `CGImage` and `CGContext` are thread-safe. For image processing, prefer: (1) create `CGImage` from data using [`CGImageSource`](https://developer.apple.com/documentation/imageio/cgimagesource) (thread-safe, no NSImage needed), (2) resize via `CGContext` off the main thread, (3) encode via [`CGImageDestination`](https://developer.apple.com/documentation/imageio/cgimagedestination) (thread-safe JPEG/PNG encoding). If `NSBitmapImageRep` or `NSImage` drawing is unavoidable, use `await MainActor.run {}` from async contexts or `Thread.isMainThread` guards with `DispatchQueue.main.sync` fallback. See `ChatAttachmentManager.compressImageIfNeeded()` for the current implementation.
 - **Profile before optimizing, but follow known patterns.** Use Instruments to validate — specifically Time Profiler for main-thread spikes, Core Animation instrument for frame drops, and Allocations for memory. Launch Instruments directly from `/Applications/Instruments.app` or via `xcrun instruments`. However, the patterns above are established project standards — follow them proactively rather than waiting for a performance regression.
 - **(macOS only) Background timers: gate on display state and use long polling intervals.** Set background polling intervals to at least 300 s (5 min). Before running expensive evaluation, call `CGDisplayIsAsleep(CGMainDisplayID())` and skip if the display is off. Do **not** use `NSApplication.didBecomeActiveNotification` as an activity gate for LSUIElement / accessory-mode apps — this notification never fires when the app has no dock icon, permanently disabling the feature after first use.
 - **AVAudio teardown order.** Always tear down AVAudio resources in the order `removeTap` → `stop` → `reset`. Calling `stop` before `removeTap` leaves the tap dangling and causes a retain cycle that prevents `AVAudioEngine` from being deallocated.
@@ -340,6 +359,8 @@ Swift's type checker has quadratic complexity with chained view modifiers. Compl
 | Inherited `.animation()` causing layout interpolation during view switches | A parent's `.animation()` modifier applies to all descendants, including subtrees that should switch instantly (e.g., tab/panel changes) | Apply `.animation(nil, value: switchValue)` on the subtree that should not animate. This overrides the inherited animation for that specific value change while preserving sibling animations driven by other values. |
 | `GeometryReader` in `.background()` for measurement | Requires a `Color.clear` wrapper, fires only via manual `.onAppear`/`.onChange`, and is easy to wire incorrectly | Use `.onGeometryChange(for:body:action:)` with the **single-value action overload** (iOS 17+ / macOS 14+). Fires on initial layout and on changes automatically — no wrapper view needed. Extract the minimal type (e.g., `Bool`, `CGFloat`) in the `body` closure so the action only fires when the derived value changes. |
 | `Timer.publish` / `Timer.scheduledTimer` for UI updates | Timer continues firing when the view is off-screen, wastes energy, and requires manual lifecycle management (invalidate, cancellable storage) | Use `TimelineView(.periodic(from: .now, by: interval))` for fixed-rate progress displays or `TimelineView(.animation)` for frame-rate animations. TimelineView auto-pauses when the view is off-screen and requires no manual teardown. |
+| `DispatchQueue.main.sync` from `@MainActor` or main thread | Deadlocks — the main thread blocks waiting for itself. Ref: [Apple — DispatchQueue.sync](https://developer.apple.com/documentation/dispatch/dispatchqueue/sync(execute:)-3gef0) | Use `Thread.isMainThread` guard (execute inline if already on main), or prefer `await MainActor.run {}` from async contexts. In new code, restructure to avoid the main-thread hop entirely (e.g., use `CGContext`/`CGImageDestination` instead of `NSImage` for image processing). |
+| `@MainActor` on stateless network/I/O types | Forces all HTTP request construction, URL resolution, and file reads onto the main thread — blocks UI. Ref: [WWDC25 — Embracing Swift concurrency](https://developer.apple.com/videos/play/wwdc2025/232/) | Keep network clients, file I/O utilities, and CPU-bound helpers `nonisolated`. Only apply `@MainActor` to types with `@Published`/`@Observable` properties that drive view rendering. See § "@MainActor Isolation Boundaries". |
 
 </details>
 
@@ -489,6 +510,7 @@ When adding a new HTTP endpoint call:
 2. Implement it in a struct that calls `GatewayHTTPClient.get/post/delete(path:timeout:)`. Path encoding and `{assistantId}` substitution are handled automatically by `GatewayHTTPClient.buildRequest()` — do not percent-encode paths manually.
 3. Instantiate the struct inline as a private property on the consuming type (e.g. `private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()`).
 4. If migrating an existing method, remove it from `DaemonClient` and `HTTPTransport` and clean up any unused `Endpoint` enum cases.
+5. Network client structs and protocols must be `nonisolated` (no `@MainActor`). `GatewayHTTPClient` is a stateless enum — its static methods run on the cooperative thread pool. Client structs that wrap it inherit this isolation. Do not add `@MainActor` to network client types. See § "@MainActor Isolation Boundaries" above.
 
 See `clients/ARCHITECTURE.md` § "GatewayHTTPClient Migration" for the full pattern and migration tracker.
 
@@ -497,6 +519,8 @@ See `clients/ARCHITECTURE.md` § "GatewayHTTPClient Migration" for the full patt
 ## Docs Anti-Drift
 - Avoid brittle hardcoded counts, version claims, or roadmap placeholders in client READMEs unless they are generated automatically. Prefer evergreen wording (e.g., "iOS-specific integration tests" instead of "70 iOS-specific tests").
 - When updating documentation, verify claims against the current codebase rather than copying from stale sources.
+- **Validate guidance against linked references.** Sections in this document include links to Apple documentation, WWDC sessions, and Swift Evolution proposals. When working in a related area, check the linked references to confirm the guidance is still current. If a reference has been superseded (e.g., a new WWDC session, a revised API, a Swift Evolution proposal that changed behavior), update the guidance and its links accordingly.
+- **Platform guidance has a shelf life.** Apple deprecates APIs and changes best practices annually at WWDC. Treat all platform-specific guidance (concurrency patterns, SwiftUI APIs, AppKit thread-safety rules) as potentially stale. When in doubt, check the linked reference — if the link is broken or the content has changed, the guidance needs updating.
 
 ---
 
