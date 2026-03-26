@@ -513,10 +513,22 @@ class IOSConversationStore: ObservableObject {
         let currentGeneration = conversationListGeneration
         Task { [weak self] in
             guard let self else { return }
-            if let response = await conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize) {
+            // Fetch foreground and background conversations in parallel so
+            // background conversations don't consume pagination slots.
+            async let foregroundResult = conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize)
+            async let backgroundResult = conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize, conversationType: "background")
+            let foreground = await foregroundResult
+            let background = await backgroundResult
+
+            if let foreground {
                 guard currentGeneration == self.conversationListGeneration else { return }
+                let merged = ConversationListResponse(
+                    type: foreground.type,
+                    conversations: foreground.conversations + (background?.conversations ?? []),
+                    hasMore: foreground.hasMore
+                )
                 self.expectedConversationListGeneration = currentGeneration
-                self.handleConversationListResponse(response)
+                self.handleConversationListResponse(merged)
             } else {
                 guard currentGeneration == self.conversationListGeneration else { return }
                 self.isLoadingInitialConversations = false

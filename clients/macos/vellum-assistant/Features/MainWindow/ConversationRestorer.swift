@@ -350,8 +350,21 @@ final class ConversationRestorer {
             // per-request timeout) while still covering the daemon restart race.
             let maxAttempts = 2
             for attempt in 1...maxAttempts {
-                if let response = await conversationListClient.fetchConversationList(offset: 0, limit: 50) {
-                    self.handleConversationListResponse(response)
+                // Fetch foreground and background conversations in parallel so
+                // background conversations don't consume pagination slots from
+                // the main list.
+                async let foregroundResult = conversationListClient.fetchConversationList(offset: 0, limit: 50)
+                async let backgroundResult = conversationListClient.fetchConversationList(offset: 0, limit: 50, conversationType: "background")
+                let foreground = await foregroundResult
+                let background = await backgroundResult
+
+                if let foreground {
+                    let merged = ConversationListResponse(
+                        type: foreground.type,
+                        conversations: foreground.conversations + (background?.conversations ?? []),
+                        hasMore: foreground.hasMore
+                    )
+                    self.handleConversationListResponse(merged)
                     return
                 }
                 if attempt < maxAttempts {

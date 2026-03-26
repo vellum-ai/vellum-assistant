@@ -6,7 +6,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// Focused client for conversation list and management operations via the gateway.
 @MainActor
 public protocol ConversationListClientProtocol {
-    func fetchConversationList(offset: Int, limit: Int) async -> ConversationListResponse?
+    func fetchConversationList(offset: Int, limit: Int, conversationType: String?) async -> ConversationListResponse?
     func switchConversation(conversationId: String) async -> Bool
     func renameConversation(conversationId: String, name: String) async -> Bool
     func clearAllConversations() async -> Bool
@@ -22,13 +22,14 @@ public protocol ConversationListClientProtocol {
 public struct ConversationListClient: ConversationListClientProtocol {
     nonisolated public init() {}
 
-    public func fetchConversationList(offset: Int = 0, limit: Int = 50) async -> ConversationListResponse? {
+    public func fetchConversationList(offset: Int = 0, limit: Int = 50, conversationType: String? = nil) async -> ConversationListResponse? {
         do {
             var params: [String: String] = [
                 "limit": "\(limit)",
                 "offset": "\(offset)",
             ]
             if offset == 0 { params.removeValue(forKey: "offset") }
+            if let conversationType { params["conversationType"] = conversationType }
 
             let response = try await GatewayHTTPClient.get(
                 path: "assistants/{assistantId}/conversations", params: params, timeout: 15

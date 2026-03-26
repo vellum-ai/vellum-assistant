@@ -17,12 +17,15 @@ extension Notification.Name {
 private enum ImageActions {
 
     /// Copies the image to the system clipboard.
-    /// Prefers full-resolution data decoded from `base64Data` when available,
-    /// falling back to the provided (possibly thumbnail) NSImage.
-    static func copyToClipboard(_ image: NSImage, base64Data: String? = nil) {
-        // Prefer full-res from base64 data when available
+    /// Prefers full-resolution data decoded from `rawData` or `base64Data` when
+    /// available, falling back to the provided (possibly thumbnail) NSImage.
+    static func copyToClipboard(_ image: NSImage, base64Data: String? = nil, rawData: Data? = nil) {
+        // Prefer full-res from raw or base64 data when available
         let imageToWrite: NSImage
-        if let base64Data, !base64Data.isEmpty,
+        if let rawData, !rawData.isEmpty,
+           let fullRes = NSImage(data: rawData) {
+            imageToWrite = fullRes
+        } else if let base64Data, !base64Data.isEmpty,
            let decoded = Data(base64Encoded: base64Data), !decoded.isEmpty,
            let fullRes = NSImage(data: decoded) {
             imageToWrite = fullRes
@@ -34,19 +37,15 @@ private enum ImageActions {
     }
 
     /// Opens an NSSavePanel and writes the image to the chosen path.
-    /// Prefers `base64Data` (full resolution) when available, falling back to
-    /// PNG-encoding the in-memory NSImage.
-    static func saveImageAs(_ image: NSImage, filename: String, base64Data: String? = nil) {
+    /// Prefers `rawData` or `base64Data` (full resolution) when available,
+    /// falling back to PNG-encoding the in-memory NSImage.
+    static func saveImageAs(_ image: NSImage, filename: String, base64Data: String? = nil, rawData: Data? = nil) {
         let sanitized = (filename as NSString).lastPathComponent
         let fallbackName = sanitized.isEmpty ? "image.png" : sanitized
 
-        // Use non-emptiness as a lightweight proxy for valid base64 data to
-        // decide the suggested filename. Full decode is deferred to the
-        // background write block to avoid blocking the main thread for large
-        // payloads (multi-MB screenshots).
-        let hasBase64 = base64Data.map { !$0.isEmpty } ?? false
+        let hasFullData = (rawData != nil && !rawData!.isEmpty) || (base64Data.map { !$0.isEmpty } ?? false)
         let suggestedName: String
-        if hasBase64 {
+        if hasFullData {
             suggestedName = fallbackName
         } else {
             suggestedName = (fallbackName as NSString).deletingPathExtension + ".png"
@@ -61,7 +60,9 @@ private enum ImageActions {
             // tiffRepresentation is not thread-safe (see ChatAttachmentManager.swift)
             // so PNG encoding must happen here, not in a background queue.
             let dataToWrite: Data?
-            if let base64Data, !base64Data.isEmpty,
+            if let rawData, !rawData.isEmpty {
+                dataToWrite = rawData
+            } else if let base64Data, !base64Data.isEmpty,
                let decoded = Data(base64Encoded: base64Data), !decoded.isEmpty {
                 dataToWrite = decoded
             } else if let tiff = image.tiffRepresentation,
@@ -89,15 +90,18 @@ private enum ImageActions {
     }
 
     /// Writes the image to a temporary file and returns the file URL.
-    /// Prefers `base64Data` (full resolution), falling back to PNG-encoding the NSImage.
-    /// Returns nil if the image could not be written.
-    static func writeTempFile(_ image: NSImage, filename: String, base64Data: String? = nil) -> URL? {
+    /// Prefers `rawData`, then `base64Data` (full resolution), falling back to
+    /// PNG-encoding the NSImage. Returns nil if the image could not be written.
+    static func writeTempFile(_ image: NSImage, filename: String, base64Data: String? = nil, rawData: Data? = nil) -> URL? {
         let tempDir = FileManager.default.temporaryDirectory
         let sanitized = (filename as NSString).lastPathComponent
         let fallbackName = sanitized.isEmpty ? "image.png" : sanitized
 
         var usedPNGFallback = false
         let fileData: Data? = {
+            if let rawData, !rawData.isEmpty {
+                return rawData
+            }
             if let base64Data, !base64Data.isEmpty,
                let decoded = Data(base64Encoded: base64Data), !decoded.isEmpty {
                 return decoded
@@ -128,8 +132,8 @@ private enum ImageActions {
     }
 
     /// Writes the image to a temporary file and opens it in the default app (Preview).
-    static func openInPreview(_ image: NSImage, filename: String, base64Data: String? = nil) {
-        guard let fileURL = writeTempFile(image, filename: filename, base64Data: base64Data) else { return }
+    static func openInPreview(_ image: NSImage, filename: String, base64Data: String? = nil, rawData: Data? = nil) {
+        guard let fileURL = writeTempFile(image, filename: filename, base64Data: base64Data, rawData: rawData) else { return }
         NSWorkspace.shared.open(fileURL)
     }
 
@@ -183,28 +187,64 @@ private enum ImageActions {
         return services
     }
 
+    /// Fetches full-res image data for a lazy-loaded attachment, falling back to nil on error.
+    private static func fetchLazyData(attachmentId: String?) async -> Data? {
+        guard let attachmentId, !attachmentId.isEmpty else { return nil }
+        return try? await AttachmentContentClient.fetchContent(attachmentId: attachmentId)
+    }
+
     /// Builds a SwiftUI context menu with Copy, Save As, and Open in Preview actions.
+    /// When `lazyAttachmentId` is provided and `base64Data` is nil, actions will
+    /// fetch full-res data from the server on demand.
     @available(macOS, deprecated: 13.0)
     @ViewBuilder
     static func contextMenuItems(
         image: NSImage,
         filename: String,
-        base64Data: String? = nil
+        base64Data: String? = nil,
+        lazyAttachmentId: String? = nil
     ) -> some View {
         Button {
-            copyToClipboard(image, base64Data: base64Data)
+            if base64Data != nil {
+                copyToClipboard(image, base64Data: base64Data)
+            } else if let lazyAttachmentId {
+                Task {
+                    let data = await fetchLazyData(attachmentId: lazyAttachmentId)
+                    copyToClipboard(image, rawData: data)
+                }
+            } else {
+                copyToClipboard(image)
+            }
         } label: {
             Label { Text("Copy Image") } icon: { VIconView(.copy, size: 12) }
         }
 
         Button {
-            saveImageAs(image, filename: filename, base64Data: base64Data)
+            if base64Data != nil {
+                saveImageAs(image, filename: filename, base64Data: base64Data)
+            } else if let lazyAttachmentId {
+                Task {
+                    let data = await fetchLazyData(attachmentId: lazyAttachmentId)
+                    saveImageAs(image, filename: filename, rawData: data)
+                }
+            } else {
+                saveImageAs(image, filename: filename)
+            }
         } label: {
             Label { Text("Save Image As\u{2026}") } icon: { VIconView(.arrowDownToLine, size: 12) }
         }
 
         Button {
-            openInPreview(image, filename: filename, base64Data: base64Data)
+            if base64Data != nil {
+                openInPreview(image, filename: filename, base64Data: base64Data)
+            } else if let lazyAttachmentId {
+                Task {
+                    let data = await fetchLazyData(attachmentId: lazyAttachmentId)
+                    openInPreview(image, filename: filename, rawData: data)
+                }
+            } else {
+                openInPreview(image, filename: filename)
+            }
         } label: {
             Label { Text("Open in Preview") } icon: { VIconView(.eye, size: 12) }
         }
@@ -221,15 +261,27 @@ private enum ImageActions {
             Menu {
                 ForEach(Array(services.enumerated()), id: \.offset) { _, service in
                     Button {
-                        // Write temp file at action time (not during render).
-                        // Try full-res first, fall back to thumbnail, fall back to
-                        // the probe file so the Share action is never a silent no-op.
-                        let shareURL = writeTempFile(image, filename: filename, base64Data: base64Data)
-                            ?? writeTempFile(image, filename: filename)
-                        let probeExt = (filename as NSString).pathExtension.lowercased()
-                        let fallback = FileManager.default.temporaryDirectory
-                            .appendingPathComponent("vellum-share-probe.\(probeExt.isEmpty ? "png" : probeExt)")
-                        service.perform(withItems: [shareURL ?? fallback])
+                        if let lazyAttachmentId, base64Data == nil {
+                            Task {
+                                let data = await fetchLazyData(attachmentId: lazyAttachmentId)
+                                let shareURL = writeTempFile(image, filename: filename, rawData: data)
+                                    ?? writeTempFile(image, filename: filename)
+                                let probeExt = (filename as NSString).pathExtension.lowercased()
+                                let fallback = FileManager.default.temporaryDirectory
+                                    .appendingPathComponent("vellum-share-probe.\(probeExt.isEmpty ? "png" : probeExt)")
+                                service.perform(withItems: [shareURL ?? fallback])
+                            }
+                        } else {
+                            // Write temp file at action time (not during render).
+                            // Try full-res first, fall back to thumbnail, fall back to
+                            // the probe file so the Share action is never a silent no-op.
+                            let shareURL = writeTempFile(image, filename: filename, base64Data: base64Data)
+                                ?? writeTempFile(image, filename: filename)
+                            let probeExt = (filename as NSString).pathExtension.lowercased()
+                            let fallback = FileManager.default.temporaryDirectory
+                                .appendingPathComponent("vellum-share-probe.\(probeExt.isEmpty ? "png" : probeExt)")
+                            service.perform(withItems: [shareURL ?? fallback])
+                        }
                     } label: {
                         Label {
                             Text(service.title)
@@ -349,7 +401,8 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                                 ImageActions.contextMenuItems(
                                     image: nsImage,
                                     filename: attachment.filename,
-                                    base64Data: attachment.data.isEmpty ? nil : attachment.data
+                                    base64Data: attachment.data.isEmpty ? nil : attachment.data,
+                                    lazyAttachmentId: attachment.isLazyLoad ? attachment.id : nil
                                 )
                             }
                             .onDrag {
@@ -490,11 +543,28 @@ extension ChatBubble {
 
     func attachmentImageGrid(_ images: [ChatAttachment]) -> some View {
         AttachmentImageGrid(imageAttachments: images, onTap: { attachment, image in
-            ImageActions.openInPreview(
-                image,
-                filename: attachment.filename,
-                base64Data: attachment.data.isEmpty ? nil : attachment.data
-            )
+            if attachment.isLazyLoad, !attachment.id.isEmpty {
+                // Full image data was cleared to save memory — fetch from server
+                Task {
+                    do {
+                        let data = try await AttachmentContentClient.fetchContent(attachmentId: attachment.id)
+                        ImageActions.openInPreview(
+                            image,
+                            filename: attachment.filename,
+                            rawData: data
+                        )
+                    } catch {
+                        // Fetch failed — open with thumbnail
+                        ImageActions.openInPreview(image, filename: attachment.filename)
+                    }
+                }
+            } else {
+                ImageActions.openInPreview(
+                    image,
+                    filename: attachment.filename,
+                    base64Data: attachment.data.isEmpty ? nil : attachment.data
+                )
+            }
         }) { attachment in
             fileAttachmentChip(attachment)
         }
