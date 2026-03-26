@@ -15,6 +15,7 @@ struct AgentPanelContent: View {
     @State private var skillToDelete: SkillInfo?
     @State private var selectedCategory: SkillCategory?
     @State private var globalSkillSearchQuery = ""
+    @State private var showAllSkills = false
 
     init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, connectionManager: GatewayConnectionManager) {
         self.onInvokeSkill = onInvokeSkill
@@ -89,7 +90,22 @@ struct AgentPanelContent: View {
     private var filterBar: some View {
         HStack(spacing: VSpacing.sm) {
             VSearchBar(placeholder: "Search Skills", text: $globalSkillSearchQuery)
+            filterPill(label: "Installed", isActive: !showAllSkills) {
+                withAnimation(VAnimation.fast) { showAllSkills = false }
+            }
+            filterPill(label: "All", isActive: showAllSkills) {
+                withAnimation(VAnimation.fast) { showAllSkills = true }
+            }
         }
+    }
+
+    private func filterPill(label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+        VButton(
+            label: label,
+            style: isActive ? .primary : .ghost,
+            size: .pill,
+            action: action
+        )
     }
 
     // MARK: - Category Sidebar
@@ -129,7 +145,10 @@ struct AgentPanelContent: View {
     // MARK: - Filtering
 
     private var userSkills: [SkillInfo] {
-        skillsManager.skills
+        if showAllSkills {
+            return skillsManager.skills
+        }
+        return skillsManager.skills.filter { $0.isInstalled }
     }
 
     /// Skills filtered by search query only.
@@ -154,9 +173,10 @@ struct AgentPanelContent: View {
             filtered = base
         }
         return filtered.sorted { a, b in
-            let aInstalled = (a.source == "managed" || a.source == "clawhub")
-            let bInstalled = (b.source == "managed" || b.source == "clawhub")
-            if aInstalled != bInstalled { return aInstalled }
+            if a.isInstalled != b.isInstalled { return a.isInstalled }
+            let aManaged = (a.source == "managed" || a.source == "clawhub")
+            let bManaged = (b.source == "managed" || b.source == "clawhub")
+            if a.isInstalled && b.isInstalled && aManaged != bManaged { return aManaged }
             return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
         }
     }
@@ -188,27 +208,40 @@ struct AgentPanelContent: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if filteredSkills.isEmpty {
             VEmptyState(
-                title: selectedCategory == nil ? "No Skills Installed" : "No \(selectedCategory!.displayName) Skills",
-                subtitle: selectedCategory == nil
-                    ? "Ask your assistant in chat to search for and install new skills."
-                    : "Try selecting a different category or clearing the filter.",
-                icon: VIcon.zap.rawValue
+                title: showAllSkills
+                    ? "No Skills Available"
+                    : (selectedCategory == nil ? "No Skills Installed" : "No \(selectedCategory!.displayName) Skills"),
+                subtitle: showAllSkills
+                    ? "Check your connection to the Vellum catalog."
+                    : (selectedCategory == nil
+                        ? "Ask your assistant in chat to search for and install new skills."
+                        : "Try selecting a different category or clearing the filter."),
+                icon: showAllSkills ? VIcon.cloudOff.rawValue : VIcon.zap.rawValue
             )
         } else {
             ScrollView {
                 LazyVStack(spacing: VSpacing.sm) {
                     ForEach(filteredSkills) { skill in
-                        SkillItemRow(
-                            skill: skill,
-                            onSelect: {
-                                withAnimation(VAnimation.fast) {
-                                    selectedInstalledSkillId = skill.id
+                        if skill.isAvailable {
+                            AvailableSkillItemRow(
+                                skill: skill,
+                                onSelect: { selectedInstalledSkillId = skill.id },
+                                onInstall: { skillsManager.installSkill(slug: skill.id) },
+                                isInstalling: skillsManager.installingSkillId == skill.id
+                            )
+                        } else {
+                            SkillItemRow(
+                                skill: skill,
+                                onSelect: {
+                                    withAnimation(VAnimation.fast) {
+                                        selectedInstalledSkillId = skill.id
+                                    }
+                                },
+                                onDelete: {
+                                    skillToDelete = skill
                                 }
-                            },
-                            onDelete: {
-                                skillToDelete = skill
-                            }
-                        )
+                            )
+                        }
                     }
                 }
                 .background { OverlayScrollerStyle() }
@@ -227,6 +260,8 @@ struct AgentPanelContent: View {
             return "Created"
         case "extra":
             return "Extra"
+        case "catalog":
+            return "Available"
         default:
             return source.replacingOccurrences(of: "-", with: " ").capitalized
         }
@@ -292,5 +327,67 @@ struct SkillItemRow: View {
             Button("Remove", role: .destructive, action: onDelete)
         }
         .accessibilityElement(children: .combine)
+    }
+}
+
+// MARK: - Available Skill Item Row
+
+struct AvailableSkillItemRow: View {
+    let skill: SkillInfo
+    let onSelect: () -> Void
+    let onInstall: () -> Void
+    var isInstalling: Bool = false
+
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: VSpacing.lg) {
+            if let emoji = skill.emoji, !emoji.isEmpty {
+                Text(emoji)
+                    .font(.system(size: 32))
+                    .opacity(0.5)
+            }
+            VStack(alignment: .leading, spacing: VSpacing.xs) {
+                HStack(alignment: .center, spacing: VSpacing.sm) {
+                    Text(skill.name)
+                        .font(VFont.titleSmall)
+                        .foregroundStyle(VColor.contentSecondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    VSkillTypePill(source: skill.source)
+                    Spacer()
+                }
+                Text(skill.description)
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            if isInstalling {
+                VLoadingIndicator()
+            } else {
+                VButton(
+                    label: "Install",
+                    style: .outlined,
+                    size: .compact,
+                    action: onInstall
+                )
+            }
+        }
+        .padding(VSpacing.lg)
+        .background(isHovered ? VColor.surfaceBase : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .strokeBorder(
+                    VColor.borderDisabled,
+                    style: StrokeStyle(lineWidth: 2, dash: [6, 4])
+                )
+        )
+        .contentShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .onHover { isHovered = $0 }
+        .animation(VAnimation.fast, value: isHovered)
+        .onTapGesture { onSelect() }
+        .pointerCursor()
     }
 }

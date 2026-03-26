@@ -17,6 +17,7 @@ final class SkillsManager {
     var selectedSkillFiles: SkillDetailFilesHTTPResponse?
     var isLoadingSkillFiles = false
     var skillFilesError: String?
+    var installingSkillId: String?
 
     @ObservationIgnored private var cancellables = Set<AnyCancellable>()
 
@@ -38,6 +39,10 @@ final class SkillsManager {
         skillsStore.$selectedSkillFiles.sink { [weak self] in self?.selectedSkillFiles = $0 }.store(in: &cancellables)
         skillsStore.$isLoadingSkillFiles.sink { [weak self] in self?.isLoadingSkillFiles = $0 }.store(in: &cancellables)
         skillsStore.$skillFilesError.sink { [weak self] in self?.skillFilesError = $0 }.store(in: &cancellables)
+        skillsStore.$installResult.sink { [weak self] result in
+            guard let self, result != nil else { return }
+            self.installingSkillId = nil
+        }.store(in: &cancellables)
     }
 
     // MARK: - Delegated Operations
@@ -52,6 +57,11 @@ final class SkillsManager {
 
     func uninstallSkill(id: String) {
         skillsStore.uninstallSkill(id: id)
+    }
+
+    func installSkill(slug: String) {
+        installingSkillId = slug
+        skillsStore.installSkill(slug: slug)
     }
 
     func fetchSkillFiles(skillId: String) {
