@@ -94,11 +94,16 @@ struct TokensGallerySection: View {
                         typeMatrixHeader()
                         typeMatrixDivider()
 
+                        typeMatrixRow(group: "BRAND", size: "32", regular: ("Brand/Medium", VFont.brandMedium), medium: nil, semiBold: nil)
+                        typeMatrixDivider()
+                        typeMatrixRow(group: "", size: "22", regular: ("Brand/Small", VFont.brandSmall), medium: nil, semiBold: nil)
+                        typeMatrixDivider()
+
                         typeMatrixRow(group: "TITLE", size: "24", regular: nil, medium: ("Title/Large", VFont.titleLarge), semiBold: nil)
                         typeMatrixDivider()
                         typeMatrixRow(group: "", size: "20", regular: nil, medium: ("Title/Medium", VFont.titleMedium), semiBold: nil)
                         typeMatrixDivider()
-                        typeMatrixRow(group: "", size: "18", regular: nil, medium: nil, semiBold: ("Title/Small", VFont.titleSmall))
+                        typeMatrixRow(group: "", size: "16", regular: nil, medium: ("Title/Small", VFont.titleSmall), semiBold: nil)
                         typeMatrixDivider()
 
                         typeMatrixRow(group: "BODY", size: "16", regular: ("Body/Lighter", VFont.bodyLargeLighter), medium: ("Body/Large Default", VFont.bodyLargeDefault), semiBold: ("Body/Large Emphasised", VFont.bodyLargeEmphasised))
@@ -126,9 +131,11 @@ struct TokensGallerySection: View {
                             .padding(.bottom, VSpacing.xs)
 
                         let tokens: [(String, String, String, Font)] = [
+                            ("brandMedium", "Regular 32 (Instrument Serif)", "Brand headings", VFont.brandMedium),
+                            ("brandSmall", "Regular 22 (Instrument Serif)", "Brand subheadings", VFont.brandSmall),
                             ("titleLarge", "Medium 24", "Headings, page titles", VFont.titleLarge),
                             ("titleMedium", "Medium 20", "Section headings", VFont.titleMedium),
-                            ("titleSmall", "SemiBold 18", "Card titles, subheadings", VFont.titleSmall),
+                            ("titleSmall", "Medium 16", "Card titles, subheadings", VFont.titleSmall),
                             ("bodyLargeLighter", "Regular 16", "Secondary body text", VFont.bodyLargeLighter),
                             ("bodyLargeDefault", "Medium 16", "Primary body text", VFont.bodyLargeDefault),
                             ("bodyLargeEmphasised", "SemiBold 16", "Emphasized body text", VFont.bodyLargeEmphasised),

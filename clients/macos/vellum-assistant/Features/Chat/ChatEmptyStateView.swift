@@ -103,7 +103,7 @@ struct ChatEmptyStateView: View {
 
             if let greeting = effectiveGreeting {
                 Text(greeting)
-                    .font(VFont.titleLarge)
+                    .font(VFont.brandMedium)
                     .foregroundStyle(VColor.contentSecondary)
                     .multilineTextAlignment(.leading)
                     .transition(.opacity)
