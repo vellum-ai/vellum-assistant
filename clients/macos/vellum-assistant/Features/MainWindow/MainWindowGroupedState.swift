@@ -87,7 +87,7 @@ final class SidebarInteractionState {
         // Re-check the guard inside the closure in case another event
         // already updated the value before this block executes.
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.isHoveredConversation != newValue else { return }
+            guard let self, self.draggingConversationId == nil, self.isHoveredConversation != newValue else { return }
             self.isHoveredConversation = newValue
         }
     }
