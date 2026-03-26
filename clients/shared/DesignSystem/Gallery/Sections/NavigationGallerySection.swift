@@ -375,6 +375,67 @@ struct NavigationGallerySection: View {
                 }
             }
 
+            #if os(macOS)
+            if filter == nil || filter == "vContextMenu" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - .vContextMenu
+                GallerySectionHeader(
+                    title: ".vContextMenu()",
+                    description: "Custom context menu using VMenu that appears on right-click. Menu items auto-dismiss the menu when tapped. Uses a floating NSPanel for correct z-order and screen-edge clamping.",
+                    useInsteadOf: ".contextMenu { } when you want VMenu styling"
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Right-click the card below").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        Text("Right-click me!")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentDefault)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(VSpacing.lg)
+                            .background(VColor.surfaceBase)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            .vContextMenu(width: 200) {
+                                VMenuItem(icon: VIcon.copy.rawValue, label: "Copy") {}
+                                VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") {}
+                                VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {}
+                                VMenuDivider()
+                                VMenuItem(icon: VIcon.externalLink.rawValue, label: "Open in New Window") {}
+                            }
+                    }
+                }
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("With sections and disabled items").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        Text("Right-click me too!")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentDefault)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(VSpacing.lg)
+                            .background(VColor.surfaceBase)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            .vContextMenu(width: 220) {
+                                VMenuSection(header: "Actions") {
+                                    VMenuItem(icon: VIcon.pin.rawValue, label: "Pin") {}
+                                    VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") {}
+                                    VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {}
+                                    VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {}
+                                        .opacity(0.4)
+                                        .disabled(true)
+                                }
+                                VMenuDivider()
+                                VMenuItem(icon: VIcon.messageCircle.rawValue, label: "Share Feedback") {}
+                            }
+                    }
+                }
+            }
+            #endif
+
         }
     }
 }
@@ -390,6 +451,7 @@ extension NavigationGallerySection {
         case "vLink": NavigationGallerySection(filter: "vLink")
         case "vThemeToggle": NavigationGallerySection(filter: "vThemeToggle")
         case "vMenu": NavigationGallerySection(filter: "vMenu")
+        case "vContextMenu": NavigationGallerySection(filter: "vContextMenu")
         default: EmptyView()
         }
     }

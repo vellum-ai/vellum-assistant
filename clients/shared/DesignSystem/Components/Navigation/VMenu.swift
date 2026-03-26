@@ -1,5 +1,21 @@
 import SwiftUI
 
+// MARK: - VMenu Dismiss Environment
+
+/// Environment key injected by `.vContextMenu` so that `VMenuItem` can
+/// auto-dismiss the hosting panel when an action is tapped. When `nil`
+/// (the default), VMenuItem does not auto-dismiss — callers manage dismissal.
+private struct VMenuDismissKey: EnvironmentKey {
+    static let defaultValue: (() -> Void)? = nil
+}
+
+public extension EnvironmentValues {
+    var vMenuDismiss: (() -> Void)? {
+        get { self[VMenuDismissKey.self] }
+        set { self[VMenuDismissKey.self] = newValue }
+    }
+}
+
 // MARK: - VMenu
 
 /// A reusable popover container that provides consistent chrome (background, corner radius, shadow)
@@ -81,6 +97,7 @@ public struct VMenuItem<Trailing: View>: View {
     public let action: () -> Void
     public let trailing: Trailing
 
+    @Environment(\.vMenuDismiss) private var dismissMenu
     @State private var isHovered = false
 
     public init(
@@ -114,7 +131,7 @@ public struct VMenuItem<Trailing: View>: View {
                 label: label,
                 isActive: isActive,
                 isExpanded: true,
-                action: action
+                action: { dismissMenu?(); action() }
             ) {
                 trailing
             }
@@ -147,7 +164,7 @@ public struct VMenuItem<Trailing: View>: View {
             .animation(VAnimation.fast, value: isHovered)
             .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
             .contentShape(Rectangle())
-            .onTapGesture { action() }
+            .onTapGesture { dismissMenu?(); action() }
             .onHover { isHovered = $0 }
             .pointerCursor()
         }

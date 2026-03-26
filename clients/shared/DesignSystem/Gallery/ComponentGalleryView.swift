@@ -123,6 +123,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("ifMod", ".if()", keywords: ["conditional modifier"], description: "Conditionally applies a view transformation. Use sparingly — prefer named modifiers for common patterns."),
                 GalleryComponent("vShimmer", ".vShimmer()", keywords: ["shimmer", "loading animation"], description: "Sweeps a translucent highlight across the view for skeleton loading animations. Respects reduced motion."),
                 GalleryComponent("inlineWidgetCard", ".inlineWidgetCard()", keywords: ["inline widget", "card"], description: "Standard card chrome for inline chat widgets with padding, background, border, and optional hover highlight."),
+                GalleryComponent("onRightClick", ".onRightClick()", keywords: ["right click", "right-click", "secondary click", "context"], description: "Detects right-click (secondary click) and reports screen-coordinate position. Does not interfere with left-click, hover, or drag."),
             ]
         case .navigation:
             return [
@@ -131,6 +132,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("vLink", "VLink", keywords: ["link", "url", "external link", "hyperlink"], description: "Styled external link that opens a URL in the default browser. Applies pointer cursor, single-line truncation, and caption font by default."),
                 GalleryComponent("vThemeToggle", "VThemeToggle", keywords: ["theme toggle", "dark mode", "light mode"], description: "Three-way theme toggle (System / Light / Dark). Reads and writes themePreference in UserDefaults."),
                 GalleryComponent("vMenu", "VMenu", keywords: ["menu", "popover", "dropdown", "drawer", "overflow"], description: "Reusable popover container with section headers, dividers, action items, and custom rows. Use instead of manual drawer chrome."),
+                GalleryComponent("vContextMenu", ".vContextMenu()", keywords: ["context menu", "right click", "right-click", "secondary click"], description: "Custom context menu using VMenu that appears on right-click. Menu items auto-dismiss. Uses a floating NSPanel for correct z-order and positioning."),
             ]
         case .tokens:
             return [

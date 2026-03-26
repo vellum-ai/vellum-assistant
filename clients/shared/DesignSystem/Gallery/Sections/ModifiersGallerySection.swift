@@ -348,9 +348,49 @@ struct ModifiersGallerySection: View {
                 }
             }
 
+            #if os(macOS)
+            if filter == nil || filter == "onRightClick" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - .onRightClick()
+                GallerySectionHeader(
+                    title: ".onRightClick()",
+                    description: "Detects right-click (secondary click) and reports the screen-coordinate position. Uses an NSEvent local monitor so it does not interfere with left-click, hover, or drag gestures."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Right-click the area below").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        RightClickDemo()
+                    }
+                }
+            }
+            #endif
+
         }
     }
 }
+
+#if os(macOS)
+private struct RightClickDemo: View {
+    @State private var lastClick: String = "No right-click yet"
+
+    var body: some View {
+        Text(lastClick)
+            .font(VFont.bodyMediumDefault)
+            .foregroundStyle(VColor.contentDefault)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(VSpacing.lg)
+            .background(VColor.surfaceBase)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .onRightClick { point in
+                lastClick = "Right-clicked at (\(Int(point.x)), \(Int(point.y)))"
+            }
+    }
+}
+#endif
 
 // MARK: - Component Page Router
 
@@ -366,6 +406,7 @@ extension ModifiersGallerySection {
         case "ifMod": ModifiersGallerySection(filter: "ifMod")
         case "vShimmer": ModifiersGallerySection(filter: "vShimmer")
         case "inlineWidgetCard": ModifiersGallerySection(filter: "inlineWidgetCard")
+        case "onRightClick": ModifiersGallerySection(filter: "onRightClick")
         default: EmptyView()
         }
     }
