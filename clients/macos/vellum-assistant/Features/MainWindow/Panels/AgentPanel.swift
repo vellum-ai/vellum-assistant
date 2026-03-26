@@ -183,7 +183,7 @@ struct AgentPanelContent: View {
     }
 
     private func categorySidebarRow(icon: String, label: String, category: SkillCategory?) -> some View {
-        VSidebarRow(
+        VNavItem(
             icon: icon,
             label: label,
             isActive: selectedCategory == category,

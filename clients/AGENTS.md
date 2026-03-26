@@ -412,7 +412,7 @@ All UI icons use **vendored Lucide PDF assets** rendered through the `VIcon` enu
 
 ### Naming Convention: `V` Prefix
 All design system types — structs, enums, and view modifiers — **must** use the `V` prefix to distinguish them from native SwiftUI types and feature-level views:
-- **Views and controls:** `VButton`, `VCard`, `VTextField`, `VSidebarRow`, `VLoadingIndicator`
+- **Views and controls:** `VButton`, `VCard`, `VTextField`, `VNavItem`, `VLoadingIndicator`
 - **Tokens:** `VColor`, `VFont`, `VSpacing`, `VRadius`, `VShadow`, `VAnimation`, `VIcon`
 - **View modifiers:** `.vCard()`, `.vTooltip()`, `.vShimmer()`, `.vPanelBackground()`
 

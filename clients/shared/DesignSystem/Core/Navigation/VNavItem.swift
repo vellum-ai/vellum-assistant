@@ -7,16 +7,16 @@ import SwiftUI
 ///
 /// Usage:
 /// ```swift
-/// VSidebarRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: true) {
+/// VNavItem(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: true) {
 ///     showPanel(.intelligence)
 /// }
 ///
 /// // With trailing content:
-/// VSidebarRow(label: "Identity", isActive: true, action: { }) {
+/// VNavItem(label: "Identity", isActive: true, action: { }) {
 ///     Text("5").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
 /// }
 /// ```
-public struct VSidebarRow<Trailing: View>: View {
+public struct VNavItem<Trailing: View>: View {
     public let icon: String?
     public let label: String
     public var isActive: Bool
@@ -97,7 +97,7 @@ public struct VSidebarRow<Trailing: View>: View {
 
 // MARK: - Convenience initializers
 
-public extension VSidebarRow where Trailing == EmptyView {
+public extension VNavItem where Trailing == EmptyView {
     /// Simple row with no trailing content.
     init(
         icon: String? = nil,
@@ -112,7 +112,7 @@ public extension VSidebarRow where Trailing == EmptyView {
     }
 }
 
-public extension VSidebarRow where Trailing == VSidebarRowTrailingIcon {
+public extension VNavItem where Trailing == VNavItemTrailingIcon {
     /// Row with a trailing icon and optional rotation (used by the main sidebar for disclosure arrows).
     init(
         icon: String? = nil,
@@ -125,7 +125,7 @@ public extension VSidebarRow where Trailing == VSidebarRowTrailingIcon {
     ) {
         let active = isActive
         self.init(icon: icon, label: label, isActive: isActive, isExpanded: isExpanded, action: action) {
-            VSidebarRowTrailingIcon(
+            VNavItemTrailingIcon(
                 icon: trailingIcon,
                 rotation: trailingIconRotation,
                 isActive: active
@@ -135,7 +135,7 @@ public extension VSidebarRow where Trailing == VSidebarRowTrailingIcon {
 }
 
 /// Trailing icon view extracted so the convenience init can reference a concrete type.
-public struct VSidebarRowTrailingIcon: View {
+public struct VNavItemTrailingIcon: View {
     let icon: String
     var rotation: Angle = .zero
     var isActive: Bool = false

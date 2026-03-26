@@ -130,7 +130,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         case .navigation:
             return [
                 GalleryComponent("vSegmentedControl", "VTabs", keywords: ["segmented control", "tabs"], description: "Segmented control with underline, pill, or compact pill styles for switching between views."),
-                GalleryComponent("vSidebarRow", "VSidebarRow", keywords: ["sidebar row", "navigation row"], description: "Sidebar navigation row with icon, label, hover/active states, trailing disclosure icon, and collapsed mode."),
+                GalleryComponent("vNavItem", "VNavItem", keywords: ["sidebar row", "navigation row"], description: "Sidebar navigation row with icon, label, hover/active states, trailing disclosure icon, and collapsed mode."),
                 GalleryComponent("vLink", "VLink", keywords: ["link", "url", "external link", "hyperlink"], description: "Styled external link that opens a URL in the default browser. Applies pointer cursor, single-line truncation, and caption font by default."),
                 GalleryComponent("vThemeToggle", "VThemeToggle", keywords: ["theme toggle", "dark mode", "light mode"], description: "Three-way theme toggle (System / Light / Dark). Reads and writes themePreference in UserDefaults."),
                 GalleryComponent("vMenu", "VMenu", keywords: ["menu", "popover", "dropdown", "drawer", "overflow"], description: "Reusable popover container with section headers, dividers, action items, and custom rows. Use instead of manual drawer chrome."),
@@ -269,7 +269,7 @@ struct ComponentGalleryView: View {
         let isCategoryExpanded = isSearching || expandedCategories.contains(category)
 
         VStack(spacing: 0) {
-            VSidebarRow(
+            VNavItem(
                 icon: category.vIcon.rawValue,
                 label: category.rawValue,
                 trailingIcon: VIcon.chevronRight.rawValue,
@@ -305,7 +305,7 @@ struct ComponentGalleryView: View {
     private func sidebarRow(label: String, page: GalleryPage) -> some View {
         let isSelected = selectedPage == page
 
-        return VSidebarRow(
+        return VNavItem(
             label: label,
             isActive: isSelected
         ) {

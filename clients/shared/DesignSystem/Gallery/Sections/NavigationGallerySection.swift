@@ -97,13 +97,13 @@ struct NavigationGallerySection: View {
 
             }
 
-            if filter == nil || filter == "vSidebarRow" {
+            if filter == nil || filter == "vNavItem" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - VSidebarRow
+                // MARK: - VNavItem
                 GallerySectionHeader(
-                    title: "VSidebarRow",
+                    title: "VNavItem",
                     description: "Sidebar navigation row with icon, label, hover/active states, and optional trailing icon. Used by the main app sidebar and the component gallery."
                 )
 
@@ -111,13 +111,13 @@ struct NavigationGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("States").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
 
-                        VSidebarRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: sidebarRowActive == "Intelligence") {
+                        VNavItem(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: sidebarRowActive == "Intelligence") {
                             sidebarRowActive = "Intelligence"
                         }
-                        VSidebarRow(icon: VIcon.bookOpen.rawValue, label: "Library", isActive: sidebarRowActive == "Library") {
+                        VNavItem(icon: VIcon.bookOpen.rawValue, label: "Library", isActive: sidebarRowActive == "Library") {
                             sidebarRowActive = "Library"
                         }
-                        VSidebarRow(icon: VIcon.settings.rawValue, label: "Settings", isActive: sidebarRowActive == "Settings") {
+                        VNavItem(icon: VIcon.settings.rawValue, label: "Settings", isActive: sidebarRowActive == "Settings") {
                             sidebarRowActive = "Settings"
                         }
                     }
@@ -127,9 +127,9 @@ struct NavigationGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Without Icon").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
 
-                        VSidebarRow(label: "Overview", isActive: false) {}
-                        VSidebarRow(label: "VButton", isActive: true) {}
-                        VSidebarRow(label: "VSplitButton", isActive: false) {}
+                        VNavItem(label: "Overview", isActive: false) {}
+                        VNavItem(label: "VButton", isActive: true) {}
+                        VNavItem(label: "VSplitButton", isActive: false) {}
                     }
                 }
 
@@ -137,7 +137,7 @@ struct NavigationGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Trailing Icon (Disclosure)").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
 
-                        VSidebarRow(
+                        VNavItem(
                             icon: VIcon.layers.rawValue,
                             label: "Display",
                             trailingIcon: VIcon.chevronRight.rawValue,
@@ -149,9 +149,9 @@ struct NavigationGallerySection: View {
                         }
 
                         if sidebarDisclosureExpanded {
-                            VSidebarRow(label: "VCard", isActive: false) {}
+                            VNavItem(label: "VCard", isActive: false) {}
                                 .padding(.leading, VSpacing.md)
-                            VSidebarRow(label: "VEmptyState", isActive: false) {}
+                            VNavItem(label: "VEmptyState", isActive: false) {}
                                 .padding(.leading, VSpacing.md)
                         }
                     }
@@ -161,17 +161,17 @@ struct NavigationGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Trailing Content").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
 
-                        VSidebarRow(label: "All", isActive: true, action: {}) {
+                        VNavItem(label: "All", isActive: true, action: {}) {
                             Text("42")
                                 .font(VFont.labelDefault)
                                 .foregroundStyle(VColor.contentTertiary)
                         }
-                        VSidebarRow(label: "Identity", action: {}) {
+                        VNavItem(label: "Identity", action: {}) {
                             Text("12")
                                 .font(VFont.labelDefault)
                                 .foregroundStyle(VColor.contentTertiary)
                         }
-                        VSidebarRow(label: "Preference", action: {}) {
+                        VNavItem(label: "Preference", action: {}) {
                             Text("8")
                                 .font(VFont.labelDefault)
                                 .foregroundStyle(VColor.contentTertiary)
@@ -184,9 +184,9 @@ struct NavigationGallerySection: View {
                         Text("Collapsed Mode").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
 
                         HStack(spacing: VSpacing.md) {
-                            VSidebarRow(icon: VIcon.brain.rawValue, label: "Intelligence", isExpanded: false) {}
-                            VSidebarRow(icon: VIcon.bookOpen.rawValue, label: "Library", isActive: true, isExpanded: false) {}
-                            VSidebarRow(icon: VIcon.settings.rawValue, label: "Settings", isExpanded: false) {}
+                            VNavItem(icon: VIcon.brain.rawValue, label: "Intelligence", isExpanded: false) {}
+                            VNavItem(icon: VIcon.bookOpen.rawValue, label: "Library", isActive: true, isExpanded: false) {}
+                            VNavItem(icon: VIcon.settings.rawValue, label: "Settings", isExpanded: false) {}
                         }
                         .frame(maxWidth: 200)
                     }
@@ -387,7 +387,7 @@ extension NavigationGallerySection {
     static func componentPage(_ id: String) -> some View {
         switch id {
         case "vSegmentedControl": NavigationGallerySection(filter: "vSegmentedControl")
-        case "vSidebarRow": NavigationGallerySection(filter: "vSidebarRow")
+        case "vNavItem": NavigationGallerySection(filter: "vNavItem")
         case "vLink": NavigationGallerySection(filter: "vLink")
         case "vThemeToggle": NavigationGallerySection(filter: "vThemeToggle")
         case "vMenu": NavigationGallerySection(filter: "vMenu")

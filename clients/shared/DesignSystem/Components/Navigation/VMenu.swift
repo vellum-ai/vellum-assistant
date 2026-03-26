@@ -61,7 +61,7 @@ public struct VMenu<Content: View>: View {
 public enum VMenuItemSize {
     /// Compact menu item — 13pt DM Sans, matching sidebar conversation rows.
     case compact
-    /// Regular menu item — delegates to `VSidebarRow` (14pt `VFont.bodyMediumDefault`).
+    /// Regular menu item — delegates to `VNavItem` (14pt `VFont.bodyMediumDefault`).
     case regular
 
     fileprivate var font: Font { self == .compact ? VFont.menuCompact : VFont.bodyMediumDefault }
@@ -72,13 +72,13 @@ public enum VMenuItemSize {
 /// A tappable menu row with optional leading icon, active state, and trailing content.
 ///
 /// Defaults to `.compact` size (13pt) to match sidebar conversation rows. Use `.regular`
-/// for 14pt rows that match `VSidebarRow`.
+/// for 14pt rows that match `VNavItem`.
 ///
 /// Usage:
 /// ```swift
 /// VMenuItem(icon: VIcon.settings.rawValue, label: "Settings") { openSettings() }
 ///
-/// // Regular size (14pt, same as VSidebarRow):
+/// // Regular size (14pt, same as VNavItem):
 /// VMenuItem(icon: VIcon.settings.rawValue, label: "Settings", size: .regular) { openSettings() }
 ///
 /// // With trailing content:
@@ -125,7 +125,7 @@ public struct VMenuItem<Trailing: View>: View {
 
     public var body: some View {
         if size == .regular {
-            VSidebarRow(
+            VNavItem(
                 icon: icon,
                 label: label,
                 isActive: isActive,
