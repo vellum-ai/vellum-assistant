@@ -10,7 +10,6 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 ///
 ///     let response = try await GatewayHTTPClient.get(path: "health")
 ///     let response = try await GatewayHTTPClient.post(path: "assistants/upgrade")
-@MainActor
 public enum GatewayHTTPClient {
 
     /// Response from a gateway HTTP request.
@@ -383,7 +382,12 @@ public enum GatewayHTTPClient {
             guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
                 throw ClientError.notAuthenticated
             }
-            let baseURL = assistant.runtimeUrl ?? AuthService.shared.baseURL
+            let baseURL: String
+            if let runtimeUrl = assistant.runtimeUrl {
+                baseURL = runtimeUrl
+            } else {
+                baseURL = AuthService.shared.baseURL
+            }
             return ConnectionInfo(baseURL: baseURL, authHeader: ("X-Session-Token", token), assistantId: assistant.assistantId, isManaged: true)
         } else {
             let token = ActorTokenManager.getToken()

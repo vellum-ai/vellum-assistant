@@ -4,13 +4,11 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "BtwClient")
 
 /// Focused client for BTW side-chain messages routed through the gateway.
-@MainActor
 public protocol BtwClientProtocol {
     func sendMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error>
 }
 
 /// Gateway-backed implementation of ``BtwClientProtocol``.
-@MainActor
 public struct BtwClient: BtwClientProtocol {
     nonisolated public init() {}
 

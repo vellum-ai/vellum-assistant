@@ -29,7 +29,6 @@ public struct RemoteIdentityInfo: Decodable {
 }
 
 /// Focused client for fetching remote assistant identity via the gateway.
-@MainActor
 public protocol IdentityClientProtocol {
     func fetchRemoteIdentity() async -> RemoteIdentityInfo?
     func fetchIdentity() async -> IdentityGetResponse?
@@ -37,7 +36,6 @@ public protocol IdentityClientProtocol {
 }
 
 /// Gateway-backed implementation of ``IdentityClientProtocol``.
-@MainActor
 public struct IdentityClient: IdentityClientProtocol {
     nonisolated public init() {}
 
