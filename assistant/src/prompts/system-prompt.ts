@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
+import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { skillFlagKey } from "../config/skill-state.js";
 import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
@@ -323,16 +323,16 @@ function buildIntegrationSection(): string {
 }
 
 function buildContainerizedSection(): string {
-  const baseDataDir = getBaseDataDir() ?? "$BASE_DATA_DIR";
+  const workspaceDir = getWorkspaceDir();
   return [
     "## Running in a Container - Data Persistence",
     "",
-    `You are running inside a container. Only the directory \`${baseDataDir}\` is mounted to a persistent volume.`,
+    `You are running inside a container. Only the directory \`${workspaceDir}\` is mounted to a persistent volume.`,
     "",
     "**Any new files or data you create MUST be written inside that directory, or they will be lost when the container restarts.**",
     "",
     "Rules:",
-    `- Always store new data, notes, memories, configs, and downloads under \`${baseDataDir}\``,
+    `- Always store new data, notes, memories, configs, and downloads under \`${workspaceDir}\``,
     "- Never write persistent data to system directories, `/tmp`, or paths outside the mounted volume",
     "- When in doubt, prefer paths nested under the data directory",
     "- If you create a file that is only needed temporarily (scratch files, intermediate outputs, download staging), delete it when you are done - disk space on the persistent volume is finite and will grow unboundedly if temp files are not cleaned up",
@@ -435,9 +435,9 @@ function readPromptFile(path: string): string | null {
  * This is useful for injecting identity context into subsystems (e.g. memory
  * extraction) that run outside the main system prompt pipeline.
  */
-export function buildCoreIdentityContext(
-  opts?: { userPersona?: string | null },
-): string | null {
+export function buildCoreIdentityContext(opts?: {
+  userPersona?: string | null;
+}): string | null {
   const parts: string[] = [];
   for (const file of PROMPT_FILES) {
     const content = readPromptFile(getWorkspacePromptPath(file));
