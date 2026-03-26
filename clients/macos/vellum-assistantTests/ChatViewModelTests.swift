@@ -2916,4 +2916,42 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.messages[0].isStreaming,
                        "Message should no longer be streaming after error")
     }
+
+    // MARK: - Full-Chunk Flush Regression
+
+    func testFlushStreamingBufferAppendsFullChunkNotSubdivisions() {
+        // Regression test: flushStreamingBuffer must append the entire
+        // streamingDeltaBuffer in a single appendTextToCurrentMessage call,
+        // producing one contiguous text segment — NOT artificial 3-char
+        // subdivisions from the removed typewriter drip queue.
+
+        // Simulate several assistantTextDelta events that accumulate in
+        // the buffer without any intermediate flush (e.g., rapid deltas
+        // arriving within the throttle window).
+        let deltas = ["Here ", "is ", "a ", "longer ", "piece ", "of ", "markdown: ", "**bold** and `code`."]
+        for delta in deltas {
+            // Directly buffer like the delta handler does, bypassing the
+            // scheduled flush timer so nothing drains mid-test.
+            viewModel.streamingDeltaBuffer += delta
+        }
+
+        // Ensure an assistant message exists for the flush to target.
+        let msg = ChatMessage(role: .assistant, text: "", isStreaming: true)
+        viewModel.currentAssistantMessageId = msg.id
+        viewModel.messages.append(msg)
+
+        // Act: flush the entire buffer in one shot.
+        viewModel.flushStreamingBuffer()
+
+        // Assert: the message should contain exactly one text segment with
+        // the full concatenated buffer — no 3-char splits.
+        let expectedText = deltas.joined()
+        XCTAssertEqual(viewModel.messages.count, 1)
+        XCTAssertEqual(viewModel.messages[0].textSegments.count, 1,
+                       "Flush should produce exactly one text segment, not multiple subdivisions")
+        XCTAssertEqual(viewModel.messages[0].textSegments.first, expectedText,
+                       "The single text segment should contain all buffered text")
+        XCTAssertTrue(viewModel.streamingDeltaBuffer.isEmpty,
+                      "Buffer should be empty after flush")
+    }
 }
