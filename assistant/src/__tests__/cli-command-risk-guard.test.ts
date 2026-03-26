@@ -187,3 +187,43 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
     }
   });
 });
+
+describe("CLI command risk guard: wrapper program propagation", () => {
+  test("env assistant oauth token is High risk", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "env assistant oauth token",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("nice assistant credentials reveal is High risk", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "nice assistant credentials reveal",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("timeout 30 assistant oauth request is Medium risk", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "timeout 30 assistant oauth request",
+    });
+    expect(risk).toBe(RiskLevel.Medium);
+  });
+
+  test("env assistant config is Low risk", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "env assistant config",
+    });
+    expectLowRisk("env assistant config", risk);
+  });
+
+  test("env git push is Medium risk (not Low)", async () => {
+    const risk = await classifyRisk("bash", { command: "env git push" });
+    expect(risk).toBe(RiskLevel.Medium);
+  });
+
+  test("env git status is Low risk", async () => {
+    const risk = await classifyRisk("bash", { command: "env git status" });
+    expectLowRisk("env git status", risk);
+  });
+});
