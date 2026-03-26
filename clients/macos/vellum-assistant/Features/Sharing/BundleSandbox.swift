@@ -172,6 +172,13 @@ enum BundleSandbox {
         return (uuid: uuid, directory: targetDir)
     }
 
+    /// Loads the persisted metadata for a given bundle UUID, if available.
+    static func metadata(for uuid: String) -> BundleMetadata? {
+        let metaPath = sharedAppsDirectory.appendingPathComponent("\(uuid)-meta.json")
+        guard let data = try? Data(contentsOf: metaPath) else { return nil }
+        return try? JSONDecoder().decode(BundleMetadata.self, from: data)
+    }
+
     /// Loads the persisted icon image for a given bundle UUID, if available.
     static func iconImage(for uuid: String) -> NSImage? {
         let iconPath = sharedAppsDirectory.appendingPathComponent("\(uuid)-icon.png")

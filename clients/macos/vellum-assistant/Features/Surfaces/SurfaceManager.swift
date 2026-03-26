@@ -18,6 +18,7 @@ final class SurfaceViewModel {
     @ObservationIgnored let onCoordinatorReady: ((DynamicPageSurfaceView.Coordinator) -> Void)?
     @ObservationIgnored let onLinkOpen: ((String, [String: Any]?) -> Void)?
     @ObservationIgnored let sandboxMode: Bool
+    @ObservationIgnored let allowedHosts: [String]
 
     init(
         surface: Surface,
@@ -27,7 +28,8 @@ final class SurfaceViewModel {
         onDataRequest: ((String, String, String?, [String: Any]?) -> Void)? = nil,
         onCoordinatorReady: ((DynamicPageSurfaceView.Coordinator) -> Void)? = nil,
         onLinkOpen: ((String, [String: Any]?) -> Void)? = nil,
-        sandboxMode: Bool = false
+        sandboxMode: Bool = false,
+        allowedHosts: [String] = []
     ) {
         self.surface = surface
         self.onAction = onAction
@@ -37,6 +39,7 @@ final class SurfaceViewModel {
         self.onCoordinatorReady = onCoordinatorReady
         self.onLinkOpen = onLinkOpen
         self.sandboxMode = sandboxMode
+        self.allowedHosts = allowedHosts
     }
 }
 
@@ -137,6 +140,14 @@ final class SurfaceManager {
         let appId = surfaceAppIds[surface.id]
         let isSandboxed = message.conversationId == "shared-app"
 
+        // Look up allowed hosts from bundle metadata for sandboxed apps.
+        let allowedHosts: [String]
+        if isSandboxed, let appId, let metadata = BundleSandbox.metadata(for: appId) {
+            allowedHosts = metadata.allowedHosts
+        } else {
+            allowedHosts = []
+        }
+
         let viewModel = SurfaceViewModel(
             surface: surface,
             onAction: { [weak self] actionId, data in
@@ -164,7 +175,8 @@ final class SurfaceManager {
             onLinkOpen: { [weak self] url, metadata in
                 self?.onLinkOpen?(url, metadata)
             },
-            sandboxMode: isSandboxed
+            sandboxMode: isSandboxed,
+            allowedHosts: allowedHosts
         )
         viewModels[surface.id] = viewModel
 
