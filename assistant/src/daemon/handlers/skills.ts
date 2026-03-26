@@ -26,6 +26,7 @@ import {
 } from "../../providers/provider-send-message.js";
 import { isTextMimeType as isTextMime } from "../../runtime/routes/workspace-utils.js";
 import { getCatalog } from "../../skills/catalog-cache.js";
+import { installSkillLocally } from "../../skills/catalog-install.js";
 import { filterByQuery } from "../../skills/catalog-search.js";
 import {
   clawhubCheckUpdates,
@@ -572,6 +573,43 @@ export async function installSkill(
         );
       }
       return { success: true };
+    }
+
+    // Check the Vellum catalog (first-party skills hosted on the platform)
+    try {
+      const vellumCatalog = await getCatalog();
+      const catalogEntry = vellumCatalog.find((s) => s.id === spec.slug);
+      if (catalogEntry) {
+        await installSkillLocally(spec.slug, catalogEntry, true);
+
+        // Reload skill catalog so the newly installed skill is picked up
+        loadSkillCatalog();
+
+        // Auto-enable the newly installed catalog skill
+        try {
+          const raw = loadRawConfig();
+          ensureSkillEntry(raw, spec.slug).enabled = true;
+          saveConfigWithSuppression(raw, ctx);
+          ctx.broadcast({
+            type: "skills_state_changed",
+            name: spec.slug,
+            state: "enabled",
+          });
+        } catch (err) {
+          log.warn(
+            { err, skillId: spec.slug },
+            "Failed to auto-enable installed catalog skill",
+          );
+        }
+
+        return { success: true };
+      }
+    } catch (err) {
+      // If catalog lookup/install fails, fall through to clawhub
+      log.warn(
+        { err, skillId: spec.slug },
+        "Vellum catalog install failed, falling back to community registry",
+      );
     }
 
     // Install from clawhub (community)
