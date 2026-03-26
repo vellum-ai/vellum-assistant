@@ -20,6 +20,7 @@ This policy covers the code in this repository, including:
 - The CLI (`cli/`)
 - Native clients (`clients/`)
 - The credential execution service (`credential-executor/`)
+- The packages shared between services (`packages/`)
 
 ## Security Model
 
