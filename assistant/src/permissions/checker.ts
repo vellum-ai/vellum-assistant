@@ -328,6 +328,28 @@ function getWrappedProgram(seg: {
   return undefined;
 }
 
+/**
+ * Like `getWrappedProgram`, but also returns the remaining args after the
+ * wrapped program name. This allows callers to propagate subcommand-aware
+ * classification (e.g. `env assistant oauth token` → classify `oauth token`).
+ */
+function getWrappedProgramWithArgs(seg: {
+  program: string;
+  args: string[];
+}): { program: string; args: string[] } | undefined {
+  const isEnv = seg.program === "env";
+  for (let i = 0; i < seg.args.length; i++) {
+    const arg = seg.args[i];
+    if (arg.startsWith("-")) {
+      if (isEnv && ENV_VALUE_FLAGS.has(arg)) i++;
+      continue;
+    }
+    if (isEnv && arg.includes("=")) continue;
+    return { program: arg, args: seg.args.slice(i + 1) };
+  }
+  return undefined;
+}
+
 function getStringField(
   input: Record<string, unknown>,
   ...keys: string[]
@@ -760,6 +782,34 @@ async function classifyRiskUncached(
         if (wrapped === "curl" || wrapped === "wget") {
           maxRisk = RiskLevel.Medium;
           continue;
+        }
+        // Propagate subcommand-aware classification for wrapped git/assistant
+        if (wrapped === "git") {
+          const wrappedWithArgs = getWrappedProgramWithArgs(seg);
+          if (wrappedWithArgs) {
+            const subcommand = firstPositionalArg(
+              wrappedWithArgs.args,
+              GIT_VALUE_FLAGS,
+            );
+            if (subcommand && LOW_RISK_GIT_SUBCOMMANDS.has(subcommand)) {
+              continue;
+            }
+            maxRisk = RiskLevel.Medium;
+            continue;
+          }
+        }
+        if (wrapped === "assistant") {
+          const wrappedWithArgs = getWrappedProgramWithArgs(seg);
+          if (wrappedWithArgs) {
+            const assistantRisk = classifyAssistantSubcommand(
+              wrappedWithArgs.args,
+            );
+            if (assistantRisk === RiskLevel.High) return RiskLevel.High;
+            if (assistantRisk === RiskLevel.Medium) {
+              maxRisk = RiskLevel.Medium;
+            }
+            continue;
+          }
         }
       }
 
