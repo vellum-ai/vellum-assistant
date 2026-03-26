@@ -79,6 +79,9 @@ final class SurfaceManager {
 
     @ObservationIgnored private var closeObservers: [String: Any] = [:]
 
+    /// Global allowed hosts from settings, merged with per-app manifest hosts.
+    @ObservationIgnored var globalAppAllowedHosts: [String] = []
+
     @ObservationIgnored private let panelWidth: CGFloat = 380
     @ObservationIgnored private let panelMargin: CGFloat = 20
     @ObservationIgnored private let panelSpacing: CGFloat = 10
@@ -140,10 +143,14 @@ final class SurfaceManager {
         let appId = surfaceAppIds[surface.id]
         let isSandboxed = message.conversationId == "shared-app"
 
-        // Look up allowed hosts from bundle metadata for sandboxed apps.
+        // Look up allowed hosts from bundle metadata for sandboxed apps,
+        // merged with the global allowed hosts from settings.
         let allowedHosts: [String]
         if isSandboxed, let appId, let metadata = BundleSandbox.metadata(for: appId) {
-            allowedHosts = metadata.allowedHosts
+            let merged = Set(metadata.allowedHosts).union(globalAppAllowedHosts)
+            allowedHosts = Array(merged).sorted()
+        } else if isSandboxed, !globalAppAllowedHosts.isEmpty {
+            allowedHosts = globalAppAllowedHosts
         } else {
             allowedHosts = []
         }
