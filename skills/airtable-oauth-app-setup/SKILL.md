@@ -25,7 +25,7 @@ The included `vellum-oauth-integrations` skill handles the generic parts of the 
 
 ## Airtable-Specific Flow
 
-The flow has 8 steps total, takes about 3-5 minutes.
+The flow has 7 steps total, takes about 3-5 minutes.
 
 ### Step 0: Prerequisite Check
 
@@ -55,7 +55,7 @@ Then:
 
 - If you don't see the registration option, make sure you're on a plan that supports OAuth integrations (most plans do)
 
-**Milestone (2 of 8):** "Integration registered - now let's configure the redirect URL."
+**Milestone (2 of 7):** "Integration registered - now let's configure the redirect URL."
 
 ---
 
@@ -81,7 +81,7 @@ Then:
 
 Wait for the user to confirm all 3 scopes are added.
 
-**Milestone (4 of 8):** "Scopes configured - now let's grab the credentials."
+**Milestone (4 of 7):** "Scopes configured - now let's grab the credentials."
 
 ---
 
@@ -91,11 +91,11 @@ Wait for the user to confirm all 3 scopes are added.
 
 > Also look for the **OAuth secret** - you may need to click a button to reveal or generate it.
 
-**Milestone (5 of 8):** "Almost there - just need to save these credentials."
+**Milestone (5 of 7):** "Almost there - just need to save these credentials."
 
 ---
 
-### Step 6: Collect Credentials, Register, Authorize, and Verify
+### Step 6: Store Credentials, Authorize, and Verify
 
 Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
 

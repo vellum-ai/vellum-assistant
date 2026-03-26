@@ -25,7 +25,15 @@ The included `vellum-oauth-integrations` skill handles the generic parts of the 
 
 ## Todoist-Specific Flow
 
-The flow has 7 steps total, takes about 2-3 minutes.
+The flow has 6 steps total, takes about 2-3 minutes.
+
+### Step 0: Prerequisite Check
+
+> Before we start - do you have a Todoist account? You'll need one to create a developer app.
+
+If no account, direct them to `https://todoist.com/users/showregister` to sign up first.
+
+---
 
 ### Step 1: Open Todoist App Console
 
@@ -43,7 +51,7 @@ Then:
 
 > Set the app name to **Vellum Assistant** and click **Create app**.
 
-**Milestone (2 of 7):** "App created - now let's set up the redirect URL."
+**Milestone (2 of 6):** "App created - now let's set up the redirect URL."
 
 ---
 
@@ -55,7 +63,7 @@ Then:
 >
 > Then click **Save settings**.
 
-**Milestone (3 of 7):** "Redirect URL is set - now let's grab the credentials."
+**Milestone (3 of 6):** "Redirect URL is set - now let's grab the credentials."
 
 ---
 
@@ -63,7 +71,7 @@ Then:
 
 > You should see the **Client ID** and **App secret** displayed in the app settings page.
 
-**Milestone (4 of 7):** "Credentials are visible - let's save them."
+**Milestone (4 of 6):** "Credentials are visible - let's save them."
 
 ---
 

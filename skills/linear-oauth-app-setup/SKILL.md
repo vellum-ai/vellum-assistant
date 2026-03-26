@@ -26,7 +26,7 @@ The included `vellum-oauth-integrations` skill handles the generic parts of the 
 
 ## Linear-Specific Flow
 
-The flow has 8 steps total, takes about 3-5 minutes.
+The flow has 7 steps total, takes about 3-5 minutes.
 
 ### Step 0: Prerequisite Check
 
@@ -60,7 +60,7 @@ After the user clicks:
 
 - If the user sees an error about duplicate application names, suggest a variant like "Vellum Assistant (Personal)"
 
-**Milestone (2 of 8):** "App created - now let's grab the credentials."
+**Milestone (2 of 7):** "App created - now let's grab the credentials."
 
 ---
 
@@ -70,7 +70,7 @@ After the user clicks:
 
 Wait for the user to provide the Client ID.
 
-**Milestone (3 of 8):** "Got the Client ID - now let's grab the secret."
+**Milestone (3 of 7):** "Got the Client ID - now let's grab the secret."
 
 ---
 
@@ -82,7 +82,7 @@ If the user missed it:
 
 > If you navigated away and the secret is no longer visible, you'll need to generate a new one. Look for a **Regenerate** or **New secret** option on the application details page.
 
-**Milestone (4 of 8):** "Credentials captured - let's add the scopes next."
+**Milestone (4 of 7):** "Credentials captured - let's add the scopes next."
 
 ---
 
@@ -96,7 +96,7 @@ If the user missed it:
 >
 > You don't need to configure these in the Linear dashboard - I'll include them in the authorization request.
 
-**Milestone (5 of 8):** "Scopes are set - now let's save everything."
+**Milestone (5 of 7):** "Scopes are set - now let's save everything."
 
 ---
 

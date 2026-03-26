@@ -22,7 +22,7 @@ The included `vellum-oauth-integrations` skill handles the generic parts of the 
 
 ## Google-Specific Flow
 
-The flow has 9 steps total, takes about 3–5 minutes.
+The flow has 9 steps total, takes about 3-5 minutes.
 
 ### Step 0: Prerequisite Check
 

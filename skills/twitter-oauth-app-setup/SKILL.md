@@ -28,7 +28,7 @@ The included `vellum-oauth-integrations` skill handles the generic parts of the 
 
 ## Twitter-Specific Flow
 
-The flow has 8 steps total, takes about 3-5 minutes.
+The flow has 7 steps total, takes about 3-5 minutes.
 
 ### Step 0: Prerequisite Check
 
@@ -68,7 +68,7 @@ Guide through project creation:
 - Free tier allows only one project - if the user already has one, reuse it
 - If they see "You've reached your project limit", use the existing project
 
-**Milestone (2 of 8):** "Project created - now let's set up an app inside it."
+**Milestone (2 of 7):** "Project created - now let's set up an app inside it."
 
 ---
 
@@ -126,7 +126,7 @@ Check the redirect URI situation. Since callbackTransport is `gateway`, public i
 >
 > Then click **Save**.
 
-**Milestone (4 of 8):** "OAuth settings configured - now let's grab the credentials."
+**Milestone (4 of 7):** "OAuth settings configured - now let's grab the credentials."
 
 ---
 
@@ -138,15 +138,13 @@ Check the redirect URI situation. Since callbackTransport is `gateway`, public i
 
 Note: The token endpoint auth method (`basic`) requires both a Client ID and a secret, so the skill collects both.
 
-**Milestone (5 of 8):** "Almost there - just need to save these credentials."
+**Milestone (5 of 7):** "Almost there - just need to save these credentials."
 
 ---
 
 ### Step 6: Store Credentials, Authorize, and Verify
 
-<details>
-<summary>Follow the <code>vellum-oauth-integrations</code> workflow to collect credentials, register the OAuth app, connect, and verify.</summary>
-</details>
+Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
 
 > You should see a Twitter consent page asking you to authorize **Vellum Assistant** to access your account.
 >

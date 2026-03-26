@@ -25,7 +25,7 @@ The included `vellum-oauth-integrations` skill handles the generic parts of the 
 
 ## Asana-Specific Flow
 
-The flow has 7 steps total, takes about 3-5 minutes.
+The flow has 6 steps total, takes about 3-5 minutes.
 
 ### Step 0: Prerequisite Check
 
@@ -55,7 +55,7 @@ After the user clicks:
 
 - If the user is part of multiple workspaces, the app will be tied to their default workspace - that's fine for personal use
 
-**Milestone (2 of 7):** "App created - now let's set up the redirect URL."
+**Milestone (2 of 6):** "App created - now let's set up the redirect URL."
 
 ---
 
@@ -65,7 +65,7 @@ After the user clicks:
 >
 > `http://localhost:17328/oauth/callback`
 
-**Milestone (3 of 7):** "Redirect URL is configured - now let's grab the credentials."
+**Milestone (3 of 6):** "Redirect URL is configured - now let's grab the credentials."
 
 ---
 
@@ -75,11 +75,11 @@ After the user clicks:
 
 > You may need to click a reveal or show button to see the secret.
 
-**Milestone (4 of 7):** "Almost there - just need to save these credentials."
+**Milestone (4 of 6):** "Almost there - just need to save these credentials."
 
 ---
 
-### Step 5: Collect Credentials, Register, Authorize, and Verify
+### Step 5: Store Credentials, Authorize, and Verify
 
 Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
 

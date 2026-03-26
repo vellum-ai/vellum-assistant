@@ -25,7 +25,7 @@ The included `vellum-oauth-integrations` skill handles the generic parts of the 
 
 ## Dropbox-Specific Flow
 
-The flow has 11 steps total, takes about 3-5 minutes.
+The flow has 8 steps total, takes about 3-5 minutes.
 
 ### Step 0: Prerequisite Check
 
@@ -64,7 +64,7 @@ Then:
 - App names must be globally unique on Dropbox - if "Vellum Assistant" is taken, suggest adding a suffix like "Vellum Assistant - Personal"
 - If the user sees "You have reached the limit for the number of apps," they'll need to delete an unused app first
 
-**Milestone (2 of 11):** "App created - now let's set the permissions."
+**Milestone (2 of 8):** "App created - now let's set the permissions."
 
 ---
 
@@ -91,7 +91,7 @@ Wait for the user to confirm all 4 scopes are enabled.
 
 **Important:** Permissions must be saved before the authorization step, otherwise the token will not include the requested scopes.
 
-**Milestone (4 of 11):** "Permissions saved - now let's set up the redirect URL."
+**Milestone (4 of 8):** "Permissions saved - now let's set up the redirect URL."
 
 ---
 
@@ -111,11 +111,11 @@ Wait for the user to confirm all 4 scopes are enabled.
 >
 > The App key is shown in plain text. The App secret is hidden - click **Show** to reveal it.
 
-**Milestone (6 of 11):** "Found the credentials - now let's save them."
+**Milestone (6 of 8):** "Found the credentials - now let's save them."
 
 ---
 
-### Step 7: Collect Credentials, Register, Authorize, and Verify
+### Step 7: Store Credentials, Authorize, and Verify
 
 Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
 
@@ -124,14 +124,6 @@ Follow the `vellum-oauth-integrations` workflow to collect credentials, register
 > Review the permissions and click **Allow**.
 
 **On success:** "Dropbox is connected! You can now ask me to read files, upload documents, and browse your Dropbox."
-
----
-
-### Step 11: Done
-
-Summarize what was set up and remind the user:
-
-> Your Dropbox integration is ready. The token will refresh automatically, so you shouldn't need to repeat this process.
 
 ---
 

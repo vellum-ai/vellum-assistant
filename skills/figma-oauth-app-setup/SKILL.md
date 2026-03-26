@@ -100,7 +100,7 @@ Wait for the user to confirm scopes are set.
 
 ---
 
-### Step 6: Collect Credentials, Register, Authorize, and Verify
+### Step 6: Store Credentials, Authorize, and Verify
 
 Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
 

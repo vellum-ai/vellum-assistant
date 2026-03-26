@@ -24,7 +24,7 @@ The included `vellum-oauth-integrations` skill handles the generic parts of the 
 
 ## Discord-Specific Flow
 
-The flow has 9 steps total, takes about 3-5 minutes.
+The flow has 8 steps total, takes about 3-5 minutes.
 
 ### Step 0: Prerequisite Check
 
@@ -55,7 +55,7 @@ After the user clicks:
 - If the user already has an application named "Vellum Assistant", they can either reuse it or pick a different name
 - Discord may show a CAPTCHA during creation
 
-**Milestone (2 of 9):** "Application created - now let's head to the OAuth2 settings."
+**Milestone (2 of 8):** "Application created - now let's head to the OAuth2 settings."
 
 ---
 
@@ -65,7 +65,7 @@ After the user clicks:
 
 Open: the application's **OAuth2** page via the left sidebar.
 
-**Milestone (3 of 9):** "OAuth2 page open - let's grab the Client ID."
+**Milestone (3 of 8):** "OAuth2 page open - let's grab the Client ID."
 
 ---
 
@@ -88,7 +88,7 @@ Wait for the user to provide the Client ID.
 - If the user has 2FA enabled, Discord will ask for a 2FA code before revealing the secret
 - The old secret (if any) will stop working immediately after reset
 
-**Milestone (5 of 9):** "Credentials in hand - now let's set up the redirect URL."
+**Milestone (5 of 8):** "Credentials in hand - now let's set up the redirect URL."
 
 ---
 
@@ -100,11 +100,11 @@ Wait for the user to provide the Client ID.
 >
 > Then click **Save Changes** at the bottom.
 
-**Milestone (6 of 9):** "Redirect URL is set - time to save the credentials."
+**Milestone (6 of 8):** "Redirect URL is set - time to save the credentials."
 
 ---
 
-### Step 7: Collect Credentials, Register, Authorize, and Verify
+### Step 7: Store Credentials, Authorize, and Verify
 
 Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
 
