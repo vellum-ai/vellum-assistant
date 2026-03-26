@@ -14,6 +14,10 @@ struct AnimatedAvatarView: View {
     var pokeEnabled: Bool = true
     var entryAnimationEnabled: Bool = false
     var isStreaming: Bool = false
+    /// Increment to trigger a poke animation programmatically.
+    var pokeTrigger: Int = 0
+    /// Increment to trigger the entry animation programmatically.
+    var entryTrigger: Int = 0
 
     @State private var isHovered = false
 
@@ -22,7 +26,9 @@ struct AnimatedAvatarView: View {
                                  breathingEnabled: breathingEnabled, blinkEnabled: blinkEnabled, pokeEnabled: pokeEnabled,
                                  entryAnimationEnabled: entryAnimationEnabled,
                                  isStreaming: isStreaming,
-                                 isHovered: isHovered)
+                                 isHovered: isHovered,
+                                 pokeTrigger: pokeTrigger,
+                                 entryTrigger: entryTrigger)
             .frame(width: size, height: size)
             .accessibilityHidden(true)
             .contentShape(Rectangle())
@@ -43,6 +49,8 @@ private struct AvatarLayerRepresentable: NSViewRepresentable {
     var entryAnimationEnabled: Bool = false
     var isStreaming: Bool = false
     var isHovered: Bool = false
+    var pokeTrigger: Int = 0
+    var entryTrigger: Int = 0
 
     func makeNSView(context: Context) -> AvatarLayerView {
         let view = AvatarLayerView(frame: NSRect(x: 0, y: 0, width: size, height: size))
@@ -51,6 +59,8 @@ private struct AvatarLayerRepresentable: NSViewRepresentable {
                        entryAnimationEnabled: entryAnimationEnabled)
         view.updateHoverState(isHovered)
         view.updateStreamingState(isStreaming)
+        context.coordinator.lastPokeTrigger = pokeTrigger
+        context.coordinator.lastEntryTrigger = entryTrigger
         return view
     }
 
@@ -60,6 +70,21 @@ private struct AvatarLayerRepresentable: NSViewRepresentable {
                          entryAnimationEnabled: entryAnimationEnabled)
         nsView.updateHoverState(isHovered)
         nsView.updateStreamingState(isStreaming)
+        if pokeTrigger != context.coordinator.lastPokeTrigger {
+            context.coordinator.lastPokeTrigger = pokeTrigger
+            nsView.triggerPoke()
+        }
+        if entryTrigger != context.coordinator.lastEntryTrigger {
+            context.coordinator.lastEntryTrigger = entryTrigger
+            nsView.triggerEntry()
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    class Coordinator {
+        var lastPokeTrigger: Int = 0
+        var lastEntryTrigger: Int = 0
     }
 }
 
@@ -251,7 +276,7 @@ class AvatarLayerView: NSView {
         // just control points perturbed — guarantees identical element count.
         morphPaths.removeAll()
         if bodyViewBox.width > 0 && bodyViewBox.height > 0 {
-            let wobbleAmount: CGFloat = 0.12  // ±12% radial scale
+            let wobbleAmount: CGFloat = 0.06  // ±6% radial scale (toned down from ±12%)
             for seed in 0..<16 {
                 let wobbled = seed == 0 ? bodyEditable : bodyEditable.wobbled(seed: seed, amount: wobbleAmount)
                 let wCGPath = wobbled.toCGPath()
@@ -351,7 +376,7 @@ class AvatarLayerView: NSView {
                 try? await Task.sleep(for: .seconds(delay))
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    guard let self, self.animationsActive, self.configBlinkEnabled else { return }
+                    guard let self, self.animationsActive, self.configBlinkEnabled, !self.isStreamingActive else { return }
                     self.performBlink()
                 }
             }
@@ -366,7 +391,7 @@ class AvatarLayerView: NSView {
                 try? await Task.sleep(for: .seconds(delay))
                 guard !Task.isCancelled else { return }
                 await MainActor.run {
-                    guard let self, self.animationsActive else { return }
+                    guard let self, self.animationsActive, !self.isStreamingActive else { return }
                     self.performTwitch()
                 }
             }
@@ -415,6 +440,11 @@ class AvatarLayerView: NSView {
         guard streaming != isStreamingActive else { return }
         isStreamingActive = streaming
         if streaming {
+            // Suppress blink/twitch during streaming.
+            blinkTask?.cancel()
+            blinkTask = nil
+            twitchTask?.cancel()
+            twitchTask = nil
             startMorph()
         } else {
             stopMorph()
@@ -455,25 +485,25 @@ class AvatarLayerView: NSView {
             }
         }
 
-        // Transform morph layered on top for squash/stretch/rotation.
+        // Transform morph layered on top for subtle squash/stretch/rotation.
         let scaleX = CAKeyframeAnimation(keyPath: "transform.scale.x")
-        scaleX.values = [1.0, 1.04, 0.97, 1.02, 1.0]
+        scaleX.values = [1.0, 1.02, 0.99, 1.01, 1.0]
         scaleX.keyTimes = [0, 0.25, 0.5, 0.75, 1.0] as [NSNumber]
-        scaleX.duration = 1.8
+        scaleX.duration = 2.4
         scaleX.repeatCount = .infinity
         scaleX.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: 4)
 
         let scaleY = CAKeyframeAnimation(keyPath: "transform.scale.y")
-        scaleY.values = [1.0, 0.97, 1.04, 0.98, 1.0]
+        scaleY.values = [1.0, 0.99, 1.02, 0.99, 1.0]
         scaleY.keyTimes = [0, 0.25, 0.5, 0.75, 1.0] as [NSNumber]
-        scaleY.duration = 1.8
+        scaleY.duration = 2.4
         scaleY.repeatCount = .infinity
         scaleY.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: 4)
 
         let rotation = CAKeyframeAnimation(keyPath: "transform.rotation.z")
-        rotation.values = [0, 0.03, -0.03, 0.015, 0]
+        rotation.values = [0, 0.015, -0.015, 0.008, 0]
         rotation.keyTimes = [0, 0.25, 0.5, 0.75, 1.0] as [NSNumber]
-        rotation.duration = 2.4
+        rotation.duration = 3.0
         rotation.repeatCount = .infinity
         rotation.timingFunctions = Array(repeating: CAMediaTimingFunction(name: .easeInEaseOut), count: 4)
 
@@ -498,6 +528,13 @@ class AvatarLayerView: NSView {
         }
         if configBreathingEnabled {
             startBreathing()
+        }
+        // Resume blink/twitch now that streaming has stopped.
+        if configBlinkEnabled && animationsActive {
+            startBlinkTimer()
+        }
+        if animationsActive {
+            startTwitchTimer()
         }
     }
 
@@ -664,6 +701,23 @@ class AvatarLayerView: NSView {
         ]
         animation.isRemovedOnCompletion = true
         rootLayer.add(animation, forKey: "poke")
+    }
+
+    /// Programmatic trigger for poke animation (used by gallery).
+    func triggerPoke() {
+        performPoke()
+    }
+
+    /// Programmatic trigger for entry animation (used by gallery).
+    func triggerEntry() {
+        guard let rootLayer = layer else { return }
+        hasPlayedEntry = false
+        // Set initial drop state
+        rootLayer.transform = CATransform3DMakeScale(0.7, 1.3, 1.0)
+        for (i, eyeLayer) in eyeLayers.enumerated() where i < closedEyePaths.count {
+            eyeLayer.path = closedEyePaths[i]
+        }
+        performEntry()
     }
 
     private func performEntry() {
