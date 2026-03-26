@@ -7,11 +7,15 @@ struct InstalledSkillsView: View {
     @State private var skillToUninstall: SkillInfo?
     @State private var showUninstallConfirmation = false
 
+    private var installedSkills: [SkillInfo] {
+        skillsStore.skills.filter { $0.isInstalled }
+    }
+
     var body: some View {
         Group {
-            if skillsStore.isLoading && skillsStore.skills.isEmpty {
+            if skillsStore.isLoading && installedSkills.isEmpty {
                 loadingState
-            } else if skillsStore.skills.isEmpty {
+            } else if installedSkills.isEmpty {
                 emptyState
             } else {
                 skillsList
@@ -39,7 +43,7 @@ struct InstalledSkillsView: View {
 
     private var skillsList: some View {
         List {
-            ForEach(skillsStore.skills) { skill in
+            ForEach(installedSkills) { skill in
                 NavigationLink {
                     SkillDetailView(skill: skill, skillsStore: skillsStore)
                 } label: {
