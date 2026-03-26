@@ -136,7 +136,7 @@ The scopes to paste:
 ```
 https://www.googleapis.com/auth/gmail.readonly,https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send,https://www.googleapis.com/auth/calendar.readonly,https://www.googleapis.com/auth/calendar.events,https://www.googleapis.com/auth/userinfo.email,https://www.googleapis.com/auth/contacts.readonly
 ```
->
+
 > You should see all 7 scopes listed across the three categories (Non-sensitive, Sensitive, Restricted):
 >
 > - `userinfo.email`
