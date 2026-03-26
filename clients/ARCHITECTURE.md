@@ -121,6 +121,7 @@ sequenceDiagram
     participant AX as AccessibilityTree
     participant SC as ScreenCapture
     participant GW as GatewayHTTPClient
+    participant ES as EventStreamClient
     participant Daemon as Daemon (Bun)
     participant Claude as Claude API
     participant AV as ActionVerifier
@@ -137,10 +138,10 @@ sequenceDiagram
     Note over Daemon: Model decides CU is needed
 
     loop host_cu_request / host_cu_result
-        Daemon-->>GW: host_cu_request (SSE)
-        Note over GW: Contains: tool name, parameters,<br/>step number, reasoning
+        Daemon-->>ES: host_cu_request (SSE)
+        Note over ES: Contains: tool name, parameters,<br/>step number, reasoning
 
-        GW-->>AD: getOrCreateHostCuOverlay()
+        ES-->>AD: getOrCreateHostCuOverlay()
         Note over AD: Creates HostCuSessionProxy<br/>Shows SessionOverlayWindow<br/>Pauses ambient agent
 
         AD->>HCE: execute(request)
@@ -184,8 +185,8 @@ sequenceDiagram
     end
 
     Note over Daemon: Agent loop ends (end_turn)
-    Daemon-->>GW: message_complete (SSE)
-    GW-->>AD: dismissHostCuOverlay()
+    Daemon-->>ES: message_complete (SSE)
+    ES-->>AD: dismissHostCuOverlay()
 end
 ```
 

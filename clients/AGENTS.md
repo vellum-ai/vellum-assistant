@@ -513,7 +513,7 @@ When adding a new HTTP endpoint call:
 3. Instantiate the struct inline as a private property on the consuming type (e.g. `private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()`).
 4. Network client structs and protocols must be `nonisolated` (no `@MainActor`). See § "@MainActor Isolation Boundaries" above.
 
-See `clients/ARCHITECTURE.md` § "GatewayHTTPClient Migration" for the full pattern and migration tracker.
+See `clients/ARCHITECTURE.md` § "GatewayHTTPClient" for the full pattern.
 
 ---
 
