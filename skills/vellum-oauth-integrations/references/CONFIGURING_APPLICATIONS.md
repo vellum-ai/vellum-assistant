@@ -41,10 +41,12 @@ Prompt the user to enter the Client ID conversationally through chat. This is sa
 Securely collect the Client Secret using:
 
 ```
-credential_store store:
+credential_store prompt:
   service: "<provider-key>"
   field: "client_secret"
-  value: "<the-client-secret-value>"
+  label: "OAuth Client Secret"
+  description: "Copy the Client Secret from the app credentials page and paste it here."
+  placeholder: "..."
 ```
 
 Do NOT collect the client secret conversationally.
