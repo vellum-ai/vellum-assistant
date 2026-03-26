@@ -175,7 +175,14 @@ struct SidebarConversationItem: View, Equatable {
         }
         .overlay(alignment: .trailing) {
             if isHovered || isMenuOpen {
-                Button {
+                VButton(
+                    label: "More options for \(conversation.title)",
+                    iconOnly: VIcon.ellipsis.rawValue,
+                    style: .ghost,
+                    iconSize: 20,
+                    tooltip: "More options",
+                    iconColor: VColor.contentSecondary
+                ) {
                     guard !isMenuOpen else { return }
                     isMenuOpen = true
                     let appearance = NSApp.keyWindow?.effectiveAppearance
@@ -189,16 +196,8 @@ struct SidebarConversationItem: View, Equatable {
                     } onDismiss: {
                         isMenuOpen = false
                     }
-                } label: {
-                    VIconView(.ellipsis, size: 13)
-                        .foregroundStyle(VColor.contentSecondary)
-                        .frame(width: 20, height: 20)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .nativeTooltip("More options")
                 .padding(.trailing, VSpacing.xs)
-                .accessibilityLabel("More options for \(conversation.title)")
             }
         }
         .padding(.horizontal, 0)
