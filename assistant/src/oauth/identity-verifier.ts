@@ -101,9 +101,7 @@ export async function verifyIdentity(
 
     // Check OK field (Slack pattern: body.ok must be truthy)
     if (providerRow.identityOkField) {
-      const okValue = (body as Record<string, unknown>)[
-        providerRow.identityOkField
-      ];
+      const okValue = getNestedValue(body, providerRow.identityOkField);
       if (!okValue) return undefined;
     }
 
