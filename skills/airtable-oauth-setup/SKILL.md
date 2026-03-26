@@ -7,12 +7,12 @@ metadata:
   vellum:
     display-name: "Airtable OAuth Setup"
     feature-flag: "integration-airtable"
-    includes: ["collaborative-oauth-flow"]
+    includes: ["vellum-oauth-integrations"]
 ---
 
 You are helping your user set up Airtable OAuth credentials so the Airtable integration can connect to their bases.
 
-This skill follows the **Collaborative Guided Flow** pattern from the included `collaborative-oauth-flow` skill. That reference covers the navigation helper setup, step rhythm, rules, tone, error handling, and guardrails. This file defines only the Airtable-specific steps.
+The included `vellum-oauth-integrations` skill handles the generic parts of the flow (credential collection, app registration, connection, and verification). This file defines only the Airtable-specific steps.
 
 ## Provider Details
 
@@ -95,61 +95,13 @@ Wait for the user to confirm all 3 scopes are added.
 
 ---
 
-### Step 6: Store Credentials
+### Step 6: Collect Credentials, Register, Authorize, and Verify
 
-Collect Client ID conversationally:
-
-> Copy the **Client ID** and paste it here in the chat.
-
-Collect the OAuth secret via secure prompt:
-
-```
-credential_store prompt:
-  service: "airtable"
-  field: "oauth_secret"
-  label: "Airtable OAuth Secret"
-  description: "Copy the OAuth secret from the integration page (you may need to click Show or Generate first) and paste it here."
-  placeholder: "..."
-```
-
-Register the OAuth app:
-
-```
-bash:
-  command: |
-    assistant oauth apps upsert --provider airtable --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --client-secret-credential-path "credential/airtable/oauth_secret"
-```
-
-**Milestone (6 of 8):** "Credentials saved - just the authorization step left."
-
----
-
-### Step 7: Authorize
+Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
 
 > I'll start the Airtable authorization flow now. You should see a consent page asking you to allow **Vellum Assistant** to access your Airtable data.
 >
 > Review the permissions and click **Grant access**.
-
-```
-bash:
-  command: |
-    assistant oauth connect airtable
-```
-
----
-
-### Step 8: Verify Connection
-
-Use the ping URL to verify the connection:
-
-```
-bash:
-  command: |
-    assistant oauth ping airtable
-```
 
 **On success:** "Airtable is connected! You can now ask me to read and update records in your Airtable bases."
 

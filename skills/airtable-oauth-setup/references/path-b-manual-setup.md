@@ -78,56 +78,17 @@ Tell the user:
 >
 > Send me your **Client ID** first.
 
-Wait for the Client ID, then store it:
-
-```
-credential_store store:
-  service: "airtable"
-  field: "client_id"
-  value: "<the client id the user sent>"
-```
-
-Then ask for the secret:
+Wait for the Client ID. Then ask for the secret:
 
 > Now send me the **OAuth secret**. You may need to click **Show** or **Generate** to reveal it. Send it as a standalone message with no other text.
 
-Store the secret:
-
-```
-credential_store store:
-  service: "airtable"
-  field: "oauth_secret"
-  value: "<the oauth secret the user sent>"
-```
-
 Note: Airtable OAuth secrets don't have a known prefix that triggers channel scanners, so direct entry is acceptable. Still, keep the secret in its own message to avoid accidental logging with surrounding context.
 
-## Path B Step 7: Authorize
+## Path B Step 7: Authorize and Verify
 
-Tell the user:
-
-> **Step 5: Authorize Airtable**
->
-> I'll generate an authorization link for you now.
-
-```
-bash:
-  command: |
-    assistant oauth apps upsert --provider airtable --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --client-secret-credential-path "credential/airtable/oauth_secret"
-```
-
-```
-bash:
-  command: |
-    assistant oauth connect airtable
-```
+Follow the `vellum-oauth-integrations` workflow to register the OAuth app, connect, and verify.
 
 Send the returned auth URL to the user. Tell them to click **Grant access** on the Airtable consent page.
-
-## Path B Step 8: Done
 
 After authorization:
 
