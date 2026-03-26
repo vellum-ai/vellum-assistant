@@ -96,7 +96,7 @@ extension MainWindowView {
                 },
                 onCreateSkill: {
                     conversationManager.openConversation(
-                        message: "I'd like to create a new custom skill. What kind of skill would you like to build?",
+                        message: "I'd like to create a new custom skill.",
                         forceNew: true,
                         autoSend: false
                     )
@@ -492,7 +492,7 @@ extension MainWindowView {
                 },
                 onCreateSkill: {
                     conversationManager.openConversation(
-                        message: "I'd like to create a new custom skill. What kind of skill would you like to build?",
+                        message: "I'd like to create a new custom skill.",
                         forceNew: true,
                         autoSend: false
                     )
