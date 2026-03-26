@@ -53,7 +53,7 @@ Do NOT collect the client secret conversationally.
 Create the app using the CLI, subbing out values for `<provider-key>` and `<client-id>`:
 
 ```bash
-assistant oauth apps upsert --provider <provider-key> --client-id <client-id> --client-secret-credential-path "credential/<provider-key>/client_secret"
+assistant oauth apps upsert --provider <provider-key> --client-id <client-id> --client-secret-credential-path "<provider-key>:client_secret"
 ```
 
 ## Connecting Accounts
