@@ -630,6 +630,7 @@ async function main() {
         if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
           authRateLimiter.recordFailure(getClientIp());
           log.warn(
+            { path: new URL(req.url).pathname },
             "Guardian refresh auth rejected: missing or malformed Authorization header",
           );
           return Response.json({ error: "Unauthorized" }, { status: 401 });

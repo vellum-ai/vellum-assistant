@@ -35,7 +35,7 @@ export function checkDeliverAuth(
   const result = verifyToken(token, "vellum-daemon");
   if (!result.ok) {
     log.warn(
-      { path: new URL(req.url).pathname },
+      { path: new URL(req.url).pathname, reason: result.reason },
       "Deliver auth rejected: token validation failed",
     );
     return Response.json({ error: "Unauthorized" }, { status: 401 });
