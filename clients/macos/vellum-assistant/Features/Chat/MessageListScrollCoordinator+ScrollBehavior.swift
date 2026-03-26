@@ -299,7 +299,7 @@ extension MessageListScrollCoordinator {
 
     /// Flash-highlights a message and schedules auto-dismiss after 1.5 seconds.
     /// Manages the highlight dismiss task internally.
-    private func flashHighlight(messageId: UUID, highlightedMessageId: Binding<UUID?>) {
+    func flashHighlight(messageId: UUID, highlightedMessageId: Binding<UUID?>) {
         highlightDismissTask?.cancel()
         highlightedMessageId.wrappedValue = messageId
         highlightDismissTask = Task { @MainActor [weak self] in
@@ -318,7 +318,7 @@ extension MessageListScrollCoordinator {
     /// appears, resign first responder from the composer so the confirmation
     /// bubble's key monitor can intercept Tab/Enter/Escape immediately.
     #if os(macOS)
-    private func handleConfirmationFocusIfNeeded(currentPendingRequestId: String?) {
+    func handleConfirmationFocusIfNeeded(currentPendingRequestId: String?) {
         if let requestId = currentPendingRequestId, lastAutoFocusedRequestId != requestId {
             if let window = NSApp.keyWindow,
                let responder = window.firstResponder as? NSTextView,

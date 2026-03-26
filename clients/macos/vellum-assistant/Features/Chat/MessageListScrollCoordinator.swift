@@ -273,13 +273,19 @@ final class MessageListScrollCoordinator: ObservableObject {
     }
 
     /// Clears all suppression flags and cancels the expansion timeout task.
+    /// Directly resets flags instead of calling the per-reason `end*` helpers
+    /// to avoid emitting N+1 log entries (one per helper + one here).
     func clearAllSuppression() {
         let wasActive = isSuppressed
         let reasons = activeSuppressionReasons.joined(separator: ",")
-        endResizeSuppression()
-        endPaginationSuppression()
-        endExpansionSuppression()
+        // Clear flags directly — bypass end helpers to avoid per-reason logging.
+        isResizeSuppressed = false
+        isPaginationSuppressed = false
+        isExpansionSuppressed = false
+        expansionTimeoutTask?.cancel()
+        expansionTimeoutTask = nil
         if wasActive {
+            scrollCoordinatorLog.debug("Scroll suppression cleared: clearAll (was: \(reasons))")
             os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged",
                         "off reason=clearAll(was:%{public}s)", reasons)
         }
