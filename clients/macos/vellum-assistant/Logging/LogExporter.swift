@@ -100,22 +100,19 @@ enum LogExporter {
                     throw ExportError.requestTooLarge
                 }
 
-                guard let removed = removeLargestItem(in: stagingDir, fileManager: fileManager) else {
+                let trimResult = await trimStagingAndRebuildArchive(
+                    stagingDir: stagingDir,
+                    archiveURL: archiveURL,
+                    previouslyRemoved: removedItems
+                )
+
+                guard let removed = trimResult else {
                     log.error("No more items to remove but request is still too large")
                     throw ExportError.requestTooLarge
                 }
 
                 removedItems.append(removed)
                 log.info("Removed \(removed) from staging dir (attempt \(attempt + 1)) — rebuilding archive")
-
-                writeRemovedItemsLog(
-                    to: stagingDir.appendingPathComponent("removed-items.log"),
-                    removedItems: removedItems
-                )
-
-                // Remove the old archive and rebuild
-                try? fileManager.removeItem(at: archiveURL)
-                try await createTarArchive(from: stagingDir, destination: archiveURL)
             }
         }
     }
@@ -1330,9 +1327,40 @@ enum LogExporter {
 
     // MARK: - Upload Retry Helpers
 
+    /// Removes the largest item from the staging directory, updates the
+    /// `removed-items.log`, and rebuilds the tar archive — all off the main
+    /// actor so the UI stays responsive during retries.
+    ///
+    /// Returns the description of the removed item, or `nil` if nothing
+    /// was left to remove.
+    private nonisolated static func trimStagingAndRebuildArchive(
+        stagingDir: URL,
+        archiveURL: URL,
+        previouslyRemoved: [String]
+    ) async -> String? {
+        let fileManager = FileManager.default
+
+        guard let removed = removeLargestItem(in: stagingDir, fileManager: fileManager) else {
+            return nil
+        }
+
+        var allRemoved = previouslyRemoved
+        allRemoved.append(removed)
+
+        writeRemovedItemsLog(
+            to: stagingDir.appendingPathComponent("removed-items.log"),
+            removedItems: allRemoved
+        )
+
+        try? fileManager.removeItem(at: archiveURL)
+        try? await createTarArchive(from: stagingDir, destination: archiveURL)
+
+        return removed
+    }
+
     /// Finds the largest file or directory (by total size) in `directory`,
     /// removes it, and returns its name. Returns `nil` if the directory is
-    /// empty or only contains `removed-items.log`.
+    /// empty or only contains protected files.
     private nonisolated static func removeLargestItem(
         in directory: URL,
         fileManager: FileManager
