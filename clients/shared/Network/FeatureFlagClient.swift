@@ -91,7 +91,7 @@ public struct FeatureFlagClient: FeatureFlagClientProtocol {
         // enrich each flag with defaultEnabled, description, and label.
         let registryByKey: [String: FeatureFlagDefinition] = {
             guard let registry = loadFeatureFlagRegistry() else { return [:] }
-            return Dictionary(uniqueKeysWithValues: registry.assistantScopeFlags().map { ($0.key, $0) })
+            return Dictionary(registry.assistantScopeFlags().map { ($0.key, $0) }, uniquingKeysWith: { _, latest in latest })
         }()
         return platform.flags.map { key, enabled in
             // Platform keys use LaunchDarkly format like "feature_flags.browser.enabled".
