@@ -173,7 +173,7 @@ struct SidebarConversationItem: View, Equatable {
         }
         .padding(.horizontal, 0)
         .vContextMenu(width: 200) {
-            VMenuItem(icon: VIcon.pin.rawValue, label: conversation.isPinned ? "Unpin" : "Pin") {
+            VMenuItem(icon: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue, label: conversation.isPinned ? "Unpin" : "Pin") {
                 onTogglePin()
             }
             VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") {
