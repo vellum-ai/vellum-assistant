@@ -367,11 +367,16 @@ final class MessageListScrollCoordinator: ObservableObject {
             containerWidth: containerWidth,
             anchorMessageId: anchorMessageId,
             highlightedMessageId: highlightedMessageId,
-            hasReceivedScrollEvent: hasReceivedScrollEvent,
-            isPaginationInFlight: isPaginationInFlight,
-            isSuppressed: isSuppressed,
-            activeSuppressionReasons: activeSuppressionReasons,
-            isAtBottom: isAtBottom
+            coordinatorState: { [weak self] in
+                guard let self else { return nil }
+                return ScrollDiagnosticsRecorder.CoordinatorSnapshotState(
+                    isPaginationInFlight: self.isPaginationInFlight,
+                    isSuppressed: self.isSuppressed,
+                    activeSuppressionReasons: self.activeSuppressionReasons,
+                    hasReceivedScrollEvent: self.hasReceivedScrollEvent,
+                    isAtBottom: self.isAtBottom
+                )
+            }
         )
     }
 

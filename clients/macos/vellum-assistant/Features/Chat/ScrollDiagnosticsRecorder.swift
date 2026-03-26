@@ -13,6 +13,22 @@ import VellumAssistantShared
 @MainActor
 final class ScrollDiagnosticsRecorder {
 
+    // MARK: - Coordinator State (read live after debounce)
+
+    /// Snapshot of coordinator-owned state that changes rapidly and must be
+    /// read *after* the debounce sleep rather than captured at scheduling time.
+    struct CoordinatorSnapshotState {
+        let isPaginationInFlight: Bool
+        let isSuppressed: Bool
+        let activeSuppressionReasons: [String]
+        let hasReceivedScrollEvent: Bool
+        let isAtBottom: Bool
+    }
+
+    /// Closure that reads live coordinator state. Called inside the debounced
+    /// `Task` after the 150ms sleep so values reflect current reality.
+    typealias CoordinatorStateReader = @MainActor () -> CoordinatorSnapshotState?
+
     // MARK: - Properties
 
     /// Detects runaway scroll-loop patterns and emits one aggregate warning
@@ -71,6 +87,13 @@ final class ScrollDiagnosticsRecorder {
     // MARK: - Transcript Snapshot
 
     /// Schedules a debounced transcript snapshot capture.
+    ///
+    /// View-owned values (messages, geometry, anchor IDs) are captured at
+    /// scheduling time because they come from the SwiftUI render pass that
+    /// triggered this call. Coordinator-owned state (`isPaginationInFlight`,
+    /// `isSuppressed`, etc.) is read *after* the 150ms debounce sleep via
+    /// `coordinatorState` so diagnostics reflect live values, not stale ones
+    /// from the scheduling instant.
     func scheduleTranscriptSnapshot(
         conversationId: UUID?,
         messages: [ChatMessage],
@@ -79,16 +102,13 @@ final class ScrollDiagnosticsRecorder {
         containerWidth: CGFloat,
         anchorMessageId: UUID?,
         highlightedMessageId: UUID?,
-        hasReceivedScrollEvent: Bool,
-        isPaginationInFlight: Bool,
-        isSuppressed: Bool,
-        activeSuppressionReasons: [String],
-        isAtBottom: Bool
+        coordinatorState: @escaping CoordinatorStateReader
     ) {
         snapshotDebounceTask?.cancel()
         snapshotDebounceTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled, let self else { return }
+            guard let state = coordinatorState() else { return }
             self.updateTranscriptSnapshot(
                 conversationId: conversationId,
                 messages: messages,
@@ -97,11 +117,11 @@ final class ScrollDiagnosticsRecorder {
                 containerWidth: containerWidth,
                 anchorMessageId: anchorMessageId,
                 highlightedMessageId: highlightedMessageId,
-                hasReceivedScrollEvent: hasReceivedScrollEvent,
-                isPaginationInFlight: isPaginationInFlight,
-                isSuppressed: isSuppressed,
-                activeSuppressionReasons: activeSuppressionReasons,
-                isAtBottom: isAtBottom
+                hasReceivedScrollEvent: state.hasReceivedScrollEvent,
+                isPaginationInFlight: state.isPaginationInFlight,
+                isSuppressed: state.isSuppressed,
+                activeSuppressionReasons: state.activeSuppressionReasons,
+                isAtBottom: state.isAtBottom
             )
         }
     }
