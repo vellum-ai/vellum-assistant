@@ -6,8 +6,6 @@ struct DisplayGallerySection: View {
 
     @State private var waveformAmplitude: Float = 0.5
     @State private var waveformActive: Bool = true
-    @State private var asyncHugeText: String?
-    @State private var isLoadingHugeText = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.xxl) {
@@ -320,68 +318,6 @@ struct DisplayGallerySection: View {
 
             }
 
-            if filter == nil || filter == "vScrollableText" {
-                if filter == nil {
-                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-                }
-                // MARK: - VScrollableText
-                GallerySectionHeader(
-                    title: "VScrollableText",
-                    description: "Read-only text view optimized for large content. Uses platform-native text views (NSTextView/UITextView) with TextKit layout virtualization for O(1) rendering regardless of content size. Supports maxHeight for scroll-constrained display."
-                )
-
-                VCard {
-                    VScrollableText(Self.sampleLargeText)
-                        .padding(VSpacing.sm)
-                }
-
-                Text("With maxHeight constraint (scrollable)")
-                    .font(VFont.bodySmallEmphasised)
-                    .foregroundStyle(VColor.contentSecondary)
-
-                VCard {
-                    VScrollableText(Self.sampleLargeText, maxHeight: 120)
-                        .padding(VSpacing.sm)
-                }
-
-                Text("Stress test: 50,000 lines (async load)")
-                    .font(VFont.bodySmallEmphasised)
-                    .foregroundStyle(VColor.contentSecondary)
-
-                if let hugeText = asyncHugeText {
-                    VCard {
-                        VScrollableText(hugeText, maxHeight: 400)
-                            .padding(VSpacing.sm)
-                    }
-                } else {
-                    Button {
-                        isLoadingHugeText = true
-                        Task.detached(priority: .userInitiated) {
-                            let text = Self.generateHugeText()
-                            await MainActor.run {
-                                asyncHugeText = text
-                                isLoadingHugeText = false
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: VSpacing.xs) {
-                            if isLoadingHugeText {
-                                ProgressView()
-                                    .scaleEffect(0.6)
-                                    .frame(width: 14, height: 14)
-                            }
-                            Text(isLoadingHugeText ? "Generating 50k lines..." : "Load 50,000 lines")
-                                .font(VFont.bodySmallDefault)
-                                .foregroundStyle(VColor.primaryBase)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .padding(VSpacing.md)
-                }
-
-            }
-
             if filter == nil || filter == "vStreamingWaveform" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
@@ -457,26 +393,6 @@ struct DisplayGallerySection: View {
        verbose: false,
      };
     """
-
-    private static let sampleLargeText: String = {
-        (1...100).map { "Line \($0): This is sample output from a tool call result that demonstrates how VScrollableText handles large content efficiently." }
-            .joined(separator: "\n")
-    }()
-
-    private static func generateHugeText() -> String {
-        (1...50_000).map { i in
-            let content: String
-            switch i % 5 {
-            case 0: content = "INFO  Processing batch \(i / 100) — elapsed 0.\(i % 1000)s"
-            case 1: content = "DEBUG Evaluating rule set for input #\(i)"
-            case 2: content = "WARN  Retrying request (attempt \(i % 3 + 1)/3)"
-            case 3: content = "INFO  Result: {\"status\":\"ok\",\"items\":\(i % 50),\"cached\":false}"
-            default: content = "TRACE Memory usage: \(20 + i % 80)MB heap, \(4 + i % 12)MB stack"
-            }
-            return "[\(String(format: "%05d", i))] \(content)"
-        }
-        .joined(separator: "\n")
-    }
 }
 
 // MARK: - Component Page Router
@@ -493,7 +409,6 @@ extension DisplayGallerySection {
         case "vAvatarImage": DisplayGallerySection(filter: "vAvatarImage")
         case "vCodeView": DisplayGallerySection(filter: "vCodeView")
         case "vDiffView": DisplayGallerySection(filter: "vDiffView")
-        case "vScrollableText": DisplayGallerySection(filter: "vScrollableText")
         case "vStreamingWaveform": DisplayGallerySection(filter: "vStreamingWaveform")
         default:
             if let factory = DisplayGallerySection.externalPageFactories[id] {

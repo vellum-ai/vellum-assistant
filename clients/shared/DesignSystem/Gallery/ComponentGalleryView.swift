@@ -76,7 +76,6 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("animatedAvatar", "AnimatedAvatarView", keywords: ["avatar", "animated", "character", "streaming", "morph"], description: "Live-rendered avatar with CAShapeLayer. Supports breathing, blinking, poke, and streaming body-morph animations."),
                 GalleryComponent("vCodeView", "VCodeView", keywords: ["code view", "syntax"], description: "Read-only code viewer with line numbers, search, and pluggable syntax highlighting. Wraps NSTextView for native text selection."),
                 GalleryComponent("vDiffView", "VDiffView", keywords: ["diff view"], description: "Renders unified diff text with per-line colored backgrounds. Green for additions, red for removals."),
-                GalleryComponent("vScrollableText", "VScrollableText", keywords: ["scrollable text", "large text", "virtualized"], description: "Read-only text view optimized for large content. Uses platform-native text views with TextKit layout virtualization."),
                 GalleryComponent("vStreamingWaveform", "VStreamingWaveform", keywords: ["waveform", "streaming"], description: "Animated audio waveform driven by amplitude. Two styles: conversation (centered) and dictation (bottom-aligned)."),
             ]
         case .feedback:
