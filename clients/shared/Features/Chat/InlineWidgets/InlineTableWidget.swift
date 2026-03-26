@@ -499,13 +499,12 @@ public struct InlineTableWidget: View {
     }
 
     /// Estimate a flexible column's baseline width for drag start.
-    /// This uses the non-scroll card content width (540 - 2*16 = 508pt).
     private func estimatedFlexWidth() -> CGFloat {
         let checkboxWidth: CGFloat = hasSelection ? selectionColumnWidth : 0
         let fixedTotal = columnSpecs.compactMap { $0 }.reduce(0, +)
         let flexCount = columnSpecs.filter { $0 == nil }.count
         guard flexCount > 0 else { return minColumnWidth }
-        return max(minColumnWidth, (508 - checkboxWidth - fixedTotal) / CGFloat(flexCount))
+        return max(minColumnWidth, (maxTableViewportWidth - checkboxWidth - fixedTotal) / CGFloat(flexCount))
     }
 
     // MARK: - Helpers

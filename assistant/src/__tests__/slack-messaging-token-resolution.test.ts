@@ -139,7 +139,7 @@ describe("Slack messaging token resolution", () => {
   // ── slackProvider.resolveConnection() ───────────────────────────────────
 
   describe("slackProvider.resolveConnection()", () => {
-    test("returns bot token string when Socket Mode credentials exist", async () => {
+    test("returns undefined when Socket Mode credentials exist (token cached internally)", async () => {
       getSecureKeyAsyncMock.mockImplementation(async (key: string) =>
         key === "credential/slack_channel/bot_token"
           ? "xoxb-socket-token"
@@ -147,17 +147,17 @@ describe("Slack messaging token resolution", () => {
       );
 
       const result = await slackProvider.resolveConnection!();
-      expect(result).toBe("xoxb-socket-token");
+      expect(result).toBeUndefined();
     });
 
-    test("returns bot token string even without a slack_channel connection row (token-only resilience)", async () => {
+    test("returns undefined even without a slack_channel connection row (token-only resilience)", async () => {
       getSecureKeyAsyncMock.mockImplementation(async (key: string) =>
         key === "credential/slack_channel/bot_token" ? "xoxb-token-only" : null,
       );
-      // No connection row — resolveConnection should still return the token
+      // No connection row — resolveConnection should still return undefined (token cached internally)
 
       const result = await slackProvider.resolveConnection!();
-      expect(result).toBe("xoxb-token-only");
+      expect(result).toBeUndefined();
     });
 
     test("returns OAuthConnection when only OAuth slack credentials exist (backwards compat)", async () => {
@@ -189,13 +189,13 @@ describe("Slack messaging token resolution", () => {
   // ── getProviderConnection() integration ─────────────────────────────────
 
   describe("getProviderConnection()", () => {
-    test("returns bot token string for Slack when Socket Mode credentials exist", async () => {
+    test("returns undefined for Slack when Socket Mode credentials exist (token cached internally)", async () => {
       getSecureKeyAsyncMock.mockImplementation(async (key: string) =>
         key === "credential/slack_channel/bot_token" ? "xoxb-conn-token" : null,
       );
 
       const result = await getProviderConnection(slackProvider);
-      expect(result).toBe("xoxb-conn-token");
+      expect(result).toBeUndefined();
     });
 
     test("returns OAuthConnection for Slack when only OAuth credentials exist (backwards compat)", async () => {
@@ -220,9 +220,9 @@ describe("Slack messaging token resolution", () => {
       );
     });
 
-    test('Telegram still returns "" (no resolveConnection, uses isConnected path — regression check)', async () => {
+    test("Telegram returns undefined (no resolveConnection, uses isConnected path — regression check)", async () => {
       // Telegram has isConnected but no resolveConnection.
-      // When isConnected returns true, getProviderConnection returns ""
+      // When isConnected returns true, getProviderConnection returns undefined
       getSecureKeyAsyncMock.mockImplementation(async (key: string) => {
         if (key === "credential/telegram/bot_token") return "bot-token";
         if (key === "credential/telegram/webhook_secret") return "secret";
@@ -233,7 +233,7 @@ describe("Slack messaging token resolution", () => {
       );
 
       const result = await getProviderConnection(telegramBotMessagingProvider);
-      expect(result).toBe("");
+      expect(result).toBeUndefined();
     });
 
     test("Gmail still calls resolveOAuthConnection (no resolveConnection, no isConnected — regression check)", async () => {

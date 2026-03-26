@@ -52,8 +52,10 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
  * and display metadata (displayName, description, dashboardUrl,
  * clientIdPlaceholder, requiresClientSecret) propagate to existing
  * installations on every startup, while user-customizable fields
- * (defaultScopes, scopePolicy, baseUrl) are only written on the
- * initial insert.
+ * (defaultScopes, scopePolicy) are only written on the
+ * initial insert. baseUrl is backfilled from seed data when null
+ * (e.g. legacy rows created before the column existed) but preserved
+ * if the user has set a custom value.
  */
 export function seedProviders(
   profiles: Array<{
@@ -183,6 +185,7 @@ export function seedProviders(
           tokenUrl,
           tokenEndpointAuthMethod,
           userinfoUrl,
+          baseUrl: sql`COALESCE(${oauthProviders.baseUrl}, ${baseUrl})`,
           extraParams,
           callbackTransport,
           pingUrl,

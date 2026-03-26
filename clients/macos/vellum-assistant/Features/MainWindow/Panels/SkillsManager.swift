@@ -40,7 +40,8 @@ final class SkillsManager {
         skillsStore.$isLoadingSkillFiles.sink { [weak self] in self?.isLoadingSkillFiles = $0 }.store(in: &cancellables)
         skillsStore.$skillFilesError.sink { [weak self] in self?.skillFilesError = $0 }.store(in: &cancellables)
         skillsStore.$installResult.sink { [weak self] result in
-            guard let self, result != nil else { return }
+            guard let self, let result else { return }
+            guard result.slug == self.installingSkillId else { return }
             self.installingSkillId = nil
         }.store(in: &cancellables)
     }

@@ -9,7 +9,6 @@ import {
   listMessages,
 } from "../../../../messaging/providers/gmail/client.js";
 import { buildMultipartMime } from "../../../../messaging/providers/gmail/mime-builder.js";
-import type { OAuthConnection } from "../../../../oauth/connection.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -57,7 +56,11 @@ export async function run(
 
     // Gmail: create a draft instead of sending directly
     if (provider.id === "gmail") {
-      const gmailConn = conn as OAuthConnection;
+      if (!conn)
+        return err(
+          "Gmail requires an OAuth connection — is the account connected?",
+        );
+      const gmailConn = conn;
       // Reply mode: thread_id provided - create a threaded draft with reply-all recipients
       if (threadId) {
         // Fetch thread messages to extract recipients and threading headers

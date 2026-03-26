@@ -444,18 +444,18 @@ private extension View {
     }
 }
 
-// MARK: - Streaming Fade
+// MARK: - Streaming Typewriter
 
 private extension View {
     /// Conditionally applies `StreamingFadeRenderer` during streaming.
-    /// New characters fade from 0 → 1 opacity over 150ms as SwiftUI
+    /// Characters appear one by one (typewriter style) as SwiftUI
     /// interpolates the renderer's animatable `elapsedCount`.
     @ViewBuilder
     func streamingFade(isStreaming: Bool, characterCount: Int) -> some View {
         if isStreaming {
             self
                 .textRenderer(StreamingFadeRenderer(elapsedCount: Double(characterCount)))
-                .animation(.easeIn(duration: 0.15), value: characterCount)
+                .animation(.linear(duration: 0.22), value: characterCount)
         } else {
             self
         }

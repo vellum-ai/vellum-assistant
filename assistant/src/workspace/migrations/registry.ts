@@ -16,6 +16,7 @@ import { migrateCredentialsFromKeychainMigration } from "./016-migrate-credentia
 import { seedPersonaDirsMigration } from "./017-seed-persona-dirs.js";
 import { rekeyCompoundCredentialKeysMigration } from "./018-rekey-compound-credential-keys.js";
 import { scopeJournalToGuardianMigration } from "./019-scope-journal-to-guardian.js";
+import { renameOauthSkillDirsMigration } from "./020-rename-oauth-skill-dirs.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -43,4 +44,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   extractFeatureFlagsToProtectedMigration,
   rekeyCompoundCredentialKeysMigration,
   scopeJournalToGuardianMigration,
+  renameOauthSkillDirsMigration,
 ];

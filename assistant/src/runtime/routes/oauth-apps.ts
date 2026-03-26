@@ -81,7 +81,8 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
               description: providerRow.description ?? null,
               dashboard_url: providerRow.dashboardUrl ?? null,
               client_id_placeholder: providerRow.clientIdPlaceholder ?? null,
-              requires_client_secret: providerRow.requiresClientSecret ?? 1,
+              requires_client_secret: !!(providerRow.requiresClientSecret ?? 1),
+              supports_managed_mode: !!providerRow.managedServiceConfigKey,
             }
           : null;
 

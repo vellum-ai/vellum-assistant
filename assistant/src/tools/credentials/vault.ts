@@ -871,8 +871,7 @@ class CredentialStoreTool implements Tool {
         // Fail early when client_secret is required but missing - guide the
         // agent to collect it from the user rather than letting it improvise
         // browser-automation workarounds that inevitably fail.
-        const requiresSecret =
-          !!providerRow.requiresClientSecret;
+        const requiresSecret = !!providerRow.requiresClientSecret;
         if (requiresSecret && !clientSecret) {
           const skillId = providerRow?.setupSkillId;
           const skillHint = skillId
@@ -975,7 +974,7 @@ class CredentialStoreTool implements Tool {
           (descProviderRow.callbackTransport as
             | "loopback"
             | "gateway"
-            | null) ?? "gateway";
+            | null) ?? "loopback";
         const loopbackPort = descProviderRow.loopbackPort;
         if (transport === "loopback" && loopbackPort) {
           redirectUri = `http://localhost:${loopbackPort}/oauth/callback`;
@@ -1011,7 +1010,11 @@ class CredentialStoreTool implements Tool {
           redirectUri,
           requiresClientSecret,
         };
-        if (descProviderRow.displayName && descProviderRow.dashboardUrl && descProviderRow.appType) {
+        if (
+          descProviderRow.displayName &&
+          descProviderRow.dashboardUrl &&
+          descProviderRow.appType
+        ) {
           info.setup = {
             displayName: descProviderRow.displayName,
             dashboardUrl: descProviderRow.dashboardUrl,

@@ -126,17 +126,16 @@ export async function resolveProvider(
 }
 
 /**
- * Resolve an OAuthConnection (or empty string for non-OAuth providers)
- * for the given messaging provider.
+ * Resolve an OAuthConnection for the given messaging provider.
  *
- * Non-OAuth providers (e.g. Telegram) use isConnected() and don't need
- * tokens - they receive an empty string which the string overload handles.
+ * Returns undefined for providers that manage credentials internally
+ * (e.g. Telegram bot tokens, Slack Socket Mode bot tokens).
  */
 export async function getProviderConnection(
   provider: MessagingProvider,
   account?: string,
-): Promise<OAuthConnection | string> {
+): Promise<OAuthConnection | undefined> {
   if (provider.resolveConnection) return provider.resolveConnection(account);
-  if (await provider.isConnected?.()) return "";
+  if (await provider.isConnected?.()) return undefined;
   return resolveOAuthConnection(provider.credentialService, { account });
 }
