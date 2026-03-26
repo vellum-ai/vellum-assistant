@@ -125,7 +125,7 @@ public struct VCodeView: View {
                 )
                 .frame(maxWidth: .infinity)
             }
-            .containerRelativeFrame([.vertical], alignment: .topLeading) { length, _ in length }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .background(Self.editorBackground)
     }
