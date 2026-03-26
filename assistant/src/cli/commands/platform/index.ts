@@ -4,11 +4,12 @@ import {
   registerCallbackRoute,
   resolvePlatformCallbackRegistrationContext,
 } from "../../../inbound/platform-callback-registration.js";
+import { credentialKey } from "../../../security/credential-key.js";
+import { getSecureKeyViaDaemon } from "../../lib/daemon-credential-client.js";
 import { log } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
-import { registerPlatformConnectCommand } from "./connect.js";
+import { CREDENTIAL_KEYS, registerPlatformConnectCommand } from "./connect.js";
 import { registerPlatformDisconnectCommand } from "./disconnect.js";
-import { registerPlatformStatusCommand } from "./status.js";
 
 export function registerPlatformCommand(program: Command): void {
   const platform = program
@@ -28,10 +29,9 @@ Twilio webhooks, OAuth redirects) route through the platform's gateway proxy
 instead of hitting the assistant directly.
 
 Examples:
-  $ assistant platform connect --url https://api.vellum.ai --api-key sk-abc123
-  $ assistant platform status
+  $ assistant platform status --json
+  $ assistant platform connect
   $ assistant platform disconnect
-  $ assistant platform deployment-context --json
   $ assistant platform callback-routes register --path webhooks/telegram --type telegram --json`,
   );
 
@@ -42,30 +42,20 @@ Examples:
   registerPlatformConnectCommand(platform);
 
   // ---------------------------------------------------------------------------
-  // status — show platform connection status and stored credentials
-  // ---------------------------------------------------------------------------
-
-  registerPlatformStatusCommand(platform);
-
-  // ---------------------------------------------------------------------------
-  // disconnect — remove stored platform credentials
-  // ---------------------------------------------------------------------------
-
-  registerPlatformDisconnectCommand(platform);
-
-  // ---------------------------------------------------------------------------
-  // deployment-context — show current containerized deployment context
+  // status — deployment context and connection status combined
   // ---------------------------------------------------------------------------
 
   platform
-    .command("deployment-context")
-    .description("Show current platform deployment context")
+    .command("status")
+    .description(
+      "Show current platform deployment context and connection status",
+    )
     .addHelpText(
       "after",
       `
-Reads platform-related environment variables and returns the current
-containerized deployment context. Does not require the assistant to be
-running.
+Reads platform-related environment variables and stored credentials to report
+the current containerized deployment context and connection state. Does not
+require the assistant to be running.
 
 Fields:
   containerized       Whether IS_CONTAINERIZED is set (boolean)
@@ -75,13 +65,51 @@ Fields:
                       value not disclosed)
   hasAssistantApiKey  Whether a stored assistant API key is available
   available           Whether callback registration prerequisites are satisfied
+  connected           Whether platform credentials are stored (boolean)
+  organizationId      The platform organization ID (from stored credentials)
+  userId              The platform user ID (from stored credentials)
 
 Examples:
-  $ assistant platform deployment-context
-  $ assistant platform deployment-context --json`,
+  $ assistant platform status
+  $ assistant platform status --json`,
     )
     .action(async (_opts: Record<string, unknown>, cmd: Command) => {
       const context = await resolvePlatformCallbackRegistrationContext();
+
+      const storedBaseUrl =
+        (await getSecureKeyViaDaemon(
+          credentialKey(
+            CREDENTIAL_KEYS.baseUrl.service,
+            CREDENTIAL_KEYS.baseUrl.field,
+          ),
+        )) ?? "";
+      const hasStoredApiKey = !!(await getSecureKeyViaDaemon(
+        credentialKey(
+          CREDENTIAL_KEYS.apiKey.service,
+          CREDENTIAL_KEYS.apiKey.field,
+        ),
+      ));
+      const organizationId =
+        (
+          await getSecureKeyViaDaemon(
+            credentialKey(
+              CREDENTIAL_KEYS.organizationId.service,
+              CREDENTIAL_KEYS.organizationId.field,
+            ),
+          )
+        )?.trim() ?? "";
+      const userId =
+        (
+          await getSecureKeyViaDaemon(
+            credentialKey(
+              CREDENTIAL_KEYS.userId.service,
+              CREDENTIAL_KEYS.userId.field,
+            ),
+          )
+        )?.trim() ?? "";
+
+      const connected = !!storedBaseUrl && hasStoredApiKey;
+
       const result = {
         containerized: context.containerized,
         baseUrl: context.platformBaseUrl,
@@ -89,6 +117,9 @@ Examples:
         hasInternalApiKey: context.hasInternalApiKey,
         hasAssistantApiKey: context.hasAssistantApiKey,
         available: context.enabled,
+        connected,
+        organizationId: organizationId || null,
+        userId: userId || null,
       };
 
       writeOutput(cmd, result);
@@ -106,8 +137,17 @@ Examples:
         log.info(
           `Callback registration available: ${result.available ? "yes" : "no"}`,
         );
+        log.info(`Connected: ${connected}`);
+        log.info(`Organization ID: ${organizationId || "(not set)"}`);
+        log.info(`User ID: ${userId || "(not set)"}`);
       }
     });
+
+  // ---------------------------------------------------------------------------
+  // disconnect — remove stored platform credentials
+  // ---------------------------------------------------------------------------
+
+  registerPlatformDisconnectCommand(platform);
 
   // ---------------------------------------------------------------------------
   // callback-routes

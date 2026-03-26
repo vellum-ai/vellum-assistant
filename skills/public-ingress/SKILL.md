@@ -32,7 +32,7 @@ This skill installs ngrok, configures authentication, starts a tunnel, discovers
 Check whether managed platform callback routing is available:
 
 ```bash
-assistant platform deployment-context --json
+assistant platform status --json
 ```
 
 If the result shows `containerized: true` and `available: true`, stop here. Tell the user that this assistant should use the platform callback route flow instead of ngrok, and do not install or start ngrok.
