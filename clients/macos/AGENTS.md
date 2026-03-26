@@ -106,7 +106,7 @@ CU execution dependencies are protocol-based for testability:
 
 All inference (both computer-use sessions and ambient analysis) goes through the assistant's HTTP API:
 - `DaemonClient` — HTTP+SSE transport; auto-reconnect, `AsyncStream<ServerMessage>` (legacy — being migrated to `GatewayHTTPClient`)
-- `GatewayHTTPClient` — nonisolated stateless HTTP client (enum with static async methods). Network client protocols and structs built on top of it should also be nonisolated. See `clients/AGENTS.md` § "@MainActor Isolation Boundaries" and § "Networking: Use GatewayHTTPClient for New HTTP APIs".
+- `GatewayHTTPClient` — stateless HTTP client (enum with static async methods). Currently `@MainActor` but being migrated to nonisolated (see LUM-492). New network client protocols and structs should be nonisolated. See `clients/AGENTS.md` § "@MainActor Isolation Boundaries" and § "Networking: Use GatewayHTTPClient for New HTTP APIs".
 - `MessageTypes.swift` — Codable structs for HTTP request/response types: `host_cu_request`, `host_cu_result`, `cu_error`, `ambient_analyze`, `trace_event`, etc.
 - `Network/Generated/GeneratedAPITypes.swift` — Codable Swift types used for JSON serialization. Use these generated types directly in Swift code instead of hand-writing structs.
 
