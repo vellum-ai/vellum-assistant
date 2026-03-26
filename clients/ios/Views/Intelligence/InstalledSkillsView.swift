@@ -98,8 +98,8 @@ struct InstalledSkillsView: View {
 
                 if !skill.description.isEmpty {
                     Text(skill.description)
-                        .font(VFont.labelDefault)
-                        .foregroundStyle(VColor.contentTertiary)
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentSecondary)
                         .lineLimit(2)
                 }
             }

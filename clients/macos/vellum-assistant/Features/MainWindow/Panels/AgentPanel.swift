@@ -311,7 +311,7 @@ struct SkillItemRow: View {
 
                     Text(skill.description)
                         .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentSecondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
