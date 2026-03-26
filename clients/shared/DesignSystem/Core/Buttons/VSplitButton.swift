@@ -81,7 +81,7 @@ public struct VSplitButton<MenuContent: View>: View {
                 Menu {
                     menuContent()
                 } label: {
-                    VColor.auxWhite.opacity(0.001)
+                    Color.white.opacity(0.001)
                         .frame(width: dropdownWidth, height: zoneHeight)
                         .contentShape(Rectangle())
                 }
