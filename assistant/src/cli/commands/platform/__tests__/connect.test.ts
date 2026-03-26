@@ -100,41 +100,44 @@ describe("assistant platform connect", () => {
     process.exitCode = 0;
   });
 
-  test.skip("already connected returns success with existing base URL", async () => {
-    /**
-     * When the assistant already has stored platform credentials (base
-     * URL and API key), the connect command should short-circuit and
-     * report that it is already connected, returning the existing base
-     * URL.
-     *
-     * NOTE: The connect command is currently stubbed — the full
-     * credential-collection flow via a secure UI component is not yet
-     * implemented. This test validates the already-connected early-exit
-     * path, which IS implemented. It is skipped because the stub path
-     * still sets a non-zero exit code before reaching this branch
-     * under certain conditions. Unskip once the full connect flow
-     * lands.
-     */
+  test.todo(
+    "already connected returns success with existing base URL",
+    async () => {
+      /**
+       * When the assistant already has stored platform credentials (base
+       * URL and API key), the connect command should short-circuit and
+       * report that it is already connected, returning the existing base
+       * URL.
+       *
+       * NOTE: The connect command is currently stubbed — the full
+       * credential-collection flow via a secure UI component is not yet
+       * implemented. This test validates the already-connected early-exit
+       * path, which IS implemented. It is skipped because the stub path
+       * still sets a non-zero exit code before reaching this branch
+       * under certain conditions. Unskip once the full connect flow
+       * lands.
+       */
 
-    // GIVEN stored platform credentials already exist
-    mockGetSecureKeyViaDaemon = async (account: string) => {
-      if (account === "credential/vellum/platform_base_url")
-        return "https://platform.vellum.ai";
-      if (account === "credential/vellum/assistant_api_key")
-        return "sk-existing-key";
-      return undefined;
-    };
+      // GIVEN stored platform credentials already exist
+      mockGetSecureKeyViaDaemon = async (account: string) => {
+        if (account === "credential/vellum/platform_base_url")
+          return "https://platform.vellum.ai";
+        if (account === "credential/vellum/assistant_api_key")
+          return "sk-existing-key";
+        return undefined;
+      };
 
-    // WHEN the connect command is run with --json
-    const { exitCode, stdout } = await runCommand(["connect", "--json"]);
+      // WHEN the connect command is run with --json
+      const { exitCode, stdout } = await runCommand(["connect", "--json"]);
 
-    // THEN the command succeeds
-    expect(exitCode).toBe(0);
+      // THEN the command succeeds
+      expect(exitCode).toBe(0);
 
-    // AND the output indicates already connected with the base URL
-    const parsed = JSON.parse(stdout);
-    expect(parsed.ok).toBe(true);
-    expect(parsed.alreadyConnected).toBe(true);
-    expect(parsed.baseUrl).toBe("https://platform.vellum.ai");
-  });
+      // AND the output indicates already connected with the base URL
+      const parsed = JSON.parse(stdout);
+      expect(parsed.ok).toBe(true);
+      expect(parsed.alreadyConnected).toBe(true);
+      expect(parsed.baseUrl).toBe("https://platform.vellum.ai");
+    },
+  );
 });
