@@ -41,20 +41,22 @@ extension EnvironmentValues {
     /// Monotonically increasing counter that replaces the O(n) per-body-eval
     /// `computeMessageFingerprint()` hash. Incremented when any of the following
     /// triggers fire:
-    /// - `messages.count` changes (new message appended or pagination load)
+    /// - visible message count changes (filtering by hidden/subagent status)
     /// - `isSending` or `isThinking` transitions (activity state change)
-    /// - `messages.last?.isStreaming` transitions (end of streaming)
+    /// - `visibleMessages.last?.isStreaming` transitions (end of streaming)
     /// - A tool call's `isComplete` transitions (observable via messages array
     ///   identity change in SwiftUI)
     ///
     /// Over-invalidation is safe (triggers a recompute); under-invalidation is not.
     var messageListVersion: Int = 0
 
-    /// Cached message count for detecting structural changes.
-    var lastKnownMessageCount: Int = 0
-    /// Cached streaming state of the last message.
+    /// Cached visible message count for detecting structural changes.
+    /// Tracks the filtered (non-hidden, non-subagent) count so that
+    /// visibility transitions properly invalidate the layout cache.
+    var lastKnownVisibleMessageCount: Int = 0
+    /// Cached streaming state of the last visible message.
     var lastKnownLastMessageStreaming: Bool = false
-    /// Cached count of incomplete tool calls across all messages.
+    /// Cached count of incomplete tool calls across visible messages.
     var lastKnownIncompleteToolCallCount: Int = 0
 
     // MARK: - Scroll Geometry (non-reactive, updated every scroll tick)
@@ -191,30 +193,21 @@ struct MessageListView: View {
     /// O(1) version counter. Over-invalidation is safe (triggers a recompute);
     /// under-invalidation is not.
     ///
-    /// All checks are O(1) — we only inspect `messages.count`,
-    /// `messages.last?.isStreaming`, and the last message's tool call completion
-    /// states (typically 0–3 tool calls). `isSending` / `isThinking` transitions
-    /// are handled via `PrecomputedCacheKey` fields directly.
-    ///
-    /// Mutation paths that affect `CachedMessageLayoutMetadata` inputs:
-    /// - `messages.count` changes (append, pagination, deletion)
-    /// - `messages.last?.isStreaming` transitions (end of streaming)
-    /// - Tool call `isComplete` transitions — detected via the last message's
-    ///   tool calls (active tool calls are always on the most recent assistant
-    ///   message) and via `messages.count` changes when tool results arrive
-    private func refreshMessageListVersionIfNeeded() {
-        let currentCount = messages.count
-        let currentLastStreaming = messages.last?.isStreaming ?? false
-        // Tool call completion is detected via the incomplete count on the
-        // last message only — active tool calls live on the tail assistant
-        // message, and completion of older tool calls always coincides with
-        // a messages.count change (the tool result message is appended).
-        let currentIncompleteToolCalls = messages.last?.toolCalls.filter { !$0.isComplete }.count ?? 0
+    /// Operates on the already-filtered `visibleMessages` so that changes in
+    /// message visibility (hidden/subagent transitions) correctly invalidate
+    /// the layout cache. All checks are O(1) — we only inspect the visible
+    /// count, `last?.isStreaming`, and the last message's tool call completion
+    /// states. `isSending` / `isThinking` transitions are handled via
+    /// `PrecomputedCacheKey` fields directly.
+    private func refreshMessageListVersionIfNeeded(visibleMessages: [ChatMessage]) {
+        let currentCount = visibleMessages.count
+        let currentLastStreaming = visibleMessages.last?.isStreaming ?? false
+        let currentIncompleteToolCalls = visibleMessages.last?.toolCalls.filter { !$0.isComplete }.count ?? 0
 
         var changed = false
 
-        if currentCount != scrollCoordinator.scrollTracking.lastKnownMessageCount {
-            scrollCoordinator.scrollTracking.lastKnownMessageCount = currentCount
+        if currentCount != scrollCoordinator.scrollTracking.lastKnownVisibleMessageCount {
+            scrollCoordinator.scrollTracking.lastKnownVisibleMessageCount = currentCount
             changed = true
         }
         if currentLastStreaming != scrollCoordinator.scrollTracking.lastKnownLastMessageStreaming {
@@ -262,7 +255,12 @@ struct MessageListView: View {
     /// SwiftUI's `.equatable()` diffing sees every mutation.
     private var derivedState: MessageListDerivedState {
         os_signpost(.begin, log: stallLog, name: "DerivedState.resolve")
-        refreshMessageListVersionIfNeeded()
+
+        // Compute visible messages first so version tracking and layout
+        // both operate on the same filtered set.
+        let liveMessages = visibleMessages
+        refreshMessageListVersionIfNeeded(visibleMessages: liveMessages)
+
         let key = PrecomputedCacheKey(
             messageListVersion: scrollCoordinator.scrollTracking.messageListVersion,
             isSending: isSending,
@@ -272,9 +270,6 @@ struct MessageListView: View {
             activeSubagentFingerprint: Self.computeSubagentFingerprint(activeSubagents),
             displayedMessageCount: displayedMessageCount
         )
-
-        // Always compute live messages — cheap O(n) filter + dictionary.
-        let liveMessages = visibleMessages
         let liveMessageById = Dictionary(
             liveMessages.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -283,9 +278,11 @@ struct MessageListView: View {
         // --- Stage 1: Cached structural metadata ---
         let layout: CachedMessageLayoutMetadata
         if key == scrollCoordinator.scrollTracking.cachedLayoutKey,
-           let cached = scrollCoordinator.scrollTracking.cachedLayoutMetadata {
+           let cached = scrollCoordinator.scrollTracking.cachedLayoutMetadata,
+           cached.displayMessageIds.count == liveMessages.count {
             #if DEBUG
-            let freshIds = liveMessages.map(\.id)
+            var seen = Set<UUID>()
+            let freshIds = liveMessages.map(\.id).filter { seen.insert($0).inserted }
             assert(
                 cached.displayMessageIds == freshIds,
                 "layout cache stale: IDs \(cached.displayMessageIds.count) vs \(freshIds.count)"
