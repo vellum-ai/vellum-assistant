@@ -31,6 +31,7 @@ struct ChatBubble: View {
     var onRetryConversationError: (() -> Void)?
 
     var isLatestAssistantMessage: Bool = false
+    @Environment(\.suppressAutoScroll) private var suppressAutoScroll
     @State private var avatarBounceScale: CGFloat = 1.0
     /// When true, the assistant is still processing after tool calls completed.
     /// Renders an inline loading indicator in trailingStatus to avoid a separate
@@ -693,7 +694,7 @@ struct ChatBubble: View {
                 if isUser && !message.toolCalls.isEmpty {
                     VStack(alignment: .leading, spacing: VSpacing.xs) {
                         ForEach(message.toolCalls) { toolCall in
-                            ToolCallChip(toolCall: toolCall)
+                            ToolCallChip(toolCall: toolCall, onWillExpand: suppressAutoScroll)
                         }
                     }
                 }

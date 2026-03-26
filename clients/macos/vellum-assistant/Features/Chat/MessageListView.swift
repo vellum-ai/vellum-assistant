@@ -837,7 +837,11 @@ struct MessageListView: View {
                 }
 
                 // --- Push-to-top overflow detection ---
-                if scrollCoordinator.pushToTopMessageId != nil && distanceFromBottom > 50 {
+                // Guard against suppression so that expanding a tool result (which
+                // grows content height) doesn't yank the user to the bottom.
+                if scrollCoordinator.pushToTopMessageId != nil
+                    && distanceFromBottom > 50
+                    && !scrollCoordinator.isSuppressed {
                     scrollCoordinator.pushToTopMessageId = nil
                     scrollCoordinator.requestBottomPin(
                         reason: .messageCount,

@@ -3,25 +3,42 @@ import SwiftUI
 import AppKit
 #endif
 
-/// Splits text into lines and renders only visible ones via LazyVStack.
-/// Used for long tool outputs/inputs where a single Text view is too expensive to layout.
+/// Loads text content asynchronously and renders only visible lines via LazyVStack.
 private struct LazyTextView: View {
     let text: String
     let font: Font
     let color: Color
+    let maxHeight: CGFloat
+
+    @State private var lines: [Substring]?
 
     var body: some View {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                Text(line.isEmpty ? " " : line)
-                    .font(font)
-                    .foregroundStyle(color)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
+        ScrollView {
+            if let lines {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                        Text(line.isEmpty ? " " : line)
+                            .font(font)
+                            .foregroundStyle(color)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .textSelection(.enabled)
+            } else {
+                ProgressView()
+                    .scaleEffect(0.6)
+                    .frame(maxWidth: .infinity, minHeight: 40)
             }
         }
-        .textSelection(.enabled)
+        .frame(maxHeight: maxHeight)
+        .task {
+            let t = text
+            let result = await Task.detached(priority: .userInitiated) {
+                t.split(separator: "\n", omittingEmptySubsequences: false)
+            }.value
+            lines = result
+        }
     }
 }
 
@@ -30,18 +47,18 @@ public struct ToolCallChip: View {
     /// Optional callback invoked when expanding a tool call whose content was truncated.
     /// The parent view can use this to trigger on-demand rehydration of the full content.
     public var onRehydrate: (() -> Void)?
+    /// Optional callback to suppress auto-scroll during expansion.
+    public var onWillExpand: (() -> Void)?
 
-    public init(toolCall: ToolCallData, onRehydrate: (() -> Void)? = nil) {
+    public init(toolCall: ToolCallData, onRehydrate: (() -> Void)? = nil, onWillExpand: (() -> Void)? = nil) {
         self.toolCall = toolCall
         self.onRehydrate = onRehydrate
+        self.onWillExpand = onWillExpand
     }
     @State private var isExpanded = false
     /// Cached formatted input — computed once on first expand to avoid re-running
     /// `formatAllToolInput` on every SwiftUI render pass.
     @State private var cachedInputFull: String?
-    /// Cached line count for the result text — avoids O(n) `components(separatedBy:)`
-    /// array allocation on every SwiftUI render pass when the chip is expanded.
-    @State private var cachedResultLineCount: Int?
 
     /// Parse a `<command_exit code="N" />` tag from the result string and return the exit code.
     static func parseExitCode(from result: String) -> Int? {
@@ -55,15 +72,6 @@ public struct ToolCallChip: View {
             return nil
         }
         return Int(matched[numRange])
-    }
-
-    /// Count lines in a string without allocating an intermediate array.
-    static func countLines(in text: String) -> Int {
-        var count = 1
-        for byte in text.utf8 where byte == UInt8(ascii: "\n") {
-            count += 1
-        }
-        return count
     }
 
     /// Whether the tool produces diff-formatted output that benefits from line-level highlighting.
@@ -109,6 +117,7 @@ public struct ToolCallChip: View {
             // Chip header (always visible)
             Button {
                 if toolCall.isComplete && hasExpandableContent {
+                    onWillExpand?()
                     withAnimation(VAnimation.fast) { isExpanded.toggle() }
                 }
             } label: {
@@ -162,23 +171,12 @@ public struct ToolCallChip: View {
                                 .font(VFont.labelDefault)
                                 .foregroundStyle(VColor.contentSecondary)
                             if !resolvedInputFull.isEmpty {
-                                let inputLineCount = Self.countLines(in: resolvedInputFull)
-                                if inputLineCount > 80 {
-                                    ScrollView {
-                                        LazyTextView(
-                                            text: resolvedInputFull,
-                                            font: VFont.bodySmallDefault,
-                                            color: VColor.contentSecondary
-                                        )
-                                    }
-                                    .frame(maxHeight: 300)
-                                } else {
-                                    Text(resolvedInputFull)
-                                        .font(VFont.bodySmallDefault)
-                                        .foregroundStyle(VColor.contentSecondary)
-                                        .textSelection(.enabled)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
+                                LazyTextView(
+                                    text: resolvedInputFull,
+                                    font: VFont.bodySmallDefault,
+                                    color: VColor.contentSecondary,
+                                    maxHeight: 300
+                                )
                             }
                         }
                     }
@@ -246,22 +244,12 @@ public struct ToolCallChip: View {
                                         .replacingOccurrences(of: #"<command_exit code="\d+" />"#, with: "", options: .regularExpression)
                                         .trimmingCharacters(in: .whitespacesAndNewlines)
                                     if !extraOutput.isEmpty {
-                                        let extraLineCount = Self.countLines(in: extraOutput)
-                                        if extraLineCount > 80 {
-                                            ScrollView {
-                                                LazyTextView(
-                                                    text: extraOutput,
-                                                    font: VFont.bodySmallDefault,
-                                                    color: VColor.contentSecondary
-                                                )
-                                            }
-                                            .frame(maxHeight: 300)
-                                        } else {
-                                            Text(extraOutput)
-                                                .font(VFont.bodySmallDefault)
-                                                .foregroundStyle(VColor.contentSecondary)
-                                                .textSelection(.enabled)
-                                        }
+                                        LazyTextView(
+                                            text: extraOutput,
+                                            font: VFont.bodySmallDefault,
+                                            color: VColor.contentSecondary,
+                                            maxHeight: 300
+                                        )
                                     }
                                 }
                             } else if result == "<command_completed />" {
@@ -273,25 +261,15 @@ public struct ToolCallChip: View {
                                         .foregroundStyle(VColor.contentSecondary)
                                 }
                             } else {
-                                let lineCount = cachedResultLineCount ?? Self.countLines(in: result)
                                 if Self.isFileEditTool(toolCall.toolName) {
-                                    VDiffView(result, maxHeight: lineCount > 80 ? 400 : nil)
-                                } else if lineCount > 80 {
-                                    ScrollView {
-                                        LazyTextView(
-                                            text: result,
-                                            font: VFont.bodySmallDefault,
-                                            color: VColor.contentSecondary
-                                        )
-                                    }
-                                    .frame(maxHeight: 400)
+                                    VDiffView(result, maxHeight: 400)
                                 } else {
-                                    Text(result)
-                                        .font(VFont.bodySmallDefault)
-                                        .foregroundStyle(VColor.contentSecondary)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .textSelection(.enabled)
-                                        .fixedSize(horizontal: false, vertical: true)
+                                    LazyTextView(
+                                        text: result,
+                                        font: VFont.bodySmallDefault,
+                                        color: VColor.contentSecondary,
+                                        maxHeight: 400
+                                    )
                                 }
                             }
                         }
@@ -299,7 +277,6 @@ public struct ToolCallChip: View {
                     }
                 }
                 .padding(.bottom, VSpacing.sm)
-                .transition(.opacity.combined(with: .move(edge: .top)))
                 .onAppear {
                     // Compute formatted input once when the user first expands,
                     // rather than re-running formatAllToolInput on every render.
@@ -309,10 +286,6 @@ public struct ToolCallChip: View {
                         } else if let dict = toolCall.inputRawDict {
                             cachedInputFull = ToolCallData.formatAllToolInput(dict)
                         }
-                    }
-                    // Cache the result line count so subsequent renders are O(1).
-                    if cachedResultLineCount == nil, let result = toolCall.result {
-                        cachedResultLineCount = Self.countLines(in: result)
                     }
                     // Trigger on-demand rehydration when expanding truncated content.
                     onRehydrate?()
@@ -344,22 +317,12 @@ public struct ToolCallChip: View {
                         cachedInputFull = toolCall.inputFull
                     }
                 }
-                if cachedResultLineCount == nil, let result = toolCall.result {
-                    cachedResultLineCount = Self.countLines(in: result)
-                }
             }
         }
         .onChange(of: toolCall.inputFull) {
             // Invalidate the cached formatted input so the next render picks up
             // the fresh (rehydrated) value instead of the stale truncated one.
             cachedInputFull = nil
-        }
-        .onChange(of: toolCall.result) {
-            if isExpanded, let result = toolCall.result {
-                cachedResultLineCount = Self.countLines(in: result)
-            } else {
-                cachedResultLineCount = nil
-            }
         }
     }
 }
