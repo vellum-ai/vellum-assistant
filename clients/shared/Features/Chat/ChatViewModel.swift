@@ -2060,6 +2060,21 @@ public final class ChatViewModel: ObservableObject {
     public func stopGenerating() {
         guard isAssistantBusy else { return }
 
+        // If the only reason we're "busy" is orphaned incomplete tool calls
+        // (daemon already sent messageComplete, clearing isSending and
+        // currentAssistantMessageId), complete them locally and return —
+        // there is nothing to cancel on the daemon side.
+        if !isSending && !isThinking && currentAssistantMessageId == nil && hasIncompleteToolCalls {
+            if let lastAssistant = messages.last(where: { $0.role == .assistant }),
+               let index = messages.firstIndex(where: { $0.id == lastAssistant.id }) {
+                for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
+                    messages[index].toolCalls[j].isComplete = true
+                    messages[index].toolCalls[j].completedAt = Date()
+                }
+            }
+            return
+        }
+
         pendingVoiceMessage = false
 
         // If we're still bootstrapping (no conversation yet), cancel locally:
@@ -2360,9 +2375,19 @@ public final class ChatViewModel: ObservableObject {
         // Remove this message from local state (it will be re-added by sendMessage)
         messages.remove(at: index)
 
-        // If the assistant is not busy, stopGenerating() will no-op and no
-        // cancel-completion event will fire. Dispatch immediately instead.
-        guard isAssistantBusy else {
+        // If the assistant is not busy (or only busy due to orphaned tool
+        // calls), complete any orphaned tool calls and dispatch immediately
+        // instead of going through the cancel flow.
+        if !isSending && !isThinking && currentAssistantMessageId == nil {
+            // Complete any orphaned incomplete tool calls first
+            if hasIncompleteToolCalls,
+               let lastAssistant = messages.last(where: { $0.role == .assistant }),
+               let idx = messages.firstIndex(where: { $0.id == lastAssistant.id }) {
+                for j in messages[idx].toolCalls.indices where !messages[idx].toolCalls[j].isComplete {
+                    messages[idx].toolCalls[j].isComplete = true
+                    messages[idx].toolCalls[j].completedAt = Date()
+                }
+            }
             inputText = text
             pendingAttachments = attachments
             pendingSkillInvocation = skillInvocation
