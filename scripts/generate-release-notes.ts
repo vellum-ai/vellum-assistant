@@ -109,7 +109,7 @@ async function main(): Promise<void> {
 
   const commitList = commits.map((c, i) => `${i + 1}. ${c}`).join("\n");
 
-  const response = await client.messages.create({
+  const stream = client.messages.stream({
     model: "claude-sonnet-4-6",
     max_tokens: 64000,
     messages: [
@@ -138,6 +138,8 @@ ${commitList}`,
       },
     ],
   });
+
+  const response = await stream.finalMessage();
 
   const content = response.content[0];
   if (content.type !== "text") {
