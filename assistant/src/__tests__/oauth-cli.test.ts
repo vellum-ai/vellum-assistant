@@ -579,6 +579,9 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
   });
 
   test("upsert with --client-secret-credential-path passes path to upsertApp", async () => {
+    // "custom/path" has no colon and no credential/ or oauth_app/ prefix.
+    // resolveCredentialPath passes it through unchanged since it doesn't
+    // match the service:field shorthand pattern.
     const { exitCode, stdout } = await runCli([
       "apps",
       "upsert",
@@ -665,9 +668,8 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
     });
   });
 
-  test("upsert passes non-prefixed credential path through unchanged", async () => {
-    // Short-form resolution (splitting on last colon) has been removed.
-    // Non-prefixed paths are now passed through as-is.
+  test("upsert resolves service:field shorthand to full credential path", async () => {
+    // The service:field shorthand is resolved to credential/{service}/{field}
     const { exitCode, stdout } = await runCli([
       "apps",
       "upsert",
@@ -685,7 +687,32 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
       provider: "google",
       clientId: "abc",
       clientSecretOpts: {
-        clientSecretCredentialPath: "google:client_secret",
+        clientSecretCredentialPath: "credential/google/client_secret",
+      },
+    });
+    const parsed = JSON.parse(stdout);
+    expect(parsed.id).toBe("app-upsert-1");
+  });
+
+  test("upsert resolves slack:client_secret shorthand to full credential path", async () => {
+    const { exitCode, stdout } = await runCli([
+      "apps",
+      "upsert",
+      "--provider",
+      "slack",
+      "--client-id",
+      "slack-abc",
+      "--client-secret-credential-path",
+      "slack:client_secret",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(mockUpsertAppCalls).toHaveLength(1);
+    expect(mockUpsertAppCalls[0]).toEqual({
+      provider: "slack",
+      clientId: "slack-abc",
+      clientSecretOpts: {
+        clientSecretCredentialPath: "credential/slack/client_secret",
       },
     });
     const parsed = JSON.parse(stdout);

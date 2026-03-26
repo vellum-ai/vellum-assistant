@@ -8,8 +8,33 @@ import {
   listApps,
   upsertApp,
 } from "../../../oauth/oauth-store.js";
+import { credentialKey } from "../../../security/credential-key.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
+
+/**
+ * Resolve a credential path input to its full internal format.
+ *
+ * - If `input` already starts with `credential/` or `oauth_app/`, return as-is
+ *   (backwards compatibility for full paths).
+ * - Otherwise, split on the **last** colon to extract `service` and `field`,
+ *   then return `credential/{service}/{field}`.
+ * - If there is no colon, return as-is (unknown format, pass through).
+ */
+function resolveCredentialPath(input: string): string {
+  if (input.startsWith("credential/") || input.startsWith("oauth_app/")) {
+    return input;
+  }
+
+  const lastColon = input.lastIndexOf(":");
+  if (lastColon === -1) {
+    return input;
+  }
+
+  const service = input.slice(0, lastColon);
+  const field = input.slice(lastColon + 1);
+  return credentialKey(service, field);
+}
 
 const log = getCliLogger("cli");
 
@@ -218,13 +243,14 @@ You can supply the client secret directly via --client-secret, or reference an
 existing credential in the store via --client-secret-credential-path. These two
 options are mutually exclusive — providing both is an error.
 
-The --client-secret-credential-path must be a full credential path
-(e.g. "credential/google/client_secret").
+The --client-secret-credential-path accepts a credential reference in
+\`service:field\` format (e.g. \`google:client_secret\`). Full paths like
+\`credential/google/client_secret\` are also accepted.
 
 Examples:
   $ assistant oauth apps upsert --provider google --client-id abc123
   $ assistant oauth apps upsert --provider slack --client-id def456 --client-secret s3cret
-  $ assistant oauth apps upsert --provider slack --client-id def456 --client-secret-credential-path "credential/slack/client_secret"
+  $ assistant oauth apps upsert --provider slack --client-id def456 --client-secret-credential-path "slack:client_secret"
   $ assistant oauth apps upsert --provider google --client-id abc123 --json`,
     )
     .action(
@@ -248,10 +274,13 @@ Examples:
             return;
           }
 
+          const resolvedPath = opts.clientSecretCredentialPath
+            ? resolveCredentialPath(opts.clientSecretCredentialPath)
+            : undefined;
           const clientSecretOpts = opts.clientSecret
             ? { clientSecretValue: opts.clientSecret }
-            : opts.clientSecretCredentialPath
-              ? { clientSecretCredentialPath: opts.clientSecretCredentialPath }
+            : resolvedPath
+              ? { clientSecretCredentialPath: resolvedPath }
               : undefined;
           const row = await upsertApp(
             opts.provider,
