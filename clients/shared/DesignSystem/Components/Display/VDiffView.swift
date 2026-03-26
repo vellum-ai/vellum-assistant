@@ -45,9 +45,10 @@ public struct VDiffView: View {
     public var body: some View {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         if let maxHeight {
-            diffScrollView(lines: lines, axes: [.horizontal, .vertical], lazy: lines.count > 200)
+            // Height-constrained: always virtualize — only visible lines render
+            diffScrollView(lines: lines, axes: [.horizontal, .vertical], lazy: true)
                 .frame(maxHeight: maxHeight)
-        } else if lines.count > 200 {
+        } else if lines.count > 80 {
             // Large diffs without an explicit maxHeight still get capped + virtualized
             diffScrollView(lines: lines, axes: [.horizontal, .vertical], lazy: true)
                 .frame(maxHeight: 400)

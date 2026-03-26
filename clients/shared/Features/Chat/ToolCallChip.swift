@@ -3,6 +3,28 @@ import SwiftUI
 import AppKit
 #endif
 
+/// Splits text into lines and renders only visible ones via LazyVStack.
+/// Used for long tool outputs/inputs where a single Text view is too expensive to layout.
+private struct LazyTextView: View {
+    let text: String
+    let font: Font
+    let color: Color
+
+    var body: some View {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                Text(line.isEmpty ? " " : line)
+                    .font(font)
+                    .foregroundStyle(color)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .textSelection(.enabled)
+    }
+}
+
 public struct ToolCallChip: View {
     public let toolCall: ToolCallData
     /// Optional callback invoked when expanding a tool call whose content was truncated.
@@ -143,11 +165,11 @@ public struct ToolCallChip: View {
                                 let inputLineCount = Self.countLines(in: resolvedInputFull)
                                 if inputLineCount > 80 {
                                     ScrollView {
-                                        Text(resolvedInputFull)
-                                            .font(VFont.bodySmallDefault)
-                                            .foregroundStyle(VColor.contentSecondary)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .textSelection(.enabled)
+                                        LazyTextView(
+                                            text: resolvedInputFull,
+                                            font: VFont.bodySmallDefault,
+                                            color: VColor.contentSecondary
+                                        )
                                     }
                                     .frame(maxHeight: 300)
                                 } else {
@@ -227,11 +249,11 @@ public struct ToolCallChip: View {
                                         let extraLineCount = Self.countLines(in: extraOutput)
                                         if extraLineCount > 80 {
                                             ScrollView {
-                                                Text(extraOutput)
-                                                    .font(VFont.bodySmallDefault)
-                                                    .foregroundStyle(VColor.contentSecondary)
-                                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                                    .textSelection(.enabled)
+                                                LazyTextView(
+                                                    text: extraOutput,
+                                                    font: VFont.bodySmallDefault,
+                                                    color: VColor.contentSecondary
+                                                )
                                             }
                                             .frame(maxHeight: 300)
                                         } else {
@@ -256,11 +278,11 @@ public struct ToolCallChip: View {
                                     VDiffView(result, maxHeight: lineCount > 80 ? 400 : nil)
                                 } else if lineCount > 80 {
                                     ScrollView {
-                                        Text(result)
-                                            .font(VFont.bodySmallDefault)
-                                            .foregroundStyle(VColor.contentSecondary)
-                                            .frame(maxWidth: .infinity, alignment: .leading)
-                                            .textSelection(.enabled)
+                                        LazyTextView(
+                                            text: result,
+                                            font: VFont.bodySmallDefault,
+                                            color: VColor.contentSecondary
+                                        )
                                     }
                                     .frame(maxHeight: 400)
                                 } else {
