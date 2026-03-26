@@ -9,7 +9,13 @@
  * causing later credential changes to be missed until restart.
  */
 
-import { mkdirSync, watch, type FSWatcher } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  watch,
+  type FSWatcher,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { getLogger } from "./logger.js";
 import {
@@ -39,6 +45,8 @@ export class CredentialWatcher {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private managedBootstrapTimer: ReturnType<typeof setInterval> | null = null;
   private managedBootstrapPollInFlight = false;
+  private lastConfiguredServices = new Set<string>();
+  private lastReadyServices = new Set<string>();
   private lastSerialized: Map<string, string> = new Map();
   private polling = false;
   private pendingPoll = false;
@@ -165,7 +173,7 @@ export class CredentialWatcher {
 
       await this.pollOnce();
 
-      if (this.managedBootstrapTimer) {
+      if (this.allConfiguredServicesReady() && this.managedBootstrapTimer) {
         clearInterval(this.managedBootstrapTimer);
         this.managedBootstrapTimer = null;
       }
@@ -203,9 +211,16 @@ export class CredentialWatcher {
     this.polling = true;
     try {
       const credentials = new Map<string, Record<string, string> | null>();
+      const configuredServices = this.loadConfiguredServices();
       for (const spec of ALL_CREDENTIAL_SPECS) {
         credentials.set(spec.service, await readServiceCredentials(spec));
       }
+      this.lastConfiguredServices = configuredServices;
+      this.lastReadyServices = new Set(
+        [...credentials.entries()]
+          .filter(([, creds]) => creds !== null)
+          .map(([service]) => service),
+      );
 
       const changedServices = new Set<string>();
       for (const [service, creds] of credentials) {
@@ -233,5 +248,43 @@ export class CredentialWatcher {
         void this.pollOnce(force);
       }
     }
+  }
+
+  private loadConfiguredServices(): Set<string> {
+    if (!existsSync(this.metadataPath)) return new Set();
+
+    try {
+      const raw = readFileSync(this.metadataPath, "utf-8");
+      const data = JSON.parse(raw) as {
+        credentials?: Array<{ service?: string; field?: string }>;
+      };
+      if (!Array.isArray(data.credentials)) return new Set();
+
+      const configured = new Set<string>();
+      for (const spec of ALL_CREDENTIAL_SPECS) {
+        const hasAllRequiredFields = spec.requiredFields.every((field) =>
+          data.credentials?.some(
+            (credential) =>
+              credential.service === spec.service && credential.field === field,
+          ),
+        );
+        if (hasAllRequiredFields) {
+          configured.add(spec.service);
+        }
+      }
+
+      return configured;
+    } catch {
+      return new Set();
+    }
+  }
+
+  private allConfiguredServicesReady(): boolean {
+    for (const service of this.lastConfiguredServices) {
+      if (!this.lastReadyServices.has(service)) {
+        return false;
+      }
+    }
+    return true;
   }
 }
