@@ -1,11 +1,5 @@
 import SwiftUI
-import os
 import VellumAssistantShared
-
-private let jitterLog = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum",
-    category: "JitterDebug"
-)
 
 // MARK: - Running Indicator
 
@@ -60,7 +54,6 @@ struct RunningIndicator: View {
             let phase = Int(elapsed / 0.4) % 3
             let currentLabel = displayLabel(elapsed: elapsed)
             let labelIndex = progressiveLabels.isEmpty ? 0 : min(Int(elapsed / labelInterval), progressiveLabels.count - 1)
-            let _ = jitterLog.debug("⏱️ [RunningIndicator] tick phase=\(phase) elapsed=\(elapsed, format: .fixed(precision: 1)) showTimer=\(elapsed >= 5)")
             HStack(spacing: VSpacing.xs) {
                 if showIcon {
                     VIconView(.terminal, size: 10)
@@ -99,12 +92,6 @@ struct RunningIndicator: View {
                     .fill(isHovered ? VColor.surfaceBase.opacity(0.6) : Color.clear)
             )
             .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        }
-        // DEBUG: Track RunningIndicator height (TEMPORARY — remove before merging)
-        .onGeometryChange(for: CGFloat.self) { proxy in
-            proxy.size.height
-        } action: { height in
-            jitterLog.debug("📐 [RunningIndicator] height: \(height, format: .fixed(precision: 4))")
         }
         .onAppear {
             startDate = Date()
