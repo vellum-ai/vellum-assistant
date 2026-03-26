@@ -140,11 +140,23 @@ public struct ToolCallChip: View {
                                 .font(VFont.labelDefault)
                                 .foregroundStyle(VColor.contentSecondary)
                             if !resolvedInputFull.isEmpty {
-                                Text(resolvedInputFull)
-                                    .font(VFont.bodySmallDefault)
-                                    .foregroundStyle(VColor.contentSecondary)
-                                    .textSelection(.enabled)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                let inputLineCount = Self.countLines(in: resolvedInputFull)
+                                if inputLineCount > 80 {
+                                    ScrollView {
+                                        Text(resolvedInputFull)
+                                            .font(VFont.bodySmallDefault)
+                                            .foregroundStyle(VColor.contentSecondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                            .textSelection(.enabled)
+                                    }
+                                    .frame(maxHeight: 300)
+                                } else {
+                                    Text(resolvedInputFull)
+                                        .font(VFont.bodySmallDefault)
+                                        .foregroundStyle(VColor.contentSecondary)
+                                        .textSelection(.enabled)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
                             }
                         }
                     }
@@ -212,10 +224,22 @@ public struct ToolCallChip: View {
                                         .replacingOccurrences(of: #"<command_exit code="\d+" />"#, with: "", options: .regularExpression)
                                         .trimmingCharacters(in: .whitespacesAndNewlines)
                                     if !extraOutput.isEmpty {
-                                        Text(extraOutput)
-                                            .font(VFont.bodySmallDefault)
-                                            .foregroundStyle(VColor.contentSecondary)
-                                            .textSelection(.enabled)
+                                        let extraLineCount = Self.countLines(in: extraOutput)
+                                        if extraLineCount > 80 {
+                                            ScrollView {
+                                                Text(extraOutput)
+                                                    .font(VFont.bodySmallDefault)
+                                                    .foregroundStyle(VColor.contentSecondary)
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                                    .textSelection(.enabled)
+                                            }
+                                            .frame(maxHeight: 300)
+                                        } else {
+                                            Text(extraOutput)
+                                                .font(VFont.bodySmallDefault)
+                                                .foregroundStyle(VColor.contentSecondary)
+                                                .textSelection(.enabled)
+                                        }
                                     }
                                 }
                             } else if result == "<command_completed />" {
@@ -229,8 +253,8 @@ public struct ToolCallChip: View {
                             } else {
                                 let lineCount = cachedResultLineCount ?? Self.countLines(in: result)
                                 if Self.isFileEditTool(toolCall.toolName) {
-                                    VDiffView(result, maxHeight: lineCount > 500 ? 400 : nil)
-                                } else if lineCount > 500 {
+                                    VDiffView(result, maxHeight: lineCount > 80 ? 400 : nil)
+                                } else if lineCount > 80 {
                                     ScrollView {
                                         Text(result)
                                             .font(VFont.bodySmallDefault)
