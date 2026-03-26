@@ -35,6 +35,7 @@ final class DebugStateWriter {
     func start(appDelegate: AppDelegate) {
         self.appDelegate = appDelegate
         captureAndWrite()
+        timerTask?.cancel()
         timerTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
