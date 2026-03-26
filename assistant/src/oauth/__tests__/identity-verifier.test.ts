@@ -7,19 +7,21 @@ import {
   test,
 } from "bun:test";
 
-import type { OAuthProviderRow } from "../oauth-store.js";
 import { verifyIdentity } from "../identity-verifier.js";
+import type { OAuthProviderRow } from "../oauth-store.js";
 
 // ---------------------------------------------------------------------------
 // Mock fetch
 // ---------------------------------------------------------------------------
 
 const originalFetch = globalThis.fetch;
-let mockFetch: ReturnType<typeof mock<typeof fetch>>;
+let mockFetch: ReturnType<typeof mock<any>>;
 
 beforeEach(() => {
-  mockFetch = mock<typeof fetch>();
-  globalThis.fetch = mockFetch;
+  mockFetch = mock(() =>
+    Promise.resolve(new Response("{}", { status: 200 })),
+  );
+  globalThis.fetch = mockFetch as unknown as typeof fetch;
 });
 
 afterEach(() => {
@@ -34,8 +36,9 @@ function makeProviderRow(
   overrides: Partial<OAuthProviderRow> & { providerKey: string },
 ): OAuthProviderRow {
   const now = Date.now();
+  const { providerKey, ...rest } = overrides;
   return {
-    providerKey: overrides.providerKey,
+    providerKey,
     authUrl: "https://example.com/auth",
     tokenUrl: "https://example.com/token",
     tokenEndpointAuthMethod: null,
@@ -69,7 +72,7 @@ function makeProviderRow(
     identityOkField: null,
     createdAt: now,
     updatedAt: now,
-    ...overrides,
+    ...rest,
   };
 }
 
