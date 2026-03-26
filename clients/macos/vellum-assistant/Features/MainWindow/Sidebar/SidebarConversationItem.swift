@@ -137,7 +137,7 @@ struct SidebarConversationItem: View, Equatable {
                     .accessibilityLabel("Private conversation")
             }
             Text(conversation.title)
-                .font(.system(size: 13))
+                .font(VFont.menuCompact)
                 .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -222,7 +222,7 @@ struct SidebarConversationItem: View, Equatable {
                     Color.clear.frame(width: 20, height: 20)
                 }
                 Text(conversation.title)
-                    .font(.system(size: 13))
+                    .font(VFont.menuCompact)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
             }
