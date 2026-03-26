@@ -206,7 +206,6 @@ describe("assistant oauth providers update", () => {
 
   test("built-in provider returns error suggesting register", async () => {
     mockGetProvider = () => ({
-      providerKey: "google",
       ...sampleProviderRow,
       providerKey: "google",
     });
