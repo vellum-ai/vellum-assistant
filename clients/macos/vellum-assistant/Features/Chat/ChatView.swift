@@ -77,6 +77,7 @@ struct ChatView: View {
     var conversationStartersLoading: Bool = false
     var onSelectStarter: ((ConversationStarter) -> Void)? = nil
     var onFetchConversationStarters: (() -> Void)? = nil
+    var activePendingRequestId: String?
     var isInteractionEnabled: Bool = true
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
@@ -153,7 +154,7 @@ struct ChatView: View {
 
     /// Message IDs whose text contains the search query, ordered chronologically.
     private var searchMatches: [UUID] {
-        guard !searchText.isEmpty else { return [] }
+        guard isSearchActive, !searchText.isEmpty else { return [] }
         let query = searchText.lowercased()
         return messages.filter { $0.text.lowercased().contains(query) }.map(\.id)
     }
@@ -256,6 +257,7 @@ struct ChatView: View {
                             onRetryFailedMessage: onRetryFailedMessage,
                             onRetryConversationError: onRetryConversationError,
                             subagentDetailStore: subagentDetailStore,
+                            activePendingRequestId: activePendingRequestId,
                             displayedMessageCount: displayedMessageCount,
                             hasMoreMessages: hasMoreMessages,
                             isLoadingMoreMessages: isLoadingMoreMessages,
@@ -286,17 +288,12 @@ struct ChatView: View {
                             .padding(.bottom, -VSpacing.sm)
                         }
 
-                        let composerMessages = ChatVisibleMessageFilter.paginatedMessages(
-                            from: messages,
-                            displayedMessageCount: displayedMessageCount
-                        )
-
                         ComposerSection(
                             inputText: $inputText,
                             isSending: isSending,
-                            hasPendingConfirmation: PendingConfirmationFocusSelector.activeRequestId(from: composerMessages) != nil,
+                            hasPendingConfirmation: activePendingRequestId != nil,
                             onAllowPendingConfirmation: {
-                                if let requestId = PendingConfirmationFocusSelector.activeRequestId(from: composerMessages) {
+                                if let requestId = activePendingRequestId {
                                     onConfirmationAllow(requestId)
                                 }
                             },

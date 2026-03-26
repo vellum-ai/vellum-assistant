@@ -766,6 +766,7 @@ struct ActiveChatViewWrapper: View {
                 viewModel?.inputText = starter.prompt
             },
             onFetchConversationStarters: { [weak viewModel] in viewModel?.fetchConversationStarters() },
+            activePendingRequestId: viewModel.activePendingRequestId,
             isInteractionEnabled: inspectorMessageId == nil,
             anchorMessageId: $anchorMessageId,
             highlightedMessageId: $highlightedMessageId,

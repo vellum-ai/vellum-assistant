@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import os
 #if os(macOS)
@@ -20,6 +21,21 @@ public final class ChatMessageManager: ObservableObject {
     // MARK: - Message list
 
     @Published public var messages: [ChatMessage] = []
+
+    /// Pre-computed active pending confirmation request ID, updated reactively
+    /// when messages change. Eliminates redundant O(n) scans from view bodies.
+    @Published public private(set) var activePendingRequestId: String?
+
+    init() {
+        $messages
+            .map { messages in
+                PendingConfirmationFocusSelector.activeRequestId(
+                    from: ChatVisibleMessageFilter.visibleMessages(from: messages)
+                )
+            }
+            .removeDuplicates()
+            .assign(to: &$activePendingRequestId)
+    }
 
     // MARK: - Input / send state
 

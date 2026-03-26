@@ -323,6 +323,7 @@ private struct ThreadWindowContentView: View {
             },
             subagentDetailStore: viewModel.subagentDetailStore,
             isHistoryLoaded: viewModel.isHistoryLoaded,
+            activePendingRequestId: viewModel.activePendingRequestId,
             anchorMessageId: $anchorMessageId,
             highlightedMessageId: $highlightedMessageId,
             creditsExhaustedError: viewModel.errorManager.conversationError?.isCreditsExhausted == true ? viewModel.errorManager.conversationError : nil,

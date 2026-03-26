@@ -80,6 +80,10 @@ extension EnvironmentValues {
     /// Last content offset Y observed by onScrollGeometryChange, used to
     /// determine scroll direction (increasing offset = scrolling toward older content).
     var lastScrollContentOffsetY: CGFloat = 0
+
+    /// Cached ID of the first visible message, updated during body evaluation.
+    /// Used by the pagination callback to avoid an O(n) filter on every scroll.
+    var cachedFirstVisibleMessageId: UUID?
 }
 
 /// Lightweight key that captures all inputs to `precomputedState`.
@@ -146,6 +150,8 @@ struct MessageListView: View {
     /// Receives the error message's ID so the handler can validate the retry target.
     var onRetryConversationError: ((UUID) -> Void)?
     var subagentDetailStore: SubagentDetailStore
+    /// Pre-computed active pending confirmation request ID from the model layer.
+    var activePendingRequestId: String?
 
     // MARK: - Pagination
 
@@ -263,12 +269,6 @@ struct MessageListView: View {
         return hasher.finalize()
     }
 
-    /// The active pending confirmation request ID, derived from the visible
-    /// messages. Used by onChange to detect new confirmation appearances.
-    private var currentPendingRequestId: String? {
-        PendingConfirmationFocusSelector.activeRequestId(from: visibleMessages)
-    }
-
     /// Computes all derived values needed by the message list body.
     ///
     /// Structural metadata (IDs, timestamps, role-based indices, subagent
@@ -283,6 +283,7 @@ struct MessageListView: View {
         // Compute visible messages first so version tracking and layout
         // both operate on the same filtered set.
         let liveMessages = visibleMessages
+        scrollCoordinator.scrollTracking.cachedFirstVisibleMessageId = liveMessages.first?.id
         refreshMessageListVersionIfNeeded(visibleMessages: liveMessages)
 
         let key = PrecomputedCacheKey(
@@ -357,7 +358,6 @@ struct MessageListView: View {
 
         // --- Stage 2: Live content-derived state (always fresh) ---
 
-        let activePendingRequestId = PendingConfirmationFocusSelector.activeRequestId(from: liveMessages)
         let anchoredThinkingIndex = resolvedThinkingAnchorIndex(for: liveMessages)
 
         var nextDecidedConfirmationByIndex: [Int: ToolConfirmationData] = [:]
@@ -859,7 +859,7 @@ struct MessageListView: View {
                     scrollViewportHeight: scrollCoordinator.currentScrollViewportHeight,
                     hasMoreMessages: hasMoreMessages,
                     isLoadingMoreMessages: isLoadingMoreMessages,
-                    visibleMessages: visibleMessages,
+                    firstVisibleMessageId: scrollCoordinator.scrollTracking.cachedFirstVisibleMessageId,
                     conversationId: conversationId,
                     loadPreviousMessagePage: loadPreviousMessagePage
                 )
@@ -961,7 +961,7 @@ struct MessageListView: View {
                     hasMoreMessages: hasMoreMessages,
                     isNearBottom: isNearBottom,
                     conversationId: conversationId,
-                    currentPendingRequestId: currentPendingRequestId
+                    currentPendingRequestId: activePendingRequestId
                 )
             }
             .onChange(of: containerWidth) {
@@ -988,9 +988,9 @@ struct MessageListView: View {
                     scrollViewportHeight: scrollCoordinator.currentScrollViewportHeight
                 )
             }
-            .onChange(of: currentPendingRequestId) {
+            .onChange(of: activePendingRequestId) {
                 #if os(macOS)
-                scrollCoordinator.handleConfirmationFocusIfNeeded(currentPendingRequestId: currentPendingRequestId)
+                scrollCoordinator.handleConfirmationFocusIfNeeded(currentPendingRequestId: activePendingRequestId)
                 #endif
             }
             // anchorMessageId changes are handled via task(id:) to avoid
@@ -1009,7 +1009,7 @@ struct MessageListView: View {
                 )
             }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { notification in
-                if let requestId = currentPendingRequestId, scrollCoordinator.lastAutoFocusedRequestId != requestId,
+                if let requestId = activePendingRequestId, scrollCoordinator.lastAutoFocusedRequestId != requestId,
                    let window = notification.object as? NSWindow,
                    window === NSApp.keyWindow,
                    let responder = window.firstResponder as? NSTextView,

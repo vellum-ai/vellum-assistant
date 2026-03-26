@@ -515,14 +515,14 @@ extension MessageListScrollCoordinator {
     /// Fires a single pagination load, restores the scroll anchor, and
     /// manages the `isPaginationInFlight` / suppression guards.
     func triggerPagination(
-        visibleMessages: [ChatMessage],
+        firstVisibleMessageId: UUID?,
         conversationId: UUID?,
         loadPreviousMessagePage: (() async -> Bool)?
     ) {
         guard !isPaginationInFlight else { return }
         isPaginationInFlight = true
         // Pagination scroll-position restore is higher priority than bottom-pin.
-        let anchorId = visibleMessages.first?.id
+        let anchorId = firstVisibleMessageId
         os_signpost(.event, log: PerfSignposts.log, name: "paginationSentinelFired")
         scrollCoordinatorLog.debug("[pagination] fired — anchorId: \(String(describing: anchorId))")
         paginationTask = Task { [weak self] in
@@ -563,7 +563,7 @@ extension MessageListScrollCoordinator {
         scrollViewportHeight: CGFloat,
         hasMoreMessages: Bool,
         isLoadingMoreMessages: Bool,
-        visibleMessages: [ChatMessage],
+        firstVisibleMessageId: UUID?,
         conversationId: UUID?,
         loadPreviousMessagePage: (() async -> Bool)?
     ) -> Bool {
@@ -591,7 +591,7 @@ extension MessageListScrollCoordinator {
         else { return false }
 
         triggerPagination(
-            visibleMessages: visibleMessages,
+            firstVisibleMessageId: firstVisibleMessageId,
             conversationId: conversationId,
             loadPreviousMessagePage: loadPreviousMessagePage
         )
