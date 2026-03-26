@@ -196,32 +196,33 @@ sequenceDiagram
 | `assistant/src/watcher/providers/gmail.ts`       | Gmail watcher using History API                                                                    |
 | `assistant/src/watcher/providers/github.ts`      | GitHub watcher for PRs, issues, review requests, and mentions                                      |
 | `assistant/src/watcher/providers/linear.ts`      | Linear watcher for assigned issues, status changes, and @mentions                                  |
-| `assistant/src/oauth/provider-behaviors.ts`      | Provider behavior registry: identity verifiers, setup metadata, injection templates                |
+| `assistant/src/oauth/seed-providers.ts`          | Provider seed data: injection templates, identity config, setup metadata (seeded to DB on startup) |
 | `assistant/src/oauth/connect-orchestrator.ts`    | Shared OAuth connect orchestrator: profile resolution, scope policy, flow execution, token storage |
 | `assistant/src/oauth/scope-policy.ts`            | Deterministic scope resolution and policy enforcement                                              |
-| `assistant/src/oauth/connect-types.ts`           | Shared types: `OAuthProviderBehavior`, `OAuthScopePolicy`, `OAuthConnectResult`                    |
+| `assistant/src/oauth/connect-types.ts`           | Shared types: `OAuthScopePolicy`, `OAuthConnectResult`                                             |
 | `assistant/src/oauth/token-persistence.ts`       | Token storage helper: persists tokens, metadata, and runs post-connect hooks                       |
 | `assistant/src/daemon/handlers/oauth-connect.ts` | Generic OAuth connect handler (`oauth_connect_start` / `oauth_connect_result`)                     |
 
 ---
 
-## OAuth Extensibility — Provider Behaviors, Scope Policy, and Connect Orchestrator
+## OAuth Extensibility — DB-Driven Provider Config, Scope Policy, and Connect Orchestrator
 
-The OAuth extensibility layer makes adding a new OAuth provider a declarative operation. Protocol fields (auth URLs, token URLs, scopes, scope policy) are stored in the `oauth_providers` database table, while behavioral fields (identity verifiers, setup metadata, injection templates) live in the **provider behavior registry**. The shared **connect orchestrator** handles the full flow from provider resolution through token storage.
+The OAuth extensibility layer makes adding a new OAuth provider a fully declarative operation. All provider configuration — protocol fields (auth URLs, token URLs, scopes, scope policy), behavioral fields (identity verification, injection templates, setup metadata), and display metadata — is stored in the `oauth_providers` SQLite table and seeded on startup via `seed-providers.ts`. The shared **connect orchestrator** handles the full flow from provider resolution through token storage.
 
-### Provider Behavior Registry
+### Provider Configuration (DB-Driven)
 
-`assistant/src/oauth/provider-behaviors.ts` contains the `PROVIDER_BEHAVIORS` map — a registry of behavioral aspects for well-known OAuth providers. Each behavior (`OAuthProviderBehavior`) declares:
+All provider config lives in the `oauth_providers` table. Built-in providers are seeded on every startup by `assistant/src/oauth/seed-providers.ts`, which upserts rows from the `PROVIDER_SEED_DATA` constant. Custom providers can be registered via the CLI (`assistant oauth providers register`).
 
-| Field                | Purpose                                                                                                |
-| -------------------- | ------------------------------------------------------------------------------------------------------ |
-| `identityVerifier`   | Async function that fetches human-readable account info (e.g. `@username`, email) after token exchange |
-| `setup`              | Optional metadata for the generic OAuth setup skill (display name, dashboard URL, app type)            |
-| `injectionTemplates` | Auto-applied credential injection rules for the script proxy                                           |
+Each provider row includes:
 
-Protocol fields (`authUrl`, `tokenUrl`, `defaultScopes`, `scopePolicy`, `callbackTransport`) are stored in the `oauth_providers` database table rather than in code.
-
-Registered providers: `google`, `slack`, `notion`.
+| Column group              | Fields                                                                                                                           | Purpose                                                                                |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| **Protocol**              | `authUrl`, `tokenUrl`, `tokenEndpointAuthMethod`, `callbackTransport`, `extraParams`, `loopbackPort`                             | OAuth2 flow parameters                                                                 |
+| **Scopes**                | `defaultScopes`, `scopePolicy`                                                                                                   | Deterministic scope resolution (user-customizable, preserved across seed restarts)     |
+| **Identity verification** | `identityUrl`, `identityMethod`, `identityHeaders`, `identityBody`, `identityResponsePaths`, `identityFormat`, `identityOkField` | Data-driven identity verifier fetches human-readable account info after token exchange |
+| **Injection templates**   | `injectionTemplates`                                                                                                             | Auto-applied credential injection rules for the script proxy                           |
+| **Setup metadata**        | `displayName`, `description`, `dashboardUrl`, `appType`, `setupSkillId`, `setupNotes`, `requiresClientSecret`                    | Metadata for the generic OAuth setup skill                                             |
+| **Ping config**           | `pingUrl`, `pingMethod`, `pingHeaders`, `pingBody`                                                                               | Health-check endpoint for `assistant oauth ping`                                       |
 
 ### Scope Policy Engine
 
@@ -241,11 +242,11 @@ Returns `{ ok: true, scopes }` or `{ ok: false, error, allowedScopes }`.
 `assistant/src/oauth/connect-orchestrator.ts` exports `orchestrateOAuthConnect(options)`, which runs the full OAuth2 flow:
 
 1. **Receive canonical provider name** — the orchestrator receives the canonical provider name directly (e.g. `google`, `slack`).
-2. **Load behavior** — `getProviderBehavior()` from the registry; load protocol fields from the `oauth_providers` DB table.
+2. **Load provider row** — reads all config from the `oauth_providers` DB table.
 3. **Compute scopes** — `resolveScopes()` with scope policy enforcement.
 4. **Build OAuth config** — assemble protocol-level config from the DB provider row.
 5. **Run flow** — interactive (opens browser, blocks until completion) or deferred (returns auth URL for the caller to deliver).
-6. **Verify identity** — runs the profile's `identityVerifier` if defined.
+6. **Verify identity** — runs the generic data-driven identity verifier using the provider row's identity columns.
 7. **Store tokens** — `storeOAuth2Tokens()` persists access/refresh tokens, client credentials, and metadata.
 
 Result is a discriminated union: `{ success, deferred, grantedScopes, accountInfo }` or `{ success: false, error }`.
@@ -263,24 +264,25 @@ This replaces provider-specific handlers — any provider in the registry can be
 
 ### Adding a New OAuth Provider
 
-1. **Register protocol fields** in the `oauth_providers` database table (via CLI or migration):
-   - Set `authUrl`, `tokenUrl`, `defaultScopes`, `scopePolicy`, and `callbackTransport`.
-2. **Optional: declare behavioral fields** in `PROVIDER_BEHAVIORS` (`oauth/provider-behaviors.ts`):
-   - Add an `identityVerifier` — an async function that fetches the user's account info from the provider's API.
-   - Add `setup` metadata — `displayName`, `dashboardUrl`, `appType` enable the generic OAuth setup skill to guide users through app creation.
-   - Add `injectionTemplates` — for providers whose tokens should be auto-injected by the script proxy.
+1. **Add seed data** to `PROVIDER_SEED_DATA` in `assistant/src/oauth/seed-providers.ts`:
+   - Set protocol fields: `authUrl`, `tokenUrl`, `defaultScopes`, `scopePolicy`, `callbackTransport`.
+   - Set identity verification: `identityUrl`, `identityMethod`, `identityHeaders`, `identityResponsePaths`, `identityFormat`.
+   - Set injection templates: `injectionTemplates` for providers whose tokens should be auto-injected by the script proxy.
+   - Set setup metadata: `displayName`, `dashboardUrl`, `appType`, `setupSkillId` enable the generic OAuth setup skill to guide users through app creation.
+2. **Alternatively, register dynamically** via the CLI: `assistant oauth providers register <key> --auth-url ... --token-url ...`.
 3. **No handler code needed** — the generic `oauth_connect_start` handler and the connect orchestrator handle the flow automatically.
 
 ### Key Source Files
 
-| File                                             | Role                                                                             |
-| ------------------------------------------------ | -------------------------------------------------------------------------------- |
-| `assistant/src/oauth/provider-behaviors.ts`      | Provider behavior registry                                                       |
-| `assistant/src/oauth/scope-policy.ts`            | Scope resolution and policy enforcement (pure, no I/O)                           |
-| `assistant/src/oauth/connect-orchestrator.ts`    | Shared connect orchestrator (profile → scopes → flow → tokens)                   |
-| `assistant/src/oauth/connect-types.ts`           | Shared types (`OAuthProviderBehavior`, `OAuthScopePolicy`, `OAuthConnectResult`) |
-| `assistant/src/oauth/token-persistence.ts`       | Token storage: credential store writes, metadata upsert, post-connect hooks      |
-| `assistant/src/daemon/handlers/oauth-connect.ts` | Generic `oauth_connect_start` / `oauth_connect_result` handler                   |
+| File                                             | Role                                                                        |
+| ------------------------------------------------ | --------------------------------------------------------------------------- |
+| `assistant/src/oauth/seed-providers.ts`          | Provider seed data and startup seeding                                      |
+| `assistant/src/oauth/scope-policy.ts`            | Scope resolution and policy enforcement (pure, no I/O)                      |
+| `assistant/src/oauth/connect-orchestrator.ts`    | Shared connect orchestrator (profile → scopes → flow → tokens)              |
+| `assistant/src/oauth/connect-types.ts`           | Shared types (`OAuthScopePolicy`, `OAuthConnectResult`)                     |
+| `assistant/src/oauth/token-persistence.ts`       | Token storage: credential store writes, metadata upsert, post-connect hooks |
+| `assistant/src/oauth/identity-verifier.ts`       | Generic data-driven identity verifier (reads config from provider DB row)   |
+| `assistant/src/daemon/handlers/oauth-connect.ts` | Generic `oauth_connect_start` / `oauth_connect_result` handler              |
 
 ---
 

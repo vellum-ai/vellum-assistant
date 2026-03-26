@@ -8,7 +8,6 @@ import {
   getMostRecentAppByProvider,
   getProvider,
 } from "../../../oauth/oauth-store.js";
-import { getProviderBehavior } from "../../../oauth/provider-behaviors.js";
 import { renderOAuthCompletionPage } from "../../../security/oauth-completion-page.js";
 import { openInBrowser } from "../../../util/browser.js";
 import { getSecureKeyViaDaemon } from "../../lib/daemon-credential-client.js";
@@ -342,14 +341,7 @@ Examples:
 
             // d. Check if client_secret is required but missing
             if (clientSecret === undefined) {
-              const behavior = getProviderBehavior(provider);
-
-              const requiresSecret =
-                behavior?.setup?.requiresClientSecret ??
-                !!(
-                  providerRow?.tokenEndpointAuthMethod ||
-                  providerRow?.extraParams
-                );
+              const requiresSecret = !!providerRow?.requiresClientSecret;
 
               if (requiresSecret) {
                 writeError(

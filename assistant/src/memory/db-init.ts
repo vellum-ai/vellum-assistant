@@ -94,6 +94,7 @@ import {
   migrateNormalizePhoneIdentities,
   migrateNotificationDeliveryThreadDecision,
   migrateOAuthAppsClientSecretPath,
+  migrateOAuthProvidersBehaviorColumns,
   migrateOAuthProvidersDisplayMetadata,
   migrateOAuthProvidersManagedServiceConfigKey,
   migrateOAuthProvidersPingConfig,
@@ -523,6 +524,9 @@ export function initializeDb(): void {
 
   // 94. Composite index on messages(conversation_id, created_at) for paginated history queries
   migrateMessagesConversationCreatedAtIndex(database);
+
+  // 95. Add behavioral config columns to oauth_providers (loopback port, injection templates, setup metadata, identity verification)
+  migrateOAuthProvidersBehaviorColumns(database);
 
   validateMigrationState(database);
 

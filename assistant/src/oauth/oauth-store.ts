@@ -45,7 +45,10 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
  * Seed well-known provider profiles into the database. Uses INSERT … ON
  * CONFLICT DO UPDATE so that implementation fields (authUrl, tokenUrl,
  * tokenEndpointAuthMethod, userinfoUrl, extraParams, callbackTransport,
- * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey)
+ * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
+ * loopbackPort, injectionTemplates, setupSkillId, appType, setupNotes,
+ * identityUrl, identityMethod, identityHeaders, identityBody,
+ * identityResponsePaths, identityFormat, identityOkField)
  * and display metadata (displayName, description, dashboardUrl,
  * clientIdPlaceholder, requiresClientSecret) propagate to existing
  * installations on every startup, while user-customizable fields
@@ -76,6 +79,23 @@ export function seedProviders(
     dashboardUrl?: string | null;
     clientIdPlaceholder?: string | null;
     requiresClientSecret?: boolean;
+    loopbackPort?: number;
+    injectionTemplates?: Array<{
+      hostPattern: string;
+      injectionType: string;
+      headerName: string;
+      valuePrefix: string;
+    }>;
+    setupSkillId?: string;
+    appType?: string;
+    setupNotes?: string[];
+    identityUrl?: string;
+    identityMethod?: string;
+    identityHeaders?: Record<string, string>;
+    identityBody?: unknown;
+    identityResponsePaths?: string[];
+    identityFormat?: string;
+    identityOkField?: string;
   }>,
 ): void {
   const db = getDb();
@@ -101,6 +121,25 @@ export function seedProviders(
     const dashboardUrl = p.dashboardUrl ?? null;
     const clientIdPlaceholder = p.clientIdPlaceholder ?? null;
     const requiresClientSecret = p.requiresClientSecret !== false ? 1 : 0;
+    const loopbackPort = p.loopbackPort ?? null;
+    const injectionTemplates = p.injectionTemplates
+      ? JSON.stringify(p.injectionTemplates)
+      : null;
+    const setupSkillId = p.setupSkillId ?? null;
+    const appType = p.appType ?? null;
+    const setupNotes = p.setupNotes ? JSON.stringify(p.setupNotes) : null;
+    const identityUrl = p.identityUrl ?? null;
+    const identityMethod = p.identityMethod ?? null;
+    const identityHeaders = p.identityHeaders
+      ? JSON.stringify(p.identityHeaders)
+      : null;
+    const identityBody =
+      p.identityBody !== undefined ? JSON.stringify(p.identityBody) : null;
+    const identityResponsePaths = p.identityResponsePaths
+      ? JSON.stringify(p.identityResponsePaths)
+      : null;
+    const identityFormat = p.identityFormat ?? null;
+    const identityOkField = p.identityOkField ?? null;
 
     db.insert(oauthProviders)
       .values({
@@ -124,6 +163,18 @@ export function seedProviders(
         dashboardUrl,
         clientIdPlaceholder,
         requiresClientSecret,
+        loopbackPort,
+        injectionTemplates,
+        setupSkillId,
+        appType,
+        setupNotes,
+        identityUrl,
+        identityMethod,
+        identityHeaders,
+        identityBody,
+        identityResponsePaths,
+        identityFormat,
+        identityOkField,
         createdAt: now,
         updatedAt: now,
       })
@@ -147,6 +198,18 @@ export function seedProviders(
           dashboardUrl,
           clientIdPlaceholder,
           requiresClientSecret,
+          loopbackPort,
+          injectionTemplates,
+          setupSkillId,
+          appType,
+          setupNotes,
+          identityUrl,
+          identityMethod,
+          identityHeaders,
+          identityBody,
+          identityResponsePaths,
+          identityFormat,
+          identityOkField,
           updatedAt: now,
         },
       })
@@ -195,6 +258,23 @@ export function registerProvider(params: {
   dashboardUrl?: string;
   clientIdPlaceholder?: string;
   requiresClientSecret?: number;
+  loopbackPort?: number;
+  injectionTemplates?: Array<{
+    hostPattern: string;
+    injectionType: string;
+    headerName: string;
+    valuePrefix: string;
+  }>;
+  setupSkillId?: string;
+  appType?: string;
+  setupNotes?: string[];
+  identityUrl?: string;
+  identityMethod?: string;
+  identityHeaders?: Record<string, string>;
+  identityBody?: unknown;
+  identityResponsePaths?: string[];
+  identityFormat?: string;
+  identityOkField?: string;
 }): OAuthProviderRow {
   const db = getDb();
   const now = Date.now();
@@ -226,6 +306,27 @@ export function registerProvider(params: {
     dashboardUrl: params.dashboardUrl ?? null,
     clientIdPlaceholder: params.clientIdPlaceholder ?? null,
     requiresClientSecret: params.requiresClientSecret ?? 1,
+    loopbackPort: params.loopbackPort ?? null,
+    injectionTemplates: params.injectionTemplates
+      ? JSON.stringify(params.injectionTemplates)
+      : null,
+    setupSkillId: params.setupSkillId ?? null,
+    appType: params.appType ?? null,
+    setupNotes: params.setupNotes ? JSON.stringify(params.setupNotes) : null,
+    identityUrl: params.identityUrl ?? null,
+    identityMethod: params.identityMethod ?? null,
+    identityHeaders: params.identityHeaders
+      ? JSON.stringify(params.identityHeaders)
+      : null,
+    identityBody:
+      params.identityBody !== undefined
+        ? JSON.stringify(params.identityBody)
+        : null,
+    identityResponsePaths: params.identityResponsePaths
+      ? JSON.stringify(params.identityResponsePaths)
+      : null,
+    identityFormat: params.identityFormat ?? null,
+    identityOkField: params.identityOkField ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -265,6 +366,23 @@ export function updateProvider(
     dashboardUrl: string;
     clientIdPlaceholder: string;
     requiresClientSecret: boolean;
+    loopbackPort: number;
+    injectionTemplates: Array<{
+      hostPattern: string;
+      injectionType: string;
+      headerName: string;
+      valuePrefix: string;
+    }>;
+    setupSkillId: string;
+    appType: string;
+    setupNotes: string[];
+    identityUrl: string;
+    identityMethod: string;
+    identityHeaders: Record<string, string>;
+    identityBody: unknown;
+    identityResponsePaths: string[];
+    identityFormat: string;
+    identityOkField: string;
   }>,
 ): OAuthProviderRow | undefined {
   const existing = getProvider(providerKey);
@@ -300,6 +418,26 @@ export function updateProvider(
     set.clientIdPlaceholder = params.clientIdPlaceholder;
   if (params.requiresClientSecret !== undefined)
     set.requiresClientSecret = params.requiresClientSecret ? 1 : 0;
+  if (params.loopbackPort !== undefined) set.loopbackPort = params.loopbackPort;
+  if (params.injectionTemplates !== undefined)
+    set.injectionTemplates = JSON.stringify(params.injectionTemplates);
+  if (params.setupSkillId !== undefined) set.setupSkillId = params.setupSkillId;
+  if (params.appType !== undefined) set.appType = params.appType;
+  if (params.setupNotes !== undefined)
+    set.setupNotes = JSON.stringify(params.setupNotes);
+  if (params.identityUrl !== undefined) set.identityUrl = params.identityUrl;
+  if (params.identityMethod !== undefined)
+    set.identityMethod = params.identityMethod;
+  if (params.identityHeaders !== undefined)
+    set.identityHeaders = JSON.stringify(params.identityHeaders);
+  if (params.identityBody !== undefined)
+    set.identityBody = JSON.stringify(params.identityBody);
+  if (params.identityResponsePaths !== undefined)
+    set.identityResponsePaths = JSON.stringify(params.identityResponsePaths);
+  if (params.identityFormat !== undefined)
+    set.identityFormat = params.identityFormat;
+  if (params.identityOkField !== undefined)
+    set.identityOkField = params.identityOkField;
 
   db.update(oauthProviders)
     .set(set)

@@ -11,11 +11,8 @@ import {
   getAppByProviderAndClientId,
   getMostRecentAppByProvider,
   getProvider,
+  listProviders,
 } from "../../oauth/oauth-store.js";
-import {
-  getProviderBehavior,
-  PROVIDER_BEHAVIORS,
-} from "../../oauth/provider-behaviors.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { buildAssistantEvent } from "../../runtime/assistant-event.js";
@@ -828,8 +825,6 @@ class CredentialStoreTool implements Tool {
             isError: true,
           };
 
-        // Code-side behavioral fields (identityVerifier, setup, etc.)
-        const behavior = getProviderBehavior(service);
         // Protocol-level config from the DB (authUrl, tokenUrl, scopes, etc.)
         const providerRow = getProvider(service);
 
@@ -876,11 +871,9 @@ class CredentialStoreTool implements Tool {
         // Fail early when client_secret is required but missing - guide the
         // agent to collect it from the user rather than letting it improvise
         // browser-automation workarounds that inevitably fail.
-        const requiresSecret =
-          behavior?.setup?.requiresClientSecret ??
-          !!(providerRow.tokenEndpointAuthMethod || providerRow.extraParams);
+        const requiresSecret = !!providerRow.requiresClientSecret;
         if (requiresSecret && !clientSecret) {
-          const skillId = behavior?.setupSkillId;
+          const skillId = providerRow?.setupSkillId;
           const skillHint = skillId
             ? `\n\nLoad the "${skillId}" skill for provider-specific instructions on obtaining the client secret.`
             : '\n\nUse credential_store with action "prompt" to securely collect the client_secret from the user before calling oauth2_connect again.';
@@ -968,15 +961,12 @@ class CredentialStoreTool implements Tool {
         }
         const descProviderRow = getProvider(descService);
         if (!descProviderRow) {
+          const availableServices = listProviders().map((p) => p.providerKey);
           return {
-            content: `No well-known OAuth config found for "${descService}". Available services: ${Object.keys(
-              PROVIDER_BEHAVIORS,
-            ).join(", ")}`,
+            content: `No well-known OAuth config found for "${descService}". Available services: ${availableServices.join(", ")}`,
             isError: false,
           };
         }
-
-        const descBehavior = getProviderBehavior(descService);
 
         // Compute the redirect URI based on callback transport
         let redirectUri: string;
@@ -984,8 +974,8 @@ class CredentialStoreTool implements Tool {
           (descProviderRow.callbackTransport as
             | "loopback"
             | "gateway"
-            | null) ?? "gateway";
-        const loopbackPort = descBehavior?.loopbackPort;
+            | null) ?? "loopback";
+        const loopbackPort = descProviderRow.loopbackPort;
         if (transport === "loopback" && loopbackPort) {
           redirectUri = `http://localhost:${loopbackPort}/oauth/callback`;
         } else if (transport === "loopback") {
@@ -1005,13 +995,7 @@ class CredentialStoreTool implements Tool {
           }
         }
 
-        // Prefer explicit setup metadata, fall back to heuristic
-        const requiresClientSecret =
-          descBehavior?.setup?.requiresClientSecret ??
-          !!(
-            descProviderRow.tokenEndpointAuthMethod ||
-            descProviderRow.extraParams
-          );
+        const requiresClientSecret = !!descProviderRow.requiresClientSecret;
 
         const descDefaultScopes: string[] = descProviderRow.defaultScopes
           ? JSON.parse(descProviderRow.defaultScopes)
@@ -1026,7 +1010,21 @@ class CredentialStoreTool implements Tool {
           redirectUri,
           requiresClientSecret,
         };
-        if (descBehavior?.setup) info.setup = descBehavior.setup;
+        if (
+          descProviderRow.displayName &&
+          descProviderRow.dashboardUrl &&
+          descProviderRow.appType
+        ) {
+          info.setup = {
+            displayName: descProviderRow.displayName,
+            dashboardUrl: descProviderRow.dashboardUrl,
+            appType: descProviderRow.appType,
+            requiresClientSecret: !!descProviderRow.requiresClientSecret,
+            ...(descProviderRow.setupNotes
+              ? { notes: JSON.parse(descProviderRow.setupNotes) }
+              : {}),
+          };
+        }
         if (descProviderRow.extraParams) {
           try {
             info.extraParams = JSON.parse(descProviderRow.extraParams);

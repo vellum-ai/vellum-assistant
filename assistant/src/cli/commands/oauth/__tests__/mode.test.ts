@@ -89,10 +89,6 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
   deleteConnection: () => false,
 }));
 
-mock.module("../../../../oauth/provider-behaviors.js", () => ({
-  getProviderBehavior: () => undefined,
-}));
-
 mock.module("../../../../platform/client.js", () => ({
   VellumPlatformClient: {
     create: async () => mockPlatformClientResult,

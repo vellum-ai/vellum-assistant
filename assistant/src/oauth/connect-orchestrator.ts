@@ -25,11 +25,10 @@ import { prepareOAuth2Flow, startOAuth2Flow } from "../security/oauth2.js";
 import { getLogger } from "../util/logger.js";
 import type {
   OAuthConnectResult,
-  OAuthProviderBehavior,
   OAuthScopePolicy,
 } from "./connect-types.js";
+import { verifyIdentity } from "./identity-verifier.js";
 import { getProvider } from "./oauth-store.js";
-import { getProviderBehavior } from "./provider-behaviors.js";
 import { resolveScopes } from "./scope-policy.js";
 import { storeOAuth2Tokens } from "./token-persistence.js";
 
@@ -38,28 +37,6 @@ const log = getLogger("oauth-connect-orchestrator");
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/**
- * Look up the code-side behavioral fields for a provider.
- * Returns an empty object when no behavior is registered.
- */
-function resolveBehavior(providerKey: string): {
-  identityVerifier?: OAuthProviderBehavior["identityVerifier"];
-  setup?: OAuthProviderBehavior["setup"];
-  setupSkillId?: string;
-  postConnectHookId?: string;
-  loopbackPort?: number;
-} {
-  const behavior = getProviderBehavior(providerKey);
-  if (!behavior) return {};
-  return {
-    identityVerifier: behavior.identityVerifier,
-    setup: behavior.setup,
-    setupSkillId: behavior.setupSkillId,
-    postConnectHookId: behavior.postConnectHookId,
-    loopbackPort: behavior.loopbackPort,
-  };
-}
 
 /** Safely parse a JSON string, returning a fallback on failure or null/undefined input. */
 function safeJsonParse<T>(value: string | null | undefined, fallback: T): T {
@@ -139,9 +116,6 @@ export async function orchestrateOAuthConnect(
     };
   }
 
-  // Behavioral/code-side fields come from the behavior registry
-  const behavior = resolveBehavior(options.service);
-
   // Deserialize JSON fields from the DB row
   const dbDefaultScopes = safeJsonParse<string[]>(
     providerRow.defaultScopes,
@@ -171,7 +145,7 @@ export async function orchestrateOAuthConnect(
   const callbackTransport =
     (providerRow.callbackTransport as "loopback" | "gateway" | null) ??
     "loopback";
-  const loopbackPort = behavior.loopbackPort;
+  const loopbackPort = providerRow.loopbackPort ?? undefined;
 
   // Resolve scopes via the scope policy engine
   const scopeProfile = {
@@ -274,19 +248,12 @@ export async function orchestrateOAuthConnect(
       prepared.completion
         .then(async (result) => {
           try {
-            let parsedAccountIdentifier: string | undefined;
-
             // Parse account identifier from the provider's identity endpoint.
             // Best-effort — format varies by provider and may fail.
-            if (behavior.identityVerifier) {
-              try {
-                parsedAccountIdentifier = await behavior.identityVerifier(
-                  result.tokens.accessToken,
-                );
-              } catch {
-                // Non-fatal
-              }
-            }
+            const parsedAccountIdentifier = await verifyIdentity(
+              providerRow,
+              result.tokens.accessToken,
+            );
 
             const stored = await storeOAuth2Tokens({
               ...storageParams,
@@ -395,19 +362,15 @@ export async function orchestrateOAuthConnect(
 
     // Parse account identifier from the provider's identity endpoint.
     // Best-effort — format varies by provider and may fail.
-    let parsedAccountIdentifier: string | undefined;
-    if (behavior.identityVerifier) {
-      try {
-        parsedAccountIdentifier = await behavior.identityVerifier(
-          tokens.accessToken,
-        );
-        log.info(
-          { service: options.service, parsedAccountIdentifier },
-          "orchestrateOAuthConnect: identity verified",
-        );
-      } catch {
-        // Non-fatal
-      }
+    const parsedAccountIdentifier = await verifyIdentity(
+      providerRow,
+      tokens.accessToken,
+    );
+    if (parsedAccountIdentifier) {
+      log.info(
+        { service: options.service, parsedAccountIdentifier },
+        "orchestrateOAuthConnect: identity verified",
+      );
     }
 
     const { accountInfo } = await storeOAuth2Tokens({

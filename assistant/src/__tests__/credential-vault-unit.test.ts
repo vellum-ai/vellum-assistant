@@ -1056,6 +1056,7 @@ describe("credential_store tool — oauth2_connect error paths", () => {
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: JSON.stringify(["https://mail.google.com/"]),
+      requiresClientSecret: 1,
     }));
 
     const result = await credentialStoreTool.execute(
@@ -1092,6 +1093,7 @@ describe("credential_store tool — oauth2_connect error paths", () => {
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
       defaultScopes: JSON.stringify(["https://mail.google.com/"]),
+      requiresClientSecret: 1,
     }));
 
     const result = await credentialStoreTool.execute(
