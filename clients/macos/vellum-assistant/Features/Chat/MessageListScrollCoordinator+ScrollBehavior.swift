@@ -197,6 +197,7 @@ extension MessageListScrollCoordinator {
         isSending: Bool,
         assistantActivityPhase: String,
         containerWidth: CGFloat,
+        messages: [ChatMessage],
         isNearBottom: inout Bool,
         highlightedMessageId: Binding<UUID?>,
         resizeScrollTask: inout Task<Void, Never>?,
@@ -229,13 +230,21 @@ extension MessageListScrollCoordinator {
         if isSending {
             hasReceivedScrollEvent = true
         }
-        // Scroll to bottom for the new conversation. All positioning is
-        // imperative via ScrollPosition to avoid conflicts with push-to-top.
+        // Scroll to the last user message (push-to-top pattern) so the
+        // user's most recent message is at the viewport top. For short
+        // conversations that fit on screen, content stays top-aligned
+        // naturally. Falls back to bottom edge for conversations with
+        // no user messages (e.g. assistant-initiated).
         scrollRestoreTask?.cancel()
         if anchorMessageId.wrappedValue == nil {
-            scrollToEdge?(.bottom)
+            if let lastUserMsg = messages.last(where: { $0.role == .user }) {
+                performScrollTo(lastUserMsg.id, anchor: .top)
+            } else {
+                scrollToEdge?(.bottom)
+            }
         }
-        restoreScrollToBottom(
+        restoreScrollToLastUserMessage(
+            messages: messages,
             conversationId: newConversationId,
             anchorMessageId: anchorMessageId
         )
@@ -431,6 +440,33 @@ extension MessageListScrollCoordinator {
             {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=fallback")
                 self.requestBottomPin(reason: .initialRestore, conversationId: conversationId)
+            }
+            self.scrollRestoreTask = nil
+        }
+    }
+
+    /// Delayed fallback that scrolls to the last user message after
+    /// LazyVStack has had time to materialize content. Mirrors
+    /// `restoreScrollToBottom` but uses the push-to-top anchor.
+    func restoreScrollToLastUserMessage(
+        messages: [ChatMessage],
+        conversationId: UUID?,
+        anchorMessageId: Binding<UUID?>
+    ) {
+        scrollRestoreTask?.cancel()
+
+        scrollRestoreTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            guard !Task.isCancelled, let self else { return }
+            if anchorMessageId.wrappedValue == nil
+                && !self.hasReceivedScrollEvent
+            {
+                os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=lastUserMsg")
+                if let lastUserMsg = messages.last(where: { $0.role == .user }) {
+                    self.performScrollTo(lastUserMsg.id, anchor: .top)
+                } else {
+                    self.requestBottomPin(reason: .initialRestore, conversationId: conversationId)
+                }
             }
             self.scrollRestoreTask = nil
         }

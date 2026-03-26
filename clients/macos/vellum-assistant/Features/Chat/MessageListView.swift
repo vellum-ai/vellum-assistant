@@ -735,7 +735,6 @@ struct MessageListView: View {
             .plainTextCopy()
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
-            .defaultScrollAnchor(.bottom)
             .scrollPosition($scrollPosition)
             .environment(\.suppressAutoScroll, { [self] in
                 scrollCoordinator.handleSuppressAutoScroll(
@@ -966,6 +965,7 @@ struct MessageListView: View {
                     isSending: isSending,
                     assistantActivityPhase: assistantActivityPhase,
                     containerWidth: containerWidth,
+                    messages: messages,
                     isNearBottom: &isNearBottom,
                     highlightedMessageId: $highlightedMessageId,
                     resizeScrollTask: &resizeScrollTask,
