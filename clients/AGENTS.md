@@ -198,11 +198,10 @@ See `ChatViewModel.observeErrorManager()` and `MainWindowState.observeNavigation
 
 ### Architecture: MessageListScrollCoordinator
 
-All scroll state and reactions for the message list live in `MessageListScrollCoordinator` (`Features/Chat/`), split across three files per the ~500-600 line target:
+All scroll state and reactions for the message list live in `MessageListScrollCoordinator` (`Features/Chat/`), split across two files:
 
 - **`MessageListScrollCoordinator.swift`** — Core state declarations (`@Published` reactive state, non-reactive bookkeeping, per-reason suppression boolean flags with begin/end helpers, follow/detach state, diagnostics forwarding, cleanup).
-- **`MessageListScrollCoordinator+PinAndScroll.swift`** — Pin requests (`requestBottomPin`, `configureScrollCallbacks`), scroll restore, user scroll actions (`handleScrollUp`, `handleScrollToBottom`), suppress-auto-scroll, resize task, pagination trigger/execution, anchor handling.
-- **`MessageListScrollCoordinator+Reactions.swift`** — Consolidated reaction points that replace former inline `onChange` handlers: `sendingStateChanged`, `messagesChanged`, `containerResized`, `conversationSwitched`, `anchorMessageIdChanged`, `flashHighlight`, `handleConfirmationFocusIfNeeded`.
+- **`MessageListScrollCoordinator+ScrollBehavior.swift`** — All scroll behavior: state reactions (`sendingStateChanged`, `messagesChanged`, `containerResized`, `conversationSwitched`, `anchorMessageIdChanged`), pin requests (`requestBottomPin`, `configureScrollCallbacks`), scroll restore, user scroll actions (`handleScrollUp`, `handleScrollToBottom`), suppress-auto-scroll, resize task, pagination trigger/execution.
 
 Bottom detection uses `.onScrollGeometryChange` (macOS 15+) to compute the distance from the bottom of the content. The handler computes `effectiveContentHeight - contentOffsetY - visibleRectHeight` and sets the coordinator's `isAtBottom` property to `true` when the result is less than or equal to 20pt. This approach is reliable because it uses continuous geometry measurements rather than `ScrollPosition.viewID`, which per Apple documentation becomes `nil` on any user-initiated scroll and is therefore unsuitable for continuous bottom-detection. Two consumers depend on `isAtBottom`: the "Scroll to latest" CTA button and the reattach-on-idle logic. The conversation tail avatar visibility depends on `isNearBottom` (the follow/detach state managed inline in the coordinator), not `isAtBottom` directly.
 
