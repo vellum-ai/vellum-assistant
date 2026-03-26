@@ -71,7 +71,7 @@ export class PlatformOAuthConnection implements OAuthConnection {
         headers: req.headers ?? {},
         body: req.body ?? null,
         ...((req.baseUrl ?? this.baseUrl)
-          ? { baseUrl: req.baseUrl ?? this.baseUrl }
+          ? { base_url: req.baseUrl ?? this.baseUrl }
           : {}),
       },
     };

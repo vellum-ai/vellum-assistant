@@ -97,7 +97,7 @@ describe("PlatformOAuthConnection", () => {
     const client = makeMockClient(
       mock(async (_url: string | URL | Request, init?: RequestInit) => {
         const parsed = JSON.parse(init?.body as string);
-        expect(parsed.request.baseUrl).toBe(
+        expect(parsed.request.base_url).toBe(
           "https://www.googleapis.com/calendar/v3",
         );
 
@@ -120,7 +120,7 @@ describe("PlatformOAuthConnection", () => {
     const client = makeMockClient(
       mock(async (_url: string | URL | Request, init?: RequestInit) => {
         const parsed = JSON.parse(init?.body as string);
-        expect(parsed.request.baseUrl).toBe(
+        expect(parsed.request.base_url).toBe(
           "https://gmail.googleapis.com/gmail/v1/users/me",
         );
 
@@ -143,7 +143,7 @@ describe("PlatformOAuthConnection", () => {
     const client = makeMockClient(
       mock(async (_url: string | URL | Request, init?: RequestInit) => {
         const parsed = JSON.parse(init?.body as string);
-        expect(parsed.request.baseUrl).toBe(
+        expect(parsed.request.base_url).toBe(
           "https://www.googleapis.com/calendar/v3",
         );
 
@@ -166,11 +166,11 @@ describe("PlatformOAuthConnection", () => {
     });
   });
 
-  test("omits baseUrl from envelope when neither connection nor request provides one", async () => {
+  test("omits base_url from envelope when neither connection nor request provides one", async () => {
     const client = makeMockClient(
       mock(async (_url: string | URL | Request, init?: RequestInit) => {
         const parsed = JSON.parse(init?.body as string);
-        expect("baseUrl" in parsed.request).toBe(false);
+        expect("base_url" in parsed.request).toBe(false);
 
         return new Response(
           JSON.stringify({ status: 200, headers: {}, body: null }),
