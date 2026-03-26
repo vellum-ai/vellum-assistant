@@ -1,7 +1,8 @@
-// Guard test: assistant CLI commands must always classify as Low risk.
+// Guard test: assistant CLI commands must classify at the expected risk level.
 //
-// The assistant uses its own CLI tools during normal operation. If these
-// commands require user approval, it blocks autonomous assistant workflows.
+// The assistant uses its own CLI tools during normal operation. Most commands
+// should be Low risk so they don't block autonomous workflows. Certain
+// sensitive subcommands are intentionally elevated to Medium or High.
 // See #18982 / #18998 for the regression that motivated this guard.
 
 import { mkdtempSync } from "node:fs";
@@ -60,10 +61,10 @@ function expectLowRisk(command: string, actual: RiskLevel): void {
   if (actual !== RiskLevel.Low) {
     throw new Error(
       `"${command}" classified as ${actual} instead of Low. ` +
-        `assistant CLI commands must always be Low risk — the assistant ` +
+        `assistant CLI commands must be Low risk by default — the assistant ` +
         `uses its own CLI during normal operation. If you need risk ` +
-        `escalation for specific subcommands, add them to an allowlist ` +
-        `in this guard test with justification.`,
+        `escalation for specific subcommands, add them to the elevated ` +
+        `risk tests in this guard test with justification.`,
     );
   }
   expect(actual).toBe(RiskLevel.Low);
@@ -86,6 +87,9 @@ describe("CLI command risk guard: assistant commands", () => {
 
   test("all assistant CLI subcommands classify as Low risk", async () => {
     for (const subcommand of ASSISTANT_SUBCOMMANDS) {
+      // Subcommands with elevated children are tested separately below.
+      // The bare top-level subcommand (e.g. `assistant oauth`) is still
+      // expected to be Low.
       const command = `assistant ${subcommand}`;
       const risk = await classifyRisk("bash", { command });
       expectLowRisk(command, risk);
@@ -105,6 +109,72 @@ describe("CLI command risk guard: assistant commands", () => {
     ];
 
     for (const command of flagCommands) {
+      const risk = await classifyRisk("bash", { command });
+      expectLowRisk(command, risk);
+    }
+  });
+});
+
+// Sensitive subcommands that are intentionally elevated above Low risk.
+// Each entry documents why the elevation is necessary.
+
+describe("CLI command risk guard: elevated assistant subcommands", () => {
+  test("assistant oauth token is High risk (exposes raw tokens)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant oauth token",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("assistant oauth mode --set is High risk (changes auth mode)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant oauth mode --set managed",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("assistant oauth mode without --set is Low risk (read-only)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant oauth mode",
+    });
+    expect(risk).toBe(RiskLevel.Low);
+  });
+
+  test("assistant credentials reveal is High risk (exposes secrets)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant credentials reveal",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("assistant oauth request is Medium risk (initiates OAuth flow)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant oauth request",
+    });
+    expect(risk).toBe(RiskLevel.Medium);
+  });
+
+  test("non-sensitive oauth subcommands remain Low risk", async () => {
+    const lowRiskOauthCommands = [
+      "assistant oauth apps",
+      "assistant oauth apps list",
+      "assistant oauth providers",
+      "assistant oauth status",
+    ];
+
+    for (const command of lowRiskOauthCommands) {
+      const risk = await classifyRisk("bash", { command });
+      expectLowRisk(command, risk);
+    }
+  });
+
+  test("non-sensitive credentials subcommands remain Low risk", async () => {
+    const lowRiskCredCommands = [
+      "assistant credentials",
+      "assistant credentials list",
+    ];
+
+    for (const command of lowRiskCredCommands) {
       const risk = await classifyRisk("bash", { command });
       expectLowRisk(command, risk);
     }

@@ -146,7 +146,6 @@ const LOW_RISK_PROGRAMS = new Set([
   "tree",
   "du",
   "df",
-  "assistant",
 ]);
 
 // High-risk shell programs / patterns
@@ -199,6 +198,35 @@ const LOW_RISK_GIT_SUBCOMMANDS = new Set([
   "cat-file",
   "reflog",
 ]);
+
+/**
+ * Classify risk for `assistant` CLI subcommands. Multi-word subcommands
+ * (e.g. `assistant oauth token`) are matched by walking the positional args.
+ */
+function classifyAssistantSubcommand(args: string[]): RiskLevel {
+  const sub = firstPositionalArg(args);
+  if (!sub) return RiskLevel.Low;
+
+  if (sub === "oauth") {
+    const oauthSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
+    if (oauthSub === "token") return RiskLevel.High;
+    if (oauthSub === "mode") {
+      // `oauth mode --set` is high risk; bare `oauth mode` (read) is low
+      if (args.includes("--set")) return RiskLevel.High;
+      return RiskLevel.Low;
+    }
+    if (oauthSub === "request") return RiskLevel.Medium;
+    return RiskLevel.Low;
+  }
+
+  if (sub === "credentials") {
+    const credSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
+    if (credSub === "reveal") return RiskLevel.High;
+    return RiskLevel.Low;
+  }
+
+  return RiskLevel.Low;
+}
 
 // Commands that wrap another program — the real program appears as the first
 // non-flag argument.  When one of these is the segment program we look through
@@ -741,6 +769,15 @@ async function classifyRiskUncached(
         }
         // Non-read-only git commands are medium
         maxRisk = RiskLevel.Medium;
+        continue;
+      }
+
+      if (prog === "assistant") {
+        const assistantRisk = classifyAssistantSubcommand(seg.args);
+        if (assistantRisk === RiskLevel.High) return RiskLevel.High;
+        if (assistantRisk === RiskLevel.Medium) {
+          maxRisk = RiskLevel.Medium;
+        }
         continue;
       }
 
