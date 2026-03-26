@@ -4,6 +4,7 @@ import { loadConfig } from "../../../config/loader.js";
 import { getOAuthCallbackUrl } from "../../../inbound/public-ingress-urls.js";
 import {
   deleteApp,
+  deleteConnection,
   deleteProvider,
   disconnectOAuthProvider,
   getProvider,
@@ -623,8 +624,9 @@ Examples:
             );
             if (result === "error") {
               log.info(
-                `Warning: failed to clean up tokens for connection ${conn.id} — continuing cascade delete.`,
+                `Warning: failed to clean up tokens for connection ${conn.id} — deleting connection row to continue cascade.`,
               );
+              deleteConnection(conn.id);
             }
           }
           for (const app of dependentApps) {
