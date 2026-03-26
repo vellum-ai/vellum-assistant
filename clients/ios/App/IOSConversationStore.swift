@@ -522,9 +522,17 @@ class IOSConversationStore: ObservableObject {
 
             if let foreground {
                 guard currentGeneration == self.conversationListGeneration else { return }
+                // Deduplicate by conversation ID so that daemons that don't
+                // yet support the conversationType query param (which return
+                // the same conversations for both requests) don't produce
+                // duplicate sidebar entries.
+                var seenIds = Set(foreground.conversations.map(\.id))
+                let uniqueBackground = (background?.conversations ?? []).filter {
+                    seenIds.insert($0.id).inserted
+                }
                 let merged = ConversationListResponse(
                     type: foreground.type,
-                    conversations: foreground.conversations + (background?.conversations ?? []),
+                    conversations: foreground.conversations + uniqueBackground,
                     hasMore: foreground.hasMore
                 )
                 self.expectedConversationListGeneration = currentGeneration
