@@ -7,6 +7,7 @@ import VellumAssistantShared
 /// (e.g. inside IntelligencePanel).
 struct AgentPanelContent: View {
     var onInvokeSkill: ((SkillInfo) -> Void)?
+    var onCreateSkill: (() -> Void)?
     var onSkillsChanged: (() -> Void)?
     let connectionManager: GatewayConnectionManager
 
@@ -17,8 +18,9 @@ struct AgentPanelContent: View {
     @State private var globalSkillSearchQuery = ""
     @State private var showAllSkills = false
 
-    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, connectionManager: GatewayConnectionManager) {
+    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, connectionManager: GatewayConnectionManager) {
         self.onInvokeSkill = onInvokeSkill
+        self.onCreateSkill = onCreateSkill
         self.onSkillsChanged = onSkillsChanged
         self.connectionManager = connectionManager
         _skillsManager = State(wrappedValue: SkillsManager(connectionManager: connectionManager))
@@ -38,6 +40,28 @@ struct AgentPanelContent: View {
         VStack(alignment: .leading, spacing: 0) {
             if !isShowingDetail {
                 filterBar
+            }
+            if !isShowingDetail {
+                HStack(spacing: VSpacing.sm) {
+                    VIconView(.sparkles, size: 14)
+                        .foregroundStyle(VColor.primaryBase)
+                    Text("You can create custom skills by describing what you want in chat.")
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentDefault)
+                    Spacer()
+                    VButton(label: "Create a Skill", style: .outlined, size: .compact) {
+                        onCreateSkill?()
+                    }
+                }
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
+                .background(VColor.primaryBase.opacity(0.10))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.primaryBase.opacity(0.18), lineWidth: 1)
+                )
+                .padding(.top, VSpacing.sm)
             }
             HStack(alignment: .top, spacing: VSpacing.xxl) {
                 if !isShowingDetail {

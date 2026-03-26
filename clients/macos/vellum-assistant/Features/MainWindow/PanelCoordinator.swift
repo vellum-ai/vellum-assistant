@@ -94,6 +94,14 @@ extension MainWindowView {
                     vm?.pendingSkillInvocation = nil
                     windowState.selection = nil
                 },
+                onCreateSkill: {
+                    conversationManager.openConversation(
+                        message: "I'd like to create a new custom skill. What kind of skill would you like to build?",
+                        forceNew: true,
+                        autoSend: false
+                    )
+                    windowState.selection = nil
+                },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
@@ -480,6 +488,14 @@ extension MainWindowView {
                         )
                     }
                     vm?.pendingSkillInvocation = nil
+                    windowState.dismissOverlay()
+                },
+                onCreateSkill: {
+                    conversationManager.openConversation(
+                        message: "I'd like to create a new custom skill. What kind of skill would you like to build?",
+                        forceNew: true,
+                        autoSend: false
+                    )
                     windowState.dismissOverlay()
                 },
                 connectionManager: connectionManager,
