@@ -18,7 +18,7 @@
 - **API interactions use Vellum's outbound proxy**
   - Outbound network traffic from the bash tool is automatically intercepted by an outbound proxy in a manner that's transparent to the assistant
   - Update proxy settings so the bash tool can inject correct auth headers for approved domains
-  - Avoid instructions that tell the assistant to find and use secrets directly
+  - **Never instruct the assistant to ask for secrets in chat.** API keys, tokens, passwords, and webhook secrets must be collected via `credential_store prompt`, which provides a secure UI — the value never enters the conversation. Non-secret values (e.g., Client IDs, Account SIDs, usernames) can be collected conversationally. See existing skills (e.g., `twilio-setup`, `slack-app-setup`) for the pattern.
 
 - **Write portable instructions**
   - Avoid referring to tools by specific names (prefer "Take a browser screenshot" over "Use browser_screen_grab")

@@ -256,6 +256,33 @@ public final class ChatViewModel: ObservableObject {
         get { messageManager.isThinking }
         set { messageManager.isThinking = newValue }
     }
+    /// Whether the assistant is actively working on a response — covers sending,
+    /// extended-thinking, any in-progress assistant message, and orphaned tool
+    /// calls that haven't received their `tool_result` event yet (e.g. tool
+    /// calls created during skill/app execution whose results are folded into
+    /// the parent tool's result rather than emitted individually).
+    ///
+    /// Use this for UI elements (stop button, placeholder text, paperclip hide)
+    /// instead of `isSending` alone, because:
+    /// 1. The "thinking" activity phase sets `isSending = false` to prevent
+    ///    the 60s watchdog from firing.
+    /// 2. `messageComplete` clears both `isSending` and `currentAssistantMessageId`
+    ///    simultaneously, but tool call chips may still be visually running.
+    public var isAssistantBusy: Bool {
+        isSending || isThinking || currentAssistantMessageId != nil || hasIncompleteToolCalls
+    }
+
+    /// Whether the most recent assistant message has any tool calls that
+    /// haven't been marked complete yet. This catches the case where
+    /// `messageComplete` fires (clearing `isSending` and `currentAssistantMessageId`)
+    /// but tool call chips are still visually running in the UI.
+    private var hasIncompleteToolCalls: Bool {
+        guard let lastAssistant = messages.last(where: { $0.role == .assistant }) else {
+            return false
+        }
+        return lastAssistant.toolCalls.contains(where: { !$0.isComplete })
+    }
+
     public var isSending: Bool {
         get { messageManager.isSending }
         set {
@@ -2031,7 +2058,22 @@ public final class ChatViewModel: ObservableObject {
     }
 
     public func stopGenerating() {
-        guard isSending else { return }
+        guard isAssistantBusy else { return }
+
+        // If the only reason we're "busy" is orphaned incomplete tool calls
+        // (daemon already sent messageComplete, clearing isSending and
+        // currentAssistantMessageId), complete them locally and return —
+        // there is nothing to cancel on the daemon side.
+        if !isSending && !isThinking && currentAssistantMessageId == nil && hasIncompleteToolCalls {
+            if let lastAssistant = messages.last(where: { $0.role == .assistant }),
+               let index = messages.firstIndex(where: { $0.id == lastAssistant.id }) {
+                for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
+                    messages[index].toolCalls[j].isComplete = true
+                    messages[index].toolCalls[j].completedAt = Date()
+                }
+            }
+            return
+        }
 
         pendingVoiceMessage = false
 
@@ -2333,9 +2375,19 @@ public final class ChatViewModel: ObservableObject {
         // Remove this message from local state (it will be re-added by sendMessage)
         messages.remove(at: index)
 
-        // If nothing is actively sending, stopGenerating() will no-op and no
-        // cancel-completion event will fire. Dispatch immediately instead.
-        guard isSending else {
+        // If the assistant is not busy (or only busy due to orphaned tool
+        // calls), complete any orphaned tool calls and dispatch immediately
+        // instead of going through the cancel flow.
+        if !isSending && !isThinking && currentAssistantMessageId == nil {
+            // Complete any orphaned incomplete tool calls first
+            if hasIncompleteToolCalls,
+               let lastAssistant = messages.last(where: { $0.role == .assistant }),
+               let idx = messages.firstIndex(where: { $0.id == lastAssistant.id }) {
+                for j in messages[idx].toolCalls.indices where !messages[idx].toolCalls[j].isComplete {
+                    messages[idx].toolCalls[j].isComplete = true
+                    messages[idx].toolCalls[j].completedAt = Date()
+                }
+            }
             inputText = text
             pendingAttachments = attachments
             pendingSkillInvocation = skillInvocation
