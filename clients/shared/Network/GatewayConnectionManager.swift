@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import os
 
@@ -687,6 +688,24 @@ public final class GatewayConnectionManager: ObservableObject {
         }
     }
     #endif
+
+    // MARK: - Async Observation
+
+    /// An `AsyncStream` that emits whenever `isConnected` changes.
+    ///
+    /// Prefer this over `$isConnected.values` — Combine's `AsyncPublisher`
+    /// does not terminate on task cancellation, which can cause
+    /// `withTaskGroup` to hang indefinitely.
+    public var isConnectedStream: AsyncStream<Bool> {
+        AsyncStream { continuation in
+            let cancellable = self.$isConnected.sink { value in
+                continuation.yield(value)
+            }
+            continuation.onTermination = { _ in
+                cancellable.cancel()
+            }
+        }
+    }
 
     // MARK: - Helpers
 
