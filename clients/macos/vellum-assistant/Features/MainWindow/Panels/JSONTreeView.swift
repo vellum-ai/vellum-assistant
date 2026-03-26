@@ -237,7 +237,7 @@ struct JSONTreeView: View {
                 )
             }
             .padding(VSpacing.md)
-            .containerRelativeFrame([.horizontal, .vertical], alignment: .topLeading) { length, _ in length }
+            .containerRelativeFrame([.vertical], alignment: .topLeading) { length, _ in length }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
