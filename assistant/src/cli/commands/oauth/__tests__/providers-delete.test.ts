@@ -92,10 +92,6 @@ mock.module("../../../../oauth/seed-providers.js", () => ({
   seedOAuthProviders: () => {},
 }));
 
-mock.module("../../../../oauth/provider-behaviors.js", () => ({
-  getProviderBehavior: () => undefined,
-}));
-
 mock.module("../../../../inbound/public-ingress-urls.js", () => ({
   getOAuthCallbackUrl: () => null,
 }));

@@ -1,16 +1,15 @@
 /**
  * Shared types for the OAuth provider extensibility layer.
  *
- * These types are consumed by the provider behavior registry, the token
- * persistence module, and the credential vault orchestrator.
+ * These types are consumed by the token persistence module and the
+ * credential vault orchestrator.
  *
- * Protocol-level OAuth config (authUrl, tokenUrl, scopes, etc.) is now
- * stored exclusively in the `oauth_providers` SQLite table. This file
- * only defines code-side behavioral types that cannot be serialised to
- * a DB row (functions, templates, UI metadata).
+ * All provider configuration — protocol-level OAuth config (authUrl,
+ * tokenUrl, scopes, etc.) as well as behavioral config (identity
+ * verification, injection templates, setup metadata) — is now stored
+ * exclusively in the `oauth_providers` SQLite table and seeded on
+ * startup via `seed-providers.ts`.
  */
-
-import type { CredentialInjectionTemplate } from "../tools/credentials/policy-types.js";
 
 // ---------------------------------------------------------------------------
 // Scope policy
@@ -24,63 +23,6 @@ export interface OAuthScopePolicy {
   allowedOptionalScopes: string[];
   /** Scopes that must never be requested, regardless of other settings. */
   forbiddenScopes: string[];
-}
-
-// ---------------------------------------------------------------------------
-// Provider behavior
-// ---------------------------------------------------------------------------
-
-/**
- * Code-side behavioral configuration for a well-known OAuth provider.
- *
- * Protocol-level fields (authUrl, tokenUrl, defaultScopes, scopePolicy,
- * tokenEndpointAuthMethod, callbackTransport, userinfoUrl, extraParams)
- * are stored in the `oauth_providers` DB table. This
- * interface contains only fields that require code references (functions,
- * templates, skill IDs) and cannot be serialised to a DB row.
- */
-export interface OAuthProviderBehavior {
-  /** Canonical service key (e.g. "twitter"). */
-  service: string;
-  /**
-   * Async function that verifies the user's identity after a successful
-   * token exchange. Returns a human-readable account identifier (e.g.
-   * email or @username) or undefined if verification is not possible.
-   */
-  identityVerifier?: (accessToken: string) => Promise<string | undefined>;
-  /** ID of a post-connect hook to run after token storage. */
-  postConnectHookId?: string;
-  /** Injection templates auto-applied to the access_token credential. */
-  injectionTemplates?: CredentialInjectionTemplate[];
-  /**
-   * Metadata for the generic OAuth setup skill. When present, the
-   * assistant can guide users through app creation and OAuth connection.
-   */
-  setup?: {
-    /** Human-readable provider name (e.g. "Discord", "Linear"). */
-    displayName: string;
-    /** URL of the developer dashboard where the user creates an app. */
-    dashboardUrl: string;
-    /** What the provider calls its apps (e.g. "Discord Application"). */
-    appType: string;
-    /** Whether the provider requires a client_secret for token exchange. */
-    requiresClientSecret: boolean;
-    /** Provider-specific notes the LLM should follow during setup. */
-    notes?: string[];
-  };
-  /**
-   * Bundled skill ID that contains provider-specific setup instructions.
-   * When present, the guardrail for missing client_secret directs the
-   * agent to load this skill rather than embedding instructions inline.
-   */
-  setupSkillId?: string;
-  /**
-   * Fixed port for the loopback OAuth callback server. When set, the
-   * server binds to this port instead of an OS-assigned random port.
-   * Required for providers that need pre-registered redirect URIs
-   * (e.g. Slack, Notion).
-   */
-  loopbackPort?: number;
 }
 
 // ---------------------------------------------------------------------------

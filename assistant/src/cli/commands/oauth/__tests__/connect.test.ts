@@ -27,10 +27,6 @@ let mockOrchestrateOAuthConnect: (
   grantedScopes: [],
 });
 
-let mockGetProviderBehavior: (
-  key: string,
-) => Record<string, unknown> | undefined = () => undefined;
-
 let mockGetSecureKeyViaDaemon: (
   account: string,
 ) => Promise<string | undefined> = async () => undefined;
@@ -78,10 +74,6 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
   createConnection: () => ({}),
   updateConnection: () => ({}),
   deleteConnection: () => false,
-}));
-
-mock.module("../../../../oauth/provider-behaviors.js", () => ({
-  getProviderBehavior: (key: string) => mockGetProviderBehavior(key),
 }));
 
 mock.module("../../../../oauth/connect-orchestrator.js", () => ({
@@ -238,7 +230,6 @@ describe("assistant oauth connect", () => {
       deferred: false,
       grantedScopes: [],
     });
-    mockGetProviderBehavior = () => undefined;
     mockGetSecureKeyViaDaemon = async () => undefined;
     mockOpenInBrowserCalls = [];
     mockPlatformClientResult = null;
@@ -647,6 +638,7 @@ describe("assistant oauth connect", () => {
       tokenUrl: "https://oauth2.googleapis.com/token",
       tokenEndpointAuthMethod: "client_secret_post",
       managedServiceConfigKey: null,
+      requiresClientSecret: 1,
     });
     mockIsManagedMode = () => false;
 
@@ -661,16 +653,6 @@ describe("assistant oauth connect", () => {
 
     // No secret stored
     mockGetSecureKeyViaDaemon = async () => undefined;
-
-    // Provider behavior says secret is required
-    mockGetProviderBehavior = () => ({
-      setup: {
-        requiresClientSecret: true,
-        displayName: "Google",
-        dashboardUrl: "https://console.cloud.google.com",
-        appType: "Desktop app",
-      },
-    });
 
     const { exitCode, stdout } = await runCommand([
       "connect",

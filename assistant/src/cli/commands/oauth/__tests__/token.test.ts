@@ -54,10 +54,6 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
   deleteConnection: () => false,
 }));
 
-mock.module("../../../../oauth/provider-behaviors.js", () => ({
-  getProviderBehavior: () => undefined,
-}));
-
 mock.module("../../../../security/token-manager.js", () => ({
   withValidToken: async (
     service: string,
