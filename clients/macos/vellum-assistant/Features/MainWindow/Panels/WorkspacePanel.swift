@@ -370,14 +370,10 @@ private struct WorkspaceTreeSidebar: View {
                         }
                         .padding(.vertical, VSpacing.xs)
                     }
-                    .background {
-                        GeometryReader { geo in
-                            Color.clear
-                                .onAppear { viewportWidth = geo.size.width }
-                                .onChange(of: geo.size.width) { _, newWidth in
-                                    viewportWidth = newWidth
-                                }
-                        }
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.width
+                    } action: { newWidth in
+                        viewportWidth = newWidth
                     }
                 }
             }
