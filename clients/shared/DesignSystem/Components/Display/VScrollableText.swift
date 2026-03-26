@@ -7,11 +7,13 @@ import UIKit
 
 /// A read-only, scrollable text view optimized for displaying large text content.
 ///
-/// Uses platform-native text views (NSTextView on macOS, UITextView on iOS) which
-/// handle large text efficiently through TextKit's internal layout virtualization —
-/// only visible text regions are laid out and rendered, regardless of total content size.
+/// Content is always loaded asynchronously — the view shows a skeleton placeholder
+/// on first render and swaps in the real content once the async load completes.
+/// This ensures the main thread is never blocked during SwiftUI body evaluation,
+/// even for very large strings.
 ///
-/// On macOS the NSTextView renders immediately with no intermediate skeleton state.
+/// On macOS, uses `NSTextView` with TextKit layout virtualization — only visible
+/// text regions are laid out, regardless of total content size.
 /// On iOS, lines are split asynchronously and rendered via `LazyVStack`.
 ///
 /// Supports an optional `maxHeight` to constrain the visible area with scrolling,
@@ -30,6 +32,10 @@ public struct VScrollableText: View {
     let font: Font
     let foregroundStyle: Color
 
+    /// Whether the content is ready to render. Starts `false` so the first
+    /// SwiftUI body evaluation only creates a lightweight skeleton placeholder.
+    @State private var isContentReady = false
+
     /// Async line-splitting state (iOS only): nil = not yet computed.
     @State private var preparedLines: [String]?
 
@@ -47,28 +53,40 @@ public struct VScrollableText: View {
 
     public var body: some View {
         Group {
-            #if os(macOS)
-            macOSTextView
-            #else
-            if let lines = preparedLines {
-                lazyContent(lines: lines)
+            if isContentReady {
+                #if os(macOS)
+                macOSTextView
+                #else
+                if let lines = preparedLines {
+                    lazyContent(lines: lines)
+                } else {
+                    placeholder
+                }
+                #endif
             } else {
                 placeholder
             }
-            #endif
         }
-        #if !os(macOS)
         .task(id: text) {
+            #if os(macOS)
+            // Yield to let the current layout pass complete, then signal readiness.
+            // This ensures the skeleton renders first and the heavy NSTextView
+            // creation happens asynchronously on a subsequent frame.
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            isContentReady = true
+            #else
             let input = text
             let lines = input.split(separator: "\n", omittingEmptySubsequences: false)
                 .map(String.init)
             guard !Task.isCancelled else { return }
             preparedLines = lines
+            isContentReady = true
+            #endif
         }
-        #endif
     }
 
-    /// Skeleton placeholder shown while lines are being split on a background thread (iOS only).
+    /// Skeleton placeholder shown while content loads asynchronously.
     private var placeholder: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             ForEach(0..<3, id: \.self) { _ in

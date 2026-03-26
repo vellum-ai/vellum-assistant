@@ -239,10 +239,8 @@ public struct ToolCallChip: View {
                                         .foregroundStyle(VColor.contentSecondary)
                                 }
                             } else {
-                                // Use cached count if available; otherwise assume large to
-                                // avoid a synchronous O(n) scan that blocks the main thread.
-                                // The async count will arrive shortly and trigger a re-render.
-                                let isLarge = cachedResultLineCount.map { $0 > Self.largeOutputLineThreshold } ?? true
+                                let lineCount = cachedResultLineCount ?? Self.countLines(in: result)
+                                let isLarge = lineCount > Self.largeOutputLineThreshold
                                 if Self.isFileEditTool(toolCall.toolName) {
                                     VDiffView(
                                         result,
@@ -291,11 +289,7 @@ public struct ToolCallChip: View {
                     }
                     // Cache the result line count so subsequent renders are O(1).
                     if cachedResultLineCount == nil, let result = toolCall.result {
-                        let text = result
-                        Task.detached(priority: .userInitiated) {
-                            let count = ToolCallChip.countLines(in: text)
-                            await MainActor.run { cachedResultLineCount = count }
-                        }
+                        cachedResultLineCount = Self.countLines(in: result)
                     }
                     // Trigger on-demand rehydration when expanding truncated content.
                     onRehydrate?()
@@ -328,11 +322,7 @@ public struct ToolCallChip: View {
                     }
                 }
                 if cachedResultLineCount == nil, let result = toolCall.result {
-                    let text = result
-                    Task.detached(priority: .userInitiated) {
-                        let count = ToolCallChip.countLines(in: text)
-                        await MainActor.run { cachedResultLineCount = count }
-                    }
+                    cachedResultLineCount = Self.countLines(in: result)
                 }
             }
         }
@@ -342,16 +332,9 @@ public struct ToolCallChip: View {
             cachedInputFull = nil
         }
         .onChange(of: toolCall.result) {
+            cachedResultLineCount = nil
             if isExpanded, let result = toolCall.result {
-                let text = result
-                Task.detached(priority: .userInitiated) {
-                    let count = ToolCallChip.countLines(in: text)
-                    await MainActor.run {
-                        cachedResultLineCount = count
-                    }
-                }
-            } else {
-                cachedResultLineCount = nil
+                cachedResultLineCount = Self.countLines(in: result)
             }
             isOutputExpanded = false
         }
