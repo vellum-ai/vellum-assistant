@@ -1496,12 +1496,6 @@ extension ChatViewModel {
             guard belongsToConversation(msg.conversationId) else { return }
             guard msg.display == nil || msg.display == "inline" || msg.display == "panel" else { break }
             guard let surface = Surface.from(msg) else { break }
-            // Flush any in-flight typewriter drip so the surface (e.g. a
-            // credential form) doesn't share a message with a tight 12ms
-            // mutation loop. Without this, every typewriter tick rebuilds
-            // the form view, starving the main thread.
-            flushStreamingBuffer(immediate: true)
-            flushPartialOutputBuffer()
 
             // Show floating overlay for task_progress cards (macOS only)
             #if os(macOS)
