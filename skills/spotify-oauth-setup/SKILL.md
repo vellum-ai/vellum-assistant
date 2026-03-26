@@ -7,12 +7,12 @@ metadata:
   vellum:
     display-name: "Spotify OAuth Setup"
     feature-flag: "integration-spotify"
-    includes: ["collaborative-oauth-flow"]
+    includes: ["vellum-oauth-integrations"]
 ---
 
 You are helping your user set up Spotify OAuth credentials so the Spotify integration can control playback, manage playlists, and access their library.
 
-This skill follows the **Collaborative Guided Flow** pattern from the included `collaborative-oauth-flow` skill. That reference covers the navigation helper setup, step rhythm, rules, tone, error handling, and guardrails. This file defines only the Spotify-specific steps.
+The included `vellum-oauth-integrations` skill handles the generic parts of the flow (credential collection, app registration, connection, and verification). This file defines only the Spotify-specific steps.
 
 ## Provider Details
 
@@ -93,49 +93,13 @@ Open: the app's **Settings** page.
 
 ---
 
-### Step 4: Store Credentials
+### Steps 4–6: Store Credentials, Authorize, and Verify
 
-Collect Client ID conversationally:
-
-> Copy the **Client ID** and paste it here in the chat.
-
-Collect the app secret via secure prompt:
-
-```
-credential_store prompt:
-  service: "spotify"
-  field: "oauth_secret"
-  label: "Spotify OAuth App Secret"
-  description: "Copy the app secret from the Settings page (click View app secret to reveal it) and paste it here."
-  placeholder: "..."
-```
-
-Register the OAuth app:
-
-```
-bash:
-  command: |
-    assistant oauth apps upsert --provider spotify --client-id $(cat <<'EOF'
-    <client-id>
-    EOF
-    ) --client-secret-credential-path "credential/spotify/oauth_secret"
-```
-
-**Milestone (4 of 7):** "Credentials saved - just the authorization step left."
-
----
-
-### Step 5: Authorize
+Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
 
 > I'll start the Spotify authorization flow now. You should see a Spotify consent page asking you to allow **Vellum Assistant** to access your account.
 >
 > Review the permissions and click **Agree**.
-
-```
-bash:
-  command: |
-    assistant oauth connect spotify
-```
 
 The scopes requested will include:
 
@@ -148,18 +112,6 @@ The scopes requested will include:
 - `playlist-modify-private` - create and edit private playlists
 - `user-library-read` - view saved tracks and albums
 - `user-library-modify` - save and remove tracks and albums
-
----
-
-### Step 6: Verify Connection
-
-Use the ping URL to verify the connection:
-
-```
-bash:
-  command: |
-    assistant oauth ping spotify
-```
 
 **On success:** "Spotify is connected! You can now ask me to control playback, manage your playlists, check what's playing, and browse your library."
 
