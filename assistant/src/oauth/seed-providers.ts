@@ -6,16 +6,15 @@ import { seedProviders } from "./oauth-store.js";
  * These values are upserted into the `oauth_providers` SQLite table on
  * every startup. Only Vellum implementation fields (authUrl, tokenUrl,
  * tokenEndpointAuthMethod, userinfoUrl, extraParams, callbackTransport,
- * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey)
+ * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
+ * loopbackPort, injectionTemplates, setupSkillId, appType, setupNotes,
+ * identityUrl, identityMethod, identityHeaders, identityBody,
+ * identityResponsePaths, identityFormat, identityOkField)
  * and display metadata (displayName,
  * description, dashboardUrl, clientIdPlaceholder, requiresClientSecret)
  * are overwritten on subsequent startups — user-customizable
  * fields (defaultScopes, scopePolicy, baseUrl) are only
  * written on initial insert and preserved across restarts.
- *
- * Code-side behavioral fields (identityVerifier, injectionTemplates,
- * setup, etc.) live in `provider-behaviors.ts` and are never persisted
- * to the DB.
  */
 const PROVIDER_SEED_DATA: Record<
   string,
@@ -44,6 +43,23 @@ const PROVIDER_SEED_DATA: Record<
     dashboardUrl: string | null;
     clientIdPlaceholder: string | null;
     requiresClientSecret?: boolean;
+    loopbackPort?: number;
+    injectionTemplates?: Array<{
+      hostPattern: string;
+      injectionType: string;
+      headerName: string;
+      valuePrefix: string;
+    }>;
+    setupSkillId?: string;
+    appType?: string;
+    setupNotes?: string[];
+    identityUrl?: string;
+    identityMethod?: string;
+    identityHeaders?: Record<string, string>;
+    identityBody?: unknown;
+    identityResponsePaths?: string[];
+    identityFormat?: string;
+    identityOkField?: string;
   }
 > = {
   google: {
@@ -77,6 +93,30 @@ const PROVIDER_SEED_DATA: Record<
     extraParams: { access_type: "offline", prompt: "consent" },
     callbackTransport: "loopback",
     managedServiceConfigKey: "google-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "gmail.googleapis.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+      {
+        hostPattern: "www.googleapis.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+      {
+        hostPattern: "people.googleapis.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    setupSkillId: "google-oauth-applescript",
+    appType: "Desktop app",
+    identityUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
+    identityResponsePaths: ["email"],
   },
 
   slack: {
@@ -114,6 +154,20 @@ const PROVIDER_SEED_DATA: Record<
         "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write",
     },
     callbackTransport: "loopback",
+    loopbackPort: 17322,
+    injectionTemplates: [
+      {
+        hostPattern: "slack.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    appType: "Slack App",
+    identityUrl: "https://slack.com/api/auth.test",
+    identityOkField: "ok",
+    identityResponsePaths: ["user", "team"],
+    identityFormat: "@${user} (${team})",
   },
 
   notion: {
@@ -136,6 +190,20 @@ const PROVIDER_SEED_DATA: Record<
     extraParams: { owner: "user" },
     tokenEndpointAuthMethod: "client_secret_basic",
     callbackTransport: "loopback",
+    loopbackPort: 17323,
+    injectionTemplates: [
+      {
+        hostPattern: "api.notion.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    setupSkillId: "notion-oauth-setup",
+    appType: "Public integration",
+    identityUrl: "https://api.notion.com/v1/users/me",
+    identityHeaders: { "Notion-Version": "2022-06-28" },
+    identityResponsePaths: ["name", "person.email"],
   },
 
   twitter: {
@@ -161,6 +229,19 @@ const PROVIDER_SEED_DATA: Record<
     },
     tokenEndpointAuthMethod: "client_secret_basic",
     callbackTransport: "gateway",
+    injectionTemplates: [
+      {
+        hostPattern: "api.x.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    setupSkillId: "twitter-oauth-setup",
+    appType: "App",
+    identityUrl: "https://api.x.com/2/users/me",
+    identityResponsePaths: ["data.username"],
+    identityFormat: "@${data.username}",
   },
 
   github: {
@@ -185,6 +266,20 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: ["delete_repo", "admin:org"],
     },
     callbackTransport: "loopback",
+    loopbackPort: 17332,
+    injectionTemplates: [
+      {
+        hostPattern: "api.github.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    setupSkillId: "github-oauth-setup",
+    appType: "OAuth App",
+    identityUrl: "https://api.github.com/user",
+    identityResponsePaths: ["login"],
+    identityFormat: "@${login}",
   },
 
   linear: {
@@ -208,6 +303,22 @@ const PROVIDER_SEED_DATA: Record<
     },
     extraParams: { prompt: "consent" },
     callbackTransport: "loopback",
+    loopbackPort: 17324,
+    injectionTemplates: [
+      {
+        hostPattern: "api.linear.app",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    setupSkillId: "linear-oauth-setup",
+    appType: "OAuth application",
+    identityUrl: "https://api.linear.app/graphql",
+    identityMethod: "POST",
+    identityHeaders: { "Content-Type": "application/json" },
+    identityBody: { query: "{ viewer { email name } }" },
+    identityResponsePaths: ["data.viewer.email", "data.viewer.name"],
   },
 
   spotify: {
@@ -238,6 +349,19 @@ const PROVIDER_SEED_DATA: Record<
     },
     tokenEndpointAuthMethod: "client_secret_basic",
     callbackTransport: "loopback",
+    loopbackPort: 17333,
+    injectionTemplates: [
+      {
+        hostPattern: "api.spotify.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    setupSkillId: "spotify-oauth-setup",
+    appType: "App",
+    identityUrl: "https://api.spotify.com/v1/me",
+    identityResponsePaths: ["display_name", "email"],
   },
 
   todoist: {
@@ -257,6 +381,22 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: ["data:delete"],
     },
     callbackTransport: "loopback",
+    loopbackPort: 17325,
+    injectionTemplates: [
+      {
+        hostPattern: "api.todoist.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    setupSkillId: "todoist-oauth-setup",
+    appType: "App",
+    identityUrl: "https://api.todoist.com/sync/v9/sync",
+    identityMethod: "POST",
+    identityHeaders: { "Content-Type": "application/x-www-form-urlencoded" },
+    identityBody: "sync_token=*&resource_types=[%22user%22]",
+    identityResponsePaths: ["user.full_name", "user.email"],
   },
 
   discord: {
@@ -281,6 +421,19 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     callbackTransport: "loopback",
+    loopbackPort: 17326,
+    injectionTemplates: [
+      {
+        hostPattern: "discord.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    setupSkillId: "discord-oauth-setup",
+    appType: "Application",
+    identityUrl: "https://discord.com/api/v10/users/@me",
+    identityResponsePaths: ["global_name", "username"],
   },
 
   dropbox: {
@@ -307,6 +460,26 @@ const PROVIDER_SEED_DATA: Record<
     },
     extraParams: { token_access_type: "offline" },
     callbackTransport: "loopback",
+    loopbackPort: 17327,
+    injectionTemplates: [
+      {
+        hostPattern: "api.dropboxapi.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+      {
+        hostPattern: "content.dropboxapi.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    setupSkillId: "dropbox-oauth-setup",
+    appType: "Scoped access app",
+    identityUrl: "https://api.dropboxapi.com/2/users/get_current_account",
+    identityMethod: "POST",
+    identityResponsePaths: ["name.display_name", "email"],
   },
 
   asana: {
@@ -326,6 +499,19 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     callbackTransport: "loopback",
+    loopbackPort: 17328,
+    injectionTemplates: [
+      {
+        hostPattern: "app.asana.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    setupSkillId: "asana-oauth-setup",
+    appType: "App",
+    identityUrl: "https://app.asana.com/api/1.0/users/me",
+    identityResponsePaths: ["data.name", "data.email"],
   },
 
   airtable: {
@@ -350,6 +536,19 @@ const PROVIDER_SEED_DATA: Record<
     },
     tokenEndpointAuthMethod: "client_secret_basic",
     callbackTransport: "loopback",
+    loopbackPort: 17329,
+    injectionTemplates: [
+      {
+        hostPattern: "api.airtable.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    setupSkillId: "airtable-oauth-setup",
+    appType: "OAuth integration",
+    identityUrl: "https://api.airtable.com/v0/meta/whoami",
+    identityResponsePaths: ["email"],
   },
 
   hubspot: {
@@ -378,6 +577,19 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     callbackTransport: "loopback",
+    loopbackPort: 17330,
+    injectionTemplates: [
+      {
+        hostPattern: "api.hubapi.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    setupSkillId: "hubspot-oauth-setup",
+    appType: "App",
+    identityUrl: "https://api.hubapi.com/oauth/v1/access-tokens/${accessToken}",
+    identityResponsePaths: ["user", "hub_domain"],
   },
 
   figma: {
@@ -398,6 +610,19 @@ const PROVIDER_SEED_DATA: Record<
     },
     tokenEndpointAuthMethod: "client_secret_basic",
     callbackTransport: "loopback",
+    loopbackPort: 17331,
+    injectionTemplates: [
+      {
+        hostPattern: "api.figma.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    setupSkillId: "figma-oauth-setup",
+    appType: "App",
+    identityUrl: "https://api.figma.com/v1/me",
+    identityResponsePaths: ["handle", "email"],
   },
 
   // Manual-token providers: these don't use OAuth2 flows but need provider
