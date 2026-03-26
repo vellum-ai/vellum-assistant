@@ -621,10 +621,6 @@ struct MessageListView: View {
                         }
                         .padding(.vertical, VSpacing.sm)
                         .id("page-loading-indicator")
-                    } else if hasMoreMessages {
-                        Color.clear
-                            .frame(height: 1)
-                            .id("page-load-trigger")
                     }
 
                     let _ = recordScrollLoopEvent(.bodyEvaluation)
@@ -837,12 +833,13 @@ struct MessageListView: View {
                 // --- Pagination trigger ---
                 // Derive pagination from scroll offset instead of a
                 // GeometryReader+PreferenceKey sentinel inside the
-                // LazyVStack. contentOffsetY represents how far the
-                // content is scrolled — small values mean the top of
-                // the content (where older messages load) is near the
-                // viewport top, equivalent to the old sentinel minY.
+                // LazyVStack. The old sentinel reported minY in the
+                // ScrollView coordinate space (0 at viewport top,
+                // negative when scrolled past). contentOffsetY has
+                // inverted sign (0 at top, positive when scrolled
+                // down), so we negate to preserve the same semantics.
                 scrollCoordinator.handlePaginationSentinel(
-                    sentinelMinY: newState.contentOffsetY,
+                    sentinelMinY: -newState.contentOffsetY,
                     scrollViewportHeight: scrollCoordinator.currentScrollViewportHeight,
                     hasMoreMessages: hasMoreMessages,
                     isLoadingMoreMessages: isLoadingMoreMessages,
