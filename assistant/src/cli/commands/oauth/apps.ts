@@ -15,11 +15,11 @@ import { shouldOutputJson, writeOutput } from "../../output.js";
 /**
  * Resolve a credential path input to its full internal format.
  *
- * - If `input` already starts with `credential/` or `oauth_app/`, return as-is
- *   (backwards compatibility for full paths).
- * - Otherwise, split on the **last** colon to extract `service` and `field`,
- *   then return `credential/{service}/{field}`.
- * - If there is no colon, return as-is (unknown format, pass through).
+ * The primary input format is `service:field` (e.g. `google:client_secret`),
+ * which is split on the **last** colon and expanded to `credential/{service}/{field}`.
+ *
+ * Full internal paths (`credential/…` or `oauth_app/…`) are also accepted
+ * and returned as-is for backwards compatibility.
  */
 function resolveCredentialPath(input: string): string {
   if (input.startsWith("credential/") || input.startsWith("oauth_app/")) {
@@ -227,7 +227,7 @@ At least --id or --provider must be specified.`,
     )
     .option(
       "--client-secret-credential-path <path>",
-      "Path to an existing client secret in the credential store (mutually exclusive with --client-secret)",
+      "Credential reference in service:field format (e.g. google:client_secret). Mutually exclusive with --client-secret.",
     )
     .addHelpText(
       "after",
@@ -243,9 +243,8 @@ You can supply the client secret directly via --client-secret, or reference an
 existing credential in the store via --client-secret-credential-path. These two
 options are mutually exclusive — providing both is an error.
 
-The --client-secret-credential-path accepts a credential reference in
-\`service:field\` format (e.g. \`google:client_secret\`). Full paths like
-\`credential/google/client_secret\` are also accepted.
+The --client-secret-credential-path takes a \`service:field\` reference
+(e.g. \`google:client_secret\`).
 
 Examples:
   $ assistant oauth apps upsert --provider google --client-id abc123
