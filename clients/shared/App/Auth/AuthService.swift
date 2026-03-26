@@ -3,26 +3,25 @@ import os
 
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AuthService")
 
-// MARK: - Thread-safe configuredBaseURL storage (module-private)
-// These live outside the @MainActor class so they are nonisolated by default.
-// GatewayHTTPClient (nonisolated) reads via AuthService.currentConfiguredBaseURL;
-// SettingsStore (@MainActor) writes via AuthService.shared.configuredBaseURL.
+// MARK: - Module-private constants and storage (nonisolated by default)
+// These live outside the @MainActor class so nonisolated static functions
+// (resolveBaseURL, normalizedBaseURL) can reference them without crossing
+// into @MainActor isolation — which is an error in Swift 6 language mode.
 private let _configuredBaseURLLock = NSLock()
 private var _configuredBaseURLValue: String = ""
+private let _platformURLOverrideEnvironmentKey = "VELLUM_PLATFORM_URL"
+private let _authServiceBaseURLDefaultsName = "authServiceBaseURL"
+private let _defaultBaseURL: String = {
+    #if DEBUG && os(macOS)
+    return "http://localhost:8000"
+    #else
+    return "https://platform.vellum.ai"
+    #endif
+}()
 
 @MainActor
 public final class AuthService {
     public static let shared = AuthService()
-    private static let platformURLOverrideEnvironmentKey = "VELLUM_PLATFORM_URL"
-    private static let authServiceBaseURLDefaultsName = "authServiceBaseURL"
-
-    private static let defaultBaseURL: String = {
-        #if DEBUG && os(macOS)
-        return "http://localhost:8000"
-        #else
-        return "https://platform.vellum.ai"
-        #endif
-    }()
 
     /// Platform base URL from daemon config. Set by SettingsStore when the
     /// `platform_config_response` arrives. When non-empty, takes precedence
@@ -68,7 +67,7 @@ public final class AuthService {
         environment: [String: String],
         userDefaults: UserDefaults
     ) -> String {
-        if let override = normalizedBaseURL(environment[platformURLOverrideEnvironmentKey]) {
+        if let override = normalizedBaseURL(environment[_platformURLOverrideEnvironmentKey]) {
             return override
         }
         if let configured = normalizedBaseURL(configuredBaseURL) {
@@ -76,11 +75,11 @@ public final class AuthService {
         }
         #if DEBUG
         // Keep the UserDefaults override as a fallback for direct debug sessions.
-        if let override = normalizedBaseURL(userDefaults.string(forKey: authServiceBaseURLDefaultsName)) {
+        if let override = normalizedBaseURL(userDefaults.string(forKey: _authServiceBaseURLDefaultsName)) {
             return override
         }
         #endif
-        return defaultBaseURL
+        return _defaultBaseURL
     }
 
     nonisolated private static func normalizedBaseURL(_ raw: String?) -> String? {

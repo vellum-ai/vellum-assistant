@@ -16,7 +16,7 @@ public struct BtwClient: BtwClientProtocol {
     /// Returns an `AsyncThrowingStream` that yields text deltas from SSE `btw_text_delta` events.
     public func sendMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
         return AsyncThrowingStream { continuation in
-            let task = Task { @MainActor in
+            let task = Task {
                 do {
                     try await Self.streamBtw(content: content, conversationKey: conversationKey, continuation: continuation)
                 } catch {
