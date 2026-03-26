@@ -13,11 +13,13 @@ mock.module("node:os", () => ({
 
 import {
   ensureDataDir,
+  findLockfile,
   getDataDir,
   getDbPath,
   getHistoryPath,
   getHooksDir,
   getInterfacesDir,
+  getLockfilePath,
   getLogPath,
   getPidPath,
   getRootDir,
@@ -28,6 +30,7 @@ import {
   getWorkspaceHooksDir,
   getWorkspacePromptPath,
   getWorkspaceSkillsDir,
+  LOCKFILE_NAMES,
   resolveInstanceDataDir,
 } from "../util/platform.js";
 
@@ -156,13 +159,158 @@ describe("workspace path primitives", () => {
   });
 });
 
+function makeTempDir(): string {
+  const dir = join(tmpdir(), `platform-home-${randomBytes(4).toString("hex")}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function writeLockfile(
+  baseDir: string,
+  data: Record<string, unknown>,
+  filename: string = LOCKFILE_NAMES[0],
+): void {
+  writeFileSync(join(baseDir, filename), JSON.stringify(data, null, 2));
+}
+
+describe("findLockfile", () => {
+  test("returns path and parsed data for valid primary lockfile", () => {
+    // GIVEN a directory with a valid .vellum.lock.json
+    const dir = makeTempDir();
+    const payload = { assistants: [{ assistantId: "a" }] };
+    writeLockfile(dir, payload);
+
+    // WHEN we search for the lockfile
+    const result = findLockfile(dir);
+
+    // THEN we get the path and parsed data
+    expect(result).toBeDefined();
+    expect(result!.path).toBe(join(dir, LOCKFILE_NAMES[0]));
+    expect(result!.data).toEqual(payload);
+  });
+
+  test("falls back to legacy lockfile when primary is absent", () => {
+    // GIVEN a directory with only the legacy .vellum.lockfile.json
+    const dir = makeTempDir();
+    const payload = { assistants: [{ assistantId: "b" }] };
+    writeLockfile(dir, payload, LOCKFILE_NAMES[1]);
+
+    // WHEN we search for the lockfile
+    const result = findLockfile(dir);
+
+    // THEN we get the legacy path and parsed data
+    expect(result).toBeDefined();
+    expect(result!.path).toBe(join(dir, LOCKFILE_NAMES[1]));
+    expect(result!.data).toEqual(payload);
+  });
+
+  test("prefers primary lockfile over legacy when both exist", () => {
+    // GIVEN a directory with both primary and legacy lockfiles
+    const dir = makeTempDir();
+    writeLockfile(dir, { source: "primary" });
+    writeLockfile(dir, { source: "legacy" }, LOCKFILE_NAMES[1]);
+
+    // WHEN we search for the lockfile
+    const result = findLockfile(dir);
+
+    // THEN the primary lockfile wins
+    expect(result).toBeDefined();
+    expect(result!.path).toBe(join(dir, LOCKFILE_NAMES[0]));
+    expect(result!.data).toEqual({ source: "primary" });
+  });
+
+  test("skips malformed primary and falls through to valid legacy", () => {
+    // GIVEN a directory where the primary lockfile has invalid JSON
+    const dir = makeTempDir();
+    writeFileSync(join(dir, LOCKFILE_NAMES[0]), "{{not json");
+    writeLockfile(dir, { source: "legacy" }, LOCKFILE_NAMES[1]);
+
+    // WHEN we search for the lockfile
+    const result = findLockfile(dir);
+
+    // THEN the legacy lockfile is returned
+    expect(result).toBeDefined();
+    expect(result!.path).toBe(join(dir, LOCKFILE_NAMES[1]));
+    expect(result!.data).toEqual({ source: "legacy" });
+  });
+
+  test("returns undefined when no lockfile exists", () => {
+    // GIVEN an empty directory
+    const dir = makeTempDir();
+
+    // WHEN we search for the lockfile
+    const result = findLockfile(dir);
+
+    // THEN undefined is returned
+    expect(result).toBeUndefined();
+  });
+
+  test("returns undefined when lockfile is malformed and no fallback exists", () => {
+    // GIVEN a directory where the only lockfile has invalid JSON
+    const dir = makeTempDir();
+    writeFileSync(join(dir, LOCKFILE_NAMES[0]), "{{not json");
+
+    // WHEN we search for the lockfile
+    const result = findLockfile(dir);
+
+    // THEN undefined is returned
+    expect(result).toBeUndefined();
+  });
+
+  test("rejects lockfile that parses as an array", () => {
+    // GIVEN a directory where the lockfile contains a JSON array
+    const dir = makeTempDir();
+    writeFileSync(join(dir, LOCKFILE_NAMES[0]), JSON.stringify([1, 2, 3]));
+
+    // WHEN we search for the lockfile
+    const result = findLockfile(dir);
+
+    // THEN undefined is returned (arrays are not valid lockfile data)
+    expect(result).toBeUndefined();
+  });
+
+  test("defaults baseDir to homedir() when omitted", () => {
+    // GIVEN a lockfile written to the mocked homedir
+    const home = makeTempDir();
+    homedirOverride = home;
+    writeLockfile(home, { fromHome: true });
+
+    // WHEN we call findLockfile without a baseDir
+    const result = findLockfile();
+
+    // THEN it reads from homedir()
+    expect(result).toBeDefined();
+    expect(result!.path).toBe(join(home, LOCKFILE_NAMES[0]));
+    expect(result!.data).toEqual({ fromHome: true });
+  });
+});
+
+describe("getLockfilePath", () => {
+  test("returns canonical lockfile path under given base directory", () => {
+    // GIVEN a base directory
+    // WHEN we request the lockfile path
+    const result = getLockfilePath("/some/base");
+
+    // THEN it returns the primary lockfile name under that directory
+    expect(result).toBe(join("/some/base", LOCKFILE_NAMES[0]));
+  });
+
+  test("defaults to homedir() when baseDir is omitted", () => {
+    // GIVEN the mocked homedir
+    const home = makeTempDir();
+    homedirOverride = home;
+
+    // WHEN we call getLockfilePath without arguments
+    const result = getLockfilePath();
+
+    // THEN it uses homedir()
+    expect(result).toBe(join(home, LOCKFILE_NAMES[0]));
+  });
+});
+
 describe("resolveInstanceDataDir", () => {
   function makeTempHome(): string {
-    const dir = join(
-      tmpdir(),
-      `platform-home-${randomBytes(4).toString("hex")}`,
-    );
-    mkdirSync(dir, { recursive: true });
+    const dir = makeTempDir();
     homedirOverride = dir;
     return dir;
   }
@@ -171,10 +319,7 @@ describe("resolveInstanceDataDir", () => {
     home: string,
     data: Record<string, unknown>,
   ): void {
-    writeFileSync(
-      join(home, ".vellum.lock.json"),
-      JSON.stringify(data, null, 2),
-    );
+    writeLockfile(home, data);
   }
 
   test("returns undefined when no lockfile exists", () => {

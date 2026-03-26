@@ -8,6 +8,7 @@ import {
 import { join } from "node:path";
 
 import { getDeviceIdBaseDir } from "../../util/device-id.js";
+import { findLockfile } from "../../util/platform.js";
 import type { WorkspaceMigration } from "./types.js";
 
 export const seedDeviceIdMigration: WorkspaceMigration = {
@@ -37,27 +38,9 @@ export const seedDeviceIdMigration: WorkspaceMigration = {
     }
 
     // b. Read the lockfile to find an existing installationId.
-    //    Check both the current and legacy lockfile paths to support installs
-    //    that haven't migrated the filename yet.
-    const lockCandidates = [
-      join(base, ".vellum.lock.json"),
-      join(base, ".vellum.lockfile.json"),
-    ];
-
-    let lockData: Record<string, unknown> | undefined;
-    for (const lockPath of lockCandidates) {
-      if (!existsSync(lockPath)) continue;
-      try {
-        const raw = JSON.parse(readFileSync(lockPath, "utf-8"));
-        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-          lockData = raw as Record<string, unknown>;
-          break;
-        }
-      } catch {
-        // Malformed — try next candidate.
-      }
-    }
-    if (!lockData) return;
+    const result = findLockfile(base);
+    if (!result) return;
+    const { data: lockData } = result;
 
     const assistants = lockData.assistants as
       | Array<Record<string, unknown>>

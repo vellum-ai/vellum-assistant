@@ -1,9 +1,4 @@
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-} from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -44,12 +39,48 @@ export function getClipboardCommand(): string | null {
   return null;
 }
 
+/**
+ * Lockfile candidate filenames, checked in priority order.
+ * `.vellum.lock.json` is the current name; `.vellum.lockfile.json` is the
+ * legacy name kept for backwards compatibility with older installs.
+ */
+export const LOCKFILE_NAMES = [
+  ".vellum.lock.json",
+  ".vellum.lockfile.json",
+] as const;
+
+/**
+ * Find the first valid lockfile under `baseDir` and return its path and
+ * parsed contents.
+ *
+ * Checks `.vellum.lock.json` (current) then `.vellum.lockfile.json` (legacy).
+ * A lockfile is considered valid when it exists, parses as JSON, and is a
+ * non-array object. Returns undefined if no valid lockfile is found.
+ *
+ * Synchronous (uses readFileSync) — safe for use at bootstrap before any async
+ * context is available.
+ */
+export function findLockfile(
+  baseDir?: string,
+): { path: string; data: Record<string, unknown> } | undefined {
+  const base = baseDir ?? homedir();
+  for (const name of LOCKFILE_NAMES) {
+    const candidate = join(base, name);
+    if (!existsSync(candidate)) continue;
+    try {
+      const parsed = JSON.parse(readFileSync(candidate, "utf-8"));
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return { path: candidate, data: parsed as Record<string, unknown> };
+      }
+    } catch {
+      // Malformed JSON; try next candidate
+    }
+  }
+  return undefined;
+}
 
 /**
  * Resolve the instance data directory from the lockfile.
- *
- * Checks both ~/.vellum.lock.json (current) and ~/.vellum.lockfile.json
- * (legacy) to support installs that haven't migrated the filename.
  *
  * Reads the lockfile from homedir() directly (NOT via readLockfile() which
  * depends on BASE_DATA_DIR) to avoid circular dependency — this function is
@@ -62,33 +93,14 @@ export function getClipboardCommand(): string | null {
  *   - Returns undefined in all other cases (no lockfile, no local assistants,
  *     multiple local assistants with no active selection, malformed JSON).
  *
- * Synchronous (uses readFileSync) since it runs at bootstrap before any async
- * context. Never throws — catches all errors and returns undefined for
+ * Synchronous — never throws; catches all errors and returns undefined for
  * graceful degradation.
  */
 export function resolveInstanceDataDir(): string | undefined {
   try {
-    const home = homedir();
-    const candidates = [
-      join(home, ".vellum.lock.json"),
-      join(home, ".vellum.lockfile.json"),
-    ];
-
-    let raw: unknown;
-    for (const lockPath of candidates) {
-      if (!existsSync(lockPath)) continue;
-      try {
-        const parsed = JSON.parse(readFileSync(lockPath, "utf-8"));
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          raw = parsed;
-          break;
-        }
-      } catch {
-        // Malformed JSON; try next candidate
-      }
-    }
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-    const lockData = raw as Record<string, unknown>;
+    const result = findLockfile();
+    if (!result) return undefined;
+    const lockData = result.data;
 
     const assistants = lockData.assistants as
       | Array<Record<string, unknown>>
@@ -129,6 +141,15 @@ export function resolveInstanceDataDir(): string | undefined {
 }
 
 /**
+ * Returns the canonical lockfile write path under the given base directory.
+ * Always uses the current filename (`.vellum.lock.json`), never the legacy name.
+ */
+export function getLockfilePath(baseDir?: string): string {
+  const base = baseDir ?? homedir();
+  return join(base, LOCKFILE_NAMES[0]);
+}
+
+/**
  * Normalize an assistant ID to its canonical form for DB operations.
  *
  * The system uses "self" as the canonical single-tenant identifier
@@ -146,7 +167,6 @@ export function normalizeAssistantId(assistantId: string): string {
 
   return assistantId;
 }
-
 
 /**
  * Returns the root ~/.vellum directory. User-facing files (config, prompt

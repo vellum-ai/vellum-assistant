@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
 
 import {
   deleteMemoryCheckpoint,
   getMemoryCheckpoint,
 } from "../../memory/checkpoints.js";
 import { getExternalAssistantId } from "../../runtime/auth/external-assistant-id.js";
+import { findLockfile } from "../../util/platform.js";
 import type { WorkspaceMigration } from "./types.js";
 
 export const backfillInstallationIdMigration: WorkspaceMigration = {
@@ -37,32 +37,11 @@ export const backfillInstallationIdMigration: WorkspaceMigration = {
     }
     const installationId = existingId || randomUUID();
 
-    // b. Read the lockfile — check both the current and legacy lockfile paths
-    //    to support installs that haven't migrated the filename yet.
-    //    Always reads from homedir(), matching resolveInstanceDataDir() in
-    //    platform.ts — the lockfile is a per-user file, not per-instance.
-    const home = homedir();
-    const lockCandidates = [
-      join(home, ".vellum.lock.json"),
-      join(home, ".vellum.lockfile.json"),
-    ];
-
-    let lockPath: string | undefined;
-    let lockData: Record<string, unknown> | undefined;
-    for (const candidate of lockCandidates) {
-      if (!existsSync(candidate)) continue;
-      try {
-        const raw = JSON.parse(readFileSync(candidate, "utf-8"));
-        if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-          lockPath = candidate;
-          lockData = raw as Record<string, unknown>;
-          break;
-        }
-      } catch {
-        // Malformed — try next candidate.
-      }
-    }
-    if (!lockPath || !lockData) return;
+    // b. Read the lockfile (checks both current and legacy filenames).
+    //    Always reads from homedir() — the lockfile is per-user, not per-instance.
+    const result = findLockfile(homedir());
+    if (!result) return;
+    const { path: lockPath, data: lockData } = result;
 
     // c. Find the assistant entry that corresponds to this daemon instance
     const assistants = lockData.assistants as
