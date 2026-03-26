@@ -4,13 +4,11 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DiagnosticsClient")
 
 /// Focused client for diagnostics operations routed through the gateway.
-@MainActor
 public protocol DiagnosticsClientProtocol {
     func fetchEnvVars() async -> EnvVarsResponseMessage?
 }
 
 /// Gateway-backed implementation of ``DiagnosticsClientProtocol``.
-@MainActor
 public struct DiagnosticsClient: DiagnosticsClientProtocol {
     nonisolated public init() {}
 

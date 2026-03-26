@@ -359,7 +359,9 @@ struct HatchingStepView: View {
     /// CLI process stays alive (e.g. `--watch` mode in DEBUG builds).
     private static let dockerReadySentinel = "Docker containers are up and running"
 
-    /// Build the --config key=value pairs for the onboarding inference selection.
+    /// Build the --config key=value pairs for the onboarding selections.
+    /// When the user signed in, set all services to managed mode so they
+    /// route through the platform proxy.
     private func buildOnboardingConfigValues() -> [String: String] {
         var configValues: [String: String] = [:]
         if !state.selectedProvider.isEmpty {
@@ -367,6 +369,12 @@ struct HatchingStepView: View {
         }
         if !state.selectedModel.isEmpty {
             configValues["services.inference.model"] = state.selectedModel
+        }
+        if !state.skippedAuth {
+            configValues["services.inference.mode"] = "managed"
+            configValues["services.image-generation.mode"] = "managed"
+            configValues["services.web-search.mode"] = "managed"
+            configValues["services.google-oauth.mode"] = "managed"
         }
         return configValues
     }

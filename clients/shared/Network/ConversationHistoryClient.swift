@@ -5,13 +5,11 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 private let perfLog = OSLog(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: .pointsOfInterest)
 
 /// Focused client for conversation history operations routed through the gateway.
-@MainActor
 public protocol ConversationHistoryClientProtocol {
     func fetchHistory(conversationId: String, limit: Int?, beforeTimestamp: Double?, mode: String?, maxTextChars: Int?, maxToolResultChars: Int?) async -> HistoryResponse?
 }
 
 /// Gateway-backed implementation of ``ConversationHistoryClientProtocol``.
-@MainActor
 public struct ConversationHistoryClient: ConversationHistoryClientProtocol {
     nonisolated public init() {}
 
@@ -50,10 +48,6 @@ public struct ConversationHistoryClient: ConversationHistoryClientProtocol {
                 return nil
             }
 
-            let isoFormatter = ISO8601DateFormatter()
-            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let fallbackFormatter = ISO8601DateFormatter()
-
             let transformed: [[String: Any]] = messages.compactMap { msg in
                 var m = msg
                 // Rename `content` -> `text`.
@@ -65,9 +59,7 @@ public struct ConversationHistoryClient: ConversationHistoryClientProtocol {
                 }
                 // Convert ISO 8601 timestamp -> Double (ms since epoch).
                 if let tsString = m["timestamp"] as? String {
-                    if let date = isoFormatter.date(from: tsString) {
-                        m["timestamp"] = date.timeIntervalSince1970 * 1000.0
-                    } else if let date = fallbackFormatter.date(from: tsString) {
+                    if let date = tsString.iso8601Date {
                         m["timestamp"] = date.timeIntervalSince1970 * 1000.0
                     } else {
                         log.warning("Unparseable timestamp in history message: \(tsString, privacy: .public)")

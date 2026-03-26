@@ -873,12 +873,8 @@ class CredentialStoreTool implements Tool {
         // browser-automation workarounds that inevitably fail.
         const requiresSecret = !!providerRow.requiresClientSecret;
         if (requiresSecret && !clientSecret) {
-          const skillId = providerRow?.setupSkillId;
-          const skillHint = skillId
-            ? `\n\nLoad the "${skillId}" skill for provider-specific instructions on obtaining the client secret.`
-            : '\n\nUse credential_store with action "prompt" to securely collect the client_secret from the user before calling oauth2_connect again.';
           return {
-            content: `Error: client_secret is required for ${service} but not found in the vault.${skillHint}`,
+            content: `Error: client_secret is required for ${service} but not found in the vault.\n\nUse credential_store with action "prompt" to securely collect the client_secret from the user before calling oauth2_connect again.`,
             isError: true,
           };
         }

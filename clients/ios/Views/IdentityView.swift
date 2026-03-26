@@ -344,16 +344,8 @@ struct IdentityView: View {
     // MARK: - Helpers
 
     private func formatDate(_ isoString: String) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = formatter.date(from: isoString) {
-            return formatDisplayDate(date)
-        }
-        formatter.formatOptions = [.withInternetDateTime]
-        if let date = formatter.date(from: isoString) {
-            return formatDisplayDate(date)
-        }
-        return isoString
+        guard let date = isoString.iso8601Date else { return isoString }
+        return formatDisplayDate(date)
     }
 
     private func formatDisplayDate(_ date: Date) -> String {

@@ -58,6 +58,29 @@ final class ChatVisibleMessageFilterTests: XCTestCase {
         XCTAssertEqual(result[1].text, "Why did the chicken cross the road?")
     }
 
+    func testPhantomEmptyMessagesAreFilteredOut() {
+        // Phantom messages with no renderable content (empty text, no tool calls,
+        // no attachments, no special widgets) should be excluded.
+        let phantom = ChatMessage(role: .assistant, text: "")
+        let visible = ChatMessage(role: .assistant, text: "Real response")
+
+        let result = ChatVisibleMessageFilter.visibleMessages(from: [phantom, visible])
+
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result[0].text, "Real response")
+    }
+
+    func testMessagesWithToolCallsAreNotFilteredOut() {
+        var msg = ChatMessage(role: .assistant, text: "", toolCalls: [
+            ToolCallData(toolName: "Bash", inputSummary: "ls", inputFull: "", inputRawValue: "")
+        ])
+        msg.contentOrder = [.toolCall(0)]
+
+        let result = ChatVisibleMessageFilter.visibleMessages(from: [msg])
+
+        XCTAssertEqual(result.count, 1)
+    }
+
     func testEmptyArrayReturnsEmpty() {
         let result = ChatVisibleMessageFilter.visibleMessages(from: [])
         XCTAssertTrue(result.isEmpty)

@@ -25,7 +25,7 @@ import { registerMcpCommand } from "./commands/mcp.js";
 import { registerMemoryCommand } from "./commands/memory.js";
 import { registerNotificationsCommand } from "./commands/notifications.js";
 import { registerOAuthCommand } from "./commands/oauth/index.js";
-import { registerPlatformCommand } from "./commands/platform.js";
+import { registerPlatformCommand } from "./commands/platform/index.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
 import { registerShotgunCommand } from "./commands/shotgun.js";
 import { registerSkillsCommand } from "./commands/skills.js";

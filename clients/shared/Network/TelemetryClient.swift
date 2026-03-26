@@ -4,13 +4,11 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "TelemetryClient")
 
 /// Focused client for telemetry operations routed through the gateway.
-@MainActor
 public protocol TelemetryClientProtocol {
     func recordLifecycleEvent(_ eventName: String) async
 }
 
 /// Gateway-backed implementation of ``TelemetryClientProtocol``.
-@MainActor
 public struct TelemetryClient: TelemetryClientProtocol {
     nonisolated public init() {}
 

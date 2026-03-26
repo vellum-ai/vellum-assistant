@@ -687,8 +687,7 @@ struct GeneratedPanel: View {
     }
 
     private func formatISO(_ isoString: String) -> String {
-        let isoFormatter = ISO8601DateFormatter()
-        guard let date = isoFormatter.date(from: isoString) else { return isoString }
+        guard let date = isoString.iso8601Date else { return isoString }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
         return formatter.localizedString(for: date, relativeTo: Date())

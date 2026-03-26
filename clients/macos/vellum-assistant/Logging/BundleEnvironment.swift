@@ -50,7 +50,7 @@ enum BundleEnvironment {
         let snapshot = capture()
 
         var info: [String: Any] = [
-            "capturedAt": ISO8601DateFormatter().string(from: Date()),
+            "capturedAt": Date().iso8601String,
             "bundlePath": snapshot.bundlePath,
             "isTranslocated": snapshot.isTranslocated,
             "hasQuarantineAttribute": snapshot.hasQuarantineAttribute,

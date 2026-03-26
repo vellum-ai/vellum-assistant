@@ -18,10 +18,10 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { getBaseDataDir, getIsContainerized } from "./env-registry.js";
+import { getRootDir } from "../util/platform.js";
+import { getIsContainerized } from "./env-registry.js";
 import type { AssistantConfig } from "./schema.js";
 
 // ---------------------------------------------------------------------------
@@ -135,17 +135,13 @@ interface FeatureFlagFileData {
  *
  * Docker: `GATEWAY_SECURITY_DIR/feature-flags.json`
  * Local:  `~/.vellum/protected/feature-flags.json`
- *
- * Uses `BASE_DATA_DIR` when set (multi-instance mode) so per-instance
- * feature flag files are correctly scoped.
  */
 function getFeatureFlagOverridesPath(): string {
   const securityDir = process.env.GATEWAY_SECURITY_DIR;
   if (securityDir) {
     return join(securityDir, "feature-flags.json");
   }
-  const root = join(getBaseDataDir() || homedir(), ".vellum");
-  return join(root, "protected", "feature-flags.json");
+  return join(getRootDir(), "protected", "feature-flags.json");
 }
 
 /**

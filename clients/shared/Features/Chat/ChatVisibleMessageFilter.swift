@@ -6,9 +6,11 @@ import Foundation
 public enum ChatVisibleMessageFilter {
 
     /// Returns all messages that should be visible in the chat UI.
-    /// Excludes subagent notifications and hidden (automated) messages.
+    /// Excludes subagent notifications, hidden (automated) messages, and phantom
+    /// messages with no renderable content (which can arise from streaming edge
+    /// cases like API timeouts creating empty message shells).
     public static func visibleMessages(from messages: [ChatMessage]) -> [ChatMessage] {
-        messages.filter { !$0.isSubagentNotification && !$0.isHidden }
+        messages.filter { !$0.isSubagentNotification && !$0.isHidden && $0.hasRenderableContent }
     }
 
     /// Returns the paginated suffix of visible messages for a given `displayedMessageCount`.

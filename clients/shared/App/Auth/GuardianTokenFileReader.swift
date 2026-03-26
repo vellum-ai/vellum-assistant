@@ -168,13 +168,7 @@ public enum GuardianTokenFileReader {
         case .number(let ms):
             return ms
         case .string(let str):
-            let fractional = ISO8601DateFormatter()
-            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-            let plain = ISO8601DateFormatter()
-            plain.formatOptions = [.withInternetDateTime]
-
-            if let date = fractional.date(from: str) ?? plain.date(from: str) {
+            if let date = str.iso8601Date {
                 return Int(date.timeIntervalSince1970 * 1000)
             }
             if let epochMs = Int(str) {

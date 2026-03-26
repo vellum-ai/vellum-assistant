@@ -2298,17 +2298,15 @@ public struct IntegrationConnectResult: Codable, Sendable {
     public let accountInfo: String?
     public let error: String?
     public let setupRequired: Bool?
-    public let setupSkillId: String?
     public let setupHint: String?
 
-    public init(type: String, integrationId: String, success: Bool, accountInfo: String? = nil, error: String? = nil, setupRequired: Bool? = nil, setupSkillId: String? = nil, setupHint: String? = nil) {
+    public init(type: String, integrationId: String, success: Bool, accountInfo: String? = nil, error: String? = nil, setupRequired: Bool? = nil, setupHint: String? = nil) {
         self.type = type
         self.integrationId = integrationId
         self.success = success
         self.accountInfo = accountInfo
         self.error = error
         self.setupRequired = setupRequired
-        self.setupSkillId = setupSkillId
         self.setupHint = setupHint
     }
 }

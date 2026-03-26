@@ -174,6 +174,18 @@ extension AppDelegate {
                 await authManager.logoutWithToast { [weak self] msg, style in
                     self?.mainWindow?.windowState.showToast(message: msg, style: style)
                 }
+
+                // Restore connectedAssistantId immediately — authManager.logout()
+                // clears it from UserDefaults, but clearDaemonCredentials() needs
+                // it to resolve the gateway connection via GatewayHTTPClient.
+                // Without it, all DELETE requests fail with "No connected assistant",
+                // triggering the fallback that disconnects and stops the assistant.
+                // Do NOT restore connectedOrganizationId: the org ID may belong
+                // to a different environment (e.g. dev vs prod). Letting bootstrap
+                // re-resolve it on the next login ensures it matches the session.
+                if let connectedAssistantId {
+                    UserDefaults.standard.set(connectedAssistantId, forKey: "connectedAssistantId")
+                }
             } else {
                 // Managed: user is redirected to the reauth screen regardless of
                 // HTTP outcome, so we don't toast. Log the error for diagnostics —
@@ -235,21 +247,11 @@ extension AppDelegate {
             if !wasManaged {
                 // Self-hosted (local or remote): clear auth state but keep the
                 // app running. The user can sign in again from Settings > General.
-
-                // Restore connectedAssistantId — authManager.logout() clears it
-                // from UserDefaults, but the app stays running in this path and
-                // the assistant process is still active.
-                // Do NOT restore connectedOrganizationId: the org ID may belong
-                // to a different environment (e.g. dev vs prod). Letting bootstrap
-                // re-resolve it on the next login ensures it matches the session.
-                if let connectedAssistantId {
-                    UserDefaults.standard.set(connectedAssistantId, forKey: "connectedAssistantId")
-                }
-
-                actorTokenBootstrapTask?.cancel()
-                actorTokenBootstrapTask = nil
-                ActorTokenManager.deleteToken()
-                hasSetupDaemon = false
+                // connectedAssistantId was already restored above (before
+                // clearDaemonCredentials). Preserve the actor token and gateway
+                // connection — the actor token authenticates to the local gateway
+                // (device-scoped, not user-scoped) and is independent of the
+                // platform auth session.
 
                 AvatarAppearanceManager.shared.reloadAvatar()
             } else {

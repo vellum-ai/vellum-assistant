@@ -148,7 +148,7 @@ struct AssistantTransferSection: View {
             let lockfileSuccess = LockfileAssistant.ensureManagedEntry(
                 assistantId: platformAssistant.id,
                 runtimeUrl: AuthService.shared.baseURL,
-                hatchedAt: platformAssistant.created_at ?? ISO8601DateFormatter().string(from: Date())
+                hatchedAt: platformAssistant.created_at ?? Date().iso8601String
             )
             guard lockfileSuccess else {
                 throw TransferError.importFailed(message: "Failed to save managed assistant configuration to lockfile.")

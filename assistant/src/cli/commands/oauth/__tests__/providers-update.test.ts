@@ -159,7 +159,6 @@ const sampleProviderRow = {
   requiresClientSecret: 1,
   loopbackPort: null,
   injectionTemplates: null,
-  setupSkillId: null,
   appType: null,
   setupNotes: null,
   identityUrl: null,
@@ -340,7 +339,6 @@ describe("assistant oauth providers update", () => {
       ...sampleProviderRow,
       loopbackPort: 17400,
       injectionTemplates: JSON.stringify(injectionTemplates),
-      setupSkillId: "custom-setup-skill",
       appType: "OAuth App",
       setupNotes: JSON.stringify(setupNotes),
       identityUrl: "https://api.example.com/me",
@@ -361,8 +359,6 @@ describe("assistant oauth providers update", () => {
       "17400",
       "--injection-templates",
       JSON.stringify(injectionTemplates),
-      "--setup-skill-id",
-      "custom-setup-skill",
       "--app-type",
       "OAuth App",
       "--setup-notes",
@@ -390,7 +386,6 @@ describe("assistant oauth providers update", () => {
     // Verify the new fields are present in the output (parsed from JSON strings)
     expect(parsed.loopbackPort).toBe(17400);
     expect(parsed.injectionTemplates).toEqual(injectionTemplates);
-    expect(parsed.setupSkillId).toBe("custom-setup-skill");
     expect(parsed.appType).toBe("OAuth App");
     expect(parsed.setupNotes).toEqual(setupNotes);
     expect(parsed.identityUrl).toBe("https://api.example.com/me");
@@ -407,7 +402,6 @@ describe("assistant oauth providers update", () => {
     expect(mockUpdateProviderCalls[0].params).toEqual({
       loopbackPort: 17400,
       injectionTemplates,
-      setupSkillId: "custom-setup-skill",
       appType: "OAuth App",
       setupNotes,
       identityUrl: "https://api.example.com/me",

@@ -356,9 +356,7 @@ final class ChatDiagnosticsStore {
         )
 
         // Name the session log with launch timestamp and PID.
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withFullDate, .withTime, .withColonSeparatorInTime]
-        let timestamp = formatter.string(from: Date())
+        let timestamp = Date().iso8601String
             .replacingOccurrences(of: ":", with: "-")
         let pid = ProcessInfo.processInfo.processIdentifier
         let filename = "chat-diagnostics-\(timestamp)-\(pid).jsonl"

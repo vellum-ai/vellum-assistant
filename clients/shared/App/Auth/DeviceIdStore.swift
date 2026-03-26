@@ -126,11 +126,9 @@ public enum DeviceIdStore {
         // Sort by hatchedAt descending to pick the most recent.
         // Use a formatter with fractional seconds since CLI writes
         // timestamps via `new Date().toISOString()` (e.g. "...00.000Z").
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let sorted = withInstallId.sorted { a, b in
-            let dateA = (a["hatchedAt"] as? String).flatMap { formatter.date(from: $0) } ?? .distantPast
-            let dateB = (b["hatchedAt"] as? String).flatMap { formatter.date(from: $0) } ?? .distantPast
+            let dateA = (a["hatchedAt"] as? String).flatMap(\.iso8601Date) ?? .distantPast
+            let dateB = (b["hatchedAt"] as? String).flatMap(\.iso8601Date) ?? .distantPast
             return dateA > dateB
         }
 

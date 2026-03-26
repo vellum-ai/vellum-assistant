@@ -2956,8 +2956,7 @@ public final class SettingsStore: ObservableObject {
         ]
 
         if let since = mediaEmbedsEnabledSince {
-            let formatter = ISO8601DateFormatter()
-            mediaEmbedsDict["enabledSince"] = formatter.string(from: since)
+            mediaEmbedsDict["enabledSince"] = since.iso8601String
         }
 
         Task {
@@ -3007,14 +3006,7 @@ public final class SettingsStore: ObservableObject {
         var enabledSince: Date?
         var didDefault = false
         if let isoString = mediaEmbeds["enabledSince"] as? String {
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            enabledSince = formatter.date(from: isoString)
-            // Fall back to parsing without fractional seconds
-            if enabledSince == nil {
-                formatter.formatOptions = [.withInternetDateTime]
-                enabledSince = formatter.date(from: isoString)
-            }
+            enabledSince = isoString.iso8601Date
         }
 
         // If enabledSince is still nil (key missing, wrong type, or

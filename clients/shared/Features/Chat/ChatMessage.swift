@@ -1613,6 +1613,23 @@ public struct ChatMessage: Identifiable, Equatable {
     /// When true, this message was auto-sent by the client (e.g. bootstrap wake-up)
     /// and should not be shown to the user.
     public var isHidden: Bool = false
+    /// Whether this message has any content that would be rendered in the chat UI.
+    /// Phantom messages (empty text, no tool calls, no attachments, no special widgets)
+    /// can be created during streaming edge cases (e.g. API timeout/retry with massive
+    /// context) and should be excluded from the visible message list to prevent artifacts
+    /// like duplicate timestamp dividers.
+    public var hasRenderableContent: Bool {
+        !textSegments.isEmpty
+            || !toolCalls.isEmpty
+            || !attachments.isEmpty
+            || !inlineSurfaces.isEmpty
+            || confirmation != nil
+            || guardianDecision != nil
+            || modelList != nil
+            || commandList != nil
+            || isError
+    }
+
     /// When true, heavyweight content (tool results, large text, inputFull/inputRawDict)
     /// has been stripped from this message to reduce memory. The UI can use this flag
     /// to show a "load full content" affordance in a future milestone.

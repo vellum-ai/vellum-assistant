@@ -382,7 +382,12 @@ public enum GatewayHTTPClient {
             guard let token = SessionTokenManager.getToken(), !token.isEmpty else {
                 throw ClientError.notAuthenticated
             }
-            let baseURL = assistant.runtimeUrl ?? (await AuthService.shared.baseURL)
+            let baseURL: String
+            if let runtimeUrl = assistant.runtimeUrl {
+                baseURL = runtimeUrl
+            } else {
+                baseURL = await AuthService.shared.baseURL
+            }
             return ConnectionInfo(baseURL: baseURL, authHeader: ("X-Session-Token", token), assistantId: assistant.assistantId, isManaged: true)
         } else {
             let token = ActorTokenManager.getToken()

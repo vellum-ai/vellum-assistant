@@ -29,7 +29,7 @@ enum PortDiagnostics {
         }
 
         let payload: [String: Any] = [
-            "capturedAt": ISO8601DateFormatter().string(from: Date()),
+            "capturedAt": Date().iso8601String,
             "ports": entries,
         ]
 

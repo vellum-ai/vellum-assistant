@@ -95,7 +95,7 @@ enum BundleSandbox {
             signerDisplayName: signatureResult.signerDisplayName,
             signerAccount: signatureResult.signerAccount,
             bundleSizeBytes: bundleSizeBytes,
-            installedAt: ISO8601DateFormatter().string(from: Date())
+            installedAt: Date().iso8601String
         )
 
         let metaPath = sharedAppsDirectory.appendingPathComponent("\(uuid)-meta.json")
