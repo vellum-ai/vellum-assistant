@@ -84,12 +84,10 @@ Examples:
         }
 
         // TODO: Send a UI component to collect credentials from the user
-        writeOutput(cmd, {
-          ok: false,
-          error:
-            "Platform connect UI component not yet implemented. " +
+        writeError(
+          "Platform connect UI component not yet implemented. " +
             "Credentials will be collected via a secure client-side flow.",
-        });
+        );
 
         if (!jsonMode) {
           log.info(
