@@ -96,7 +96,7 @@ extension MainWindowView {
                 },
                 onCreateSkill: {
                     conversationManager.openConversation(
-                        message: "I want to create a new custom skill. Ask me what kind of skill I'd like to build.",
+                        message: "I want to create a new custom skill.",
                         forceNew: true
                     )
                     if let id = conversationManager.activeConversationId {
@@ -495,7 +495,7 @@ extension MainWindowView {
                 },
                 onCreateSkill: {
                     conversationManager.openConversation(
-                        message: "I want to create a new custom skill. Ask me what kind of skill I'd like to build.",
+                        message: "I want to create a new custom skill.",
                         forceNew: true
                     )
                     windowState.dismissOverlay()

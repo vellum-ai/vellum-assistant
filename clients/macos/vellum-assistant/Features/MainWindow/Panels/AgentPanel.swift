@@ -43,16 +43,14 @@ struct AgentPanelContent: View {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.sparkles, size: 14)
                         .foregroundStyle(VColor.primaryBase)
-                    Text("You can create custom skills by describing what you want in chat.")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentDefault)
-                    Button(action: { onCreateSkill?() }) {
-                        Text("Create a Skill")
-                            .font(VFont.bodyMediumDefault)
-                            .foregroundStyle(VColor.primaryBase)
-                    }
-                    .buttonStyle(.plain)
+                    Text("You can ") +
+                    Text("create custom skill")
+                        .foregroundColor(VColor.primaryBase) +
+                    Text(" by describing what you want in chat.")
                 }
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentDefault)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, VSpacing.md)
                 .padding(.vertical, VSpacing.sm)
                 .background(VColor.primaryBase.opacity(0.10))
@@ -61,7 +59,9 @@ struct AgentPanelContent: View {
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .stroke(VColor.primaryBase.opacity(0.18), lineWidth: 1)
                 )
-                .padding(.top, VSpacing.sm)
+                .contentShape(Rectangle())
+                .onTapGesture { onCreateSkill?() }
+                .padding(.top, VSpacing.lg)
             }
             HStack(alignment: .top, spacing: VSpacing.xxl) {
                 if !isShowingDetail {
