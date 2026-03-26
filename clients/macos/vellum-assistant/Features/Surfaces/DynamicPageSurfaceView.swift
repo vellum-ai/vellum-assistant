@@ -151,6 +151,20 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSView {
+        // Serialize allowedHosts to a JSON string for injection into the JS bridge.
+        // Escape backslashes, single quotes, and newlines to prevent XSS when
+        // embedded inside a JS single-quoted string.
+        let hostsJSON: String = {
+            guard let data = try? JSONSerialization.data(withJSONObject: allowedHosts, options: []),
+                  let raw = String(data: data, encoding: .utf8) else {
+                return "[]"
+            }
+            return raw
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "'", with: "\\'")
+                .replacingOccurrences(of: "\n", with: "\\n")
+        }()
+
         // Console forwarding: capture JS console.log/error/warn and route to os.Logger.
         var jsSource = """
             (function() {
@@ -216,7 +230,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
                 _resolveConfirm: function(confirmId, result) {
                     var p = window.vellum._confirmPending[confirmId];
                     if (p) { delete window.vellum._confirmPending[confirmId]; p(result); }
-                }
+                },
+                hosts: JSON.parse('\(hostsJSON)')
             };
             """
 
