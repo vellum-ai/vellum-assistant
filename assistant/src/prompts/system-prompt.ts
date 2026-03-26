@@ -1,4 +1,11 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  unlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
@@ -10,6 +17,7 @@ import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import {
+  getConversationsDir,
   getWorkspaceDir,
   getWorkspacePromptPath,
   isMacOS,
@@ -81,6 +89,24 @@ export function ensurePromptFiles(): void {
           "Failed to create BOOTSTRAP.md from template",
         );
       }
+    }
+  }
+
+  // Auto-delete stale BOOTSTRAP.md at startup.  The model is instructed to
+  // delete it at the end of the first conversation, but if the user closes
+  // the app or starts a new thread before the model gets another turn, it
+  // never gets the chance.  If BOOTSTRAP.md still exists but prior
+  // conversations are present, the onboarding window has passed — clean up.
+  const bootstrapCleanup = getWorkspacePromptPath("BOOTSTRAP.md");
+  if (!isFirstRun && existsSync(bootstrapCleanup)) {
+    const convDir = getConversationsDir();
+    try {
+      if (existsSync(convDir) && readdirSync(convDir).length > 0) {
+        unlinkSync(bootstrapCleanup);
+        log.info("Auto-deleted stale BOOTSTRAP.md — prior conversations exist");
+      }
+    } catch (err) {
+      log.warn({ err }, "Failed to auto-delete stale BOOTSTRAP.md");
     }
   }
 
@@ -435,9 +461,9 @@ function readPromptFile(path: string): string | null {
  * This is useful for injecting identity context into subsystems (e.g. memory
  * extraction) that run outside the main system prompt pipeline.
  */
-export function buildCoreIdentityContext(
-  opts?: { userPersona?: string | null },
-): string | null {
+export function buildCoreIdentityContext(opts?: {
+  userPersona?: string | null;
+}): string | null {
   const parts: string[] = [];
   for (const file of PROMPT_FILES) {
     const content = readPromptFile(getWorkspacePromptPath(file));
