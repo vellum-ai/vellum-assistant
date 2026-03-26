@@ -49,6 +49,17 @@ final class SidebarInteractionState {
     ///
     /// During an active drag, hover updates are suppressed to avoid triggering
     /// icon-swap animations and unnecessary re-renders across sibling rows.
+    ///
+    /// The equality guard (`guard isHoveredConversation != newValue`) is
+    /// critical: `@Observable` synthesised setters always call
+    /// `ObservationRegistrar.willSet` — even for same-value assignments —
+    /// which triggers a synchronous `GraphHost.flushTransactions`. When
+    /// SwiftUI re-evaluates hover state during a layout pass
+    /// (`HoverResponder.updatePhase`), a redundant mutation here would
+    /// start a nested layout pass, creating an infinite feedback loop that
+    /// hangs the main thread.
+    ///
+    /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
     func setConversationHover(conversationId: UUID?, hovering: Bool) {
         // Suppress hover changes while dragging to prevent visual jank.
         // When a hover-in arrives while dragging, the drag session must have
@@ -63,13 +74,11 @@ final class SidebarInteractionState {
             }
         }
 
-        if hovering {
-            isHoveredConversation = conversationId
-        } else {
-            if isHoveredConversation == conversationId {
-                isHoveredConversation = nil
-            }
-        }
+        let newValue: UUID? = hovering
+            ? conversationId
+            : (isHoveredConversation == conversationId ? nil : isHoveredConversation)
+        guard isHoveredConversation != newValue else { return }
+        isHoveredConversation = newValue
     }
 
     /// Conversation ID that is currently the drop target during a drag-and-drop reorder.
