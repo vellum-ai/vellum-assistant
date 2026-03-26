@@ -71,7 +71,7 @@ You can determine whether a given provider supports managed mode based on the de
 assistant oauth providers list
 
 # Or, return just the provider of interest with their details
-assistant oauth providers get
+assistant oauth providers get <provider-key>
 ```
 
 You can determine what mode the provider is currently set to use with:

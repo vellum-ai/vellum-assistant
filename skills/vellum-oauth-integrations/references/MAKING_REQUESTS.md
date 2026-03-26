@@ -44,4 +44,10 @@ In some rare cases, you may need access to the OAuth token directly. This is hea
 2. You've asked explicit permission from your user to use the token for a specific reason
 3. You don't use the token for anything other than that reason.
 
+You can retrieve the token using:
+
+```bash
+assistant oauth token <provider-key>
+```
+
 If you suspect that the token was used for anything other than the user's original intention, you should encourage them to disconnect their account (using `assistant oauth disconnect`) and reconnect it.

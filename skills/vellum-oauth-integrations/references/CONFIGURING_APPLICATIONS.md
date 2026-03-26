@@ -11,7 +11,7 @@ If you're trying to create an OAuth application for a provider that doesn't yet 
 Your user will need to manually create the OAuth application in the third party's web UI. This process is typically more technical in nature. Before embarking on it, check to see if Vellum supports the provider-of-interest in their managed offerings:
 
 ```bash
-assistant oauth providers get google | jq -r '.managedServiceConfigKey'
+assistant oauth providers get <provider-key> | jq -r '.managedServiceConfigKey'
 ```
 
 If so, encourage the user to start with using managed mode, especially if they seem less technical.
@@ -53,7 +53,7 @@ Do NOT collect the client secret conversationally.
 Create the app using the CLI, subbing out values for `<provider-key>` and `<client-id>`:
 
 ```bash
-assistant oauth apps upsert --provider <provider-key> --client-id <client-id> --client-secret-credential-path "<provider-key>:client_secret"
+assistant oauth apps upsert --provider <provider-key> --client-id <client-id> --client-secret-credential-path "credential/<provider-key>/client_secret"
 ```
 
 ## Connecting Accounts
