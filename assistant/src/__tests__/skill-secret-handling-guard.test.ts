@@ -165,9 +165,13 @@ function findViolations(): Violation[] {
       if (inCredentialStoreBlock && CREDENTIAL_STORE_UI_FIELD.test(line))
         continue;
 
+      // Strip markdown backticks before pattern matching so that
+      // violations like `client_secret` are caught the same as bare words.
+      const stripped = line.replace(/`/g, "");
+
       // Check against violation patterns
       for (const pattern of VIOLATION_PATTERNS) {
-        if (pattern.test(line)) {
+        if (pattern.test(stripped)) {
           violations.push({
             file: filePath,
             line: lineNumber,
