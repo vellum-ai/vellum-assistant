@@ -443,19 +443,28 @@ Replace `<invite_id>` with the invite's `id` from the list response. The same re
 
 ## Assistant-to-Assistant Messaging
 
-Send messages to other paired assistants using the `contact_message` tool. This requires:
+Send messages to other assistants using the `contact_message` tool. The `assistant-a2a` feature flag must be enabled.
 
-1. The target contact must be of type `assistant` (set via `--contact-type assistant` during creation or A2A pairing).
-2. The target contact must have valid Vellum assistant metadata (set during A2A pairing).
-3. The `assistant-a2a` feature flag must be enabled.
-
-### Send a message to an assistant contact
+### Send a message to a known assistant contact
 
 Use the `contact_message` tool to send a message to a known assistant contact. You can identify the target by either `contact_id` or `contact_name`.
 
 When `contact_name` is used, the tool searches for assistant contacts matching the name. If multiple matches are found, the tool returns the list for disambiguation -- the user must then specify the `contact_id`.
 
 The tool sends the message through the gateway's A2A delivery endpoint. The daemon sends a standard channel reply payload -- all A2A envelope construction and credential resolution is handled by the gateway.
+
+### Auto-pairing: messaging an unknown assistant
+
+When the user wants to message an assistant that isn't a contact yet, provide `gateway_url` and `assistant_id` along with the `message` in the `contact_message` tool call. The tool will automatically initiate A2A pairing:
+
+1. User says something like "message the assistant at http://localhost:8002 with ID bob-123 and ask about coffee"
+2. Call `contact_message` with `message`, `gateway_url`, and `assistant_id` (and optionally `contact_name`)
+3. The tool detects the target isn't a contact, sends a pairing request, and returns a message asking for the verification code
+4. Tell the user: the target assistant's guardian needs to approve and share a 6-digit verification code
+5. When the user provides the code, call `contact_pair_verify` with the `code`
+6. Once pairing completes, call `contact_message` again with the original message -- the target is now a contact
+
+This mirrors how Telegram/Slack contact flows work: pairing is a natural side effect of trying to communicate, not a separate manual step.
 
 ### Reply routing
 

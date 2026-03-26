@@ -163,7 +163,7 @@
     },
     {
       "name": "contact_message",
-      "description": "Send a message to a known assistant contact via assistant-to-assistant (A2A) messaging. Requires the target contact to be of type 'assistant' with valid Vellum assistant metadata from a completed A2A pairing.",
+      "description": "Send a message to an assistant contact via assistant-to-assistant (A2A) messaging. If the target isn't a contact yet, provide gateway_url and assistant_id to automatically initiate pairing — the user then submits the verification code via contact_pair_verify before the message can be sent.",
       "category": "contacts",
       "risk": "medium",
       "input_schema": {
@@ -181,6 +181,14 @@
             "type": "string",
             "description": "The message content to send to the target assistant"
           },
+          "gateway_url": {
+            "type": "string",
+            "description": "The gateway URL of the target assistant (e.g. https://gateway.example.com). Used to auto-initiate pairing when the target is not yet a contact."
+          },
+          "assistant_id": {
+            "type": "string",
+            "description": "The assistant ID of the target assistant. Used together with gateway_url to auto-initiate pairing when the target is not yet a contact."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -189,6 +197,54 @@
         "required": ["message"]
       },
       "executor": "tools/contact-message.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "contact_pair",
+      "description": "Initiate A2A pairing with a remote assistant. Sends a pairing request to the target assistant's gateway. The target's guardian must approve and share a 6-digit verification code.",
+      "category": "contacts",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "gateway_url": {
+            "type": "string",
+            "description": "The gateway URL of the target assistant (e.g. https://gateway.example.com)"
+          },
+          "assistant_id": {
+            "type": "string",
+            "description": "The assistant ID of the target assistant to pair with"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["gateway_url", "assistant_id"]
+      },
+      "executor": "tools/contact-pair.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "contact_pair_verify",
+      "description": "Complete A2A pairing by sending the 6-digit verification code received from the target assistant's guardian. Must have an active outbound pairing request (initiated via contact_pair or automatically by contact_message when the target wasn't a contact yet).",
+      "category": "contacts",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "The 6-digit verification code shared by the target assistant's guardian"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          }
+        },
+        "required": ["code"]
+      },
+      "executor": "tools/contact-pair-verify.ts",
       "execution_target": "host"
     }
   ]
