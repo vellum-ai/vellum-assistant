@@ -232,6 +232,98 @@ export function registerProvider(params: {
   return row;
 }
 
+/**
+ * Update mutable fields on an existing provider. Only the fields explicitly
+ * provided (not `undefined`) are written; everything else is left unchanged.
+ * JSON fields (defaultScopes, scopePolicy, extraParams, pingHeaders, pingBody)
+ * are serialized with JSON.stringify before storage.
+ *
+ * Returns the updated provider row, or `undefined` if no provider with the
+ * given key exists.
+ */
+export function updateProvider(
+  providerKey: string,
+  params: Partial<{
+    authUrl: string;
+    tokenUrl: string;
+    tokenEndpointAuthMethod: string;
+    userinfoUrl: string;
+    pingUrl: string;
+    pingMethod: string;
+    pingHeaders: Record<string, string>;
+    pingBody: unknown;
+    baseUrl: string;
+    defaultScopes: string[];
+    scopePolicy: Record<string, unknown>;
+    extraParams: Record<string, string>;
+    callbackTransport: string;
+    displayName: string;
+    description: string;
+    dashboardUrl: string;
+    clientIdPlaceholder: string;
+    requiresClientSecret: boolean;
+  }>,
+): OAuthProviderRow | undefined {
+  const existing = getProvider(providerKey);
+  if (!existing) return undefined;
+
+  const db = getDb();
+  const set: Record<string, unknown> = { updatedAt: Date.now() };
+
+  if (params.authUrl !== undefined) set.authUrl = params.authUrl;
+  if (params.tokenUrl !== undefined) set.tokenUrl = params.tokenUrl;
+  if (params.tokenEndpointAuthMethod !== undefined)
+    set.tokenEndpointAuthMethod = params.tokenEndpointAuthMethod;
+  if (params.userinfoUrl !== undefined) set.userinfoUrl = params.userinfoUrl;
+  if (params.pingUrl !== undefined) set.pingUrl = params.pingUrl;
+  if (params.pingMethod !== undefined) set.pingMethod = params.pingMethod;
+  if (params.pingHeaders !== undefined)
+    set.pingHeaders = JSON.stringify(params.pingHeaders);
+  if (params.pingBody !== undefined)
+    set.pingBody = JSON.stringify(params.pingBody);
+  if (params.baseUrl !== undefined) set.baseUrl = params.baseUrl;
+  if (params.defaultScopes !== undefined)
+    set.defaultScopes = JSON.stringify(params.defaultScopes);
+  if (params.scopePolicy !== undefined)
+    set.scopePolicy = JSON.stringify(params.scopePolicy);
+  if (params.extraParams !== undefined)
+    set.extraParams = JSON.stringify(params.extraParams);
+  if (params.callbackTransport !== undefined)
+    set.callbackTransport = params.callbackTransport;
+  if (params.displayName !== undefined) set.displayName = params.displayName;
+  if (params.description !== undefined) set.description = params.description;
+  if (params.dashboardUrl !== undefined) set.dashboardUrl = params.dashboardUrl;
+  if (params.clientIdPlaceholder !== undefined)
+    set.clientIdPlaceholder = params.clientIdPlaceholder;
+  if (params.requiresClientSecret !== undefined)
+    set.requiresClientSecret = params.requiresClientSecret ? 1 : 0;
+
+  db.update(oauthProviders)
+    .set(set)
+    .where(eq(oauthProviders.providerKey, providerKey))
+    .run();
+
+  return getProvider(providerKey);
+}
+
+/**
+ * Delete a provider by its key. Returns `true` if a row was deleted,
+ * `false` if no provider with that key existed.
+ *
+ * Note: SQLite enforces the foreign-key constraint from `oauth_apps.provider_key`,
+ * so deleting a provider that has existing apps will throw.
+ */
+export function deleteProvider(providerKey: string): boolean {
+  const existing = getProvider(providerKey);
+  if (!existing) return false;
+
+  const db = getDb();
+  db.delete(oauthProviders)
+    .where(eq(oauthProviders.providerKey, providerKey))
+    .run();
+  return rawChanges() > 0;
+}
+
 // ---------------------------------------------------------------------------
 // App operations
 // ---------------------------------------------------------------------------

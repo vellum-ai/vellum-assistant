@@ -441,6 +441,8 @@ const PROVIDER_SEED_DATA: Record<
   },
 };
 
+export const SEEDED_PROVIDER_KEYS = new Set(Object.keys(PROVIDER_SEED_DATA));
+
 /**
  * Seed the oauth_providers table with well-known provider configurations.
  * Uses INSERT … ON CONFLICT DO UPDATE so seed-data corrections propagate
