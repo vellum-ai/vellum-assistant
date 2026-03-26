@@ -143,7 +143,9 @@ extension MainWindowView {
                 },
                 onLinkOpen: { url, metadata in
                     surfaceManager.onLinkOpen?(url, metadata)
-                }
+                },
+                sandboxMode: surface.conversationId == "shared-app",
+                allowedHosts: Self.computeAllowedHosts(for: surface, surfaceManager: surfaceManager)
             )
         } else {
             VStack {
@@ -156,6 +158,26 @@ extension MainWindowView {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(VColor.surfaceOverlay)
         }
+    }
+
+    // MARK: - Sandbox Helpers
+
+    /// Computes the merged allowed hosts for a surface by looking up the bundle
+    /// manifest and merging with the global allowed hosts from settings.
+    /// Mirrors the logic in `SurfaceManager.showSurface()` so that workspace-routed
+    /// shared-app surfaces get the same sandbox enforcement as floating panels.
+    static func computeAllowedHosts(for surface: Surface, surfaceManager: SurfaceManager) -> [String] {
+        let isSandboxed = surface.conversationId == "shared-app"
+        guard isSandboxed else { return [] }
+        if case .dynamicPage(let dpData) = surface.data,
+           let appId = dpData.appId,
+           let metadata = BundleSandbox.metadata(for: appId) {
+            let merged = Set(metadata.allowedHosts).union(surfaceManager.globalAppAllowedHosts)
+            return AppHostAllowlist.normalizeDomains(Array(merged)).sorted()
+        } else if !surfaceManager.globalAppAllowedHosts.isEmpty {
+            return AppHostAllowlist.normalizeDomains(surfaceManager.globalAppAllowedHosts)
+        }
+        return []
     }
 
     // MARK: - Split-Width Helpers
@@ -989,6 +1011,8 @@ struct DynamicWorkspaceWrapper: View {
                         onLinkOpen: { url, metadata in
                             surfaceManager.onLinkOpen?(url, metadata)
                         },
+                        sandboxMode: surface.conversationId == "shared-app",
+                        allowedHosts: MainWindowView.computeAllowedHosts(for: surface, surfaceManager: surfaceManager),
                         topContentInset: 0,
                         bottomContentInset: 0,
                         cornerRadius: webViewCornerRadius,
