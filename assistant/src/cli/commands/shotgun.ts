@@ -101,6 +101,19 @@ export function registerShotgunCommand(program: Command): void {
     .command("shotgun")
     .description("Start and monitor screen-watch (shotgun) sessions via IPC");
 
+  shotgun.addHelpText(
+    "after",
+    `
+Screen-watch sessions capture periodic screenshots and feed them to the
+assistant for observation. The CLI communicates with the running assistant
+via IPC signal files — the assistant must be running for these commands
+to work.
+
+Examples:
+  $ assistant shotgun start --duration 600 --focus "browsing workflow"
+  $ assistant shotgun status <watchId>`,
+  );
+
   shotgun
     .command("start")
     .description("Start a new screen-watch session")
@@ -206,6 +219,9 @@ Examples:
     .addHelpText(
       "after",
       `
+Arguments:
+  watchId   The watch session ID returned by 'assistant shotgun start'.
+
 Queries the status of an existing screen-watch session by watchId.
 
 Output (JSON): { ok, watchId, conversationId, status }

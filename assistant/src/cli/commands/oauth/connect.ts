@@ -92,18 +92,10 @@ Arguments:
   provider   Provider name (e.g. google, slack, notion).
              Run 'assistant oauth providers list' to see available providers.
 
-Options:
-  --scopes <scopes...>   Scopes to request for the authorization. In managed
-                         mode, each scope must be in the provider's allowed set
-                         (use full scope URLs where required). In BYO mode,
-                         scopes are appended to the provider's defaults.
-  --open-browser         Open the authorization URL in your browser and wait
-                         for completion. In managed mode, polls for a new
-                         platform connection. In BYO mode, starts a local
-                         callback server and blocks until the OAuth redirect.
-  --client-id <id>       BYO-only: select a specific OAuth app when multiple
-                         apps exist for the same provider. Ignored for
-                         platform-managed providers.
+In managed mode, --scopes must be in the provider's allowed set (use full
+scope URLs). In BYO mode, --scopes are appended to the provider's defaults.
+The --open-browser flag polls for a platform connection (managed) or starts
+a local callback server (BYO).
 
 Examples:
   $ assistant oauth connect google

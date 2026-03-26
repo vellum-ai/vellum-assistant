@@ -56,6 +56,16 @@ Examples:
     .command("list")
     .description("List available catalog skills")
     .option("--json", "Machine-readable JSON output")
+    .addHelpText(
+      "after",
+      `
+Lists all skills available in the Vellum catalog with their ID, name,
+description, and dependency information.
+
+Examples:
+  $ assistant skills list
+  $ assistant skills list --json`,
+    )
     .action(async (opts: { json?: boolean }) => {
       try {
         // In dev mode, use the local catalog as the source of truth
@@ -287,6 +297,21 @@ Examples:
     .description("Install a skill from the catalog")
     .option("--overwrite", "Replace an already installed skill")
     .option("--json", "Machine-readable JSON output")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  skill-id   Skill identifier from the Vellum catalog. Run 'assistant skills list'
+             to see available IDs. For community skills, use 'assistant skills add'.
+
+Downloads and installs the skill into the workspace skills directory. If the
+skill is already installed, use --overwrite to replace it.
+
+Examples:
+  $ assistant skills install weather
+  $ assistant skills install weather --overwrite
+  $ assistant skills install weather --json`,
+    )
     .action(
       async (
         skillId: string,
@@ -339,6 +364,19 @@ Examples:
     .command("uninstall <skill-id>")
     .description("Uninstall a previously installed skill")
     .option("--json", "Machine-readable JSON output")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  skill-id   Skill identifier to remove. Run 'assistant skills list' to see
+             installed skills.
+
+Removes the skill directory from the workspace. This action cannot be undone.
+
+Examples:
+  $ assistant skills uninstall weather
+  $ assistant skills uninstall weather --json`,
+    )
     .action(async (skillId: string, opts: { json?: boolean }) => {
       const json = opts.json ?? false;
 

@@ -39,22 +39,11 @@ Arguments:
   provider   Provider name (e.g. google, slack, notion).
              Run 'assistant oauth providers list' to see available providers.
 
-Options:
-  --account          Recommended way to specify which connection to disconnect.
-                     Works for both managed and BYO modes. Use the account
-                     identifier shown by 'assistant oauth status <provider>'
-                     (e.g. an email address for Google).
-  --connection-id    Exact match on the connection ID shown by
-                     'assistant oauth status <provider>'. Useful when account
-                     labels are ambiguous or absent.
+At most one of --account or --connection-id may be specified. Use the values
+shown by 'assistant oauth status <provider>' to find the right identifier.
 
-  At most one of --account or --connection-id may be specified.
-
-Disambiguation:
-  When a provider has multiple active connections and neither --account nor
-  --connection-id is given, the command errors with a list of connections
-  (id + account label) and a hint to use --account or --connection-id.
-  Run 'assistant oauth status <provider>' to discover available values.
+When a provider has multiple active connections and neither flag is given,
+the command errors with a list of connections and a hint to disambiguate.
 
 Examples:
   $ assistant oauth disconnect google
@@ -115,11 +104,7 @@ Examples:
             const client = await requirePlatformClient(cmd);
             if (!client) return;
 
-            const entries = await fetchActiveConnections(
-              client,
-              provider,
-              cmd,
-            );
+            const entries = await fetchActiveConnections(client, provider, cmd);
             if (!entries) return;
 
             let connectionId: string | undefined;
@@ -203,9 +188,7 @@ Examples:
             writeOutput(cmd, result);
 
             if (!jsonMode) {
-              log.info(
-                `Disconnected ${provider} connection ${connectionId}`,
-              );
+              log.info(`Disconnected ${provider} connection ${connectionId}`);
             }
           } else {
             // -----------------------------------------------------------------
@@ -290,9 +273,7 @@ Examples:
             writeOutput(cmd, result);
 
             if (!jsonMode) {
-              log.info(
-                `Disconnected ${provider} connection ${connectionId}`,
-              );
+              log.info(`Disconnected ${provider} connection ${connectionId}`);
             }
           }
         } catch (err) {

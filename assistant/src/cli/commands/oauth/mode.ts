@@ -64,11 +64,6 @@ Arguments:
   provider   Provider name (e.g. google, slack).
              Run "assistant oauth providers list" to see available providers.
 
-Options:
-  --set <mode>   Set the mode to "managed" (platform-handled credentials) or
-                 "your-own" (bring-your-own client ID and secret). Omit to
-                 show the current mode.
-
 Modes:
   managed    OAuth credentials are managed by the Vellum platform. The
              assistant connects via a platform-hosted authorization flow.
@@ -217,12 +212,10 @@ Examples:
           // Old mode was managed — check platform connections
           oldModeConnections = await countManagedConnections(provider, cmd);
           // New mode is your-own — check local connections
-          newModeConnections =
-            listActiveConnectionsByProvider(provider).length;
+          newModeConnections = listActiveConnectionsByProvider(provider).length;
         } else {
           // Old mode was your-own — check local connections
-          oldModeConnections =
-            listActiveConnectionsByProvider(provider).length;
+          oldModeConnections = listActiveConnectionsByProvider(provider).length;
           // New mode is managed — check platform connections
           newModeConnections = await countManagedConnections(provider, cmd);
         }

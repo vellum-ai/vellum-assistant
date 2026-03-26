@@ -280,12 +280,11 @@ Examples:
     .addHelpText(
       "after",
       `
-Arguments:
-  --group-by <dimension>   One of: actor, provider, model (default: model)
-    actor     Groups by the subsystem that made the call (main_agent,
-              title_generator, etc.)
-    provider  Groups by LLM provider (anthropic, openai, etc.)
-    model     Groups by model name (claude-sonnet-4-20250514, etc.)
+Grouping dimensions:
+  actor     Groups by the subsystem that made the call (main_agent,
+            title_generator, etc.)
+  provider  Groups by LLM provider (anthropic, openai, etc.)
+  model     Groups by model name (claude-sonnet-4-20250514, etc.)
 
 Shows one row per group with input/output tokens, estimated cost, and
 call count. Rows are sorted by cost descending.

@@ -204,66 +204,72 @@ Examples:
       "--provider-key <key>",
       "Unique provider key (e.g. \"custom-service\"). Must not collide with an existing key from 'assistant oauth providers list'.",
     )
-    .requiredOption("--auth-url <url>", "Authorization endpoint URL")
-    .requiredOption("--token-url <url>", "Token endpoint URL")
-    .option("--base-url <url>", "API base URL")
-    .option("--userinfo-url <url>", "Userinfo endpoint URL")
-    .option("--scopes <scopes>", "Comma-separated default scopes")
-    .option("--token-auth-method <method>", "Token endpoint auth method")
-    .option("--callback-transport <transport>", "Callback transport")
+    .requiredOption(
+      "--auth-url <url>",
+      "OAuth authorization endpoint URL (e.g. https://accounts.example.com/o/oauth2/auth)",
+    )
+    .requiredOption(
+      "--token-url <url>",
+      "OAuth token endpoint URL (e.g. https://oauth2.example.com/token)",
+    )
+    .option("--base-url <url>", "API base URL for the service")
+    .option("--userinfo-url <url>", "OpenID Connect userinfo endpoint URL")
+    .option(
+      "--scopes <scopes>",
+      'Comma-separated default scopes (e.g. "read,write,profile")',
+    )
+    .option(
+      "--token-auth-method <method>",
+      'How the client authenticates at the token endpoint: "client_secret_post" or "client_secret_basic"',
+    )
+    .option(
+      "--callback-transport <transport>",
+      'OAuth callback transport: "loopback" (local HTTP server, default) or "gateway" (public ingress)',
+    )
     .option(
       "--ping-url <url>",
-      "Health-check endpoint URL for token validation",
+      'Health-check endpoint URL for token validation (e.g. "https://api.example.com/user"). Used by "assistant oauth ping" to verify a stored token.',
     )
     .option(
       "--ping-method <method>",
-      "HTTP method for the ping endpoint (default: GET)",
+      "HTTP method for the ping endpoint: GET (default) or POST",
     )
     .option(
       "--ping-headers <json>",
-      "JSON object of extra headers for the ping request",
+      'JSON object of extra headers for the ping request (e.g. \'{"Notion-Version":"2022-06-28"}\')',
     )
-    .option("--ping-body <json>", "JSON body to send with the ping request")
-    .option("--display-name <name>", "Display name for the provider")
-    .option("--description <text>", "Short description")
-    .option("--dashboard-url <url>", "Developer console URL")
-    .option("--client-id-placeholder <text>", "Placeholder for client ID field")
+    .option(
+      "--ping-body <json>",
+      'JSON body to send with the ping request (e.g. \'{"query":"{ viewer { id } }"}\')',
+    )
+    .option(
+      "--display-name <name>",
+      "Human-readable display name for the provider",
+    )
+    .option("--description <text>", "Short description of the provider")
+    .option(
+      "--dashboard-url <url>",
+      "URL to the provider's developer console / dashboard",
+    )
+    .option(
+      "--client-id-placeholder <text>",
+      "Placeholder text shown in the client ID input field",
+    )
     .option(
       "--no-client-secret",
-      "Set requires_client_secret to false (default is true)",
+      "Mark this provider as not requiring a client secret (default: required)",
     )
     .addHelpText(
       "after",
       `
-Arguments (via options):
-  --provider-key        Unique identifier for this provider (e.g. "custom-service").
-                        Must not collide with an existing provider key.
-  --auth-url            The OAuth authorization endpoint URL.
-  --token-url           The OAuth token endpoint URL.
-  --base-url            Optional API base URL for the service.
-  --userinfo-url        Optional OpenID Connect userinfo endpoint.
-  --scopes              Comma-separated list of default scopes (e.g. "read,write,profile").
-  --token-auth-method   How the client authenticates at the token endpoint
-                        (e.g. "client_secret_post", "client_secret_basic").
-  --callback-transport  Transport method for the OAuth callback.
-  --ping-url            Optional URL for a lightweight health-check endpoint.
-                        Used by "assistant oauth ping" to validate that a stored token
-                        is still functional (e.g. "https://api.example.com/user").
-  --ping-method         HTTP method for the ping health-check (GET, POST). Defaults to GET.
-  --ping-headers        JSON object of extra HTTP headers for the ping request
-                        (e.g. '{"Notion-Version":"2022-06-28"}').
-  --ping-body           JSON body to send with the ping request
-                        (e.g. '{"query":"{ viewer { id } }"}').
-  --display-name        Optional human-readable display name for the provider.
-  --description         Optional short description of the provider.
-  --dashboard-url       Optional URL to the provider's developer console / dashboard.
-  --client-id-placeholder  Optional placeholder text for the client ID input field.
-  --no-client-secret    If set, marks the provider as not requiring a client secret
-                        (sets requires_client_secret to 0). Default is true (1).
+Registers a new OAuth provider configuration in the local store for custom
+integrations not covered by the built-in provider seeds. The provider key
+must be unique — if it collides with an existing key, the command fails.
+Run 'assistant oauth providers list' to see existing keys.
 
-Registers a new OAuth provider configuration in the local store. This is
-used for custom integrations not covered by the built-in provider seeds.
 On success, returns the full provider row including generated timestamps.
+After registering, create an OAuth app with 'assistant oauth apps create'
+and then connect with 'assistant oauth connect <provider-key>'.
 
 Examples:
   $ assistant oauth providers register \\
@@ -276,10 +282,12 @@ Examples:
       --token-url https://my-service.com/token \\
       --scopes read,write --json
   $ assistant oauth providers register \\
-      --provider-key custom-api \\
+      --provider-key my-graphql-api \\
       --auth-url https://example.com/auth \\
       --token-url https://example.com/token \\
-      --ping-url https://example.com/user`,
+      --ping-url https://example.com/graphql \\
+      --ping-method POST \\
+      --ping-body '{"query":"{ viewer { id } }"}'`,
     )
     .action(
       (
@@ -330,7 +338,10 @@ Examples:
 
           writeOutput(cmd, parseProviderRow(row));
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
+          let message = err instanceof Error ? err.message : String(err);
+          if (message.includes("already exists")) {
+            message += ` Run 'assistant oauth providers list' to see existing providers, or choose a different --provider-key.`;
+          }
           writeOutput(cmd, { ok: false, error: message });
           process.exitCode = 1;
         }

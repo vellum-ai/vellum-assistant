@@ -121,7 +121,7 @@ Arguments:
   conversationId   Optional conversation ID (or unique prefix). Defaults to the
                    most recent conversation. Supports prefix matching — e.g.
                    "abc123" matches the first conversation whose ID starts with
-                   "abc123".
+                   "abc123". Run 'assistant conversations list' to find IDs.
 
 Two output formats are available:
   md    Markdown conversation transcript (default). Human-readable rendering
@@ -277,6 +277,7 @@ Examples:
       `
 Arguments:
   conversationId   Conversation ID (or unique prefix). Supports prefix matching.
+                   Run 'assistant conversations list' to find IDs.
 
 Permanently wipes the conversation and reverts all memory changes it caused:
 restores superseded memory items, deletes conversation summaries, and cancels
