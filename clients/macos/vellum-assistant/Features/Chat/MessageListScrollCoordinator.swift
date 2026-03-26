@@ -139,9 +139,8 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// update the view directly without callback indirection.
     var isNearBottomBinding: Binding<Bool>?
 
-    /// Owns all diagnostic recording — loop detection, snapshot capture,
-    /// non-finite geometry logging. Extracted to keep the coordinator focused
-    /// on scroll mechanics.
+    /// Owns diagnostic recording — loop detection and non-finite geometry
+    /// logging. Extracted to keep the coordinator focused on scroll mechanics.
     var diagnostics = ScrollDiagnosticsRecorder()
 
     /// Whether a physical scroll event (wheel/trackpad) has been received since
@@ -346,37 +345,6 @@ final class MessageListScrollCoordinator: ObservableObject {
             anchorMessageId: anchorMessageId,
             hasReceivedScrollEvent: hasReceivedScrollEvent,
             isAtBottom: isAtBottom
-        )
-    }
-
-    /// Schedules a debounced transcript snapshot capture.
-    func scheduleTranscriptSnapshot(
-        conversationId: UUID?,
-        messages: [ChatMessage],
-        isNearBottom: Bool,
-        scrollViewportHeight: CGFloat,
-        containerWidth: CGFloat,
-        anchorMessageId: UUID?,
-        highlightedMessageId: UUID?
-    ) {
-        diagnostics.scheduleTranscriptSnapshot(
-            conversationId: conversationId,
-            messages: messages,
-            isNearBottom: isNearBottom,
-            scrollViewportHeight: scrollViewportHeight,
-            containerWidth: containerWidth,
-            anchorMessageId: anchorMessageId,
-            highlightedMessageId: highlightedMessageId,
-            coordinatorState: { [weak self] in
-                guard let self else { return nil }
-                return ScrollDiagnosticsRecorder.CoordinatorSnapshotState(
-                    isPaginationInFlight: self.isPaginationInFlight,
-                    isSuppressed: self.isSuppressed,
-                    activeSuppressionReasons: self.activeSuppressionReasons,
-                    hasReceivedScrollEvent: self.hasReceivedScrollEvent,
-                    isAtBottom: self.isAtBottom
-                )
-            }
         )
     }
 

@@ -2,32 +2,15 @@ import Foundation
 import os
 import VellumAssistantShared
 
-/// Owns all scroll-related diagnostic recording — loop detection, transcript
-/// snapshot capture, and non-finite geometry logging — extracted from
-/// `MessageListScrollCoordinator` to keep the coordinator focused on scroll
-/// mechanics.
+/// Owns scroll-related diagnostic recording — loop detection and non-finite
+/// geometry logging — extracted from `MessageListScrollCoordinator` to keep
+/// the coordinator focused on scroll mechanics.
 ///
 /// **`@MainActor`** because it owns `Task`s and writes to the `@MainActor`
 /// `ChatDiagnosticsStore`. Not an `ObservableObject` — it has no reactive
 /// state that drives view re-renders.
 @MainActor
 final class ScrollDiagnosticsRecorder {
-
-    // MARK: - Coordinator State (read live after debounce)
-
-    /// Snapshot of coordinator-owned state that changes rapidly and must be
-    /// read *after* the debounce sleep rather than captured at scheduling time.
-    struct CoordinatorSnapshotState {
-        let isPaginationInFlight: Bool
-        let isSuppressed: Bool
-        let activeSuppressionReasons: [String]
-        let hasReceivedScrollEvent: Bool
-        let isAtBottom: Bool
-    }
-
-    /// Closure that reads live coordinator state. Called inside the debounced
-    /// `Task` after the 150ms sleep so values reflect current reality.
-    typealias CoordinatorStateReader = @MainActor () -> CoordinatorSnapshotState?
 
     // MARK: - Properties
 
@@ -38,10 +21,6 @@ final class ScrollDiagnosticsRecorder {
     /// One-shot flag: logs a warning the first time anchor, tail, or viewport
     /// geometry is non-finite during a render pass.
     var hasLoggedNonFiniteGeometry: Bool = false
-
-    /// Debounced task for transcript snapshot updates, coalescing rapid scroll
-    /// events into a single snapshot capture per 150ms window.
-    private var snapshotDebounceTask: Task<Void, Never>?
 
     // MARK: - Loop Event Recording
 
@@ -84,100 +63,6 @@ final class ScrollDiagnosticsRecorder {
         }
     }
 
-    // MARK: - Transcript Snapshot
-
-    /// Schedules a debounced transcript snapshot capture.
-    ///
-    /// View-owned values (messages, geometry, anchor IDs) are captured at
-    /// scheduling time because they come from the SwiftUI render pass that
-    /// triggered this call. Coordinator-owned state (`isPaginationInFlight`,
-    /// `isSuppressed`, etc.) is read *after* the 150ms debounce sleep via
-    /// `coordinatorState` so diagnostics reflect live values, not stale ones
-    /// from the scheduling instant.
-    func scheduleTranscriptSnapshot(
-        conversationId: UUID?,
-        messages: [ChatMessage],
-        isNearBottom: Bool,
-        scrollViewportHeight: CGFloat,
-        containerWidth: CGFloat,
-        anchorMessageId: UUID?,
-        highlightedMessageId: UUID?,
-        coordinatorState: @escaping CoordinatorStateReader
-    ) {
-        snapshotDebounceTask?.cancel()
-        snapshotDebounceTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(150))
-            guard !Task.isCancelled, let self else { return }
-            guard let state = coordinatorState() else { return }
-            self.updateTranscriptSnapshot(
-                conversationId: conversationId,
-                messages: messages,
-                isNearBottom: isNearBottom,
-                scrollViewportHeight: scrollViewportHeight,
-                containerWidth: containerWidth,
-                anchorMessageId: anchorMessageId,
-                highlightedMessageId: highlightedMessageId,
-                hasReceivedScrollEvent: state.hasReceivedScrollEvent,
-                isPaginationInFlight: state.isPaginationInFlight,
-                isSuppressed: state.isSuppressed,
-                activeSuppressionReasons: state.activeSuppressionReasons,
-                isAtBottom: state.isAtBottom
-            )
-        }
-    }
-
-    /// Captures a point-in-time transcript snapshot into `ChatDiagnosticsStore`.
-    private func updateTranscriptSnapshot(
-        conversationId: UUID?,
-        messages: [ChatMessage],
-        isNearBottom: Bool,
-        scrollViewportHeight: CGFloat,
-        containerWidth: CGFloat,
-        anchorMessageId: UUID?,
-        highlightedMessageId: UUID?,
-        hasReceivedScrollEvent: Bool,
-        isPaginationInFlight: Bool,
-        isSuppressed: Bool,
-        activeSuppressionReasons: [String],
-        isAtBottom: Bool
-    ) {
-        guard let convId = conversationId else { return }
-        let totalToolCalls = messages.reduce(0) { $0 + $1.toolCalls.count }
-
-        var sanitizer = NumericSanitizer()
-        let safeViewportHeight = sanitizer.sanitize(scrollViewportHeight, field: "scrollViewportHeight")
-        let safeContainerWidth = sanitizer.sanitize(containerWidth, field: "containerWidth")
-        logNonFiniteGeometryOnce(sanitizer: sanitizer)
-
-        let guardCounts = scrollLoopGuard.currentCounts(conversationId: convId.uuidString)
-        let guardCountsStringKeyed: [String: Int]? = guardCounts.isEmpty ? nil : Dictionary(
-            uniqueKeysWithValues: guardCounts.map { ($0.key.rawValue, $0.value) }
-        )
-
-        ChatDiagnosticsStore.shared.updateSnapshot(ChatTranscriptSnapshot(
-            conversationId: convId.uuidString,
-            capturedAt: Date(),
-            messageCount: messages.count,
-            toolCallCount: totalToolCalls,
-            isPinnedToBottom: isNearBottom,
-            isUserScrolling: hasReceivedScrollEvent,
-            scrollOffsetY: 0,
-            contentHeight: nil,
-            viewportHeight: safeViewportHeight,
-            isNearBottom: isNearBottom,
-            hasReceivedScrollEvent: hasReceivedScrollEvent,
-            isPaginationInFlight: isPaginationInFlight,
-            suppressionReason: isSuppressed ? activeSuppressionReasons.joined(separator: ",") : nil,
-            anchorMessageId: anchorMessageId?.uuidString,
-            highlightedMessageId: highlightedMessageId?.uuidString,
-            anchorMinY: 0,
-            scrollViewportHeight: safeViewportHeight,
-            containerWidth: safeContainerWidth,
-            scrollLoopGuardCounts: guardCountsStringKeyed,
-            nonFiniteFields: sanitizer.nonFiniteFields
-        ))
-    }
-
     // MARK: - Non-Finite Geometry Logging
 
     /// Logs a one-time warning when scroll geometry first becomes non-finite.
@@ -189,21 +74,15 @@ final class ScrollDiagnosticsRecorder {
 
     // MARK: - Lifecycle
 
-    /// Cancels the snapshot debounce task. Called from `cancelAllTasks()` (onDisappear).
-    /// Does NOT reset `hasLoggedNonFiniteGeometry` — that flag persists across
-    /// the coordinator's lifetime, not per conversation.
-    func cancel() {
-        snapshotDebounceTask?.cancel()
-        snapshotDebounceTask = nil
-    }
+    /// Called from `cancelAllTasks()` (onDisappear). Currently a no-op but
+    /// retained so the coordinator's cleanup contract stays consistent.
+    func cancel() {}
 
-    /// Resets state for a conversation switch. Cancels the snapshot debounce task
-    /// and resets the scroll loop guard for the OLD conversation.
+    /// Resets state for a conversation switch. Resets the scroll loop guard
+    /// for the OLD conversation.
     /// Does NOT reset `hasLoggedNonFiniteGeometry` — it's a one-shot per
     /// coordinator instance, not per conversation.
     func reset(oldConversationId: UUID?) {
-        snapshotDebounceTask?.cancel()
-        snapshotDebounceTask = nil
         if let oldConvId = oldConversationId {
             scrollLoopGuard.reset(conversationId: oldConvId.uuidString)
         }
