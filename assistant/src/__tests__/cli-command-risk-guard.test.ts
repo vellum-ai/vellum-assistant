@@ -210,6 +210,27 @@ describe("CLI command risk guard: wrapper program propagation", () => {
     expect(risk).toBe(RiskLevel.Medium);
   });
 
+  test("timeout 30 assistant oauth token is High risk", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "timeout 30 assistant oauth token",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("timeout 30 git push is Medium risk", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "timeout 30 git push",
+    });
+    expect(risk).toBe(RiskLevel.Medium);
+  });
+
+  test("timeout 30 git status is Low risk", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "timeout 30 git status",
+    });
+    expectLowRisk("timeout 30 git status", risk);
+  });
+
   test("env assistant config is Low risk", async () => {
     const risk = await classifyRisk("bash", {
       command: "env assistant config",
