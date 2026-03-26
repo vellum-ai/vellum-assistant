@@ -260,6 +260,10 @@ extension AppDelegate {
 
     /// Suspends until `connectionManager.isConnected` becomes `true`.
     /// Uses Combine's `$isConnected` async publisher to avoid main-actor polling.
+    ///
+    /// Explicitly `@MainActor` because `connectionManager.$isConnected` is a
+    /// `@Published` property on the `@MainActor`-isolated `GatewayConnectionManager`.
+    @MainActor
     private func awaitConnectionEstablished() async {
         guard !connectionManager.isConnected else { return }
         for await isConnected in connectionManager.$isConnected.values where isConnected {
