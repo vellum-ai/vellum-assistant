@@ -18,6 +18,7 @@ let mockGetSecureKeyViaDaemon: (
 // ---------------------------------------------------------------------------
 
 mock.module("../../../lib/daemon-credential-client.js", () => ({
+  daemonFetch: async () => new Response(JSON.stringify({ ok: true })),
   getSecureKeyViaDaemon: (account: string) =>
     mockGetSecureKeyViaDaemon(account),
   deleteSecureKeyViaDaemon: async () => "not-found" as const,
