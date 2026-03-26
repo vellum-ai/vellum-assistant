@@ -354,8 +354,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             ?? UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
             ?? true
 
-        // Collect pending IPS crash logs BEFORE starting Sentry so we can
-        // check them against onCrashedLastRun below.
+        // Collect pending IPS crash logs BEFORE starting Sentry so they
+        // can be attached to the scope for the automatic crash event.
         let crashLogURLs = sendDiagnostics ? CrashReporter.pendingCrashLogURLs() : []
 
         if sendDiagnostics && !MetricKitManager.macosDSN.isEmpty {
@@ -380,38 +380,33 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     options.onCrashedLastRun = { _ in crashedLastRun = true }
                 }
 
-                // Configure initialScope so all telemetry tags are present
-                // BEFORE the SDK flushes stored crash events, ensuring
-                // user_id and standard tags ride along with the crash event.
+                // Configure initialScope so telemetry tags AND IPS crash
+                // log attachments are present BEFORE the SDK flushes stored
+                // crash events. The crash event envelope is built during
+                // start(), so these ride along with the fatal event itself.
                 options.initialScope = { scope in
                     SentryDeviceInfo.applyTags(to: scope)
+                    for url in crashLogURLs {
+                        scope.addAttachment(
+                            Attachment(path: url.path, filename: url.lastPathComponent)
+                        )
+                    }
                     return scope
                 }
             }
             // Also configure the live scope for events after start().
             SentryDeviceInfo.configureSentryScope()
 
-            // Only send IPS files when the SDK confirms the previous session
-            // crashed. Scope attachments are added, the event is captured, and
-            // attachments are cleared synchronously — no window for unrelated
-            // events to pick them up.
-            if crashedLastRun && !crashLogURLs.isEmpty {
-                SentrySDK.configureScope { scope in
-                    for url in crashLogURLs {
-                        scope.addAttachment(
-                            Attachment(path: url.path, filename: url.lastPathComponent)
-                        )
-                    }
-                }
-                let ipsEvent = Event(level: .info)
-                ipsEvent.message = SentryMessage(formatted: "Apple crash report (.ips)")
-                ipsEvent.tags = ["source": "ips_crash_report"]
-                ipsEvent.fingerprint = ["ips_crash_report"]
-                SentrySDK.capture(event: ipsEvent)
+            // The crash event's envelope was built during start() and
+            // already includes the IPS scope attachments. Clear them
+            // synchronously so no subsequent events carry the files.
+            if !crashLogURLs.isEmpty {
                 SentrySDK.configureScope { scope in
                     scope.clearAttachments()
                 }
-                CrashReporter.markAsSeen(crashLogURLs)
+                if crashedLastRun {
+                    CrashReporter.markAsSeen(crashLogURLs)
+                }
             }
 
             SentryLogReporter.start()
