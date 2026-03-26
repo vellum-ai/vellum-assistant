@@ -581,6 +581,18 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
+      "id": "vellum-oauth-integrations",
+      "name": "vellum-oauth-integrations",
+      "description": "Act on behalf of your user in any third-party software that supports OAuth 2.0",
+      "metadata": {
+        "emoji": "🔌",
+        "vellum": {
+          "display-name": "Vellum OAuth Integrations"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants"
+    },
+    {
       "id": "vellum-self-knowledge",
       "name": "vellum-self-knowledge",
       "description": "Answer questions about Vellum, the assistant's architecture, and its current configuration including which model and provider are active",
