@@ -4,9 +4,12 @@ import AppKit
 
 // MARK: - Right-click detection
 
-/// Detects right-click (secondary click) events on a view and reports the
-/// screen-coordinate position. Uses an NSEvent local monitor so it does not
-/// interfere with left-click, hover, or drag gestures.
+/// Detects right-click and Ctrl-click (secondary click) events on a view and
+/// reports the screen-coordinate position. Uses an NSEvent local monitor so it
+/// does not interfere with left-click, hover, or drag gestures.
+///
+/// The monitor is scoped to this view's window — events from other windows
+/// are ignored and passed through.
 private struct RightClickDetector: NSViewRepresentable {
     let action: (CGPoint) -> Void
 
@@ -20,7 +23,8 @@ private struct RightClickDetector: NSViewRepresentable {
 
     class RightClickNSView: NSView {
         var action: (CGPoint) -> Void
-        private var monitor: Any?
+        private var rightClickMonitor: Any?
+        private var ctrlClickMonitor: Any?
 
         init(action: @escaping (CGPoint) -> Void) {
             self.action = action
@@ -29,26 +33,45 @@ private struct RightClickDetector: NSViewRepresentable {
 
         required init?(coder: NSCoder) { fatalError() }
 
+        private func handleSecondaryClick(_ event: NSEvent) -> NSEvent? {
+            guard let myWindow = self.window else { return event }
+            // Only handle events from this view's window
+            guard event.window === myWindow else { return event }
+            let locationInView = self.convert(event.locationInWindow, from: nil)
+            if self.bounds.contains(locationInView) {
+                let screenPoint = myWindow.convertPoint(toScreen: event.locationInWindow)
+                self.action(screenPoint)
+                return nil
+            }
+            return event
+        }
+
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            monitor.flatMap(NSEvent.removeMonitor)
-            monitor = nil
+            removeMonitors()
             guard window != nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
-                guard let self, let window = self.window else { return event }
-                let locationInView = self.convert(event.locationInWindow, from: nil)
-                if self.bounds.contains(locationInView) {
-                    let screenPoint = window.convertPoint(toScreen: event.locationInWindow)
-                    self.action(screenPoint)
-                    return nil
-                }
-                return event
+
+            // Monitor right-click
+            rightClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { [weak self] event in
+                self?.handleSecondaryClick(event) ?? event
+            }
+
+            // Monitor Ctrl-click (standard macOS secondary click fallback)
+            ctrlClickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+                guard event.modifierFlags.contains(.control) else { return event }
+                return self?.handleSecondaryClick(event) ?? event
             }
         }
 
+        private func removeMonitors() {
+            rightClickMonitor.flatMap(NSEvent.removeMonitor)
+            rightClickMonitor = nil
+            ctrlClickMonitor.flatMap(NSEvent.removeMonitor)
+            ctrlClickMonitor = nil
+        }
+
         override func removeFromSuperview() {
-            monitor.flatMap(NSEvent.removeMonitor)
-            monitor = nil
+            removeMonitors()
             super.removeFromSuperview()
         }
 
