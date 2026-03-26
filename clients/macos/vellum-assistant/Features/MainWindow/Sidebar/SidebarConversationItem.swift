@@ -32,7 +32,6 @@ struct SidebarConversationItem: View, Equatable {
     }
 
     @State private var isMenuOpen: Bool = false
-    @State private var overflowButtonFrame: CGRect = .zero
     private var hasTrailingIcon: Bool { isHovered || isMenuOpen }
     private var canMarkUnread: Bool {
         !conversation.hasUnseenLatestAssistantMessage &&
@@ -182,20 +181,8 @@ struct SidebarConversationItem: View, Equatable {
                 Button {
                     isMenuOpen = true
                     let appearance = NSApp.keyWindow?.effectiveAppearance
-                    let screenPoint: CGPoint
-                    if let window = NSApp.keyWindow {
-                        // Convert button's bottom-center from SwiftUI global (window flipped)
-                        // to window coordinates, then to screen coordinates.
-                        let windowPoint = CGPoint(
-                            x: overflowButtonFrame.midX,
-                            y: overflowButtonFrame.maxY
-                        )
-                        screenPoint = window.convertPoint(toScreen: windowPoint)
-                    } else {
-                        screenPoint = NSEvent.mouseLocation
-                    }
                     VMenuPanel.show(
-                        at: screenPoint,
+                        at: NSEvent.mouseLocation,
                         sourceAppearance: appearance
                     ) {
                         VMenu(width: 200) {
@@ -211,15 +198,6 @@ struct SidebarConversationItem: View, Equatable {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .overlay {
-                    GeometryReader { geo in
-                        Color.clear
-                            .onAppear { overflowButtonFrame = geo.frame(in: .global) }
-                            .onChange(of: geo.frame(in: .global)) { _, newFrame in
-                                overflowButtonFrame = newFrame
-                            }
-                    }
-                }
                 .nativeTooltip("More options")
                 .padding(.trailing, VSpacing.xs)
                 .accessibilityLabel("More options for \(conversation.title)")
