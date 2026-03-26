@@ -16,16 +16,16 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "airtable-oauth-setup",
-      "name": "airtable-oauth-setup",
-      "description": "Set up Airtable OAuth credentials using a collaborative guided flow",
+      "id": "airtable-oauth-app-setup",
+      "name": "airtable-oauth-app-setup",
+      "description": "Walk the user through creating an Airtable OAuth integration in the Airtable developer console",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "Airtable OAuth Setup",
           "feature-flag": "integration-airtable",
           "includes": [
-            "collaborative-oauth-flow"
+            "vellum-oauth-integrations"
           ]
         }
       },
@@ -56,16 +56,16 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "asana-oauth-setup",
-      "name": "asana-oauth-setup",
-      "description": "Set up Asana OAuth credentials using a collaborative guided flow",
+      "id": "asana-oauth-app-setup",
+      "name": "asana-oauth-app-setup",
+      "description": "Walk the user through creating an Asana OAuth app in the Asana Developer Console",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "Asana OAuth Setup",
           "feature-flag": "integration-asana",
           "includes": [
-            "collaborative-oauth-flow"
+            "vellum-oauth-integrations"
           ]
         }
       },
@@ -84,18 +84,6 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "collaborative-oauth-flow",
-      "name": "collaborative-oauth-flow",
-      "description": "Reusable pattern for walking users through OAuth app setup via AppleScript browser navigation",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "Collaborative OAuth Flow"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
       "id": "deploy-fullstack-vercel",
       "name": "deploy-fullstack-vercel",
       "description": "Build and deploy a full-stack app (React frontend + Python/FastAPI backend) to Vercel as a serverless demo with seeded data",
@@ -108,16 +96,16 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "discord-oauth-setup",
-      "name": "discord-oauth-setup",
-      "description": "Set up Discord OAuth credentials using a collaborative guided flow",
+      "id": "discord-oauth-app-setup",
+      "name": "discord-oauth-app-setup",
+      "description": "Walk the user through creating a Discord OAuth app in the Discord Developer Portal",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "Discord OAuth Setup",
           "feature-flag": "integration-discord",
           "includes": [
-            "collaborative-oauth-flow"
+            "vellum-oauth-integrations"
           ]
         }
       },
@@ -148,16 +136,16 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "dropbox-oauth-setup",
-      "name": "dropbox-oauth-setup",
-      "description": "Set up Dropbox OAuth credentials using a collaborative guided flow",
+      "id": "dropbox-oauth-app-setup",
+      "name": "dropbox-oauth-app-setup",
+      "description": "Walk the user through creating a Dropbox OAuth app in the Dropbox App Console",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "Dropbox OAuth Setup",
           "feature-flag": "integration-dropbox",
           "includes": [
-            "collaborative-oauth-flow"
+            "vellum-oauth-integrations"
           ]
         }
       },
@@ -189,16 +177,16 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "figma-oauth-setup",
-      "name": "figma-oauth-setup",
-      "description": "Set up Figma OAuth credentials using a collaborative guided flow",
+      "id": "figma-oauth-app-setup",
+      "name": "figma-oauth-app-setup",
+      "description": "Walk the user through creating a Figma OAuth app on the Figma developers page",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "Figma OAuth Setup",
           "feature-flag": "integration-figma",
           "includes": [
-            "collaborative-oauth-flow"
+            "vellum-oauth-integrations"
           ]
         }
       },
@@ -214,31 +202,31 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "github-oauth-setup",
-      "name": "github-oauth-setup",
-      "description": "Set up GitHub OAuth credentials using a collaborative guided flow",
+      "id": "github-oauth-app-setup",
+      "name": "github-oauth-app-setup",
+      "description": "Walk the user through creating a GitHub OAuth app in GitHub Developer Settings",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "GitHub OAuth Setup",
           "feature-flag": "integration-github",
           "includes": [
-            "collaborative-oauth-flow"
+            "vellum-oauth-integrations"
           ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "google-oauth-applescript",
-      "name": "google-oauth-applescript",
-      "description": "Set up Google Cloud OAuth credentials for Gmail and Calendar using a collaborative guided flow",
+      "id": "google-oauth-app-setup",
+      "name": "google-oauth-app-setup",
+      "description": "Walk the user through creating Google Cloud OAuth credentials for Gmail and Calendar",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "Google OAuth Setup",
           "includes": [
-            "collaborative-oauth-flow"
+            "vellum-oauth-integrations"
           ]
         }
       },
@@ -265,16 +253,16 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "hubspot-oauth-setup",
-      "name": "hubspot-oauth-setup",
-      "description": "Set up HubSpot OAuth credentials using a collaborative guided flow",
+      "id": "hubspot-oauth-app-setup",
+      "name": "hubspot-oauth-app-setup",
+      "description": "Walk the user through creating a HubSpot OAuth app in the HubSpot developer portal",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "HubSpot OAuth Setup",
           "feature-flag": "integration-hubspot",
           "includes": [
-            "collaborative-oauth-flow"
+            "vellum-oauth-integrations"
           ]
         }
       },
@@ -293,16 +281,16 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "linear-oauth-setup",
-      "name": "linear-oauth-setup",
-      "description": "Set up Linear OAuth credentials using a collaborative guided flow",
+      "id": "linear-oauth-app-setup",
+      "name": "linear-oauth-app-setup",
+      "description": "Walk the user through creating a Linear OAuth application in Linear API settings",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "Linear OAuth Setup",
           "feature-flag": "integration-linear",
           "includes": [
-            "collaborative-oauth-flow"
+            "vellum-oauth-integrations"
           ]
         }
       },
@@ -351,31 +339,16 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "notion-oauth-setup",
-      "name": "notion-oauth-setup",
-      "description": "Set up Notion integration credentials using a collaborative guided flow (defaults to Internal integration)",
+      "id": "notion-oauth-app-setup",
+      "name": "notion-oauth-app-setup",
+      "description": "Walk the user through setting up a Notion integration (defaults to Internal integration, not OAuth)",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "Notion Setup",
           "feature-flag": "integration-notion",
           "includes": [
-            "collaborative-oauth-flow"
-          ]
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants"
-    },
-    {
-      "id": "oauth-setup",
-      "name": "oauth-setup",
-      "description": "Connect any OAuth service - walk users through app setup via a collaborative guided flow",
-      "metadata": {
-        "emoji": "🔑",
-        "vellum": {
-          "display-name": "OAuth Setup",
-          "includes": [
-            "collaborative-oauth-flow"
+            "vellum-oauth-integrations"
           ]
         }
       },
@@ -455,16 +428,16 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "spotify-oauth-setup",
-      "name": "spotify-oauth-setup",
-      "description": "Set up Spotify OAuth credentials using a collaborative guided flow",
+      "id": "spotify-oauth-app-setup",
+      "name": "spotify-oauth-app-setup",
+      "description": "Walk the user through creating a Spotify OAuth app in the Spotify Developer Dashboard",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "Spotify OAuth Setup",
           "feature-flag": "integration-spotify",
           "includes": [
-            "collaborative-oauth-flow"
+            "vellum-oauth-integrations"
           ]
         }
       },
@@ -510,16 +483,16 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "todoist-oauth-setup",
-      "name": "todoist-oauth-setup",
-      "description": "Set up Todoist OAuth credentials using a collaborative guided flow",
+      "id": "todoist-oauth-app-setup",
+      "name": "todoist-oauth-app-setup",
+      "description": "Walk the user through creating a Todoist OAuth app in the Todoist App Console",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "Todoist OAuth Setup",
           "feature-flag": "integration-todoist",
           "includes": [
-            "collaborative-oauth-flow"
+            "vellum-oauth-integrations"
           ]
         }
       },
@@ -541,16 +514,16 @@
       "compatibility": "Designed for Vellum personal assistants"
     },
     {
-      "id": "twitter-oauth-setup",
-      "name": "twitter-oauth-setup",
-      "description": "Set up Twitter/X OAuth credentials for Twitter integration using a collaborative guided flow",
+      "id": "twitter-oauth-app-setup",
+      "name": "twitter-oauth-app-setup",
+      "description": "Walk the user through creating a Twitter/X OAuth 2.0 app in the Twitter Developer Portal",
       "metadata": {
         "emoji": "🔑",
         "vellum": {
           "display-name": "Twitter / X OAuth Setup",
           "feature-flag": "integration-twitter",
           "includes": [
-            "collaborative-oauth-flow"
+            "vellum-oauth-integrations"
           ]
         }
       },

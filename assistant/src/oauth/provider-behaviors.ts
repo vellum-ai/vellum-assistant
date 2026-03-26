@@ -40,7 +40,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "google-oauth-applescript",
+    setupSkillId: "google-oauth-app-setup",
     setup: {
       displayName: "Google (Gmail & Calendar)",
       dashboardUrl: "https://console.cloud.google.com/apis/credentials",
@@ -123,7 +123,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "notion-oauth-setup",
+    setupSkillId: "notion-oauth-app-setup",
     setup: {
       displayName: "Notion",
       dashboardUrl: "https://www.notion.so/profile/integrations",
@@ -165,7 +165,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "twitter-oauth-setup",
+    setupSkillId: "twitter-oauth-app-setup",
     setup: {
       displayName: "Twitter / X",
       dashboardUrl: "https://developer.x.com/en/portal/dashboard",
@@ -200,7 +200,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "github-oauth-setup",
+    setupSkillId: "github-oauth-app-setup",
     setup: {
       displayName: "GitHub",
       dashboardUrl: "https://github.com/settings/developers",
@@ -236,7 +236,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "linear-oauth-setup",
+    setupSkillId: "linear-oauth-app-setup",
     setup: {
       displayName: "Linear",
       dashboardUrl: "https://linear.app/settings/api",
@@ -279,7 +279,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "spotify-oauth-setup",
+    setupSkillId: "spotify-oauth-app-setup",
     setup: {
       displayName: "Spotify",
       dashboardUrl: "https://developer.spotify.com/dashboard",
@@ -318,7 +318,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "todoist-oauth-setup",
+    setupSkillId: "todoist-oauth-app-setup",
     setup: {
       displayName: "Todoist",
       dashboardUrl: "https://developer.todoist.com/appconsole.html",
@@ -361,7 +361,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "discord-oauth-setup",
+    setupSkillId: "discord-oauth-app-setup",
     setup: {
       displayName: "Discord",
       dashboardUrl: "https://discord.com/developers/applications",
@@ -406,7 +406,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "dropbox-oauth-setup",
+    setupSkillId: "dropbox-oauth-app-setup",
     setup: {
       displayName: "Dropbox",
       dashboardUrl: "https://www.dropbox.com/developers/apps",
@@ -449,7 +449,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "asana-oauth-setup",
+    setupSkillId: "asana-oauth-app-setup",
     setup: {
       displayName: "Asana",
       dashboardUrl: "https://app.asana.com/0/my-apps",
@@ -487,7 +487,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "airtable-oauth-setup",
+    setupSkillId: "airtable-oauth-app-setup",
     setup: {
       displayName: "Airtable",
       dashboardUrl: "https://airtable.com/create/oauth",
@@ -523,7 +523,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "hubspot-oauth-setup",
+    setupSkillId: "hubspot-oauth-app-setup",
     setup: {
       displayName: "HubSpot",
       dashboardUrl: "https://app.hubspot.com/developer",
@@ -562,7 +562,7 @@ export const PROVIDER_BEHAVIORS: Record<string, OAuthProviderBehavior> = {
         valuePrefix: "Bearer ",
       },
     ],
-    setupSkillId: "figma-oauth-setup",
+    setupSkillId: "figma-oauth-app-setup",
     setup: {
       displayName: "Figma",
       dashboardUrl: "https://www.figma.com/developers/apps",
