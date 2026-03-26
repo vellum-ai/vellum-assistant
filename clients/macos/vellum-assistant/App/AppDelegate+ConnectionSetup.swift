@@ -163,10 +163,12 @@ extension AppDelegate {
     /// Subscribe to the event stream and dispatch events to their handlers.
     /// Each event type is handled in a single switch statement.
     private func startEventSubscription() {
-        Task { @MainActor [weak self] in
+        eventSubscriptionTask?.cancel()
+        eventSubscriptionTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let stream = self.eventStreamClient.subscribe()
             for await message in stream {
+                guard !Task.isCancelled else { break }
                 switch message {
                 case .notificationIntent(let msg):
                     self.deliverNotificationIntent(msg)

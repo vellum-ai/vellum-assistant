@@ -132,6 +132,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var refreshSkillsTask: Task<Void, Never>?
     var cachedApps: [AppItem] = []
     var refreshAppsTask: Task<Void, Never>?
+    /// The currently-active SSE event subscription task. Stored so it can be
+    /// cancelled before creating a new subscription (e.g. on reconnection or
+    /// assistant switch), preventing duplicate event processing.
+    var eventSubscriptionTask: Task<Void, Never>?
     /// Pending fallback notification tokens, keyed by conversationId.
     /// Used to avoid duplicate native alerts when notification_intent arrives.
     var pendingFallbackNotifications: [String: UUID] = [:]
@@ -664,6 +668,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         recordingManager.forceStop()
         recordingHUDWindow?.dismiss()
         e2eStatusOverlayWindow?.dismiss()
+        eventSubscriptionTask?.cancel()
         debugStateWriter.stop()
         RandomSoundTimer.shared.stop()
         SoundManager.shared.stop()
