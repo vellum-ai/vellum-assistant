@@ -53,7 +53,7 @@ let mockUpsertAppImpl:
     ) => Promise<Record<string, unknown>>)
   | undefined;
 
-// Transitive mock state (connect-orchestrator, provider-behaviors, etc.)
+// Transitive mock state (connect-orchestrator, etc.)
 let mockOrchestrateOAuthConnect: (
   opts: Record<string, unknown>,
 ) => Promise<Record<string, unknown>>;
@@ -65,9 +65,6 @@ let mockGetMostRecentAppByProvider: (
   providerKey: string,
 ) => Record<string, unknown> | undefined = () => undefined;
 let mockGetProvider: (
-  providerKey: string,
-) => Record<string, unknown> | undefined = () => undefined;
-let mockGetProviderBehavior: (
   providerKey: string,
 ) => Record<string, unknown> | undefined = () => undefined;
 let mockGetSecureKey: (account: string) => string | undefined = () => undefined;
@@ -208,15 +205,6 @@ mock.module("../tools/credentials/metadata-store.js", () => ({
 mock.module("../oauth/connect-orchestrator.js", () => ({
   orchestrateOAuthConnect: (opts: Record<string, unknown>) =>
     mockOrchestrateOAuthConnect(opts),
-}));
-
-// ---------------------------------------------------------------------------
-// Mock provider-behaviors
-// ---------------------------------------------------------------------------
-
-mock.module("../oauth/provider-behaviors.js", () => ({
-  getProviderBehavior: (providerKey: string) =>
-    mockGetProviderBehavior(providerKey),
 }));
 
 mock.module("../oauth/seed-providers.js", () => ({
@@ -572,7 +560,6 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
     mockGetAppByProviderAndClientId = () => undefined;
     mockGetMostRecentAppByProvider = () => undefined;
     mockGetProvider = () => undefined;
-    mockGetProviderBehavior = () => undefined;
     mockGetSecureKey = () => undefined;
     mockGetCredentialMetadata = () => undefined;
     mockUpsertAppImpl = undefined;

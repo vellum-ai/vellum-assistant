@@ -1,18 +1,58 @@
-import { describe, expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, mock, test } from "bun:test";
 
-import { getProviderBehavior } from "../oauth/provider-behaviors.js";
+const testDir = mkdtempSync(join(tmpdir(), "oauth-provider-profiles-test-"));
 
-describe("oauth provider behaviors", () => {
-  test("google behavior defines bearer injection templates for Google API hosts", () => {
-    const behavior = getProviderBehavior("google");
+mock.module("../util/platform.js", () => ({
+  getDataDir: () => testDir,
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => ":memory:",
+  getLogPath: () => join(testDir, "test.log"),
+  ensureDataDir: () => {},
+}));
 
-    expect(behavior).toBeDefined();
-    expect(behavior?.injectionTemplates).toBeDefined();
-    expect(behavior?.injectionTemplates).toHaveLength(3);
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
+}));
 
-    const byHost = new Map(
-      (behavior?.injectionTemplates ?? []).map((t) => [t.hostPattern, t]),
-    );
+mock.module("../security/secure-keys.js", () => ({
+  deleteSecureKeyAsync: async () => "deleted" as const,
+  setSecureKeyAsync: async () => true,
+  getSecureKeyAsync: async () => undefined,
+}));
+
+import { initializeDb } from "../memory/db.js";
+import { getProvider } from "../oauth/oauth-store.js";
+import { seedOAuthProviders } from "../oauth/seed-providers.js";
+
+initializeDb();
+seedOAuthProviders();
+
+describe("oauth provider profiles (DB-seeded)", () => {
+  test("google provider row contains bearer injection templates for 3 Google API hosts", () => {
+    const provider = getProvider("google");
+
+    expect(provider).toBeDefined();
+    expect(provider?.injectionTemplates).toBeDefined();
+
+    const templates = JSON.parse(provider!.injectionTemplates!) as Array<{
+      hostPattern: string;
+      injectionType: string;
+      headerName: string;
+      valuePrefix: string;
+    }>;
+
+    expect(templates).toHaveLength(3);
+
+    const byHost = new Map(templates.map((t) => [t.hostPattern, t]));
 
     for (const host of [
       "gmail.googleapis.com",
