@@ -62,7 +62,7 @@ struct AgentPanelContent: View {
                         Text("Tip: ").bold() +
                         Text("You can ") +
                         Text("create a new custom skill")
-                            .foregroundColor(VColor.primaryBase) +
+                            .foregroundStyle(VColor.primaryBase) +
                         Text(" by describing what you want in chat.")
                         Spacer()
                         Button(action: {
@@ -72,6 +72,7 @@ struct AgentPanelContent: View {
                                 .foregroundStyle(VColor.contentTertiary)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Dismiss tip")
                     }
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
