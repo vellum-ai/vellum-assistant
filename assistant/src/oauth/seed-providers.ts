@@ -10,8 +10,9 @@ import { seedProviders } from "./oauth-store.js";
  * and display metadata (displayName,
  * description, dashboardUrl, clientIdPlaceholder, requiresClientSecret)
  * are overwritten on subsequent startups — user-customizable
- * fields (defaultScopes, scopePolicy, baseUrl) are only
+ * fields (defaultScopes, scopePolicy) are only
  * written on initial insert and preserved across restarts.
+ * baseUrl is backfilled when null but preserved if already set.
  *
  * Code-side behavioral fields (identityVerifier, injectionTemplates,
  * setup, etc.) live in `provider-behaviors.ts` and are never persisted
