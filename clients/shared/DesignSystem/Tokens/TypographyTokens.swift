@@ -62,6 +62,35 @@ public enum VFont {
         #endif
     }
 
+    /// Creates an Instrument Serif font at the given CSS weight and size.
+    private static func instrumentSerif(weight: Int, size: CGFloat) -> Font {
+        let baseName = "InstrumentSerif-Regular" as CFString
+        let baseFont = CTFontCreateWithName(baseName, size, nil)
+        let variations: [CFNumber: CFNumber] = [
+            wghtTag as CFNumber: weight as CFNumber,
+        ]
+        let variantFont = CTFontCreateCopyWithAttributes(
+            baseFont, size, nil,
+            CTFontDescriptorCreateWithAttributes([
+                kCTFontVariationAttribute: variations,
+            ] as CFDictionary)
+        )
+        #if os(macOS)
+        let nsFont = variantFont as NSFont
+        return Font(nsFont)
+        #elseif os(iOS)
+        let uiFont = variantFont as! UIFont
+        return Font(uiFont)
+        #else
+        return Font.custom("InstrumentSerif-Regular", fixedSize: size)
+        #endif
+    }
+
+    // MARK: - Brand (Figma — Instrument Serif)
+
+    public static let brandMedium = instrumentSerif(weight: 400, size: adaptiveSize(32))
+    public static let brandSmall  = instrumentSerif(weight: 400, size: adaptiveSize(22))
+
     // MARK: - Display
 
     public static let displayLarge = dmSans(weight: 400, size: adaptiveSize(32))
@@ -70,7 +99,7 @@ public enum VFont {
 
     public static let titleLarge  = dmSans(weight: 400, size: adaptiveSize(24))
     public static let titleMedium = dmSans(weight: 400, size: adaptiveSize(20))
-    public static let titleSmall  = dmSans(weight: 500, size: adaptiveSize(18))
+    public static let titleSmall  = dmSans(weight: 500, size: adaptiveSize(16))
 
     // MARK: - Body (Figma)
 
