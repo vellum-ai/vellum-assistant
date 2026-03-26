@@ -49,7 +49,7 @@ If the `curl` call fails, the token is invalid - ask the user to re-enter (repea
 First check whether managed platform callback routes are available:
 
 ```bash
-assistant platform status --json
+assistant platform deployment-context --json
 ```
 
 If `containerized` is `true` and both `baseUrl` and `assistantId` are present:

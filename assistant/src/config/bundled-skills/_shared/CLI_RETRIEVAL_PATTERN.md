@@ -9,7 +9,8 @@ any generic account registry:
 - `assistant oauth status <provider>` for discovering OAuth connection handles
 - `assistant credentials set ...` for storing new credentials
 - `assistant mcp auth <name>` when an MCP server needs browser login
-- `assistant platform status` for platform-linked deployment/auth context
+- `assistant platform deployment-context` for platform-linked deployment/auth context
+- `assistant platform status` for platform connection status and stored credentials
 
 If a bundled skill documents a service-specific `assistant <service>` auth or
 session flow, follow that CLI exactly.

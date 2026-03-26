@@ -20,7 +20,7 @@ export function registerPlatformStatusCommand(platform: Command): void {
       "after",
       `
 Reads stored platform credentials and reports the current connection state.
-Does not require the assistant daemon to be running.
+Does not require the assistant to be running.
 
 Fields:
   connected       Whether platform credentials are stored (boolean)
