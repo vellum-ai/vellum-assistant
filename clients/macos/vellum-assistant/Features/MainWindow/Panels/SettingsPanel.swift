@@ -66,6 +66,12 @@ struct SettingsPanel: View {
         let soundsEnabled = assistantFeatureFlagStore.isEnabled(Self.soundsFeatureFlagKey)
         _isSoundsEnabled = State(initialValue: soundsEnabled)
 
+        // Pre-compute the developer flag so the tab is visible immediately
+        // without waiting for the async gateway fetch (which may not return
+        // this flag when connected to a cloud assistant).
+        let developerEnabled = assistantFeatureFlagStore.isEnabled(Self.developerFeatureFlagKey)
+        _isDeveloperEnabled = State(initialValue: developerEnabled)
+
         // Derive the initial tab from the pending deep-link at construction
         // time. Previous attempts set selectedTab in onAppear / onChange, but
         // those fire *after* the first render and are susceptible to timing
