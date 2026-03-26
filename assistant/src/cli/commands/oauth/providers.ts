@@ -3,11 +3,17 @@ import { type Command } from "commander";
 import { loadConfig } from "../../../config/loader.js";
 import { getOAuthCallbackUrl } from "../../../inbound/public-ingress-urls.js";
 import {
+  deleteApp,
+  deleteConnection,
+  deleteProvider,
   getProvider,
+  listApps,
+  listConnections,
   listProviders,
   registerProvider,
 } from "../../../oauth/oauth-store.js";
 import { getProviderBehavior } from "../../../oauth/provider-behaviors.js";
+import { SEEDED_PROVIDER_KEYS } from "../../../oauth/seed-providers.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
@@ -327,6 +333,107 @@ Examples:
           });
 
           writeOutput(cmd, parseProviderRow(row));
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
+          process.exitCode = 1;
+        }
+      },
+    );
+
+  // ---------------------------------------------------------------------------
+  // providers delete <provider-key>
+  // ---------------------------------------------------------------------------
+
+  providers
+    .command("delete <provider-key>")
+    .description(
+      "Delete a custom OAuth provider and optionally its associated apps and connections",
+    )
+    .option(
+      "--force",
+      "Cascade-delete all associated apps and connections before removing the provider",
+    )
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  provider-key   Provider key to delete (e.g. "custom-api").
+                 Run 'assistant oauth providers list' to see registered providers.
+
+When --force is specified, all OAuth connections and apps that depend on
+this provider are deleted before the provider itself is removed. Without
+--force, the command refuses to delete a provider that has dependents and
+exits with an error listing the counts.
+
+Built-in providers (e.g. "google", "slack") can be deleted, but a warning
+is emitted because they will be re-created automatically on the next
+assistant startup.
+
+Examples:
+  $ assistant oauth providers delete custom-api
+  $ assistant oauth providers delete custom-api --force
+  $ assistant oauth providers delete custom-api --force --json`,
+    )
+    .action(
+      async (providerKey: string, opts: { force?: boolean }, cmd: Command) => {
+        try {
+          const provider = getProvider(providerKey);
+          if (!provider) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers.`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          if (SEEDED_PROVIDER_KEYS.has(providerKey) && !opts.force) {
+            log.info(
+              `Note: "${providerKey}" is a built-in provider and will be re-created on next startup.`,
+            );
+          }
+
+          const dependentApps = listApps().filter(
+            (a) => a.providerKey === providerKey,
+          );
+          const dependentConnections = listConnections(providerKey);
+          const appCount = dependentApps.length;
+          const connCount = dependentConnections.length;
+
+          if ((appCount > 0 || connCount > 0) && !opts.force) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `Cannot delete provider "${providerKey}": ${appCount} app(s) and ${connCount} connection(s) depend on it. Use --force to cascade-delete all dependent apps and connections, or remove them manually first with 'assistant oauth apps delete' and 'assistant oauth disconnect'.`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          // Warn about built-in providers when --force is used
+          if (SEEDED_PROVIDER_KEYS.has(providerKey) && opts.force) {
+            log.info(
+              `Note: "${providerKey}" is a built-in provider and will be re-created on next startup.`,
+            );
+          }
+
+          // Cascade-delete connections first, then apps, then the provider.
+          for (const conn of dependentConnections) {
+            deleteConnection(conn.id);
+          }
+          for (const app of dependentApps) {
+            await deleteApp(app.id);
+          }
+          deleteProvider(providerKey);
+
+          if (!shouldOutputJson(cmd)) {
+            log.info(`Deleted provider: ${providerKey}`);
+          }
+
+          writeOutput(cmd, {
+            ok: true,
+            deleted: { provider: 1, apps: appCount, connections: connCount },
+          });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           writeOutput(cmd, { ok: false, error: message });
