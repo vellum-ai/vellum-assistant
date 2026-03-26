@@ -9,6 +9,7 @@ import VellumAssistantShared
 struct ChatEmptyStateView: View {
     @Binding var inputText: String
     let isSending: Bool
+    var isAssistantBusy: Bool = false
     let isRecording: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
@@ -121,6 +122,7 @@ struct ChatEmptyStateView: View {
         ComposerView(
             inputText: $inputText,
             isSending: isSending,
+            isAssistantBusy: isAssistantBusy,
             hasPendingConfirmation: false,
             isRecording: isRecording,
             suggestion: suggestion,
@@ -323,6 +325,7 @@ struct FlowLayout: Layout {
 struct ChatTemporaryChatEmptyStateView: View {
     @Binding var inputText: String
     let isSending: Bool
+    var isAssistantBusy: Bool = false
     let isRecording: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
@@ -365,6 +368,7 @@ struct ChatTemporaryChatEmptyStateView: View {
             ComposerView(
                 inputText: $inputText,
                 isSending: isSending,
+                isAssistantBusy: isAssistantBusy,
                 hasPendingConfirmation: false,
                 isRecording: isRecording,
                 suggestion: suggestion,

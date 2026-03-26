@@ -11,6 +11,7 @@ struct ChatView: View {
     let isThinking: Bool
     let isCompacting: Bool
     let isSending: Bool
+    let isAssistantBusy: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
     var isLoadingAttachment: Bool = false
@@ -179,6 +180,7 @@ struct ChatView: View {
                         ChatTemporaryChatEmptyStateView(
                             inputText: $inputText,
                             isSending: isSending,
+                            isAssistantBusy: isAssistantBusy,
                             isRecording: isRecording,
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
@@ -199,6 +201,7 @@ struct ChatView: View {
                         ChatEmptyStateView(
                             inputText: $inputText,
                             isSending: isSending,
+                            isAssistantBusy: isAssistantBusy,
                             isRecording: isRecording,
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
@@ -291,6 +294,7 @@ struct ChatView: View {
                         ComposerSection(
                             inputText: $inputText,
                             isSending: isSending,
+                            isAssistantBusy: isAssistantBusy,
                             hasPendingConfirmation: activePendingRequestId != nil,
                             onAllowPendingConfirmation: {
                                 if let requestId = activePendingRequestId {

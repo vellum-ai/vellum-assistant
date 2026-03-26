@@ -22,10 +22,10 @@ import os
 
     /// Serial queue that serialises all Sentry SDK operations.
     ///
-    /// `SentrySDK.close()` (called from privacy settings and AppDelegate),
-    /// `captureSentryEvent`, and `sendManualReport` all touch the global
-    /// SentrySDK singleton. Routing every operation through this queue prevents
-    /// interleaving (e.g. a MetricKit callback racing with a user opt-out).
+    /// `SentrySDK.close()` (called from privacy settings and AppDelegate)
+    /// and `captureSentryEvent` both touch the global SentrySDK singleton.
+    /// Routing every operation through this queue prevents interleaving
+    /// (e.g. a MetricKit callback racing with a user opt-out).
     ///
     /// `nonisolated` so it can be accessed from nonisolated delegate methods
     /// without crossing the @MainActor boundary.
@@ -36,23 +36,13 @@ import os
 
     /// Captures a Sentry event only when the user has opted in.
     /// If Sentry is currently closed (user opted out), the event is silently
-    /// dropped. Callers that need unconditional delivery (manual problem reports)
-    /// should use `sendManualReport(_:)` instead.
+    /// dropped.
     /// `nonisolated` so nonisolated delegate methods can call it directly.
     nonisolated static func captureSentryEvent(_ event: Event) {
         sentrySerialQueue.async {
             guard SentrySDK.isEnabled else { return }
             SentrySDK.capture(event: event)
         }
-    }
-
-    /// Data for Sentry's Feedback API, attached to the captured event.
-    /// Sent via `SentrySDK.capture(feedback:)` so it appears in Sentry's
-    /// "User Feedback" section linked to the event.
-    struct UserFeedbackData: Sendable {
-        let comments: String?
-        let email: String?
-        let name: String?
     }
 
     /// Maximum Sentry attachment size (100 MB). The SDK default is 20 MB,
@@ -66,131 +56,8 @@ import os
     nonisolated static let macosDSN: String =
         ProcessInfo.processInfo.environment["SENTRY_DSN_MACOS"] ?? ""
 
-    /// Sends a manual problem report unconditionally, even when the user has
-    /// opted out of automatic crash reporting.  The SDK is temporarily started
-    /// with crash-handler and session-tracking disabled so only the explicit
-    /// event is sent during the window — no automatic captures occur.
-    /// All operations run on `sentrySerialQueue` to prevent races.
-    /// `completion` is called on `sentrySerialQueue` after the flush finishes
-    /// (or immediately if Sentry was already enabled and no flush is needed).
-    /// `nonisolated` so the Settings sheet can call it from a detached Task.
-    nonisolated static func sendManualReport(
-        _ event: Event,
-        attachments: [Attachment] = [],
-        userFeedback: UserFeedbackData? = nil,
-        dsn: String? = nil,
-        completion: (@Sendable (SentryId?) -> Void)? = nil
-    ) {
-        sentrySerialQueue.async {
-            let targetDSN = dsn ?? macosDSN
-            guard !targetDSN.isEmpty else {
-                completion?(nil)
-                return
-            }
-            let needsDSNSwitch = dsn != nil
-            let wasEnabled = SentrySDK.isEnabled
-
-            // When targeting a different DSN (e.g. assistant project), close the
-            // current SDK first so we can restart with the alternate DSN.
-            if needsDSNSwitch && wasEnabled {
-                SentrySDK.flush(timeout: 5)
-                SentrySDK.close()
-            }
-
-            let needsStart = !SentrySDK.isEnabled
-            if needsStart {
-                let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
-                let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
-                let commitSHA = Bundle.main.infoDictionary?["VellumCommitSHA"] as? String
-                SentrySDK.start { options in
-                    options.dsn = targetDSN
-                    options.releaseName = "vellum-macos@\(version)"
-                    options.dist = commitSHA ?? build
-                    options.environment = SentryDeviceInfo.sentryEnvironment
-                    options.sendDefaultPii = false
-                    options.enableCrashHandler = false
-                    options.enableAutoSessionTracking = false
-                    options.maxAttachmentSize = sentryMaxAttachmentSize
-                }
-                SentryDeviceInfo.configureSentryScope()
-            }
-
-            // Set reporter identity on the event so log reports are searchable
-            // by email (user.email:foo@example.com) in Sentry. Only set for
-            // manual reports where the user explicitly provided their email.
-            if let feedbackData = userFeedback {
-                let user = User()
-                user.email = feedbackData.email
-                user.name = feedbackData.name
-                SentrySDK.setUser(user)
-            }
-
-            // Attach files to the Sentry scope when callers provide them
-            // (e.g. CrashReportView sends crash log files). The feedback/
-            // LogExporter flow passes attachments: [] so this block is skipped
-            // for feedback archives (those are uploaded to the platform API).
-            if !attachments.isEmpty {
-                SentrySDK.configureScope { scope in
-                    for attachment in attachments {
-                        scope.addAttachment(attachment)
-                    }
-                }
-            }
-
-            let eventId = SentrySDK.capture(event: event)
-
-            // Clear attachments so they don't leak into subsequent events.
-            if !attachments.isEmpty {
-                SentrySDK.configureScope { scope in
-                    scope.clearAttachments()
-                }
-            }
-
-            // Send user feedback linked to the event so it appears in Sentry's
-            // User Feedback section. This lets us associate user-provided context
-            // (message, email, category) with the event without embedding PII in
-            // event tags or extras.
-            if let feedbackData = userFeedback {
-                let feedback = SentryFeedback(
-                    message: feedbackData.comments ?? "",
-                    name: feedbackData.name,
-                    email: feedbackData.email,
-                    source: .custom,
-                    associatedEventId: eventId
-                )
-                SentrySDK.capture(feedback: feedback)
-            }
-
-            // Flush to ensure the event is delivered before the app quits.
-            // Use a longer timeout when attachments are present (crash log
-            // files can be large); feedback archives are no longer attached
-            // to Sentry events so the short timeout applies to that flow.
-            let flushTimeout: TimeInterval = attachments.isEmpty ? 5 : 15
-            SentrySDK.flush(timeout: flushTimeout)
-
-            // Clear reporter identity so it doesn't leak into subsequent events.
-            if userFeedback != nil {
-                SentrySDK.setUser(nil)
-            }
-
-            // Restore SDK state: if we switched DSN, close and restart
-            // synchronously with the original DSN so no queued events are
-            // dropped. If the SDK was originally disabled, just close it.
-            if needsDSNSwitch {
-                SentrySDK.close()
-                if wasEnabled {
-                    restartSentryInline()
-                }
-            } else if needsStart {
-                // SDK was disabled before we started it — close the temp session.
-                SentrySDK.close()
-            }
-            completion?(eventId)
-        }
-    }
-
     /// Closes the Sentry SDK through `sentrySerialQueue` to prevent races with
-    /// concurrent `captureSentryEvent` or `sendManualReport` calls.
+    /// concurrent `captureSentryEvent` calls.
     /// Use this instead of calling `SentrySDK.close()` directly.
     /// `nonisolated` so AppDelegate and Settings code can call it without
     /// crossing the @MainActor boundary.
@@ -214,8 +81,6 @@ import os
     }
 
     /// Synchronous Sentry restart — must be called from `sentrySerialQueue`.
-    /// Shared by `startSentry()` and inline DSN restoration in `sendManualReport`
-    /// so no queued events are dropped between close and restart.
     private nonisolated static func restartSentryInline() {
         guard !SentrySDK.isEnabled else { return }
         let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool

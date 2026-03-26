@@ -38,6 +38,7 @@ struct ComposerView: View {
 
     @Binding var inputText: String
     let isSending: Bool
+    var isAssistantBusy: Bool = false
     let hasPendingConfirmation: Bool
     var onAllowPendingConfirmation: (() -> Void)? = nil
     let isRecording: Bool
@@ -388,7 +389,7 @@ struct ComposerView: View {
     private var composerActionBar: some View {
         HStack(spacing: VSpacing.xs) {
             // Left side
-            if isSending && !hasPendingConfirmation {
+            if isAssistantBusy && !hasPendingConfirmation {
                 Spacer()
             } else {
                 VButton(
@@ -405,7 +406,7 @@ struct ComposerView: View {
             }
 
             // Right side
-            if isSending && !hasPendingConfirmation {
+            if isAssistantBusy && !hasPendingConfirmation {
                 VButton(
                     label: "Stop generation",
                     iconOnly: VIcon.square.rawValue,

@@ -106,9 +106,9 @@ public struct VSplitButton<MenuContent: View>: View {
         .contentShape(shape)
         .disabled(isDisabled)
         .accessibilityElement(children: .contain)
-        .optionalSplitButtonAccessibilityID(accessibilityID)
         .animation(VAnimation.fast, value: isPrimaryHovered)
         .animation(VAnimation.fast, value: isDropdownHovered)
+        .optionalSplitButtonAccessibilityID(accessibilityID)
     }
 
     // MARK: - Divider
