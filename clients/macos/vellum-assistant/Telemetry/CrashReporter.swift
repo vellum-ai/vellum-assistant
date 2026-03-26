@@ -1,28 +1,38 @@
 import Foundation
+import os
 
-/// Detects macOS crash logs from the previous app session and surfaces them
-/// so the user can opt to send a report with the log attached.
+private let log = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    category: "CrashReporter"
+)
+
+/// Detects macOS .ips / .crash logs from the previous app session and
+/// auto-attaches them to the Sentry crash event on next launch.
+///
+/// Sentry's crash handler already captures the crash event itself; this
+/// module adds the Apple-generated diagnostic report as an attachment for
+/// richer symbolication context.
 enum CrashReporter {
     private static let lastLaunchKey = "CrashReporter.lastLaunchDate"
     private static let seenCrashesKey = "CrashReporter.seenCrashes"
 
-    /// Records the current launch timestamp. Call this AFTER `pendingCrashLog()`
-    /// on every launch so the next session can identify crashes from this one.
+    /// Records the current launch timestamp. Call AFTER collecting pending
+    /// crash logs so the next session can identify crashes from this one.
     static func recordLaunch() {
         UserDefaults.standard.set(Date(), forKey: lastLaunchKey)
     }
 
-    /// Returns the most recent unseen crash log from the previous session, or nil.
-    /// Also returns companion file URLs (e.g. `.tar.gz`, `.diag`) that macOS may
-    /// generate alongside the crash log with matching base name prefixes.
-    static func pendingCrashLog() -> (url: URL, content: String, companionFiles: [URL])? {
+    /// Returns file URLs for the most recent unseen crash log and its
+    /// companion files (e.g. `.tar.gz`, `.diag`). Returns an empty array
+    /// when no crash log is found.
+    static func pendingCrashLogURLs() -> [URL] {
         let diagURL = URL(fileURLWithPath: NSHomeDirectory())
             .appendingPathComponent("Library/Logs/DiagnosticReports")
         guard let items = try? FileManager.default.contentsOfDirectory(
             at: diagURL,
             includingPropertiesForKeys: [.contentModificationDateKey],
             options: [.skipsHiddenFiles]
-        ) else { return nil }
+        ) else { return [] }
 
         let lastLaunch = UserDefaults.standard.object(forKey: lastLaunchKey) as? Date
         let seenCrashes = Set(
@@ -32,7 +42,6 @@ enum CrashReporter {
         let candidates = items
             .filter { url in
                 let name = url.lastPathComponent
-                // Match only the main app executable, not vellum-cli, vellum-daemon, etc.
                 let isOurApp = name.lowercased().hasPrefix("vellum-assistant")
                 let isCrashFile = url.pathExtension == "crash" || url.pathExtension == "ips"
                 guard isOurApp && isCrashFile else { return false }
@@ -43,7 +52,6 @@ enum CrashReporter {
                 if let lastLaunch, let modDate {
                     return modDate > lastLaunch
                 }
-                // No prior launch recorded: surface crashes from the last 24 hours.
                 if let modDate {
                     return Date().timeIntervalSince(modDate) < 86_400
                 }
@@ -59,13 +67,8 @@ enum CrashReporter {
                 return dateA > dateB
             }
 
-        guard let mostRecent = candidates.first,
-              let content = try? String(contentsOf: mostRecent, encoding: .utf8)
-        else { return nil }
+        guard let mostRecent = candidates.first else { return [] }
 
-        // Look for companion files that macOS generates alongside crash logs
-        // (e.g. .tar.gz spindump archives, .diag files) by matching the base
-        // name prefix before the extension.
         let crashBaseName = mostRecent.deletingPathExtension().lastPathComponent
         let companionFiles = items.filter { url in
             let name = url.lastPathComponent
@@ -73,14 +76,21 @@ enum CrashReporter {
             return name.hasPrefix(crashBaseName)
         }
 
-        return (url: mostRecent, content: content, companionFiles: companionFiles)
+        return [mostRecent] + companionFiles
     }
 
-    /// Marks a crash log as seen so it is not surfaced again on future launches.
-    static func markAsSeen(_ url: URL) {
+    /// Marks crash log files as seen so they are not attached again.
+    static func markAsSeen(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
         var seen = UserDefaults.standard.array(forKey: seenCrashesKey) as? [String] ?? []
-        seen.append(url.lastPathComponent)
+        for url in urls {
+            let name = url.lastPathComponent
+            if !seen.contains(name) {
+                seen.append(name)
+            }
+        }
         if seen.count > 50 { seen = Array(seen.suffix(50)) }
         UserDefaults.standard.set(seen, forKey: seenCrashesKey)
+        log.info("Auto-attached \(urls.count, privacy: .public) IPS crash report file(s) to Sentry scope")
     }
 }

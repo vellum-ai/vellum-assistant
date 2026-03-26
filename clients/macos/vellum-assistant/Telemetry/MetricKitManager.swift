@@ -125,10 +125,9 @@ import os
                 SentrySDK.setUser(user)
             }
 
-            // Attach files to the Sentry scope when callers provide them
-            // (e.g. CrashReportView sends crash log files). The feedback/
-            // LogExporter flow passes attachments: [] so this block is skipped
-            // for feedback archives (those are uploaded to the platform API).
+            // Attach files to the Sentry scope when callers provide them.
+            // The feedback / LogExporter flow passes attachments: [] so
+            // this block is skipped for those (uploaded to the platform API).
             if !attachments.isEmpty {
                 SentrySDK.configureScope { scope in
                     for attachment in attachments {

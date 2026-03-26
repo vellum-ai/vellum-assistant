@@ -95,8 +95,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     var pairingApprovalWindow: PairingApprovalWindow?
     var acpPermissionWindow: AcpPermissionWindow?
-    var crashReportWindow: NSWindow?
-    var crashReportWindowObserver: NSObjectProtocol?
+    /// IPS crash log URLs found at launch, attached to the Sentry scope so
+    /// they accompany the automatic crash event. Cleared after Sentry flushes.
+    var pendingCrashLogURLs: [URL] = []
     var logReportWindow: NSWindow?
     var logReportWindowObserver: NSObjectProtocol?
     /// Background task that retries actor-token bootstrap until success.
@@ -355,6 +356,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
             ?? UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
             ?? true
+
+        // Collect pending IPS crash logs BEFORE starting Sentry so we can
+        // attach them to the scope. Sentry's crash handler sends the crash
+        // event shortly after start(); the scope attachments ride along
+        // with that event, avoiding a duplicate.
+        let crashLogURLs = sendDiagnostics ? CrashReporter.pendingCrashLogURLs() : []
+
         if sendDiagnostics && !MetricKitManager.macosDSN.isEmpty {
             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
             let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
@@ -373,12 +381,35 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 options.maxAttachmentSize = MetricKitManager.sentryMaxAttachmentSize
             }
             SentryDeviceInfo.configureSentryScope()
+
+            // Attach IPS files to the Sentry scope so they accompany the
+            // automatic crash event. Cleared after a short delay to avoid
+            // leaking into unrelated events.
+            if !crashLogURLs.isEmpty {
+                SentrySDK.configureScope { scope in
+                    for url in crashLogURLs {
+                        scope.addAttachment(
+                            Attachment(path: url.path, filename: url.lastPathComponent)
+                        )
+                    }
+                }
+                CrashReporter.markAsSeen(crashLogURLs)
+                pendingCrashLogURLs = crashLogURLs
+                // Clear scope attachments after Sentry has had time to flush
+                // the crash event so they don't attach to later events.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+                    self?.pendingCrashLogURLs = []
+                    SentrySDK.configureScope { scope in
+                        scope.clearAttachments()
+                    }
+                }
+            }
+
             SentryLogReporter.start()
         }
 
-        // Surface any crash log from the previous session so the user can send
-        // it. Also records this launch timestamp for the next session's check.
-        checkForPreviousCrash()
+        // Record this launch so the next session can identify new crashes.
+        CrashReporter.recordLaunch()
 
         // Migration: remove legacy ios-pairing-enabled flag file.
         // The old "Enable iOS Pairing" toggle created this file to expose
