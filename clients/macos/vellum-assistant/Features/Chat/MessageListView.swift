@@ -28,9 +28,6 @@ extension EnvironmentValues {
 /// are never read during body evaluation for rendering purposes.
 /// Pattern mirrors non-reactive properties on the coordinator (not @Published).
 @MainActor final class ScrollTrackingState {
-    /// Debounced task for transcript snapshot updates, coalescing rapid scroll
-    /// events into a single snapshot capture per 150ms window.
-    var snapshotDebounceTask: Task<Void, Never>?
 
     // MARK: - Layout Metadata Cache
 
