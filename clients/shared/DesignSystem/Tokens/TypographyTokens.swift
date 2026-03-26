@@ -134,6 +134,13 @@ public enum VFont {
     // MARK: - NSFont (AppKit — for NSTextView and TextKit 1)
 
     #if os(macOS)
+    /// DM Sans 12pt regular — the NSFont equivalent of `bodySmallDefault` for AppKit text views.
+    public static let nsBodySmallDefault: NSFont = {
+        let baseName = "DMSans-Regular" as CFString
+        let ctFont = CTFontCreateWithName(baseName, 12, nil)
+        return ctFont as NSFont
+    }()
+
     public static let nsMono: NSFont = {
         let base = NSFont(name: "DMMono-Regular", size: 13)
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)

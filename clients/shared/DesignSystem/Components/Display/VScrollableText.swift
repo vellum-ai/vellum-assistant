@@ -11,6 +11,9 @@ import UIKit
 /// handle large text efficiently through TextKit's internal layout virtualization —
 /// only visible text regions are laid out and rendered, regardless of total content size.
 ///
+/// On macOS the NSTextView renders immediately with no intermediate skeleton state.
+/// On iOS, lines are split asynchronously and rendered via `LazyVStack`.
+///
 /// Supports an optional `maxHeight` to constrain the visible area with scrolling,
 /// and provides native text selection and copy for free.
 ///
@@ -20,14 +23,6 @@ import UIKit
 ///
 /// // With height constraint
 /// VScrollableText("Large output...", maxHeight: 400)
-///
-/// // With custom font and color
-/// VScrollableText(
-///     "Output text",
-///     maxHeight: 400,
-///     font: VFont.bodySmallDefault,
-///     foregroundStyle: VColor.contentSecondary
-/// )
 /// ```
 public struct VScrollableText: View {
     let text: String
@@ -35,7 +30,7 @@ public struct VScrollableText: View {
     let font: Font
     let foregroundStyle: Color
 
-    /// Async line-splitting state: nil = not yet computed, empty = zero lines.
+    /// Async line-splitting state (iOS only): nil = not yet computed.
     @State private var preparedLines: [String]?
 
     public init(
@@ -52,35 +47,30 @@ public struct VScrollableText: View {
 
     public var body: some View {
         Group {
+            #if os(macOS)
+            macOSTextView
+            #else
             if let lines = preparedLines {
-                scrollableContent(lines: lines)
+                lazyContent(lines: lines)
             } else {
                 placeholder
             }
+            #endif
         }
+        #if !os(macOS)
         .task(id: text) {
             let input = text
-            let lines = await Task.detached(priority: .userInitiated) {
+            let result = await Task.detached(priority: .userInitiated) {
                 input.split(separator: "\n", omittingEmptySubsequences: false)
                     .map(String.init)
             }.value
             guard !Task.isCancelled else { return }
-            preparedLines = lines
+            preparedLines = result
         }
-    }
-
-    // MARK: - Content
-
-    @ViewBuilder
-    private func scrollableContent(lines: [String]) -> some View {
-        #if os(macOS)
-        macOSTextView
-        #else
-        lazyContent(lines: lines)
         #endif
     }
 
-    /// Skeleton placeholder shown while lines are being split on a background thread.
+    /// Skeleton placeholder shown while lines are being split on a background thread (iOS only).
     private var placeholder: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             ForEach(0..<3, id: \.self) { _ in
@@ -96,9 +86,13 @@ public struct VScrollableText: View {
 
     #if os(macOS)
     private var macOSTextView: some View {
-        ScrollableNSTextView(text: text, font: font, foregroundStyle: foregroundStyle)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(maxHeight: maxHeight)
+        ScrollableNSTextView(
+            text: text,
+            nsFont: VFont.nsBodySmallDefault,
+            foregroundStyle: foregroundStyle
+        )
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxHeight: maxHeight)
     }
     #endif
 
@@ -125,12 +119,28 @@ public struct VScrollableText: View {
 #if os(macOS)
 
 /// Wraps a non-editable `NSTextView` for efficient large-text display.
+///
 /// TextKit 1 handles layout virtualization internally — only visible text
 /// regions are laid out, so performance is independent of content size.
+///
+/// Text is assigned asynchronously via `DispatchQueue.main.async` to avoid
+/// blocking the current SwiftUI layout pass when the string is very large.
+/// A lightweight hash tracks which text has been applied so that `updateNSView`
+/// avoids redundant O(n) string comparisons.
 private struct ScrollableNSTextView: NSViewRepresentable {
     let text: String
-    let font: Font
+    let nsFont: NSFont
     let foregroundStyle: Color
+
+    final class Coordinator {
+        /// Hash of the last text applied to the NSTextView, used to skip
+        /// redundant O(n) string comparisons in `updateNSView`.
+        var appliedTextHash: Int = 0
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
 
     func makeNSView(context: Context) -> NSScrollView {
         let textView = NSTextView()
@@ -146,9 +156,8 @@ private struct ScrollableNSTextView: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.lineFragmentPadding = 0
 
-        textView.font = Self.resolveNSFont(font)
+        textView.font = nsFont
         textView.textColor = NSColor(foregroundStyle)
-        textView.string = text
 
         let scrollView = NSScrollView()
         scrollView.documentView = textView
@@ -158,32 +167,36 @@ private struct ScrollableNSTextView: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
 
+        // Assign text asynchronously to avoid blocking the current layout pass.
+        let currentText = text
+        let currentHash = currentText.hashValue
+        context.coordinator.appliedTextHash = currentHash
+        DispatchQueue.main.async {
+            textView.string = currentText
+        }
+
         return scrollView
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
-        if textView.string != text {
-            textView.string = text
+
+        let newHash = text.hashValue
+        if context.coordinator.appliedTextHash != newHash {
+            context.coordinator.appliedTextHash = newHash
+            let currentText = text
+            DispatchQueue.main.async {
+                textView.string = currentText
+            }
         }
-        let resolvedFont = Self.resolveNSFont(font)
-        if textView.font != resolvedFont {
-            textView.font = resolvedFont
+
+        if textView.font != nsFont {
+            textView.font = nsFont
         }
         let resolvedColor = NSColor(foregroundStyle)
         if textView.textColor != resolvedColor {
             textView.textColor = resolvedColor
         }
-    }
-
-    /// Resolves a SwiftUI `Font` token to an `NSFont` for the text view.
-    /// Falls back to the design system mono font if resolution fails.
-    private static func resolveNSFont(_ font: Font) -> NSFont {
-        // The design system uses DM Sans 12pt for bodySmallDefault.
-        // CTFont bridging: SwiftUI Font wraps a platform font internally.
-        // We resolve common design-system tokens to their NSFont equivalents.
-        NSFont(name: "DMSans-Regular", size: 12)
-            ?? NSFont.systemFont(ofSize: 12)
     }
 }
 #endif

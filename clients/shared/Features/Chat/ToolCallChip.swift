@@ -25,6 +25,11 @@ public struct ToolCallChip: View {
 
     /// Height threshold for collapsing the output section (~80 lines at ~15pt line height).
     private static let collapsedOutputMaxHeight: CGFloat = 1200
+    /// Height used when the output is expanded. A large finite value keeps the NSScrollView
+    /// constrained so SwiftUI never asks TextKit to compute the full intrinsic content height
+    /// (which would block the main thread for very large outputs). The content remains
+    /// scrollable within this frame.
+    private static let expandedOutputMaxHeight: CGFloat = 10_000
     /// Line count above which the output is considered "large" and gets a collapsed state.
     private static let largeOutputLineThreshold = 80
 
@@ -234,17 +239,23 @@ public struct ToolCallChip: View {
                                         .foregroundStyle(VColor.contentSecondary)
                                 }
                             } else {
-                                let lineCount = cachedResultLineCount ?? Self.countLines(in: result)
-                                let isLarge = lineCount > Self.largeOutputLineThreshold
+                                // Use cached count if available; otherwise assume large to
+                                // avoid a synchronous O(n) scan that blocks the main thread.
+                                // The async count will arrive shortly and trigger a re-render.
+                                let isLarge = cachedResultLineCount.map { $0 > Self.largeOutputLineThreshold } ?? true
                                 if Self.isFileEditTool(toolCall.toolName) {
                                     VDiffView(
                                         result,
-                                        maxHeight: isOutputExpanded ? nil : (lineCount > Self.largeOutputLineThreshold ? Self.collapsedOutputMaxHeight : nil)
+                                        maxHeight: isLarge
+                                            ? (isOutputExpanded ? Self.expandedOutputMaxHeight : Self.collapsedOutputMaxHeight)
+                                            : nil
                                     )
                                 } else {
                                     VScrollableText(
                                         result,
-                                        maxHeight: isOutputExpanded ? nil : (isLarge ? Self.collapsedOutputMaxHeight : nil)
+                                        maxHeight: isLarge
+                                            ? (isOutputExpanded ? Self.expandedOutputMaxHeight : Self.collapsedOutputMaxHeight)
+                                            : nil
                                     )
                                 }
                                 if isLarge {
@@ -280,7 +291,11 @@ public struct ToolCallChip: View {
                     }
                     // Cache the result line count so subsequent renders are O(1).
                     if cachedResultLineCount == nil, let result = toolCall.result {
-                        cachedResultLineCount = Self.countLines(in: result)
+                        let text = result
+                        Task.detached(priority: .userInitiated) {
+                            let count = ToolCallChip.countLines(in: text)
+                            await MainActor.run { cachedResultLineCount = count }
+                        }
                     }
                     // Trigger on-demand rehydration when expanding truncated content.
                     onRehydrate?()
@@ -313,7 +328,11 @@ public struct ToolCallChip: View {
                     }
                 }
                 if cachedResultLineCount == nil, let result = toolCall.result {
-                    cachedResultLineCount = Self.countLines(in: result)
+                    let text = result
+                    Task.detached(priority: .userInitiated) {
+                        let count = ToolCallChip.countLines(in: text)
+                        await MainActor.run { cachedResultLineCount = count }
+                    }
                 }
             }
         }
@@ -324,7 +343,13 @@ public struct ToolCallChip: View {
         }
         .onChange(of: toolCall.result) {
             if isExpanded, let result = toolCall.result {
-                cachedResultLineCount = Self.countLines(in: result)
+                let text = result
+                Task.detached(priority: .userInitiated) {
+                    let count = ToolCallChip.countLines(in: text)
+                    await MainActor.run {
+                        cachedResultLineCount = count
+                    }
+                }
             } else {
                 cachedResultLineCount = nil
             }
