@@ -124,18 +124,9 @@ public struct LockfileAssistant {
             return []
         }
 
-        let fractionalFormatter = ISO8601DateFormatter()
-        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let plainFormatter = ISO8601DateFormatter()
-        plainFormatter.formatOptions = [.withInternetDateTime]
-
-        func parseISO8601(_ s: String) -> Date? {
-            fractionalFormatter.date(from: s) ?? plainFormatter.date(from: s)
-        }
-
         let sorted = assistants.sorted { a, b in
-            let dateA = (a["hatchedAt"] as? String).flatMap(parseISO8601) ?? .distantPast
-            let dateB = (b["hatchedAt"] as? String).flatMap(parseISO8601) ?? .distantPast
+            let dateA = (a["hatchedAt"] as? String).flatMap(\.iso8601Date) ?? .distantPast
+            let dateB = (b["hatchedAt"] as? String).flatMap(\.iso8601Date) ?? .distantPast
             return dateA > dateB
         }
 

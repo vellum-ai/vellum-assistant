@@ -172,9 +172,7 @@ enum LogExporter {
     // MARK: - Private
 
     private static func defaultArchiveName() -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withFullDate, .withTime, .withColonSeparatorInTime]
-        let timestamp = formatter.string(from: Date())
+        let timestamp = Date().iso8601String
             .replacingOccurrences(of: ":", with: "-")
         return "vellum-assistant-logs-\(timestamp).tar.gz"
     }
@@ -781,12 +779,10 @@ enum LogExporter {
             )
 
             var lines: [String] = []
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withFullDate, .withTime, .withFractionalSeconds, .withColonSeparatorInTime]
 
             for entry in entries {
                 guard let logEntry = entry as? OSLogEntryLog else { continue }
-                let ts = formatter.string(from: logEntry.date)
+                let ts = logEntry.date.iso8601WithFractionalSecondsString
                 let level: String
                 switch logEntry.level {
                 case .debug: level = "DEBUG"
@@ -1085,7 +1081,7 @@ enum LogExporter {
         let refreshAfter = ActorTokenManager.getRefreshAfter()
 
         var info: [String: Any] = [
-            "exportedAt": ISO8601DateFormatter().string(from: Date()),
+            "exportedAt": Date().iso8601String,
             "nowEpochMs": now,
             "hasActorToken": ActorTokenManager.hasToken,
             "hasRefreshToken": ActorTokenManager.getRefreshToken() != nil,
@@ -1240,7 +1236,7 @@ enum LogExporter {
         error: Error? = nil,
         note: String? = nil
     ) {
-        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let timestamp = Date().iso8601String
         var lines: [String] = [
             "source: \(source)",
             "timestamp: \(timestamp)",

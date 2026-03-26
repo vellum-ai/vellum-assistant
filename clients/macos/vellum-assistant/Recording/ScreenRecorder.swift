@@ -803,7 +803,7 @@ final class ScreenRecorder: NSObject {
 
         // Each attempt gets a unique output file so failed attempts don't conflict.
         // Use .tmp.mov during recording; stop() atomically renames to .mov after validation.
-        let timestamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+        let timestamp = Date().iso8601String.replacingOccurrences(of: ":", with: "-")
         let outputURL = Self.recordingsDirectory.appendingPathComponent("recording-\(timestamp)-\(UUID().uuidString.prefix(8)).tmp.mov")
 
         let writer: AVAssetWriter

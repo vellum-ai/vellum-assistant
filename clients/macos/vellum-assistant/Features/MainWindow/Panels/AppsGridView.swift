@@ -584,13 +584,8 @@ struct AppsGridView: View {
         dateFormatter.string(from: date)
     }
 
-    private static let isoFormatter: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        return f
-    }()
-
     private static func formatISO(_ isoString: String) -> String {
-        guard let date = isoFormatter.date(from: isoString) else { return isoString }
+        guard let date = isoString.iso8601Date else { return isoString }
         return dateFormatter.string(from: date)
     }
 }

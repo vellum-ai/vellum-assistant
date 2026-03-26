@@ -124,17 +124,15 @@ class PreviewProvider: QLPreviewProvider, QLPreviewingController {
     private func formattedDate(_ isoString: String?) -> String? {
         guard let isoString = isoString, !isoString.isEmpty else { return nil }
 
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-        // Try with fractional seconds first, then without
-        var date = isoFormatter.date(from: isoString)
-        if date == nil {
-            isoFormatter.formatOptions = [.withInternetDateTime]
-            date = isoFormatter.date(from: isoString)
+        let parsedDate: Date
+        if let d = try? Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+            .parse(isoString) {
+            parsedDate = d
+        } else if let d = try? Date.ISO8601FormatStyle().parse(isoString) {
+            parsedDate = d
+        } else {
+            return isoString
         }
-
-        guard let parsedDate = date else { return isoString }
 
         let displayFormatter = DateFormatter()
         displayFormatter.dateStyle = .long

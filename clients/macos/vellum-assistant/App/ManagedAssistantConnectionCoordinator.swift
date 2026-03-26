@@ -99,9 +99,7 @@ final class ManagedAssistantConnectionCoordinator {
     ) throws -> ManagedAssistantConnectionResult {
         let runtimeURL = runtimeURLProvider()
 
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let hatchedAt = isoFormatter.string(from: dateProvider())
+        let hatchedAt = dateProvider().iso8601WithFractionalSecondsString
 
         let success = LockfileAssistant.ensureManagedEntry(
             assistantId: assistant.id,
