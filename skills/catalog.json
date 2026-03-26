@@ -238,7 +238,7 @@
         "vellum": {
           "display-name": "Google OAuth Setup",
           "includes": [
-            "vellum-oauth-integrations"
+            "collaborative-oauth-flow"
           ]
         }
       },
@@ -464,7 +464,7 @@
           "display-name": "Spotify OAuth Setup",
           "feature-flag": "integration-spotify",
           "includes": [
-            "vellum-oauth-integrations"
+            "collaborative-oauth-flow"
           ]
         }
       },
