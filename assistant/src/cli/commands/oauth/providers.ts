@@ -6,8 +6,10 @@ import {
   getProvider,
   listProviders,
   registerProvider,
+  updateProvider,
 } from "../../../oauth/oauth-store.js";
 import { getProviderBehavior } from "../../../oauth/provider-behaviors.js";
+import { SEEDED_PROVIDER_KEYS } from "../../../oauth/seed-providers.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
@@ -325,6 +327,155 @@ Examples:
             clientIdPlaceholder: opts.clientIdPlaceholder,
             requiresClientSecret: opts.clientSecret ? 1 : 0,
           });
+
+          writeOutput(cmd, parseProviderRow(row));
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
+          process.exitCode = 1;
+        }
+      },
+    );
+
+  // ---------------------------------------------------------------------------
+  // providers update <provider-key>
+  // ---------------------------------------------------------------------------
+
+  providers
+    .command("update <provider-key>")
+    .description("Update an existing custom OAuth provider configuration")
+    .option("--auth-url <url>", "Authorization endpoint URL")
+    .option("--token-url <url>", "Token endpoint URL")
+    .option("--base-url <url>", "API base URL")
+    .option("--userinfo-url <url>", "Userinfo endpoint URL")
+    .option("--scopes <scopes>", "Comma-separated default scopes")
+    .option("--token-auth-method <method>", "Token endpoint auth method")
+    .option("--callback-transport <transport>", "Callback transport")
+    .option(
+      "--ping-url <url>",
+      "Health-check endpoint URL for token validation",
+    )
+    .option(
+      "--ping-method <method>",
+      "HTTP method for the ping endpoint (default: GET)",
+    )
+    .option(
+      "--ping-headers <json>",
+      "JSON object of extra headers for the ping request",
+    )
+    .option("--ping-body <json>", "JSON body to send with the ping request")
+    .option("--display-name <name>", "Display name for the provider")
+    .option("--description <text>", "Short description")
+    .option("--dashboard-url <url>", "Developer console URL")
+    .option("--client-id-placeholder <text>", "Placeholder for client ID field")
+    .option(
+      "--no-client-secret",
+      "Set requires_client_secret to false (default is true)",
+    )
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  provider-key   Provider key to update (e.g. "custom-api").
+                 Run 'assistant oauth providers list' to see all registered providers.
+
+Only the fields you specify are updated — all other fields remain unchanged.
+Built-in providers (e.g. "google", "slack") cannot be updated; they are
+managed by the system and reset on startup. To create a custom provider with
+different settings, use 'assistant oauth providers register'.
+
+Examples:
+  $ assistant oauth providers update custom-api --display-name "My Custom API"
+  $ assistant oauth providers update custom-api --scopes read,write --auth-url https://new.example.com/auth
+  $ assistant oauth providers update custom-api --ping-url https://api.example.com/me --json`,
+    )
+    .action(
+      (
+        providerKey: string,
+        opts: {
+          authUrl?: string;
+          tokenUrl?: string;
+          baseUrl?: string;
+          userinfoUrl?: string;
+          scopes?: string;
+          tokenAuthMethod?: string;
+          callbackTransport?: string;
+          pingUrl?: string;
+          pingMethod?: string;
+          pingHeaders?: string;
+          pingBody?: string;
+          displayName?: string;
+          description?: string;
+          dashboardUrl?: string;
+          clientIdPlaceholder?: string;
+          clientSecret: boolean;
+        },
+        cmd: Command,
+      ) => {
+        try {
+          // Verify provider exists
+          const existing = getProvider(providerKey);
+          if (!existing) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `Provider "${providerKey}" not found. Run 'assistant oauth providers list' to see all registered providers.`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          // Block updates to built-in providers
+          if (SEEDED_PROVIDER_KEYS.has(providerKey)) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `Cannot update built-in provider "${providerKey}". Built-in providers are managed by the system and reset on startup. To create a custom provider with different settings, use 'assistant oauth providers register --provider-key <your-custom-key> ...'`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          // Build params object from provided options, omitting undefined values
+          const params: Record<string, unknown> = {};
+
+          if (opts.authUrl !== undefined) params.authUrl = opts.authUrl;
+          if (opts.tokenUrl !== undefined) params.tokenUrl = opts.tokenUrl;
+          if (opts.baseUrl !== undefined) params.baseUrl = opts.baseUrl;
+          if (opts.userinfoUrl !== undefined)
+            params.userinfoUrl = opts.userinfoUrl;
+          if (opts.scopes !== undefined)
+            params.defaultScopes = opts.scopes.split(",");
+          if (opts.tokenAuthMethod !== undefined)
+            params.tokenEndpointAuthMethod = opts.tokenAuthMethod;
+          if (opts.callbackTransport !== undefined)
+            params.callbackTransport = opts.callbackTransport;
+          if (opts.pingUrl !== undefined) params.pingUrl = opts.pingUrl;
+          if (opts.pingMethod !== undefined)
+            params.pingMethod = opts.pingMethod;
+          if (opts.pingHeaders !== undefined)
+            params.pingHeaders = JSON.parse(opts.pingHeaders);
+          if (opts.pingBody !== undefined)
+            params.pingBody = JSON.parse(opts.pingBody);
+          if (opts.displayName !== undefined)
+            params.displayName = opts.displayName;
+          if (opts.description !== undefined)
+            params.description = opts.description;
+          if (opts.dashboardUrl !== undefined)
+            params.dashboardUrl = opts.dashboardUrl;
+          if (opts.clientIdPlaceholder !== undefined)
+            params.clientIdPlaceholder = opts.clientIdPlaceholder;
+
+          // Check if any fields were actually provided
+          if (Object.keys(params).length === 0) {
+            writeOutput(cmd, {
+              ok: false,
+              error:
+                "Nothing to update. Provide at least one option to change (e.g. --auth-url, --scopes, --display-name). Run 'assistant oauth providers update --help' for all options.",
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          const row = updateProvider(providerKey, params);
 
           writeOutput(cmd, parseProviderRow(row));
         } catch (err) {

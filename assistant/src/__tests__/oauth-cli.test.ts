@@ -153,12 +153,20 @@ mock.module("../oauth/oauth-store.js", () => ({
   getProvider: (providerKey: string) => mockGetProvider(providerKey),
   listProviders: () => mockListProviders(),
   registerProvider: () => ({}),
+  updateProvider: () => undefined,
+  deleteProvider: () => false,
   seedProviders: () => {},
   getActiveConnection: () => undefined,
   listActiveConnectionsByProvider: () => [],
   createConnection: () => ({}),
   isProviderConnected: () => false,
   updateConnection: () => ({}),
+}));
+
+mock.module("../oauth/seed-providers.js", () => ({
+  SEEDED_PROVIDER_KEYS: new Set(["google", "slack", "github"]),
+  PROVIDER_SEED_DATA: {},
+  seedAllProviders: () => {},
 }));
 
 // Stub out transitive dependencies that token-manager would normally pull in
