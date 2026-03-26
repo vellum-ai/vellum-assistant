@@ -729,9 +729,9 @@ async function upgradePlatform(
     process.exit(1);
   }
 
-  const orgId = await fetchOrganizationId(token);
+  const orgId = await fetchOrganizationId(token, entry.runtimeUrl);
 
-  const url = `${getPlatformUrl()}/v1/assistants/upgrade/`;
+  const url = `${entry.runtimeUrl || getPlatformUrl()}/v1/assistants/upgrade/`;
   const body: { assistant_id?: string; version?: string } = {
     assistant_id: entry.assistantId,
   };

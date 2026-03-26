@@ -197,7 +197,10 @@ async function retireCustom(entry: AssistantEntry): Promise<void> {
   console.log(`\u2705 Custom instance retired.`);
 }
 
-async function retireVellum(assistantId: string): Promise<void> {
+async function retireVellum(
+  assistantId: string,
+  runtimeUrl?: string,
+): Promise<void> {
   console.log("\u{1F5D1}\ufe0f  Retiring platform-hosted instance...\n");
 
   const token = readPlatformToken();
@@ -208,9 +211,10 @@ async function retireVellum(assistantId: string): Promise<void> {
     process.exit(1);
   }
 
-  const orgId = await fetchOrganizationId(token);
+  const orgId = await fetchOrganizationId(token, runtimeUrl);
 
-  const url = `${getPlatformUrl()}/v1/assistants/${encodeURIComponent(assistantId)}/retire/`;
+  const platformUrl = runtimeUrl || getPlatformUrl();
+  const url = `${platformUrl}/v1/assistants/${encodeURIComponent(assistantId)}/retire/`;
   const response = await fetch(url, {
     method: "DELETE",
     headers: {
@@ -343,7 +347,7 @@ async function retireInner(): Promise<void> {
   } else if (cloud === "custom") {
     await retireCustom(entry);
   } else if (cloud === "vellum") {
-    await retireVellum(entry.assistantId);
+    await retireVellum(entry.assistantId, entry.runtimeUrl);
   } else {
     console.error(`Error: Unknown cloud type '${cloud}'.`);
     process.exit(1);

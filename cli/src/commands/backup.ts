@@ -66,7 +66,7 @@ export async function backup(): Promise<void> {
   const cloud =
     entry.cloud || (entry.project ? "gcp" : entry.sshUser ? "custom" : "local");
   if (cloud === "vellum") {
-    await backupPlatform(name, outputArg);
+    await backupPlatform(name, outputArg, entry.runtimeUrl);
     return;
   }
 
@@ -184,7 +184,11 @@ export async function backup(): Promise<void> {
 // Platform (Vellum-hosted) backup via Django async migration export
 // ---------------------------------------------------------------------------
 
-async function backupPlatform(name: string, outputArg?: string): Promise<void> {
+async function backupPlatform(
+  name: string,
+  outputArg?: string,
+  runtimeUrl?: string,
+): Promise<void> {
   // Step 1 — Authenticate
   const token = readPlatformToken();
   if (!token) {
@@ -194,7 +198,7 @@ async function backupPlatform(name: string, outputArg?: string): Promise<void> {
 
   let orgId: string;
   try {
-    orgId = await fetchOrganizationId(token);
+    orgId = await fetchOrganizationId(token, runtimeUrl);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes("401") || msg.includes("403")) {
@@ -207,7 +211,12 @@ async function backupPlatform(name: string, outputArg?: string): Promise<void> {
   // Step 2 — Initiate export job
   let jobId: string;
   try {
-    const result = await platformInitiateExport(token, orgId, "CLI backup");
+    const result = await platformInitiateExport(
+      token,
+      orgId,
+      "CLI backup",
+      runtimeUrl,
+    );
     jobId = result.jobId;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -235,7 +244,7 @@ async function backupPlatform(name: string, outputArg?: string): Promise<void> {
   while (Date.now() < deadline) {
     let status: { status: string; downloadUrl?: string; error?: string };
     try {
-      status = await platformPollExportStatus(jobId, token, orgId);
+      status = await platformPollExportStatus(jobId, token, orgId, runtimeUrl);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       // Let non-transient errors (e.g. 404 "job not found") propagate immediately
