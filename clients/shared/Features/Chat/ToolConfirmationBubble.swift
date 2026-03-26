@@ -236,7 +236,7 @@ public struct ToolConfirmationBubble: View {
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentDefault)
                     }
-                    .offset(x: -1)
+                    .padding(.leading, -1)
                 }
                 .buttonStyle(.plain)
 
@@ -268,7 +268,9 @@ public struct ToolConfirmationBubble: View {
         .onGeometryChange(for: Bool.self) { proxy in
             proxy.size.width < 450
         } action: { isCompact in
-            useCompactConfirmationLayout = isCompact
+            withAnimation(.none) {
+                useCompactConfirmationLayout = isCompact
+            }
         }
         .onAppear {
             if isKeyboardActive {
