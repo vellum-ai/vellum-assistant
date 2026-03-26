@@ -11,15 +11,12 @@ struct SidebarConversationItem: View, Equatable {
     let isSelected: Bool
     let interactionState: ConversationInteractionState
     let isHovered: Bool
-    let isPendingDeletion: Bool
 
     // Action closures — not compared in Equatable
     var selectConversation: () -> Void
     var onSelect: (() -> Void)? = nil
     var onTogglePin: () -> Void
     var onArchive: () -> Void
-    var onBeginArchive: () -> Void
-    var onConfirmArchive: () -> Void
     var onStartRename: () -> Void
     var onMarkUnread: () -> Void
     var onHoverChange: (Bool) -> Void
@@ -31,11 +28,11 @@ struct SidebarConversationItem: View, Equatable {
         lhs.conversation == rhs.conversation &&
         lhs.isSelected == rhs.isSelected &&
         lhs.interactionState == rhs.interactionState &&
-        lhs.isHovered == rhs.isHovered &&
-        lhs.isPendingDeletion == rhs.isPendingDeletion
+        lhs.isHovered == rhs.isHovered
     }
 
-    private var hasTrailingIcon: Bool { isHovered || isPendingDeletion }
+    @State private var isMenuOpen: Bool = false
+    private var hasTrailingIcon: Bool { isHovered || isMenuOpen }
     private var canMarkUnread: Bool {
         !conversation.hasUnseenLatestAssistantMessage &&
             conversation.conversationId != nil &&
@@ -151,7 +148,7 @@ struct SidebarConversationItem: View, Equatable {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, VSpacing.xs)
-            .padding(.trailing, isPendingDeletion ? SidebarLayoutMetrics.archiveConfirmTrailingPadding : hasTrailingIcon ? SidebarLayoutMetrics.archiveIconTrailingPadding : VSpacing.sm)
+            .padding(.trailing, hasTrailingIcon ? SidebarLayoutMetrics.archiveIconTrailingPadding : VSpacing.sm)
             .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
             .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
             .background {
@@ -179,15 +176,9 @@ struct SidebarConversationItem: View, Equatable {
             selectConversation()
         }
         .overlay(alignment: .trailing) {
-            if isPendingDeletion {
-                VButton(label: "Confirm", style: .dangerOutline, size: .pill) {
-                    onConfirmArchive()
-                }
-                .fixedSize()
-                .padding(.trailing, VSpacing.xs)
-                .accessibilityLabel("Confirm archive \(conversation.title)")
-            } else if isHovered {
+            if isHovered || isMenuOpen {
                 Button {
+                    isMenuOpen = true
                     let appearance = NSApp.keyWindow?.effectiveAppearance
                     VMenuPanel.show(
                         at: NSEvent.mouseLocation,
@@ -196,7 +187,9 @@ struct SidebarConversationItem: View, Equatable {
                         VMenu(width: 200) {
                             contextMenuContent
                         }
-                    } onDismiss: {}
+                    } onDismiss: {
+                        isMenuOpen = false
+                    }
                 } label: {
                     VIconView(.ellipsis, size: 13)
                         .foregroundStyle(VColor.contentSecondary)

@@ -37,10 +37,7 @@ enum SidebarLayoutMetrics {
     /// Gap below the "Scheduled" label before the first scheduled row.
     static let scheduledHeaderBottomGap: CGFloat = VSpacing.xs  // 4pt
 
-    // MARK: - Archive Confirm
-
-    /// Trailing padding reserved for the "Confirm" pill button overlay during archive flow.
-    static let archiveConfirmTrailingPadding: CGFloat = 72
+    // MARK: - Trailing Icon
 
     /// Trailing padding reserved for the archive icon overlay on hover
     /// (20pt icon + 4pt trailing padding on the overlay + 8pt gap).
