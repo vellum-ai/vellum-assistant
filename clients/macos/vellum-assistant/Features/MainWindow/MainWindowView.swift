@@ -1405,6 +1405,13 @@ private struct AssistantLoadingOverlayContent: View {
     /// matches the app's configured platform URL. Returns mismatch details
     /// when they differ, or nil when there is no mismatch (or the assistant
     /// is not managed).
+    ///
+    /// Only performs the check when an explicit platform URL source is
+    /// available (env var or already-populated `configuredBaseURL`). During
+    /// early loading `configuredBaseURL` may still be empty because the
+    /// daemon hasn't sent `platform_config_response` yet — falling back to
+    /// the hardcoded default would cause false positives for users on
+    /// non-default platform URLs.
     @MainActor
     private static func detectPlatformURLMismatch() -> PlatformURLMismatchInfo? {
         #if os(macOS)
@@ -1416,21 +1423,53 @@ private struct AssistantLoadingOverlayContent: View {
             return nil
         }
 
-        let configuredURL = AuthService.shared.baseURL
-        let normalizedConfigured = configuredURL
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
-            .lowercased()
-        let normalizedLockfile = lockfileURL
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
-            .lowercased()
+        // Resolve the platform URL only from sources that are reliably
+        // available at this point — the env var and (in debug) UserDefaults.
+        // If neither is set, configuredBaseURL hasn't arrived from the daemon
+        // yet so we can't compare reliably; skip the check.
+        let explicitURL = resolveExplicitPlatformURL()
+        guard let configuredURL = explicitURL else { return nil }
+
+        let normalizedConfigured = normalizeURL(configuredURL)
+        let normalizedLockfile = normalizeURL(lockfileURL)
 
         guard normalizedConfigured != normalizedLockfile else { return nil }
         return PlatformURLMismatchInfo(configuredURL: configuredURL, lockfileURL: lockfileURL)
         #else
         return nil
         #endif
+    }
+
+    /// Returns the platform URL only if an explicit source is available
+    /// (env var, daemon-configured value, or debug UserDefaults). Returns
+    /// nil when the URL would just be the hardcoded default — meaning the
+    /// actual configured URL isn't known yet.
+    @MainActor
+    private static func resolveExplicitPlatformURL() -> String? {
+        // 1. Environment variable override — always available.
+        if let envURL = ProcessInfo.processInfo.environment["VELLUM_PLATFORM_URL"],
+           !envURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return envURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        // 2. Daemon-configured URL — set after platform_config_response.
+        let configured = AuthService.shared.configuredBaseURL
+        if !configured.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return configured
+        }
+        // 3. Debug UserDefaults fallback.
+        #if DEBUG
+        if let saved = UserDefaults.standard.string(forKey: "authServiceBaseURL"),
+           !saved.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return saved
+        }
+        #endif
+        return nil
+    }
+
+    private static func normalizeURL(_ url: String) -> String {
+        url.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+            .lowercased()
     }
 }
 
