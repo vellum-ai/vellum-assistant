@@ -95,7 +95,7 @@ Examples:
 
         if (!res) {
           writeError(
-            "Could not reach the assistant daemon. " +
+            "Could not reach the assistant. " +
               "Please ensure the assistant is running and try again.",
           );
           return;
@@ -103,7 +103,7 @@ Examples:
 
         if (!res.ok) {
           writeError(
-            "The assistant daemon rejected the platform connect request. " +
+            "The assistant rejected the platform connect request. " +
               `(HTTP ${String(res.status)})`,
           );
           return;
