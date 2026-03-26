@@ -152,9 +152,9 @@ Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`
 
 Open: `https://console.cloud.google.com/auth/scopes?project=PROJECT_ID`
 
+On macOS desktop, before proceeding, copy the comma-separated scope string below to the user's clipboard using `pbcopy`.
+
 > I've opened **Data Access**.
->
-> Before the user pastes anything on macOS desktop, copy the comma-separated scope string below to their clipboard with `pbcopy`, then have them:
 >
 > 1. Click **Add or Remove Scopes** → scroll to **"Manually add scopes"** → paste the comma-separated scopes below → click **Update**
 > 2. Back on the main page, scroll down and click **Save**
