@@ -97,8 +97,7 @@ extension MainWindowView {
                 onCreateSkill: {
                     conversationManager.openConversation(
                         message: "I'd like to create a new custom skill.",
-                        forceNew: true,
-                        autoSend: false
+                        forceNew: true
                     )
                     windowState.selection = nil
                 },
@@ -493,8 +492,7 @@ extension MainWindowView {
                 onCreateSkill: {
                     conversationManager.openConversation(
                         message: "I'd like to create a new custom skill.",
-                        forceNew: true,
-                        autoSend: false
+                        forceNew: true
                     )
                     windowState.dismissOverlay()
                 },
