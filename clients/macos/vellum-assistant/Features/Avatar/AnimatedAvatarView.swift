@@ -202,6 +202,7 @@ class AvatarLayerView: NSView {
         blinkTask?.cancel()
         twitchTask?.cancel()
         postEntryTask?.cancel()
+        morphTimer?.cancel()
         for observer in notificationObservers {
             NotificationCenter.default.removeObserver(observer)
         }
@@ -624,6 +625,7 @@ class AvatarLayerView: NSView {
         blinkTask?.cancel()
         twitchTask?.cancel()
         postEntryTask?.cancel()
+        morphTimer?.cancel()
         if configBreathingEnabled {
             let pausedTime = bodyLayer.convertTime(CACurrentMediaTime(), from: nil)
             bodyLayer.speed = 0
