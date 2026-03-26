@@ -27,7 +27,7 @@ function resolveCredentialPath(input: string): string {
   }
 
   const lastColon = input.lastIndexOf(":");
-  if (lastColon === -1) {
+  if (lastColon < 1 || lastColon === input.length - 1) {
     return input;
   }
 

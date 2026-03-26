@@ -745,6 +745,32 @@ describe("assistant oauth apps upsert --client-secret-credential-path", () => {
     expect(parsed.id).toBe("app-upsert-1");
   });
 
+  test("upsert passes oauth_app/ prefixed credential path through unchanged", async () => {
+    const { exitCode, stdout } = await runCli([
+      "apps",
+      "upsert",
+      "--provider",
+      "google",
+      "--client-id",
+      "abc",
+      "--client-secret-credential-path",
+      "oauth_app/some-id/client_secret",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    expect(mockUpsertAppCalls).toHaveLength(1);
+    // oauth_app/ prefixed path should be passed through as-is
+    expect(mockUpsertAppCalls[0]).toEqual({
+      provider: "google",
+      clientId: "abc",
+      clientSecretOpts: {
+        clientSecretCredentialPath: "oauth_app/some-id/client_secret",
+      },
+    });
+    const parsed = JSON.parse(stdout);
+    expect(parsed.id).toBe("app-upsert-1");
+  });
+
   test("upsert with invalid credential path returns error when no secret found", async () => {
     // Override upsertApp to throw when given an unresolvable credential path
     mockUpsertAppImpl = async (_provider, _clientId, clientSecretOpts) => {
