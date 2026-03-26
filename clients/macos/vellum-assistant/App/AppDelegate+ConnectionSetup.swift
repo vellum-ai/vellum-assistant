@@ -395,6 +395,13 @@ extension AppDelegate {
                 )
             } catch {
                 log.error("Failed to sign bundle payload: \(error.localizedDescription)")
+                _ = try? await GatewayHTTPClient.post(
+                    path: "assistants/{assistantId}/sign-bundle-response",
+                    json: [
+                        "requestId": msg.requestId,
+                        "error": error.localizedDescription
+                    ] as [String: Any]
+                )
             }
         }
     }
@@ -416,6 +423,13 @@ extension AppDelegate {
                 )
             } catch {
                 log.error("Failed to get signing identity: \(error.localizedDescription)")
+                _ = try? await GatewayHTTPClient.post(
+                    path: "assistants/{assistantId}/signing-identity-response",
+                    json: [
+                        "requestId": msg.requestId,
+                        "error": error.localizedDescription
+                    ] as [String: Any]
+                )
             }
         }
     }
