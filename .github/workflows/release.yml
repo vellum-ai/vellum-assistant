@@ -2066,6 +2066,8 @@ jobs:
     if: ${{ !cancelled() && needs.build-macos-arm64.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    outputs:
+      playwright-run-id: ${{ steps.wait.outputs.playwright-run-id }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -2096,6 +2098,7 @@ jobs:
           sleep 15
 
       - name: Wait for Playwright workflow result
+        id: wait
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -2109,6 +2112,7 @@ jobs:
 
             if [ -n "$RUN_ID" ]; then
               echo "Found workflow run: $RUN_ID"
+              echo "playwright-run-id=$RUN_ID" >> "$GITHUB_OUTPUT"
               RUN_URL="https://github.com/vellum-ai/vellum-assistant-platform/actions/runs/$RUN_ID"
               echo "Run URL: $RUN_URL"
               break
@@ -2221,7 +2225,12 @@ jobs:
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           PLAYWRIGHT_LINE=""
           if [ "${{ needs.ci-playwright.result }}" != "success" ]; then
-            PLAYWRIGHT_LINE=" (<${RUN_URL}#artifacts|view report>)"
+            PLAYWRIGHT_RUN_ID="${{ needs.ci-playwright.outputs.playwright-run-id }}"
+            if [ -n "$PLAYWRIGHT_RUN_ID" ]; then
+              PLAYWRIGHT_LINE=" (<https://qa.vellum.ai/runs/${PLAYWRIGHT_RUN_ID}|view report>)"
+            else
+              PLAYWRIGHT_LINE=" (<${RUN_URL}#artifacts|view report>)"
+            fi
           fi
 
           CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$DH" "$RR")
