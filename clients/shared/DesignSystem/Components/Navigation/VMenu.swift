@@ -98,10 +98,6 @@ public struct VMenuItem<Trailing: View>: View {
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
 
-    /// Icon slot size — matches `VSidebarRow.iconSlotSize`.
-    private static var iconSlotSize: CGFloat { 20 }
-    /// Minimum row height — matches `VSidebarRow.rowMinHeight`.
-    private static var rowMinHeight: CGFloat { 32 }
 
     public init(
         icon: String? = nil,
@@ -141,9 +137,9 @@ public struct VMenuItem<Trailing: View>: View {
         } else {
             HStack(spacing: VSpacing.xs) {
                 if let icon {
-                    VIconView(.resolve(icon), size: 13)
+                    VIconView(.resolve(icon), size: VSize.iconDefault)
                         .foregroundStyle(iconColor)
-                        .frame(width: Self.iconSlotSize, height: Self.iconSlotSize)
+                        .frame(width: VSize.iconSlot, height: VSize.iconSlot)
                 }
                 Text(label)
                     .font(size.font)
@@ -157,7 +153,7 @@ public struct VMenuItem<Trailing: View>: View {
             .padding(.leading, VSpacing.xs)
             .padding(.trailing, VSpacing.sm)
             .padding(.vertical, VSpacing.xs)
-            .frame(minHeight: Self.rowMinHeight)
+            .frame(minHeight: VSize.rowMinHeight)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 isActive ? VColor.surfaceActive :

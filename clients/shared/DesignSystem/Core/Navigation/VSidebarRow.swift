@@ -26,11 +26,8 @@ public struct VSidebarRow<Trailing: View>: View {
 
     @State private var isHovered = false
 
-    /// Icon slot size — all leading icons occupy a uniform 20x20 frame.
-    private static var iconSlotSize: CGFloat { 20 }
-
-    /// Minimum row height to ensure touch/click targets remain accessible.
-    private static var rowMinHeight: CGFloat { 32 }
+    private static var iconSlotSize: CGFloat { VSize.iconSlot }
+    private static var rowMinHeight: CGFloat { VSize.rowMinHeight }
 
     public init(
         icon: String? = nil,
@@ -59,7 +56,7 @@ public struct VSidebarRow<Trailing: View>: View {
     public var body: some View {
         HStack(spacing: isExpanded ? VSpacing.xs : 0) {
             if let icon {
-                VIconView(.resolve(icon), size: 13)
+                VIconView(.resolve(icon), size: VSize.iconDefault)
                     .foregroundStyle(iconColor)
                     .frame(width: Self.iconSlotSize, height: Self.iconSlotSize)
             }
