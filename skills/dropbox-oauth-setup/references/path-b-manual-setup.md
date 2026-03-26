@@ -80,56 +80,17 @@ Tell the user:
 >
 > Send me your **App key** first.
 
-Wait for the App key, then store it:
-
-```
-credential_store store:
-  service: "dropbox"
-  field: "client_id"
-  value: "<the app key the user sent>"
-```
-
-Then ask for the secret:
+Wait for the App key. Then ask for the secret:
 
 > Now send me the **App secret**. You may need to click **Show** to reveal it. Send it as a standalone message with no other text.
 
-Store the secret:
-
-```
-credential_store store:
-  service: "dropbox"
-  field: "oauth_secret"
-  value: "<the app secret the user sent>"
-```
-
 Note: Dropbox app secrets don't have a known prefix that triggers channel scanners, so direct entry is acceptable. Still, keep the secret in its own message to avoid accidental logging with surrounding context.
 
-## Path B Step 7: Authorize
+## Path B Step 7: Authorize and Verify
 
-Tell the user:
-
-> **Step 5: Authorize Dropbox**
->
-> I'll generate an authorization link for you now.
-
-```
-bash:
-  command: |
-    assistant oauth apps upsert --provider dropbox --client-id $(cat <<'EOF'
-    <app-key>
-    EOF
-    ) --client-secret-credential-path "credential/dropbox/oauth_secret"
-```
-
-```
-bash:
-  command: |
-    assistant oauth connect dropbox
-```
+Follow the `vellum-oauth-integrations` workflow to register the OAuth app, connect, and verify.
 
 Send the returned auth URL to the user. Tell them to click **Allow** on the Dropbox consent page.
-
-## Path B Step 8: Done
 
 After authorization:
 
