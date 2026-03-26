@@ -699,7 +699,7 @@ public final class GatewayConnectionManager: ObservableObject {
     /// terminates, which causes `withTaskGroup` to hang. `AsyncStream`
     /// returns `nil` from its iterator when the consuming task is cancelled,
     /// allowing structured concurrency groups to complete promptly.
-    var isConnectedStream: AsyncStream<Bool> {
+    public var isConnectedStream: AsyncStream<Bool> {
         AsyncStream { continuation in
             let cancellable = self.$isConnected.sink { value in
                 continuation.yield(value)
