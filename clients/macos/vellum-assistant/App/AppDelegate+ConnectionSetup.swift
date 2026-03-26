@@ -76,6 +76,16 @@ extension AppDelegate {
         log.info("Configured remote assistant \(assistant.assistantId, privacy: .public)")
     }
 
+    // MARK: - Managed Reconnection
+
+    /// Re-establish the gateway connection for a managed assistant after the
+    /// user signs in from Settings. Resets `hasSetupDaemon` so the next call
+    /// to `setupGatewayConnectionManager()` runs the full setup again.
+    func reconnectManagedAssistant() {
+        hasSetupDaemon = false
+        setupGatewayConnectionManager()
+    }
+
     // MARK: - Gateway Connection Setup
 
     func setupGatewayConnectionManager() {
