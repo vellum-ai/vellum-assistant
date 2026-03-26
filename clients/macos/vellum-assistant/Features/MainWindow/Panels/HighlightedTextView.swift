@@ -93,29 +93,27 @@ struct HighlightedTextView: View {
                 )
             }
 
-            GeometryReader { geometry in
-                ScrollView([.vertical]) {
-                    HStack(alignment: .top, spacing: 0) {
-                        lineNumberGutter(lineCount: lineCount, width: gutterWidth)
+            ScrollView([.vertical]) {
+                HStack(alignment: .top, spacing: 0) {
+                    lineNumberGutter(lineCount: lineCount, width: gutterWidth)
 
-                        CodeTextView(
-                            text: $text,
-                            onTextChange: onTextChange,
-                            onEscape: {
-                                if isSearchVisible {
-                                    dismissSearch()
-                                } else {
-                                    isActivelyEditing = false
-                                }
-                            },
-                            onCommandF: { isSearchVisible = true }
-                        )
-                        .frame(minWidth: geometry.size.width - gutterWidth)
-                    }
-                    .frame(minHeight: geometry.size.height, alignment: .topLeading)
+                    CodeTextView(
+                        text: $text,
+                        onTextChange: onTextChange,
+                        onEscape: {
+                            if isSearchVisible {
+                                dismissSearch()
+                            } else {
+                                isActivelyEditing = false
+                            }
+                        },
+                        onCommandF: { isSearchVisible = true }
+                    )
+                    .frame(maxWidth: .infinity)
                 }
-                .background(Self.editorBackground)
+                .containerRelativeFrame([.vertical], alignment: .topLeading) { length, _ in length }
             }
+            .background(Self.editorBackground)
         }
         .onKeyPress(.escape) {
             if isSearchVisible {

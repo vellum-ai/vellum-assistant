@@ -109,27 +109,25 @@ public struct VCodeView: View {
         let lineCount = cachedLineCount
         let gutterWidth = gutterWidth(for: lineCount)
 
-        return GeometryReader { geometry in
-            ScrollView([.vertical]) {
-                HStack(alignment: .top, spacing: 0) {
-                    lineNumberGutter(lineCount: lineCount, width: gutterWidth)
+        return ScrollView([.vertical]) {
+            HStack(alignment: .top, spacing: 0) {
+                lineNumberGutter(lineCount: lineCount, width: gutterWidth)
 
-                    VCodeTextView(
-                        text: text,
-                        highlighter: highlighter,
-                        highlightVersion: highlightVersion,
-                        searchQuery: searchQuery,
-                        currentMatchIndex: currentMatchIndex,
-                        matchRanges: isSearchVisible
-                            ? Self.findMatchRanges(in: text, query: searchQuery) : [],
-                        onContentClick: onContentClick
-                    )
-                    .frame(minWidth: geometry.size.width - gutterWidth)
-                }
-                .frame(minHeight: geometry.size.height, alignment: .topLeading)
+                VCodeTextView(
+                    text: text,
+                    highlighter: highlighter,
+                    highlightVersion: highlightVersion,
+                    searchQuery: searchQuery,
+                    currentMatchIndex: currentMatchIndex,
+                    matchRanges: isSearchVisible
+                        ? Self.findMatchRanges(in: text, query: searchQuery) : [],
+                    onContentClick: onContentClick
+                )
+                .frame(maxWidth: .infinity)
             }
-            .background(Self.editorBackground)
+            .containerRelativeFrame([.vertical], alignment: .topLeading) { length, _ in length }
         }
+        .background(Self.editorBackground)
     }
 
     // MARK: - Colors
