@@ -41,10 +41,17 @@ enum BottomPinRequestReason: String, Sendable {
 ///   suppression flip. Managed via per-reason `begin`/`end` helpers.
 ///
 /// **Reactive (`@Published`):**
-/// - `isAtBottom` — drives "Scroll to latest" CTA button visibility and
-///   reattach-on-idle logic.
 /// - `isPaginationInFlight` — changes infrequently and legitimately requires
 ///   view updates.
+///
+/// **Non-reactive scroll geometry (plain stored `var`):**
+/// - `isAtBottom` — updated on every scroll-geometry tick with asymmetric
+///   hysteresis (10pt enter / 30pt leave). NOT `@Published` because
+///   frequent toggles during streaming feed back into `objectWillChange`,
+///   causing cascading body re-evaluations that trigger the scroll-loop
+///   guard. The "Scroll to latest" CTA relies on the `isNearBottom`
+///   `@Binding` (updated by `detachFromBottom` / `reattachToBottom` on
+///   user gestures) for reactivity instead.
 @MainActor
 final class MessageListScrollCoordinator: ObservableObject {
 
@@ -60,11 +67,21 @@ final class MessageListScrollCoordinator: ObservableObject {
     /// without relying on `.defaultScrollAnchor`.
     var scrollToEdge: ((_ edge: Edge) -> Void)?
 
-    /// Returns `true` when the user is within 20pt of the conversation bottom.
-    /// Computed from scroll geometry in the onScrollGeometryChange handler.
-    /// @Published so the "Scroll to latest" CTA button and avatar visibility
-    /// react immediately when the user scrolls to/from the bottom.
-    @Published var isAtBottom: Bool = true
+    /// Returns `true` when the user is within the bottom dead-zone of the
+    /// conversation. Computed from scroll geometry in the
+    /// `onScrollGeometryChange` handler.
+    ///
+    /// **Non-reactive** — updated on every scroll tick. Making this
+    /// `@Published` caused cascading `objectWillChange` emissions during
+    /// streaming (content-height growth briefly exceeds the threshold,
+    /// toggles the flag, triggers a body re-evaluation that resets it —
+    /// a feedback loop that trips the scroll-loop guard at >40 evals / 2 s).
+    ///
+    /// The "Scroll to latest" CTA and follow/detach logic use the
+    /// `isNearBottom` `@Binding` for reactivity; `isAtBottom` is only
+    /// consumed by imperative event handlers (scroll-phase idle detection,
+    /// push-to-top overflow, suppression decisions).
+    var isAtBottom: Bool = true
 
     /// The message ID whose top edge should be pinned to the viewport top
     /// after the user sends a message (push-to-top pattern). `nil` when

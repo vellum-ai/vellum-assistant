@@ -50,6 +50,11 @@ private struct FeatureFlagsResponse<Flag: Decodable>: Decodable {
     let flags: [Flag]
 }
 
+/// Wrapper for the platform's dict-format response: `{ "flags": { "key": bool } }`.
+private struct PlatformFeatureFlagsResponse: Decodable {
+    let flags: [String: Bool]
+}
+
 public enum FeatureFlagError: Error, LocalizedError {
     case requestFailed(Int)
 
@@ -76,8 +81,34 @@ public struct FeatureFlagClient: FeatureFlagClientProtocol {
             log.error("getFeatureFlags failed (HTTP \(response.statusCode))")
             throw FeatureFlagError.requestFailed(response.statusCode)
         }
-        let decoded = try JSONDecoder().decode(FeatureFlagsResponse<AssistantFeatureFlag>.self, from: response.data)
-        return decoded.flags
+        // Try gateway array format first: { "flags": [{ key, enabled, ... }] }
+        if let decoded = try? JSONDecoder().decode(FeatureFlagsResponse<AssistantFeatureFlag>.self, from: response.data) {
+            return decoded.flags
+        }
+        // Fall back to platform dict format: { "flags": { "key": bool } }
+        let platform = try JSONDecoder().decode(PlatformFeatureFlagsResponse.self, from: response.data)
+        // Build a lookup from registry keys to their definitions so we can
+        // enrich each flag with defaultEnabled, description, and label.
+        let registryByKey: [String: FeatureFlagDefinition] = {
+            guard let registry = loadFeatureFlagRegistry() else { return [:] }
+            return Dictionary(registry.assistantScopeFlags().map { ($0.key, $0) }, uniquingKeysWith: { _, latest in latest })
+        }()
+        return platform.flags.map { key, enabled in
+            // Platform keys use LaunchDarkly format like "feature_flags.browser.enabled".
+            // Extract the middle segment(s) to match the registry's kebab-case key.
+            let registryKey: String = {
+                let stripped = key.hasPrefix("feature_flags.") ? String(key.dropFirst("feature_flags.".count)) : key
+                return stripped.hasSuffix(".enabled") ? String(stripped.dropLast(".enabled".count)) : stripped
+            }()
+            let def = registryByKey[registryKey]
+            return AssistantFeatureFlag(
+                key: registryKey,
+                enabled: enabled,
+                defaultEnabled: def?.defaultEnabled,
+                description: def?.description,
+                label: def?.label
+            )
+        }
     }
 
     public func setFeatureFlag(key: String, enabled: Bool) async throws {

@@ -178,7 +178,6 @@ struct MessageListView: View {
     @StateObject private var scrollCoordinator = MessageListScrollCoordinator()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State private var resizeScrollTask: Task<Void, Never>?
-    @State private var hasPlayedTailEntryAnimation = false
     /// Native SwiftUI scroll position struct (macOS 15+). Replaces
     /// `ScrollViewReader` + `proxy.scrollTo()` and distance-from-bottom math.
     @State private var scrollPosition = ScrollPosition()
@@ -459,66 +458,6 @@ struct MessageListView: View {
             }
         }
         return result
-    }
-
-    /// Whether the floating avatar should be visible. Derived from scroll
-    /// proximity to the bottom — the avatar appears when the user is near
-    /// the bottom of the conversation and disappears when scrolled up.
-    private var shouldShowConversationTailAvatar: Bool {
-        guard !visibleMessages.isEmpty else { return false }
-        return isNearBottom
-    }
-
-    private var shouldPlayTailEntryAnimation: Bool {
-        !hasPlayedTailEntryAnimation && messages.count <= 2
-    }
-
-    @ViewBuilder
-    private var conversationTailAvatar: some View {
-        if shouldShowConversationTailAvatar {
-            if appearance.customAvatarImage != nil {
-                HStack {
-                    VAvatarImage(image: appearance.chatAvatarImage, size: ConversationAvatarFollower.avatarSize)
-                        .modifier(AvatarGlowModifier(isActive: isSending))
-                    Spacer()
-                }
-                .padding(.horizontal, VSpacing.xl)
-                .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-                .frame(maxWidth: .infinity)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            } else if let body = appearance.characterBodyShape,
-               let eyes = appearance.characterEyeStyle,
-               let color = appearance.characterColor {
-                AnimatedAvatarView(bodyShape: body, eyeStyle: eyes, color: color,
-                                   size: ConversationAvatarFollower.avatarSize,
-                                   entryAnimationEnabled: shouldPlayTailEntryAnimation)
-                    .frame(width: ConversationAvatarFollower.avatarSize,
-                           height: ConversationAvatarFollower.avatarSize)
-                    .modifier(AvatarGlowModifier(isActive: isSending))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, VSpacing.xl)
-                    .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-                    .frame(maxWidth: .infinity)
-                    .accessibilityHidden(true)
-                    .onAppear {
-                        if shouldPlayTailEntryAnimation {
-                            hasPlayedTailEntryAnimation = true
-                        }
-                    }
-            } else {
-                HStack {
-                    VAvatarImage(image: appearance.chatAvatarImage, size: ConversationAvatarFollower.avatarSize)
-                        .modifier(AvatarGlowModifier(isActive: isSending))
-                    Spacer()
-                }
-                .padding(.horizontal, VSpacing.xl)
-                .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-                .frame(maxWidth: .infinity)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            }
-        }
     }
 
     /// Delegates scroll-to-bottom restoration to the coordinator.
@@ -872,9 +811,23 @@ struct MessageListView: View {
                     os_signpost(.end, log: PerfSignposts.log, name: "viewportHeightChanged")
                 }
 
-                // --- Bottom detection ---
+                // --- Bottom detection (with hysteresis) ---
+                // Asymmetric thresholds prevent oscillation during streaming:
+                // content-height growth can briefly push distanceFromBottom past
+                // the "at bottom" threshold before the scroll position catches
+                // up, causing rapid true→false→true flips. A wider leave
+                // threshold absorbs those transient spikes without overly
+                // widening the idle-reattach zone (onScrollPhaseChange reattaches
+                // when isAtBottom is true on idle).
                 let distanceFromBottom = effectiveContentHeight - newState.contentOffsetY - newState.visibleRectHeight
-                let nowAtBottom = distanceFromBottom.isFinite && distanceFromBottom <= 20
+                let nowAtBottom: Bool
+                if scrollCoordinator.isAtBottom {
+                    // Stay "at bottom" until clearly scrolled away.
+                    nowAtBottom = distanceFromBottom.isFinite && distanceFromBottom <= 30
+                } else {
+                    // Only re-enter "at bottom" when truly close.
+                    nowAtBottom = distanceFromBottom.isFinite && distanceFromBottom <= 10
+                }
                 if scrollCoordinator.isAtBottom != nowAtBottom {
                     scrollCoordinator.isAtBottom = nowAtBottom
                     if nowAtBottom {
@@ -905,7 +858,7 @@ struct MessageListView: View {
                 )
             }
             .overlay(alignment: .bottom) {
-                if !isNearBottom && !scrollCoordinator.isAtBottom {
+                if !isNearBottom {
                     Button(action: {
                         os_signpost(.event, log: PerfSignposts.log, name: "scrollToLatestPressed")
                         scrollCoordinator.hasReceivedScrollEvent = true
@@ -1022,7 +975,6 @@ struct MessageListView: View {
                     containerWidth: containerWidth,
                     isNearBottom: &isNearBottom,
                     highlightedMessageId: $highlightedMessageId,
-                    hasPlayedTailEntryAnimation: &hasPlayedTailEntryAnimation,
                     resizeScrollTask: &resizeScrollTask,
                     anchorMessageId: $anchorMessageId,
                     scrollViewportHeight: scrollCoordinator.currentScrollViewportHeight
@@ -1317,43 +1269,6 @@ private struct PaginationSentinelMinYKey: PreferenceKey {
     }
 }
 
-
-// MARK: - Avatar Glow
-
-/// Pulsing glow effect applied to the conversation tail avatar while the
-/// assistant is generating a response, making the "still working" state
-/// visible near the content area.
-private struct AvatarGlowModifier: ViewModifier {
-    let isActive: Bool
-
-    @State private var glowIntensity: CGFloat = 0
-
-    func body(content: Content) -> some View {
-        content
-            .shadow(color: VColor.primaryActive.opacity(glowIntensity), radius: 6 + glowIntensity * 10, x: 0, y: 0)
-            .shadow(color: VColor.primaryActive.opacity(glowIntensity * 0.5), radius: 2 + glowIntensity * 4, x: 0, y: 0)
-            .onChange(of: isActive) {
-                if isActive {
-                    withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
-                        glowIntensity = 0.25
-                    }
-                } else {
-                    withAnimation(.easeOut(duration: 0.4)) {
-                        glowIntensity = 0
-                    }
-                }
-            }
-            .onAppear {
-                if isActive {
-                    DispatchQueue.main.async {
-                        withAnimation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true)) {
-                            glowIntensity = 0.25
-                        }
-                    }
-                }
-            }
-    }
-}
 
 // MARK: - Cached Message Layout Metadata
 

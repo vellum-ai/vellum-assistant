@@ -55,37 +55,6 @@ struct ChatGallerySection: View {
                 }
             }
 
-            if filter == nil || filter == "skillInvocation" {
-                if filter == nil {
-                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-                }
-                // MARK: - SkillInvocationChip
-                GallerySectionHeader(
-                    title: "SkillInvocationChip",
-                    description: "Inline chip showing a skill invocation with emoji, name, and description."
-                )
-
-                VCard {
-                    VStack(alignment: .leading, spacing: VSpacing.lg) {
-                        SkillInvocationChip(
-                            data: SkillInvocationData(
-                                name: "Summarize",
-                                emoji: "\u{1F4DD}",
-                                description: "Condense long text into key points and takeaways."
-                            )
-                        )
-
-                        SkillInvocationChip(
-                            data: SkillInvocationData(
-                                name: "Web Search",
-                                emoji: "\u{1F50D}",
-                                description: "Search the web for up-to-date information."
-                            )
-                        )
-                    }
-                }
-            }
-
             if filter == nil || filter == "subagentStatus" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
@@ -532,7 +501,7 @@ extension ChatGallerySection {
     static func componentPage(_ id: String) -> some View {
         switch id {
         case "voiceComposer": ChatGallerySection(filter: "voiceComposer")
-        case "skillInvocation": ChatGallerySection(filter: "skillInvocation")
+
         case "subagentStatus": ChatGallerySection(filter: "subagentStatus")
         case "toolChips": ChatGallerySection(filter: "toolChips")
         case "stepIndicators": ChatGallerySection(filter: "stepIndicators")

@@ -36,7 +36,7 @@ struct ImproveExperienceStepView: View {
         VStack(spacing: VSpacing.md) {
             VStack(spacing: VSpacing.md) {
                 // Privacy toggles card
-                VCard(padding: VSpacing.lg) {
+                VCard {
                     VStack(spacing: VSpacing.lg) {
                         // Usage analytics toggle
                         VToggle(
@@ -59,7 +59,7 @@ struct ImproveExperienceStepView: View {
                 }
 
                 // ToS consent checkbox
-                VCard(padding: VSpacing.lg) {
+                VCard {
                     HStack(spacing: VSpacing.md) {
                         VCheckbox(isOn: $tosAccepted)
                         tosConsentText

@@ -199,7 +199,6 @@ extension MessageListScrollCoordinator {
         containerWidth: CGFloat,
         isNearBottom: inout Bool,
         highlightedMessageId: Binding<UUID?>,
-        hasPlayedTailEntryAnimation: inout Bool,
         resizeScrollTask: inout Task<Void, Never>?,
         anchorMessageId: Binding<UUID?>,
         scrollViewportHeight: CGFloat
@@ -221,7 +220,6 @@ extension MessageListScrollCoordinator {
         lastHandledContainerWidth = containerWidth
         anchorTimeoutTask?.cancel()
         anchorTimeoutTask = nil
-        hasPlayedTailEntryAnimation = false
         // Reset confirmation focus tracking for the new conversation.
         lastAutoFocusedRequestId = nil
         // When switching to a conversation that is already actively sending,
