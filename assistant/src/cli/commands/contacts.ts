@@ -132,7 +132,7 @@ Examples:
       "after",
       `
 Arguments:
-  id   UUID of the contact to retrieve
+  id   UUID of the contact to retrieve. Run 'assistant contacts list' to find IDs.
 
 Returns the full contact record including role, display name, and all
 channel memberships (phone numbers, Telegram IDs, email addresses, etc.).
@@ -174,7 +174,8 @@ Examples:
       "after",
       `
 Arguments:
-  keepId    UUID of the surviving contact that will absorb the other
+  keepId    UUID of the surviving contact that will absorb the other.
+            Run 'assistant contacts list' to find IDs.
   mergeId   UUID of the contact to be merged and deleted
 
 All channel memberships, conversation history, and metadata from mergeId
@@ -331,7 +332,8 @@ Examples:
       "after",
       `
 Arguments:
-  channelId   UUID of the contact channel to update
+  channelId   UUID of the contact channel to update. Run 'assistant contacts get <contactId>'
+              to see a contact's channel IDs.
 
 Updates the access-control fields on an existing channel. At least one of
 --status or --policy must be provided.
@@ -590,7 +592,7 @@ Examples:
       "after",
       `
 Arguments:
-  inviteId   UUID of the invite to revoke
+  inviteId   UUID of the invite to revoke. Run 'assistant contacts invites list' to find IDs.
 
 Revokes an active invite so it can no longer be redeemed. Already-redeemed
 channel memberships are not affected. Returns the updated invite record.

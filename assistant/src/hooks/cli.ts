@@ -14,9 +14,33 @@ const log = getCliLogger("hooks");
 export function registerHooksCommand(program: Command): void {
   const hooks = program.command("hooks").description("Manage hooks");
 
+  hooks.addHelpText(
+    "after",
+    `
+Hooks are user-installed scripts that run in response to assistant lifecycle
+events (e.g. tool invocations, message sends). Each hook is a directory
+containing a hook.json manifest and a script file. Hooks are stored in
+~/.vellum/hooks/ and must be explicitly enabled after installation.
+
+Examples:
+  $ assistant hooks list
+  $ assistant hooks install ./my-hook
+  $ assistant hooks enable my-hook
+  $ assistant hooks disable my-hook`,
+  );
+
   hooks
     .command("list")
     .description("List all installed hooks")
+    .addHelpText(
+      "after",
+      `
+Displays a table of all installed hooks with their name, subscribed events,
+enabled status, and version.
+
+Examples:
+  $ assistant hooks list`,
+    )
     .action(() => {
       const discovered = discoverHooks();
       if (discovered.length === 0) {
@@ -53,6 +77,17 @@ export function registerHooksCommand(program: Command): void {
   hooks
     .command("enable <name>")
     .description("Enable a hook")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  name   Hook name as shown by 'assistant hooks list'
+
+Enables a previously installed hook so it runs on matching events.
+
+Examples:
+  $ assistant hooks enable my-hook`,
+    )
     .action((name: string) => {
       const discovered = discoverHooks();
       const hook = discovered.find((h) => h.name === name);
@@ -67,6 +102,18 @@ export function registerHooksCommand(program: Command): void {
   hooks
     .command("disable <name>")
     .description("Disable a hook")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  name   Hook name as shown by 'assistant hooks list'
+
+Disables a hook so it no longer runs on events. The hook remains installed
+and can be re-enabled later.
+
+Examples:
+  $ assistant hooks disable my-hook`,
+    )
     .action((name: string) => {
       const discovered = discoverHooks();
       const hook = discovered.find((h) => h.name === name);
@@ -81,6 +128,21 @@ export function registerHooksCommand(program: Command): void {
   hooks
     .command("install <path>")
     .description("Install a hook from a directory")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  path   Path to a directory containing a hook.json manifest and a script file.
+         The manifest must have name, script, description, version, and at
+         least one valid event.
+
+Copies the hook directory into ~/.vellum/hooks/<name>/ and registers it as
+disabled by default. Run 'assistant hooks enable <name>' to activate.
+
+Examples:
+  $ assistant hooks install ./my-hook
+  $ assistant hooks install /path/to/custom-hook`,
+    )
     .action((hookPath: string) => {
       const srcDir = resolve(hookPath);
       if (!pathExists(srcDir)) {
@@ -146,6 +208,18 @@ export function registerHooksCommand(program: Command): void {
   hooks
     .command("remove <name>")
     .description("Remove an installed hook")
+    .addHelpText(
+      "after",
+      `
+Arguments:
+  name   Hook name as shown by 'assistant hooks list'
+
+Permanently deletes the hook directory and removes it from configuration.
+Prompts for confirmation before proceeding.
+
+Examples:
+  $ assistant hooks remove my-hook`,
+    )
     .action(async (name: string) => {
       const discovered = discoverHooks();
       const hook = discovered.find((h) => h.name === name);

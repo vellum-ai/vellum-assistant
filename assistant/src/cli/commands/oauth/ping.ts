@@ -29,12 +29,9 @@ Arguments:
   provider   Provider name (e.g. google, slack).
              Run 'assistant oauth providers list' to see available providers.
 
-Options:
-  --account <account>   Account identifier (e.g. email) to disambiguate when
-                        multiple accounts are connected for the same provider.
-  --client-id <id>      BYO-only: select a specific OAuth app when multiple
-                        apps exist for the same provider. Ignored for
-                        platform-managed providers.
+Hits the provider's configured ping URL with the stored OAuth token and
+reports whether the token is valid. Use 'assistant oauth status <provider>'
+to find account identifiers for --account.
 
 Examples:
   $ assistant oauth ping google
@@ -106,10 +103,7 @@ Examples:
 
           let connection;
           try {
-            connection = await resolveOAuthConnection(
-              provider,
-              resolveOptions,
-            );
+            connection = await resolveOAuthConnection(provider, resolveOptions);
           } catch (resolveErr) {
             const resolveMessage =
               resolveErr instanceof Error

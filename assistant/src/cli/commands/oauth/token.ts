@@ -49,18 +49,9 @@ Arguments:
              Run 'assistant oauth providers list' to see all available
              providers.
 
-Options:
-  --account <account>   Select a specific account when multiple connections
-                        exist for the same provider. Uses the account label
-                        shown in 'assistant oauth status <provider>'.
-  --client-id <id>      Select a specific OAuth app when multiple apps exist
-                        for the same provider.
-
-
-This command is discouraged from use and should be used sparingly. Only use
-if you need direct access to the token (i.e. \`assistant oauth request\` is
-insufficient for your use case) and you are comfortable with the potential
-security implications of exposing this token.
+This command is discouraged and should be used sparingly. Only use if you
+need direct access to the token (i.e. \`assistant oauth request\` is
+insufficient) and you are comfortable with the security implications.
 
 Token retrieval is only supported for providers with mode set to "your-own".
 Platform-managed providers handle tokens internally — use
@@ -68,8 +59,8 @@ Platform-managed providers handle tokens internally — use
 'assistant oauth request --provider <provider> <url>' to make
 authenticated requests.
 
-Shell lockdown: This command is blocked when running in an untrusted
-shell (VELLUM_UNTRUSTED_SHELL=1) to prevent token exfiltration.
+Use 'assistant oauth status <provider>' to find account identifiers for
+--account. Shell lockdown: blocked when VELLUM_UNTRUSTED_SHELL=1.
 
 Examples:
   $ assistant oauth token google

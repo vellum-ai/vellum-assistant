@@ -129,6 +129,20 @@ export function registerCredentialExecutionCommand(program: Command): void {
     )
     .option("--json", "Machine-readable compact JSON output");
 
+  ce.addHelpText(
+    "after",
+    `
+The Credential Execution Service (CES) mediates all secret-bearing operations.
+Grants authorize specific credential handles for constrained purposes, and
+audit records log each credentialed operation. Neither grants nor audit records
+ever contain raw secret values — only sanitized metadata.
+
+Examples:
+  $ assistant credential-execution grants list
+  $ assistant credential-execution grants revoke <grantId>
+  $ assistant credential-execution audit list`,
+  );
+
   // -------------------------------------------------------------------------
   // grants
   // -------------------------------------------------------------------------
@@ -215,7 +229,8 @@ that grant for credentialed operations. The grant is permanently removed
 from CES state.
 
 Arguments:
-  grantId   The stable grant identifier (UUID)
+  grantId   The stable grant identifier (UUID). Run 'assistant credential-execution
+            grants list' to find grant IDs.
 
 Examples:
   $ assistant credential-execution grants revoke 7a3b1c2d-4e5f-6789-abcd-ef0123456789

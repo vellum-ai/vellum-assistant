@@ -142,7 +142,7 @@ Examples:
       "after",
       `
 Arguments:
-  id   The sequence ID (e.g. seq_abc123)
+  id   The sequence ID (e.g. seq_abc123). Run 'assistant sequence list' to find IDs.
 
 Returns full sequence details: name, status, channel, description, exit-on-reply
 setting, all steps with delay and approval configuration, and enrollment
@@ -215,7 +215,7 @@ Examples:
       "after",
       `
 Arguments:
-  id   The sequence ID to pause (e.g. seq_abc123)
+  id   The sequence ID to pause (e.g. seq_abc123). Run 'assistant sequence list' to find IDs.
 
 Pauses a sequence, halting all scheduled step deliveries. Existing active
 enrollments remain in their current state but no new steps will be sent
@@ -246,7 +246,7 @@ Examples:
       "after",
       `
 Arguments:
-  id   The sequence ID to resume (e.g. seq_abc123)
+  id   The sequence ID to resume (e.g. seq_abc123). Run 'assistant sequence list' to find IDs.
 
 Resumes a paused sequence, re-enabling scheduled step deliveries for all
 active enrollments. No-op if the sequence is already active.
@@ -276,7 +276,8 @@ Examples:
       "after",
       `
 Arguments:
-  enrollmentId   The enrollment ID to cancel (e.g. enr_xyz789)
+  enrollmentId   The enrollment ID to cancel (e.g. enr_xyz789). Run 'assistant sequence get <id>'
+                 to see enrollment IDs for a sequence.
 
 Immediately cancels a specific enrollment, stopping all future step
 deliveries for that contact in this sequence. The enrollment status
