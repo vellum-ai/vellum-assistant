@@ -195,9 +195,7 @@ extension MainWindowView {
             },
             onMarkUnread: { conversationManager.markConversationUnread(conversationId: conversation.id) },
             onHoverChange: { hovering in
-                withAnimation(VAnimation.fast) {
-                    sidebar.setConversationHover(conversationId: conversation.id, hovering: hovering)
-                }
+                sidebar.setConversationHover(conversationId: conversation.id, hovering: hovering)
             },
             onDragStart: {
                 sidebar.draggingConversationId = conversation.id

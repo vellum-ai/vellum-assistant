@@ -50,14 +50,18 @@ final class SidebarInteractionState {
     /// During an active drag, hover updates are suppressed to avoid triggering
     /// icon-swap animations and unnecessary re-renders across sibling rows.
     ///
-    /// The equality guard (`guard isHoveredConversation != newValue`) is
-    /// critical: `@Observable` synthesised setters always call
-    /// `ObservationRegistrar.willSet` — even for same-value assignments —
-    /// which triggers a synchronous `GraphHost.flushTransactions`. When
-    /// SwiftUI re-evaluates hover state during a layout pass
-    /// (`HoverResponder.updatePhase`), a redundant mutation here would
-    /// start a nested layout pass, creating an infinite feedback loop that
-    /// hangs the main thread.
+    /// The actual mutation is deferred to the next run-loop cycle via
+    /// `DispatchQueue.main.async`. This breaks a synchronous feedback loop:
+    /// when SwiftUI re-evaluates hover state during a layout pass
+    /// (`HoverResponder.updatePhase`), a synchronous `@Observable` mutation
+    /// triggers `ObservationRegistrar.willSet` → `GraphHost.flushTransactions`,
+    /// starting a nested layout pass that re-evaluates hover — and because
+    /// the value genuinely alternates (UUID ↔ nil) on each cycle, an equality
+    /// guard alone cannot stop the loop. Deferring ensures the mutation
+    /// happens outside the current layout transaction.
+    ///
+    /// `SidebarConversationItem` applies `.animation(VAnimation.fast, value:
+    /// isHovered)`, so the one-tick deferral is visually imperceptible.
     ///
     /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
     func setConversationHover(conversationId: UUID?, hovering: Bool) {
@@ -78,7 +82,14 @@ final class SidebarInteractionState {
             ? conversationId
             : (isHoveredConversation == conversationId ? nil : isHoveredConversation)
         guard isHoveredConversation != newValue else { return }
-        isHoveredConversation = newValue
+
+        // Defer to next run-loop tick to escape any in-progress layout pass.
+        // Re-check the guard inside the closure in case another event
+        // already updated the value before this block executes.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isHoveredConversation != newValue else { return }
+            self.isHoveredConversation = newValue
+        }
     }
 
     /// Conversation ID that is currently the drop target during a drag-and-drop reorder.
