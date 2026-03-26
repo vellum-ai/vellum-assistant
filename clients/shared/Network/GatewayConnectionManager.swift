@@ -282,10 +282,6 @@ public final class GatewayConnectionManager: ObservableObject {
             guard response.isSuccess else {
                 if response.statusCode == 401 {
                     handleAuthenticationFailure()
-                    let isManaged = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
-                    if isManaged {
-                        shouldReconnect = false
-                    }
                 }
                 throw ConnectionError.healthCheckFailed
             }
