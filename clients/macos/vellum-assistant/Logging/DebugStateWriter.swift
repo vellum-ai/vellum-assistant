@@ -52,7 +52,7 @@ final class DebugStateWriter {
 
     private func captureAndWrite() {
         guard let appDelegate else { return }
-        if CGDisplayIsAsleep(CGMainDisplayID()) { return }
+        if CGDisplayIsAsleep(CGMainDisplayID()) != 0 { return }
         let snapshot = captureSnapshot(from: appDelegate)
 
         // Encode and write on a background thread to avoid blocking the main
