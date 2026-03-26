@@ -33,6 +33,8 @@ assistant oauth connect <provider-key> --open-browser
 
 **Tip:** You can optionally specify scopes using the `--scopes` flag. This is useful if you know ahead of time what your user is trying to accomplish and want to request the bare minimum scopes needed to accomplish the task at hand.
 
+If the provider-specific setup skill gives its own browser handoff instructions, follow those instead of `--open-browser`. Google bring-your-own setup on the macOS desktop app is one example: request the auth URL without `--open-browser`, then open it using the provider skill's AppleScript/browser handoff rules.
+
 This will open a new web browser tab where the user can log in to the third-party provider. Upon success, they should be redirected to a confirmation page and told that it's safe to close the browser tab and come back here.
 
 ## Verification

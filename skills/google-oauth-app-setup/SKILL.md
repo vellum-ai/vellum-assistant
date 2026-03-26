@@ -20,6 +20,32 @@ The included `vellum-oauth-integrations` skill handles the generic parts of the 
 - **Credential type (Path A):** Desktop app
 - **Credential type (Path B):** Web application (callback through public gateway)
 
+## Path A: macOS Desktop App
+
+On the macOS desktop app, this is a collaborative Google Chrome flow. For every `Open:` URL in this file:
+
+- Use `host_bash` plus `osascript` to activate Google Chrome and navigate the user's existing browser window to that URL
+- Wait for the user to confirm they are done before moving to the next step
+- Never use `browser_*`, CDP, the browser skill, or `computer_use_*` for Google Cloud Console or Google OAuth pages
+- If Chrome is unavailable or AppleScript navigation fails, tell the user the URL and continue manually; do not switch to browser automation
+
+Use this exact pattern:
+
+```
+host_bash:
+  command: |
+    osascript -e '
+    tell application "Google Chrome"
+      activate
+      if (count of windows) = 0 then
+        make new window
+      end if
+      set URL of active tab of front window to "TARGET_URL"
+    end tell'
+```
+
+Replace `TARGET_URL` with the actual URL for that step. The point of Path A is to keep the flow in the user's real Chrome profile and avoid automated-browser rejections.
+
 ## Google-Specific Flow
 
 The flow has 9 steps total, takes about 3-5 minutes.
@@ -126,6 +152,8 @@ Open: `https://console.cloud.google.com/auth/audience?project=PROJECT_ID`
 
 Open: `https://console.cloud.google.com/auth/scopes?project=PROJECT_ID`
 
+On macOS desktop, before proceeding, copy the comma-separated scope string below to the user's clipboard using `pbcopy`.
+
 > I've opened **Data Access**.
 >
 > 1. Click **Add or Remove Scopes** → scroll to **"Manually add scopes"** → paste the comma-separated scopes below → click **Update**
@@ -169,7 +197,16 @@ A modal should appear with the **Client ID** and **Client Secret**. Tell the use
 
 ### Steps 7–9: Store Credentials, Authorize, and Verify
 
-Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, connect, and verify.
+Follow the `vellum-oauth-integrations` workflow to collect credentials, register the OAuth app, and verify the connection.
+
+Google-specific override for macOS desktop app:
+
+1. Before app registration, check the provider mode and set it to `your-own` if needed with `assistant oauth mode google --set your-own`.
+2. Register the OAuth app normally via `assistant oauth apps upsert`.
+3. For authorization, do **not** use `assistant oauth connect google --open-browser`.
+4. Instead, run `assistant oauth connect google` without `--open-browser` so the command returns the authorization URL.
+5. Open that returned authorization URL in Google Chrome using the same `host_bash` + `osascript` pattern as every other `Open:` step in this skill.
+6. Never use browser automation or computer-use for the Google consent screen.
 
 > I'll start the Google authorization flow now.
 >
