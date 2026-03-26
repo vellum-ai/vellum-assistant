@@ -15,7 +15,7 @@ For client architecture details, see [`ARCHITECTURE.md`](ARCHITECTURE.md).
 clients/
 ├── Package.swift              # Multi-platform Swift Package Manager manifest
 ├── shared/                    # VellumAssistantShared - cross-platform code
-│   ├── Network/                # Daemon communication (DaemonClient, DaemonConfig, MessageTypes)
+│   ├── Network/                # Network communication (GatewayHTTPClient, EventStreamClient, MessageTypes)
 │   ├── Features/Chat/         # Shared chat UI (ChatViewModel, MessageBubbleView, InputBarView, etc.)
 │   ├── Features/Skills/       # SkillsStore — cross-platform skills data operations
 │   ├── Features/Contacts/     # ContactsStore — cross-platform contacts data operations
@@ -55,7 +55,7 @@ clients/
 **Purpose**: Platform-agnostic code shared between macOS and iOS apps
 
 **Contains**:
-- **Network layer** (`DaemonClient`, `MessageTypes`, `Generated/GeneratedAPITypes`) - HTTP+SSE communication with the assistant
+- **Network layer** (`GatewayHTTPClient`, `EventStreamClient`, `MessageTypes`, `Generated/GeneratedAPITypes`) - HTTP+SSE communication with the assistant
   - macOS: HTTP+SSE to the local daemon runtime server
   - iOS: HTTP+SSE through the gateway
   - Wire types are auto-generated from the TS contract; `MessageTypes.swift` provides
@@ -233,9 +233,4 @@ Test files in `clients/ios/Tests/`:
 - `ConversationLifecycleIOSTests.swift` — session creation, conversation isolation
 - `UsageDashboardViewTests.swift` — usage dashboard state, data loading, formatting
 
-Tests use mock implementations of protocols for dependency injection:
-- `DaemonClientProtocol` → `MockDaemonClient`
-
-macOS tests additionally mock:
-- `AccessibilityTreeProviding` → `MockAccessibilityTree`
-- `ScreenCaptureProviding` → `MockScreenCapture`
+Tests use protocol-based dependency injection with mock implementations defined inline in each test file (e.g. `MockInteractionClient`, `MockConversationForkClient`).

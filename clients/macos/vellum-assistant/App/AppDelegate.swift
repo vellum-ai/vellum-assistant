@@ -538,6 +538,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             SoundManager.shared.play(.appOpen)
         }
 
+        // On cold-start reauth (non-first-launch), check for a pending managed
+        // assistant switch BEFORE bootstrapping credentials. This avoids
+        // provisioning against the wrong assistant only to immediately switch.
+        if !isFirstLaunch,
+           let pendingId = UserDefaults.standard.string(forKey: "pendingManagedSwitchAssistantId"),
+           !pendingId.isEmpty {
+            UserDefaults.standard.removeObject(forKey: "pendingManagedSwitchAssistantId")
+            if let assistant = LockfileAssistant.loadByName(pendingId) {
+                performSwitchAssistant(to: assistant)
+                return
+            }
+        }
+
         // Ensure actor credentials are present. On first launch this performs
         // initial bootstrap; on subsequent launches it schedules proactive
         // refresh when the access token nears expiry.
@@ -618,18 +631,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 } else {
                     // Can't sync traits (no daemon), but still clean up onboarding state.
                     self.onboardingState = nil
-                }
-            }
-
-            // Check for a pending managed assistant switch (set by performSwitchAssistant
-            // when the user was logged out). Now that the user has authenticated and all
-            // essential setup has completed, perform the switch.
-            if let pendingId = UserDefaults.standard.string(forKey: "pendingManagedSwitchAssistantId"),
-               !pendingId.isEmpty {
-                UserDefaults.standard.removeObject(forKey: "pendingManagedSwitchAssistantId")
-                if let assistant = LockfileAssistant.loadByName(pendingId) {
-                    performSwitchAssistant(to: assistant)
-                    return
                 }
             }
 

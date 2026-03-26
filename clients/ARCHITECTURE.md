@@ -12,7 +12,7 @@ The macOS app uses a centralized service container (`AppServices`) created once 
 
 | Service | Type | Purpose |
 |---------|------|---------|
-| `daemonClient` | `DaemonClient` | HTTP+SSE to daemon (local mode) or HTTP+SSE to platform proxy (managed mode) |
+| `connectionManager` | `GatewayConnectionManager` | Gateway connection lifecycle, health checks, event stream |
 | `surfaceManager` | `SurfaceManager` | Routes `ui_surface_show` messages |
 | `toolConfirmationManager` | `ToolConfirmationManager` | Handles tool permission prompts |
 | `secretPromptManager` | `SecretPromptManager` | Handles secret input prompts |
@@ -120,7 +120,8 @@ sequenceDiagram
     participant HCE as HostCuExecutor
     participant AX as AccessibilityTree
     participant SC as ScreenCapture
-    participant DC as DaemonClient
+    participant GW as GatewayHTTPClient
+    participant ES as EventStreamClient
     participant Daemon as Daemon (Bun)
     participant Claude as Claude API
     participant AV as ActionVerifier
@@ -128,8 +129,8 @@ sequenceDiagram
     participant macOS as macOS (CGEvents)
 
     User->>Chat: Type task / Voice / Paste
-    Chat->>DC: POST /v1/messages
-    DC->>Daemon: HTTP POST
+    Chat->>GW: POST /v1/messages
+    GW->>Daemon: HTTP POST
     Note over Daemon: Creates conversation in SQLite<br/>Starts agent loop
 
     Daemon->>Claude: API call with user message
@@ -137,10 +138,10 @@ sequenceDiagram
     Note over Daemon: Model decides CU is needed
 
     loop host_cu_request / host_cu_result
-        Daemon-->>DC: host_cu_request (SSE)
-        Note over DC: Contains: tool name, parameters,<br/>step number, reasoning
+        Daemon-->>ES: host_cu_request (SSE)
+        Note over ES: Contains: tool name, parameters,<br/>step number, reasoning
 
-        DC-->>AD: getOrCreateHostCuOverlay()
+        ES-->>AD: getOrCreateHostCuOverlay()
         Note over AD: Creates HostCuSessionProxy<br/>Shows SessionOverlayWindow<br/>Pauses ambient agent
 
         AD->>HCE: execute(request)
@@ -174,18 +175,18 @@ sequenceDiagram
             SC-->>HCE: base64 screenshot
         end
 
-        HCE->>DC: POST host_cu_result
-        Note over DC: Contains: axTree, axDiff,<br/>screenshot, secondaryWindows,<br/>executionResult/error
+        HCE->>GW: POST host_cu_result
+        Note over GW: Contains: axTree, axDiff,<br/>screenshot, secondaryWindows,<br/>executionResult/error
 
-        DC->>Daemon: HTTP POST
+        GW->>Daemon: HTTP POST
         Daemon->>Claude: API call with observation
         Note over Daemon: Appends tool result<br/>Stores in messages table
         Claude-->>Daemon: next tool_use or end_turn
     end
 
     Note over Daemon: Agent loop ends (end_turn)
-    Daemon-->>DC: message_complete (SSE)
-    DC-->>AD: dismissHostCuOverlay()
+    Daemon-->>ES: message_complete (SSE)
+    ES-->>AD: dismissHostCuOverlay()
 end
 ```
 
@@ -268,13 +269,13 @@ The workspace is a full-window mode that replaces the chat UI with an interactiv
 ```mermaid
 sequenceDiagram
     participant Daemon as Daemon (HTTP)
-    participant DC as DaemonClient
+    participant ES as EventStreamClient
     participant SM as SurfaceManager
     participant AD as AppDelegate
     participant MW as MainWindowView
 
-    Daemon->>DC: ui_surface_show (display != "inline")
-    DC->>SM: onSurfaceShow callback
+    Daemon->>ES: ui_surface_show (display != "inline")
+    ES->>SM: onSurfaceShow callback
     SM->>SM: Check display field
     alt display == "inline"
         SM->>SM: Show floating NSPanel
@@ -389,7 +390,7 @@ graph TD
 | `InlineImageEmbedView` | `AsyncImage` wrapper; defers loading until `onAppear` to avoid eager fetches in long histories. Tapping opens the URL in the default browser. Silent `EmptyView` on failure. |
 | `InlineVideoEmbedCard` | Click-to-play card with state machine (`placeholder` -> `initializing` -> `playing` / `failed`). Tears down webview on `onDisappear` to prevent background audio and memory leaks. |
 | `InlineVideoWebView` | `NSViewRepresentable` wrapping `WKWebView`. Uses `VideoEmbedURLBuilder` to add provider-specific autoplay parameters. |
-| `InlineVideoEmbedStateManager` | `@MainActor ObservableObject` driving the card's lifecycle states. |
+| `InlineVideoEmbedStateManager` | `@MainActor @Observable` class driving the card's lifecycle states. |
 
 ### Security Policies
 
@@ -477,14 +478,14 @@ If managed bootstrap fails, the user stays on the onboarding screen with an erro
 
 ### Transport Modes
 
-`HTTPDaemonClient` supports two route modes, selected based on the lockfile entry's `cloud` field:
+`GatewayHTTPClient` supports two route modes, selected based on the lockfile entry's `cloud` field:
 
 | Mode | Route Pattern | Auth Header | When Used |
 |------|--------------|-------------|-----------|
 | `runtimeFlat` | `/health`, `/v1/messages`, `/v1/events` | `Authorization: Bearer {token}` | Local daemon, gateway-proxied remote |
 | `platformAssistantProxy` | `/v1/assistants/{id}/health/`, `/v1/assistants/{id}/messages/` | `X-Session-Token: {token}` | Platform-managed assistants (`cloud == "vellum"`) |
 
-The route mode and auth mode are carried in `TransportMetadata` (defined in `DaemonConfig.swift`) and threaded through the `DaemonConfig` to the `HTTPDaemonClient`. `AppDelegate.configureDaemonTransport(for:)` selects the mode based on `LockfileAssistant.isManaged`.
+The route mode is determined by `GatewayHTTPClient.resolveConnection()` based on the lockfile entry. `AppDelegate` configures the connection via `GatewayConnectionManager`.
 
 ### Startup Guardrails
 
@@ -504,7 +505,7 @@ When the current assistant is managed (`isCurrentAssistantManaged == true`), the
 
 ### 401 Handling in Managed Mode
 
-When a managed-mode HTTP request receives a 401, the `HTTPDaemonClient` does not attempt the bearer token refresh flow (which is designed for local actor tokens). Instead, it emits a `conversation_error` event so the app can prompt re-authentication through the platform.
+When a managed-mode HTTP request receives a 401, `GatewayHTTPClient` does not attempt the bearer token refresh flow (which is designed for local actor tokens). Instead, it emits a `conversation_error` event so the app can prompt re-authentication through the platform.
 
 ### Key Files
 
@@ -513,39 +514,31 @@ When a managed-mode HTTP request receives a 401, the `HTTPDaemonClient` does not
 | `clients/shared/App/Auth/ManagedAssistantBootstrapService.swift` | Discover-or-create orchestrator for managed assistants |
 | `clients/shared/App/Auth/AuthService.swift` | Platform API methods (`getAssistant`, `hatchAssistant`) |
 | `clients/shared/App/Auth/SessionTokenManager.swift` | Session token storage (Credential Store + `~/.vellum/platform-token` file bridge) |
-| `clients/shared/Network/DaemonConfig.swift` | `RouteMode`, `AuthMode`, `TransportMetadata` types |
-| `clients/shared/Network/HTTPDaemonClient.swift` | Endpoint builder and auth application for both route modes |
+| `clients/shared/Network/GatewayHTTPClient.swift` | Authenticated HTTP client for gateway and platform proxy requests |
 | `clients/macos/vellum-assistant/App/AppDelegate.swift` | Transport selection (`configureDaemonTransport`) and startup guardrails |
 | `clients/macos/vellum-assistant/Features/Onboarding/OnboardingFlowView.swift` | Onboarding sign-in UI and managed bootstrap invocation |
 | `clients/macos/vellum-assistant/Features/MainWindow/Panels/IdentityData.swift` | `LockfileAssistant.isManaged` computed property and managed entry upsert |
 
 ---
 
-## GatewayHTTPClient Migration (In Progress)
+## GatewayHTTPClient
 
-`DaemonClient` and `HTTPTransport` are being incrementally migrated to `GatewayHTTPClient`. New HTTP API calls should use `GatewayHTTPClient` instead of adding methods to `DaemonClient` or `HTTPTransport`.
-
-### Why
-
-The assistant currently exposes an HTTP port so that the native client can call its REST API directly via `DaemonClient`/`HTTPTransport`. By routing these calls through the gateway instead, we can eventually remove that HTTP port entirely and lock down the assistant's networking surface. `GatewayHTTPClient` is the client-side piece of this: an authenticated HTTP client that talks to the gateway (and its platform proxy) instead of hitting the assistant directly.
+All HTTP API calls go through `GatewayHTTPClient` — a stateless enum with static async methods that handles gateway and platform proxy requests.
 
 ### Pattern
 
-Each migrated API surface gets a focused protocol + struct, instantiated inline on the consuming type. Once every method has been migrated off `DaemonClient`/`HTTPTransport`, the assistant's HTTP port can be removed:
+Each API surface gets a focused protocol + struct, instantiated inline on the consuming type:
 
 1. **Define a protocol** describing the operations (e.g. `ConversationClientProtocol`).
 2. **Implement a struct** that calls `GatewayHTTPClient.get/post/delete(path:timeout:)`.
 3. **Instantiate the struct** inline as a private property on the consuming type (e.g. `private let client: any SurfaceClientProtocol = SurfaceClient()`).
-4. **Remove** the corresponding method from `DaemonClient` and `HTTPTransport`.
-5. **Clean up** any `Endpoint` enum cases that are no longer referenced.
+4. Network client structs and protocols must be `nonisolated` (no `@MainActor`).
 
 ### Key Files
 
 | File | Purpose |
 |------|---------|
 | `clients/shared/Network/GatewayHTTPClient.swift` | Authenticated HTTP client for gateway and platform proxy requests |
-| `clients/shared/Network/DaemonClient.swift` | Legacy client (do not add new HTTP methods here) |
-| `clients/shared/Network/HTTPDaemonClient.swift` | Legacy HTTP transport (do not add new HTTP methods here) |
 
 ---
 
@@ -561,7 +554,7 @@ iOS App  --HTTPS-->  Ingress (tunnel/public URL)  -->  Gateway  -->  Runtime
 ```
 
 1. **Pairing** provides the iOS app with an ingress URL and bearer token via QR code scan with Mac-side approval.
-2. **HTTP+SSE transport**: The iOS `HTTPDaemonClient` sends commands via HTTP POST to the gateway and receives events via Server-Sent Events (SSE). All communication is authenticated with the bearer token.
+2. **HTTP+SSE transport**: The iOS client sends commands via HTTP POST to the gateway (through `GatewayHTTPClient`) and receives events via Server-Sent Events (SSE). All communication is authenticated with the bearer token.
 3. **Gateway proxy**: The gateway's runtime proxy forwards `/v1/*` requests to the local runtime, validating the bearer token on each request.
 
 ### Pairing Flow (v4)
@@ -615,7 +608,7 @@ Both macOS and iOS clients use a single JWT access token for all HTTP authentica
 
 **Proactive refresh:** Both macOS and iOS run a periodic check every 5 minutes. If `now >= refreshAfter`, the client calls `POST /v1/guardian/refresh` (through the gateway) with the current refresh token and `Authorization: Bearer <jwt>`. On success, the response provides a new `accessToken`, `refreshToken`, `accessTokenExpiresAt`, `refreshTokenExpiresAt`, and `refreshAfter`. All stored credentials are updated atomically.
 
-**401 recovery:** When an HTTP request receives a 401 response with `{ "code": "refresh_required" }`, the `HTTPTransport` attempts a single refresh before surfacing a "Session expired" error. If the refresh succeeds, the original request is retried with the new JWT. If the 401 contains a different code or the refresh fails (e.g., refresh token expired or revoked), the client surfaces the session-expired error and the user must re-pair (iOS) or re-bootstrap (macOS).
+**401 recovery:** When an HTTP request receives a 401 response with `{ "code": "refresh_required" }`, `GatewayHTTPClient` attempts a single refresh before surfacing a "Session expired" error. If the refresh succeeds, the original request is retried with the new JWT. If the 401 contains a different code or the refresh fails (e.g., refresh token expired or revoked), the client surfaces the session-expired error and the user must re-pair (iOS) or re-bootstrap (macOS).
 
 **Shared utility:** `ActorCredentialRefresher` is a shared utility used by both platforms. It encapsulates the refresh HTTP call, credential update, and error handling. `ActorTokenManager` on each platform delegates to this refresher for both proactive and reactive (401-recovery) refresh flows.
 
@@ -705,8 +698,8 @@ Cross-platform `ObservableObject` stores in `clients/shared/Features/` encapsula
 
 All shared stores follow the same async pattern for daemon communication:
 
-1. Subscribe to the daemon's `AsyncStream` via `daemonClient.subscribe()`
-2. Send a request message via the appropriate `DaemonClient` method
+1. Subscribe to the event stream via `EventStreamClient`
+2. Send a request message via `GatewayHTTPClient`
 3. Iterate the stream with `for await`, matching on the expected response case
 4. Update `@Published` state on the main actor
 5. Cancel subscription tasks in `deinit` to prevent leaks

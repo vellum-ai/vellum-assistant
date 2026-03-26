@@ -24,7 +24,7 @@ The app supports a **managed sign-in** flow that connects to a platform-hosted a
 
 ### Transport Modes
 
-The `HTTPTransport` supports two route modes:
+`GatewayHTTPClient` supports two route modes:
 
 - **`runtimeFlat`** -- Used for local daemon connections and custom remote setups. Paths follow the runtime layout (e.g., `/v1/messages`, `/v1/events`).
 - **`platformAssistantProxy`** -- Used in managed mode. Paths are scoped under `/v1/assistants/{id}/` with trailing slashes (Django convention), e.g., `/v1/assistants/{id}/messages/`.
@@ -239,7 +239,7 @@ cd assistant && bun run src/index.ts daemon start
 
 The app will auto-reconnect if the assistant process restarts.
 
-> **Multi-instance note:** The default data directory is `~/.vellum/`. When `BASE_DATA_DIR` is set or multiple instances are configured via the lockfile, paths resolve to the instance-specific directory instead. See `DaemonClient.resolveSocketPath()` for resolution logic.
+> **Multi-instance note:** The default data directory is `~/.vellum/`. When `BASE_DATA_DIR` is set or multiple instances are configured via the lockfile, paths resolve to the instance-specific directory instead. See `VellumPaths.resolveVellumDir()` for resolution logic.
 
 ---
 
