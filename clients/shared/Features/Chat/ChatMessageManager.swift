@@ -22,20 +22,19 @@ public final class ChatMessageManager: ObservableObject {
 
     @Published public var messages: [ChatMessage] = []
 
-    /// Pre-computed active pending confirmation request ID, updated reactively
-    /// when messages change. Eliminates redundant O(n) scans from view bodies.
+    /// Active pending confirmation request ID, derived from `messages` via a
+    /// Combine pipeline. Views read this O(1) cached value instead of scanning
+    /// the message array each render cycle.
     ///
-    /// **Not `@Published`**: `activePendingRequestId` only changes when
-    /// `messages` changes, and `messages` is already `@Published`. Making this
-    /// property `@Published` too would emit a second `objectWillChange` during
-    /// the same `messages.willSet` call stack (the Combine pipeline runs
-    /// synchronously). While `ChatViewModel`'s 50ms coalescing window absorbs
-    /// the duplicate today, any direct observer of `ChatMessageManager` would
-    /// see double notifications — and the extra publisher overhead is pointless
-    /// since views will already re-render from the `messages` change.
+    /// Not `@Published` — this value only changes when `messages` changes, and
+    /// `messages` is already `@Published`. A second `@Published` here would
+    /// emit a redundant `objectWillChange` in the same willSet call stack,
+    /// doubling SwiftUI invalidation during streaming.
+    ///
+    /// - SeeAlso: [Improving your app's performance (Apple Developer)](https://developer.apple.com/documentation/swiftui/improving-your-app-s-performance)
+    /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
     public private(set) var activePendingRequestId: String?
 
-    /// Subscription that keeps `activePendingRequestId` in sync with `messages`.
     private var activePendingRequestIdSub: AnyCancellable?
 
     init() {
