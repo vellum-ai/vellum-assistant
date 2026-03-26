@@ -10,6 +10,7 @@ import {
 } from "../lib/assistant-config";
 import type { AssistantEntry } from "../lib/assistant-config";
 import {
+  authHeaders,
   fetchOrganizationId,
   getPlatformUrl,
   readPlatformToken,
@@ -214,7 +215,7 @@ async function retireVellum(assistantId: string): Promise<void> {
   const response = await fetch(url, {
     method: "DELETE",
     headers: {
-      "X-Session-Token": token,
+      ...authHeaders(token),
       "Vellum-Organization-Id": orgId,
     },
   });

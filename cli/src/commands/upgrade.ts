@@ -20,6 +20,7 @@ import {
 } from "../lib/docker";
 import { resolveImageRefs } from "../lib/platform-releases";
 import {
+  authHeaders,
   fetchOrganizationId,
   getPlatformUrl,
   readPlatformToken,
@@ -743,7 +744,7 @@ async function upgradePlatform(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Session-Token": token,
+      ...authHeaders(token),
       "Vellum-Organization-Id": orgId,
     },
     body: JSON.stringify(body),

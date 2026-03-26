@@ -65,6 +65,22 @@ export function clearPlatformToken(): void {
   }
 }
 
+const VAK_PREFIX = "vak_";
+
+/**
+ * Returns the appropriate auth header for the given platform token.
+ *
+ * - `vak_`-prefixed tokens are long-lived platform API keys and use
+ *   `Authorization: Bearer`.
+ * - All other tokens are allauth session tokens and use `X-Session-Token`.
+ */
+export function authHeaders(token: string): Record<string, string> {
+  if (token.startsWith(VAK_PREFIX)) {
+    return { Authorization: `Bearer ${token}` };
+  }
+  return { "X-Session-Token": token };
+}
+
 export interface PlatformUser {
   id: string;
   email: string;
@@ -79,7 +95,7 @@ export async function fetchOrganizationId(token: string): Promise<string> {
   const platformUrl = getPlatformUrl();
   const url = `${platformUrl}/v1/organizations/`;
   const response = await fetch(url, {
-    headers: { "X-Session-Token": token },
+    headers: { ...authHeaders(token) },
   });
 
   if (!response.ok) {
@@ -110,7 +126,7 @@ interface AllauthSessionResponse {
 export async function fetchCurrentUser(token: string): Promise<PlatformUser> {
   const url = `${getPlatformUrl()}/_allauth/app/v1/auth/session`;
   const response = await fetch(url, {
-    headers: { "X-Session-Token": token },
+    headers: { ...authHeaders(token) },
   });
 
   if (!response.ok) {
@@ -144,7 +160,7 @@ export async function rollbackPlatformAssistant(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Session-Token": token,
+      ...authHeaders(token),
       "Vellum-Organization-Id": orgId,
     },
     body: JSON.stringify(version ? { version } : {}),
@@ -188,7 +204,7 @@ export async function platformInitiateExport(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Session-Token": token,
+      ...authHeaders(token),
       "Vellum-Organization-Id": orgId,
     },
     body: JSON.stringify({ description: description ?? "CLI backup" }),
@@ -221,7 +237,7 @@ export async function platformPollExportStatus(
     `${platformUrl}/v1/migrations/export/${jobId}/status/`,
     {
       headers: {
-        "X-Session-Token": token,
+        ...authHeaders(token),
         "Vellum-Organization-Id": orgId,
       },
     },
@@ -277,7 +293,7 @@ export async function platformImportPreflight(
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream",
-        "X-Session-Token": token,
+        ...authHeaders(token),
         "Vellum-Organization-Id": orgId,
       },
       body: new Blob([bundleData]),
@@ -302,7 +318,7 @@ export async function platformImportBundle(
     method: "POST",
     headers: {
       "Content-Type": "application/octet-stream",
-      "X-Session-Token": token,
+      ...authHeaders(token),
       "Vellum-Organization-Id": orgId,
     },
     body: new Blob([bundleData]),

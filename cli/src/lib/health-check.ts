@@ -1,3 +1,5 @@
+import { authHeaders } from "./platform-client";
+
 export const HEALTH_CHECK_TIMEOUT_MS = 1500;
 
 interface HealthResponse {
@@ -45,7 +47,7 @@ export async function checkManagedHealth(
     );
 
     const headers: Record<string, string> = {
-      "X-Session-Token": token,
+      ...authHeaders(token),
       "Vellum-Organization-Id": orgId,
     };
 
