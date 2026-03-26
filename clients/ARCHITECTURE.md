@@ -184,8 +184,8 @@ sequenceDiagram
     end
 
     Note over Daemon: Agent loop ends (end_turn)
-    Daemon-->>DC: message_complete (SSE)
-    DC-->>AD: dismissHostCuOverlay()
+    Daemon-->>GW: message_complete (SSE)
+    GW-->>AD: dismissHostCuOverlay()
 end
 ```
 
@@ -389,7 +389,7 @@ graph TD
 | `InlineImageEmbedView` | `AsyncImage` wrapper; defers loading until `onAppear` to avoid eager fetches in long histories. Tapping opens the URL in the default browser. Silent `EmptyView` on failure. |
 | `InlineVideoEmbedCard` | Click-to-play card with state machine (`placeholder` -> `initializing` -> `playing` / `failed`). Tears down webview on `onDisappear` to prevent background audio and memory leaks. |
 | `InlineVideoWebView` | `NSViewRepresentable` wrapping `WKWebView`. Uses `VideoEmbedURLBuilder` to add provider-specific autoplay parameters. |
-| `InlineVideoEmbedStateManager` | `@MainActor ObservableObject` driving the card's lifecycle states. |
+| `InlineVideoEmbedStateManager` | `@MainActor @Observable` class driving the card's lifecycle states. |
 
 ### Security Policies
 

@@ -233,8 +233,4 @@ Test files in `clients/ios/Tests/`:
 - `ConversationLifecycleIOSTests.swift` — session creation, conversation isolation
 - `UsageDashboardViewTests.swift` — usage dashboard state, data loading, formatting
 
-Tests use mock implementations of protocols for dependency injection.
-
-macOS tests additionally mock:
-- `AccessibilityTreeProviding` → `MockAccessibilityTree`
-- `ScreenCaptureProviding` → `MockScreenCapture`
+Tests use protocol-based dependency injection with mock implementations defined inline in each test file (e.g. `MockInteractionClient`, `MockConversationForkClient`).
