@@ -3,9 +3,12 @@ import type { Command } from "commander";
 import {
   registerCallbackRoute,
   resolvePlatformCallbackRegistrationContext,
-} from "../../inbound/platform-callback-registration.js";
-import { log } from "../logger.js";
-import { shouldOutputJson, writeOutput } from "../output.js";
+} from "../../../inbound/platform-callback-registration.js";
+import { log } from "../../logger.js";
+import { shouldOutputJson, writeOutput } from "../../output.js";
+import { registerPlatformConnectCommand } from "./connect.js";
+import { registerPlatformDisconnectCommand } from "./disconnect.js";
+import { registerPlatformStatusCommand } from "./status.js";
 
 export function registerPlatformCommand(program: Command): void {
   const platform = program
@@ -16,25 +19,46 @@ export function registerPlatformCommand(program: Command): void {
   platform.addHelpText(
     "after",
     `
-The platform subsystem manages callback routing, containerized deployment
-context, and webhook forwarding for assistants running inside platform
-containers. When IS_CONTAINERIZED=true with a configured VELLUM_PLATFORM_URL
+The platform subsystem manages the connection to Vellum Platform, callback
+routing, containerized deployment context, and webhook forwarding for
+assistants. Use 'connect', 'status', and 'disconnect' to manage platform
+credentials. When IS_CONTAINERIZED=true with a configured VELLUM_PLATFORM_URL
 and PLATFORM_ASSISTANT_ID, external service callbacks (Telegram webhooks,
 Twilio webhooks, OAuth redirects) route through the platform's gateway proxy
 instead of hitting the assistant directly.
 
 Examples:
-  $ assistant platform status --json
-  $ assistant platform callback-routes register --path webhooks/telegram --type telegram --json
-  $ assistant platform status`,
+  $ assistant platform connect --url https://api.vellum.ai --api-key sk-abc123
+  $ assistant platform status
+  $ assistant platform disconnect
+  $ assistant platform deployment-context --json
+  $ assistant platform callback-routes register --path webhooks/telegram --type telegram --json`,
   );
 
   // ---------------------------------------------------------------------------
-  // status
+  // connect — store platform credentials and validate the connection
+  // ---------------------------------------------------------------------------
+
+  registerPlatformConnectCommand(platform);
+
+  // ---------------------------------------------------------------------------
+  // status — show platform connection status and stored credentials
+  // ---------------------------------------------------------------------------
+
+  registerPlatformStatusCommand(platform);
+
+  // ---------------------------------------------------------------------------
+  // disconnect — remove stored platform credentials
+  // ---------------------------------------------------------------------------
+
+  registerPlatformDisconnectCommand(platform);
+
+  // ---------------------------------------------------------------------------
+  // deployment-context — show current containerized deployment context
   // ---------------------------------------------------------------------------
 
   platform
-    .command("status")
+    .command("deployment-context")
     .description("Show current platform deployment context")
     .addHelpText(
       "after",
@@ -53,8 +77,8 @@ Fields:
   available           Whether callback registration prerequisites are satisfied
 
 Examples:
-  $ assistant platform status
-  $ assistant platform status --json`,
+  $ assistant platform deployment-context
+  $ assistant platform deployment-context --json`,
     )
     .action(async (_opts: Record<string, unknown>, cmd: Command) => {
       const context = await resolvePlatformCallbackRegistrationContext();
