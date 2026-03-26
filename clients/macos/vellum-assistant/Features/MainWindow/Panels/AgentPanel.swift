@@ -40,8 +40,28 @@ struct AgentPanelContent: View {
         VStack(alignment: .leading, spacing: 0) {
             if !isShowingDetail {
                 filterBar
-                CreateSkillRow(action: { onCreateSkill?() })
-                    .padding(.top, VSpacing.sm)
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.sparkles, size: 14)
+                        .foregroundStyle(VColor.primaryBase)
+                    Text("You can create custom skills by describing what you want in chat.")
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentDefault)
+                    Button(action: { onCreateSkill?() }) {
+                        Text("Create a Skill")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.primaryBase)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, VSpacing.md)
+                .padding(.vertical, VSpacing.sm)
+                .background(VColor.primaryBase.opacity(0.10))
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                .overlay(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .stroke(VColor.primaryBase.opacity(0.18), lineWidth: 1)
+                )
+                .padding(.top, VSpacing.sm)
             }
             HStack(alignment: .top, spacing: VSpacing.xxl) {
                 if !isShowingDetail {
@@ -336,53 +356,6 @@ struct SkillItemRow: View {
             Button("Remove", role: .destructive, action: onDelete)
         }
         .accessibilityElement(children: .combine)
-    }
-}
-
-// MARK: - Available Skill Item Row
-
-// MARK: - Create Skill Row
-
-struct CreateSkillRow: View {
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(alignment: .center, spacing: VSpacing.lg) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(VColor.primaryBase.opacity(0.10))
-                        .frame(width: 40, height: 40)
-                    VIconView(.plus, size: 20)
-                        .foregroundStyle(VColor.primaryBase)
-                }
-
-                VStack(alignment: .leading, spacing: VSpacing.xs) {
-                    Text("Create a Skill")
-                        .font(VFont.titleSmall)
-                        .foregroundStyle(VColor.contentSecondary)
-                    Text("Describe what you want and your assistant will build it.")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(VColor.contentTertiary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-
-                Spacer()
-            }
-        }
-        .buttonStyle(.plain)
-        .padding(VSpacing.lg)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.xl)
-                .strokeBorder(
-                    VColor.borderDisabled,
-                    style: StrokeStyle(lineWidth: 2, dash: [6, 4])
-                )
-        )
-        .contentShape(Rectangle())
-        .accessibilityLabel("Create a custom skill")
     }
 }
 

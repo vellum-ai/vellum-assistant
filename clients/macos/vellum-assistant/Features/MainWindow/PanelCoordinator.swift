@@ -99,7 +99,11 @@ extension MainWindowView {
                         message: "I want to create a new custom skill. Ask me what kind of skill I'd like to build.",
                         forceNew: true
                     )
-                    windowState.selection = nil
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    } else {
+                        windowState.selection = nil
+                    }
                 },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
@@ -495,6 +499,9 @@ extension MainWindowView {
                         forceNew: true
                     )
                     windowState.dismissOverlay()
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    }
                 },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
