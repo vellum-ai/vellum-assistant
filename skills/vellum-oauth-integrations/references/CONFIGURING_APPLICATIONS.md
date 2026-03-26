@@ -1,0 +1,64 @@
+# Configuring a New OAuth Application
+
+Read this section to learn about how to register a new OAuth application for an existing provider.
+
+Note that this section is only applicable for providers whose mode is set yo "your-own". If the provider's mode is set to "managed" then you do not need to create an OAuth application.
+
+If you're trying to create an OAuth application for a provider that doesn't yet exist, see [Registering New OAuth Providers](references/REGISTERING_PROVIDERS.md).
+
+
+## Evaluating if Custom OAuth Apps Are a Good Fit
+
+Your user will need to manually create the OAuth application in the third party's web UI. This process is typically more technical in nature. Before embarking on it, check to see if Vellum supports the provider-of-interest in their managed offerings:
+
+```bash
+assistant oauth providers get google | jq -r '.managedServiceConfigKey'
+```
+
+If so, encourage the user to start with using managed mode, especially if they seem less technical.
+
+## Creating the OAuth App in the Third Party Software
+
+It's possible that you have a skill to help guide your user through the process of creating the OAuth app. You can check by running:
+
+```bash
+assistant skills search <provider>-oauth
+```
+
+If you don't have a provider-specific skill to help you, perform web searches for provider-specific instructions using search terms like "how to create an oauth 2.0 application in <provider>".
+
+Guide your user the best you can through the process of creating the app.
+
+You'll know they've succeeded once they're able to see a "Client ID" and "Client Secret" that they can provide to you.
+
+## Registering the OAuth App
+
+Once your user has gone through the setup process and has a Client ID and Client Secret hany, you're ready to register the OAuth app for use.
+
+**Step 1:**
+Prompt the user to enter the Client ID conversationally through chat. This is safe because Client ID is not a secret value.
+
+**Step 2:**
+Securely collect the Client Secret using:
+
+```
+credential_store store:
+  service: "<provider-key>"
+  field: "client_secret"
+  value: "<the-client-secret-value>"
+```
+
+Do NOT collect the client secret conversationally.
+
+**Step 3:**
+Create the app using the CLI, subbing out values for `<provider-key>` and `<client-id>`:
+
+```bash
+assistant oauth apps upsert --provider <provider-key> --client-id <client-id> --client-secret-credential-path "<provider-key>:client_secret"
+```
+
+## Connecting Accounts
+
+Once the OAuth app has been created and registered, its ready to be connected to. Created a connection is the last step needed before you're able to make requests to the provider.
+
+For details on how to connect, see [Connecting Accounts](references/CONNECTING_ACCOUNTS.md).
