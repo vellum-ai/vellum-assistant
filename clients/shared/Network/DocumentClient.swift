@@ -4,6 +4,7 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DocumentClient")
 
 /// Focused client for document persistence operations routed through the gateway.
+@MainActor
 public protocol DocumentClientProtocol {
     func fetchList(conversationId: String?) async -> DocumentListResponse?
     func fetchDocument(surfaceId: String) async -> DocumentLoadResponse?
@@ -11,6 +12,7 @@ public protocol DocumentClientProtocol {
 }
 
 /// Gateway-backed implementation of ``DocumentClientProtocol``.
+@MainActor
 public struct DocumentClient: DocumentClientProtocol {
     nonisolated public init() {}
 

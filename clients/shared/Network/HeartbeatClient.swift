@@ -7,6 +7,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 ///
 /// Covers heartbeat configuration, run history, on-demand runs, and checklist
 /// management.
+@MainActor
 public protocol HeartbeatClientProtocol {
     func fetchConfig() async -> HeartbeatConfigResponse?
     func updateConfig(enabled: Bool?, intervalMs: Double?, activeHoursStart: Double?, activeHoursEnd: Double?) async -> HeartbeatConfigResponse?
@@ -17,6 +18,7 @@ public protocol HeartbeatClientProtocol {
 }
 
 /// Gateway-backed implementation of ``HeartbeatClientProtocol``.
+@MainActor
 public struct HeartbeatClient: HeartbeatClientProtocol {
     nonisolated public init() {}
 

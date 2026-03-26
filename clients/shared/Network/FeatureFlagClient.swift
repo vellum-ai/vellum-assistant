@@ -4,6 +4,7 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "FeatureFlagClient")
 
 /// Focused client for feature-flag and privacy-config operations routed through the gateway.
+@MainActor
 public protocol FeatureFlagClientProtocol {
     func getFeatureFlags() async throws -> [AssistantFeatureFlag]
     func setFeatureFlag(key: String, enabled: Bool) async throws
@@ -63,6 +64,7 @@ public enum FeatureFlagError: Error, LocalizedError {
 // MARK: - Gateway-Backed Implementation
 
 /// Gateway-backed implementation of ``FeatureFlagClientProtocol``.
+@MainActor
 public struct FeatureFlagClient: FeatureFlagClientProtocol {
     nonisolated public init() {}
 

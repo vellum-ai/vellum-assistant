@@ -4,6 +4,7 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "PublishClient")
 
 /// Focused client for page publishing and link-open operations routed through the gateway.
+@MainActor
 public protocol PublishClientProtocol {
     func publishPage(html: String, title: String?, appId: String?) async throws -> PublishPageResponseMessage?
     func unpublishPage(deploymentId: String) async -> Bool
@@ -11,6 +12,7 @@ public protocol PublishClientProtocol {
 }
 
 /// Gateway-backed implementation of ``PublishClientProtocol``.
+@MainActor
 public struct PublishClient: PublishClientProtocol {
     nonisolated public init() {}
 

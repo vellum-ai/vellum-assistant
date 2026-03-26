@@ -4,6 +4,7 @@ import os
 private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "GuardianClient")
 
 /// Focused client for guardian operations routed through the gateway.
+@MainActor
 public protocol GuardianClientProtocol {
     func fetchPendingActions(conversationId: String) async -> GuardianActionsPendingResponseMessage?
     func submitDecision(requestId: String, action: String, conversationId: String?) async -> GuardianActionDecisionResponseMessage?
@@ -11,6 +12,7 @@ public protocol GuardianClientProtocol {
 }
 
 /// Gateway-backed implementation of ``GuardianClientProtocol``.
+@MainActor
 public struct GuardianClient: GuardianClientProtocol {
     nonisolated public init() {}
 
