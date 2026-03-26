@@ -607,10 +607,11 @@ public struct BundleAppResponseManifest: Codable, Sendable {
     public let created_by: String
     public let entry: String
     public let capabilities: [String]
+    public let allowed_hosts: [String]
     public let version: String?
     public let content_id: String?
 
-    public init(format_version: Int, name: String, description: String? = nil, icon: String? = nil, created_at: String, created_by: String, entry: String, capabilities: [String], version: String? = nil, content_id: String? = nil) {
+    public init(format_version: Int, name: String, description: String? = nil, icon: String? = nil, created_at: String, created_by: String, entry: String, capabilities: [String], allowed_hosts: [String] = [], version: String? = nil, content_id: String? = nil) {
         self.format_version = format_version
         self.name = name
         self.description = description
@@ -619,8 +620,24 @@ public struct BundleAppResponseManifest: Codable, Sendable {
         self.created_by = created_by
         self.entry = entry
         self.capabilities = capabilities
+        self.allowed_hosts = allowed_hosts
         self.version = version
         self.content_id = content_id
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        format_version = try container.decode(Int.self, forKey: .format_version)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        icon = try container.decodeIfPresent(String.self, forKey: .icon)
+        created_at = try container.decode(String.self, forKey: .created_at)
+        created_by = try container.decode(String.self, forKey: .created_by)
+        entry = try container.decode(String.self, forKey: .entry)
+        capabilities = try container.decode([String].self, forKey: .capabilities)
+        allowed_hosts = try container.decodeIfPresent([String].self, forKey: .allowed_hosts) ?? []
+        version = try container.decodeIfPresent(String.self, forKey: .version)
+        content_id = try container.decodeIfPresent(String.self, forKey: .content_id)
     }
 }
 
@@ -2873,8 +2890,9 @@ public struct OpenBundleResponseManifest: Codable, Sendable {
     public let created_by: String
     public let entry: String
     public let capabilities: [String]
+    public let allowed_hosts: [String]
 
-    public init(format_version: Int, name: String, description: String? = nil, icon: String? = nil, created_at: String, created_by: String, entry: String, capabilities: [String]) {
+    public init(format_version: Int, name: String, description: String? = nil, icon: String? = nil, created_at: String, created_by: String, entry: String, capabilities: [String], allowed_hosts: [String] = []) {
         self.format_version = format_version
         self.name = name
         self.description = description
@@ -2883,6 +2901,20 @@ public struct OpenBundleResponseManifest: Codable, Sendable {
         self.created_by = created_by
         self.entry = entry
         self.capabilities = capabilities
+        self.allowed_hosts = allowed_hosts
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        format_version = try container.decode(Int.self, forKey: .format_version)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        icon = try container.decodeIfPresent(String.self, forKey: .icon)
+        created_at = try container.decode(String.self, forKey: .created_at)
+        created_by = try container.decode(String.self, forKey: .created_by)
+        entry = try container.decode(String.self, forKey: .entry)
+        capabilities = try container.decode([String].self, forKey: .capabilities)
+        allowed_hosts = try container.decodeIfPresent([String].self, forKey: .allowed_hosts) ?? []
     }
 }
 

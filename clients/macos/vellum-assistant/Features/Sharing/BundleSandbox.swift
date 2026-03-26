@@ -27,12 +27,66 @@ enum BundleSandbox {
         let createdAt: String
         let createdBy: String
         let capabilities: [String]
+        let allowedHosts: [String]
         let trustTier: String
         let signerKeyId: String?
         let signerDisplayName: String?
         let signerAccount: String?
         let bundleSizeBytes: Int
         let installedAt: String
+
+        init(
+            uuid: String,
+            name: String,
+            description: String?,
+            icon: String?,
+            entry: String,
+            createdAt: String,
+            createdBy: String,
+            capabilities: [String],
+            allowedHosts: [String] = [],
+            trustTier: String,
+            signerKeyId: String?,
+            signerDisplayName: String?,
+            signerAccount: String?,
+            bundleSizeBytes: Int,
+            installedAt: String
+        ) {
+            self.uuid = uuid
+            self.name = name
+            self.description = description
+            self.icon = icon
+            self.entry = entry
+            self.createdAt = createdAt
+            self.createdBy = createdBy
+            self.capabilities = capabilities
+            self.allowedHosts = allowedHosts
+            self.trustTier = trustTier
+            self.signerKeyId = signerKeyId
+            self.signerDisplayName = signerDisplayName
+            self.signerAccount = signerAccount
+            self.bundleSizeBytes = bundleSizeBytes
+            self.installedAt = installedAt
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            uuid = try container.decode(String.self, forKey: .uuid)
+            name = try container.decode(String.self, forKey: .name)
+            description = try container.decodeIfPresent(String.self, forKey: .description)
+            icon = try container.decodeIfPresent(String.self, forKey: .icon)
+            entry = try container.decode(String.self, forKey: .entry)
+            createdAt = try container.decode(String.self, forKey: .createdAt)
+            createdBy = try container.decode(String.self, forKey: .createdBy)
+            capabilities = try container.decode([String].self, forKey: .capabilities)
+            allowedHosts = try container.decodeIfPresent([String].self, forKey: .allowedHosts) ?? []
+            trustTier = try container.decode(String.self, forKey: .trustTier)
+            signerKeyId = try container.decodeIfPresent(String.self, forKey: .signerKeyId)
+            signerDisplayName = try container.decodeIfPresent(String.self, forKey: .signerDisplayName)
+            signerAccount = try container.decodeIfPresent(String.self, forKey: .signerAccount)
+            bundleSizeBytes = try container.decode(Int.self, forKey: .bundleSizeBytes)
+            installedAt = try container.decode(String.self, forKey: .installedAt)
+        }
     }
 
     /// Unpacks a `.vellum` zip file into the sandbox and writes metadata.
@@ -90,6 +144,7 @@ enum BundleSandbox {
             createdAt: manifest.created_at,
             createdBy: manifest.created_by,
             capabilities: manifest.capabilities,
+            allowedHosts: manifest.allowed_hosts,
             trustTier: signatureResult.trustTier,
             signerKeyId: signatureResult.signerKeyId,
             signerDisplayName: signatureResult.signerDisplayName,
