@@ -1,0 +1,246 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+const testDir = mkdtempSync(join(tmpdir(), "platform-status-test-"));
+
+// ---------------------------------------------------------------------------
+// Mock state
+// ---------------------------------------------------------------------------
+
+let mockGetSecureKeyViaDaemon: (
+  account: string,
+) => Promise<string | undefined> = async () => undefined;
+
+let mockResolvePlatformCallbackRegistrationContext: () => Promise<
+  Record<string, unknown>
+> = async () => ({
+  containerized: false,
+  platformBaseUrl: "",
+  assistantId: "",
+  hasInternalApiKey: false,
+  hasAssistantApiKey: false,
+  authHeader: null,
+  enabled: false,
+});
+
+// ---------------------------------------------------------------------------
+// Mocks
+// ---------------------------------------------------------------------------
+
+mock.module("../../../../inbound/platform-callback-registration.js", () => ({
+  resolvePlatformCallbackRegistrationContext: () =>
+    mockResolvePlatformCallbackRegistrationContext(),
+  registerCallbackRoute: async () => "",
+  shouldUsePlatformCallbacks: () => false,
+  resolveCallbackUrl: async () => "",
+}));
+
+mock.module("../../../lib/daemon-credential-client.js", () => ({
+  getSecureKeyViaDaemon: (account: string) =>
+    mockGetSecureKeyViaDaemon(account),
+  deleteSecureKeyViaDaemon: async () => "not-found" as const,
+  setSecureKeyViaDaemon: async () => false,
+  getProviderKeyViaDaemon: async () => undefined,
+  getSecureKeyResultViaDaemon: async () => ({
+    value: undefined,
+    unreachable: false,
+  }),
+}));
+
+mock.module("../../../../util/logger.js", () => ({
+  getLogger: () => ({
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+  }),
+  getCliLogger: () => ({
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    debug: () => {},
+  }),
+  initLogger: () => {},
+  truncateForLog: (value: string, maxLen = 500) =>
+    value.length > maxLen ? value.slice(0, maxLen) + "..." : value,
+  pruneOldLogFiles: () => 0,
+}));
+
+mock.module("../../../../util/platform.js", () => ({
+  getRootDir: () => testDir,
+  getDataDir: () => join(testDir, "data"),
+  getWorkspaceSkillsDir: () => join(testDir, "skills"),
+  getWorkspaceDir: () => join(testDir, "workspace"),
+  getWorkspaceHooksDir: () => join(testDir, "workspace", "hooks"),
+  getWorkspaceConfigPath: () => join(testDir, "workspace", "config.json"),
+  getHooksDir: () => join(testDir, "hooks"),
+  getSignalsDir: () => join(testDir, "signals"),
+  getConversationsDir: () => join(testDir, "conversations"),
+  getEmbeddingModelsDir: () => join(testDir, "models"),
+  getSandboxRootDir: () => join(testDir, "sandbox"),
+  getSandboxWorkingDir: () => join(testDir, "sandbox", "work"),
+  getInterfacesDir: () => join(testDir, "interfaces"),
+  getSoundsDir: () => join(testDir, "sounds"),
+  getHistoryPath: () => join(testDir, "history"),
+  isMacOS: () => process.platform === "darwin",
+  isLinux: () => process.platform === "linux",
+  isWindows: () => process.platform === "win32",
+  getPlatformName: () => "linux",
+  getClipboardCommand: () => null,
+  resolveInstanceDataDir: () => undefined,
+  normalizeAssistantId: (id: string) => id,
+  getTCPPort: () => 0,
+  isTCPEnabled: () => false,
+  getTCPHost: () => "127.0.0.1",
+  isIOSPairingEnabled: () => false,
+  getPlatformTokenPath: () => join(testDir, "token"),
+  readPlatformToken: () => null,
+  getPidPath: () => join(testDir, "test.pid"),
+  getDbPath: () => join(testDir, "test.db"),
+  getLogPath: () => join(testDir, "test.log"),
+  getWorkspaceDirDisplay: () => testDir,
+  getWorkspacePromptPath: (file: string) => join(testDir, file),
+  ensureDataDir: () => {},
+}));
+
+mock.module("../../../../config/loader.js", () => ({
+  API_KEY_PROVIDERS: [] as const,
+  getConfig: () => ({
+    permissions: { mode: "workspace" },
+    skills: { load: { extraDirs: [] } },
+    sandbox: { enabled: true },
+  }),
+  loadConfig: () => ({}),
+  invalidateConfigCache: () => {},
+  saveConfig: () => {},
+  loadRawConfig: () => ({}),
+  saveRawConfig: () => {},
+  getNestedValue: () => undefined,
+  setNestedValue: () => {},
+  applyNestedDefaults: (config: unknown) => config,
+  deepMergeMissing: () => false,
+  deepMergeOverwrite: () => {},
+  mergeDefaultWorkspaceConfig: () => {},
+}));
+
+// ---------------------------------------------------------------------------
+// Import module under test (after mocks are registered)
+// ---------------------------------------------------------------------------
+
+const { buildCliProgram } = await import("../../../program.js");
+
+// ---------------------------------------------------------------------------
+// Test helper
+// ---------------------------------------------------------------------------
+
+async function runCommand(
+  args: string[],
+): Promise<{ stdout: string; exitCode: number }> {
+  const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  const originalStderrWrite = process.stderr.write.bind(process.stderr);
+  const stdoutChunks: string[] = [];
+
+  process.stdout.write = ((chunk: unknown) => {
+    stdoutChunks.push(typeof chunk === "string" ? chunk : String(chunk));
+    return true;
+  }) as typeof process.stdout.write;
+
+  process.stderr.write = (() => true) as typeof process.stderr.write;
+
+  process.exitCode = 0;
+
+  try {
+    const program = buildCliProgram();
+    program.exitOverride();
+    program.configureOutput({
+      writeErr: () => {},
+      writeOut: (str: string) => stdoutChunks.push(str),
+    });
+    await program.parseAsync(["node", "assistant", ...args]);
+  } catch {
+    if (process.exitCode === 0) process.exitCode = 1;
+  } finally {
+    process.stdout.write = originalStdoutWrite;
+    process.stderr.write = originalStderrWrite;
+  }
+
+  const exitCode = process.exitCode ?? 0;
+  process.exitCode = 0;
+
+  return { exitCode, stdout: stdoutChunks.join("") };
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe("assistant platform status", () => {
+  beforeEach(() => {
+    mockGetSecureKeyViaDaemon = async () => undefined;
+    mockResolvePlatformCallbackRegistrationContext = async () => ({
+      containerized: false,
+      platformBaseUrl: "",
+      assistantId: "",
+      hasInternalApiKey: false,
+      hasAssistantApiKey: false,
+      authHeader: null,
+      enabled: false,
+    });
+    process.exitCode = 0;
+  });
+
+  test("connected platform returns full status with stored credentials", async () => {
+    /**
+     * When the assistant has stored platform credentials and a valid
+     * registration context, the status command should report connected
+     * with all context fields populated.
+     */
+
+    // GIVEN a containerized environment with platform configuration
+    mockResolvePlatformCallbackRegistrationContext = async () => ({
+      containerized: true,
+      platformBaseUrl: "https://platform.vellum.ai",
+      assistantId: "asst-abc-123",
+      hasInternalApiKey: true,
+      hasAssistantApiKey: true,
+      authHeader: "Bearer internal-key",
+      enabled: true,
+    });
+
+    // AND stored platform credentials exist
+    mockGetSecureKeyViaDaemon = async (account: string) => {
+      if (account === "credential/vellum/platform_base_url")
+        return "https://platform.vellum.ai";
+      if (account === "credential/vellum/assistant_api_key")
+        return "sk-test-key";
+      if (account === "credential/vellum/platform_organization_id")
+        return "org-456";
+      if (account === "credential/vellum/platform_user_id") return "user-789";
+      return undefined;
+    };
+
+    // WHEN the status command is run with --json
+    const { exitCode, stdout } = await runCommand([
+      "platform",
+      "status",
+      "--json",
+    ]);
+
+    // THEN the command succeeds
+    expect(exitCode).toBe(0);
+
+    // AND the output contains the expected status fields
+    const parsed = JSON.parse(stdout);
+    expect(parsed.containerized).toBe(true);
+    expect(parsed.baseUrl).toBe("https://platform.vellum.ai");
+    expect(parsed.assistantId).toBe("asst-abc-123");
+    expect(parsed.hasInternalApiKey).toBe(true);
+    expect(parsed.hasAssistantApiKey).toBe(true);
+    expect(parsed.available).toBe(true);
+    expect(parsed.connected).toBe(true);
+    expect(parsed.organizationId).toBe("org-456");
+    expect(parsed.userId).toBe("user-789");
+  });
+});
