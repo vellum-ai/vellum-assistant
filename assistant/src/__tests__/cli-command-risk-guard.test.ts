@@ -191,6 +191,13 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
     }
   });
 
+  test("--help after -- option terminator does not downgrade risk", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant oauth token -- --help",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
   test("non-sensitive oauth subcommands remain Low risk", async () => {
     const lowRiskOauthCommands = [
       "assistant oauth apps",

@@ -205,7 +205,11 @@ const LOW_RISK_GIT_SUBCOMMANDS = new Set([
  */
 function classifyAssistantSubcommand(args: string[]): RiskLevel {
   // `--help` on any subcommand is read-only, always Low risk.
-  if (args.some((a) => a === "--help" || a === "-h")) return RiskLevel.Low;
+  // Only check args before `--` (option terminator) — after `--`, tokens
+  // are positional arguments, not flags.
+  const ddIndex = args.indexOf("--");
+  const flagArgs = ddIndex === -1 ? args : args.slice(0, ddIndex);
+  if (flagArgs.some((a) => a === "--help" || a === "-h")) return RiskLevel.Low;
 
   const sub = firstPositionalArg(args);
   if (!sub) return RiskLevel.Low;
