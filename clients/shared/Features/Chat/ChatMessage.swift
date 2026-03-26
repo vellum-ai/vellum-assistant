@@ -1628,6 +1628,9 @@ public struct ChatMessage: Identifiable, Equatable {
             || modelList != nil
             || commandList != nil
             || isError
+            || streamingCodePreview != nil
+            || skillInvocation != nil
+            || !attachmentWarnings.isEmpty
     }
 
     /// When true, heavyweight content (tool results, large text, inputFull/inputRawDict)
