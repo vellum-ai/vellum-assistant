@@ -101,6 +101,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     var onLinkOpen: ((String, [String: Any]?) -> Void)?
     /// When true, blocks all network requests to external origins and restricts navigation.
     let sandboxMode: Bool
+    /// Hosts that sandboxed apps are allowed to reach (e.g. API endpoints declared in the bundle manifest).
+    let allowedHosts: [String]
     let topContentInset: CGFloat
     let bottomContentInset: CGFloat
     /// Corner radius applied at the AppKit layer to clip WKWebView content.
@@ -118,6 +120,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         onSnapshotCaptured: ((String) -> Void)? = nil,
         onLinkOpen: ((String, [String: Any]?) -> Void)? = nil,
         sandboxMode: Bool = false,
+        allowedHosts: [String] = [],
         topContentInset: CGFloat = 0,
         bottomContentInset: CGFloat = 0,
         cornerRadius: CGFloat = 0,
@@ -132,6 +135,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         self.onSnapshotCaptured = onSnapshotCaptured
         self.onLinkOpen = onLinkOpen
         self.sandboxMode = sandboxMode
+        self.allowedHosts = allowedHosts
         self.topContentInset = topContentInset
         self.bottomContentInset = bottomContentInset
         self.cornerRadius = cornerRadius
@@ -139,7 +143,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
     }
 
     func makeCoordinator() -> Coordinator {
-        let coordinator = Coordinator(onAction: onAction, onDataRequest: onDataRequest, onPageChanged: onPageChanged, onSnapshotCaptured: onSnapshotCaptured, onLinkOpen: onLinkOpen, currentHTML: data.html, sandboxMode: sandboxMode)
+        let coordinator = Coordinator(onAction: onAction, onDataRequest: onDataRequest, onPageChanged: onPageChanged, onSnapshotCaptured: onSnapshotCaptured, onLinkOpen: onLinkOpen, currentHTML: data.html, sandboxMode: sandboxMode, allowedHosts: allowedHosts)
         coordinator.surfaceId = data.appId ?? "ephemeral"
         coordinator.appId = appId
         coordinator.loadStartTime = CFAbsoluteTimeGetCurrent()
@@ -624,6 +628,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
         /// The page currently displayed in a multi-page app (e.g. "settings.html").
         var currentPage: String = "index.html"
         let sandboxMode: Bool
+        /// Hosts that sandboxed apps are allowed to reach (declared in bundle manifest).
+        let allowedHosts: [String]
         weak var webView: WKWebView?
         var lastTopInset: Int = 0
         var lastBottomInset: Int = 0
@@ -661,7 +667,8 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             onSnapshotCaptured: ((String) -> Void)?,
             onLinkOpen: ((String, [String: Any]?) -> Void)? = nil,
             currentHTML: String,
-            sandboxMode: Bool = false
+            sandboxMode: Bool = false,
+            allowedHosts: [String] = []
         ) {
             self.onAction = onAction
             self.onDataRequest = onDataRequest
@@ -670,6 +677,7 @@ struct DynamicPageSurfaceView: NSViewRepresentable {
             self.onLinkOpen = onLinkOpen
             self.currentHTML = currentHTML
             self.sandboxMode = sandboxMode
+            self.allowedHosts = allowedHosts
         }
 
         func userContentController(
