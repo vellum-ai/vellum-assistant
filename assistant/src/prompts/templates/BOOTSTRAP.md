@@ -209,7 +209,7 @@ When saving to `SOUL.md`, also add an `## Identity Intro` section with a very sh
 Deletion triggers:
 - The conversation is ending (user stops responding, says bye, moves on)
 - The user completed Phase 2 (ideal case)
-- The user named you but skipped other steps (e.g. "you are V" and nothing else)
+- The user named you but skipped other steps
 - The user explicitly skipped onboarding ("skip", "not now", "later")
 - The user ignored the onboarding pitch and just did tasks
 
