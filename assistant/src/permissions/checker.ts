@@ -252,6 +252,14 @@ const WRAPPER_PROGRAMS = new Set([
 // value of -u) as the wrapped program instead of `echo`.
 const ENV_VALUE_FLAGS = new Set(["-u", "--unset", "-C", "--chdir"]);
 
+// `timeout` flags that consume the next positional argument as their value.
+const TIMEOUT_VALUE_FLAGS = new Set(["-s", "--signal", "-k", "--kill-after"]);
+
+// Wrapper programs where the first non-flag positional argument is a
+// configuration value (duration, CPU mask), not the wrapped program name.
+// For these wrappers, the second non-flag positional is the real program.
+const WRAPPER_SKIP_FIRST_POSITIONAL = new Set(["timeout", "taskset"]);
+
 // `git` global flags that consume the next positional argument as their value.
 // Without this, `git -C status commit` would incorrectly identify `status`
 // (the directory path) as the subcommand instead of `commit`.
@@ -310,19 +318,31 @@ function isRmOfKnownSafeFile(args: string[]): boolean {
  *
  * Handles `env` specially: skips `VAR=value` pairs and value-taking flags
  * like `-u NAME` and `-C DIR`.
+ *
+ * Handles `timeout` and `taskset` specially: their first non-flag positional
+ * argument is a duration or CPU mask, not the wrapped program. The second
+ * non-flag positional is the real program.
  */
 function getWrappedProgram(seg: {
   program: string;
   args: string[];
 }): string | undefined {
   const isEnv = seg.program === "env";
+  const isTimeout = seg.program === "timeout";
+  const skipFirst = WRAPPER_SKIP_FIRST_POSITIONAL.has(seg.program);
+  let skippedFirstPositional = false;
   for (let i = 0; i < seg.args.length; i++) {
     const arg = seg.args[i];
     if (arg.startsWith("-")) {
       if (isEnv && ENV_VALUE_FLAGS.has(arg)) i++; // skip the value argument
+      if (isTimeout && TIMEOUT_VALUE_FLAGS.has(arg)) i++; // skip the value argument
       continue;
     }
     if (isEnv && arg.includes("=")) continue; // skip env VAR=value pairs
+    if (skipFirst && !skippedFirstPositional) {
+      skippedFirstPositional = true;
+      continue; // skip the duration/CPU mask
+    }
     return arg;
   }
   return undefined;
@@ -338,13 +358,21 @@ function getWrappedProgramWithArgs(seg: {
   args: string[];
 }): { program: string; args: string[] } | undefined {
   const isEnv = seg.program === "env";
+  const isTimeout = seg.program === "timeout";
+  const skipFirst = WRAPPER_SKIP_FIRST_POSITIONAL.has(seg.program);
+  let skippedFirstPositional = false;
   for (let i = 0; i < seg.args.length; i++) {
     const arg = seg.args[i];
     if (arg.startsWith("-")) {
       if (isEnv && ENV_VALUE_FLAGS.has(arg)) i++;
+      if (isTimeout && TIMEOUT_VALUE_FLAGS.has(arg)) i++;
       continue;
     }
     if (isEnv && arg.includes("=")) continue;
+    if (skipFirst && !skippedFirstPositional) {
+      skippedFirstPositional = true;
+      continue; // skip the duration/CPU mask
+    }
     return { program: arg, args: seg.args.slice(i + 1) };
   }
   return undefined;
