@@ -24,17 +24,31 @@ public final class ChatMessageManager: ObservableObject {
 
     /// Pre-computed active pending confirmation request ID, updated reactively
     /// when messages change. Eliminates redundant O(n) scans from view bodies.
-    @Published public private(set) var activePendingRequestId: String?
+    ///
+    /// **Not `@Published`**: `activePendingRequestId` only changes when
+    /// `messages` changes, and `messages` is already `@Published`. Making this
+    /// property `@Published` too would emit a second `objectWillChange` during
+    /// the same `messages.willSet` call stack (the Combine pipeline runs
+    /// synchronously). While `ChatViewModel`'s 50ms coalescing window absorbs
+    /// the duplicate today, any direct observer of `ChatMessageManager` would
+    /// see double notifications — and the extra publisher overhead is pointless
+    /// since views will already re-render from the `messages` change.
+    public private(set) var activePendingRequestId: String?
+
+    /// Subscription that keeps `activePendingRequestId` in sync with `messages`.
+    private var activePendingRequestIdSub: AnyCancellable?
 
     init() {
-        $messages
+        activePendingRequestIdSub = $messages
             .map { messages in
                 PendingConfirmationFocusSelector.activeRequestId(
                     from: ChatVisibleMessageFilter.visibleMessages(from: messages)
                 )
             }
             .removeDuplicates()
-            .assign(to: &$activePendingRequestId)
+            .sink { [weak self] newValue in
+                self?.activePendingRequestId = newValue
+            }
     }
 
     // MARK: - Input / send state
