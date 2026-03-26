@@ -1383,7 +1383,12 @@ enum LogExporter {
         guard let target = largest else { return nil }
         let name = target.lastPathComponent
         let size = totalSize(of: target, fileManager: fileManager)
-        try? fileManager.removeItem(at: target)
+        do {
+            try fileManager.removeItem(at: target)
+        } catch {
+            log.warning("Failed to remove \(name) from staging directory: \(error.localizedDescription)")
+            return nil
+        }
         log.info("Removed \(name) (\(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))) from staging directory")
         return "\(name) (\(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)))"
     }
