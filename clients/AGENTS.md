@@ -466,7 +466,7 @@ Apple's `#Preview` macro (introduced WWDC 2023, expanded in Xcode 26) is the rec
 
 1. **We don't develop in Xcode.** Our development workflow does not use the Xcode canvas for UI iteration. Previews are only useful inside Xcode's live canvas — they have zero value outside of it.
 2. **Maintenance burden.** Preview blocks require wrapper structs for views with complex init signatures (bindings, closures, injected dependencies). These wrappers break silently when the view's API changes, creating dead code that nobody notices until someone tries to use the preview.
-3. **Fragile with our architecture.** Many views depend on `DaemonClient`, `AuthManager`, or other services that require a running backend. Previews that instantiate these with `DaemonClient(config: .default)` may not render without a live daemon connection.
+3. **Fragile with our architecture.** Many views depend on `AuthManager`, `GatewayConnectionManager`, or other services that require a running backend. Previews that instantiate these may not render without a live daemon connection.
 4. **The Component Gallery is better for our use case.** The Gallery is a live, in-app catalog that runs with real state, real theming, and real interaction — not a static Xcode canvas render. It covers all design system primitives with multiple variants and live value readouts.
 
 ### Build and performance impact of removing previews
@@ -502,17 +502,16 @@ If the team adopts Xcode as the primary development environment and begins using
 
 ---
 
-## Networking: Use GatewayHTTPClient for New HTTP APIs
+## Networking: GatewayHTTPClient
 
-**Do not add new HTTP API methods to `DaemonClient` or `HTTPTransport`.** These are legacy classes being incrementally migrated to `GatewayHTTPClient`.
+All HTTP API calls go through `GatewayHTTPClient` (a stateless enum with static async methods).
 
 When adding a new HTTP endpoint call:
 
 1. Create or extend a focused protocol (e.g. `ConversationClientProtocol`) describing the operation.
 2. Implement it in a struct that calls `GatewayHTTPClient.get/post/delete(path:timeout:)`. Path encoding and `{assistantId}` substitution are handled automatically by `GatewayHTTPClient.buildRequest()` — do not percent-encode paths manually.
 3. Instantiate the struct inline as a private property on the consuming type (e.g. `private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()`).
-4. If migrating an existing method, remove it from `DaemonClient` and `HTTPTransport` and clean up any unused `Endpoint` enum cases.
-5. Network client structs and protocols must be `nonisolated` (no `@MainActor`). See § "@MainActor Isolation Boundaries" above.
+4. Network client structs and protocols must be `nonisolated` (no `@MainActor`). See § "@MainActor Isolation Boundaries" above.
 
 See `clients/ARCHITECTURE.md` § "GatewayHTTPClient Migration" for the full pattern and migration tracker.
 
