@@ -629,12 +629,19 @@ async function main() {
         const authHeader = req.headers.get("authorization");
         if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
           authRateLimiter.recordFailure(getClientIp());
+          log.warn(
+            "Guardian refresh auth rejected: missing or malformed Authorization header",
+          );
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
         const token = authHeader.slice(7);
         const result = validateEdgeToken(token, { allowExpired: true });
         if (!result.ok) {
           authRateLimiter.recordFailure(getClientIp());
+          log.warn(
+            { reason: result.reason },
+            "Guardian refresh auth rejected: token validation failed",
+          );
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
         return channelVerificationSessionProxy.handleGuardianRefresh(req);
