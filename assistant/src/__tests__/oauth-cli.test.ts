@@ -163,12 +163,6 @@ mock.module("../oauth/oauth-store.js", () => ({
   updateConnection: () => ({}),
 }));
 
-mock.module("../oauth/seed-providers.js", () => ({
-  SEEDED_PROVIDER_KEYS: new Set(["google", "slack", "github"]),
-  PROVIDER_SEED_DATA: {},
-  seedAllProviders: () => {},
-}));
-
 // Stub out transitive dependencies that token-manager would normally pull in
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (account: string) => mockGetSecureKey(account),

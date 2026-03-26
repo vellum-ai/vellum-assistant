@@ -19,8 +19,13 @@ let mockListConnectionsResult: Array<Record<string, unknown>> = [];
 let mockDeleteAppCalls: string[] = [];
 let mockDeleteAppResult = true;
 
-let mockDeleteConnectionCalls: string[] = [];
-let mockDeleteConnectionResult = true;
+let mockDisconnectCalls: Array<{
+  providerKey: string;
+  clientId: string | undefined;
+  connectionId: string | undefined;
+}> = [];
+let mockDisconnectResult: "disconnected" | "not-found" | "error" =
+  "disconnected";
 
 let mockSeededProviderKeys = new Set<string>(["google", "slack", "github"]);
 
@@ -52,9 +57,13 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
     mockDeleteAppCalls.push(id);
     return mockDeleteAppResult;
   },
-  deleteConnection: (id: string) => {
-    mockDeleteConnectionCalls.push(id);
-    return mockDeleteConnectionResult;
+  disconnectOAuthProvider: async (
+    providerKey: string,
+    clientId?: string,
+    connectionId?: string,
+  ) => {
+    mockDisconnectCalls.push({ providerKey, clientId, connectionId });
+    return mockDisconnectResult;
   },
   listProviders: () => [],
   registerProvider: () => ({}),
@@ -70,7 +79,7 @@ mock.module("../../../../oauth/oauth-store.js", () => ({
   getConnectionByProvider: () => undefined,
   listActiveConnectionsByProvider: () => [],
   isProviderConnected: () => false,
-  disconnectOAuthProvider: async () => "not-found",
+  deleteConnection: () => false,
 }));
 
 mock.module("../../../../oauth/seed-providers.js", () => ({
@@ -164,8 +173,8 @@ describe("assistant oauth providers delete", () => {
     mockListConnectionsResult = [];
     mockDeleteAppCalls = [];
     mockDeleteAppResult = true;
-    mockDeleteConnectionCalls = [];
-    mockDeleteConnectionResult = true;
+    mockDisconnectCalls = [];
+    mockDisconnectResult = "disconnected";
     mockSeededProviderKeys = new Set(["google", "slack", "github"]);
     mockLogInfoCalls = [];
     process.exitCode = 0;
@@ -312,8 +321,19 @@ describe("assistant oauth providers delete", () => {
     expect(parsed.deleted.apps).toBe(1); // Only custom-api apps, not other-provider
     expect(parsed.deleted.connections).toBe(2);
 
-    // Verify connections were deleted
-    expect(mockDeleteConnectionCalls).toEqual(["conn-1", "conn-2"]);
+    // Verify disconnectOAuthProvider was called for each connection
+    expect(mockDisconnectCalls).toEqual([
+      {
+        providerKey: "custom-api",
+        clientId: undefined,
+        connectionId: "conn-1",
+      },
+      {
+        providerKey: "custom-api",
+        clientId: undefined,
+        connectionId: "conn-2",
+      },
+    ]);
 
     // Verify only matching apps were deleted (not app-other)
     expect(mockDeleteAppCalls).toEqual(["app-1"]);
@@ -346,7 +366,7 @@ describe("assistant oauth providers delete", () => {
     expect(parsed.deleted.connections).toBe(0);
 
     // No cascade deletes should have happened
-    expect(mockDeleteConnectionCalls).toHaveLength(0);
+    expect(mockDisconnectCalls).toHaveLength(0);
     expect(mockDeleteAppCalls).toHaveLength(0);
   });
 
@@ -428,6 +448,60 @@ describe("assistant oauth providers delete", () => {
     // Should have logged a warning about re-creation
     const warningLogged = mockLogInfoCalls.some(
       (msg) => msg.includes("built-in") && msg.includes("re-created"),
+    );
+    expect(warningLogged).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // Token cleanup error is logged but does not abort cascade
+  // -------------------------------------------------------------------------
+
+  test("token cleanup error logs warning but continues cascade delete", async () => {
+    mockGetProvider = (key) =>
+      key === "custom-api"
+        ? { providerKey: "custom-api", authUrl: "https://example.com/auth" }
+        : undefined;
+
+    mockListAppsResult = [
+      {
+        id: "app-1",
+        providerKey: "custom-api",
+        clientId: "c1",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      },
+    ];
+
+    mockListConnectionsResult = [
+      {
+        id: "conn-1",
+        providerKey: "custom-api",
+        oauthAppId: "app-1",
+        status: "active",
+      },
+    ];
+
+    // Simulate token cleanup failure
+    mockDisconnectResult = "error";
+
+    const { exitCode, stdout } = await runCommand([
+      "providers",
+      "delete",
+      "custom-api",
+      "--force",
+      "--json",
+    ]);
+    // Should still succeed despite token cleanup error
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.deleted.provider).toBe(1);
+    expect(parsed.deleted.connections).toBe(1);
+
+    // Should have logged a warning about the token cleanup failure
+    const warningLogged = mockLogInfoCalls.some(
+      (msg) =>
+        msg.includes("failed to clean up tokens") && msg.includes("conn-1"),
     );
     expect(warningLogged).toBe(true);
   });
