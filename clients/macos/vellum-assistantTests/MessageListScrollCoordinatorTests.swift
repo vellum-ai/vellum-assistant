@@ -424,4 +424,41 @@ final class MessageListScrollCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.activeSuppressionReasons, [],
                        "Empty after clearAll")
     }
+
+    // MARK: - Suppression: Snapshot String Format
+
+    /// Verifies the comma-joined suppressionReason string that gets passed to
+    /// ChatTranscriptSnapshot matches the expected format (e.g. "resize,expansion").
+    /// This catches formatting bugs like wrong separator, trailing commas, or
+    /// unexpected ordering that the array-level test above would not surface.
+    func testSuppressionReasonJoinedStringFormat() {
+        // No reasons → empty string (snapshot passes nil in this case).
+        XCTAssertEqual(coordinator.activeSuppressionReasons.joined(separator: ","), "",
+                       "No reasons should produce empty string")
+
+        // Single reason.
+        coordinator.beginResizeSuppression()
+        XCTAssertEqual(coordinator.activeSuppressionReasons.joined(separator: ","), "resize",
+                       "Single reason should produce plain string without separators")
+
+        // Two reasons — mirrors the snapshot construction expression exactly.
+        coordinator.beginExpansionSuppression()
+        XCTAssertEqual(coordinator.activeSuppressionReasons.joined(separator: ","), "resize,expansion",
+                       "Two reasons should be comma-separated with no spaces")
+
+        // All three reasons.
+        coordinator.beginPaginationSuppression()
+        XCTAssertEqual(coordinator.activeSuppressionReasons.joined(separator: ","), "resize,pagination,expansion",
+                       "Three reasons should be comma-separated in stable order")
+
+        // After clearing one, the joined string updates correctly.
+        coordinator.endResizeSuppression()
+        XCTAssertEqual(coordinator.activeSuppressionReasons.joined(separator: ","), "pagination,expansion",
+                       "Joined string should reflect remaining reasons after partial clear")
+
+        // After clearing all, back to empty.
+        coordinator.clearAllSuppression()
+        XCTAssertEqual(coordinator.activeSuppressionReasons.joined(separator: ","), "",
+                       "Joined string should be empty after clearAll")
+    }
 }
