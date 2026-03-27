@@ -161,7 +161,7 @@ describe("GET /v1/oauth/apps", () => {
         description: string | null;
         dashboard_url: string | null;
         client_id_placeholder: string | null;
-        requires_client_secret: number;
+        requires_client_secret: boolean;
         supports_managed_mode: boolean;
       } | null;
       apps: unknown[];
@@ -172,9 +172,9 @@ describe("GET /v1/oauth/apps", () => {
     expect(body.provider!.display_name).toBe("Google");
     expect(body.provider!.description).toBe("Google OAuth provider");
 
-    // requires_client_secret must be an integer (1 or 0), not a boolean
-    expect(body.provider!.requires_client_secret).toBe(1);
-    expect(typeof body.provider!.requires_client_secret).toBe("number");
+    // requires_client_secret is normalised to a boolean by the shared serializer
+    expect(body.provider!.requires_client_secret).toBe(true);
+    expect(typeof body.provider!.requires_client_secret).toBe("boolean");
 
     // supports_managed_mode is derived from the presence of managedServiceConfigKey
     expect(body.provider!.supports_managed_mode).toBe(true);
