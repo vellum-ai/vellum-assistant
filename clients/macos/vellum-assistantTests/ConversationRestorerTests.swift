@@ -8,6 +8,7 @@ import VellumAssistantShared
 @MainActor
 final class MockConversationRestorerDelegate: ConversationRestorerDelegate {
     var conversations: [ConversationModel] = []
+    var groups: [ConversationGroup] = []
     var restoreRecentConversations: Bool = true
     var isLoadingMoreConversations: Bool = false
     var hasMoreConversations: Bool = false

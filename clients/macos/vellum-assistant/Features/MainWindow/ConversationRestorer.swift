@@ -10,6 +10,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 @MainActor
 protocol ConversationRestorerDelegate: AnyObject {
     var conversations: [ConversationModel] { get set }
+    var groups: [ConversationGroup] { get set }
     var restoreRecentConversations: Bool { get }
     var isLoadingMoreConversations: Bool { get set }
     var hasMoreConversations: Bool { get set }
@@ -205,6 +206,16 @@ final class ConversationRestorer {
             delegate.restoreLastActiveConversation()
             return
         }
+
+        // Seed groups from the response if available, otherwise fall back to system defaults.
+        // This must run before the empty-response early return so that new/empty workspaces
+        // still initialize groups on first restore.
+        if let responseGroups = response.groups, !responseGroups.isEmpty {
+            delegate.groups = responseGroups.map { ConversationGroup(from: $0) }
+        } else if delegate.groups.isEmpty {
+            delegate.groups = [ConversationGroup.pinned, ConversationGroup.scheduled, ConversationGroup.background]
+        }
+
         guard !response.conversations.isEmpty else {
             delegate.restoreLastActiveConversation()
             return
@@ -222,25 +233,19 @@ final class ConversationRestorer {
             && delegate.chatViewModel(for: delegate.conversations[0].id)?.conversationId == nil
 
         var restoredConversations: [ConversationModel] = []
-        // Seed the fallback counter past the highest persisted pinned order
-        // so legacy conversations (nil displayOrder) don't collide with explicit ones.
-        let maxPersistedPinnedOrder = recentConversations
-            .filter { $0.isPinned ?? false }
-            .compactMap { $0.displayOrder.map { Int($0) } }
-            .max() ?? -1
-        var pinnedCount = maxPersistedPinnedOrder + 1
         for session in recentConversations {
+            // Old-daemon fallback: derive groupId from isPinned when groupId is absent.
+            let isPinned = session.isPinned ?? false
+            let groupId = session.groupId ?? (isPinned ? ConversationGroup.pinned.id : nil)
+
             // If a local conversation already exists (e.g. created by
             // createNotificationConversation before the session list response arrived),
             // merge server pin/order metadata into it instead of creating a duplicate.
             if let existingIdx = delegate.conversations.firstIndex(where: { $0.conversationId == session.id }) {
-                let isPinned = session.isPinned ?? false
-                delegate.conversations[existingIdx].isPinned = isPinned
-                delegate.conversations[existingIdx].pinnedOrder = isPinned ? (session.displayOrder.map { Int($0) } ?? pinnedCount) : nil
+                delegate.conversations[existingIdx].groupId = groupId
                 delegate.conversations[existingIdx].displayOrder = session.displayOrder.map { Int($0) }
                 delegate.conversations[existingIdx].forkParent = session.forkParent
                 delegate.mergeAssistantAttention(from: session, intoConversationAt: existingIdx)
-                if isPinned && session.displayOrder == nil { pinnedCount += 1 }
                 continue
             }
 
@@ -254,15 +259,13 @@ final class ConversationRestorer {
                 .title
             let title = existingTitle ?? session.title
 
-            let isPinned = session.isPinned ?? false
             let effectiveCreatedAt = session.createdAt ?? session.updatedAt
             let conversation = ConversationModel(
                 title: title,
                 createdAt: Date(timeIntervalSince1970: TimeInterval(effectiveCreatedAt) / 1000.0),
                 conversationId: session.id,
                 isArchived: delegate.isConversationArchived(session.id),
-                isPinned: isPinned,
-                pinnedOrder: isPinned ? (session.displayOrder.map { Int($0) } ?? pinnedCount) : nil,
+                groupId: groupId,
                 displayOrder: session.displayOrder.map { Int($0) },
                 lastInteractedAt: Date(timeIntervalSince1970: TimeInterval(session.updatedAt) / 1000.0),
                 kind: kind,
@@ -277,7 +280,6 @@ final class ConversationRestorer {
                 },
                 forkParent: session.forkParent
             )
-            if isPinned && session.displayOrder == nil { pinnedCount += 1 }
             // VM creation is lazy — only the active conversation will get a VM via
             // getOrCreateViewModel() when it's first accessed.
             restoredConversations.append(conversation)
@@ -370,7 +372,8 @@ final class ConversationRestorer {
                     let merged = ConversationListResponse(
                         type: foreground.type,
                         conversations: foreground.conversations + uniqueBackground,
-                        hasMore: foreground.hasMore
+                        hasMore: foreground.hasMore,
+                        groups: foreground.groups
                     )
                     self.handleConversationListResponse(merged)
                     return
