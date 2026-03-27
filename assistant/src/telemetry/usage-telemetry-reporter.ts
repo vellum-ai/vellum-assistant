@@ -15,6 +15,7 @@ import {
   getPlatformUserId,
   getTelemetryAppToken,
 } from "../config/env.js";
+import { getConfig } from "../config/loader.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
@@ -92,6 +93,20 @@ export class UsageTelemetryReporter {
   private async _doFlush(batchCount = 0): Promise<void> {
     try {
       if (batchCount >= MAX_CONSECUTIVE_BATCHES) return;
+
+      // Respect runtime opt-out: if the user has disabled usage data collection,
+      // skip the flush and advance watermarks so events recorded during the
+      // opt-out window are never sent retroactively.
+      if (!getConfig().collectUsageData) {
+        const now = String(Date.now());
+        setMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK, now);
+        setMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK_ID, "");
+        setMemoryCheckpoint(CHECKPOINT_KEY_TURN_WATERMARK, now);
+        setMemoryCheckpoint(CHECKPOINT_KEY_TURN_WATERMARK_ID, "");
+        setMemoryCheckpoint(CHECKPOINT_KEY_LIFECYCLE_WATERMARK, now);
+        setMemoryCheckpoint(CHECKPOINT_KEY_LIFECYCLE_WATERMARK_ID, "");
+        return;
+      }
 
       // Read usage watermark (compound cursor: createdAt + id)
       const watermark = Number(

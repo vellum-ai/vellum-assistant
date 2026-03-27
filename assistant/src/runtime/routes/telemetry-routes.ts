@@ -35,6 +35,9 @@ export async function handleRecordLifecycleEvent(
   }
 
   const event = recordLifecycleEvent(eventName);
+  if (!event) {
+    return Response.json({ skipped: true });
+  }
   log.info({ eventName, eventId: event.id }, "Recorded lifecycle event");
 
   return Response.json({ id: event.id, event_name: event.eventName });
