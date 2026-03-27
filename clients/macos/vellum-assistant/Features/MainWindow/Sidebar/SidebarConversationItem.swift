@@ -153,7 +153,7 @@ struct SidebarConversationItem: View, Equatable {
                             .nativeTooltip("Unread")
                             .transition(.opacity)
                     } else if conversation.isPinned {
-                        VIconView(.pin, size: 13)
+                        VIconView(.pinOff, size: 13)
                             .foregroundStyle(VColor.contentSecondary)
                             .rotationEffect(.degrees(-45))
                             .frame(width: 20, height: 20)
