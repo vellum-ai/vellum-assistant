@@ -39,7 +39,7 @@ struct AppsGridView: View {
     /// In-flight preview fetch tasks, keyed by app ID, so they can be cancelled.
     @State private var previewTasks: [String: Task<Void, Never>] = [:]
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.sm), count: 5)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.lg), count: 5)
 
     /// Maximum width of the centered content area.
     private let maxContentWidth: CGFloat = 1400
@@ -250,7 +250,7 @@ struct AppsGridView: View {
                             }
                         }
                     }
-                    .padding(VSpacing.sm)
+                    .padding(VSpacing.lg)
                     .contentShape(Rectangle())
                     .onTapGesture {} // absorb tap so it doesn't propagate to parent Button
                     .opacity(isHovered || menuOpenAppId == app.id || (isBundling && sharingAppId == app.id) ? 1 : 0)
@@ -277,7 +277,7 @@ struct AppsGridView: View {
 
 
                 // Name + date below the image
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
                     Text(app.name)
                         .font(VFont.bodyLargeEmphasised)
                         .foregroundStyle(VColor.contentDefault)
@@ -357,7 +357,7 @@ struct AppsGridView: View {
                         .stroke(VColor.borderBase, lineWidth: 1)
                 )
 
-                VStack(alignment: .leading, spacing: VSpacing.sm) {
+                VStack(alignment: .leading, spacing: VSpacing.lg) {
                     HStack(spacing: VSpacing.xs) {
                         Text(app.name)
                             .font(VFont.bodyLargeEmphasised)
@@ -509,7 +509,7 @@ struct AppsGridView: View {
                 .font(VFont.bodySmallEmphasised)
                 .foregroundStyle(VColor.contentSecondary)
 
-            LazyVGrid(columns: columns, spacing: VSpacing.sm) {
+            LazyVGrid(columns: columns, spacing: VSpacing.lg) {
                 ForEach(apps) { app in
                     appCard(app)
                         .onAppear { fetchPreviewIfNeeded(app) }
@@ -524,7 +524,7 @@ struct AppsGridView: View {
                 .font(VFont.bodySmallEmphasised)
                 .foregroundStyle(VColor.contentSecondary)
 
-            LazyVGrid(columns: columns, spacing: VSpacing.sm) {
+            LazyVGrid(columns: columns, spacing: VSpacing.lg) {
                 ForEach(apps) { app in
                     sharedAppCard(app)
                 }
