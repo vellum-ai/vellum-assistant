@@ -244,12 +244,14 @@ struct SidebarConversationItem: View, Equatable {
             onHoverChange(hovering)
         }
         .onChange(of: conversation) { _, _ in
-            // Reset menu state when conversation props change (e.g., groupId changed
-            // due to pin/unpin). Without this, isMenuOpen can get stuck true when
-            // the menu action causes the conversation to move to a different section,
-            // and VMenuPanel.onDismiss doesn't fire properly.
+            // When conversation props change (e.g., groupId from pin/unpin), the view
+            // may be destroyed and recreated in a different section. Reset local state
+            // and send a hover-out to prevent stuck hover/menu states.
             if isMenuOpen {
                 isMenuOpen = false
+            }
+            if isHovered {
+                onHoverChange(false)
             }
         }
         .onDrag {
