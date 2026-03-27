@@ -126,13 +126,13 @@ public struct InlineSurfaceRouter: View {
                 }
                 .buttonStyle(.plain)
                 .padding(VSpacing.sm)
-            #if os(macOS)
             } else if isTableSurface, case .table(let tableData) = surface.data {
+                #if os(macOS)
                 VCopyButton(text: Self.tableAsMarkdown(tableData), size: .compact)
                     .opacity(isCardHovered ? 1 : 0)
                     .animation(VAnimation.fast, value: isCardHovered)
                     .padding(VSpacing.sm)
-            #endif
+                #endif
             } else if isDocumentPreview {
                 if case .documentPreview(let data) = surface.data {
                     Button {
