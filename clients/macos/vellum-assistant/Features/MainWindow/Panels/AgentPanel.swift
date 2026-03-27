@@ -451,47 +451,40 @@ struct AvailableSkillItemRow: View {
     var isInstalling: Bool = false
 
     var body: some View {
-        HStack(alignment: .center, spacing: VSpacing.lg) {
-            if let emoji = skill.emoji, !emoji.isEmpty {
-                Text(emoji)
-                    .font(.system(size: 32))
-                    .opacity(0.5)
-            }
-            VStack(alignment: .leading, spacing: VSpacing.xs) {
-                HStack(alignment: .center, spacing: VSpacing.sm) {
-                    Text(skill.name)
-                        .font(VFont.titleSmall)
+        VCard {
+            HStack(alignment: .center, spacing: VSpacing.lg) {
+                if let emoji = skill.emoji, !emoji.isEmpty {
+                    Text(emoji)
+                        .font(.system(size: 32))
+                }
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    HStack(alignment: .center, spacing: VSpacing.sm) {
+                        Text(skill.name)
+                            .font(VFont.titleSmall)
+                            .foregroundStyle(VColor.contentEmphasized)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        VSkillTypePill(source: skill.source)
+                        Spacer()
+                    }
+                    Text(skill.description)
+                        .font(VFont.bodyMediumDefault)
                         .foregroundStyle(VColor.contentSecondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    VSkillTypePill(source: skill.source)
-                    Spacer()
                 }
-                Text(skill.description)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            if isInstalling {
-                VLoadingIndicator()
-            } else {
-                VButton(
-                    label: "Install",
-                    style: .outlined,
-                    size: .compact,
-                    action: onInstall
-                )
+                if isInstalling {
+                    VLoadingIndicator()
+                } else {
+                    VButton(
+                        label: "Install",
+                        iconOnly: VIcon.arrowDownToLine.rawValue,
+                        style: .ghost,
+                        size: .compact,
+                        action: onInstall
+                    )
+                }
             }
         }
-        .padding(VSpacing.lg)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.xl)
-                .strokeBorder(
-                    VColor.borderDisabled,
-                    style: StrokeStyle(lineWidth: 2, dash: [6, 4])
-                )
-        )
     }
 }
