@@ -1256,7 +1256,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
 
         // Reorder within TARGET GROUP only (not global — prevents corrupting other groups).
-        var groupMembers = draft
+        let groupMembers = draft
             .filter { $0.groupId == targetGroupId && !$0.isArchived && $0.kind != .private }
             .sorted { visibleConversationSortOrder($0, $1) }
 

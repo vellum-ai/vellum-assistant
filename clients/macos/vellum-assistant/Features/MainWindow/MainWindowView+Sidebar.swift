@@ -318,7 +318,7 @@ extension MainWindowView {
                 onNewConversation: { startNewConversation() }
             )
 
-            ScrollView {
+            ScrollView(.vertical) {
                 LazyVStack(spacing: 0) {
                     if showDaemonLoading && !assistantLoadingTimedOut && conversationManager.visibleConversations.isEmpty {
                         DaemonLoadingConversationsSkeleton()
