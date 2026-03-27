@@ -116,6 +116,53 @@ extension MainWindowView {
         }
     }
 
+    /// Builds a `SidebarSectionView` for a group. Extracted from the ForEach body
+    /// to reduce type-checker pressure (the init has many parameters).
+    private func makeSectionView(group: ConversationGroup, conversations: [ConversationModel]) -> SidebarSectionView {
+        SidebarSectionView(
+            group: group,
+            conversations: conversations,
+            isExpanded: sidebar.expandedSections.contains(group.id),
+            showAll: sidebar.showAllInSection.contains(group.id),
+            maxCollapsed: group.isSystemGroup ? 3 : 5,
+            isDropTarget: sidebar.dropTargetSectionId == group.id,
+            countMode: group.id == ConversationGroup.scheduled.id
+                ? .subGroups(grouper: { $0.scheduleJobId })
+                : .items,
+            selectedConversationId: conversationManager.activeConversationId,
+            isRenaming: sidebar.renamingGroupId == group.id,
+            renamingName: Binding(
+                get: { sidebar.renamingGroupName },
+                set: { sidebar.renamingGroupName = $0 }
+            ),
+            onRename: group.isSystemGroup ? nil : { name in
+                sidebar.renamingGroupId = group.id
+                sidebar.renamingGroupName = name
+            },
+            onCommitRename: group.isSystemGroup ? nil : { newName in
+                sidebar.renamingGroupId = nil
+                Task<Void, Never> { await conversationManager.renameGroup(group.id, name: newName) }
+            },
+            onCancelRename: group.isSystemGroup ? nil : {
+                sidebar.renamingGroupId = nil
+            },
+            onDelete: group.isSystemGroup ? nil : {
+                Task<Void, Never> { await conversationManager.deleteGroup(group.id) }
+            },
+            onToggleExpand: { sidebar.toggleSection(group.id) },
+            onToggleShowAll: { sidebar.toggleShowAll(group.id) },
+            makeRow: { makeSidebarRow(conversation: $0) },
+            expandedScheduleGroups: group.id == ConversationGroup.scheduled.id
+                ? Binding(
+                    get: { sidebar.expandedScheduleGroups },
+                    set: { sidebar.expandedScheduleGroups = $0 }
+                )
+                : nil,
+            sidebar: sidebar,
+            conversationManager: conversationManager
+        )
+    }
+
     /// Builds a `SidebarConversationItem` with all state pre-resolved and closures wired,
     /// so each row is a pure value view that can be skipped via `Equatable`.
     private func makeSidebarRow(
@@ -200,48 +247,7 @@ extension MainWindowView {
                 }
             ForEach(groupEntries) { entry in
                 if let group = entry.group {
-                    SidebarSectionView(
-                        group: group,
-                        conversations: entry.conversations,
-                        isExpanded: sidebar.expandedSections.contains(group.id),
-                        showAll: sidebar.showAllInSection.contains(group.id),
-                        maxCollapsed: group.isSystemGroup ? 3 : 5,
-                        isDropTarget: sidebar.dropTargetSectionId == group.id,
-                        countMode: group.id == ConversationGroup.scheduled.id
-                            ? .subGroups(grouper: { $0.scheduleJobId })
-                            : .items,
-                        selectedConversationId: conversationManager.activeConversationId,
-                        isRenaming: sidebar.renamingGroupId == group.id,
-                        renamingName: Binding(
-                            get: { sidebar.renamingGroupName },
-                            set: { sidebar.renamingGroupName = $0 }
-                        ),
-                        onRename: group.isSystemGroup ? nil : { name in
-                            sidebar.renamingGroupId = group.id
-                            sidebar.renamingGroupName = name
-                        },
-                        onCommitRename: group.isSystemGroup ? nil : { newName in
-                            sidebar.renamingGroupId = nil
-                            Task<Void, Never> { await conversationManager.renameGroup(group.id, name: newName) }
-                        },
-                        onCancelRename: group.isSystemGroup ? nil : {
-                            sidebar.renamingGroupId = nil
-                        },
-                        onDelete: group.isSystemGroup ? nil : {
-                            Task<Void, Never> { await conversationManager.deleteGroup(group.id) }
-                        },
-                        onToggleExpand: { sidebar.toggleSection(group.id) },
-                        onToggleShowAll: { sidebar.toggleShowAll(group.id) },
-                        makeRow: { makeSidebarRow(conversation: $0) },
-                        expandedScheduleGroups: group.id == ConversationGroup.scheduled.id
-                            ? Binding(
-                                get: { sidebar.expandedScheduleGroups },
-                                set: { sidebar.expandedScheduleGroups = $0 }
-                            )
-                            : nil,
-                        sidebar: sidebar,
-                        conversationManager: conversationManager
-                    )
+                    makeSectionView(group: group, conversations: entry.conversations)
                 } else {
                     ungroupedConversationRows(entry.conversations)
                 }
