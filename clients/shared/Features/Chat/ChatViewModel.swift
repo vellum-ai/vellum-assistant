@@ -207,6 +207,26 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    // MARK: - @Observable → ObservableObject bridge for ChatBtwState
+
+    /// Recursively observe all tracked properties on the @Observable
+    /// ChatBtwState and forward changes into ChatViewModel's
+    /// ObservableObject objectWillChange via the coalesced publish path.
+    private func observeBtwState() {
+        withObservationTracking {
+            _ = btwState.btwResponse
+            _ = btwState.btwLoading
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scheduleCoalescedPublish()
+                #if DEBUG
+                self?.trackPublish(source: "btwState")
+                #endif
+                self?.observeBtwState() // re-arm
+            }
+        }
+    }
+
     // MARK: - @Observable → ObservableObject bridge for ChatGreetingState
 
     /// Recursively observe all tracked properties on the @Observable
@@ -240,6 +260,7 @@ public final class ChatViewModel: ObservableObject {
     private var messageManagerPublishCount = 0
     private var attachmentManagerPublishCount = 0
     private var errorManagerPublishCount = 0
+    private var btwStatePublishCount = 0
     private var greetingStatePublishCount = 0
     private var lastRateLogTime = Date()
 
@@ -249,6 +270,7 @@ public final class ChatViewModel: ObservableObject {
         case "messageManager": messageManagerPublishCount += 1
         case "attachmentManager": attachmentManagerPublishCount += 1
         case "errorManager": errorManagerPublishCount += 1
+        case "btwState": btwStatePublishCount += 1
         case "greetingState": greetingStatePublishCount += 1
         default: break
         }
@@ -256,13 +278,14 @@ public final class ChatViewModel: ObservableObject {
         if now.timeIntervalSince(lastRateLogTime) >= 5 {
             os_log(
                 .debug, log: Self.perfLog,
-                "ChatViewModel publish rate: %d/5s (msg=%d, attach=%d, err=%d, greet=%d)",
-                publishCount, messageManagerPublishCount, attachmentManagerPublishCount, errorManagerPublishCount, greetingStatePublishCount
+                "ChatViewModel publish rate: %d/5s (msg=%d, attach=%d, err=%d, btw=%d, greet=%d)",
+                publishCount, messageManagerPublishCount, attachmentManagerPublishCount, errorManagerPublishCount, btwStatePublishCount, greetingStatePublishCount
             )
             publishCount = 0
             messageManagerPublishCount = 0
             attachmentManagerPublishCount = 0
             errorManagerPublishCount = 0
+            btwStatePublishCount = 0
             greetingStatePublishCount = 0
             lastRateLogTime = now
         }
@@ -583,6 +606,7 @@ public final class ChatViewModel: ObservableObject {
     private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
     private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
     private let btwClient: any BtwClientProtocol = BtwClient()
+    let btwState: ChatBtwState
     let interactionClient: any InteractionClientProtocol
     let surfaceActionClient: any SurfaceActionClientProtocol = SurfaceActionClient()
     private let trustRuleClient: any TrustRuleClientProtocol = TrustRuleClient()
@@ -873,14 +897,12 @@ public final class ChatViewModel: ObservableObject {
     /// send `hasMore` in the history response.
     @Published public var hasMoreHistory: Bool = false
 
-    // MARK: - BTW Side-Chain State
+    // MARK: - BTW Side-Chain State (forwarded from ChatBtwState)
 
     /// The accumulated response text from a /btw side-chain query, or nil when inactive.
-    @Published public var btwResponse: String?
+    public var btwResponse: String? { btwState.btwResponse }
     /// True while a /btw request is in flight.
-    @Published public var btwLoading: Bool = false
-    /// The in-flight btw streaming task, stored for cancellation.
-    private var btwTask: Task<Void, Never>?
+    public var btwLoading: Bool { btwState.btwLoading }
 
     // MARK: - Forwarding properties — ChatGreetingState
 
@@ -1159,6 +1181,9 @@ public final class ChatViewModel: ObservableObject {
         self.interactionClient = interactionClient
         self.onToolCallsComplete = onToolCallsComplete
 
+        // Initialize BTW side-chain state as a self-contained @Observable.
+        self.btwState = ChatBtwState(btwClient: btwClient)
+
         // Coalesce sub-manager objectWillChange signals through a single
         // delayed publish. During streaming, sub-managers may fire dozens of
         // objectWillChange events per second (each @Published property
@@ -1207,6 +1232,8 @@ public final class ChatViewModel: ObservableObject {
         // withObservationTracking so views that read error state through
         // ChatViewModel's computed forwarding properties still update.
         observeErrorManager()
+        // ChatBtwState is @Observable — same bridge pattern.
+        observeBtwState()
         // ChatGreetingState is @Observable — same bridge pattern.
         observeGreetingState()
 
@@ -1574,46 +1601,16 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    // MARK: - BTW Side-Chain
+    // MARK: - BTW Side-Chain (forwarded to ChatBtwState)
 
     /// Send a /btw side-chain question and stream the response into `btwResponse`.
     public func sendBtwMessage(question: String) {
-        guard !question.isEmpty else { return }
-
-        // Cancel any in-flight btw task to prevent interleaved deltas.
-        btwTask?.cancel()
-
-        btwLoading = true
-        btwResponse = ""
-
-        btwTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                let stream = self.btwClient.sendMessage(
-                    content: question,
-                    conversationKey: self.conversationId ?? ""
-                )
-                for try await delta in stream {
-                    guard !Task.isCancelled else { return }
-                    self.btwResponse = (self.btwResponse ?? "") + delta
-                }
-            } catch is CancellationError {
-                // Stream was cancelled via dismiss — no error to show.
-            } catch {
-                guard !Task.isCancelled else { return }
-                self.btwResponse = "Failed to get response: \(error.localizedDescription)"
-            }
-            guard !Task.isCancelled else { return }
-            self.btwLoading = false
-        }
+        btwState.sendBtwMessage(question: question, conversationKey: conversationId ?? "")
     }
 
     /// Clear btw side-chain state and cancel any in-flight stream.
     public func dismissBtw() {
-        btwTask?.cancel()
-        btwTask = nil
-        btwResponse = nil
-        btwLoading = false
+        btwState.dismissBtw()
     }
 
     // MARK: - Forwarding methods — ChatGreetingState
@@ -1955,22 +1952,13 @@ public final class ChatViewModel: ObservableObject {
 
     // MARK: - Surface Refetch
 
-    /// Lazily created manager that serializes surface content fetches.
-    private lazy var surfaceRefetchManager = SurfaceRefetchManager { [weak self] surfaceId, conversationId in
-        guard let self else { return nil }
-        return await self.surfaceClient.fetchSurfaceData(surfaceId: surfaceId, conversationId: conversationId)
-    }
-
-    /// In-flight refetch tasks, keyed by surface ID for cancellation.
-    private var refetchTasks: [String: Task<Void, Never>] = [:]
-
-    /// Re-fetch the full payload for a stripped surface and replace it in the message list.
-    public func refetchStrippedSurface(surfaceId: String, conversationId: String) {
-        guard refetchTasks[surfaceId] == nil else { return }
-        refetchTasks[surfaceId] = Task { @MainActor [weak self] in
-            defer { self?.refetchTasks.removeValue(forKey: surfaceId) }
+    private lazy var surfaceRefetchCoordinator = SurfaceRefetchCoordinator(
+        surfaceRefetchManager: SurfaceRefetchManager { [weak self] surfaceId, conversationId in
+            guard let self else { return nil }
+            return await self.surfaceClient.fetchSurfaceData(surfaceId: surfaceId, conversationId: conversationId)
+        },
+        applyResult: { [weak self] surfaceId, result in
             guard let self else { return }
-            let result = await self.surfaceRefetchManager.enqueue(surfaceId: surfaceId, conversationId: conversationId)
             for msgIndex in self.messages.indices {
                 if let surfIndex = self.messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == surfaceId }) {
                     if let data = result.data {
@@ -1985,14 +1973,10 @@ public final class ChatViewModel: ObservableObject {
                 }
             }
         }
-    }
+    )
 
-    /// Cancel all in-flight surface refetch tasks and reset the manager's
-    /// failure counts so surfaces can be retried in the new conversation.
-    private func cancelRefetchTasks() {
-        for task in refetchTasks.values { task.cancel() }
-        refetchTasks.removeAll()
-        Task { await surfaceRefetchManager.resetFailureCounts() }
+    public func refetchStrippedSurface(surfaceId: String, conversationId: String) {
+        surfaceRefetchCoordinator.refetchStrippedSurface(surfaceId: surfaceId, conversationId: conversationId)
     }
 
     /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
@@ -2925,7 +2909,7 @@ public final class ChatViewModel: ObservableObject {
         // or appending text to a stale currentAssistantMessageId.
         discardStreamingBuffer()
         discardPartialOutputBuffer()
-        cancelRefetchTasks()
+        surfaceRefetchCoordinator.cancelRefetchTasks()
         currentAssistantMessageId = nil
         currentAssistantHasText = false
         lastContentWasToolCall = false
@@ -3290,15 +3274,14 @@ public final class ChatViewModel: ObservableObject {
         partialOutputFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
         loadMoreTimeoutTask?.cancel()
-        for task in refetchTasks.values { task.cancel() }
-        refetchTasks.removeAll()
+        // surfaceRefetchCoordinator is released with self; its deinit cancels tasks.
         // refinementFailureDismissTask and refinementFlushTask are accessed via
         // @MainActor computed properties (forwarded from ChatMessageManager), which
         // cannot be referenced from nonisolated deinit. Both tasks use [weak self],
         // so they will exit naturally when self is deallocated.
         reconnectLatchTimeoutTask?.cancel()
         reconnectDebounceTask?.cancel()
-        btwTask?.cancel()
+        // btwTask cancellation is handled by ChatBtwState's deinit.
         greetingState.cancelAll()
         sendingWatchdogTask?.cancel()
         memoryPressureSource?.cancel()
