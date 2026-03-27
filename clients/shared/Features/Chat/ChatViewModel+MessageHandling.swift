@@ -70,10 +70,6 @@ extension ChatViewModel {
         }
     }
 
-    /// Priority list of input keys whose values are most useful as a tool call summary.
-    nonisolated static let toolInputPriorityKeys = [
-        "command", "file_path", "path", "query", "url", "pattern", "glob"
-    ]
 
     /// Substrings that indicate a tool failed because the OS denied permission.
     /// This lets the UI reconcile "allowed" confirmations that still fail at
@@ -92,27 +88,12 @@ extension ChatViewModel {
     /// Extract the most relevant tool input value as a full string (no truncation).
     /// Redacts values for sensitive keys to prevent credential leakage into inputSummary.
     func extractToolInput(_ input: [String: AnyCodable]) -> String {
-        Self.extractToolInputStatic(input)
+        HistoryReconstructionService.extractToolInputStatic(input)
     }
 
     /// Summarize tool input for display, picking the most relevant value truncated to 80 chars.
     func summarizeToolInput(_ input: [String: AnyCodable]) -> String {
-        Self.summarizeToolInputStatic(input)
-    }
-
-    /// Argument keys whose values may contain credentials and must be redacted.
-    /// All comparisons use lowercased keys to catch variants like accessToken,
-    /// Authorization, X-API-KEY, etc.
-    nonisolated static let sensitiveKeys: Set<String> = [
-        "value", "secret", "password", "token", "client_secret", "api_key",
-        "authorization", "access_token", "refresh_token", "api_secret",
-        "accesstoken", "refreshtoken", "apikey", "apisecret", "clientsecret",
-        "x-api-key"
-    ]
-
-    /// Case-insensitive check: does the given key match any sensitive key?
-    nonisolated static func isSensitiveKey(_ key: String) -> Bool {
-        sensitiveKeys.contains(key.lowercased())
+        HistoryReconstructionService.summarizeToolInputStatic(input)
     }
 
     /// Format all tool input arguments for display in expanded details.
@@ -122,7 +103,7 @@ extension ChatViewModel {
         guard !input.isEmpty else { return "" }
 
         // Find the primary key (same logic as extractToolInput)
-        let primaryKey = Self.toolInputPriorityKeys.first(where: { input[$0] != nil })
+        let primaryKey = HistoryReconstructionService.toolInputPriorityKeys.first(where: { input[$0] != nil })
             ?? input.keys.sorted().first
 
         // All keys as "key: value", primary key first then rest alphabetically
@@ -136,7 +117,7 @@ extension ChatViewModel {
         var lines: [String] = []
         for key in orderedKeys {
             guard let value = input[key] else { continue }
-            if Self.isSensitiveKey(key) {
+            if HistoryReconstructionService.isSensitiveKey(key) {
                 lines.append("\(key): [redacted]")
             } else {
                 lines.append("\(key): \(redactingStringifyValue(value))")
@@ -173,7 +154,7 @@ extension ChatViewModel {
     private func redactDictionary(_ dict: [String: Any]) -> String {
         var redacted: [String: Any] = [:]
         for (key, val) in dict {
-            if Self.isSensitiveKey(key) {
+            if HistoryReconstructionService.isSensitiveKey(key) {
                 redacted[key] = "[redacted]"
             } else if let nested = val as? [String: Any] {
                 redacted[key] = redactDictionaryAsObject(nested)
@@ -217,7 +198,7 @@ extension ChatViewModel {
     private func redactDictionaryAsObject(_ dict: [String: Any]) -> [String: Any] {
         var redacted: [String: Any] = [:]
         for (key, val) in dict {
-            if Self.isSensitiveKey(key) {
+            if HistoryReconstructionService.isSensitiveKey(key) {
                 redacted[key] = "[redacted]"
             } else if let nested = val as? [String: Any] {
                 redacted[key] = redactDictionaryAsObject(nested)
@@ -297,7 +278,7 @@ extension ChatViewModel {
 
     /// Map attachment DTOs to ChatAttachment values, generating thumbnails for images.
     func mapMessageAttachments(_ attachments: [UserMessageAttachment]) -> [ChatAttachment] {
-        Self.mapMessageAttachmentsStatic(attachments)
+        HistoryReconstructionService.mapMessageAttachmentsStatic(attachments)
     }
 
     /// Ingest attachments from a completion/handoff event into the current or new assistant message.
