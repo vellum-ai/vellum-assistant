@@ -65,6 +65,7 @@ struct ConversationSwitcherDrawer: View {
                         } : nil
                     )
                     .equatable()
+                    .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
                 }
             }
         }

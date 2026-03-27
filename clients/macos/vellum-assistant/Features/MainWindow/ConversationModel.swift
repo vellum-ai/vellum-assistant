@@ -6,6 +6,15 @@ enum ConversationKind: String, Hashable, Sendable {
     case `private`
 }
 
+/// Composite view identity for conversation rows. Combines the conversation UUID
+/// with its current groupId so that SwiftUI treats a group change as a view identity
+/// change — destroying the old row and creating a fresh one. This prevents stale
+/// rendered bodies when conversations move between ForEach sections in a LazyVStack.
+struct ConversationRowIdentity: Hashable {
+    let conversationId: UUID
+    let groupId: String?
+}
+
 struct ConversationModel: Identifiable, Hashable {
     let id: UUID
     var title: String

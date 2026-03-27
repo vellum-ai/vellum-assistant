@@ -140,6 +140,7 @@ struct SidebarSectionView: View {
             ForEach(displayed) { conversation in
                 makeRow(conversation)
                     .equatable()
+                    .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
                     .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                     .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                         if sidebar.dropTargetConversationId == conversation.id {
@@ -160,6 +161,7 @@ struct SidebarSectionView: View {
             ForEach(displayed) { conversation in
                 makeRow(conversation)
                     .equatable()
+                    .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
                     .padding(.bottom, SidebarLayoutMetrics.listRowGap)
             }
         }
@@ -192,6 +194,7 @@ struct SidebarSectionView: View {
         if let sidebar, let conversationManager {
             makeRow(conversation)
                 .equatable()
+                .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
                 .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                 .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                     if sidebar.dropTargetConversationId == conversation.id {
@@ -209,6 +212,7 @@ struct SidebarSectionView: View {
         } else {
             makeRow(conversation)
                 .equatable()
+                .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
                 .padding(.bottom, SidebarLayoutMetrics.listRowGap)
         }
     }

@@ -283,6 +283,7 @@ extension MainWindowView {
         ForEach(displayed) { conversation in
             makeSidebarRow(conversation: conversation)
                 .equatable()
+                .id(ConversationRowIdentity(conversationId: conversation.id, groupId: conversation.groupId))
                 .padding(.bottom, SidebarLayoutMetrics.listRowGap)
                 .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
                     if sidebar.dropTargetConversationId == conversation.id {
