@@ -97,6 +97,5 @@ public struct VSkillTypePill: View {
             RoundedRectangle(cornerRadius: VRadius.md)
                 .fill(type.backgroundColor)
         )
-        .fixedSize()
     }
 }

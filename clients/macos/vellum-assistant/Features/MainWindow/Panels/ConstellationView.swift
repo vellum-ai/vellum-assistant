@@ -949,34 +949,44 @@ struct ConstellationView: View {
                     .scaleEffect(zoomScale)
                     .offset(totalOffset)
 
-                // Dismiss layer for popover
-                if selectedSkillItem != nil {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            withAnimation(VAnimation.fast) {
-                                selectedSkillItem = nil
-                                selectedNodeId = nil
-                            }
-                        }
-                }
-
-                // Skill popover overlay
-                if let selected = selectedSkillItem, let nodeId = selectedNodeId {
-                    let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let nodePos = effectivePosition(forId: nodeId)
-                    let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let scaledX = viewCenter.x + (nodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
-                    let scaledY = viewCenter.y + (nodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
-
-                    SkillPopoverView(item: selected)
-                        .position(x: scaledX, y: scaledY)
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                }
             }
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .clipped()
                 .contentShape(Rectangle())
+                .overlay {
+                    // Dismiss layer for popover
+                    if selectedSkillItem != nil {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                withAnimation(VAnimation.fast) {
+                                    selectedSkillItem = nil
+                                    selectedNodeId = nil
+                                }
+                            }
+                    }
+                }
+                .overlay {
+                    // Skill popover overlay (outside clipped area so it doesn't get cut off)
+                    if let selected = selectedSkillItem, let nodeId = selectedNodeId {
+                        let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                        let nodePos = effectivePosition(forId: nodeId)
+                        let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                        let rawX = viewCenter.x + (nodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
+                        let rawY = viewCenter.y + (nodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
+
+                        // Clamp so the popover stays within visible bounds
+                        let popoverW: CGFloat = 250
+                        let popoverH: CGFloat = 120
+                        let margin: CGFloat = VSpacing.sm
+                        let clampedX = min(max(rawX, popoverW / 2 + margin), proxy.size.width - popoverW / 2 - margin)
+                        let clampedY = min(max(rawY, popoverH / 2 + margin), proxy.size.height - popoverH / 2 - margin)
+
+                        SkillPopoverView(item: selected)
+                            .position(x: clampedX, y: clampedY)
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
+                }
                 .overlay(alignment: .topLeading) {
                     fullscreenToggle
                         .padding(VSpacing.lg)
