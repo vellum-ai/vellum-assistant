@@ -101,6 +101,11 @@ struct SidebarSectionView: View {
                 onCommitRename: onCommitRename,
                 onDelete: onDelete
             )
+            .modifier(SectionHeaderDropModifier(
+                group: group,
+                sidebar: sidebar,
+                conversationManager: conversationManager
+            ))
 
             if isExpanded {
                 sectionContent
@@ -124,10 +129,32 @@ struct SidebarSectionView: View {
     @ViewBuilder
     private var flatContent: some View {
         let displayed = displayedConversations
-        ForEach(displayed) { conversation in
-            makeRow(conversation)
-                .equatable()
-                .padding(.bottom, SidebarLayoutMetrics.listRowGap)
+        if let sidebar, let conversationManager {
+            ForEach(displayed) { conversation in
+                makeRow(conversation)
+                    .equatable()
+                    .padding(.bottom, SidebarLayoutMetrics.listRowGap)
+                    .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
+                        if sidebar.dropTargetConversationId == conversation.id {
+                            Rectangle()
+                                .fill(VColor.primaryBase)
+                                .frame(height: 2)
+                                .transition(.opacity)
+                        }
+                    }
+                    .onDrop(of: [.plainText], delegate: GroupedReorderDropDelegate(
+                        targetConversation: conversation,
+                        groupId: group?.id,
+                        sidebar: sidebar,
+                        conversationManager: conversationManager
+                    ))
+            }
+        } else {
+            ForEach(displayed) { conversation in
+                makeRow(conversation)
+                    .equatable()
+                    .padding(.bottom, SidebarLayoutMetrics.listRowGap)
+            }
         }
 
         showMoreLessButton
@@ -337,6 +364,7 @@ struct ScheduleSubGroupHeaderDropDelegate: DropDelegate {
               dragId != firstConversation.id,
               let sourceConversation = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
               sourceConversation.isScheduleConversation,
+              sourceConversation.groupId == firstConversation.groupId,
               sourceConversation.scheduleJobId == firstConversation.scheduleJobId
         else { return false }
         return true
@@ -352,6 +380,7 @@ struct ScheduleSubGroupHeaderDropDelegate: DropDelegate {
               dragId != firstConversation.id,
               let sourceConversation = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
               sourceConversation.isScheduleConversation,
+              sourceConversation.groupId == firstConversation.groupId,
               sourceConversation.scheduleJobId == firstConversation.scheduleJobId
         else { return }
 
@@ -374,5 +403,74 @@ struct ScheduleSubGroupHeaderDropDelegate: DropDelegate {
               sourceId != firstConversation.id
         else { return false }
         return conversationManager.moveConversation(sourceId: sourceId, targetId: firstConversation.id)
+    }
+}
+
+/// Drop delegate for reordering conversations within a grouped (non-schedule) section.
+/// Uses section-local index comparison for drop indicator direction.
+struct GroupedReorderDropDelegate: DropDelegate {
+    let targetConversation: ConversationModel
+    let groupId: String?
+    let sidebar: SidebarInteractionState
+    let conversationManager: ConversationManager
+
+    func validateDrop(info: DropInfo) -> Bool {
+        guard let dragId = sidebar.draggingConversationId,
+              dragId != targetConversation.id
+        else { return false }
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        return DropProposal(operation: .move)
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard let dragId = sidebar.draggingConversationId,
+              dragId != targetConversation.id
+        else { return }
+
+        sidebar.dropTargetConversationId = targetConversation.id
+        // Use section-local index for direction detection (not global visibleConversations)
+        let groupConversations = conversationManager.groupedConversations
+            .first { $0.group?.id == groupId }?.conversations ?? []
+        let sIdx = groupConversations.firstIndex(where: { $0.id == dragId }) ?? 0
+        let tIdx = groupConversations.firstIndex(where: { $0.id == targetConversation.id }) ?? 0
+        sidebar.dropIndicatorAtBottom = sIdx < tIdx
+    }
+
+    func dropExited(info: DropInfo) {
+        if sidebar.dropTargetConversationId == targetConversation.id {
+            sidebar.dropTargetConversationId = nil
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let sourceId = sidebar.draggingConversationId
+        sidebar.dropTargetConversationId = nil
+        sidebar.draggingConversationId = nil
+        guard let sourceId = sourceId, sourceId != targetConversation.id else { return false }
+        return conversationManager.moveConversation(sourceId: sourceId, targetId: targetConversation.id)
+    }
+}
+
+/// ViewModifier that conditionally attaches a SidebarSectionHeaderDropDelegate
+/// to a section header when sidebar and conversationManager are available.
+struct SectionHeaderDropModifier: ViewModifier {
+    let group: ConversationGroup
+    let sidebar: SidebarInteractionState?
+    let conversationManager: ConversationManager?
+
+    func body(content: Content) -> some View {
+        if let sidebar, let conversationManager {
+            content.onDrop(of: [.plainText], delegate: SidebarSectionHeaderDropDelegate(
+                groupId: group.id,
+                group: group,
+                sidebar: sidebar,
+                conversationManager: conversationManager
+            ))
+        } else {
+            content
+        }
     }
 }

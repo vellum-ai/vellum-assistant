@@ -189,9 +189,11 @@ extension MainWindowView {
                     if isTargeted && conversation.id != sidebar.draggingConversationId {
                         sidebar.dropTargetConversationId = conversation.id
                         if let dragId = sidebar.draggingConversationId {
-                            let visible = conversationManager.visibleConversations
-                            let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
-                            let tIdx = visible.firstIndex(where: { $0.id == conversation.id }) ?? 0
+                            // Use section-local index (ungrouped conversations only)
+                            let ungroupedConvs = conversationManager.groupedConversations
+                                .first { $0.group == nil }?.conversations ?? []
+                            let sIdx = ungroupedConvs.firstIndex(where: { $0.id == dragId }) ?? 0
+                            let tIdx = ungroupedConvs.firstIndex(where: { $0.id == conversation.id }) ?? 0
                             sidebar.dropIndicatorAtBottom = sIdx < tIdx
                         }
                     } else if !isTargeted && sidebar.dropTargetConversationId == conversation.id {
