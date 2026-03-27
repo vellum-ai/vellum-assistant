@@ -413,7 +413,7 @@ final class MessageListScrollCoordinator: ObservableObject {
         // Reset follow state for the new conversation.
         isFollowingBottom = true
         isNearBottomBinding?.wrappedValue = true
-        pushToTopMessageId = nil
+        if pushToTopMessageId != nil { pushToTopMessageId = nil }
         isAtBottom = true
         hasReceivedScrollEvent = false
         // Hide scroll indicators during the conversation switch grace period

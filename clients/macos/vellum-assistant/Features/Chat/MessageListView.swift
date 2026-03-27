@@ -770,7 +770,8 @@ struct MessageListView: View {
                     // User-initiated scrolls that land at the bottom exit
                     // push-to-top. Programmatic scrolls (.animating) are
                     // excluded to avoid undoing the initial push-to-top.
-                    if oldPhase == .interacting || oldPhase == .decelerating {
+                    if oldPhase == .interacting || oldPhase == .decelerating,
+                       scrollCoordinator.pushToTopMessageId != nil {
                         scrollCoordinator.pushToTopMessageId = nil
                     }
                     scrollCoordinator.handleScrollToBottom()
