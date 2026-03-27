@@ -177,6 +177,11 @@ extension MainWindowView {
             selectConversation: { selectConversation(conversation) },
             onSelect: onSelect,
             onTogglePin: {
+                // Clear hover state before pin/unpin — the conversation will move to
+                // a different section, destroying the current view. Without clearing,
+                // isHoveredConversation stays stuck (no hover-out event from destroyed view)
+                // and the conversation shows hover state in its new section.
+                sidebar.isHoveredConversation = nil
                 // Look up current pin state from the live conversations array,
                 // not the captured struct value (which may be stale).
                 let currentlyPinned = conversationManager.conversations
