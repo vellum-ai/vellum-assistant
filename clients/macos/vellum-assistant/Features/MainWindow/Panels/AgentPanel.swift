@@ -6,13 +6,26 @@ import VellumAssistantShared
 private enum SkillFilter: String, CaseIterable {
     case all = "All"
     case installed = "Installed"
+    case available = "Available"
+    case vellum = "Vellum"
+    case openclaw = "OpenClaw"
+    case managed = "Managed"
+    case userMade = "User Made"
 
     var icon: VIcon {
         switch self {
-        case .all: return .circle
+        case .all: return .layoutGrid
         case .installed: return .circleCheck
+        case .available: return .arrowDownToLine
+        case .vellum: return .package
+        case .openclaw: return .globe
+        case .managed: return .briefcase
+        case .userMade: return .sparkles
         }
     }
+
+    static var statusFilters: [SkillFilter] { [.all, .installed, .available] }
+    static var sourceFilters: [SkillFilter] { [.vellum, .openclaw, .managed, .userMade] }
 }
 
 // MARK: - Agent Panel Content (embeddable)
@@ -163,7 +176,7 @@ struct AgentPanelContent: View {
         HStack(spacing: VSpacing.sm) {
             VSearchBar(placeholder: "Search Skills", text: $globalSkillSearchQuery)
             skillFilterDropdown
-                .frame(width: 130)
+                .frame(width: 150)
         }
     }
 
@@ -190,36 +203,48 @@ struct AgentPanelContent: View {
         .accessibilityLabel("Skill filter: \(skillFilter.rawValue)")
         .popover(isPresented: $showSkillFilterPopover, arrowEdge: .bottom) {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(SkillFilter.allCases, id: \.self) { filter in
-                    Button {
-                        withAnimation(VAnimation.fast) { skillFilter = filter }
-                        showSkillFilterPopover = false
-                    } label: {
-                        HStack(spacing: VSpacing.sm) {
-                            VIconView(filter.icon, size: 14)
-                                .foregroundStyle(VColor.contentDefault)
-                                .frame(width: 20)
-                            Text(filter.rawValue)
-                                .font(VFont.bodyMediumLighter)
-                                .foregroundStyle(VColor.contentDefault)
-                            Spacer()
-                            if skillFilter == filter {
-                                VIconView(.check, size: 12)
-                                    .foregroundStyle(VColor.primaryBase)
-                            }
-                        }
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.sm)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(filter.rawValue) skills")
-                    .accessibilityAddTraits(skillFilter == filter ? .isSelected : [])
+                // Status filters
+                ForEach(SkillFilter.statusFilters, id: \.self) { filter in
+                    filterRow(filter)
+                }
+                Divider()
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.xs)
+                // Source filters
+                ForEach(SkillFilter.sourceFilters, id: \.self) { filter in
+                    filterRow(filter)
                 }
             }
             .padding(.vertical, VSpacing.sm)
             .frame(width: 180)
         }
+    }
+
+    private func filterRow(_ filter: SkillFilter) -> some View {
+        Button {
+            withAnimation(VAnimation.fast) { skillFilter = filter }
+            showSkillFilterPopover = false
+        } label: {
+            HStack(spacing: VSpacing.sm) {
+                VIconView(filter.icon, size: 14)
+                    .foregroundStyle(VColor.contentDefault)
+                    .frame(width: 20)
+                Text(filter.rawValue)
+                    .font(VFont.bodyMediumLighter)
+                    .foregroundStyle(VColor.contentDefault)
+                Spacer()
+                if skillFilter == filter {
+                    VIconView(.check, size: 12)
+                        .foregroundStyle(VColor.primaryBase)
+                }
+            }
+            .padding(.horizontal, VSpacing.md)
+            .padding(.vertical, VSpacing.sm)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(filter.rawValue) skills")
+        .accessibilityAddTraits(skillFilter == filter ? .isSelected : [])
     }
 
     // MARK: - Category Sidebar
@@ -259,10 +284,15 @@ struct AgentPanelContent: View {
     // MARK: - Filtering
 
     private var userSkills: [SkillInfo] {
-        if skillFilter == .all {
-            return skillsManager.skills
+        switch skillFilter {
+        case .all: return skillsManager.skills
+        case .installed: return skillsManager.skills.filter { $0.isInstalled }
+        case .available: return skillsManager.skills.filter { $0.isAvailable }
+        case .vellum: return skillsManager.skills.filter { $0.source == "bundled" }
+        case .openclaw: return skillsManager.skills.filter { $0.source == "clawhub" }
+        case .managed: return skillsManager.skills.filter { $0.source == "managed" }
+        case .userMade: return skillsManager.skills.filter { $0.source == "workspace" }
         }
-        return skillsManager.skills.filter { $0.isInstalled }
     }
 
     /// Skills filtered by search query only.
@@ -295,6 +325,50 @@ struct AgentPanelContent: View {
         }
     }
 
+    // MARK: - Empty State
+
+    private var emptyStateTitle: String {
+        if let category = selectedCategory {
+            return "No \(category.displayName) Skills"
+        }
+        switch skillFilter {
+        case .all: return "No Skills Available"
+        case .installed: return "No Skills Installed"
+        case .available: return "No Skills Available"
+        case .vellum: return "No Vellum Skills"
+        case .openclaw: return "No OpenClaw Skills"
+        case .managed: return "No Managed Skills"
+        case .userMade: return "No User Made Skills"
+        }
+    }
+
+    private var emptyStateSubtitle: String {
+        if selectedCategory != nil {
+            return "Try selecting a different category or clearing the filter."
+        }
+        switch skillFilter {
+        case .all: return "Check your connection to the Vellum catalog."
+        case .installed: return "Ask your assistant in chat to search for and install new skills."
+        case .available: return "All available skills have been installed."
+        case .vellum: return "No bundled Vellum skills found."
+        case .openclaw: return "No OpenClaw skills found. Try installing some from the catalog."
+        case .managed: return "No managed skills found for your organization."
+        case .userMade: return "Create a custom skill by describing what you want in chat."
+        }
+    }
+
+    private var emptyStateIcon: String {
+        switch skillFilter {
+        case .all: return VIcon.cloudOff.rawValue
+        case .installed: return VIcon.zap.rawValue
+        case .available: return VIcon.circleCheck.rawValue
+        case .vellum: return VIcon.package.rawValue
+        case .openclaw: return VIcon.globe.rawValue
+        case .managed: return VIcon.briefcase.rawValue
+        case .userMade: return VIcon.sparkles.rawValue
+        }
+    }
+
     // MARK: - Content View
 
     @ViewBuilder
@@ -322,15 +396,9 @@ struct AgentPanelContent: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if filteredSkills.isEmpty {
             VEmptyState(
-                title: skillFilter == .all
-                    ? "No Skills Available"
-                    : (selectedCategory == nil ? "No Skills Installed" : "No \(selectedCategory!.displayName) Skills"),
-                subtitle: skillFilter == .all
-                    ? "Check your connection to the Vellum catalog."
-                    : (selectedCategory == nil
-                        ? "Ask your assistant in chat to search for and install new skills."
-                        : "Try selecting a different category or clearing the filter."),
-                icon: skillFilter == .all ? VIcon.cloudOff.rawValue : VIcon.zap.rawValue
+                title: emptyStateTitle,
+                subtitle: emptyStateSubtitle,
+                icon: emptyStateIcon
             )
         } else {
             ScrollView {
