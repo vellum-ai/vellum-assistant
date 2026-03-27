@@ -11,6 +11,13 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Setti
 /// UserDefaults key for tracking explicit key deletions that may not have reached the daemon.
 private let kPendingKeyDeletionTombstones = "pendingKeyDeletionTombstones"
 
+// KVO-compatible accessor for scoped observation via publisher(for:).
+extension UserDefaults {
+    @objc dynamic var connectedAssistantId: String? {
+        string(forKey: "connectedAssistantId")
+    }
+}
+
 /// Single source of truth for settings state shared between `SettingsPanel`
 /// (main window side panel) and its extracted tab views.
 @MainActor
@@ -307,10 +314,6 @@ public final class SettingsStore: ObservableObject {
     /// Cached at init and auto-refreshed when `connectedAssistantId` changes.
     private var isCurrentAssistantDocker: Bool = false
 
-    /// Tracks the last-seen `connectedAssistantId` so we only refresh
-    /// assistant type flags when the value actually changes.
-    private var lastKnownAssistantId: String?
-
     /// Guards against stale `get` responses overwriting an optimistic
     /// toggle. Set when `setIngressEnabled` fires; cleared once a matching
     /// response arrives.
@@ -572,18 +575,12 @@ public final class SettingsStore: ObservableObject {
         // Twilio config is now handled via HTTP — no callback wiring needed.
 
         // Auto-refresh assistant type flags when connectedAssistantId changes.
-        // This covers all write sites (assistant switch, sign-in, retire, managed
-        // bootstrap, transfer, logout) without scattering calls across files.
-        self.lastKnownAssistantId = snapshot["connectedAssistantId"] as? String
-        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
-            .receive(on: RunLoop.main)
+        // Uses scoped KVO publisher per AGENTS.md (not didChangeNotification).
+        UserDefaults.standard.publisher(for: \.connectedAssistantId)
+            .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
+            .removeDuplicates()
             .sink { [weak self] _ in
-                guard let self else { return }
-                let current = UserDefaults.standard.string(forKey: "connectedAssistantId")
-                if current != self.lastKnownAssistantId {
-                    self.lastKnownAssistantId = current
-                    self.refreshAssistantTypeFlags()
-                }
+                self?.refreshAssistantTypeFlags()
             }
             .store(in: &cancellables)
     }

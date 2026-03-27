@@ -649,7 +649,12 @@ final class AvatarAppearanceManager {
     /// so non-square images are centered rather than stretched.
     nonisolated static func resizedImage(_ source: NSImage, to size: CGFloat) -> NSImage {
         let targetSize = NSSize(width: size, height: size)
-        let intSize = Int(size)
+        // Render at 2x pixels so the image is crisp on Retina displays.
+        // All modern Macs are Retina (2x). We use a constant rather than
+        // NSScreen.main?.backingScaleFactor because this function is
+        // nonisolated and may run off the main thread.
+        let scaleFactor = 2
+        let intSize = Int(size) * scaleFactor
 
         // Extract a CGImage from the source for thread-safe CoreGraphics resize.
         guard let srcCG = source.cgImage(
@@ -696,6 +701,8 @@ final class AvatarAppearanceManager {
         guard let resizedCG = ctx.makeImage() else {
             return NSImage(size: targetSize)
         }
+        // NSImage wraps the 2x-pixel CGImage with point-size dimensions,
+        // giving the correct pixel-to-point ratio for Retina rendering.
         return NSImage(cgImage: resizedCG, size: targetSize)
     }
 
