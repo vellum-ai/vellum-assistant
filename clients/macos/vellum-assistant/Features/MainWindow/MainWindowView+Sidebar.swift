@@ -219,13 +219,13 @@ extension MainWindowView {
                         },
                         onCommitRename: group.isSystemGroup ? nil : { newName in
                             sidebar.renamingGroupId = nil
-                            Task { @MainActor in await conversationManager.renameGroup(group.id, name: newName) }
+                            Task<Void, Never> { await conversationManager.renameGroup(group.id, name: newName) }
                         },
                         onCancelRename: group.isSystemGroup ? nil : {
                             sidebar.renamingGroupId = nil
                         },
                         onDelete: group.isSystemGroup ? nil : {
-                            Task { @MainActor in await conversationManager.deleteGroup(group.id) }
+                            Task<Void, Never> { await conversationManager.deleteGroup(group.id) }
                         },
                         onToggleExpand: { sidebar.toggleSection(group.id) },
                         onToggleShowAll: { sidebar.toggleShowAll(group.id) },
@@ -245,7 +245,7 @@ extension MainWindowView {
             }
 
             Button {
-                Task { @MainActor in
+                Task<Void, Never> {
                     if let group = await conversationManager.createGroup(name: "New Group") {
                         sidebar.expandedSections.insert(group.id)
                         sidebar.renamingGroupId = group.id
