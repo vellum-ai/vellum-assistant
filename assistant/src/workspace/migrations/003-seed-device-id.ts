@@ -5,6 +5,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { getDeviceIdBaseDir } from "../../util/device-id.js";
@@ -37,11 +38,12 @@ export const seedDeviceIdMigration: WorkspaceMigration = {
     }
 
     // b. Read the lockfile to find an existing installationId.
-    //    Check both the current and legacy lockfile paths to support installs
-    //    that haven't migrated the filename yet.
+    //    The lockfile is always under the user's home directory, never under
+    //    BASE_DATA_DIR. Check both the current and legacy filenames.
+    const home = homedir();
     const lockCandidates = [
-      join(base, ".vellum.lock.json"),
-      join(base, ".vellum.lockfile.json"),
+      join(home, ".vellum.lock.json"),
+      join(home, ".vellum.lockfile.json"),
     ];
 
     let lockData: Record<string, unknown> | undefined;

@@ -10,6 +10,7 @@ const writeFileSyncFn = mock(
   (_path: string, _data: string, _opts?: object) => {},
 );
 const mkdirSyncFn = mock((_path: string, _opts?: object) => {});
+const homedirFn = mock((): string => "/mock-home");
 const getDeviceIdBaseDirFn = mock((): string => "/mock-home");
 
 // ---------------------------------------------------------------------------
@@ -21,6 +22,10 @@ mock.module("node:fs", () => ({
   readFileSync: readFileSyncFn,
   writeFileSync: writeFileSyncFn,
   mkdirSync: mkdirSyncFn,
+}));
+
+mock.module("node:os", () => ({
+  homedir: homedirFn,
 }));
 
 mock.module("../util/device-id.js", () => ({
@@ -63,6 +68,7 @@ describe("003-seed-device-id migration", () => {
     readFileSyncFn.mockClear();
     writeFileSyncFn.mockClear();
     mkdirSyncFn.mockClear();
+    homedirFn.mockReturnValue("/mock-home");
     getDeviceIdBaseDirFn.mockReturnValue("/mock-home");
   });
 
@@ -265,16 +271,17 @@ describe("003-seed-device-id migration", () => {
     expect(parsed.deviceId).toBe("install-legacy");
   });
 
-  test("respects BASE_DATA_DIR override via getDeviceIdBaseDir", () => {
+  test("reads lockfile from homedir even when getDeviceIdBaseDir differs", () => {
     const customBase = "/custom-base";
     getDeviceIdBaseDirFn.mockReturnValue(customBase);
+    homedirFn.mockReturnValue("/mock-home");
 
-    const customLockPath = `${customBase}/.vellum.lock.json`;
     const customDevicePath = `${customBase}/.vellum/device.json`;
 
-    existsSyncFn.mockImplementation((path: string) => path === customLockPath);
+    // Lockfile is at homedir, NOT at customBase
+    existsSyncFn.mockImplementation((path: string) => path === LOCK_PATH);
     readFileSyncFn.mockImplementation((path: string, _enc: string) => {
-      if (path === customLockPath) {
+      if (path === LOCK_PATH) {
         return makeLockfile([
           {
             name: "custom",
@@ -294,9 +301,38 @@ describe("003-seed-device-id migration", () => {
       string,
       object,
     ];
+    // device.json is written under getDeviceIdBaseDir, not homedir
     expect(path).toBe(customDevicePath);
     const parsed = JSON.parse(data);
     expect(parsed.deviceId).toBe("install-custom");
+  });
+
+  test("ignores lockfile under getDeviceIdBaseDir when it differs from homedir", () => {
+    const customBase = "/custom-base";
+    getDeviceIdBaseDirFn.mockReturnValue(customBase);
+    homedirFn.mockReturnValue("/mock-home");
+
+    // Only a lockfile under customBase exists — should be ignored since
+    // the migration always reads the lockfile from homedir().
+    const customLockPath = `${customBase}/.vellum.lock.json`;
+    existsSyncFn.mockImplementation((path: string) => path === customLockPath);
+    readFileSyncFn.mockImplementation((path: string, _enc: string) => {
+      if (path === customLockPath) {
+        return makeLockfile([
+          {
+            name: "custom",
+            installationId: "install-custom",
+            hatchedAt: "2025-01-01T00:00:00Z",
+          },
+        ]);
+      }
+      throw new Error(`ENOENT: ${path}`);
+    });
+
+    seedDeviceIdMigration.run(WORKSPACE_DIR);
+
+    // No lockfile found at homedir, so no device.json is written
+    expect(writeFileSyncFn).not.toHaveBeenCalled();
   });
 
   test("entries without hatchedAt are treated as oldest", () => {
