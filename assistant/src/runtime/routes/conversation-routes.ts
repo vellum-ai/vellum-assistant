@@ -1333,7 +1333,7 @@ async function generateLlmSuggestion(
   const truncated =
     assistantText.length > 2000 ? assistantText.slice(-2000) : assistantText;
 
-  const prompt = `Given this assistant message, write a very short tab-complete suggestion the user could send next to keep the conversation going. Be casual, curious, or actionable — like a quick reply, not a formal request. Reply with ONLY the suggestion text.\n\nAssistant's message:\n${truncated}`;
+  const prompt = `Given this assistant message, write a very short tab-complete suggestion the user could send next. Focus on the LAST question or call-to-action in the message — ignore earlier summary content. Be casual, curious, or actionable — like a quick reply, not a formal request. Reply with ONLY the suggestion text.\n\nAssistant's message:\n${truncated}`;
   const response = await provider.sendMessage(
     [{ role: "user", content: [{ type: "text", text: prompt }] }],
     [], // no tools

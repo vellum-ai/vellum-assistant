@@ -102,8 +102,8 @@ describe("AssistantConfigSchema", () => {
     expect(result.services["web-search"].mode).toBe("your-own");
     expect(result.maxTokens).toBe(16000);
     expect(result.thinking).toEqual({
-      enabled: false,
-      streamThinking: false,
+      enabled: true,
+      streamThinking: true,
     });
     expect(result.contextWindow).toEqual({
       enabled: true,
@@ -1021,8 +1021,8 @@ describe("loadConfig with schema validation", () => {
     expect(config.services.inference.model).toBe("claude-opus-4-6");
     expect(config.maxTokens).toBe(16000);
     expect(config.thinking).toEqual({
-      enabled: false,
-      streamThinking: false,
+      enabled: true,
+      streamThinking: true,
     });
     expect(config.contextWindow).toEqual({
       enabled: true,

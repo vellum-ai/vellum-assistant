@@ -127,6 +127,8 @@ public final class ChatViewModel: ObservableObject {
     public let attachmentManager = ChatAttachmentManager()
     /// Owns errorText, conversationError, and connection-diagnostic properties.
     public let errorManager = ChatErrorManager()
+    /// Owns empty-state greeting and conversation starter properties.
+    public let greetingState = ChatGreetingState()
 
     private var cancellables: Set<AnyCancellable> = []
 
@@ -205,6 +207,48 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    // MARK: - @Observable → ObservableObject bridge for ChatBtwState
+
+    /// Recursively observe all tracked properties on the @Observable
+    /// ChatBtwState and forward changes into ChatViewModel's
+    /// ObservableObject objectWillChange via the coalesced publish path.
+    private func observeBtwState() {
+        withObservationTracking {
+            _ = btwState.btwResponse
+            _ = btwState.btwLoading
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scheduleCoalescedPublish()
+                #if DEBUG
+                self?.trackPublish(source: "btwState")
+                #endif
+                self?.observeBtwState() // re-arm
+            }
+        }
+    }
+
+    // MARK: - @Observable → ObservableObject bridge for ChatGreetingState
+
+    /// Recursively observe all tracked properties on the @Observable
+    /// ChatGreetingState and forward changes into ChatViewModel's
+    /// ObservableObject objectWillChange via the coalesced publish path.
+    private func observeGreetingState() {
+        withObservationTracking {
+            _ = greetingState.emptyStateGreeting
+            _ = greetingState.isGeneratingGreeting
+            _ = greetingState.conversationStarters
+            _ = greetingState.conversationStartersLoading
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scheduleCoalescedPublish()
+                #if DEBUG
+                self?.trackPublish(source: "greetingState")
+                #endif
+                self?.observeGreetingState() // re-arm
+            }
+        }
+    }
+
     // MARK: - Debug publish-rate counters
 
     private static let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
@@ -216,6 +260,8 @@ public final class ChatViewModel: ObservableObject {
     private var messageManagerPublishCount = 0
     private var attachmentManagerPublishCount = 0
     private var errorManagerPublishCount = 0
+    private var btwStatePublishCount = 0
+    private var greetingStatePublishCount = 0
     private var lastRateLogTime = Date()
 
     private func trackPublish(source: String) {
@@ -224,19 +270,23 @@ public final class ChatViewModel: ObservableObject {
         case "messageManager": messageManagerPublishCount += 1
         case "attachmentManager": attachmentManagerPublishCount += 1
         case "errorManager": errorManagerPublishCount += 1
+        case "btwState": btwStatePublishCount += 1
+        case "greetingState": greetingStatePublishCount += 1
         default: break
         }
         let now = Date()
         if now.timeIntervalSince(lastRateLogTime) >= 5 {
             os_log(
                 .debug, log: Self.perfLog,
-                "ChatViewModel publish rate: %d/5s (msg=%d, attach=%d, err=%d)",
-                publishCount, messageManagerPublishCount, attachmentManagerPublishCount, errorManagerPublishCount
+                "ChatViewModel publish rate: %d/5s (msg=%d, attach=%d, err=%d, btw=%d, greet=%d)",
+                publishCount, messageManagerPublishCount, attachmentManagerPublishCount, errorManagerPublishCount, btwStatePublishCount, greetingStatePublishCount
             )
             publishCount = 0
             messageManagerPublishCount = 0
             attachmentManagerPublishCount = 0
             errorManagerPublishCount = 0
+            btwStatePublishCount = 0
+            greetingStatePublishCount = 0
             lastRateLogTime = now
         }
     }
@@ -555,8 +605,8 @@ public final class ChatViewModel: ObservableObject {
     private let settingsClient: any SettingsClientProtocol
     private let surfaceClient: any SurfaceClientProtocol = SurfaceClient()
     private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
-    private let conversationStarterClient: any ConversationStarterClientProtocol = ConversationStarterClient()
     private let btwClient: any BtwClientProtocol = BtwClient()
+    let btwState: ChatBtwState
     let interactionClient: any InteractionClientProtocol
     let surfaceActionClient: any SurfaceActionClientProtocol = SurfaceActionClient()
     private let trustRuleClient: any TrustRuleClientProtocol = TrustRuleClient()
@@ -847,37 +897,29 @@ public final class ChatViewModel: ObservableObject {
     /// send `hasMore` in the history response.
     @Published public var hasMoreHistory: Bool = false
 
-    // MARK: - BTW Side-Chain State
+    // MARK: - BTW Side-Chain State (forwarded from ChatBtwState)
 
     /// The accumulated response text from a /btw side-chain query, or nil when inactive.
-    @Published public var btwResponse: String?
+    public var btwResponse: String? { btwState.btwResponse }
     /// True while a /btw request is in flight.
-    @Published public var btwLoading: Bool = false
-    /// The in-flight btw streaming task, stored for cancellation.
-    private var btwTask: Task<Void, Never>?
+    public var btwLoading: Bool { btwState.btwLoading }
 
-    // MARK: - Empty-State Greeting
+    // MARK: - Forwarding properties — ChatGreetingState
 
-    /// A daemon-generated greeting shown when the conversation is empty, or nil before generation.
-    @Published public var emptyStateGreeting: String? = nil
-    /// True while a greeting is being streamed from the daemon.
-    @Published public var isGeneratingGreeting: Bool = false
-    /// The in-flight greeting streaming task, stored for cancellation.
-    private var greetingTask: Task<Void, Never>?
-
-    // MARK: - Conversation Starters
-
-    /// Personalized suggestion chips shown on the empty conversation page.
-    @Published public var conversationStarters: [ConversationStarter] = []
-    @Published public var conversationStartersLoading: Bool = false
-
-    private static let fallbackGreetings = [
-        "What are we working on?",
-        "I'm here whenever you need me.",
-        "What's on your mind?",
-        "Let's make something happen.",
-        "Ready when you are.",
-    ]
+    public var emptyStateGreeting: String? {
+        get { greetingState.emptyStateGreeting }
+        set { greetingState.emptyStateGreeting = newValue }
+    }
+    public var isGeneratingGreeting: Bool {
+        greetingState.isGeneratingGreeting
+    }
+    public var conversationStarters: [ConversationStarter] {
+        get { greetingState.conversationStarters }
+        set { greetingState.conversationStarters = newValue }
+    }
+    public var conversationStartersLoading: Bool {
+        greetingState.conversationStartersLoading
+    }
 
     /// Whether there are more messages above the current display window.
     /// True when either:
@@ -1139,6 +1181,9 @@ public final class ChatViewModel: ObservableObject {
         self.interactionClient = interactionClient
         self.onToolCallsComplete = onToolCallsComplete
 
+        // Initialize BTW side-chain state as a self-contained @Observable.
+        self.btwState = ChatBtwState(btwClient: btwClient)
+
         // Coalesce sub-manager objectWillChange signals through a single
         // delayed publish. During streaming, sub-managers may fire dozens of
         // objectWillChange events per second (each @Published property
@@ -1187,6 +1232,10 @@ public final class ChatViewModel: ObservableObject {
         // withObservationTracking so views that read error state through
         // ChatViewModel's computed forwarding properties still update.
         observeErrorManager()
+        // ChatBtwState is @Observable — same bridge pattern.
+        observeBtwState()
+        // ChatGreetingState is @Observable — same bridge pattern.
+        observeGreetingState()
 
         // Surface attachment validation errors in the error manager so the UI
         // can show them without the attachment manager needing a direct reference.
@@ -1552,131 +1601,30 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    // MARK: - BTW Side-Chain
+    // MARK: - BTW Side-Chain (forwarded to ChatBtwState)
 
     /// Send a /btw side-chain question and stream the response into `btwResponse`.
     public func sendBtwMessage(question: String) {
-        guard !question.isEmpty else { return }
-
-        // Cancel any in-flight btw task to prevent interleaved deltas.
-        btwTask?.cancel()
-
-        btwLoading = true
-        btwResponse = ""
-
-        btwTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                let stream = self.btwClient.sendMessage(
-                    content: question,
-                    conversationKey: self.conversationId ?? ""
-                )
-                for try await delta in stream {
-                    guard !Task.isCancelled else { return }
-                    self.btwResponse = (self.btwResponse ?? "") + delta
-                }
-            } catch is CancellationError {
-                // Stream was cancelled via dismiss — no error to show.
-            } catch {
-                guard !Task.isCancelled else { return }
-                self.btwResponse = "Failed to get response: \(error.localizedDescription)"
-            }
-            guard !Task.isCancelled else { return }
-            self.btwLoading = false
-        }
+        btwState.sendBtwMessage(question: question, conversationKey: conversationId ?? "")
     }
 
     /// Clear btw side-chain state and cancel any in-flight stream.
     public func dismissBtw() {
-        btwTask?.cancel()
-        btwTask = nil
-        btwResponse = nil
-        btwLoading = false
+        btwState.dismissBtw()
     }
 
-    // MARK: - Empty-State Greeting Generation
+    // MARK: - Forwarding methods — ChatGreetingState
 
-    /// Stream a short, personality-matched greeting from the daemon for the empty conversation state.
-    /// Each call cancels any in-flight generation and starts fresh. On error, falls back to a
-    /// random default greeting so the UI always receives a value.
     public func generateGreeting() {
-        greetingTask?.cancel()
-        emptyStateGreeting = nil
-        isGeneratingGreeting = true
-
-        greetingTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let key = "greeting"
-            var result = ""
-            do {
-                let stream = self.btwClient.sendMessage(
-                    content: "Generate a short, casual greeting in your voice from you to your user. This will be displayed when the user opens a new conversation (under 8 words). Match your personality. Output ONLY the greeting text — no quotes, no formatting.",
-                    conversationKey: key
-                )
-                for try await delta in stream {
-                    guard !Task.isCancelled else { return }
-                    result += delta
-                }
-                guard !Task.isCancelled else { return }
-                self.emptyStateGreeting = result.isEmpty
-                    ? Self.fallbackGreetings.randomElement()!
-                    : result
-            } catch is CancellationError {
-                return
-            } catch {
-                guard !Task.isCancelled else { return }
-                self.emptyStateGreeting = Self.fallbackGreetings.randomElement()!
-            }
-            self.isGeneratingGreeting = false
-        }
+        greetingState.generateGreeting()
     }
 
-    /// Clear greeting state and cancel any in-flight generation.
     public func dismissGreeting() {
-        greetingTask?.cancel()
-        greetingTask = nil
-        emptyStateGreeting = nil
-        isGeneratingGreeting = false
+        greetingState.dismissGreeting()
     }
 
-    private var conversationStarterPollTask: Task<Void, Never>?
-
-    /// Fetch personalized conversation starters from the daemon for the empty conversation state.
     public func fetchConversationStarters() {
-        conversationStarterPollTask?.cancel()
-        conversationStarterPollTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let response = await self.conversationStarterClient.fetchConversationStarters(limit: 4)
-            guard !Task.isCancelled else { return }
-
-            if let response, !response.starters.isEmpty {
-                self.conversationStarters = response.starters
-                self.conversationStartersLoading = false
-                return
-            }
-
-            if response?.status == "generating" {
-                self.conversationStartersLoading = true
-                // Poll every 3 seconds until ready
-                while !Task.isCancelled {
-                    try? await Task.sleep(nanoseconds: 3_000_000_000)
-                    guard !Task.isCancelled else { return }
-                    let poll = await self.conversationStarterClient.fetchConversationStarters(limit: 4)
-                    guard !Task.isCancelled else { return }
-                    if let poll, !poll.starters.isEmpty {
-                        self.conversationStarters = poll.starters
-                        self.conversationStartersLoading = false
-                        return
-                    }
-                    if poll?.status != "generating" {
-                        self.conversationStartersLoading = false
-                        return
-                    }
-                }
-            } else {
-                self.conversationStartersLoading = false
-            }
-        }
+        greetingState.fetchConversationStarters()
     }
 
     private func bootstrapConversation(userMessage: String?, attachments: [UserMessageAttachment]?) {
@@ -3347,8 +3295,8 @@ public final class ChatViewModel: ObservableObject {
         // so they will exit naturally when self is deallocated.
         reconnectLatchTimeoutTask?.cancel()
         reconnectDebounceTask?.cancel()
-        btwTask?.cancel()
-        greetingTask?.cancel()
+        // btwTask cancellation is handled by ChatBtwState's deinit.
+        greetingState.cancelAll()
         sendingWatchdogTask?.cancel()
         memoryPressureSource?.cancel()
         if let observer = reconnectObserver {

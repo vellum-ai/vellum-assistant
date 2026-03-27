@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:vellum-assistant}/clients",
+            "name": "Debug vellum-assistant (clients)",
+            "target": "vellum-assistant",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug vellum-assistant (clients)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:vellum-assistant}/clients",
+            "name": "Release vellum-assistant (clients)",
+            "target": "vellum-assistant",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release vellum-assistant (clients)"
+        }
+    ]
+}

@@ -12,13 +12,13 @@ export const ThinkingConfigSchema = z
   .object({
     enabled: z
       .boolean({ error: "thinking.enabled must be a boolean" })
-      .default(false)
+      .default(true)
       .describe(
         "Whether to enable extended thinking (chain-of-thought) for the model",
       ),
     streamThinking: z
       .boolean({ error: "thinking.streamThinking must be a boolean" })
-      .default(false)
+      .default(true)
       .describe(
         "Whether to stream the model's thinking tokens to the client in real time",
       ),
@@ -29,7 +29,7 @@ export const EffortSchema = z
   .enum(["low", "medium", "high", "max"], {
     error: 'effort must be "low", "medium", "high", or "max"',
   })
-  .default("high")
+  .default("max")
   .describe(
     "How much effort the model should put into its response — lower effort is faster and cheaper",
   );
