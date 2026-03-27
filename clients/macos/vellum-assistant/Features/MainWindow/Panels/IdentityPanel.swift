@@ -6,6 +6,7 @@ struct IdentityPanel: View {
     let connectionManager: GatewayConnectionManager
     var onNavigateToSkill: ((String) -> Void)?
     var onNavigateToFile: ((String) -> Void)?
+    var onNavigateToMemory: ((String) -> Void)?
     var identityClient: IdentityClientProtocol = IdentityClient()
     private let btwClient: any BtwClientProtocol = BtwClient()
     var workspaceClient: WorkspaceClientProtocol = WorkspaceClient()
@@ -187,6 +188,7 @@ struct IdentityPanel: View {
                 },
                 onNavigateToSkill: onNavigateToSkill,
                 onNavigateToFile: onNavigateToFile,
+                onNavigateToMemory: onNavigateToMemory,
                 isFullscreen: $isFullscreen
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
