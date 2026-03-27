@@ -1347,10 +1347,13 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     func deleteGroup(_ groupId: String) async {
         guard let idx = groups.firstIndex(where: { $0.id == groupId }),
               !groups[idx].isSystemGroup else { return }
-        for i in conversations.indices where conversations[i].groupId == groupId {
-            conversations[i].groupId = nil
-            conversations[i].displayOrder = nil
+        // Batch-mutate a copy to avoid per-element SwiftUI re-renders
+        var updated = conversations
+        for i in updated.indices where updated[i].groupId == groupId {
+            updated[i].groupId = nil
+            updated[i].displayOrder = nil
         }
+        conversations = updated
         groups.remove(at: idx)
         _ = await groupClient.deleteGroup(groupId: groupId)
         sendReorderConversations()

@@ -351,6 +351,9 @@ extension MainWindowView {
                                     sidebar.renamingGroupId = nil
                                     Task { await conversationManager.renameGroup(group.id, name: newName) }
                                 },
+                                onCancelRename: group.isSystemGroup ? nil : {
+                                    sidebar.renamingGroupId = nil
+                                },
                                 onDelete: group.isSystemGroup ? nil : {
                                     Task { await conversationManager.deleteGroup(group.id) }
                                 },
@@ -383,7 +386,7 @@ extension MainWindowView {
                         }
                     } label: {
                         HStack {
-                            Image(systemName: "plus")
+                            VIconView(.plus, size: 12)
                             Text("New Group")
                         }
                         .font(.caption)

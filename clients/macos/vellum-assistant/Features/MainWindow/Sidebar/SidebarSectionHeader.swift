@@ -17,6 +17,7 @@ struct SidebarSectionHeader: View {
     var onToggleExpand: () -> Void
     var onRename: ((String) -> Void)?           // M5: enters rename mode (nil for system groups)
     var onCommitRename: ((String) -> Void)?     // M5: commits the rename (nil for system groups)
+    var onCancelRename: (() -> Void)?           // M5: cancels rename without persisting (Escape key)
     var onDelete: (() -> Void)?                 // M5: nil for system groups
 
     @FocusState private var isRenameFocused: Bool
@@ -37,8 +38,8 @@ struct SidebarSectionHeader: View {
                 .focused($isRenameFocused)
                 .onAppear { isRenameFocused = true }
                 .onExitCommand {
-                    // Cancel rename on Escape — parent clears renamingGroupId
-                    onCommitRename?(group.name)
+                    // Cancel rename on Escape — discard edits without API call
+                    onCancelRename?()
                 }
             } else {
                 Text(group.name)

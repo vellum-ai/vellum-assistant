@@ -32,7 +32,8 @@ struct SidebarConversationItem: View, Equatable {
         lhs.conversation == rhs.conversation &&
         lhs.isSelected == rhs.isSelected &&
         lhs.interactionState == rhs.interactionState &&
-        lhs.isHovered == rhs.isHovered
+        lhs.isHovered == rhs.isHovered &&
+        lhs.moveToGroups == rhs.moveToGroups
     }
 
     /// The conversation's current group (if any), used for "Remove from group" visibility.
