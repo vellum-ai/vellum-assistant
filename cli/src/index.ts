@@ -15,6 +15,7 @@ import { rollback } from "./commands/rollback";
 import { setup } from "./commands/setup";
 import { sleep } from "./commands/sleep";
 import { ssh } from "./commands/ssh";
+import { teleport } from "./commands/teleport";
 import { tunnel } from "./commands/tunnel";
 import { upgrade } from "./commands/upgrade";
 import { use } from "./commands/use";
@@ -44,6 +45,7 @@ const commands = {
   setup,
   sleep,
   ssh,
+  teleport,
   tunnel,
   upgrade,
   use,
@@ -76,6 +78,7 @@ function printHelp(): void {
   console.log("  setup    Configure API keys interactively");
   console.log("  sleep    Stop the assistant process");
   console.log("  ssh      SSH into a remote assistant instance");
+  console.log("  teleport Transfer assistant data between environments");
   console.log("  tunnel   Create a tunnel for a locally hosted assistant");
   console.log("  upgrade  Upgrade an assistant to a newer version");
   console.log("  use      Set the active assistant for commands");
