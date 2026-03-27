@@ -122,7 +122,7 @@ struct SidebarSectionView: View {
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .fill(VColor.contentTertiary.opacity(0.06))
                 )
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .transition(.opacity)
             }
         } else {
             // Ungrouped -- no header, render conversations directly
