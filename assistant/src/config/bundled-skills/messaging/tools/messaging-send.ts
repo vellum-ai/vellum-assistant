@@ -9,10 +9,17 @@ import {
   listMessages,
 } from "../../../../messaging/providers/gmail/client.js";
 import { buildMultipartMime } from "../../../../messaging/providers/gmail/mime-builder.js";
+import {
+  addMessage,
+  getConversation,
+} from "../../../../memory/conversation-crud.js";
+import { syncMessageToDisk } from "../../../../memory/conversation-disk-view.js";
+import { getBindingByChannelChat } from "../../../../memory/external-conversation-store.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { getLogger } from "../../../../util/logger.js";
 import { guessMimeType } from "./gmail-mime-helpers.js";
 import {
   err,
@@ -23,6 +30,8 @@ import {
   parseAddressList,
   resolveProvider,
 } from "./shared.js";
+
+const log = getLogger("messaging-send");
 
 export async function run(
   input: Record<string, unknown>,
@@ -219,6 +228,34 @@ export async function run(
     const threadSuffix = result.threadId
       ? `, "thread_id": "${result.threadId}"`
       : "";
+
+    // Cross-post to the conversation bound to this channel so replies have context.
+    try {
+      const binding = getBindingByChannelChat(provider.id, conversationId);
+      if (binding && binding.conversationId !== context.conversationId) {
+        const boundConv = getConversation(binding.conversationId);
+        if (boundConv) {
+          const crossPosted = await addMessage(
+            binding.conversationId,
+            "assistant",
+            text,
+            { automated: true, crossPostedFrom: context.conversationId },
+            { skipIndexing: true },
+          );
+          syncMessageToDisk(
+            binding.conversationId,
+            crossPosted.id,
+            boundConv.createdAt,
+          );
+        }
+      }
+    } catch (e) {
+      log.warn(
+        { err: e, provider: provider.id, externalChatId: conversationId },
+        "Failed to cross-post outbound message to bound conversation",
+      );
+    }
+
     return ok(`Message sent (ID: ${result.id}${threadSuffix}).`);
   } catch (e) {
     return err(e instanceof Error ? e.message : String(e));
