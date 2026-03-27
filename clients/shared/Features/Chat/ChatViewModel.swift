@@ -205,6 +205,26 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    // MARK: - @Observable → ObservableObject bridge for ChatBtwState
+
+    /// Recursively observe all tracked properties on the @Observable
+    /// ChatBtwState and forward changes into ChatViewModel's
+    /// ObservableObject objectWillChange via the coalesced publish path.
+    private func observeBtwState() {
+        withObservationTracking {
+            _ = btwState.btwResponse
+            _ = btwState.btwLoading
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scheduleCoalescedPublish()
+                #if DEBUG
+                self?.trackPublish(source: "btwState")
+                #endif
+                self?.observeBtwState() // re-arm
+            }
+        }
+    }
+
     // MARK: - Debug publish-rate counters
 
     private static let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
@@ -557,6 +577,7 @@ public final class ChatViewModel: ObservableObject {
     private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
     private let conversationStarterClient: any ConversationStarterClientProtocol = ConversationStarterClient()
     private let btwClient: any BtwClientProtocol = BtwClient()
+    let btwState: ChatBtwState
     let interactionClient: any InteractionClientProtocol
     let surfaceActionClient: any SurfaceActionClientProtocol = SurfaceActionClient()
     private let trustRuleClient: any TrustRuleClientProtocol = TrustRuleClient()
@@ -847,14 +868,12 @@ public final class ChatViewModel: ObservableObject {
     /// send `hasMore` in the history response.
     @Published public var hasMoreHistory: Bool = false
 
-    // MARK: - BTW Side-Chain State
+    // MARK: - BTW Side-Chain State (forwarded from ChatBtwState)
 
     /// The accumulated response text from a /btw side-chain query, or nil when inactive.
-    @Published public var btwResponse: String?
+    public var btwResponse: String? { btwState.btwResponse }
     /// True while a /btw request is in flight.
-    @Published public var btwLoading: Bool = false
-    /// The in-flight btw streaming task, stored for cancellation.
-    private var btwTask: Task<Void, Never>?
+    public var btwLoading: Bool { btwState.btwLoading }
 
     // MARK: - Empty-State Greeting
 
@@ -1139,6 +1158,9 @@ public final class ChatViewModel: ObservableObject {
         self.interactionClient = interactionClient
         self.onToolCallsComplete = onToolCallsComplete
 
+        // Initialize BTW side-chain state as a self-contained @Observable.
+        self.btwState = ChatBtwState(btwClient: btwClient)
+
         // Coalesce sub-manager objectWillChange signals through a single
         // delayed publish. During streaming, sub-managers may fire dozens of
         // objectWillChange events per second (each @Published property
@@ -1187,6 +1209,8 @@ public final class ChatViewModel: ObservableObject {
         // withObservationTracking so views that read error state through
         // ChatViewModel's computed forwarding properties still update.
         observeErrorManager()
+        // ChatBtwState is @Observable — same bridge pattern.
+        observeBtwState()
 
         // Surface attachment validation errors in the error manager so the UI
         // can show them without the attachment manager needing a direct reference.
@@ -1552,46 +1576,16 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    // MARK: - BTW Side-Chain
+    // MARK: - BTW Side-Chain (forwarded to ChatBtwState)
 
     /// Send a /btw side-chain question and stream the response into `btwResponse`.
     public func sendBtwMessage(question: String) {
-        guard !question.isEmpty else { return }
-
-        // Cancel any in-flight btw task to prevent interleaved deltas.
-        btwTask?.cancel()
-
-        btwLoading = true
-        btwResponse = ""
-
-        btwTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                let stream = self.btwClient.sendMessage(
-                    content: question,
-                    conversationKey: self.conversationId ?? ""
-                )
-                for try await delta in stream {
-                    guard !Task.isCancelled else { return }
-                    self.btwResponse = (self.btwResponse ?? "") + delta
-                }
-            } catch is CancellationError {
-                // Stream was cancelled via dismiss — no error to show.
-            } catch {
-                guard !Task.isCancelled else { return }
-                self.btwResponse = "Failed to get response: \(error.localizedDescription)"
-            }
-            guard !Task.isCancelled else { return }
-            self.btwLoading = false
-        }
+        btwState.sendBtwMessage(question: question, conversationKey: conversationId ?? "")
     }
 
     /// Clear btw side-chain state and cancel any in-flight stream.
     public func dismissBtw() {
-        btwTask?.cancel()
-        btwTask = nil
-        btwResponse = nil
-        btwLoading = false
+        btwState.dismissBtw()
     }
 
     // MARK: - Empty-State Greeting Generation
@@ -3333,7 +3327,7 @@ public final class ChatViewModel: ObservableObject {
         // so they will exit naturally when self is deallocated.
         reconnectLatchTimeoutTask?.cancel()
         reconnectDebounceTask?.cancel()
-        btwTask?.cancel()
+        // btwTask cancellation is handled by ChatBtwState's deinit.
         greetingTask?.cancel()
         sendingWatchdogTask?.cancel()
         memoryPressureSource?.cancel()
