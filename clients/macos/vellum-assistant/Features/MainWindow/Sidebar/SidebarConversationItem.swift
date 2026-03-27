@@ -23,12 +23,28 @@ struct SidebarConversationItem: View, Equatable {
     var onDragStart: () -> Void
     var onOpenInNewWindow: (() -> Void)?
     var onShowFeedback: (() -> Void)?
+    /// Available groups for the "Move to" submenu. Excludes the conversation's current group.
+    var moveToGroups: [ConversationGroup] = []
+    /// Moves the conversation to the specified group (nil = ungrouped).
+    var onMoveToGroup: ((String?) -> Void)? = nil
 
     static func == (lhs: SidebarConversationItem, rhs: SidebarConversationItem) -> Bool {
         lhs.conversation == rhs.conversation &&
         lhs.isSelected == rhs.isSelected &&
         lhs.interactionState == rhs.interactionState &&
         lhs.isHovered == rhs.isHovered
+    }
+
+    /// The conversation's current group (if any), used for "Remove from group" visibility.
+    private var moveToCurrentGroup: ConversationGroup? {
+        guard let gid = conversation.groupId else { return nil }
+        // The moveToGroups list excludes the current group, so check all system groups + search moveToGroups
+        // by looking at the conversation's groupId against known groups.
+        if gid == ConversationGroup.pinned.id { return ConversationGroup.pinned }
+        if gid == ConversationGroup.scheduled.id { return ConversationGroup.scheduled }
+        if gid == ConversationGroup.background.id { return ConversationGroup.background }
+        // Custom group — not in moveToGroups (it's filtered out), but we know it's non-system
+        return ConversationGroup(id: gid, name: "", sortPosition: 0, isSystemGroup: false)
     }
 
     @State private var isMenuOpen: Bool = false
@@ -54,6 +70,26 @@ struct SidebarConversationItem: View, Equatable {
             onMarkUnread()
         }
         .disabled(!canMarkUnread)
+
+        if !moveToGroups.isEmpty, let onMoveToGroup {
+            Menu("Move to") {
+                ForEach(moveToGroups) { group in
+                    Button(group.name) {
+                        onMoveToGroup(group.id)
+                    }
+                }
+                // "Remove from group" only for custom groups — system groups have dedicated
+                // actions (Pin/Unpin for Pinned; Scheduled/Background are provenance-assigned).
+                if conversation.groupId != nil,
+                   let currentGroup = moveToCurrentGroup,
+                   !currentGroup.isSystemGroup {
+                    Divider()
+                    Button("Remove from group") {
+                        onMoveToGroup(nil)
+                    }
+                }
+            }
+        }
 
         if let onOpenInNewWindow {
             VMenuItem(icon: VIcon.externalLink.rawValue, label: "Open in New Window") {

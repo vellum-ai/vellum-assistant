@@ -55,6 +55,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Tracks the number of rows already fetched from the daemon so pagination
     /// offsets stay correct even when the client filters out some conversations.
     private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
+    /// Concrete client for group CRUD operations (not on the protocol).
+    private let groupClient = ConversationListClient()
     var serverOffset: Int = 0
     @Published var activeConversationId: UUID? {
         didSet {
@@ -1324,23 +1326,43 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
     }
 
-    // MARK: - Group CRUD (stubs for M5)
+    // MARK: - Group CRUD
 
     func createGroup(name: String) async -> ConversationGroup? {
-        // TODO: M5 — call server to create group, return created group
-        return nil
+        // sort_position is server-authoritative: server assigns max(custom sort_position) + 1.
+        // Client just sends name; server returns the group with its assigned sort_position.
+        guard let response = await groupClient.createGroup(name: name) else { return nil }
+        let group = ConversationGroup(from: response)
+        groups.append(group)
+        return group
     }
 
     func renameGroup(_ groupId: String, name: String) async {
-        // TODO: M5 — call server to rename group
+        guard let idx = groups.firstIndex(where: { $0.id == groupId }),
+              !groups[idx].isSystemGroup else { return }
+        groups[idx].name = name
+        _ = await groupClient.updateGroup(groupId: groupId, name: name, sortPosition: nil)
     }
 
     func deleteGroup(_ groupId: String) async {
-        // TODO: M5 — call server to delete group, move conversations to ungrouped
+        guard let idx = groups.firstIndex(where: { $0.id == groupId }),
+              !groups[idx].isSystemGroup else { return }
+        for i in conversations.indices where conversations[i].groupId == groupId {
+            conversations[i].groupId = nil
+            conversations[i].displayOrder = nil
+        }
+        groups.remove(at: idx)
+        _ = await groupClient.deleteGroup(groupId: groupId)
+        sendReorderConversations()
     }
 
     func reorderGroups(_ updates: [(groupId: String, sortPosition: Double)]) async {
-        // TODO: M5 — call server to reorder groups
+        for update in updates {
+            if let idx = groups.firstIndex(where: { $0.id == update.groupId }) {
+                groups[idx].sortPosition = update.sortPosition
+            }
+        }
+        _ = await groupClient.reorderGroups(updates: updates)
     }
 
     /// Merge groups from a conversation list response into the local groups array.

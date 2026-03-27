@@ -152,7 +152,16 @@ extension MainWindowView {
             } : nil,
             onShowFeedback: conversation.conversationId != nil && !LogExporter.isManagedAssistant ? {
                 AppDelegate.shared?.showLogReportWindow(scope: .conversation(conversationId: conversation.conversationId!, conversationTitle: conversation.title))
-            } : nil
+            } : nil,
+            moveToGroups: conversationManager.groups.filter { $0.id != conversation.groupId },
+            onMoveToGroup: { targetGroupId in
+                if let targetGroupId, targetGroupId == ConversationGroup.pinned.id {
+                    // Route through pinConversation to get correct bottom-append ordering.
+                    conversationManager.pinConversation(id: conversation.id)
+                } else {
+                    conversationManager.moveConversationToGroup(conversation.id, groupId: targetGroupId)
+                }
+            }
         )
     }
 
@@ -329,11 +338,22 @@ extension MainWindowView {
                                 countMode: group.id == ConversationGroup.scheduled.id
                                     ? .subGroups(grouper: { $0.scheduleJobId })
                                     : .items,
-                                isRenaming: false,
-                                renamingName: .constant(""),
-                                onRename: nil,
-                                onCommitRename: nil,
-                                onDelete: nil,
+                                isRenaming: sidebar.renamingGroupId == group.id,
+                                renamingName: Binding(
+                                    get: { sidebar.renamingGroupName },
+                                    set: { sidebar.renamingGroupName = $0 }
+                                ),
+                                onRename: group.isSystemGroup ? nil : { name in
+                                    sidebar.renamingGroupId = group.id
+                                    sidebar.renamingGroupName = name
+                                },
+                                onCommitRename: group.isSystemGroup ? nil : { newName in
+                                    sidebar.renamingGroupId = nil
+                                    Task { await conversationManager.renameGroup(group.id, name: newName) }
+                                },
+                                onDelete: group.isSystemGroup ? nil : {
+                                    Task { await conversationManager.deleteGroup(group.id) }
+                                },
                                 onToggleExpand: { sidebar.toggleSection(group.id) },
                                 onToggleShowAll: { sidebar.toggleShowAll(group.id) },
                                 makeRow: { makeSidebarRow(conversation: $0) },
@@ -351,6 +371,26 @@ extension MainWindowView {
                             ungroupedConversationRows(entry.conversations)
                         }
                     }
+
+                    // "New Group" button below last group section
+                    Button {
+                        Task {
+                            if let group = await conversationManager.createGroup(name: "New Group") {
+                                sidebar.expandedSections.insert(group.id)
+                                sidebar.renamingGroupId = group.id
+                                sidebar.renamingGroupName = group.name
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "plus")
+                            Text("New Group")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, VSpacing.xs)
                 }
             }
             .scrollIndicators(.never)
