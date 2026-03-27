@@ -230,6 +230,26 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    // MARK: - @Observable → ObservableObject bridge for ChatBtwState
+
+    /// Recursively observe all tracked properties on the @Observable
+    /// ChatBtwState and forward changes into ChatViewModel's
+    /// ObservableObject objectWillChange via the coalesced publish path.
+    private func observeBtwState() {
+        withObservationTracking {
+            _ = btwState.btwResponse
+            _ = btwState.btwLoading
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scheduleCoalescedPublish()
+                #if DEBUG
+                self?.trackPublish(source: "btwState")
+                #endif
+                self?.observeBtwState() // re-arm
+            }
+        }
+    }
+
     // MARK: - Debug publish-rate counters
 
     private static let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
@@ -582,6 +602,7 @@ public final class ChatViewModel: ObservableObject {
     private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
     private let conversationStarterClient: any ConversationStarterClientProtocol = ConversationStarterClient()
     private let btwClient: any BtwClientProtocol = BtwClient()
+    let btwState: ChatBtwState
     let interactionClient: any InteractionClientProtocol
     let surfaceActionClient: any SurfaceActionClientProtocol = SurfaceActionClient()
     private let trustRuleClient: any TrustRuleClientProtocol = TrustRuleClient()
@@ -855,14 +876,12 @@ public final class ChatViewModel: ObservableObject {
         set { paginationState.hasMoreHistory = newValue }
     }
 
-    // MARK: - BTW Side-Chain State
+    // MARK: - BTW Side-Chain State (forwarded from ChatBtwState)
 
     /// The accumulated response text from a /btw side-chain query, or nil when inactive.
-    @Published public var btwResponse: String?
+    public var btwResponse: String? { btwState.btwResponse }
     /// True while a /btw request is in flight.
-    @Published public var btwLoading: Bool = false
-    /// The in-flight btw streaming task, stored for cancellation.
-    private var btwTask: Task<Void, Never>?
+    public var btwLoading: Bool { btwState.btwLoading }
 
     // MARK: - Empty-State Greeting
 
@@ -1089,9 +1108,13 @@ public final class ChatViewModel: ObservableObject {
             messageManager: messageManager
         )
 
-        // Set the conversationId provider after init so the closure can
-        // capture `self` weakly — Swift requires all stored properties to be
-        // initialized before `self` is available.
+        // Initialize BTW side-chain state as a self-contained @Observable.
+        self.btwState = ChatBtwState(btwClient: btwClient)
+
+        // Set the conversationId provider after all stored properties are
+        // initialized so the closure can capture `self` weakly — Swift
+        // requires all stored properties to be initialized before `self`
+        // is available.
         paginationState.conversationIdProvider = { [weak self] in self?.conversationId }
 
         // Coalesce sub-manager objectWillChange signals through a single
@@ -1128,6 +1151,8 @@ public final class ChatViewModel: ObservableObject {
         // withObservationTracking so views that read pagination state through
         // ChatViewModel's computed forwarding properties still update.
         observePaginationState()
+        // ChatBtwState is @Observable — same bridge pattern.
+        observeBtwState()
 
         // Surface attachment validation errors in the error manager so the UI
         // can show them without the attachment manager needing a direct reference.
@@ -1493,46 +1518,16 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    // MARK: - BTW Side-Chain
+    // MARK: - BTW Side-Chain (forwarded to ChatBtwState)
 
     /// Send a /btw side-chain question and stream the response into `btwResponse`.
     public func sendBtwMessage(question: String) {
-        guard !question.isEmpty else { return }
-
-        // Cancel any in-flight btw task to prevent interleaved deltas.
-        btwTask?.cancel()
-
-        btwLoading = true
-        btwResponse = ""
-
-        btwTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                let stream = self.btwClient.sendMessage(
-                    content: question,
-                    conversationKey: self.conversationId ?? ""
-                )
-                for try await delta in stream {
-                    guard !Task.isCancelled else { return }
-                    self.btwResponse = (self.btwResponse ?? "") + delta
-                }
-            } catch is CancellationError {
-                // Stream was cancelled via dismiss — no error to show.
-            } catch {
-                guard !Task.isCancelled else { return }
-                self.btwResponse = "Failed to get response: \(error.localizedDescription)"
-            }
-            guard !Task.isCancelled else { return }
-            self.btwLoading = false
-        }
+        btwState.sendBtwMessage(question: question, conversationKey: conversationId ?? "")
     }
 
     /// Clear btw side-chain state and cancel any in-flight stream.
     public func dismissBtw() {
-        btwTask?.cancel()
-        btwTask = nil
-        btwResponse = nil
-        btwLoading = false
+        btwState.dismissBtw()
     }
 
     // MARK: - Empty-State Greeting Generation
@@ -1945,22 +1940,13 @@ public final class ChatViewModel: ObservableObject {
 
     // MARK: - Surface Refetch
 
-    /// Lazily created manager that serializes surface content fetches.
-    private lazy var surfaceRefetchManager = SurfaceRefetchManager { [weak self] surfaceId, conversationId in
-        guard let self else { return nil }
-        return await self.surfaceClient.fetchSurfaceData(surfaceId: surfaceId, conversationId: conversationId)
-    }
-
-    /// In-flight refetch tasks, keyed by surface ID for cancellation.
-    private var refetchTasks: [String: Task<Void, Never>] = [:]
-
-    /// Re-fetch the full payload for a stripped surface and replace it in the message list.
-    public func refetchStrippedSurface(surfaceId: String, conversationId: String) {
-        guard refetchTasks[surfaceId] == nil else { return }
-        refetchTasks[surfaceId] = Task { @MainActor [weak self] in
-            defer { self?.refetchTasks.removeValue(forKey: surfaceId) }
+    private lazy var surfaceRefetchCoordinator = SurfaceRefetchCoordinator(
+        surfaceRefetchManager: SurfaceRefetchManager { [weak self] surfaceId, conversationId in
+            guard let self else { return nil }
+            return await self.surfaceClient.fetchSurfaceData(surfaceId: surfaceId, conversationId: conversationId)
+        },
+        applyResult: { [weak self] surfaceId, result in
             guard let self else { return }
-            let result = await self.surfaceRefetchManager.enqueue(surfaceId: surfaceId, conversationId: conversationId)
             for msgIndex in self.messages.indices {
                 if let surfIndex = self.messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == surfaceId }) {
                     if let data = result.data {
@@ -1975,14 +1961,10 @@ public final class ChatViewModel: ObservableObject {
                 }
             }
         }
-    }
+    )
 
-    /// Cancel all in-flight surface refetch tasks and reset the manager's
-    /// failure counts so surfaces can be retried in the new conversation.
-    private func cancelRefetchTasks() {
-        for task in refetchTasks.values { task.cancel() }
-        refetchTasks.removeAll()
-        Task { await surfaceRefetchManager.resetFailureCounts() }
+    public func refetchStrippedSurface(surfaceId: String, conversationId: String) {
+        surfaceRefetchCoordinator.refetchStrippedSurface(surfaceId: surfaceId, conversationId: conversationId)
     }
 
     /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
@@ -2796,20 +2778,6 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    /// Parse string-encoded content order entries ("text:0", "tool:1", "surface:0")
-    /// into ContentBlockRef values.
-    nonisolated private static func parseContentOrder(_ strings: [String]) -> [ContentBlockRef] {
-        strings.compactMap { str in
-            let parts = str.split(separator: ":", maxSplits: 1)
-            guard parts.count == 2, let idx = Int(parts[1]) else { return nil }
-            switch parts[0] {
-            case "text": return .text(idx)
-            case "tool": return .toolCall(idx)
-            case "surface": return .surface(idx)
-            default: return nil
-            }
-        }
-    }
 
     /// Ask the daemon for a follow-up suggestion for the current conversation.
     func fetchSuggestion() {
@@ -2866,7 +2834,7 @@ public final class ChatViewModel: ObservableObject {
         // mapping, image decoding) is isolated in a pure function that accesses
         // no @MainActor state, enabling future background execution.
         let convId = self.conversationId
-        let result = Self.reconstructMessages(from: historyMessages, conversationId: convId)
+        let result = HistoryReconstructionService.reconstructMessages(from: historyMessages, conversationId: convId)
         let chatMessages = result.messages
         let reconstructedSubagents = result.subagents
 
@@ -2915,7 +2883,7 @@ public final class ChatViewModel: ObservableObject {
         // or appending text to a stale currentAssistantMessageId.
         discardStreamingBuffer()
         discardPartialOutputBuffer()
-        cancelRefetchTasks()
+        surfaceRefetchCoordinator.cancelRefetchTasks()
         currentAssistantMessageId = nil
         currentAssistantHasText = false
         lastContentWasToolCall = false
@@ -2991,245 +2959,6 @@ public final class ChatViewModel: ObservableObject {
         os_signpost(.end, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "path=initial messages=%d", chatMessages.count)
     }
 
-    // MARK: - Off-Main History Reconstruction
-
-    /// Result of reconstructing ChatMessages from history response items.
-    struct HistoryReconstructionResult {
-        let messages: [ChatMessage]
-        let subagents: [SubagentInfo]
-    }
-
-    /// Reconstructs ChatMessage and SubagentInfo arrays from raw history items.
-    /// This method is nonisolated and accesses no @MainActor state, so it can
-    /// be called from a background context. Images are decoded eagerly via
-    /// `ToolCallData.decodeImage` and stored in `cachedImage` for display.
-    nonisolated static func reconstructMessages(
-        from historyMessages: [HistoryResponseMessage],
-        conversationId: String?
-    ) -> HistoryReconstructionResult {
-        var chatMessages: [ChatMessage] = []
-        var reconstructedSubagents: [SubagentInfo] = []
-        var spawnParentMap: [String: UUID] = [:]
-
-        for item in historyMessages {
-            let role: ChatRole = item.role == "assistant" ? .assistant : .user
-            var toolCalls: [ToolCallData] = []
-            let toolsBeforeText = item.toolCallsBeforeText ?? true
-            if let historyToolCalls = item.toolCalls {
-                toolCalls = historyToolCalls.map { tc in
-                    // Decode image eagerly — pass imageData:nil to init to skip
-                    // its internal decode, then set cachedImage directly below.
-                    var toolCall = ToolCallData(
-                        toolName: tc.name,
-                        inputSummary: Self.summarizeToolInputStatic(tc.input),
-                        inputFull: "",
-                        inputRawValue: Self.extractToolInputStatic(tc.input),
-                        result: tc.result,
-                        isError: tc.isError ?? false,
-                        isComplete: true,
-                        arrivedBeforeText: toolsBeforeText,
-                        imageData: nil
-                    )
-                    // Decode image eagerly — NSImage/UIImage init from Data is
-                    // thread-safe and the views expect cachedImage to be populated.
-                    toolCall.cachedImage = ToolCallData.decodeImage(from: tc.imageData)
-                    toolCall.reasonDescription = (tc.input["activity"]?.value as? String)
-                        ?? (tc.input["reason"]?.value as? String)
-                        ?? (tc.input["reasoning"]?.value as? String)
-                    if let startMs = tc.startedAt {
-                        toolCall.startedAt = Date(timeIntervalSince1970: Double(startMs) / 1000.0)
-                    }
-                    if let endMs = tc.completedAt {
-                        toolCall.completedAt = Date(timeIntervalSince1970: Double(endMs) / 1000.0)
-                    }
-                    if let decision = tc.confirmationDecision {
-                        switch decision {
-                        case "approved": toolCall.confirmationDecision = .approved
-                        case "denied": toolCall.confirmationDecision = .denied
-                        case "timed_out": toolCall.confirmationDecision = .timedOut
-                        default: break
-                        }
-                    }
-                    toolCall.confirmationLabel = tc.confirmationLabel
-                    let input = tc.input
-                    let estimatedSize: Int = (try? JSONSerialization.data(withJSONObject: input.mapValues { $0.value ?? NSNull() }))?.count ?? 0
-                    if estimatedSize > 10_000 {
-                        let formatted = ToolCallData.formatAllToolInput(input)
-                        toolCall.inputFull = formatted
-                        toolCall.inputFullLength = formatted.count
-                    } else {
-                        toolCall.inputRawDict = input
-                    }
-                    return toolCall
-                }
-            }
-            let attachments: [ChatAttachment] = mapMessageAttachmentsStatic(item.attachments ?? [])
-
-            var inlineSurfaces: [InlineSurfaceData] = []
-            if let historySurfaces = item.surfaces {
-                for surf in historySurfaces {
-                    if let conversationId,
-                       let surface = Surface.from(surf, conversationId: conversationId) {
-                        let appId: String? = {
-                            if case .dynamicPage(let dpData) = surface.data {
-                                return dpData.appId
-                            }
-                            return nil
-                        }()
-                        let ref = SurfaceRef(
-                            surfaceId: surf.surfaceId,
-                            conversationId: conversationId,
-                            surfaceType: surf.surfaceType,
-                            title: surf.title,
-                            appId: appId
-                        )
-                        let inlineSurface = InlineSurfaceData(
-                            id: surface.id,
-                            surfaceType: surface.type,
-                            title: surface.title,
-                            data: surface.data,
-                            actions: surface.actions,
-                            surfaceRef: ref
-                        )
-                        inlineSurfaces.append(inlineSurface)
-                    }
-                }
-            }
-
-            if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty && inlineSurfaces.isEmpty { continue }
-            let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
-
-            var chatMsg: ChatMessage
-            if let dbId = item.id, let uuid = UUID(uuidString: dbId) {
-                chatMsg = ChatMessage(id: uuid, role: role, text: item.text, timestamp: timestamp, attachments: attachments, toolCalls: toolCalls)
-            } else {
-                chatMsg = ChatMessage(role: role, text: item.text, timestamp: timestamp, attachments: attachments, toolCalls: toolCalls)
-            }
-
-            chatMsg.daemonMessageId = item.id
-            chatMsg.wasTruncated = item.wasTruncated ?? false
-            for i in chatMsg.attachments.indices {
-                chatMsg.attachments[i].data = ""
-            }
-            chatMsg.inlineSurfaces = inlineSurfaces
-            if let segments = item.textSegments {
-                chatMsg.textSegments = segments
-            }
-            if let orderStrings = item.contentOrder {
-                chatMsg.contentOrder = Self.parseContentOrder(orderStrings)
-            }
-
-            if role == .assistant {
-                for tc in toolCalls where tc.toolName == "subagent_spawn" {
-                    if let result = tc.result,
-                       let data = result.data(using: .utf8),
-                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let spawnedId = json["subagentId"] as? String {
-                        spawnParentMap[spawnedId] = chatMsg.id
-                    }
-                }
-            }
-
-            if let notification = item.subagentNotification {
-                var info = SubagentInfo(
-                    id: notification.subagentId,
-                    label: notification.label,
-                    status: SubagentStatus(wire: notification.status),
-                    parentMessageId: spawnParentMap[notification.subagentId],
-                    conversationId: notification.conversationId
-                )
-                info.error = notification.error
-                reconstructedSubagents.append(info)
-                chatMsg.isSubagentNotification = true
-            }
-
-            chatMessages.append(chatMsg)
-        }
-
-        return HistoryReconstructionResult(messages: chatMessages, subagents: reconstructedSubagents)
-    }
-
-    /// Static version of summarizeToolInput for use in nonisolated context.
-    nonisolated static func summarizeToolInputStatic(_ input: [String: AnyCodable]) -> String {
-        let str = extractToolInputStatic(input)
-        return str.count > 80 ? String(str.prefix(77)) + "..." : str
-    }
-
-    /// Static version of extractToolInput for use in nonisolated context.
-    nonisolated static func extractToolInputStatic(_ input: [String: AnyCodable]) -> String {
-        let key: String
-        let value: AnyCodable
-        if let match = toolInputPriorityKeys.first(where: { input[$0] != nil }),
-           let v = input[match] {
-            key = match
-            value = v
-        } else if let firstKey = input.keys.sorted().first, let v = input[firstKey] {
-            key = firstKey
-            value = v
-        } else {
-            return ""
-        }
-        if isSensitiveKey(key) {
-            return "[redacted]"
-        }
-        if let s = value.value as? String {
-            return s
-        } else if let encoder = try? JSONEncoder().encode(value),
-                  let json = String(data: encoder, encoding: .utf8) {
-            return json
-        } else {
-            return String(describing: value.value ?? "")
-        }
-    }
-
-    /// Static version of mapMessageAttachments for use in nonisolated context.
-    nonisolated static func mapMessageAttachmentsStatic(_ attachments: [UserMessageAttachment]) -> [ChatAttachment] {
-        attachments.compactMap { attachment in
-            let id = attachment.id ?? UUID().uuidString
-            let base64 = attachment.data
-            let dataLength = base64.count
-            let sizeBytes: Int? = attachment.sizeBytes.flatMap { Int(exactly: $0) }
-
-            var thumbnailData: Data?
-            #if os(macOS)
-            var thumbnailImage: NSImage?
-            #elseif os(iOS)
-            var thumbnailImage: UIImage?
-            #else
-            #error("Unsupported platform")
-            #endif
-
-            if attachment.mimeType.hasPrefix("image/"), !base64.isEmpty, let rawData = Data(base64Encoded: base64) {
-                thumbnailData = Self.generateThumbnail(from: rawData, maxDimension: 120)
-                #if os(macOS)
-                thumbnailImage = thumbnailData.flatMap { NSImage(data: $0) }
-                #elseif os(iOS)
-                thumbnailImage = thumbnailData.flatMap { UIImage(data: $0) }
-                #endif
-            } else if let serverThumb = attachment.thumbnailData, !serverThumb.isEmpty,
-                      let thumbData = Data(base64Encoded: serverThumb) {
-                thumbnailData = thumbData
-                #if os(macOS)
-                thumbnailImage = NSImage(data: thumbData)
-                #elseif os(iOS)
-                thumbnailImage = UIImage(data: thumbData)
-                #endif
-            }
-
-            return ChatAttachment(
-                id: id,
-                filename: attachment.filename,
-                mimeType: attachment.mimeType,
-                data: base64,
-                thumbnailData: thumbnailData,
-                dataLength: dataLength,
-                sizeBytes: sizeBytes,
-                thumbnailImage: thumbnailImage,
-                filePath: attachment.filePath,
-                sourceType: attachment.sourceType
-            )
-        }
-    }
 
     private func applyHistoryResponseMarkers(to chatMessages: inout [ChatMessage]) -> Bool {
         var hasModelCommand = false
@@ -3280,15 +3009,14 @@ public final class ChatViewModel: ObservableObject {
         partialOutputFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
         paginationState.loadMoreTimeoutTask?.cancel()
-        for task in refetchTasks.values { task.cancel() }
-        refetchTasks.removeAll()
+        // surfaceRefetchCoordinator is released with self; its deinit cancels tasks.
         // refinementFailureDismissTask and refinementFlushTask are accessed via
         // @MainActor computed properties (forwarded from ChatMessageManager), which
         // cannot be referenced from nonisolated deinit. Both tasks use [weak self],
         // so they will exit naturally when self is deallocated.
         reconnectLatchTimeoutTask?.cancel()
         reconnectDebounceTask?.cancel()
-        btwTask?.cancel()
+        // btwTask cancellation is handled by ChatBtwState's deinit.
         greetingTask?.cancel()
         sendingWatchdogTask?.cancel()
         memoryPressureSource?.cancel()

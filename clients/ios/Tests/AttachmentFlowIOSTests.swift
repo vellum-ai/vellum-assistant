@@ -181,13 +181,13 @@ final class AttachmentFlowIOSTests: XCTestCase {
 
     func testGenerateThumbnailReturnsDataForValidImage() {
         let pngData = makeMinimalPNGData()
-        let thumbnail = ChatViewModel.generateThumbnail(from: pngData, maxDimension: 120)
+        let thumbnail = HistoryReconstructionService.generateThumbnail(from: pngData, maxDimension: 120)
         XCTAssertNotNil(thumbnail, "Should generate a thumbnail from valid PNG data")
     }
 
     func testGenerateThumbnailReturnsNilForInvalidData() {
         let invalidData = Data([0x00, 0x01, 0x02, 0x03])
-        let thumbnail = ChatViewModel.generateThumbnail(from: invalidData, maxDimension: 120)
+        let thumbnail = HistoryReconstructionService.generateThumbnail(from: invalidData, maxDimension: 120)
         XCTAssertNil(thumbnail, "Should return nil for non-image data")
     }
 
