@@ -1,6 +1,15 @@
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - Preference Keys
+
+private struct PopoverSizeKey: PreferenceKey {
+    static var defaultValue: CGSize = CGSize(width: 250, height: 120)
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        value = nextValue()
+    }
+}
+
 // MARK: - Skill Category
 
 enum SkillCategory: String, CaseIterable {
@@ -702,6 +711,7 @@ struct ConstellationView: View {
     @State private var baseZoomScale: CGFloat = 1.0
     @State private var selectedSkillItem: OrbitItem?
     @State private var selectedNodeId: String?
+    @State private var popoverSize: CGSize = CGSize(width: 250, height: 120)
     @State private var zoomedNodeId: String?
 
     // Node sizes
@@ -975,14 +985,23 @@ struct ConstellationView: View {
                         let rawX = viewCenter.x + (nodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
                         let rawY = viewCenter.y + (nodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
 
-                        // Clamp so the popover stays within visible bounds
-                        let popoverW: CGFloat = 250
-                        let popoverH: CGFloat = 120
+                        // Clamp so the popover stays within visible bounds using measured size
                         let margin: CGFloat = VSpacing.sm
-                        let clampedX = min(max(rawX, popoverW / 2 + margin), proxy.size.width - popoverW / 2 - margin)
-                        let clampedY = min(max(rawY, popoverH / 2 + margin), proxy.size.height - popoverH / 2 - margin)
+                        let clampedX = min(max(rawX, popoverSize.width / 2 + margin), proxy.size.width - popoverSize.width / 2 - margin)
+                        let clampedY = min(max(rawY, popoverSize.height / 2 + margin), proxy.size.height - popoverSize.height / 2 - margin)
 
                         SkillPopoverView(item: selected)
+                            .background(
+                                GeometryReader { popoverProxy in
+                                    Color.clear.preference(
+                                        key: PopoverSizeKey.self,
+                                        value: popoverProxy.size
+                                    )
+                                }
+                            )
+                            .onPreferenceChange(PopoverSizeKey.self) { size in
+                                popoverSize = size
+                            }
                             .position(x: clampedX, y: clampedY)
                             .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
