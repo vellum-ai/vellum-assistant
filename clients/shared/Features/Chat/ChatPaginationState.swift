@@ -61,8 +61,13 @@ public final class ChatPaginationState {
     /// responses (see loadPreviousMessagePage); the 60s hard clear accepts
     /// the risk of a narrow misclassification window to prevent a permanently
     /// stuck loading spinner.
-    /// The task uses [weak self], so it exits naturally when this object is deallocated.
     @ObservationIgnored var loadMoreTimeoutTask: Task<Void, Never>?
+
+    // MARK: - Lifecycle
+
+    deinit {
+        loadMoreTimeoutTask?.cancel()
+    }
 
     // MARK: - Dependencies
 
