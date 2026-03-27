@@ -187,6 +187,64 @@ describe("shell tool credential ref resolution", () => {
     expect(mockGetOrStartSession).not.toHaveBeenCalled();
   });
 
+  test("managed mode surfaces a Slack-specific error for unresolved slack_channel refs", async () => {
+    const originalManagedMode = process.env["CES_MANAGED_MODE"];
+    process.env["CES_MANAGED_MODE"] = "1";
+
+    try {
+      const result = await shellTool.execute(
+        {
+          command: "echo hello",
+          reason: "test",
+          network_mode: "proxied",
+          credential_ids: ["slack_channel/bot_token"],
+        },
+        ctx,
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain(
+        "Slack Web API access isn't available on cloud-hosted assistants yet",
+      );
+      expect(result.content).toContain("Slack App Setup");
+      expect(mockGetOrStartSession).not.toHaveBeenCalled();
+    } finally {
+      if (originalManagedMode === undefined) {
+        delete process.env["CES_MANAGED_MODE"];
+      } else {
+        process.env["CES_MANAGED_MODE"] = originalManagedMode;
+      }
+    }
+  });
+
+  test("managed mode points generic unresolved refs at assistant credentials list", async () => {
+    const originalManagedMode = process.env["CES_MANAGED_MODE"];
+    process.env["CES_MANAGED_MODE"] = "1";
+
+    try {
+      const result = await shellTool.execute(
+        {
+          command: "echo hello",
+          reason: "test",
+          network_mode: "proxied",
+          credential_ids: ["unknown/ref"],
+        },
+        ctx,
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("assistant credentials list");
+      expect(result.content).toContain("cloud-hosted");
+      expect(mockGetOrStartSession).not.toHaveBeenCalled();
+    } finally {
+      if (originalManagedMode === undefined) {
+        delete process.env["CES_MANAGED_MODE"];
+      } else {
+        process.env["CES_MANAGED_MODE"] = originalManagedMode;
+      }
+    }
+  });
+
   test("duplicate refs are deduped", async () => {
     const meta = upsertCredentialMetadata("fal", "api_key");
 

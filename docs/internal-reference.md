@@ -120,6 +120,8 @@ When using `credential_ids` in proxied shell commands, you can use either format
 
 Unknown references fail immediately with a clear error before the command executes.
 
+> **Cloud-hosted assistants:** `credential_ids` only resolve local credentials. Platform-managed credentials show up in `assistant credentials list`, and some local-only integrations (such as Slack Socket Mode) are not available on cloud-hosted assistants.
+
 #### Wildcard Host Matching
 
 Wildcard patterns like `*.fal.run` match:
@@ -144,7 +146,7 @@ Requests that match zero session credentials are handled in two ways: if the tar
 
 If a proxied command receives a 401 or 403 despite having the correct credential stored:
 
-1. **Check the credential reference**: Run `credential_store list` and verify the credential ID or `service/field` matches what you're passing to `credential_ids`.
+1. **Check the credential reference**: Run `credential_store list` to verify local `service/field` references. On cloud-hosted assistants, run `assistant credentials list` to see both local credentials and platform-managed entries.
 2. **Check host pattern matching**: The credential's `hostPattern` must match the target host. A wildcard pattern `*.example.com` matches `api.example.com` and the bare domain `example.com`. An exact pattern `api.example.com` only matches that specific host.
 3. **Check for ambiguity**: If two credentials match the same host with equal specificity, injection is blocked. Use `credential_store list` to check for overlapping patterns.
 4. **Check the header template**: Ensure the credential has an `injectionTemplate` with `injectionType: "header"` and the correct `headerName` (e.g., `Authorization`) and `valuePrefix` (e.g., `Bearer `).
@@ -221,6 +223,8 @@ Vellum integrates with third-party services via OAuth2. Each integration is expo
 The unified messaging layer provides platform-agnostic tools (`messaging_send`, `messaging_read`, `messaging_search`, etc.) that delegate to provider adapters. Gmail implements the `MessagingProvider` interface. Telegram is also supported as a messaging provider, though with limited capabilities compared to Gmail: bots can send messages to known chat IDs but cannot list conversations, retrieve message history, or search messages (Bot API limitations). Bots can only message users or groups that have previously interacted with the bot. Platform-specific tools (e.g. `gmail_archive`) extend beyond the generic interface where needed.
 
 **Slack is not handled by the messaging skill.** Slack messaging (send, read, search) uses the Slack Web API directly via CLI. The `slack` skill provides instructions for using the Web API via `bash` with `network_mode: "proxied"` and `credential_ids: ["slack_channel/bot_token"]` — the credential proxy injects the bot token automatically. There are no dedicated Slack tools.
+
+This path is currently **local-assistant only**. It depends on the Socket Mode credentials created by `slack-app-setup`, and those `slack_channel/*` credentials are not exposed on cloud-hosted assistants.
 
 Connect Gmail via the Settings UI or the `integration_connect` HTTP endpoint. OAuth2 tokens are stored in the credential vault — the LLM never sees raw tokens. Slack connects via Socket Mode using a bot token and app-level token — see the `slack-app-setup` skill. Telegram uses a bot token (not OAuth) — see the `telegram-setup` skill for setup instructions.
 

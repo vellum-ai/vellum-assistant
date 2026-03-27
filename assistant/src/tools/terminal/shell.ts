@@ -34,6 +34,39 @@ function buildCredentialRefTrace(
   return { rawRefs, resolvedIds, unresolvedRefs };
 }
 
+function isManagedDeployment(): boolean {
+  return !!process.env["CES_MANAGED_MODE"];
+}
+
+function isSlackChannelCredentialRef(ref: string): boolean {
+  return ref.startsWith("slack_channel/");
+}
+
+function formatUnknownCredentialRefError(unresolvedRefs: string[]): string {
+  const joinedRefs = unresolvedRefs.join(", ");
+
+  if (!isManagedDeployment()) {
+    return (
+      `Error: unknown credential reference(s): ${joinedRefs}. ` +
+      "Use credential_store list to see available credentials."
+    );
+  }
+
+  if (unresolvedRefs.some(isSlackChannelCredentialRef)) {
+    return (
+      "Error: Slack Web API access isn't available on cloud-hosted assistants yet. " +
+      `This Slack workflow expects a locally connected Slack app, but ${joinedRefs} is not available on this assistant. ` +
+      "Use a local assistant and reconnect Slack with Slack App Setup."
+    );
+  }
+
+  return (
+    `Error: unknown credential reference(s): ${joinedRefs}. ` +
+    "This assistant is cloud-hosted, so local credential refs only work for credentials stored on the assistant itself. " +
+    "Use `assistant credentials list` to inspect available local and platform-managed credentials."
+  );
+}
+
 /**
  * Build the list of absolute paths that should be blocked from read access
  * inside the sandbox when CES shell lockdown is active.
@@ -228,9 +261,7 @@ class ShellTool implements Tool {
           "Credential ref resolution failed",
         );
         return {
-          content: `Error: unknown credential reference(s): ${unresolvedRefs.join(
-            ", ",
-          )}. Use credential_store list to see available credentials.`,
+          content: formatUnknownCredentialRefError(unresolvedRefs),
           isError: true,
         };
       }

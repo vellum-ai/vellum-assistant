@@ -10,6 +10,8 @@ metadata:
 
 You help users interact with their Slack workspace. All Slack operations use the **Slack Web API** directly via the `bash` tool with credential proxy — there are no dedicated Slack tools.
 
+This skill currently requires a **local assistant** with Slack connected through the **slack-app-setup** flow. Do not use this skill on cloud-hosted assistants — that environment does not expose the local `slack_channel/*` credentials this workflow depends on.
+
 ## Making Slack API Calls
 
 Use `bash` with these parameters:
@@ -85,6 +87,8 @@ When responding to messages from Slack channels, replies should be threaded. Pas
 ## Connection
 
 Before making any Slack API calls, verify that Slack is connected. If not connected, load the **slack-app-setup** skill (`skill_load` with `skill: "slack-app-setup"`) and follow its guided flow. Do NOT improvise setup instructions — the `slack-app-setup` skill is the single source of truth. Slack uses Socket Mode and does not require redirect URLs or any OAuth flow.
+
+If you are running on a cloud-hosted assistant, do **not** attempt Slack API calls through this skill. Instead, explain that Slack is not available on cloud-hosted assistants yet and that the user needs a local assistant to reconnect Slack with **slack-app-setup**.
 
 ## Communication Style
 
