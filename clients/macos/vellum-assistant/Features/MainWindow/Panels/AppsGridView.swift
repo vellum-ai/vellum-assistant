@@ -66,7 +66,8 @@ struct AppsGridView: View {
                 .padding(VSpacing.xl)
             }
         }
-        .background(VColor.surfaceBase)
+        .background(VColor.surfaceOverlay)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         .onAppear {
             if !hasFetchedShared { fetchSharedApps() }
             if !hasFetchedLocalApps { refreshLocalAppsFromDaemon() }
