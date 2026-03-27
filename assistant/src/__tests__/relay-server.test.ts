@@ -162,7 +162,7 @@ mock.module("../providers/registry.js", () => {
         gemini: "gemini-3-flash",
         ollama: "llama3.2",
         fireworks: "accounts/fireworks/models/kimi-k2p5",
-        openrouter: "x-ai/grok-4",
+        openrouter: "x-ai/grok-4.20-beta",
       };
       return defaults[providerName] ?? defaults.anthropic;
     },
