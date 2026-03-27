@@ -152,6 +152,7 @@ const PROVIDER_SEED_DATA: Record<
         "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write",
     },
     callbackTransport: "loopback",
+    managedServiceConfigKey: "slack-oauth",
     loopbackPort: 17322,
     injectionTemplates: [
       {
