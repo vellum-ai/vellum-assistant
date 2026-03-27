@@ -224,7 +224,9 @@ public struct FileUploadSurfaceView: View {
 
     @ViewBuilder
     private func fileIcon(for file: SelectedFile) -> some View {
-        if file.mimeType.hasPrefix("image/"), let nsImage = NSImage(data: file.data) {
+        if file.mimeType.hasPrefix("image/"),
+           let imageData = file.data.isEmpty ? file.thumbnailData : file.data,
+           let nsImage = NSImage(data: imageData) {
             Image(nsImage: nsImage)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
@@ -369,9 +371,9 @@ public struct FileUploadSurfaceView: View {
         onSubmit(filesPayload)
 
         // Release heavy file data from memory — the success state only needs
-        // filename and size for display.
+        // filename, size, and thumbnail for display.
         selectedFiles = selectedFiles.map {
-            SelectedFile(filename: $0.filename, mimeType: $0.mimeType, data: Data(), size: $0.size)
+            SelectedFile(filename: $0.filename, mimeType: $0.mimeType, data: Data(), size: $0.size, thumbnailData: $0.thumbnailData)
         }
     }
 
@@ -417,5 +419,15 @@ private struct SelectedFile: Identifiable {
     let mimeType: String
     let data: Data
     let size: Int
+    /// Small thumbnail for image previews, preserved after submission when full data is cleared.
+    let thumbnailData: Data?
+
+    init(filename: String, mimeType: String, data: Data, size: Int, thumbnailData: Data? = nil) {
+        self.filename = filename
+        self.mimeType = mimeType
+        self.data = data
+        self.size = size
+        self.thumbnailData = thumbnailData ?? (mimeType.hasPrefix("image/") ? data : nil)
+    }
 }
 #endif
