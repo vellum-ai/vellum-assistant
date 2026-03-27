@@ -806,7 +806,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         serverOffset += response.conversations.count
 
         let recentConversations = response.conversations.filter {
-            $0.conversationType != "private" && $0.channelBinding?.sourceChannel == nil
+            $0.conversationType != "private"
         }
 
         // Compute the next pinnedOrder based on existing pinned conversations AND
@@ -982,8 +982,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             return true
         }
 
-        // Don't insert external-channel or private conversations into the main sidebar
-        if conversation.conversationType == "private" || conversation.channelBinding?.sourceChannel != nil {
+        // Don't insert private conversations into the main sidebar
+        if conversation.conversationType == "private" {
             return false
         }
 
@@ -1016,8 +1016,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     @discardableResult
     private func upsertConversation(from item: ConversationListResponseItem, isArchived: Bool) -> UUID? {
-        guard item.conversationType != "private",
-              item.channelBinding?.sourceChannel == nil else { return nil }
+        guard item.conversationType != "private" else { return nil }
 
         if !isArchived && isConversationArchived(item.id) {
             var archived = archivedConversationIds
@@ -1087,7 +1086,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             lastSeenAssistantMessageAt: item.assistantAttention?.lastSeenAssistantMessageAt.map {
                 Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
             },
-            forkParent: item.forkParent
+            forkParent: item.forkParent,
+            originChannel: item.channelBinding?.sourceChannel ?? item.conversationOriginChannel
         )
     }
 
@@ -1328,7 +1328,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// explicitly reordered (non-nil displayOrder), sends their displayOrder. For
     /// unpinned conversations without explicit ordering, sends nil so they sort by recency.
     private func sendReorderConversations() {
-        let visible = visibleConversations
+        let visible = visibleConversations.filter { !$0.isChannelConversation }
         var updates: [ReorderConversationsRequestUpdate] = []
         for conversation in visible {
             guard let conversationId = conversation.conversationId else { continue }
