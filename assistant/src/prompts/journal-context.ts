@@ -78,7 +78,10 @@ export function buildJournalContext(
 
   // Filter for .md files, excluding README.md (case-insensitive)
   const mdFiles = files.filter(
-    (f) => f.endsWith(".md") && f.toLowerCase() !== "readme.md",
+    (f) =>
+      f.endsWith(".md") &&
+      !f.startsWith(".") &&
+      f.toLowerCase() !== "readme.md",
   );
 
   // Collect file info with birthtime (creation time), skipping unreadable entries
