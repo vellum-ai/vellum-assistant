@@ -15,6 +15,7 @@ public struct InlineSurfaceRouter: View {
 
     @State private var selectionPayload: [String: AnyCodable]?
     @State private var clickedActionLabel: String?
+    @State private var isCardHovered = false
 
     public init(
         surface: InlineSurfaceData,
@@ -125,6 +126,11 @@ public struct InlineSurfaceRouter: View {
                 }
                 .buttonStyle(.plain)
                 .padding(VSpacing.sm)
+            } else if isTableSurface, case .table(let tableData) = surface.data {
+                VCopyButton(text: Self.tableAsMarkdown(tableData), size: .compact)
+                    .opacity(isCardHovered ? 1 : 0)
+                    .animation(VAnimation.fast, value: isCardHovered)
+                    .padding(VSpacing.sm)
             } else if isDocumentPreview {
                 if case .documentPreview(let data) = surface.data {
                     Button {
@@ -147,6 +153,9 @@ public struct InlineSurfaceRouter: View {
                 }
             }
         }
+        #if os(macOS)
+        .onHover { isCardHovered = $0 }
+        #endif
         // Dynamic page/document previews stay compact; tables can grow to the chat bubble max width.
         .frame(maxWidth: isAppCreated ? 400 : (isDynamicPreview || isDocumentPreview ? 350 : standardWidgetMaxWidth), alignment: .leading)
         }
@@ -388,5 +397,18 @@ public struct InlineSurfaceRouter: View {
         case .destructive: return VColor.systemNegativeStrong
         case .secondary: return VColor.borderBase.opacity(0.5)
         }
+    }
+
+    /// Builds a markdown table string from TableSurfaceData for clipboard copy.
+    static func tableAsMarkdown(_ data: TableSurfaceData) -> String {
+        let headers = data.columns.map(\.label)
+        let headerLine = "| " + headers.joined(separator: " | ") + " |"
+        let separatorLine = "| " + headers.map { _ in "---" }.joined(separator: " | ") + " |"
+        let rowLines = data.rows.map { row in
+            "| " + data.columns.map { col in
+                row.cells[col.id]?.text ?? ""
+            }.joined(separator: " | ") + " |"
+        }
+        return ([headerLine, separatorLine] + rowLines).joined(separator: "\n")
     }
 }
