@@ -91,6 +91,20 @@ mock.module("../version.js", () => ({
   APP_VERSION: "1.2.3-test",
 }));
 
+let mockCollectUsageData = true;
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({ collectUsageData: mockCollectUsageData }),
+}));
+
+const mockQueryUnreportedLifecycleEvents = mock(
+  () => [] as { id: string; eventName: string; createdAt: number }[],
+);
+
+mock.module("../memory/lifecycle-events-store.js", () => ({
+  queryUnreportedLifecycleEvents: mockQueryUnreportedLifecycleEvents,
+}));
+
 // ---------------------------------------------------------------------------
 // Production import (after mocks)
 // ---------------------------------------------------------------------------
@@ -135,11 +149,14 @@ let mockFetch: ReturnType<typeof mock>;
 
 beforeEach(() => {
   eventIdCounter = 0;
+  mockCollectUsageData = true;
   mockGetMemoryCheckpoint.mockReset();
   mockSetMemoryCheckpoint.mockReset();
   mockQueryUnreportedUsageEvents.mockReset();
   mockQueryUnreportedTurnEvents.mockReset();
   mockQueryUnreportedTurnEvents.mockReturnValue([]);
+  mockQueryUnreportedLifecycleEvents.mockReset();
+  mockQueryUnreportedLifecycleEvents.mockReturnValue([]);
   mockPlatformClient = null;
   mockGetPlatformBaseUrl.mockReset();
   mockGetTelemetryAppToken.mockReset();
@@ -476,5 +493,57 @@ describe("UsageTelemetryReporter", () => {
     expect(turnEvent).toBeDefined();
     expect(turnEvent.daemon_event_id).toBe("evt-mixed-turn");
     expect(turnEvent.recorded_at).toBe(1700000050000);
+  });
+
+  test("flush is skipped and watermarks advanced when collectUsageData is false", async () => {
+    mockCollectUsageData = false;
+    const events = [makeUsageEvent()];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    // No HTTP call should have been made
+    expect(mockFetch).not.toHaveBeenCalled();
+
+    // All 6 watermarks should have been advanced (3 timestamps + 3 IDs)
+    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(6);
+
+    const calls = mockSetMemoryCheckpoint.mock.calls;
+    const keys = calls.map((c) => c[0]);
+    expect(keys).toContain("telemetry:usage:last_reported_at");
+    expect(keys).toContain("telemetry:usage:last_reported_id");
+    expect(keys).toContain("telemetry:turns:last_reported_at");
+    expect(keys).toContain("telemetry:turns:last_reported_id");
+    expect(keys).toContain("telemetry:lifecycle:last_reported_at");
+    expect(keys).toContain("telemetry:lifecycle:last_reported_id");
+  });
+
+  test("events sent normally after re-enabling collectUsageData", async () => {
+    // First flush with opt-out — watermarks advance, nothing sent
+    mockCollectUsageData = false;
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+    expect(mockFetch).not.toHaveBeenCalled();
+    mockSetMemoryCheckpoint.mockReset();
+
+    // Re-enable and flush with new events
+    mockCollectUsageData = true;
+    const events = [makeUsageEvent({ id: "evt-after-reenable" })];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events[0].daemon_event_id).toBe("evt-after-reenable");
   });
 });

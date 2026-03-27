@@ -30,6 +30,11 @@ function printHelp(): void {
     "  --dry-run       Preview the transfer without applying changes",
   );
   console.log("  --help, -h      Show this help");
+  console.log("");
+  console.log("Examples:");
+  console.log("  vellum teleport --from my-local --to my-cloud");
+  console.log("  vellum teleport --from my-cloud --to my-local --dry-run");
+  console.log("  vellum teleport --from staging --to production --dry-run");
 }
 
 function parseArgs(argv: string[]): {
@@ -46,8 +51,14 @@ function parseArgs(argv: string[]): {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--from" && i + 1 < argv.length) {
+      if (argv[i + 1].startsWith("--")) {
+        continue;
+      }
       from = argv[++i];
     } else if (arg === "--to" && i + 1 < argv.length) {
+      if (argv[i + 1].startsWith("--")) {
+        continue;
+      }
       to = argv[++i];
     } else if (arg === "--dry-run") {
       dryRun = true;

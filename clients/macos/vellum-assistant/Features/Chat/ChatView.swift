@@ -177,207 +177,175 @@ struct ChatView: View {
         #if DEBUG
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "ChatView.body")
         #endif
-        chatContent
-            .environment(\.dropActions, currentDropActions)
-            .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
-                handleDrop(providers: providers)
-            }
-            .onKeyPress(.escape) {
-                guard isInteractionEnabled else { return .ignored }
-                if isSearchActive {
-                    dismissSearch()
-                    return .handled
+        ZStack {
+            mainContentStack
+                .background(alignment: .bottom) {
+                    chatBackground
                 }
-                if btwResponse != nil {
-                    onDismissBtw?()
-                    return .handled
+                .background(VColor.surfaceBase)
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: ChatContainerWidthKey.self, value: geo.size.width)
+                    }
+                )
+                .onPreferenceChange(ChatContainerWidthKey.self) { containerWidth = $0 }
+                .disabled(!isInteractionEnabled)
+                .overlay(alignment: .bottom) {
+                    btwOverlay
                 }
-                return .ignored
-            }
-            .onKeyPress("f", phases: .down) { press in
-                guard isInteractionEnabled, press.modifiers == .command else { return .ignored }
-                activateSearch()
+                .animation(VAnimation.fast, value: btwResponse != nil)
+
+            dropTargetOverlay
+        }
+        .environment(\.dropActions, currentDropActions)
+        .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
+            handleDrop(providers: providers)
+        }
+        .onKeyPress(.escape) {
+            guard isInteractionEnabled else { return .ignored }
+            if isSearchActive {
+                dismissSearch()
                 return .handled
             }
-            .overlay(alignment: .topTrailing) {
-                if isSearchActive {
-                    ChatSearchBar(
-                        searchText: $searchText,
-                        matchCount: searchMatches.count,
-                        currentMatchIndex: currentMatchIndex,
-                        onPrevious: { navigateMatch(delta: -1) },
-                        onNext: { navigateMatch(delta: 1) },
-                        onDismiss: { dismissSearch() }
-                    )
-                    .padding(.trailing, VSpacing.xl)
-                    .padding(.top, VSpacing.sm)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+            if btwResponse != nil {
+                onDismissBtw?()
+                return .handled
+            }
+            return .ignored
+        }
+        .onKeyPress("f", phases: .down) { press in
+            guard isInteractionEnabled, press.modifiers == .command else { return .ignored }
+            activateSearch()
+            return .handled
+        }
+        .overlay(alignment: .topTrailing) {
+            if isSearchActive {
+                ChatSearchBar(
+                    searchText: $searchText,
+                    matchCount: searchMatches.count,
+                    currentMatchIndex: currentMatchIndex,
+                    onPrevious: { navigateMatch(delta: -1) },
+                    onNext: { navigateMatch(delta: 1) },
+                    onDismiss: { dismissSearch() }
+                )
+                .padding(.trailing, VSpacing.xl)
+                .padding(.top, VSpacing.sm)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(VAnimation.fast, value: isSearchActive)
+        .onChange(of: searchText) {
+            currentMatchIndex = 0
+            scrollToCurrentMatch()
+        }
+        .onChange(of: searchMatches.count) {
+            let count = searchMatches.count
+            if currentMatchIndex >= count {
+                currentMatchIndex = max(count - 1, 0)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .activateChatSearch)) { notification in
+            if let targetId = notification.object as? UUID, targetId != conversationId {
+                return
+            }
+            activateSearch()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .internalImageDragStarted)) { _ in
+            isDraggingInternalImage = true
+            installDragEndMonitors()
+        }
+        .onChange(of: shouldShowSkeleton, initial: true) { _, shouldShow in
+            skeletonDebounceTask?.cancel()
+            if shouldShow {
+                skeletonDebounceTask = Task {
+                    try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+                    guard !Task.isCancelled else { return }
+                    showSkeleton = true
                 }
+            } else {
+                showSkeleton = false
             }
-            .animation(VAnimation.fast, value: isSearchActive)
-            .onChange(of: searchText) {
-                // Reset to first match when query changes
-                currentMatchIndex = 0
-                scrollToCurrentMatch()
-            }
-            .onChange(of: searchMatches.count) {
-                // Clamp currentMatchIndex when matches change (e.g. streaming, deletion)
-                // to avoid "4 of 2" display or broken navigation.
-                let count = searchMatches.count
-                if currentMatchIndex >= count {
-                    currentMatchIndex = max(count - 1, 0)
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .activateChatSearch)) { notification in
-                // Scope to the active conversation so only the visible ChatView activates.
-                if let targetId = notification.object as? UUID, targetId != conversationId {
-                    return
-                }
-                activateSearch()
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .internalImageDragStarted)) { _ in
-                isDraggingInternalImage = true
-                // Install one-shot monitors to detect when the drag ends.
-                // NSDraggingSession consumes the drag-ending mouse-up internally,
-                // so a single local monitor misses drops on external apps.
-                // Global monitor catches mouse-up in other apps (Finder, Desktop).
-                // Local monitor catches mouse-up within our app (cancel + release).
-                installDragEndMonitors()
-            }
-            .onChange(of: shouldShowSkeleton, initial: true) { _, shouldShow in
-                skeletonDebounceTask?.cancel()
-                if shouldShow {
-                    skeletonDebounceTask = Task {
-                        try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
-                        guard !Task.isCancelled else { return }
-                        showSkeleton = true
-                    }
-                } else {
-                    showSkeleton = false
-                }
-            }
-            .onDisappear {
-                removeDragEndMonitors()
-            }
+        }
+        .onDisappear {
+            removeDragEndMonitors()
+        }
     }
 
-    @ViewBuilder
-    private var chatContent: some View {
-        ZStack {
-            VStack(spacing: 0) {
-                if showSkeleton {
-                    ChatLoadingSkeleton()
-                        .padding(VSpacing.lg)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("Loading chat history")
-                } else if isEmptyState && isBootstrapping {
-                    if isBootstrapTimedOut {
-                        ChatBootstrapTimeoutView(onSendLogs: onBootstrapSendLogs)
-                    } else {
-                        ChatBootstrapLoadingView()
-                    }
-                } else if isEmptyState {
-                    chatEmptyState
-                } else {
-                    chatActiveState
-                }
-            }
-            .background(alignment: .bottom) {
-                chatBackground
-            }
-            .background(VColor.surfaceBase)
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(key: ChatContainerWidthKey.self, value: geo.size.width)
-                }
-            )
-            .onPreferenceChange(ChatContainerWidthKey.self) { containerWidth = $0 }
-            .disabled(!isInteractionEnabled)
-            .overlay(alignment: .bottom) {
-                btwOverlay
-            }
-            .animation(VAnimation.fast, value: btwResponse != nil)
+    // MARK: - Body Subviews (extracted to help the Swift type checker)
 
-            // Drop target overlay — hidden for internal image drags
-            if isDropTargeted && !isDraggingInternalImage {
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(VColor.primaryBase, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(VColor.primaryBase.opacity(0.08))
-                    )
-                    .overlay {
-                        VStack(spacing: VSpacing.sm) {
-                            VIconView(.arrowDownToLine, size: 28)
-                                .foregroundStyle(VColor.primaryBase)
-                            Text("Drop files here")
-                                .font(VFont.bodyMediumDefault)
-                                .foregroundStyle(VColor.primaryBase)
-                        }
-                    }
+    @ViewBuilder
+    private var mainContentStack: some View {
+        VStack(spacing: 0) {
+            if showSkeleton {
+                ChatLoadingSkeleton()
                     .padding(VSpacing.lg)
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Loading chat history")
+            } else if isEmptyState && isBootstrapping {
+                if isBootstrapTimedOut {
+                    ChatBootstrapTimeoutView(onSendLogs: onBootstrapSendLogs)
+                } else {
+                    ChatBootstrapLoadingView()
+                }
+            } else if isEmptyState {
+                if isTemporaryChat {
+                    ChatTemporaryChatEmptyStateView(
+                        inputText: $inputText,
+                        isSending: isSending,
+                        isAssistantBusy: isAssistantBusy,
+                        isRecording: isRecording,
+                        suggestion: suggestion,
+                        pendingAttachments: pendingAttachments,
+                        isLoadingAttachment: isLoadingAttachment,
+                        onSend: onSend,
+                        onStop: onStop,
+                        onAcceptSuggestion: onAcceptSuggestion,
+                        onAttach: onAttach,
+                        onRemoveAttachment: onRemoveAttachment,
+                        onPaste: onPaste,
+                        onMicrophoneToggle: onMicrophoneToggle,
+                        recordingAmplitude: recordingAmplitude,
+                        onDictateToggle: onDictateToggle,
+                        onVoiceModeToggle: onVoiceModeToggle,
+                        conversationId: conversationId
+                    )
+                } else {
+                    ChatEmptyStateView(
+                        inputText: $inputText,
+                        isSending: isSending,
+                        isAssistantBusy: isAssistantBusy,
+                        isRecording: isRecording,
+                        suggestion: suggestion,
+                        pendingAttachments: pendingAttachments,
+                        isLoadingAttachment: isLoadingAttachment,
+                        onSend: onSend,
+                        onStop: onStop,
+                        onAcceptSuggestion: onAcceptSuggestion,
+                        onAttach: onAttach,
+                        onRemoveAttachment: onRemoveAttachment,
+                        onPaste: onPaste,
+                        onMicrophoneToggle: onMicrophoneToggle,
+                        recordingAmplitude: recordingAmplitude,
+                        onDictateToggle: onDictateToggle,
+                        onVoiceModeToggle: onVoiceModeToggle,
+                        conversationId: conversationId,
+                        daemonGreeting: daemonGreeting,
+                        onRequestGreeting: onRequestGreeting,
+                        conversationStarters: conversationStarters,
+                        conversationStartersLoading: conversationStartersLoading,
+                        onSelectStarter: onSelectStarter,
+                        onFetchConversationStarters: onFetchConversationStarters
+                    )
+                }
+            } else {
+                activeConversationContent
             }
         }
     }
 
     @ViewBuilder
-    private var chatEmptyState: some View {
-        if isTemporaryChat {
-            ChatTemporaryChatEmptyStateView(
-                inputText: $inputText,
-                isSending: isSending,
-                isAssistantBusy: isAssistantBusy,
-                isRecording: isRecording,
-                suggestion: suggestion,
-                pendingAttachments: pendingAttachments,
-                isLoadingAttachment: isLoadingAttachment,
-                onSend: onSend,
-                onStop: onStop,
-                onAcceptSuggestion: onAcceptSuggestion,
-                onAttach: onAttach,
-                onRemoveAttachment: onRemoveAttachment,
-                onPaste: onPaste,
-                onMicrophoneToggle: onMicrophoneToggle,
-                recordingAmplitude: recordingAmplitude,
-                onDictateToggle: onDictateToggle,
-                onVoiceModeToggle: onVoiceModeToggle,
-                conversationId: conversationId
-            )
-        } else {
-            ChatEmptyStateView(
-                inputText: $inputText,
-                isSending: isSending,
-                isAssistantBusy: isAssistantBusy,
-                isRecording: isRecording,
-                suggestion: suggestion,
-                pendingAttachments: pendingAttachments,
-                isLoadingAttachment: isLoadingAttachment,
-                onSend: onSend,
-                onStop: onStop,
-                onAcceptSuggestion: onAcceptSuggestion,
-                onAttach: onAttach,
-                onRemoveAttachment: onRemoveAttachment,
-                onPaste: onPaste,
-                onMicrophoneToggle: onMicrophoneToggle,
-                recordingAmplitude: recordingAmplitude,
-                onDictateToggle: onDictateToggle,
-                onVoiceModeToggle: onVoiceModeToggle,
-                conversationId: conversationId,
-                daemonGreeting: daemonGreeting,
-                onRequestGreeting: onRequestGreeting,
-                conversationStarters: conversationStarters,
-                conversationStartersLoading: conversationStartersLoading,
-                onSelectStarter: onSelectStarter,
-                onFetchConversationStarters: onFetchConversationStarters
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var chatActiveState: some View {
+    private var activeConversationContent: some View {
         VStack(spacing: 0) {
             MessageListView(
                 messages: messages,
@@ -447,7 +415,7 @@ struct ChatView: View {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.eye, size: 14)
                     Text("Read-only conversation")
-                        .font(VFont.labelDefault)
+                        .font(VFont.bodySmallDefault)
                 }
                 .foregroundStyle(VColor.contentTertiary)
                 .frame(maxWidth: .infinity)
@@ -486,6 +454,30 @@ struct ChatView: View {
                     isInteractionEnabled: isInteractionEnabled
                 )
             }
+        }
+    }
+
+    @ViewBuilder
+    private var dropTargetOverlay: some View {
+        if isDropTargeted && !isDraggingInternalImage {
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.primaryBase, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .fill(VColor.primaryBase.opacity(0.08))
+                )
+                .overlay {
+                    VStack(spacing: VSpacing.sm) {
+                        VIconView(.arrowDownToLine, size: 28)
+                            .foregroundStyle(VColor.primaryBase)
+                        Text("Drop files here")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.primaryBase)
+                    }
+                }
+                .padding(VSpacing.lg)
+                .allowsHitTesting(false)
+                .transition(.opacity)
         }
     }
 

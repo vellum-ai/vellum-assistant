@@ -325,6 +325,8 @@ private struct ThreadWindowContentView: View {
             subagentDetailStore: viewModel.subagentDetailStore,
             isHistoryLoaded: viewModel.isHistoryLoaded,
             activePendingRequestId: viewModel.activePendingRequestId,
+            isInteractionEnabled: !(conversation?.isChannelConversation ?? false),
+            isReadonly: conversation?.isChannelConversation ?? false,
             anchorMessageId: $anchorMessageId,
             highlightedMessageId: $highlightedMessageId,
             creditsExhaustedError: viewModel.errorManager.conversationError?.isCreditsExhausted == true ? viewModel.errorManager.conversationError : nil,

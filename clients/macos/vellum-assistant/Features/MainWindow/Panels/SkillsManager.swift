@@ -10,6 +10,9 @@ final class SkillsManager {
     // Forward all published properties from SkillsStore so existing views
     // continue to work via observation on SkillsManager unchanged.
     var skills: [SkillInfo] = []
+    /// Cached skill-id → category map, rebuilt whenever `skills` changes.
+    /// Use `category(for:)` for O(1) lookups instead of calling `inferCategory` in view bodies.
+    private(set) var categoryMap: [String: SkillCategory] = [:]
     var loadedBodies: [String: String] = [:]
     var isLoading = false
     var uninstallResult: SkillsStore.UninstallResult?
@@ -31,7 +34,11 @@ final class SkillsManager {
 
     /// Wire up Combine subscriptions to forward SkillsStore state.
     private func bindStore() {
-        skillsStore.$skills.sink { [weak self] in self?.skills = $0 }.store(in: &cancellables)
+        skillsStore.$skills.sink { [weak self] skills in
+            guard let self else { return }
+            self.skills = skills
+            self.rebuildCategoryMap(from: skills)
+        }.store(in: &cancellables)
         skillsStore.$loadedBodies.sink { [weak self] in self?.loadedBodies = $0 }.store(in: &cancellables)
         skillsStore.$isLoading.sink { [weak self] in self?.isLoading = $0 }.store(in: &cancellables)
         skillsStore.$uninstallResult.sink { [weak self] in self?.uninstallResult = $0 }.store(in: &cancellables)
@@ -44,6 +51,22 @@ final class SkillsManager {
             guard result.slug == self.installingSkillId else { return }
             self.installingSkillId = nil
         }.store(in: &cancellables)
+    }
+
+    // MARK: - Category Lookup
+
+    /// O(1) category lookup for a skill. Falls back to `.knowledge` for unknown IDs.
+    func category(for skill: SkillInfo) -> SkillCategory {
+        categoryMap[skill.id] ?? .knowledge
+    }
+
+    private func rebuildCategoryMap(from skills: [SkillInfo]) {
+        var map: [String: SkillCategory] = [:]
+        map.reserveCapacity(skills.count)
+        for skill in skills {
+            map[skill.id] = inferCategory(skill)
+        }
+        categoryMap = map
     }
 
     // MARK: - Delegated Operations

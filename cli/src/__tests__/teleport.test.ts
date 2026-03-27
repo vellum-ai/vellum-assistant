@@ -613,8 +613,11 @@ describe("teleport transfer routing", () => {
       expect(platformPollExportStatusMock).toHaveBeenCalled();
       expect(platformDownloadExportMock).toHaveBeenCalled();
 
-      // Local import: should call fetch to /v1/migrations/import
-      const importCalls = filterFetchCalls(fetchMock, "/v1/migrations/import");
+      // Local import: should call fetch to /v1/migrations/import (but not /import-preflight)
+      const importCalls = filterFetchCalls(
+        fetchMock,
+        "/v1/migrations/import",
+      ).filter((call) => !extractUrl(call[0]).includes("/import-preflight"));
       expect(importCalls.length).toBe(1);
 
       // Should NOT call platformImportBundle
@@ -814,10 +817,10 @@ describe("teleport malformed flag usage", () => {
     );
   });
 
-  test("--from --to target consumes --to as from's value, leaving to undefined", async () => {
+  test("--from --to target rejects flag-like value for --from, leaving from undefined", async () => {
     setArgv("--from", "--to", "target");
-    // parseArgs sees --from then consumes "--to" as from's value.
-    // "target" is left as a positional arg. to remains undefined → prints help and exits 1.
+    // parseArgs sees --from then skips "--to" (starts with --) so from stays undefined.
+    // --to then correctly consumes "target". from is undefined → prints help and exits 1.
     await expect(teleport()).rejects.toThrow("process.exit:1");
     expect(consoleLogSpy).toHaveBeenCalledWith(
       expect.stringContaining("Usage:"),
