@@ -146,6 +146,7 @@ public final class EventStreamClient {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
+            defer { self.pendingMappingLocalIds.remove(conversationId) }
             let messageClient = MessageClient()
             let attachmentCount = attachments?.count ?? 0
             log.info("[send-pipeline] sendMessage start — attachmentCount=\(attachmentCount)")
@@ -190,8 +191,6 @@ public final class EventStreamClient {
                 automated: automated,
                 bypassSecretCheck: bypassSecretCheck
             )
-
-            self.pendingMappingLocalIds.remove(conversationId)
 
             switch sendResult {
             case .success(let serverConvId):
