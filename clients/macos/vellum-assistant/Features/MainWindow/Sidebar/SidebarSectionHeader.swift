@@ -21,17 +21,15 @@ struct SidebarSectionHeader: View {
     var onDelete: (() -> Void)?                 // M5: nil for system groups
 
     @FocusState private var isRenameFocused: Bool
+    @State private var isHeaderHovered: Bool = false
 
     var body: some View {
         HStack(spacing: VSpacing.xs) {
-            // VIconView(.chevronRight, size: SidebarLayoutMetrics.sectionChevronSize)
-            //     .foregroundStyle(VColor.contentTertiary)
-            //     .rotationEffect(.degrees(isExpanded ? 90 : 0))
-            //     .animation(VAnimation.fast, value: isExpanded)
-            //     .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
-            VIconView(isExpanded ? .folderOpen : .folderClosed)
+            VIconView(isHeaderHovered ? .chevronRight : (isExpanded ? .folderOpen : .folderClosed), size: isHeaderHovered ? SidebarLayoutMetrics.sectionChevronSize : 13)
                 .foregroundStyle(VColor.contentTertiary)
+                .rotationEffect(.degrees(isHeaderHovered && isExpanded ? 90 : 0))
                 .animation(VAnimation.fast, value: isExpanded)
+                .animation(VAnimation.fast, value: isHeaderHovered)
                 .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
 
             if isRenaming {
@@ -73,6 +71,9 @@ struct SidebarSectionHeader: View {
         .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
         .contentShape(Rectangle())
         .onTapGesture { withAnimation(VAnimation.fast) { onToggleExpand() } }
+        .pointerCursor(onHover: { hovering in
+            isHeaderHovered = hovering
+        })
         .background(isDropTarget ? Color.accentColor.opacity(0.15) : .clear)
         .cornerRadius(4)
         .modifier(ConditionalGroupContextMenu(
