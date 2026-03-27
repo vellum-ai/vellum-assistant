@@ -35,6 +35,11 @@ struct AgentPanelContent: View {
     @State private var showSkillFilterPopover = false
     @AppStorage("skillsBannerDismissed") private var bannerDismissed = false
 
+    /// Cached filtered+sorted skill list, recomputed only when inputs change.
+    @State private var cachedFilteredSkills: [SkillInfo] = []
+    /// Cached search-filtered list (before category filter), used for sidebar counts.
+    @State private var cachedSearchFilteredSkills: [SkillInfo] = []
+
     init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, connectionManager: GatewayConnectionManager, focusedSkillId: Binding<String?> = .constant(nil)) {
         self.onInvokeSkill = onInvokeSkill
         self.onCreateSkill = onCreateSkill
@@ -52,6 +57,46 @@ struct AgentPanelContent: View {
 
     private var isShowingDetail: Bool {
         selectedInstalledSkillId != nil
+    }
+
+    /// Recomputes `cachedFilteredSkills` and `cachedSearchFilteredSkills` from current inputs.
+    private func recomputeFilteredSkills() {
+        let base: [SkillInfo]
+        if skillFilter == .all {
+            base = skillsManager.skills
+        } else {
+            base = skillsManager.skills.filter { $0.isInstalled }
+        }
+
+        let afterSearch: [SkillInfo]
+        if hasActiveSearch {
+            let query = normalizedSkillQuery
+            afterSearch = base.filter {
+                $0.name.lowercased().contains(query) ||
+                $0.description.lowercased().contains(query) ||
+                $0.id.lowercased().contains(query) ||
+                sourceLabel($0.source).lowercased().contains(query)
+            }
+        } else {
+            afterSearch = base
+        }
+
+        cachedSearchFilteredSkills = afterSearch
+
+        let afterCategory: [SkillInfo]
+        if let category = selectedCategory {
+            afterCategory = afterSearch.filter { skillsManager.category(for: $0) == category }
+        } else {
+            afterCategory = afterSearch
+        }
+
+        cachedFilteredSkills = afterCategory.sorted { a, b in
+            if a.isInstalled != b.isInstalled { return a.isInstalled }
+            let aManaged = (a.source == "managed" || a.source == "clawhub")
+            let bManaged = (b.source == "managed" || b.source == "clawhub")
+            if a.isInstalled && b.isInstalled && aManaged != bManaged { return aManaged }
+            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        }
     }
 
     var body: some View {
@@ -106,6 +151,7 @@ struct AgentPanelContent: View {
         }
         .onAppear {
             skillsManager.fetchSkills()
+            recomputeFilteredSkills()
             if let skillId = focusedSkillId {
                 selectedInstalledSkillId = skillId
                 focusedSkillId = nil
@@ -117,28 +163,32 @@ struct AgentPanelContent: View {
                 focusedSkillId = nil
             }
         }
-        .onChange(of: skillsManager.skills.map(\.id)) {
+        .onChange(of: skillsManager.skills) {
             onSkillsChanged?()
+            recomputeFilteredSkills()
             if let selectedId = selectedInstalledSkillId,
                !skillsManager.skills.contains(where: { $0.id == selectedId }) {
                 selectedInstalledSkillId = nil
             }
         }
         .onChange(of: globalSkillSearchQuery) {
+            recomputeFilteredSkills()
             if let selectedId = selectedInstalledSkillId,
-               !filteredSkills.contains(where: { $0.id == selectedId }) {
+               !cachedFilteredSkills.contains(where: { $0.id == selectedId }) {
                 selectedInstalledSkillId = nil
             }
         }
         .onChange(of: selectedCategory) {
+            recomputeFilteredSkills()
             if let selectedId = selectedInstalledSkillId,
-               !filteredSkills.contains(where: { $0.id == selectedId }) {
+               !cachedFilteredSkills.contains(where: { $0.id == selectedId }) {
                 selectedInstalledSkillId = nil
             }
         }
         .onChange(of: skillFilter) {
+            recomputeFilteredSkills()
             if let selectedId = selectedInstalledSkillId,
-               !filteredSkills.contains(where: { $0.id == selectedId }) {
+               !cachedFilteredSkills.contains(where: { $0.id == selectedId }) {
                 selectedInstalledSkillId = nil
             }
         }
@@ -251,48 +301,8 @@ struct AgentPanelContent: View {
     }
 
     private func categoryCount(for category: SkillCategory?) -> Int {
-        let base = searchFilteredSkills
-        guard let category else { return base.count }
-        return base.filter { skillsManager.category(for: $0) == category }.count
-    }
-
-    // MARK: - Filtering
-
-    private var userSkills: [SkillInfo] {
-        if skillFilter == .all {
-            return skillsManager.skills
-        }
-        return skillsManager.skills.filter { $0.isInstalled }
-    }
-
-    /// Skills filtered by search query only.
-    private var searchFilteredSkills: [SkillInfo] {
-        guard hasActiveSearch else { return userSkills }
-        let query = normalizedSkillQuery
-        return userSkills.filter {
-            $0.name.lowercased().contains(query) ||
-            $0.description.lowercased().contains(query) ||
-            $0.id.lowercased().contains(query) ||
-            sourceLabel($0.source).lowercased().contains(query)
-        }
-    }
-
-    /// Skills filtered by both search and selected category, installed first then alphabetical.
-    private var filteredSkills: [SkillInfo] {
-        let base = searchFilteredSkills
-        let filtered: [SkillInfo]
-        if let category = selectedCategory {
-            filtered = base.filter { skillsManager.category(for: $0) == category }
-        } else {
-            filtered = base
-        }
-        return filtered.sorted { a, b in
-            if a.isInstalled != b.isInstalled { return a.isInstalled }
-            let aManaged = (a.source == "managed" || a.source == "clawhub")
-            let bManaged = (b.source == "managed" || b.source == "clawhub")
-            if a.isInstalled && b.isInstalled && aManaged != bManaged { return aManaged }
-            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-        }
+        guard let category else { return cachedSearchFilteredSkills.count }
+        return cachedSearchFilteredSkills.count(where: { skillsManager.category(for: $0) == category })
     }
 
     // MARK: - Content View
@@ -300,7 +310,7 @@ struct AgentPanelContent: View {
     @ViewBuilder
     private var contentView: some View {
         if let selectedId = selectedInstalledSkillId,
-           let skill = filteredSkills.first(where: { $0.id == selectedId }) {
+           let skill = cachedFilteredSkills.first(where: { $0.id == selectedId }) {
             SkillDetailView(
                 skill: skill,
                 skillsManager: skillsManager,
@@ -313,14 +323,14 @@ struct AgentPanelContent: View {
                     skillToDelete = skill
                 }
             )
-        } else if skillsManager.isLoading && userSkills.isEmpty {
+        } else if skillsManager.isLoading && skillsManager.skills.isEmpty {
             VStack {
                 Spacer()
                 VLoadingIndicator()
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if filteredSkills.isEmpty {
+        } else if cachedFilteredSkills.isEmpty {
             VEmptyState(
                 title: skillFilter == .all
                     ? "No Skills Available"
@@ -335,7 +345,7 @@ struct AgentPanelContent: View {
         } else {
             ScrollView {
                 LazyVStack(spacing: VSpacing.sm) {
-                    ForEach(filteredSkills) { skill in
+                    ForEach(cachedFilteredSkills) { skill in
                         if skill.isAvailable {
                             AvailableSkillItemRow(
                                 skill: skill,

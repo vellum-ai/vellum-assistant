@@ -32,25 +32,32 @@ final class SkillsManager {
         bindStore()
     }
 
-    /// Wire up Combine subscriptions to forward SkillsStore state.
+    /// Wire up a single Combine subscription to forward SkillsStore state.
+    ///
+    /// Uses `objectWillChange` so that all `@Published` mutations within a
+    /// single run-loop tick are coalesced into one observation notification,
+    /// avoiding the cascading view updates caused by per-property sinks.
     private func bindStore() {
-        skillsStore.$skills.sink { [weak self] skills in
-            guard let self else { return }
-            self.skills = skills
-            self.rebuildCategoryMap(from: skills)
-        }.store(in: &cancellables)
-        skillsStore.$loadedBodies.sink { [weak self] in self?.loadedBodies = $0 }.store(in: &cancellables)
-        skillsStore.$isLoading.sink { [weak self] in self?.isLoading = $0 }.store(in: &cancellables)
-        skillsStore.$uninstallResult.sink { [weak self] in self?.uninstallResult = $0 }.store(in: &cancellables)
-        skillsStore.$isUninstalling.sink { [weak self] in self?.isUninstalling = $0 }.store(in: &cancellables)
-        skillsStore.$selectedSkillFiles.sink { [weak self] in self?.selectedSkillFiles = $0 }.store(in: &cancellables)
-        skillsStore.$isLoadingSkillFiles.sink { [weak self] in self?.isLoadingSkillFiles = $0 }.store(in: &cancellables)
-        skillsStore.$skillFilesError.sink { [weak self] in self?.skillFilesError = $0 }.store(in: &cancellables)
-        skillsStore.$installResult.sink { [weak self] result in
-            guard let self, let result else { return }
-            guard result.slug == self.installingSkillId else { return }
-            self.installingSkillId = nil
-        }.store(in: &cancellables)
+        skillsStore.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let skills = self.skillsStore.skills
+                self.skills = skills
+                self.rebuildCategoryMap(from: skills)
+                self.loadedBodies = self.skillsStore.loadedBodies
+                self.isLoading = self.skillsStore.isLoading
+                self.uninstallResult = self.skillsStore.uninstallResult
+                self.isUninstalling = self.skillsStore.isUninstalling
+                self.selectedSkillFiles = self.skillsStore.selectedSkillFiles
+                self.isLoadingSkillFiles = self.skillsStore.isLoadingSkillFiles
+                self.skillFilesError = self.skillsStore.skillFilesError
+                if let result = self.skillsStore.installResult,
+                   result.slug == self.installingSkillId {
+                    self.installingSkillId = nil
+                }
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Category Lookup
