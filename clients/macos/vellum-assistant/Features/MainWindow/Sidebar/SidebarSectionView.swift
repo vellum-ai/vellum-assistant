@@ -48,11 +48,21 @@ struct SidebarSectionView: View {
         case subGroups(grouper: (ConversationModel) -> String?)
     }
 
-    private var effectiveExpanded: Bool {
-        if autoExpandOnUnread && !isExpanded {
-            return conversations.contains(where: \.hasUnseenLatestAssistantMessage)
+    /// Auto-show-all when hidden items beyond the truncation cutoff have unread messages.
+    /// Works for both flat items and schedule sub-groups.
+    private var effectiveShowAll: Bool {
+        if showAll { return true }
+        switch countMode {
+        case .items:
+            let hidden = conversations.dropFirst(maxCollapsed)
+            return hidden.contains(where: \.hasUnseenLatestAssistantMessage)
+        case .subGroups(let grouper):
+            let subGroups = buildSubGroups(grouper: grouper)
+            let hidden = subGroups.dropFirst(maxCollapsed)
+            return hidden.contains(where: { subGroup in
+                subGroup.conversations.contains(where: \.hasUnseenLatestAssistantMessage)
+            })
         }
-        return isExpanded
     }
 
     private var unreadCount: Int {
@@ -81,7 +91,7 @@ struct SidebarSectionView: View {
             SidebarSectionHeader(
                 group: group,
                 conversationCount: displayCount,
-                isExpanded: effectiveExpanded,
+                isExpanded: isExpanded,
                 isDropTarget: isDropTarget,
                 unreadCount: unreadCount,
                 isRenaming: isRenaming,
@@ -92,7 +102,7 @@ struct SidebarSectionView: View {
                 onDelete: onDelete
             )
 
-            if effectiveExpanded {
+            if isExpanded {
                 sectionContent
             }
         } else {
@@ -126,7 +136,7 @@ struct SidebarSectionView: View {
     @ViewBuilder
     private func scheduleSubGroupContent(grouper: (ConversationModel) -> String?) -> some View {
         let subGroups = buildSubGroups(grouper: grouper)
-        let displayed = showAll ? subGroups : Array(subGroups.prefix(maxCollapsed))
+        let displayed = effectiveShowAll ? subGroups : Array(subGroups.prefix(maxCollapsed))
 
         ForEach(displayed, id: \.key) { subGroup in
             if subGroup.conversations.count == 1, let conversation = subGroup.conversations.first {
@@ -149,6 +159,14 @@ struct SidebarSectionView: View {
             makeRow(conversation)
                 .equatable()
                 .padding(.bottom, SidebarLayoutMetrics.listRowGap)
+                .overlay(alignment: sidebar.dropIndicatorAtBottom ? .bottom : .top) {
+                    if sidebar.dropTargetConversationId == conversation.id {
+                        Rectangle()
+                            .fill(VColor.primaryBase)
+                            .frame(height: 2)
+                            .transition(.opacity)
+                    }
+                }
                 .onDrop(of: [.plainText], delegate: ScheduleReorderDropDelegate(
                     targetConversation: conversation,
                     sidebar: sidebar,
@@ -269,16 +287,8 @@ struct SidebarSectionView: View {
     }
 
     private var displayedConversations: [ConversationModel] {
-        if showAll { return conversations }
-        // Auto-expand if any hidden conversation has unread messages (for background section).
-        let visible = Array(conversations.prefix(maxCollapsed))
-        if autoExpandOnUnread {
-            let hidden = conversations.dropFirst(maxCollapsed)
-            if hidden.contains(where: \.hasUnseenLatestAssistantMessage) {
-                return conversations
-            }
-        }
-        return visible
+        if effectiveShowAll { return conversations }
+        return Array(conversations.prefix(maxCollapsed))
     }
 
     // MARK: - Sub-group helpers
