@@ -424,20 +424,21 @@ struct SkillItemRow: View {
                         .truncationMode(.tail)
                 }
 
-                if isRemovable {
-                    VButton(
-                        label: "Delete",
-                        iconOnly: VIcon.trash.rawValue,
-                        style: .dangerGhost,
-                        size: .compact,
-                        action: onDelete
-                    )
-                    .accessibilityLabel("Uninstall skill")
-                }
+                VButton(
+                    label: "Delete",
+                    iconOnly: VIcon.trash.rawValue,
+                    style: .dangerGhost,
+                    size: .compact,
+                    action: onDelete
+                )
+                .disabled(!isRemovable)
+                .accessibilityLabel(isRemovable ? "Uninstall skill" : "Core skill cannot be removed")
             }
         }
-        .contextMenu {
-            Button("Remove", role: .destructive, action: onDelete)
+        .if(isRemovable) { view in
+            view.contextMenu {
+                Button("Remove", role: .destructive, action: onDelete)
+            }
         }
         .accessibilityElement(children: .combine)
     }
