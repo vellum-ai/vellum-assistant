@@ -154,6 +154,7 @@ export class OpenAIProvider implements Provider {
       let responseModel = modelOverride ?? this.model;
       let promptTokens = 0;
       let completionTokens = 0;
+      let reasoningTokens = 0;
 
       try {
         const stream = await this.client.chat.completions.create(params, {
@@ -188,6 +189,12 @@ export class OpenAIProvider implements Provider {
           if (chunk.usage) {
             promptTokens = chunk.usage.prompt_tokens;
             completionTokens = chunk.usage.completion_tokens;
+            const details = (
+              chunk.usage as {
+                completion_tokens_details?: { reasoning_tokens?: number };
+              }
+            ).completion_tokens_details;
+            reasoningTokens = details?.reasoning_tokens ?? 0;
           }
 
           responseModel = chunk.model;
@@ -239,13 +246,24 @@ export class OpenAIProvider implements Provider {
         usage: {
           prompt_tokens: promptTokens,
           completion_tokens: completionTokens,
+          ...(reasoningTokens > 0
+            ? {
+                completion_tokens_details: {
+                  reasoning_tokens: reasoningTokens,
+                },
+              }
+            : {}),
         },
       };
 
       return {
         content,
         model: responseModel,
-        usage: { inputTokens: promptTokens, outputTokens: completionTokens },
+        usage: {
+          inputTokens: promptTokens,
+          outputTokens: completionTokens,
+          ...(reasoningTokens > 0 ? { reasoningTokens } : {}),
+        },
         stopReason: finishReason,
         rawRequest: params,
         rawResponse,
