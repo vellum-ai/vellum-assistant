@@ -39,12 +39,65 @@ final class SidebarInteractionState {
     var isHoveredApp: String?
     var renamingConversationId: UUID?
     var renameText: String = ""
-    var showAllConversations: Bool = false
-    var showAllScheduleConversations: Bool = false
-    var showAllBackgroundConversations: Bool = false
+    /// Set of group IDs whose sections are currently expanded.
+    /// Defaults to showing the pinned section expanded.
+    var expandedSections: Set<String> = {
+        // Migrate from old per-section booleans on first access.
+        let defaults = UserDefaults.standard
+        var initial: Set<String> = []
+
+        // If we have persisted expandedSections, use those.
+        if let saved = defaults.stringArray(forKey: "sidebar.expandedSections") {
+            initial = Set(saved)
+        } else {
+            // First-launch defaults: all system groups expanded.
+            initial = [
+                ConversationGroup.pinned.id,
+                ConversationGroup.scheduled.id,
+                ConversationGroup.background.id,
+            ]
+        }
+
+        // Clean up old keys (one-time migration).
+        for key in ["showAllConversations", "showAllScheduleConversations", "showAllBackgroundConversations"] {
+            defaults.removeObject(forKey: key)
+        }
+
+        return initial
+    }() {
+        didSet {
+            UserDefaults.standard.set(Array(expandedSections), forKey: "sidebar.expandedSections")
+        }
+    }
+
+    /// Set of group IDs where "Show more" has been toggled on.
+    var showAllInSection: Set<String> = []
+
+    /// Group ID currently targeted during a drag-and-drop operation.
+    var dropTargetSectionId: String?
+
     /// Set of schedule group keys (scheduleJobId values) that are currently expanded.
     var expandedScheduleGroups: Set<String> = []
     var showAllApps: Bool = false
+
+    /// Toggles the expand/collapse state of a section.
+    func toggleSection(_ groupId: String) {
+        if expandedSections.contains(groupId) {
+            expandedSections.remove(groupId)
+        } else {
+            expandedSections.insert(groupId)
+        }
+    }
+
+    /// Toggles the show-all/show-less state of a section.
+    func toggleShowAll(_ groupId: String) {
+        if showAllInSection.contains(groupId) {
+            showAllInSection.remove(groupId)
+        } else {
+            showAllInSection.insert(groupId)
+        }
+    }
+
     var showPreferencesDrawer: Bool = false
 
     /// Updates conversation hover state. Centralises the invariant so callers
