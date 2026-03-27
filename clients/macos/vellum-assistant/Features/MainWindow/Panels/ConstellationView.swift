@@ -1472,8 +1472,9 @@ private struct ScrollWheelZoomHelper: NSViewRepresentable {
         let view = NSView()
         let coordinator = context.coordinator
         coordinator.view = view
-        coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-            guard let v = coordinator.view,
+        coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak coordinator] event in
+            guard let coordinator,
+                  let v = coordinator.view,
                   let window = v.window,
                   event.window == window else { return event }
             let location = v.convert(event.locationInWindow, from: nil)
@@ -1498,6 +1499,7 @@ private struct ScrollWheelZoomHelper: NSViewRepresentable {
     static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
         if let monitor = coordinator.monitor {
             NSEvent.removeMonitor(monitor)
+            coordinator.monitor = nil
         }
     }
 
