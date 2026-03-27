@@ -242,7 +242,7 @@ class BrowserManager {
         if (!chromiumInstalled) {
           log.info("Chromium not installed, installing via playwright...");
           const proc = Bun.spawn(
-            ["bunx", "playwright", "install", "chromium"],
+            ["bunx", "playwright", "install", "--with-deps", "chromium"],
             {
               stdout: "pipe",
               stderr: "pipe",
