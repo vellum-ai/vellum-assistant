@@ -65,6 +65,10 @@ public final class MainWindowState: ObservableObject {
     /// Transient memory ID to deep-link into when the Intelligence panel opens.
     /// Consumed once by IntelligencePanel/MemoriesPanel, then set back to nil.
     @Published var pendingMemoryId: String?
+
+    /// Transient skill ID to deep-link into when the Intelligence panel opens.
+    /// Consumed once by IntelligencePanel/SkillsPanel, then set back to nil.
+    @Published var pendingSkillId: String?
     @Published var activeDynamicSurface: UiSurfaceShowMessage?
     @Published var activeDynamicParsedSurface: Surface?
     @Published var workspaceComposerExpanded = false
@@ -241,6 +245,12 @@ public final class MainWindowState: ObservableObject {
     /// Navigate to the Intelligence panel and deep-link to a specific memory.
     func showMemory(id: String) {
         pendingMemoryId = id
+        showPanel(.intelligence)
+    }
+
+    /// Navigate to the Intelligence panel and deep-link to a specific skill.
+    func showSkill(id: String) {
+        pendingSkillId = id
         showPanel(.intelligence)
     }
 
