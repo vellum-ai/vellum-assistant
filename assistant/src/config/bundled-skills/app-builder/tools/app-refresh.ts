@@ -8,10 +8,10 @@ import type {
 
 export async function run(
   input: Record<string, unknown>,
-  _context: ToolContext,
+  context: ToolContext,
 ): Promise<ToolExecutionResult> {
   if (typeof input.change_summary === "string" && input.change_summary.trim()) {
-    setAppCommitMessage(input.change_summary.trim());
+    setAppCommitMessage(context.conversationId, input.change_summary.trim());
   }
   return executeAppRefresh({ app_id: input.app_id as string }, appStore);
 }

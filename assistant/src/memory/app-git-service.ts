@@ -30,17 +30,20 @@ const log = getLogger("app-git");
 // Pending commit message — set by app tool executors, consumed at turn boundary
 // ---------------------------------------------------------------------------
 
-let pendingAppCommitMessage: string | undefined;
+const pendingAppCommitMessages = new Map<string, string>();
 
 /** Set the commit message for the next app turn-boundary commit. */
-export function setAppCommitMessage(message: string): void {
-  pendingAppCommitMessage = message;
+export function setAppCommitMessage(
+  conversationId: string,
+  message: string,
+): void {
+  pendingAppCommitMessages.set(conversationId, message);
 }
 
-/** Consume and clear the pending commit message. */
-function consumeAppCommitMessage(): string | undefined {
-  const msg = pendingAppCommitMessage;
-  pendingAppCommitMessage = undefined;
+/** Consume and clear the pending commit message for a conversation. */
+function consumeAppCommitMessage(conversationId: string): string | undefined {
+  const msg = pendingAppCommitMessages.get(conversationId);
+  pendingAppCommitMessages.delete(conversationId);
   return msg;
 }
 
@@ -188,12 +191,13 @@ export async function commitAppTurnChanges(
   conversationId: string,
   turnNumber: number,
 ): Promise<void> {
+  // Consume before any work that could throw, so the message doesn't leak
+  const changeSummary = consumeAppCommitMessage(conversationId);
   try {
     const appsDir = getAppsDir();
     ensureAppGitignoreRules(appsDir);
 
     const gitService = getWorkspaceGitService(appsDir);
-    const changeSummary = consumeAppCommitMessage();
 
     await gitService.commitIfDirty((status) => {
       if (changeSummary) {

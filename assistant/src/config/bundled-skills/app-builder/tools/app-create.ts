@@ -14,7 +14,7 @@ export async function run(
   context: ToolContext,
 ): Promise<ToolExecutionResult> {
   if (typeof input.change_summary === "string" && input.change_summary.trim()) {
-    setAppCommitMessage(input.change_summary.trim());
+    setAppCommitMessage(context.conversationId, input.change_summary.trim());
   }
   const multifileEnabled = isAssistantFeatureFlagEnabled(
     "app-builder-multifile",

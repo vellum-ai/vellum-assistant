@@ -55,7 +55,7 @@ describe("App Git History", () => {
 
     const history = await getAppHistory(app.id);
     expect(history.length).toBeGreaterThanOrEqual(2);
-    expect(history[0].message).toContain("Turn 2");
+    expect(history[0].message).toContain("update ");
     expect(history[0].commitHash).toMatch(/^[0-9a-f]+$/);
     expect(history[0].timestamp).toBeGreaterThan(0);
   });
