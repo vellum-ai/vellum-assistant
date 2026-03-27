@@ -628,7 +628,7 @@ extension AppDelegate {
         if let imageData {
             viewModel.addAttachment(imageData: imageData, filename: "Screenshot.jpg")
             viewModel.inputText = message
-            quickInputAttachmentCancellable = viewModel.attachmentManager.$isLoadingAttachment
+            quickInputAttachmentCancellable = viewModel.attachmentManager.isLoadingAttachmentPublisher
                 .filter { !$0 }
                 .first()
                 .sink { [weak self] _ in

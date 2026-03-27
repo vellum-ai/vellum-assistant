@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import ImageIO
 import os
@@ -42,15 +43,30 @@ private actor AsyncSemaphore {
 /// computed properties so every existing call site continues to compile without
 /// modification.
 @MainActor
-public final class ChatAttachmentManager: ObservableObject {
+@Observable
+public final class ChatAttachmentManager {
 
-    @Published public var pendingAttachments: [ChatAttachment] = []
+    public var pendingAttachments: [ChatAttachment] = []
     /// True while at least one attachment is being loaded in the background.
     /// The send button checks this so a user can't send before async load finishes.
-    @Published public var isLoadingAttachment: Bool = false
+    public var isLoadingAttachment: Bool = false {
+        didSet {
+            isLoadingAttachmentSubject.send(isLoadingAttachment)
+        }
+    }
+
+    // MARK: - Combine compatibility
+
+    /// Combine bridge for `isLoadingAttachment`, consumed by
+    /// `AppDelegate+InputMonitors` to wait for attachment loading before sending.
+    private let isLoadingAttachmentSubject = CurrentValueSubject<Bool, Never>(false)
+    public var isLoadingAttachmentPublisher: AnyPublisher<Bool, Never> {
+        isLoadingAttachmentSubject.eraseToAnyPublisher()
+    }
 
     // Counts in-flight background loads; isLoadingAttachment is true when > 0.
-    private var loadingCount: Int = 0 {
+    // Not observed by views — only drives `isLoadingAttachment` via didSet.
+    @ObservationIgnored private var loadingCount: Int = 0 {
         didSet { isLoadingAttachment = loadingCount > 0 }
     }
 
@@ -83,7 +99,7 @@ public final class ChatAttachmentManager: ObservableObject {
     // MARK: - Error callback
 
     /// Called when an operation fails, so ChatViewModel can surface the error.
-    public var onError: ((String) -> Void)?
+    @ObservationIgnored public var onError: ((String) -> Void)?
 
     // MARK: - Error type
 
