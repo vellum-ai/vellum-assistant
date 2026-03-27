@@ -382,8 +382,6 @@ public struct ToolConfirmationData: Equatable {
         let service = (input["service"]?.value as? String) ?? ""
 
         switch action {
-        case "oauth2_connect":
-            return service.isEmpty ? "Connect account" : "Connect \(service) account"
         case "store":
             return service.isEmpty ? "Save credential" : "Save \(service) credential"
         case "delete":
@@ -685,10 +683,6 @@ public func confirmationHumanDescription(
         let action = (input["action"]?.value as? String) ?? ""
         let service = (input["service"]?.value as? String) ?? ""
         switch action {
-        case "oauth2_connect":
-            return service.isEmpty
-                ? "Allow connecting an account?"
-                : "Allow connecting your \(service.capitalized) account?"
         case "store":
             return service.isEmpty
                 ? "Allow saving a credential securely?"
