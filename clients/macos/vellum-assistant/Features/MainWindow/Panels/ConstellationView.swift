@@ -429,6 +429,62 @@ private struct SkillPopoverView: View {
     }
 }
 
+// MARK: - File Popover View
+
+private struct FilePopoverView: View {
+    let item: OrbitItem
+    var onOpenFile: () -> Void
+    var onViewInWorkspace: (() -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.file, size: 14)
+                    .foregroundStyle(item.color)
+
+                Text(item.label)
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(2)
+            }
+
+            if let filePath = item.filePath {
+                Text(filePath)
+                    .font(VFont.labelSmall)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Divider()
+                .padding(.vertical, VSpacing.xxs)
+
+            VButton(label: "Open File", icon: VIcon.externalLink.rawValue, style: .ghost, size: .compact) {
+                onOpenFile()
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let onViewInWorkspace {
+                VButton(label: "View in Workspace \u{2192}", icon: VIcon.folderSearch.rawValue, style: .ghost, size: .compact) {
+                    onViewInWorkspace()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(VSpacing.md)
+        .frame(maxWidth: 260, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.surfaceBase)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
+        .vShadow(VShadow.md)
+    }
+}
+
 // MARK: - Overlap Resolution
 
 /// Pushes a proposed position away from any overlapping existing nodes.
@@ -692,6 +748,7 @@ struct ConstellationView: View {
     let skills: [SkillInfo]
     let workspaceFiles: [WorkspaceFileNode]
     var onFileSelected: ((String) -> Void)?
+    var onNavigateToFile: ((String) -> Void)?
     @Binding var isFullscreen: Bool
     @State private var appearance = AvatarAppearanceManager.shared
 
@@ -702,6 +759,8 @@ struct ConstellationView: View {
     @State private var baseZoomScale: CGFloat = 1.0
     @State private var selectedSkillItem: OrbitItem?
     @State private var selectedNodeId: String?
+    @State private var selectedFileItem: OrbitItem?
+    @State private var selectedFileNodeId: String?
     @State private var zoomedNodeId: String?
 
     // Node sizes
@@ -950,13 +1009,15 @@ struct ConstellationView: View {
                     .offset(totalOffset)
 
                 // Dismiss layer for popover
-                if selectedSkillItem != nil {
+                if selectedSkillItem != nil || selectedFileItem != nil {
                     Color.clear
                         .contentShape(Rectangle())
                         .onTapGesture {
                             withAnimation(VAnimation.fast) {
                                 selectedSkillItem = nil
                                 selectedNodeId = nil
+                                selectedFileItem = nil
+                                selectedFileNodeId = nil
                             }
                         }
                 }
@@ -972,6 +1033,39 @@ struct ConstellationView: View {
                     SkillPopoverView(item: selected)
                         .position(x: scaledX, y: scaledY)
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                }
+
+                // File popover overlay
+                if let fileItem = selectedFileItem, let fileNodeId = selectedFileNodeId {
+                    let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                    let fileNodePos = effectivePosition(forId: fileNodeId)
+                    let fileViewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                    let fileScaledX = fileViewCenter.x + (fileNodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
+                    let fileScaledY = fileViewCenter.y + (fileNodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 80
+
+                    FilePopoverView(
+                        item: fileItem,
+                        onOpenFile: {
+                            withAnimation(VAnimation.fast) {
+                                selectedFileItem = nil
+                                selectedFileNodeId = nil
+                            }
+                            if let path = fileItem.filePath {
+                                onFileSelected?(path)
+                            }
+                        },
+                        onViewInWorkspace: onNavigateToFile != nil ? {
+                            withAnimation(VAnimation.fast) {
+                                selectedFileItem = nil
+                                selectedFileNodeId = nil
+                            }
+                            if let path = fileItem.filePath {
+                                onNavigateToFile?(path)
+                            }
+                        } : nil
+                    )
+                    .position(x: fileScaledX, y: fileScaledY)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
             }
                 .frame(width: proxy.size.width, height: proxy.size.height)
@@ -1018,10 +1112,12 @@ struct ConstellationView: View {
                 }
                 #if os(macOS)
                 .onKeyPress(.escape) {
-                    if selectedSkillItem != nil {
+                    if selectedSkillItem != nil || selectedFileItem != nil {
                         withAnimation(VAnimation.fast) {
                             selectedSkillItem = nil
                             selectedNodeId = nil
+                            selectedFileItem = nil
+                            selectedFileNodeId = nil
                         }
                         return .handled
                     }
@@ -1209,10 +1305,26 @@ struct ConstellationView: View {
                         size: skillNodeSize,
                         onDoubleTap: { zoomToNode(nodeId, viewSize: size) },
                         onTap: item.filePath != nil
-                            ? { onFileSelected?(item.filePath!) }
+                            ? {
+                                withAnimation(VAnimation.fast) {
+                                    // Dismiss any open skill popover
+                                    selectedSkillItem = nil
+                                    selectedNodeId = nil
+                                    if selectedFileItem?.id == item.id {
+                                        selectedFileItem = nil
+                                        selectedFileNodeId = nil
+                                    } else {
+                                        selectedFileItem = item
+                                        selectedFileNodeId = node.id
+                                    }
+                                }
+                            }
                             : item.description != nil
                                 ? {
                                     withAnimation(VAnimation.fast) {
+                                        // Dismiss any open file popover
+                                        selectedFileItem = nil
+                                        selectedFileNodeId = nil
                                         if selectedSkillItem?.id == item.id {
                                             selectedSkillItem = nil
                                             selectedNodeId = nil

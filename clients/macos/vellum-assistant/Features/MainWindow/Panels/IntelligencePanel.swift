@@ -19,6 +19,7 @@ struct IntelligencePanel: View {
     @State private var cachedAssistantName: String = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
     @State private var isContactsEnabled: Bool = false
     @State private var isEmailEnabled: Bool = false
+    @State private var pendingFilePath: String?
     private static let contactsFeatureFlagKey = "contacts"
     private static let emailFeatureFlagKey = "email-channel"
 
@@ -131,7 +132,11 @@ struct IntelligencePanel: View {
         case .identity:
             IdentityPanel(
                 onClose: onClose,
-                connectionManager: connectionManager
+                connectionManager: connectionManager,
+                onNavigateToFile: { path in
+                    pendingFilePath = path
+                    withAnimation(VAnimation.fast) { selectedTab = .workspace }
+                }
             )
             .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -147,7 +152,7 @@ struct IntelligencePanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .workspace:
-            WorkspacePanel()
+            WorkspacePanel(pendingFilePath: $pendingFilePath)
                 .padding(.top, VSpacing.sm)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
