@@ -259,10 +259,10 @@ describe("assistant oauth connect", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Managed mode: prints connect URL without --open-browser
+  // Managed mode with --no-browser: prints connect URL
   // -------------------------------------------------------------------------
 
-  test("managed mode: prints connect URL without --open-browser", async () => {
+  test("managed mode with --no-browser: prints connect URL", async () => {
     mockGetProvider = () => ({
       providerKey: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -282,6 +282,7 @@ describe("assistant oauth connect", () => {
     const { exitCode, stdout } = await runCommand([
       "connect",
       "google",
+      "--no-browser",
       "--json",
     ]);
     expect(exitCode).toBe(0);
@@ -295,10 +296,10 @@ describe("assistant oauth connect", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Managed mode with --open-browser: opens browser and polls
+  // Managed mode default: opens browser and polls
   // -------------------------------------------------------------------------
 
-  test("managed mode with --open-browser: opens browser and polls for new connection", async () => {
+  test("managed mode default: opens browser and polls for new connection", async () => {
     mockGetProvider = () => ({
       providerKey: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -336,7 +337,6 @@ describe("assistant oauth connect", () => {
     const { exitCode, stdout } = await runCommand([
       "connect",
       "google",
-      "--open-browser",
       "--json",
     ]);
     expect(exitCode).toBe(0);
@@ -352,10 +352,10 @@ describe("assistant oauth connect", () => {
   });
 
   // -------------------------------------------------------------------------
-  // BYO mode: prints auth URL without --open-browser (deferred)
+  // BYO mode with --no-browser: prints auth URL (deferred)
   // -------------------------------------------------------------------------
 
-  test("BYO mode: prints auth URL without --open-browser", async () => {
+  test("BYO mode with --no-browser: prints auth URL", async () => {
     mockGetProvider = () => ({
       providerKey: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -384,6 +384,7 @@ describe("assistant oauth connect", () => {
     const { exitCode, stdout } = await runCommand([
       "connect",
       "google",
+      "--no-browser",
       "--json",
     ]);
     expect(exitCode).toBe(0);
@@ -397,10 +398,10 @@ describe("assistant oauth connect", () => {
   });
 
   // -------------------------------------------------------------------------
-  // BYO mode with --open-browser: orchestrator called with isInteractive true
+  // BYO mode default: orchestrator called with isInteractive true
   // -------------------------------------------------------------------------
 
-  test("BYO mode with --open-browser calls orchestrator with isInteractive: true", async () => {
+  test("BYO mode default calls orchestrator with isInteractive: true", async () => {
     mockGetProvider = () => ({
       providerKey: "google",
       authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
@@ -434,13 +435,12 @@ describe("assistant oauth connect", () => {
       "google",
       "--client-id",
       "test-id",
-      "--open-browser",
       "--json",
     ]);
     expect(exitCode).toBe(0);
     expect(capturedOpts).toBeDefined();
     expect(capturedOpts!.isInteractive).toBe(true);
-    // openUrl should be provided when --open-browser is set
+    // openUrl should be provided by default (browser opens automatically)
     expect(typeof capturedOpts!.openUrl).toBe("function");
 
     const parsed = JSON.parse(stdout);
@@ -529,6 +529,7 @@ describe("assistant oauth connect", () => {
       "google",
       "--client-id",
       "should-be-ignored",
+      "--no-browser",
       "--json",
     ]);
     // Should succeed — --client-id does not cause an error in managed mode
@@ -573,6 +574,7 @@ describe("assistant oauth connect", () => {
     const { exitCode, stdout } = await runCommand([
       "connect",
       "slack",
+      "--no-browser",
       "--json",
     ]);
     expect(exitCode).toBe(0);
