@@ -219,13 +219,13 @@ extension MainWindowView {
                         },
                         onCommitRename: group.isSystemGroup ? nil : { newName in
                             sidebar.renamingGroupId = nil
-                            Task { await conversationManager.renameGroup(group.id, name: newName) }
+                            Task { @MainActor in await conversationManager.renameGroup(group.id, name: newName) }
                         },
                         onCancelRename: group.isSystemGroup ? nil : {
                             sidebar.renamingGroupId = nil
                         },
                         onDelete: group.isSystemGroup ? nil : {
-                            Task { await conversationManager.deleteGroup(group.id) }
+                            Task { @MainActor in await conversationManager.deleteGroup(group.id) }
                         },
                         onToggleExpand: { sidebar.toggleSection(group.id) },
                         onToggleShowAll: { sidebar.toggleShowAll(group.id) },
@@ -245,7 +245,7 @@ extension MainWindowView {
             }
 
             Button {
-                Task {
+                Task { @MainActor in
                     if let group = await conversationManager.createGroup(name: "New Group") {
                         sidebar.expandedSections.insert(group.id)
                         sidebar.renamingGroupId = group.id
@@ -418,7 +418,7 @@ extension MainWindowView {
                 // while collapsed. Other sections (Background, Custom, Pinned)
                 // do NOT auto-expand.
                 if newCount > 0 && !sidebar.expandedSections.contains(ConversationGroup.scheduled.id) {
-                    withAnimation(VAnimation.fast) {
+                    _ = withAnimation(VAnimation.fast) {
                         sidebar.expandedSections.insert(ConversationGroup.scheduled.id)
                     }
                 }
