@@ -19,7 +19,6 @@ struct SidebarSectionView: View {
     let showAll: Bool
     let maxCollapsed: Int
     let isDropTarget: Bool
-    let autoExpandOnUnread: Bool
     let countMode: CountMode
 
     // Rename/delete plumbing -- passed through to SidebarSectionHeader.
@@ -111,6 +110,7 @@ struct SidebarSectionView: View {
 
             if isExpanded {
                 sectionContent
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
         } else {
             // Ungrouped -- no header, render conversations directly
