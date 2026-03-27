@@ -46,7 +46,7 @@ const PROVIDER_ENV_VARS: Record<string, string> =
  * (health check fails or network error). Callers fall back to direct
  * secure-keys.ts only when this returns `null`.
  */
-export async function daemonFetch(
+async function daemonFetch(
   path: string,
   init?: RequestInit,
 ): Promise<Response | null> {

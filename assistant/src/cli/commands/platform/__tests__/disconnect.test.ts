@@ -41,7 +41,6 @@ mock.module("../../../../inbound/platform-callback-registration.js", () => ({
 }));
 
 mock.module("../../../lib/daemon-credential-client.js", () => ({
-  daemonFetch: async () => new Response(JSON.stringify({ ok: true })),
   getSecureKeyViaDaemon: (account: string) =>
     mockGetSecureKeyViaDaemon(account),
   deleteSecureKeyViaDaemon: async (type: string, name: string) => {

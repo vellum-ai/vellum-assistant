@@ -4786,26 +4786,6 @@ paths:
           schema:
             type: string
           description: Conversation ID
-  /v1/platform/connect:
-    post:
-      operationId: platform_connect_post
-      summary: Trigger platform connect flow
-      description: Broadcast a navigate_settings message so connected clients open the platform login UI.
-      tags:
-        - platform
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  ok:
-                    type: boolean
-                required:
-                  - ok
-                additionalProperties: false
   /v1/recordings/pause:
     post:
       operationId: recordings_pause_post

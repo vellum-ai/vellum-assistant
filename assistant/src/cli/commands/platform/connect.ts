@@ -1,10 +1,10 @@
 import type { Command } from "commander";
 
+import { buildAssistantEvent } from "../../../runtime/assistant-event.js";
+import { assistantEventHub } from "../../../runtime/assistant-event-hub.js";
+import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../runtime/assistant-scope.js";
 import { credentialKey } from "../../../security/credential-key.js";
-import {
-  daemonFetch,
-  getSecureKeyViaDaemon,
-} from "../../lib/daemon-credential-client.js";
+import { getSecureKeyViaDaemon } from "../../lib/daemon-credential-client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
@@ -86,28 +86,15 @@ Examples:
           return;
         }
 
-        // Ask the daemon to broadcast a navigate_settings message so
-        // connected clients (e.g. macOS app) open the General settings
-        // tab which contains the Vellum Platform login card.
-        const res = await daemonFetch("/v1/platform/connect", {
-          method: "POST",
-        });
-
-        if (!res) {
-          writeError(
-            "Could not reach the assistant. " +
-              "Please ensure the assistant is running and try again.",
-          );
-          return;
-        }
-
-        if (!res.ok) {
-          writeError(
-            "The assistant rejected the platform connect request. " +
-              `(HTTP ${String(res.status)})`,
-          );
-          return;
-        }
+        // Publish a navigate_settings event so connected clients
+        // (e.g. macOS app) open the General settings tab which
+        // contains the Vellum Platform login card.
+        await assistantEventHub.publish(
+          buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
+            type: "navigate_settings",
+            tab: "General",
+          }),
+        );
 
         writeOutput(cmd, { ok: true, navigatedToSettings: true });
 
