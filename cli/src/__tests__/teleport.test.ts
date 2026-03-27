@@ -702,4 +702,122 @@ describe("teleport transfer routing", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  test("platform → platform calls platform export and platform import", async () => {
+    setArgv("--from", "platform-src", "--to", "platform-dst");
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "platform-src")
+        return makeEntry("platform-src", {
+          cloud: "vellum",
+          runtimeUrl: "https://platform.vellum.ai",
+        });
+      if (name === "platform-dst")
+        return makeEntry("platform-dst", {
+          cloud: "vellum",
+          runtimeUrl: "https://platform2.vellum.ai",
+        });
+      return null;
+    });
+
+    await teleport();
+
+    // Platform export: should call all three platform export functions
+    expect(platformInitiateExportMock).toHaveBeenCalled();
+    expect(platformPollExportStatusMock).toHaveBeenCalled();
+    expect(platformDownloadExportMock).toHaveBeenCalled();
+
+    // Platform import: should call platformImportBundle
+    expect(platformImportBundleMock).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Edge case: extra/unrecognized arguments
+// ---------------------------------------------------------------------------
+
+describe("teleport extra arguments", () => {
+  test("extra unrecognized flags are ignored and command works normally", async () => {
+    setArgv(
+      "--from",
+      "src",
+      "--to",
+      "dst",
+      "--bogus-flag",
+      "--another-unknown",
+    );
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "src") return makeEntry("src", { cloud: "local" });
+      if (name === "dst") return makeEntry("dst", { cloud: "local" });
+      return null;
+    });
+
+    const originalFetch = globalThis.fetch;
+    const fetchMock = mock(async (url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      if (urlStr.includes("/export")) {
+        return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({
+          success: true,
+          summary: {
+            total_files: 1,
+            files_created: 1,
+            files_overwritten: 0,
+            files_skipped: 0,
+            backups_created: 0,
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      // Should have proceeded normally despite extra flags
+      expect(findAssistantByNameMock).toHaveBeenCalledWith("src");
+      expect(findAssistantByNameMock).toHaveBeenCalledWith("dst");
+      const exportCalls = filterFetchCalls(fetchMock, "/v1/migrations/export");
+      expect(exportCalls.length).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Edge case: --from or --to without a following value
+// ---------------------------------------------------------------------------
+
+describe("teleport malformed flag usage", () => {
+  test("--from as the last argument (no value) prints help and exits 1", async () => {
+    setArgv("--to", "target", "--from");
+    // --from is the last arg so parseArgs won't assign a value to `from`
+    // This should result in missing --from and trigger help + exit 1
+    await expect(teleport()).rejects.toThrow("process.exit:1");
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Usage:"),
+    );
+  });
+
+  test("--to as the last argument (no value) prints help and exits 1", async () => {
+    setArgv("--from", "source", "--to");
+    await expect(teleport()).rejects.toThrow("process.exit:1");
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Usage:"),
+    );
+  });
+
+  test("--from --to target consumes --to as from's value, leaving to undefined", async () => {
+    setArgv("--from", "--to", "target");
+    // parseArgs sees --from then consumes "--to" as from's value.
+    // "target" is left as a positional arg. to remains undefined → prints help and exits 1.
+    await expect(teleport()).rejects.toThrow("process.exit:1");
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Usage:"),
+    );
+  });
 });
