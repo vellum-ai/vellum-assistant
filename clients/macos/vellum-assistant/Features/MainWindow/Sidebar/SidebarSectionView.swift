@@ -30,6 +30,7 @@ struct SidebarSectionView: View {
     @Binding var renamingName: String
     var onRename: ((String) -> Void)?
     var onCommitRename: ((String) -> Void)?
+    var onCancelRename: (() -> Void)?
     var onDelete: (() -> Void)?
 
     var onToggleExpand: () -> Void
@@ -99,6 +100,7 @@ struct SidebarSectionView: View {
                 onToggleExpand: onToggleExpand,
                 onRename: onRename,
                 onCommitRename: onCommitRename,
+                onCancelRename: onCancelRename,
                 onDelete: onDelete
             )
             .modifier(SectionHeaderDropModifier(

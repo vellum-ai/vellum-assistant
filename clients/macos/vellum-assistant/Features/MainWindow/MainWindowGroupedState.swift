@@ -164,4 +164,11 @@ final class SidebarInteractionState {
     /// Whether the drop indicator should appear at the bottom of the target (true)
     /// or the top (false). Set based on drag direction.
     var dropIndicatorAtBottom: Bool = false
+
+    // MARK: - Group Rename State
+
+    /// Group ID currently being renamed inline. Set when "Rename" is selected from context menu.
+    var renamingGroupId: String?
+    /// Text field content for the group currently being renamed.
+    var renamingGroupName: String = ""
 }
