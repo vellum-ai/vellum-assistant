@@ -42,7 +42,7 @@ body:
     id: version
     attributes:
       label: Vellum version
-      description: Output of `vellum --version`, or the macOS/iOS app version.
+      description: Output of `vellum --version`, or the macOS app version.
       placeholder: e.g. 1.2.3
     validations:
       required: false
@@ -52,7 +52,7 @@ body:
     attributes:
       label: OS
       description: Your operating system and version.
-      placeholder: e.g. macOS 15.4, iOS 18.3, Ubuntu 24.04
+      placeholder: e.g. macOS 15.4, Ubuntu 24.04
     validations:
       required: false
 

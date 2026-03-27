@@ -1,8 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Security Vulnerability
-    url: https://github.com/vellum-ai/vellum-assistant/blob/main/SECURITY.md
-    about: Please report security vulnerabilities privately — do not open a public issue.
   - name: Questions & Support
     url: https://vellum.ai/community
     about: For general questions or help, join us on Discord.
