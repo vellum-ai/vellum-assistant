@@ -71,7 +71,7 @@ public final class ChatPaginationState {
 
     // MARK: - Dependencies
 
-    /// The message manager whose `$messages` publisher drives `displayedMessages`.
+    /// The message manager whose `messagesPublisher` drives `displayedMessages`.
     @ObservationIgnored private let messageManager: ChatMessageManager
 
     /// Callback invoked when `loadPreviousMessagePage` needs to fetch an older
@@ -84,7 +84,7 @@ public final class ChatPaginationState {
     /// Set after init to avoid capturing `self` before ChatViewModel is fully initialized.
     @ObservationIgnored var conversationIdProvider: () -> String? = { nil }
 
-    /// Combine subscription for the throttled $messages -> displayedMessages sync.
+    /// Combine subscription for the throttled messagesPublisher -> displayedMessages sync.
     @ObservationIgnored private var messagesSyncSub: AnyCancellable?
 
     // MARK: - Init
@@ -100,13 +100,12 @@ public final class ChatPaginationState {
         //
         // Two correctness/perf fixes applied here:
         // 1. Use the delivered `newMessages` value directly rather than reading
-        //    `self.messages` inside the sink. @Published fires during willSet, so
-        //    the stored property still holds the OLD value when the subscriber runs
-        //    — reading it caused displayedMessages to lag one mutation behind.
+        //    `self.messages` inside the sink. The CurrentValueSubject bridge
+        //    delivers the latest value at the point of emission.
         // 2. Throttle to 50ms so displayedMessages (and any SwiftUI views observing
         //    it) only refresh at most every 50ms, matching the coalesced publish
         //    window used for the rest of the view model.
-        messagesSyncSub = messageManager.$messages
+        messagesSyncSub = messageManager.messagesPublisher
             .throttle(for: .milliseconds(50), scheduler: RunLoop.main, latest: true)
             .sink { [weak self] newMessages in
                 self?.displayedMessages = ChatVisibleMessageFilter.visibleMessages(from: newMessages)
