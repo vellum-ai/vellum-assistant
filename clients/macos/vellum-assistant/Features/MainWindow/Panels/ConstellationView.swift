@@ -777,6 +777,7 @@ struct ConstellationView: View {
     @State private var baseZoomScale: CGFloat = 1.0
     @State private var selectedPopoverItem: OrbitItem?
     @State private var selectedPopoverNodeId: String?
+    @State private var popoverSize: CGSize = CGSize(width: 250, height: 120)
     @State private var zoomedNodeId: String?
 
     // Node sizes
@@ -1090,17 +1091,33 @@ struct ConstellationView: View {
                         let rawX = viewCenter.x + (nodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
                         let rawY = viewCenter.y + (nodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
 
+                        // Clamp so the popover stays within visible bounds
+                        let margin: CGFloat = VSpacing.sm
+                        let clampedX = min(max(rawX, popoverSize.width / 2 + margin), proxy.size.width - popoverSize.width / 2 - margin)
+                        let clampedY = min(max(rawY, popoverSize.height / 2 + margin), proxy.size.height - popoverSize.height / 2 - margin)
+
                         NodePopoverView(
                             item: popoverItem,
                             onViewDetails: viewDetailsAction(for: popoverItem)
                         )
-                        .position(x: rawX, y: rawY)
+                        .onGeometryChange(for: CGSize.self) { proxy in
+                            proxy.size
+                        } action: { size in
+                            popoverSize = size
+                        }
+                        .position(x: clampedX, y: clampedY)
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
                     }
                 }
                 .overlay(alignment: .topLeading) {
                     fullscreenToggle
                         .padding(VSpacing.lg)
+                }
+                .overlay(alignment: .bottomLeading) {
+                    shapeLegend
+                        .padding(VSpacing.lg)
+                        .opacity(phase.skillsVisible ? 1 : 0)
+                        .animation(VAnimation.standard, value: phase)
                 }
                 .overlay(alignment: .bottomTrailing) {
                     viewportControls(viewSize: proxy.size)
@@ -1166,6 +1183,57 @@ struct ConstellationView: View {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                 isFullscreen.toggle()
             }
+        }
+    }
+
+    // MARK: - Shape Legend (bottom-left)
+
+    private var shapeLegend: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            legendRow(shape: AnyView(
+                Circle()
+                    .stroke(VColor.contentTertiary, lineWidth: 2)
+                    .frame(width: 14, height: 14)
+            ), label: "Category")
+
+            legendRow(shape: AnyView(
+                Circle()
+                    .stroke(VColor.contentTertiary, style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
+                    .frame(width: 12, height: 12)
+            ), label: "Subcategory")
+
+            legendRow(shape: AnyView(
+                RoundedRectangle(cornerRadius: 3)
+                    .stroke(VColor.contentTertiary, lineWidth: 1.5)
+                    .frame(width: 12, height: 12)
+                    .rotationEffect(.degrees(45))
+            ), label: "Skill")
+
+            legendRow(shape: AnyView(
+                Circle()
+                    .stroke(VColor.contentTertiary, lineWidth: 1.5)
+                    .frame(width: 12, height: 12)
+            ), label: "Workspace")
+        }
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(VColor.surfaceOverlay)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
+    }
+
+    private func legendRow(shape: AnyView, label: String) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            shape
+                .frame(width: 16, height: 16)
+            Text(label)
+                .font(VFont.labelSmall)
+                .foregroundStyle(VColor.contentSecondary)
         }
     }
 
