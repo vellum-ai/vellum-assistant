@@ -640,8 +640,7 @@ struct MessageListView: View {
             while idx < displayMessageIds.count {
                 let nextId = displayMessageIds[idx]
                 guard let m = displayMessageById[nextId], m.role == role else { break }
-                let t = m.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !t.isEmpty { texts.append(t) }
+                if !m.text.isEmpty { texts.append(m.text) }
                 idx += 1
             }
             let combined = texts.joined(separator: "\n\n")
