@@ -375,10 +375,26 @@ public final class ChatAttachmentManager: ObservableObject {
 
     // MARK: - Thread-safe ImageIO helpers
 
-    /// Decode a CGImage from raw data via ImageIO. Thread-safe, works on any thread.
+    /// Decode a CGImage from raw data via ImageIO with EXIF orientation applied.
+    /// Uses CGImageSourceCreateThumbnailAtIndex at full resolution so the returned
+    /// pixel buffer has the correct orientation baked in (e.g. portrait photos from
+    /// cameras are already rotated). Thread-safe, works on any thread.
     nonisolated private static func loadCGImage(from data: Data) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+        // Read the raw pixel dimensions to request a "thumbnail" at full size.
+        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let pixelWidth = properties[kCGImagePropertyPixelWidth] as? Int,
+              let pixelHeight = properties[kCGImagePropertyPixelHeight] as? Int else {
+            // Fallback: return raw image without orientation correction.
+            return CGImageSourceCreateImageAtIndex(source, 0, nil)
+        }
+        let maxDimension = max(pixelWidth, pixelHeight)
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxDimension
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 
     /// Encode a CGImage to JPEG or PNG via ImageIO. Thread-safe, works on any thread.
