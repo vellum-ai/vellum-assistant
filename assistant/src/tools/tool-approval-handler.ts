@@ -11,6 +11,7 @@ import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
 import { getLogger } from "../util/logger.js";
 import { getAllTools, getTool } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
+import { summarizeToolInput } from "./tool-input-summary.js";
 import type {
   ExecutionTarget,
   Tool,
@@ -21,6 +22,22 @@ import type {
 import { enforceVerificationControlPlanePolicy } from "./verification-control-plane-policy.js";
 
 const log = getLogger("tool-approval-handler");
+
+function buildToolGrantQuestionText(
+  toolName: string,
+  input: Record<string, unknown>,
+  context: ToolContext,
+): string {
+  const senderLabel =
+    context.requesterDisplayName ||
+    context.requesterIdentifier ||
+    context.requesterExternalUserId ||
+    "A trusted contact";
+  const inputSummary = summarizeToolInput(toolName, input);
+  return inputSummary
+    ? `${senderLabel} wants to use "${toolName}": ${inputSummary}`
+    : `${senderLabel} is requesting permission to use "${toolName}"`;
+}
 
 /** Default polling interval for inline grant wait (ms). */
 export const TC_GRANT_WAIT_INTERVAL_MS = 500;
@@ -494,7 +511,8 @@ export class ToolApprovalHandler {
           requesterChatId: context.requesterChatId,
           toolName: name,
           inputDigest,
-          questionText: `Trusted contact is requesting permission to use "${name}"`,
+          questionText: buildToolGrantQuestionText(name, input, context),
+          requesterIdentifier: context.requesterDisplayName || context.requesterIdentifier,
         });
 
         // Only wait inline if the escalation succeeded (created or deduped).
