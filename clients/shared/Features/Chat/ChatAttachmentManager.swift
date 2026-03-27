@@ -382,13 +382,16 @@ public final class ChatAttachmentManager: ObservableObject {
     nonisolated private static func loadCGImage(from data: Data) -> CGImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         // Read the raw pixel dimensions to request a "thumbnail" at full size.
-        guard let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-              let pixelWidth = properties[kCGImagePropertyPixelWidth] as? Int,
-              let pixelHeight = properties[kCGImagePropertyPixelHeight] as? Int else {
-            // Fallback: return raw image without orientation correction.
-            return CGImageSourceCreateImageAtIndex(source, 0, nil)
+        let maxDimension: Int
+        if let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let pixelWidth = properties[kCGImagePropertyPixelWidth] as? Int,
+           let pixelHeight = properties[kCGImagePropertyPixelHeight] as? Int {
+            maxDimension = max(pixelWidth, pixelHeight)
+        } else {
+            // Dimensions unavailable (malformed image); use a large cap so
+            // CGImageSourceCreateThumbnailAtIndex still applies the EXIF transform.
+            maxDimension = 100_000
         }
-        let maxDimension = max(pixelWidth, pixelHeight)
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
