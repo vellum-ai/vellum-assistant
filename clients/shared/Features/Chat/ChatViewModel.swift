@@ -932,8 +932,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     /// Surface the user is currently viewing in workspace mode.
     /// Set by MainWindowView when the dynamic workspace is expanded.
-    /// Surface the user is currently viewing in workspace mode.
-    /// Set by MainWindowView when the dynamic workspace is expanded.
     public var activeSurfaceId: String? {
         didSet {
             if oldValue != activeSurfaceId {

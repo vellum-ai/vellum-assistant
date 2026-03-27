@@ -575,30 +575,23 @@ extension AppDelegate {
         observeActiveViewModelErrorText()
     }
 
-    /// Generation counter that invalidates stale withObservationTracking loops
-    /// when the active conversation changes.
-    private var errorTextObservationGeneration = 0
-
     /// Recursive withObservationTracking loop that watches the active
     /// ChatViewModel's errorText and updates the menu bar icon on change.
-    /// Uses a generation token to prevent stale observers from accumulating
-    /// across conversation switches.
+    /// Re-resolves the active VM on each re-arm so stale VMs are never
+    /// retained, and exits silently if the VM has been deallocated.
     private func observeActiveViewModelErrorText() {
         guard let vm = mainWindow?.conversationManager.activeViewModel else { return }
-        errorTextObservationGeneration += 1
-        let generation = errorTextObservationGeneration
-        observeErrorText(vm: vm, generation: generation)
-    }
-
-    private func observeErrorText(vm: ChatViewModel, generation: Int) {
-        guard errorTextObservationGeneration == generation else { return }
         withObservationTracking {
             _ = vm.errorText
-        } onChange: { [weak self] in
+        } onChange: { [weak self, weak vm] in
             Task { @MainActor [weak self] in
-                guard let self, self.errorTextObservationGeneration == generation else { return }
+                guard let self else { return }
                 self.updateMenuBarIcon()
-                self.observeErrorText(vm: vm, generation: generation)
+                // Re-arm only if the same VM is still active.
+                // If the conversation switched, observeAssistantStatus's
+                // handleEvents will call us again with the new VM.
+                guard let vm, vm === self.mainWindow?.conversationManager.activeViewModel else { return }
+                self.observeActiveViewModelErrorText()
             }
         }
     }
