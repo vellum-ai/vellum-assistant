@@ -1725,6 +1725,74 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/oauth/providers": {
+        get: {
+          summary: "List OAuth providers",
+          description:
+            "Authenticated gateway endpoint that lists available OAuth providers by proxying to the assistant runtime.",
+          operationId: "oauthProvidersList",
+          parameters: [
+            {
+              name: "supports_managed_mode",
+              in: "query",
+              required: false,
+              schema: { type: "boolean" },
+              description:
+                "When true, only return providers that support managed mode.",
+            },
+          ],
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "OAuth providers returned",
+              content: {
+                "application/json": {
+                  schema: { type: "object" },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
+      "/v1/oauth/providers/{providerKey}": {
+        get: {
+          summary: "Get OAuth provider",
+          description:
+            "Authenticated gateway endpoint that retrieves a single OAuth provider by key by proxying to the assistant runtime.",
+          operationId: "oauthProvidersGet",
+          parameters: [
+            {
+              name: "providerKey",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+              description: "The provider key, for example `google`.",
+            },
+          ],
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "OAuth provider returned",
+              content: {
+                "application/json": {
+                  schema: { type: "object" },
+                },
+              },
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "404": { description: "OAuth provider not found" },
+            "502": { description: "Failed to reach assistant runtime" },
+            "504": { description: "Assistant runtime request timed out" },
+          },
+        },
+      },
       "/v1/oauth/apps": {
         get: {
           summary: "List OAuth apps",
