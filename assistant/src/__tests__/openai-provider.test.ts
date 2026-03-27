@@ -1055,7 +1055,7 @@ describe("effort config passthrough", () => {
     expect(config.effort).toBeUndefined();
   });
 
-  test("effort is stripped for fireworks provider", async () => {
+  test("effort is preserved for fireworks provider", async () => {
     let capturedOptions: SendMessageOptions | undefined;
     const inner = makeProvider("fireworks", (opts) => {
       capturedOptions = opts;
@@ -1067,7 +1067,22 @@ describe("effort config passthrough", () => {
     });
 
     const config = capturedOptions?.config as Record<string, unknown>;
-    expect(config.effort).toBeUndefined();
+    expect(config.effort).toBe("low");
+  });
+
+  test("effort is preserved for openrouter provider", async () => {
+    let capturedOptions: SendMessageOptions | undefined;
+    const inner = makeProvider("openrouter", (opts) => {
+      capturedOptions = opts;
+    });
+    const retry = new RetryProvider(inner);
+
+    await retry.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { effort: "high" },
+    });
+
+    const config = capturedOptions?.config as Record<string, unknown>;
+    expect(config.effort).toBe("high");
   });
 
   test("effort is preserved for anthropic provider", async () => {
