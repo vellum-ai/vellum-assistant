@@ -1,5 +1,5 @@
-name: Bug Report
-description: Report a bug in Vellum Assistant
+name: Bug report
+description: Report a bug with your Vellum assistant
 labels: ["bug"]
 body:
   - type: markdown
