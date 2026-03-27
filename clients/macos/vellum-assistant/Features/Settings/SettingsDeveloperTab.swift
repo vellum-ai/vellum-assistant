@@ -554,9 +554,7 @@ struct SettingsDeveloperTab: View {
                             Text(displayLabel(for: assistant))
                                 .font(VFont.bodyMediumDefault)
                                 .foregroundStyle(VColor.contentDefault)
-                            Text(displayNames[assistant.assistantId] != nil
-                                ? "\(assistant.assistantId) · \(assistant.home.displayLabel)"
-                                : assistant.home.displayLabel)
+                            Text(assistantSubtitle(for: assistant))
                                 .font(VFont.labelDefault)
                                 .foregroundStyle(VColor.contentTertiary)
                         }
@@ -614,6 +612,18 @@ struct SettingsDeveloperTab: View {
 
     private func displayLabel(for assistant: LockfileAssistant) -> String {
         displayNames[assistant.assistantId] ?? assistant.assistantId
+    }
+
+    private func assistantSubtitle(for assistant: LockfileAssistant) -> String {
+        var parts: [String] = []
+        if displayNames[assistant.assistantId] != nil {
+            parts.append(assistant.assistantId)
+        }
+        parts.append(assistant.home.displayLabel)
+        if assistant.isManaged, let runtimeUrl = assistant.runtimeUrl, !runtimeUrl.isEmpty {
+            parts.append(runtimeUrl)
+        }
+        return parts.joined(separator: " · ")
     }
 
     private func refreshAwakeStates() async {
