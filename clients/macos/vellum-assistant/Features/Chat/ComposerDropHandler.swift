@@ -20,6 +20,10 @@ struct DropActions {
     /// Binding that tracks whether the user is dragging an internally-rendered image
     /// (e.g. to Finder/Desktop), which should be rejected as an upload.
     var isDraggingInternalImage: Binding<Bool>
+    /// Called when an internal image drag is rejected so the caller can perform
+    /// cleanup (e.g. removing drag-end monitors) that would otherwise be skipped
+    /// by the early return.
+    var onInternalDragRejected: (() -> Void)?
 
     /// A no-op default suitable for use as an EnvironmentKey default value.
     static let noop = DropActions(
@@ -28,7 +32,8 @@ struct DropActions {
         onDropStarted: nil,
         onDropEnded: nil,
         isDropTargeted: .constant(false),
-        isDraggingInternalImage: .constant(false)
+        isDraggingInternalImage: .constant(false),
+        onInternalDragRejected: nil
     )
 }
 
@@ -64,6 +69,7 @@ enum ComposerDropHandler {
         // assistant-rendered image to Finder/Desktop, not uploading it back.
         if actions.isDraggingInternalImage.wrappedValue {
             actions.isDraggingInternalImage.wrappedValue = false
+            actions.onInternalDragRejected?()
             return false
         }
 
