@@ -328,37 +328,63 @@ private struct SkillNodeView: View {
 
     private var isTappable: Bool { onTap != nil }
 
+    private var isDiamond: Bool { item.kind == .skill }
+
     var body: some View {
-        VStack(spacing: 3) {
+        let content = VStack(spacing: 3) {
             if let emoji = item.emoji, !emoji.isEmpty {
                 Text(emoji)
-                    .font(.system(size: 22))
+                    .font(.system(size: isDiamond ? 18 : 22))
             } else {
-                VIconView(item.icon, size: 18)
+                VIconView(item.icon, size: isDiamond ? 14 : 18)
                     .foregroundStyle(item.color)
             }
 
             Text(item.label)
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentDefault)
-                .lineLimit(2)
+                .lineLimit(isDiamond ? 1 : 2)
                 .truncationMode(.tail)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: size * 0.82)
+                .frame(maxWidth: size * (isDiamond ? 0.62 : 0.82))
         }
         .frame(width: size, height: size)
-        .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.surfaceOverlay)
-                RoundedRectangle(cornerRadius: VRadius.lg).fill(item.color.opacity(isHovered ? 0.20 : 0.10))
+
+        Group {
+            if isDiamond {
+                // Skills: diamond (rotated square) shape
+                content
+                    .rotationEffect(.degrees(-45)) // counter-rotate content upright
+                    .background(
+                        ZStack {
+                            RoundedRectangle(cornerRadius: VRadius.sm).fill(VColor.surfaceOverlay)
+                            RoundedRectangle(cornerRadius: VRadius.sm).fill(item.color.opacity(isHovered ? 0.20 : 0.10))
+                        }
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .stroke(item.color.opacity(isHovered ? 0.70 : 0.40), lineWidth: isHovered ? 2 : 1.5)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .contentShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .rotationEffect(.degrees(45)) // rotate the whole node to diamond
+            } else {
+                // Files: circle shape
+                content
+                    .background(
+                        ZStack {
+                            Circle().fill(VColor.surfaceOverlay)
+                            Circle().fill(item.color.opacity(isHovered ? 0.20 : 0.10))
+                        }
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(item.color.opacity(isHovered ? 0.70 : 0.40), lineWidth: isHovered ? 2 : 1.5)
+                    )
+                    .clipShape(Circle())
+                    .contentShape(Circle())
             }
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(item.color.opacity(isHovered ? 0.70 : 0.40), lineWidth: isHovered ? 2 : 1.5)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        }
         .nativeTooltip(item.kind == .workspaceFile ? "File: \(item.label)" : "Skill: \(item.label)")
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -382,24 +408,6 @@ private struct SkillNodeView: View {
 private struct NodePopoverView: View {
     let item: OrbitItem
     var onViewDetails: (() -> Void)?
-    /// Legacy file open callback for workspace files.
-    var onOpenFile: (() -> Void)?
-
-    /// Type badge label based on the item's kind.
-    private var typeBadgeLabel: String {
-        switch item.kind {
-        case .skill: return "Skill"
-        case .workspaceFile: return "File"
-        }
-    }
-
-    /// Type badge color based on the item's kind.
-    private var typeBadgeColor: Color {
-        switch item.kind {
-        case .skill: return item.category?.color ?? item.color
-        case .workspaceFile: return VColor.funGreen
-        }
-    }
 
     /// Icon for the header based on the item's kind.
     private var headerIcon: VIcon {
@@ -409,18 +417,32 @@ private struct NodePopoverView: View {
         }
     }
 
+    private var tagLabel: String {
+        switch item.kind {
+        case .skill: return "Skill"
+        case .workspaceFile: return "Workspace"
+        }
+    }
+
+    private var tagIcon: VIcon {
+        switch item.kind {
+        case .skill: return .zap
+        case .workspaceFile: return .file
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
-            // Type badge pill
-            Text(typeBadgeLabel)
-                .font(VFont.labelSmall)
-                .foregroundStyle(typeBadgeColor)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xxs)
-                .background(
-                    Capsule()
-                        .fill(typeBadgeColor.opacity(0.15))
-                )
+            // Type tag + View Details on same line
+            HStack {
+                VTag(tagLabel, color: VColor.primaryBase, icon: tagIcon)
+                Spacer()
+                if let onViewDetails {
+                    VButton(label: "View Details", style: .ghost, size: .compact) {
+                        onViewDetails()
+                    }
+                }
+            }
 
             // Name/title with icon or emoji
             HStack(spacing: VSpacing.sm) {
@@ -438,60 +460,12 @@ private struct NodePopoverView: View {
                     .lineLimit(2)
             }
 
-            // Description/details
+            // Description
             if let description = item.description, !description.isEmpty {
                 Text(description)
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentSecondary)
                     .lineLimit(4)
-            }
-
-            // File path for workspace files
-            if item.kind == .workspaceFile, let filePath = item.filePath {
-                Text(filePath)
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-
-            // Category/kind badge
-            if item.kind == .skill, let category = item.category {
-                Text(category.displayName)
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(category.color)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xxs)
-                    .background(
-                        Capsule()
-                            .fill(category.color.opacity(0.15))
-                    )
-            }
-
-            // Open file button for workspace files
-            if item.kind == .workspaceFile, let onOpenFile {
-                Divider()
-                    .padding(.vertical, VSpacing.xxs)
-
-                VButton(label: "Open File", icon: VIcon.externalLink.rawValue, style: .ghost, size: .compact) {
-                    onOpenFile()
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            // View Details link
-            if let onViewDetails {
-                Button(action: onViewDetails) {
-                    HStack(spacing: VSpacing.xxs) {
-                        Text("View Details")
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.primaryBase)
-                        VIconView(.arrowRight, size: 10)
-                            .foregroundStyle(VColor.primaryBase)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("View \(typeBadgeLabel.lowercased()) details")
             }
         }
         .padding(VSpacing.md)
@@ -1113,16 +1087,7 @@ struct ConstellationView: View {
 
                     NodePopoverView(
                         item: popoverItem,
-                        onViewDetails: viewDetailsAction(for: popoverItem),
-                        onOpenFile: popoverItem.kind == .workspaceFile ? {
-                            withAnimation(VAnimation.fast) {
-                                selectedPopoverItem = nil
-                                selectedPopoverNodeId = nil
-                            }
-                            if let path = popoverItem.filePath {
-                                onFileSelected?(path)
-                            }
-                        } : nil
+                        onViewDetails: viewDetailsAction(for: popoverItem)
                     )
                     .position(x: scaledX, y: scaledY)
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
