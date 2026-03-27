@@ -459,9 +459,7 @@ struct FeedbackGallerySection: View {
                     HStack(spacing: VSpacing.lg) {
                         VSkillTypePill(type: .vellum)
                         VSkillTypePill(type: .openclaw)
-                        VSkillTypePill(type: .managed)
-                        VSkillTypePill(type: .userMade)
-                        VSkillTypePill(type: .extra)
+                        VSkillTypePill(type: .custom)
                         VSkillTypePill(type: .available)
                     }
                 }

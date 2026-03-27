@@ -9,8 +9,7 @@ private enum SkillFilter: String, CaseIterable {
     case available = "Available"
     case vellum = "Vellum"
     case openclaw = "OpenClaw"
-    case managed = "Managed"
-    case userMade = "User Made"
+    case custom = "Custom"
 
     var icon: VIcon {
         switch self {
@@ -19,13 +18,12 @@ private enum SkillFilter: String, CaseIterable {
         case .available: return .arrowDownToLine
         case .vellum: return .package
         case .openclaw: return .globe
-        case .managed: return .briefcase
-        case .userMade: return .sparkles
+        case .custom: return .user
         }
     }
 
     static var statusFilters: [SkillFilter] { [.all, .installed, .available] }
-    static var sourceFilters: [SkillFilter] { [.vellum, .openclaw, .managed, .userMade] }
+    static var sourceFilters: [SkillFilter] { [.vellum, .openclaw, .custom] }
 }
 
 // MARK: - Agent Panel Content (embeddable)
@@ -288,10 +286,15 @@ struct AgentPanelContent: View {
         case .all: return skillsManager.skills
         case .installed: return skillsManager.skills.filter { $0.isInstalled }
         case .available: return skillsManager.skills.filter { $0.isAvailable }
-        case .vellum: return skillsManager.skills.filter { $0.source == "bundled" }
-        case .openclaw: return skillsManager.skills.filter { $0.source == "clawhub" }
-        case .managed: return skillsManager.skills.filter { $0.source == "managed" }
-        case .userMade: return skillsManager.skills.filter { $0.source == "workspace" }
+        case .vellum: return skillsManager.skills.filter {
+            $0.source == "bundled" || ($0.source == "managed" && $0.provenance?.kind == "first-party")
+        }
+        case .openclaw: return skillsManager.skills.filter {
+            $0.source == "clawhub" || ($0.source == "managed" && $0.provenance?.kind == "third-party")
+        }
+        case .custom: return skillsManager.skills.filter {
+            $0.source == "workspace" || $0.source == "extra" || ($0.source == "managed" && $0.provenance?.kind == "local")
+        }
         }
     }
 
@@ -337,8 +340,7 @@ struct AgentPanelContent: View {
         case .available: return "No Skills Available"
         case .vellum: return "No Vellum Skills"
         case .openclaw: return "No OpenClaw Skills"
-        case .managed: return "No Managed Skills"
-        case .userMade: return "No User Made Skills"
+        case .custom: return "No Custom Skills"
         }
     }
 
@@ -352,20 +354,21 @@ struct AgentPanelContent: View {
         case .available: return "All available skills have been installed."
         case .vellum: return "No bundled Vellum skills found."
         case .openclaw: return "No OpenClaw skills found. Try installing some from the catalog."
-        case .managed: return "No managed skills found for your organization."
-        case .userMade: return "Create a custom skill by describing what you want in chat."
+        case .custom: return "Create a custom skill by describing what you want in chat."
         }
     }
 
     private var emptyStateIcon: String {
+        if selectedCategory != nil {
+            return VIcon.layoutGrid.rawValue
+        }
         switch skillFilter {
         case .all: return VIcon.cloudOff.rawValue
         case .installed: return VIcon.zap.rawValue
         case .available: return VIcon.circleCheck.rawValue
         case .vellum: return VIcon.package.rawValue
         case .openclaw: return VIcon.globe.rawValue
-        case .managed: return VIcon.briefcase.rawValue
-        case .userMade: return VIcon.sparkles.rawValue
+        case .custom: return VIcon.user.rawValue
         }
     }
 
@@ -438,13 +441,13 @@ struct AgentPanelContent: View {
         case "clawhub":
             return "OpenClaw"
         case "managed":
-            return "Managed"
+            return "Custom"
         case "workspace":
-            return "User Made"
+            return "Custom"
         case "catalog":
             return "Available"
         case "extra":
-            return "Extra"
+            return "Custom"
         default:
             return source.replacingOccurrences(of: "-", with: " ").capitalized
         }
@@ -482,7 +485,7 @@ struct SkillItemRow: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
 
-                        VSkillTypePill(source: skill.source)
+                        VSkillTypePill(source: skill.source, provenanceKind: skill.provenance?.kind)
 
                         Spacer()
                     }
@@ -502,6 +505,8 @@ struct SkillItemRow: View {
                     action: onDelete
                 )
                 .disabled(!isRemovable)
+                .opacity(isRemovable ? 1.0 : 0.3)
+                .vTooltip(isRemovable ? "Remove skill" : "Bundled skills cannot be removed")
                 .accessibilityLabel(isRemovable ? "Uninstall skill" : "Core skill cannot be removed")
             }
         }
@@ -535,7 +540,12 @@ struct AvailableSkillItemRow: View {
                             .foregroundStyle(VColor.contentEmphasized)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                        VSkillTypePill(source: skill.source)
+                        VSkillTypePill(type: .available)
+                        if skill.source == "clawhub" {
+                            VSkillTypePill(type: .openclaw)
+                        } else if skill.source == "catalog" {
+                            VSkillTypePill(type: .vellum)
+                        }
                         Spacer()
                     }
                     Text(skill.description)
@@ -554,6 +564,7 @@ struct AvailableSkillItemRow: View {
                         size: .compact,
                         action: onInstall
                     )
+                    .vTooltip("Install skill")
                 }
             }
         }

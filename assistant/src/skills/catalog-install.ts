@@ -306,6 +306,16 @@ export async function installSkillLocally(
     );
   }
 
+  // Write origin marker so provenance resolver can identify the install source
+  atomicWriteFile(
+    join(skillDir, ".origin.json"),
+    JSON.stringify(
+      { source: "vellum-catalog", installedAt: new Date().toISOString() },
+      null,
+      2,
+    ) + "\n",
+  );
+
   // Install npm dependencies if the skill has a package.json
   if (existsSync(join(skillDir, "package.json"))) {
     const bunPath = `${homedir()}/.bun/bin`;

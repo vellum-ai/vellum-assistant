@@ -195,7 +195,7 @@ struct SkillDetailTitleRow: View {
 
             Spacer()
 
-            VSkillTypePill(source: skill.source)
+            VSkillTypePill(source: skill.source, provenanceKind: skill.provenance?.kind)
 
             if skill.source == "managed" || skill.source == "clawhub" {
                 VButton(

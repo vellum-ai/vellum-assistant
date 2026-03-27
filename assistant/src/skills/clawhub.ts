@@ -265,6 +265,21 @@ export async function clawhubInstall(
       return { success: false, error };
     }
     verifyAndRecordSkillHash(slug);
+    // Write origin marker so provenance resolver can identify clawhub installs
+    const skillName = slug.includes("/") ? slug.split("/").pop()! : slug;
+    const originPath = join(getManagedSkillsDir(), skillName, ".origin.json");
+    try {
+      writeFileSync(
+        originPath,
+        JSON.stringify(
+          { source: "clawhub", installedAt: new Date().toISOString() },
+          null,
+          2,
+        ) + "\n",
+      );
+    } catch {
+      // Non-fatal — provenance will fall back to homepage check
+    }
     return { success: true, skillName: slug };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

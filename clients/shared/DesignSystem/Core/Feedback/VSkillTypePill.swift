@@ -5,21 +5,17 @@ public struct VSkillTypePill: View {
     public enum SkillType {
         case vellum
         case openclaw
-        case managed
-        case userMade
-        case extra
+        case custom
         case available
-        case custom(label: String, icon: String, foreground: Color, background: Color)
+        case other(label: String, icon: String, foreground: Color, background: Color)
 
         var label: String {
             switch self {
             case .vellum: return "Vellum"
             case .openclaw: return "OpenClaw"
-            case .managed: return "Managed"
-            case .userMade: return "User Made"
-            case .extra: return "Extra"
+            case .custom: return "Custom"
             case .available: return "Available"
-            case .custom(let label, _, _, _): return label
+            case .other(let label, _, _, _): return label
             }
         }
 
@@ -27,11 +23,9 @@ public struct VSkillTypePill: View {
             switch self {
             case .vellum: return .package
             case .openclaw: return .globe
-            case .managed: return .briefcase
-            case .userMade: return .sparkles
-            case .extra: return .puzzle
+            case .custom: return .user
             case .available: return .arrowDownToLine
-            case .custom(_, let icon, _, _): return .resolve(icon)
+            case .other(_, let icon, _, _): return .resolve(icon)
             }
         }
 
@@ -39,11 +33,9 @@ public struct VSkillTypePill: View {
             switch self {
             case .vellum: return VColor.primaryBase
             case .openclaw: return VColor.funTeal
-            case .managed: return VColor.funPurple
-            case .userMade: return VColor.contentSecondary
-            case .extra: return VColor.contentTertiary
+            case .custom: return VColor.funPurple
             case .available: return VColor.funTeal
-            case .custom(_, _, let fg, _): return fg
+            case .other(_, _, let fg, _): return fg
             }
         }
 
@@ -51,11 +43,9 @@ public struct VSkillTypePill: View {
             switch self {
             case .vellum: return VColor.primaryBase.opacity(0.12)
             case .openclaw: return VColor.funTeal.opacity(0.12)
-            case .managed: return VColor.funPurple.opacity(0.12)
-            case .userMade: return VColor.surfaceOverlay
-            case .extra: return VColor.surfaceOverlay
+            case .custom: return VColor.funPurple.opacity(0.12)
             case .available: return VColor.funTeal.opacity(0.12)
-            case .custom(_, _, _, let bg): return bg
+            case .other(_, _, _, let bg): return bg
             }
         }
     }
@@ -66,23 +56,31 @@ public struct VSkillTypePill: View {
         self.type = type
     }
 
-    /// Convenience initializer from a skill source string.
-    public init(source: String) {
+    /// Convenience initializer from a skill source string and optional provenance kind.
+    /// - Parameters:
+    ///   - source: The skill source (e.g. "bundled", "managed", "clawhub", "workspace", "extra", "catalog")
+    ///   - provenanceKind: Optional provenance kind (e.g. "first-party", "third-party", "local")
+    public init(source: String, provenanceKind: String? = nil) {
         switch source {
         case "bundled":
             self.type = .vellum
         case "clawhub":
             self.type = .openclaw
         case "managed":
-            self.type = .managed
-        case "workspace":
-            self.type = .userMade
-        case "extra":
-            self.type = .extra
+            switch provenanceKind {
+            case "first-party":
+                self.type = .vellum
+            case "third-party":
+                self.type = .openclaw
+            default:
+                self.type = .custom
+            }
+        case "workspace", "extra":
+            self.type = .custom
         case "catalog":
             self.type = .available
         default:
-            self.type = .custom(
+            self.type = .other(
                 label: source.replacingOccurrences(of: "-", with: " ").capitalized,
                 icon: VIcon.puzzle.rawValue,
                 foreground: VColor.contentTertiary,
