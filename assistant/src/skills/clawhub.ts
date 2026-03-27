@@ -298,6 +298,21 @@ export async function clawhubUpdate(
       return { success: false, error };
     }
     verifyAndRecordSkillHash(name);
+    // Re-write origin marker in case the update replaced directory contents
+    const skillName = name.includes("/") ? name.split("/").pop()! : name;
+    const originPath = join(getManagedSkillsDir(), skillName, ".origin.json");
+    try {
+      writeFileSync(
+        originPath,
+        JSON.stringify(
+          { source: "clawhub", installedAt: new Date().toISOString() },
+          null,
+          2,
+        ) + "\n",
+      );
+    } catch {
+      // Non-fatal
+    }
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

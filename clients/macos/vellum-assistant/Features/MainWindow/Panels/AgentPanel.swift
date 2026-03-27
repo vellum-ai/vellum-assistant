@@ -306,7 +306,7 @@ struct AgentPanelContent: View {
             $0.name.lowercased().contains(query) ||
             $0.description.lowercased().contains(query) ||
             $0.id.lowercased().contains(query) ||
-            sourceLabel($0.source).lowercased().contains(query)
+            sourceLabel($0).lowercased().contains(query)
         }
     }
 
@@ -434,22 +434,24 @@ struct AgentPanelContent: View {
         }
     }
 
-    private func sourceLabel(_ source: String) -> String {
-        switch source {
+    private func sourceLabel(_ skill: SkillInfo) -> String {
+        switch skill.source {
         case "bundled":
             return "Vellum"
         case "clawhub":
             return "OpenClaw"
         case "managed":
-            return "Custom"
-        case "workspace":
+            switch skill.provenance?.kind {
+            case "first-party": return "Vellum"
+            case "third-party": return "OpenClaw"
+            default: return "Custom"
+            }
+        case "workspace", "extra":
             return "Custom"
         case "catalog":
-            return "Available"
-        case "extra":
-            return "Custom"
+            return "Available Vellum"
         default:
-            return source.replacingOccurrences(of: "-", with: " ").capitalized
+            return skill.source.replacingOccurrences(of: "-", with: " ").capitalized
         }
     }
 }
