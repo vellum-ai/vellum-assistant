@@ -45,7 +45,7 @@ public final class ChatGreetingState {
 
     // MARK: - Init
 
-    public init(
+    init(
         btwClient: any BtwClientProtocol = BtwClient(),
         conversationStarterClient: any ConversationStarterClientProtocol = ConversationStarterClient()
     ) {
