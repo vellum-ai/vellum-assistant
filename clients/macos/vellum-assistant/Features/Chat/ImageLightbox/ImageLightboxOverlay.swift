@@ -46,7 +46,7 @@ struct ImageLightboxOverlay: View {
                 // Floating toolbar (bottom)
                 VStack {
                     Spacer()
-                    toolbar(lightbox)
+                    lightboxToolbar(lightbox)
                 }
                 .padding(.bottom, VSpacing.xl)
             }
@@ -75,7 +75,7 @@ struct ImageLightboxOverlay: View {
     // MARK: - Toolbar
 
     @available(macOS, deprecated: 13.0)
-    private func toolbar(_ lightbox: ImageLightboxState) -> some View {
+    private func lightboxToolbar(_ lightbox: ImageLightboxState) -> some View {
         HStack(spacing: VSpacing.md) {
             // Filename
             Text(lightbox.filename)
