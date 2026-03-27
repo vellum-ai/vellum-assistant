@@ -127,6 +127,8 @@ public final class ChatViewModel: ObservableObject {
     public let attachmentManager = ChatAttachmentManager()
     /// Owns errorText, conversationError, and connection-diagnostic properties.
     public let errorManager = ChatErrorManager()
+    /// Owns displayedMessages, pagination window, and load-more logic.
+    public let paginationState: ChatPaginationState
     /// Owns empty-state greeting and conversation starter properties.
     public let greetingState = ChatGreetingState()
 
@@ -207,6 +209,29 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
+    // MARK: - @Observable → ObservableObject bridge for ChatPaginationState
+
+    /// Recursively observe all tracked properties on the @Observable
+    /// ChatPaginationState and forward changes into ChatViewModel's
+    /// ObservableObject objectWillChange via the coalesced publish path.
+    private func observePaginationState() {
+        withObservationTracking {
+            _ = paginationState.displayedMessages
+            _ = paginationState.displayedMessageCount
+            _ = paginationState.isLoadingMoreMessages
+            _ = paginationState.hasMoreHistory
+            _ = paginationState.hasMoreMessages
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scheduleCoalescedPublish()
+                #if DEBUG
+                self?.trackPublish(source: "paginationState")
+                #endif
+                self?.observePaginationState() // re-arm
+            }
+        }
+    }
+
     // MARK: - @Observable → ObservableObject bridge for ChatBtwState
 
     /// Recursively observe all tracked properties on the @Observable
@@ -262,6 +287,7 @@ public final class ChatViewModel: ObservableObject {
     private var errorManagerPublishCount = 0
     private var btwStatePublishCount = 0
     private var greetingStatePublishCount = 0
+    private var paginationStatePublishCount = 0
     private var lastRateLogTime = Date()
 
     private func trackPublish(source: String) {
@@ -272,14 +298,15 @@ public final class ChatViewModel: ObservableObject {
         case "errorManager": errorManagerPublishCount += 1
         case "btwState": btwStatePublishCount += 1
         case "greetingState": greetingStatePublishCount += 1
+        case "paginationState": paginationStatePublishCount += 1
         default: break
         }
         let now = Date()
         if now.timeIntervalSince(lastRateLogTime) >= 5 {
             os_log(
                 .debug, log: Self.perfLog,
-                "ChatViewModel publish rate: %d/5s (msg=%d, attach=%d, err=%d, btw=%d, greet=%d)",
-                publishCount, messageManagerPublishCount, attachmentManagerPublishCount, errorManagerPublishCount, btwStatePublishCount, greetingStatePublishCount
+                "ChatViewModel publish rate: %d/5s (msg=%d, attach=%d, err=%d, btw=%d, greet=%d, page=%d)",
+                publishCount, messageManagerPublishCount, attachmentManagerPublishCount, errorManagerPublishCount, btwStatePublishCount, greetingStatePublishCount, paginationStatePublishCount
             )
             publishCount = 0
             messageManagerPublishCount = 0
@@ -287,6 +314,7 @@ public final class ChatViewModel: ObservableObject {
             errorManagerPublishCount = 0
             btwStatePublishCount = 0
             greetingStatePublishCount = 0
+            paginationStatePublishCount = 0
             lastRateLogTime = now
         }
     }
@@ -847,55 +875,34 @@ public final class ChatViewModel: ObservableObject {
     /// Observers can check this to avoid treating the history hydration as new activity.
     public internal(set) var isLoadingHistory: Bool = false
 
-    // MARK: - Message Pagination
+    // MARK: - Message Pagination (forwarded from ChatPaginationState)
 
     /// Page size for chat message display; older messages are loaded in this increment.
-    public static let messagePageSize = 50
+    public static let messagePageSize = ChatPaginationState.messagePageSize
 
-    /// Number of messages currently revealed at the top of the conversation.
-    /// The view slices `messages` to `messages.suffix(displayedMessageCount)`.
-    /// Grows by `messagePageSize` each time the user scrolls to the top.
-    /// Set to `Int.max` when the user has loaded all history ("show all" mode), so that new
-    /// incoming messages don't collapse the window back to `suffix(messagePageSize)`.
-    @Published public var displayedMessageCount: Int = messagePageSize
-
-    /// True while a previous-page load is in progress (brief async delay for UX).
-    @Published public var isLoadingMoreMessages: Bool = false
-
-    /// Timeout task that logs a warning at 30s if the daemon is slow, then
-    /// clears `isLoadingMoreMessages` at 60s to unblock the user. The 30s
-    /// warning preserves the flag to avoid misclassifying late-but-valid
-    /// responses (see loadPreviousMessagePage); the 60s hard clear accepts
-    /// the risk of a narrow misclassification window to prevent a permanently
-    /// stuck loading spinner.
-    private var loadMoreTimeoutTask: Task<Void, Never>?
-
-    /// The subset of messages that are actually displayed (excludes subagent notifications
-    /// and other UI-only messages that the view filters before rendering).
-    /// Cached as a stored @Published property to avoid O(n) filter on every access
-    /// during streaming (which can be dozens of times per second).
-    @Published public private(set) var displayedMessages: [ChatMessage] = []
-
-    /// Recompute and cache the displayedMessages from the current messages array.
-    /// Call this after any mutation to messages.
-    ///
-    /// Uses the shared `ChatVisibleMessageFilter` so that `displayedMessages` and the
-    /// macOS message list apply identical visibility rules — this keeps scroll-anchor
-    /// math stable across pagination boundaries.
-    private func updateDisplayedMessages() {
-        displayedMessages = ChatVisibleMessageFilter.visibleMessages(from: messages)
+    public var displayedMessageCount: Int {
+        get { paginationState.displayedMessageCount }
+        set { paginationState.displayedMessageCount = newValue }
     }
 
-    // MARK: - Daemon History Pagination
+    public var isLoadingMoreMessages: Bool {
+        get { paginationState.isLoadingMoreMessages }
+        set { paginationState.isLoadingMoreMessages = newValue }
+    }
 
-    /// Timestamp of the oldest loaded message (ms since epoch). Used as the
-    /// `beforeTimestamp` cursor when fetching the next older page from the daemon.
-    public var historyCursor: Double?
+    public var displayedMessages: [ChatMessage] {
+        paginationState.displayedMessages
+    }
 
-    /// Whether the daemon has indicated that older messages exist beyond the
-    /// currently loaded page. Falls back to `false` for older daemons that don't
-    /// send `hasMore` in the history response.
-    @Published public var hasMoreHistory: Bool = false
+    public var historyCursor: Double? {
+        get { paginationState.historyCursor }
+        set { paginationState.historyCursor = newValue }
+    }
+
+    public var hasMoreHistory: Bool {
+        get { paginationState.hasMoreHistory }
+        set { paginationState.hasMoreHistory = newValue }
+    }
 
     // MARK: - BTW Side-Chain State (forwarded from ChatBtwState)
 
@@ -921,83 +928,22 @@ public final class ChatViewModel: ObservableObject {
         greetingState.conversationStartersLoading
     }
 
-    /// Whether there are more messages above the current display window.
-    /// True when either:
-    ///   1. There are locally loaded messages outside the current display suffix, OR
-    ///   2. The daemon has older pages available to fetch.
-    /// When `displayedMessageCount == Int.max` (show-all mode), only daemon pages apply.
     public var hasMoreMessages: Bool {
-        (displayedMessageCount < displayedMessages.count) || hasMoreHistory
+        paginationState.hasMoreMessages
     }
 
-    /// Called when `loadPreviousMessagePage` needs to fetch an older page from the
-    /// daemon. The conversation restorer sets this so the daemon client request is
-    /// routed through the same pending-history tracking used for initial loads.
-    public var onLoadMoreHistory: ((_ conversationId: String, _ beforeTimestamp: Double) -> Void)?
+    public var onLoadMoreHistory: ((_ conversationId: String, _ beforeTimestamp: Double) -> Void)? {
+        get { paginationState.onLoadMoreHistory }
+        set { paginationState.onLoadMoreHistory = newValue }
+    }
 
-    /// Load the previous page of messages by expanding the display window.
-    /// When all locally loaded messages are already visible and the daemon has
-    /// more history available, requests the next older page from the daemon.
-    /// Returns `true` if there were additional messages to reveal or a fetch was started.
     @discardableResult
     public func loadPreviousMessagePage() async -> Bool {
-        guard hasMoreMessages, !isLoadingMoreMessages else { return false }
-
-        // If the local display window can still grow, expand it first.
-        let locallyHasMore = displayedMessageCount < displayedMessages.count
-        if locallyHasMore {
-            isLoadingMoreMessages = true
-            // Brief delay so the loading indicator is visible before the list shifts.
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            let next = displayedMessageCount + Self.messagePageSize
-            let total = displayedMessages.count
-            // When all messages fit within the expanded window, switch to show-all mode
-            // (Int.max) so future incoming messages don't shrink the visible history back
-            // to a suffix window — the regression described in the parent PR.
-            displayedMessageCount = next >= total ? Int.max : next
-            isLoadingMoreMessages = false
-            return true
-        }
-
-        // All local messages are visible — fetch the next page from the daemon.
-        guard hasMoreHistory, let cursor = historyCursor, let conversationId else { return false }
-        isLoadingMoreMessages = true
-        // Safety timeout: log a warning if the daemon is slow, but do NOT
-        // clear isLoadingMoreMessages here. Callers (ConversationRestorer,
-        // IOSConversationStore) use `vm.isLoadingMoreMessages` to decide whether
-        // a history response is a pagination load. If the timeout clears the
-        // flag before the response arrives, the late-but-valid response is
-        // misclassified as an initial load and replaces all messages instead
-        // of prepending. The flag is properly cleared by populateFromHistory
-        // when the response arrives, or by reconnect/conversation-switch logic if
-        // the daemon disconnects.
-        // At 60s a hard clear of isLoadingMoreMessages fires to prevent a permanent
-        // stuck spinner. This accepts a narrow misclassification window for late
-        // responses arriving between 60-65s.
-        loadMoreTimeoutTask?.cancel()
-        loadMoreTimeoutTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 30_000_000_000) // 30 seconds
-            guard let self, !Task.isCancelled, self.isLoadingMoreMessages else { return }
-            log.warning("Pagination request still pending after 30s — daemon may be unresponsive")
-            try? await Task.sleep(nanoseconds: 30_000_000_000) // +30s = 60s total
-            guard !Task.isCancelled, self.isLoadingMoreMessages else { return }
-            log.error("Pagination request timed out after 60s — resetting pagination state")
-            self.isLoadingMoreMessages = false
-            self.loadMoreTimeoutTask = nil
-        }
-        onLoadMoreHistory?(conversationId, cursor)
-        // The loading indicator is cleared by populateFromHistory when the response arrives.
-        return true
+        await paginationState.loadPreviousMessagePage()
     }
 
-    /// Reset pagination when the conversation switches or history is reloaded.
     public func resetMessagePagination() {
-        displayedMessageCount = Self.messagePageSize
-        historyCursor = nil
-        hasMoreHistory = false
-        loadMoreTimeoutTask?.cancel()
-        loadMoreTimeoutTask = nil
-        isLoadingMoreMessages = false
+        paginationState.resetMessagePagination()
     }
 
     // MARK: - On-Demand Content Rehydration
@@ -1180,9 +1126,18 @@ public final class ChatViewModel: ObservableObject {
         self.settingsClient = settingsClient
         self.interactionClient = interactionClient
         self.onToolCallsComplete = onToolCallsComplete
+        self.paginationState = ChatPaginationState(
+            messageManager: messageManager
+        )
 
         // Initialize BTW side-chain state as a self-contained @Observable.
         self.btwState = ChatBtwState(btwClient: btwClient)
+
+        // Set the conversationId provider after all stored properties are
+        // initialized so the closure can capture `self` weakly — Swift
+        // requires all stored properties to be initialized before `self`
+        // is available.
+        paginationState.conversationIdProvider = { [weak self] in self?.conversationId }
 
         // Coalesce sub-manager objectWillChange signals through a single
         // delayed publish. During streaming, sub-managers may fire dozens of
@@ -1191,25 +1146,6 @@ public final class ChatViewModel: ObservableObject {
         // which invalidates the entire view tree every time — we batch them
         // into a single objectWillChange per 50ms window. Views still
         // update promptly, but the SwiftUI diffing cost drops dramatically.
-
-        // Keep displayedMessages in sync with messages via publisher subscription.
-        // This catches every mutation site (current and future) without requiring
-        // manual updateDisplayedMessages() calls at each one.
-        //
-        // Two correctness/perf fixes applied here:
-        // 1. Use the delivered `newMessages` value directly rather than reading
-        //    `self.messages` inside the sink. @Published fires during willSet, so
-        //    the stored property still holds the OLD value when the subscriber runs
-        //    — reading it caused displayedMessages to lag one mutation behind.
-        // 2. Throttle to 50ms so displayedMessages (and any SwiftUI views observing
-        //    it) only refresh at most every 50ms, matching the coalesced publish
-        //    window used for the rest of the view model.
-        messageManager.$messages
-            .throttle(for: .milliseconds(50), scheduler: RunLoop.main, latest: true)
-            .sink { [weak self] newMessages in
-                self?.displayedMessages = ChatVisibleMessageFilter.visibleMessages(from: newMessages)
-            }
-            .store(in: &cancellables)
 
         messageManager.objectWillChange
             .sink { [weak self] _ in
@@ -1232,6 +1168,11 @@ public final class ChatViewModel: ObservableObject {
         // withObservationTracking so views that read error state through
         // ChatViewModel's computed forwarding properties still update.
         observeErrorManager()
+        // ChatPaginationState is @Observable — bridge its changes into
+        // ChatViewModel's ObservableObject objectWillChange via
+        // withObservationTracking so views that read pagination state through
+        // ChatViewModel's computed forwarding properties still update.
+        observePaginationState()
         // ChatBtwState is @Observable — same bridge pattern.
         observeBtwState()
         // ChatGreetingState is @Observable — same bridge pattern.
@@ -2878,9 +2819,9 @@ public final class ChatViewModel: ObservableObject {
             } else {
                 displayedMessageCount = Int.max
             }
-            self.loadMoreTimeoutTask?.cancel()
-            self.loadMoreTimeoutTask = nil
-            self.isLoadingMoreMessages = false
+            self.paginationState.loadMoreTimeoutTask?.cancel()
+            self.paginationState.loadMoreTimeoutTask = nil
+            self.paginationState.isLoadingMoreMessages = false
             // TODO: Add pagination-aware trim that doesn't regress historyCursor (follow-up)
             refreshModelMetadataIfNeeded(hasModelCommand)
             os_signpost(.end, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "path=pagination")
@@ -3020,7 +2961,7 @@ public final class ChatViewModel: ObservableObject {
         streamingFlushTask?.cancel()
         partialOutputFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
-        loadMoreTimeoutTask?.cancel()
+        paginationState.loadMoreTimeoutTask?.cancel()
         // surfaceRefetchCoordinator is released with self; its deinit cancels tasks.
         // refinementFailureDismissTask and refinementFlushTask are accessed via
         // @MainActor computed properties (forwarded from ChatMessageManager), which
