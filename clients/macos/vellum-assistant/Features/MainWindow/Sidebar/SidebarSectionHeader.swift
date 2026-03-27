@@ -23,17 +23,18 @@ struct SidebarSectionHeader: View {
     @FocusState private var isRenameFocused: Bool
 
     var body: some View {
-        HStack(spacing: SidebarLayoutMetrics.listRowGap) {
+        HStack(spacing: VSpacing.xs) {
             VIconView(.chevronRight, size: SidebarLayoutMetrics.sectionChevronSize)
                 .foregroundStyle(VColor.contentTertiary)
                 .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 .animation(VAnimation.fast, value: isExpanded)
+                .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
 
             if isRenaming {
                 TextField("Group name", text: $renamingName, onCommit: {
                     onCommitRename?(renamingName)
                 })
-                .font(.caption)
+                .font(VFont.menuCompact)
                 .textFieldStyle(.plain)
                 .focused($isRenameFocused)
                 .onAppear { isRenameFocused = true }
@@ -43,8 +44,8 @@ struct SidebarSectionHeader: View {
                 }
             } else {
                 Text(group.name)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(VFont.menuCompact)
+                    .foregroundStyle(VColor.contentSecondary)
             }
 
             Spacer()
@@ -58,12 +59,14 @@ struct SidebarSectionHeader: View {
                 if conversationCount > 0 {
                     Text("\(conversationCount)")
                         .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(VColor.contentTertiary)
                 }
             }
         }
-        .padding(.top, SidebarLayoutMetrics.sectionTitleTopGap)
-        .padding(.bottom, SidebarLayoutMetrics.sectionTitleBottomGap)
+        .padding(.leading, VSpacing.xs)
+        .padding(.trailing, VSpacing.sm)
+        .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+        .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
         .contentShape(Rectangle())
         .onTapGesture { withAnimation(VAnimation.fast) { onToggleExpand() } }
         .background(isDropTarget ? Color.accentColor.opacity(0.15) : .clear)

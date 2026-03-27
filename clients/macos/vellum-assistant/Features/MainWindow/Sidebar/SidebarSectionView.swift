@@ -114,8 +114,15 @@ struct SidebarSectionView: View {
             ))
 
             if isExpanded {
-                sectionContent
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                VStack(spacing: 0) {
+                    sectionContent
+                }
+                .padding(.vertical, VSpacing.xxs)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.md)
+                        .fill(VColor.contentTertiary.opacity(0.06))
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         } else {
             // Ungrouped -- no header, render conversations directly
