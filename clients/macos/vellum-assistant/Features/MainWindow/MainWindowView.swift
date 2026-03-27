@@ -566,6 +566,16 @@ struct MainWindowView: View {
             .overlay(alignment: .bottom) { windowToastOverlay }
             .animation(VAnimation.standard, value: windowState.toastInfo != nil)
             .overlay { JITPermissionView(manager: jitPermissionManager) }
+            .overlay { imageLightboxOverlay }
+            .animation(VAnimation.standard, value: windowState.imageLightbox != nil)
+    }
+
+    @ViewBuilder
+    private var imageLightboxOverlay: some View {
+        if windowState.imageLightbox != nil {
+            ImageLightboxOverlay(windowState: windowState)
+                .transition(.opacity)
+        }
     }
 
     @ViewBuilder

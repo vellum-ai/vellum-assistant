@@ -100,18 +100,23 @@ extension ComposerView {
 
 extension ComposerView {
     func openAttachmentPreview(_ attachment: ChatAttachment) {
-        guard !attachment.data.isEmpty,
-              let data = Data(base64Encoded: attachment.data),
-              !data.isEmpty else { return }
-        let tempDir = FileManager.default.temporaryDirectory
-        let sanitized = (attachment.filename as NSString).lastPathComponent
-        let fileURL = tempDir.appendingPathComponent(sanitized.isEmpty ? "image" : sanitized)
-        do {
-            try data.write(to: fileURL)
-            NSWorkspace.shared.open(fileURL)
-        } catch {
-            // Silently fail — not critical
+        // Prefer pre-decoded thumbnail, fall back to decoding base64 data
+        let image: NSImage?
+        if let thumbnail = attachment.thumbnailImage {
+            image = thumbnail
+        } else if !attachment.data.isEmpty,
+                  let data = Data(base64Encoded: attachment.data),
+                  !data.isEmpty {
+            image = NSImage(data: data)
+        } else {
+            image = nil
         }
+        guard let image else { return }
+        AppDelegate.shared?.mainWindow?.windowState.showImageLightbox(
+            image: image,
+            filename: attachment.filename,
+            base64Data: attachment.data.isEmpty ? nil : attachment.data
+        )
     }
 }
 
