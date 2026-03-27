@@ -52,8 +52,10 @@ extension MessageListScrollCoordinator {
                 // response. Daemon confirmation resumes stay bottom-pinned.
                 if !isDaemonConfirmationResume, let lastUserMsg = messages.last(where: { $0.role == .user }) {
                     pushToTopMessageId = lastUserMsg.id
+                    #if DEBUG
                     os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                                 "target=userMessage reason=pushToTop")
+                    #endif
                     withAnimation(VAnimation.fast) {
                         performScrollTo(lastUserMsg.id, anchor: .top)
                     }
@@ -109,8 +111,10 @@ extension MessageListScrollCoordinator {
         // Anchor scroll takes priority: when a notification deep-link
         // set anchorMessageId, retry scrolling to it as messages load.
         if let id = anchorMessageId, messages.contains(where: { $0.id == id }) {
+            #if DEBUG
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=messagesChanged")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundInMessages")
+            #endif
             recordScrollLoopEvent(.scrollToRequested, conversationId: conversationId, isNearBottom: isNearBottom)
             // Deep-link anchor takes priority — detach from bottom-follow.
             detachFromBottom()
@@ -130,7 +134,9 @@ extension MessageListScrollCoordinator {
             let paginationExhausted = !hasMoreMessages
             let minWaitElapsed = anchorSetTime.map { Date().timeIntervalSince($0) > 2 } ?? false
             if paginationExhausted && minWaitElapsed {
+                #if DEBUG
                 os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=paginationExhausted")
+                #endif
                 scrollCoordinatorLog.debug("Anchor message not found (pagination exhausted) — clearing stale anchor")
                 anchorMessageId = nil
                 anchorSetTime = nil
@@ -265,10 +271,14 @@ extension MessageListScrollCoordinator {
         anchorTimeoutTask?.cancel()
         anchorTimeoutTask = nil
         guard let id = anchorMessageId.wrappedValue else { return }
+        #if DEBUG
         os_signpost(.event, log: PerfSignposts.log, name: "anchorSet", "reason=anchorMessageIdChanged")
+        #endif
         if messages.contains(where: { $0.id == id }) {
+            #if DEBUG
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=anchorChanged")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundOnAnchorChange")
+            #endif
             recordScrollLoopEvent(.scrollToRequested, conversationId: conversationId)
             withAnimation {
                 scrollTo?(id, .center)
@@ -284,7 +294,9 @@ extension MessageListScrollCoordinator {
                     try await Task.sleep(nanoseconds: 10_000_000_000)
                 } catch { return }
                 guard !Task.isCancelled, let self, anchorMessageId.wrappedValue != nil else { return }
+                #if DEBUG
                 os_signpost(.event, log: PerfSignposts.log, name: "anchorTimedOut")
+                #endif
                 scrollCoordinatorLog.debug("Anchor message not found (timed out) — clearing stale anchor")
                 anchorMessageId.wrappedValue = nil
                 self.anchorSetTime = nil
@@ -351,8 +363,10 @@ extension MessageListScrollCoordinator {
         // User-initiated scrolls bypass both the follow-state and suppression
         // checks entirely — user intent always wins over defensive guards.
         if userInitiated {
+            #if DEBUG
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                         "target=bottomAnchor reason=userInitiated")
+            #endif
             if animated {
                 withAnimation(VAnimation.fast) {
                     performScrollTo("scroll-bottom-anchor", anchor: .bottom)
@@ -376,8 +390,10 @@ extension MessageListScrollCoordinator {
             return false
         }
 
+        #if DEBUG
         os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                     "target=bottomAnchor reason=%{public}s", reason.rawValue)
+        #endif
         recordScrollLoopEvent(.scrollToRequested, conversationId: currentConversationId)
         if animated {
             withAnimation(VAnimation.fast) {
@@ -429,7 +445,9 @@ extension MessageListScrollCoordinator {
                 && !self.hasReceivedScrollEvent
                 && !self.isAtBottom
             {
+                #if DEBUG
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=fallback")
+                #endif
                 self.requestBottomPin(reason: .initialRestore, conversationId: conversationId)
             }
             self.scrollRestoreTask = nil
@@ -466,11 +484,15 @@ extension MessageListScrollCoordinator {
         // Cancel any pending expansion timeout before re-evaluating.
         endExpansionSuppression()
         if isNearBottom {
+            #if DEBUG
             os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=expansionPinning")
+            #endif
             recordScrollLoopEvent(.suppressionFlip, conversationId: conversationId, isNearBottom: isNearBottom, scrollViewportHeight: scrollViewportHeight)
             requestBottomPin(reason: .expansion, conversationId: conversationId, animated: false)
         } else {
+            #if DEBUG
             os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged", "on reason=offBottomExpansion")
+            #endif
             recordScrollLoopEvent(.suppressionFlip, conversationId: conversationId, isNearBottom: isNearBottom, scrollViewportHeight: scrollViewportHeight)
             // Begin expansion suppression with 200ms auto-timeout. Resize and
             // pagination have their own independent boolean flags — no guards needed.
@@ -523,7 +545,9 @@ extension MessageListScrollCoordinator {
         isPaginationInFlight = true
         // Pagination scroll-position restore is higher priority than bottom-pin.
         let anchorId = firstVisibleMessageId
+        #if DEBUG
         os_signpost(.event, log: PerfSignposts.log, name: "paginationSentinelFired")
+        #endif
         scrollCoordinatorLog.debug("[pagination] fired — anchorId: \(String(describing: anchorId))")
         paginationTask = Task { [weak self] in
             guard let self else { return }
@@ -546,7 +570,9 @@ extension MessageListScrollCoordinator {
                     endPaginationSuppression()
                     return
                 }
+                #if DEBUG
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=paginationAnchor")
+                #endif
                 recordScrollLoopEvent(.scrollToRequested, conversationId: conversationId)
                 performScrollTo(id, anchor: .top)
                 scrollCoordinatorLog.debug("[pagination] scroll restored to anchor \(id)")

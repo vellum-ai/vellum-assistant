@@ -71,8 +71,10 @@ func parseListLine(_ line: String) -> MarkdownListItem? {
 
 /// Parses message text into segments, extracting markdown tables, code blocks, headings, lists, and rules.
 func parseMarkdownSegments(_ text: String) -> [MarkdownSegment] {
+    #if DEBUG
     os_signpost(.begin, log: PerfSignposts.log, name: "markdownParse")
     defer { os_signpost(.end, log: PerfSignposts.log, name: "markdownParse") }
+    #endif
     let lines = text.components(separatedBy: .newlines)
     var segments: [MarkdownSegment] = []
     var currentText: [String] = []

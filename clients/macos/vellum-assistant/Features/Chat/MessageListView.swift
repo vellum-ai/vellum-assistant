@@ -6,7 +6,9 @@ import SwiftUI
 import VellumAssistantShared
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "MessageListView")
+#if DEBUG
 private let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
+#endif
 
 // MARK: - Scroll Suppression Environment
 
@@ -279,7 +281,9 @@ struct MessageListView: View {
     /// always computed fresh from the live `visibleMessages` array so
     /// SwiftUI's `.equatable()` diffing sees every mutation.
     private var derivedState: MessageListDerivedState {
+        #if DEBUG
         os_signpost(.begin, log: stallLog, name: "DerivedState.resolve")
+        #endif
 
         // Compute visible messages first so version tracking and layout
         // both operate on the same filtered set.
@@ -314,10 +318,14 @@ struct MessageListView: View {
                 "layout cache stale: IDs \(cached.displayMessageIds.count) vs \(freshIds.count)"
             )
             #endif
+            #if DEBUG
             os_signpost(.event, log: stallLog, name: "DerivedState.layoutCacheHit")
+            #endif
             layout = cached
         } else {
+            #if DEBUG
             os_signpost(.event, log: stallLog, name: "DerivedState.layoutCacheMiss", "version=%d", scrollCoordinator.scrollTracking.messageListVersion)
+            #endif
 
             let displayMessageIds: [UUID] = {
                 var seen = Set<UUID>()
@@ -439,7 +447,9 @@ struct MessageListView: View {
             hasMessages: !liveMessages.isEmpty
         )
 
+        #if DEBUG
         os_signpost(.end, log: stallLog, name: "DerivedState.resolve")
+        #endif
         return result
     }
 
@@ -624,7 +634,9 @@ struct MessageListView: View {
     }
 
     var body: some View {
+        #if DEBUG
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "MessageListView.body")
+        #endif
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: VSpacing.md) {
                     // MARK: - Pagination sentinel
@@ -641,7 +653,9 @@ struct MessageListView: View {
                     }
 
                     let _ = recordScrollLoopEvent(.bodyEvaluation)
+                    #if DEBUG
                     let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
+                    #endif
                     let state = derivedState
                     let catalogHash = MessageCellView.hashCatalog(providerCatalog)
                     ForEach(state.displayMessageIds, id: \.self) { messageId in
@@ -810,9 +824,13 @@ struct MessageListView: View {
                     deadZone: 0.5
                 )
                 if case .accept(let accepted) = decision {
+                    #if DEBUG
                     os_signpost(.begin, log: PerfSignposts.log, name: "viewportHeightChanged")
+                    #endif
                     scrollCoordinator.currentScrollViewportHeight = accepted
+                    #if DEBUG
                     os_signpost(.end, log: PerfSignposts.log, name: "viewportHeightChanged")
+                    #endif
                 }
 
                 // --- Bottom detection (with hysteresis) ---
@@ -871,7 +889,9 @@ struct MessageListView: View {
             .overlay(alignment: .bottom) {
                 if !isNearBottom {
                     Button(action: {
+                        #if DEBUG
                         os_signpost(.event, log: PerfSignposts.log, name: "scrollToLatestPressed")
+                        #endif
                         scrollCoordinator.hasReceivedScrollEvent = true
                         // Signal the coordinator to reattach and scroll to bottom.
                         scrollCoordinator.reattachToBottom()
@@ -905,8 +925,10 @@ struct MessageListView: View {
                 if let id = anchorMessageId, messages.contains(where: { $0.id == id }) {
                     // Anchor is already set and the target message is loaded —
                     // scroll to it immediately instead of falling through to bottom.
+                    #if DEBUG
                     os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=onAppear")
                     os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundOnAppear")
+                    #endif
                     recordScrollLoopEvent(.scrollToRequested)
                     $scrollPosition.wrappedValue.scrollTo(id: id, anchor: .center)
                     flashHighlight(messageId: id)
@@ -914,7 +936,9 @@ struct MessageListView: View {
                     scrollCoordinator.anchorSetTime = nil
                 } else if anchorMessageId != nil {
                     // Anchor is set but the target message isn't loaded yet.
+                    #if DEBUG
                     os_signpost(.event, log: PerfSignposts.log, name: "anchorSet", "reason=onAppearPending")
+                    #endif
                     if scrollCoordinator.anchorSetTime == nil { scrollCoordinator.anchorSetTime = Date() }
                     // Start the independent timeout if not already running.
                     if scrollCoordinator.anchorTimeoutTask == nil {
@@ -923,7 +947,9 @@ struct MessageListView: View {
                                 try await Task.sleep(nanoseconds: 10_000_000_000)
                             } catch { return }
                             guard !Task.isCancelled, let scrollCoordinator, anchorMessageId != nil else { return }
+                            #if DEBUG
                             os_signpost(.event, log: PerfSignposts.log, name: "anchorTimedOut")
+                            #endif
                             log.debug("Anchor message not found (timed out) — clearing stale anchor")
                             anchorMessageId = nil
                             scrollCoordinator.anchorSetTime = nil
