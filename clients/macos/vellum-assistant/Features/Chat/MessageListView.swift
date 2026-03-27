@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import os
+import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
@@ -623,6 +624,9 @@ struct MessageListView: View {
     }
 
     var body: some View {
+        #if DEBUG
+        let _ = os_signpost(.event, log: PerfSignposts.log, name: "MessageListView.body")
+        #endif
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: VSpacing.md) {
                     // MARK: - Pagination sentinel
