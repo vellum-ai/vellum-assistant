@@ -372,7 +372,8 @@ final class ConversationRestorer {
                     let merged = ConversationListResponse(
                         type: foreground.type,
                         conversations: foreground.conversations + uniqueBackground,
-                        hasMore: foreground.hasMore
+                        hasMore: foreground.hasMore,
+                        groups: foreground.groups
                     )
                     self.handleConversationListResponse(merged)
                     return
