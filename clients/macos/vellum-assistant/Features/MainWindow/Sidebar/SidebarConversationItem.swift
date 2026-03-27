@@ -41,19 +41,21 @@ struct SidebarConversationItem: View, Equatable {
 
     @ViewBuilder
     private var contextMenuContent: some View {
-        VMenuItem(icon: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue, label: conversation.isPinned ? "Unpin" : "Pin") {
-            onTogglePin()
+        if !conversation.isChannelConversation {
+            VMenuItem(icon: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue, label: conversation.isPinned ? "Unpin" : "Pin") {
+                onTogglePin()
+            }
+            VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") {
+                onStartRename()
+            }
+            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {
+                onArchive()
+            }
+            VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {
+                onMarkUnread()
+            }
+            .disabled(!canMarkUnread)
         }
-        VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") {
-            onStartRename()
-        }
-        VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {
-            onArchive()
-        }
-        VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {
-            onMarkUnread()
-        }
-        .disabled(!canMarkUnread)
 
         if let onOpenInNewWindow {
             VMenuItem(icon: VIcon.externalLink.rawValue, label: "Open in New Window") {
@@ -61,12 +63,14 @@ struct SidebarConversationItem: View, Equatable {
             }
         }
 
-        VMenuDivider()
+        if !conversation.isChannelConversation {
+            VMenuDivider()
 
-        VMenuItem(icon: VIcon.messageCircle.rawValue, label: "Share Feedback") {
-            onShowFeedback?()
+            VMenuItem(icon: VIcon.messageCircle.rawValue, label: "Share Feedback") {
+                onShowFeedback?()
+            }
+            .disabled(onShowFeedback == nil)
         }
-        .disabled(onShowFeedback == nil)
     }
 
     var body: some View {
@@ -76,18 +80,23 @@ struct SidebarConversationItem: View, Equatable {
             // Leading 20x20 slot: single render path.
             // Hovered -> interactive pin button; not hovered -> status indicator.
             if isHovered {
-                VButton(
-                    label: conversation.isPinned ? "Unpin \(conversation.title)" : "Pin \(conversation.title)",
-                    iconOnly: VIcon.pin.rawValue,
-                    style: .ghost,
-                    iconSize: 20,
-                    tooltip: conversation.isPinned ? "Unpin" : "Pin",
-                    iconColor: conversation.isPinned ? VColor.contentTertiary : VColor.contentSecondary,
-                    iconRotation: .degrees(-45)
-                ) {
-                    onTogglePin()
+                if !conversation.isChannelConversation {
+                    VButton(
+                        label: conversation.isPinned ? "Unpin \(conversation.title)" : "Pin \(conversation.title)",
+                        iconOnly: VIcon.pin.rawValue,
+                        style: .ghost,
+                        iconSize: 20,
+                        tooltip: conversation.isPinned ? "Unpin" : "Pin",
+                        iconColor: conversation.isPinned ? VColor.contentTertiary : VColor.contentSecondary,
+                        iconRotation: .degrees(-45)
+                    ) {
+                        onTogglePin()
+                    }
+                    .transition(.opacity)
+                } else {
+                    Color.clear
+                        .frame(width: 20, height: 20)
                 }
-                .transition(.opacity)
             } else {
                 switch interactionState {
                 case .processing:
@@ -207,6 +216,9 @@ struct SidebarConversationItem: View, Equatable {
             onHoverChange(hovering)
         }
         .onDrag {
+            guard !conversation.isChannelConversation else {
+                return NSItemProvider()
+            }
             onDragStart()
             return NSItemProvider(object: conversation.id.uuidString as NSString)
         } preview: {
