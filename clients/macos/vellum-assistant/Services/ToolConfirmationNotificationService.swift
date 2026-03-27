@@ -3,7 +3,7 @@ import UserNotifications
 import os
 import VellumAssistantShared
 
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "ToolConfirmationNotification")
+private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ToolConfirmationNotification")
 
 /// Service for showing tool confirmation requests as native macOS notifications.
 @MainActor

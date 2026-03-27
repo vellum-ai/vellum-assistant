@@ -496,7 +496,7 @@ final class VoiceInputManager {
     /// instead of going through DictationTextInserter which would double-insert.
     private func captureContextAndBeginRecording() {
         if currentMode == .dictation {
-            let isVellumFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.vellum.vellum-assistant"
+            let isVellumFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier
             if !isVellumFrontmost {
                 currentDictationContext = DictationContextCapture.capture()
             }
