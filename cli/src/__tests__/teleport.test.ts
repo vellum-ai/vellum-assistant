@@ -814,10 +814,10 @@ describe("teleport malformed flag usage", () => {
     );
   });
 
-  test("--from --to target consumes --to as from's value, leaving to undefined", async () => {
+  test("--from --to target rejects flag-like value for --from, leaving from undefined", async () => {
     setArgv("--from", "--to", "target");
-    // parseArgs sees --from then consumes "--to" as from's value.
-    // "target" is left as a positional arg. to remains undefined → prints help and exits 1.
+    // parseArgs sees --from then skips "--to" (starts with --) so from stays undefined.
+    // --to then correctly consumes "target". from is undefined → prints help and exits 1.
     await expect(teleport()).rejects.toThrow("process.exit:1");
     expect(consoleLogSpy).toHaveBeenCalledWith(
       expect.stringContaining("Usage:"),
