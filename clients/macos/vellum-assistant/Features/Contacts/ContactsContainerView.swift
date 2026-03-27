@@ -18,20 +18,18 @@ struct ContactsContainerView: View {
     var conversationManager: ConversationManager?
     var isEmailEnabled: Bool = false
     var showToast: ((String, ToastInfo.Style) -> Void)?
-    @Binding var pendingContactId: String?
 
     @State private var viewModel: ContactsViewModel
     @State private var selection: ContactSelection? = .assistant
 
     private let contactClient: ContactClientProtocol = ContactClient()
 
-    init(connectionManager: GatewayConnectionManager?, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, isEmailEnabled: Bool = false, showToast: ((String, ToastInfo.Style) -> Void)? = nil, pendingContactId: Binding<String?> = .constant(nil)) {
+    init(connectionManager: GatewayConnectionManager?, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, isEmailEnabled: Bool = false, showToast: ((String, ToastInfo.Style) -> Void)? = nil) {
         self.connectionManager = connectionManager
         self.store = store
         self.conversationManager = conversationManager
         self.isEmailEnabled = isEmailEnabled
         self.showToast = showToast
-        _pendingContactId = pendingContactId
         _viewModel = State(wrappedValue: ContactsViewModel(connectionManager: connectionManager, eventStreamClient: eventStreamClient))
     }
 
@@ -164,19 +162,6 @@ struct ContactsContainerView: View {
             // Default to assistant on first load (don't override existing selection)
             if selection == nil && !newContacts.isEmpty {
                 selection = .assistant
-            }
-            // Consume pending deep-link once contacts are available
-            if let contactId = pendingContactId, newContacts.contains(where: { $0.id == contactId }) {
-                selection = .contact(contactId)
-                pendingContactId = nil
-            }
-        }
-        .onChange(of: pendingContactId) { _, newId in
-            if let contactId = newId {
-                if viewModel.contacts.contains(where: { $0.id == contactId }) {
-                    selection = .contact(contactId)
-                    pendingContactId = nil
-                }
             }
         }
         .onChange(of: viewModel.isCreatingContact) { _, isCreating in

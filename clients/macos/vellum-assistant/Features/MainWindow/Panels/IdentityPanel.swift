@@ -6,8 +6,6 @@ struct IdentityPanel: View {
     let connectionManager: GatewayConnectionManager
     var onNavigateToSkill: ((String) -> Void)?
     var onNavigateToFile: ((String) -> Void)?
-    var onNavigateToContact: ((String) -> Void)?
-    var onNavigateToMemory: ((String) -> Void)?
     var identityClient: IdentityClientProtocol = IdentityClient()
     private let btwClient: any BtwClientProtocol = BtwClient()
     var workspaceClient: WorkspaceClientProtocol = WorkspaceClient()
@@ -31,9 +29,6 @@ struct IdentityPanel: View {
     @State private var isEditingRole: Bool = false
     @State private var editingRoleText: String = ""
     @State private var isSavingIdentityField: Bool = false
-    @State private var memoryStore = MemoryItemsStore(memoryItemClient: MemoryItemClient())
-    @State private var contacts: [ContactPayload] = []
-    private let contactClient: ContactClientProtocol = ContactClient()
 
     private let sidebarMinWidth: CGFloat = 200
     private let sidebarMaxWidth: CGFloat = 280
@@ -185,15 +180,11 @@ struct IdentityPanel: View {
                 identity: identity,
                 skills: skills,
                 workspaceFiles: workspaceFiles,
-                memories: memoryStore.items,
-                contacts: contacts,
                 onFileSelected: { path in
                     viewingFilePath = path
                 },
                 onNavigateToSkill: onNavigateToSkill,
                 onNavigateToFile: onNavigateToFile,
-                onNavigateToContact: onNavigateToContact,
-                onNavigateToMemory: onNavigateToMemory,
                 isFullscreen: $isFullscreen
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -228,10 +219,6 @@ struct IdentityPanel: View {
                 lockfileAssistant = LockfileAssistant.loadLatest()
                 workspaceFiles = WorkspaceFileNode.scan()
                 fetchSkills()
-                Task { await memoryStore.loadItems() }
-                if onNavigateToContact != nil {
-                    Task { await fetchContacts() }
-                }
 
                 // For remote assistants without local IDENTITY.md, fetch from daemon
                 if identity == nil, lockfileAssistant?.isRemote == true {
@@ -380,14 +367,6 @@ struct IdentityPanel: View {
             if let response {
                 skills = response.skills.filter { $0.state == "enabled" }
             }
-        }
-    }
-
-    private func fetchContacts() async {
-        do {
-            contacts = try await contactClient.fetchContactsList(limit: 100, role: nil)
-        } catch {
-            contacts = []
         }
     }
 
