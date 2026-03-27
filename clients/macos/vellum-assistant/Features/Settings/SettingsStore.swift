@@ -3157,7 +3157,7 @@ struct OAuthProviderMetadata: Codable, Sendable {
     let description: String?
     let dashboard_url: String?
     let client_id_placeholder: String?
-    let requires_client_secret: Int
+    let requires_client_secret: Bool
 
     /// The platform OAuth slug is the provider_key itself (bare name, e.g. "google").
     var platformOAuthSlug: String {
