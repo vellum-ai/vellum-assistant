@@ -229,7 +229,7 @@ export async function orchestrateOAuthConnect(
           return {
             success: false,
             error:
-              "oauth2_connect from a non-interactive session requires a public ingress URL. Configure ingress.publicBaseUrl first.",
+              "OAuth connect from a non-interactive session requires a public ingress URL. Configure ingress.publicBaseUrl first.",
             safeError: true,
           };
         }

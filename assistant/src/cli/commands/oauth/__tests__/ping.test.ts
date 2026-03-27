@@ -368,7 +368,7 @@ describe("assistant oauth ping", () => {
     });
 
     mockResolveOAuthConnectionResult = new Error(
-      'No active OAuth connection found for "google". Connect the service first with oauth2_connect.',
+      'No active OAuth connection found for "google". Connect the service first with `assistant oauth connect google`.',
     );
 
     const { exitCode, stdout } = await runCommand(["ping", "google", "--json"]);
