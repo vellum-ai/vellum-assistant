@@ -18,12 +18,14 @@ public struct VButton: View {
     public var accessibilityID: String? = nil
     public var iconColor: Color? = nil
     public var iconRotation: Angle? = nil
+    /// Override the default foreground color for both text and icons.
+    public var tintColor: Color? = nil
     public let action: () -> Void
 
     @State private var isHovered = false
     @FocusState private var isFocused: Bool
 
-    public init(label: String, icon: String? = nil, leftIcon: String? = nil, rightIcon: String? = nil, iconOnly: String? = nil, style: Style = .primary, size: Size = .regular, isFullWidth: Bool = false, isDisabled: Bool = false, isActive: Bool = false, iconSize: CGFloat? = nil, tooltip: String? = nil, accessibilityID: String? = nil, iconColor: Color? = nil, iconRotation: Angle? = nil, action: @escaping () -> Void) {
+    public init(label: String, icon: String? = nil, leftIcon: String? = nil, rightIcon: String? = nil, iconOnly: String? = nil, style: Style = .primary, size: Size = .regular, isFullWidth: Bool = false, isDisabled: Bool = false, isActive: Bool = false, iconSize: CGFloat? = nil, tooltip: String? = nil, accessibilityID: String? = nil, iconColor: Color? = nil, iconRotation: Angle? = nil, tintColor: Color? = nil, action: @escaping () -> Void) {
         self.label = label
         self.leftIcon = leftIcon ?? icon
         self.rightIcon = rightIcon
@@ -38,6 +40,7 @@ public struct VButton: View {
         self.accessibilityID = accessibilityID
         self.iconColor = iconColor
         self.iconRotation = iconRotation
+        self.tintColor = tintColor
         self.action = action
     }
 
@@ -75,7 +78,8 @@ public struct VButton: View {
             isIconOnly: iconOnly != nil,
             isActive: isActive,
             isFocused: isFocused,
-            iconSize: iconSize
+            iconSize: iconSize,
+            tintColor: tintColor
         ))
         .onHover { hovering in
             isHovered = isDisabled ? false : hovering
@@ -114,13 +118,14 @@ public struct VButtonStyle: ButtonStyle {
     let isActive: Bool
     let isFocused: Bool
     let iconSize: CGFloat?
+    let tintColor: Color?
 
     /// Creates an icon-only button style for custom button compositions.
     public static func iconOnly(style: VButton.Style = .ghost, isHovered: Bool, isFocused: Bool = false, isActive: Bool = false, iconSize: CGFloat? = nil) -> VButtonStyle {
-        VButtonStyle(style: style, size: .regular, isHovered: isHovered, isFullWidth: false, isIconOnly: true, isActive: isActive, isFocused: isFocused, iconSize: iconSize)
+        VButtonStyle(style: style, size: .regular, isHovered: isHovered, isFullWidth: false, isIconOnly: true, isActive: isActive, isFocused: isFocused, iconSize: iconSize, tintColor: nil)
     }
 
-    init(style: VButton.Style, size: VButton.Size = .regular, isHovered: Bool, isFullWidth: Bool, isIconOnly: Bool = false, isActive: Bool = false, isFocused: Bool = false, iconSize: CGFloat? = nil) {
+    init(style: VButton.Style, size: VButton.Size = .regular, isHovered: Bool, isFullWidth: Bool, isIconOnly: Bool = false, isActive: Bool = false, isFocused: Bool = false, iconSize: CGFloat? = nil, tintColor: Color? = nil) {
         self.style = style
         self.size = size
         self.isHovered = isHovered
@@ -129,6 +134,7 @@ public struct VButtonStyle: ButtonStyle {
         self.isActive = isActive
         self.isFocused = isFocused
         self.iconSize = iconSize
+        self.tintColor = tintColor
     }
 
     @Environment(\.isEnabled) private var isEnabled
@@ -216,6 +222,8 @@ public struct VButtonStyle: ButtonStyle {
 
     private var foregroundColor: Color {
         guard isEnabled else { return VColor.contentDisabled }
+        if let tintColor { return tintColor }
+
         switch style {
         case .primary: return VColor.auxWhite
         case .danger: return VColor.auxWhite

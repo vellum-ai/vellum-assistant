@@ -5,7 +5,7 @@ import OSLog
 import VellumAssistantShared
 
 private let log = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    subsystem: Bundle.appBundleIdentifier,
     category: "LogExporter"
 )
 
@@ -40,35 +40,81 @@ enum LogExporter {
         AppDelegate.shared?.isCurrentAssistantManaged == true
     }
 
+    /// Maximum number of retry attempts when the server returns 413 (Request Too Large).
+    /// On each retry, the largest file or directory in the staging directory is removed
+    /// and logged before re-creating the archive.
+    private static let maxUploadRetries = 10
+
     /// Collects logs, archives them, and uploads the archive to the platform API
     /// (`POST /v1/upload/feedback/`) for storage.
     /// Includes report metadata (reason, message) from the log report form.
+    ///
+    /// If the server returns 413 (Request Entity Too Large), the method enters a
+    /// retry loop: on each iteration it finds the largest file or directory in the
+    /// staging directory, removes it, appends an entry to `removed-items.log`
+    /// inside the archive so support can see what was stripped, then rebuilds
+    /// the tar and retries the upload.
     ///
     /// Throws if the archive build or platform upload fails. The caller is
     /// responsible for presenting success/error feedback (e.g. via a toast).
     static func sendFeedback(formData: LogReportFormData) async throws {
         let fileManager = FileManager.default
+        let stagingDir = fileManager.temporaryDirectory
+            .appendingPathComponent("vellum-log-export-\(UUID().uuidString)", isDirectory: true)
         let archiveURL = fileManager.temporaryDirectory
             .appendingPathComponent("vellum-assistant-logs-\(UUID().uuidString).tar.gz")
 
         defer {
+            try? fileManager.removeItem(at: stagingDir)
             try? fileManager.removeItem(at: archiveURL)
         }
 
         do {
-            try await buildArchive(destination: archiveURL, formData: formData)
+            try await buildStagingDirectory(at: stagingDir, formData: formData)
         } catch {
-            log.error("Failed to build log archive: \(error.localizedDescription)")
+            log.error("Failed to build log staging directory: \(error.localizedDescription)")
+            throw error
+        }
+
+        do {
+            try await createTarArchive(from: stagingDir, destination: archiveURL)
+        } catch {
+            log.error("Failed to create log archive: \(error.localizedDescription)")
             throw error
         }
 
         let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
-        try await uploadFeedbackToPlatform(
-            archiveURL: archiveURL,
-            formData: formData,
-            connectedAssistantId: connectedAssistantId
-        )
+        var removedItems: [String] = []
+        for attempt in 0...maxUploadRetries {
+            do {
+                try await uploadFeedbackToPlatform(
+                    archiveURL: archiveURL,
+                    formData: formData,
+                    connectedAssistantId: connectedAssistantId
+                )
+                return
+            } catch ExportError.requestTooLarge {
+                guard attempt < maxUploadRetries else {
+                    log.error("Upload still too large after \(maxUploadRetries) retries — giving up")
+                    throw ExportError.requestTooLarge
+                }
+
+                let trimResult = try await trimStagingAndRebuildArchive(
+                    stagingDir: stagingDir,
+                    archiveURL: archiveURL,
+                    previouslyRemoved: removedItems
+                )
+
+                guard let removed = trimResult else {
+                    log.error("No more items to remove but request is still too large")
+                    throw ExportError.requestTooLarge
+                }
+
+                removedItems.append(removed)
+                log.info("Removed \(removed) from staging dir (attempt \(attempt + 1)) — rebuilding archive")
+            }
+        }
     }
 
     // MARK: - Platform Feedback Upload
@@ -86,7 +132,8 @@ enum LogExporter {
     }
 
     /// Uploads the feedback archive and metadata to the platform API.
-    /// Throws on network or HTTP errors so the caller can surface feedback.
+    /// Throws ``ExportError/requestTooLarge`` on HTTP 413 so the caller can
+    /// enter the retry loop. Throws `URLError` for other failures.
     private static func uploadFeedbackToPlatform(
         archiveURL: URL,
         formData: LogReportFormData,
@@ -156,6 +203,9 @@ enum LogExporter {
         let (_, response) = try await URLSession.shared.data(for: request)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             log.warning("Platform feedback upload failed with status \(http.statusCode)")
+            if http.statusCode == 413 {
+                throw ExportError.requestTooLarge
+            }
             throw URLError(.badServerResponse)
         } else {
             log.info("Platform feedback upload succeeded")
@@ -177,17 +227,23 @@ enum LogExporter {
         return "vellum-assistant-logs-\(timestamp).tar.gz"
     }
 
-    /// Builds a tar.gz archive containing all discoverable log files.
-    /// Runs file I/O and the tar process off the main actor to avoid blocking the UI.
-    private nonisolated static func buildArchive(destination: URL, formData: LogReportFormData? = nil) async throws {
+    /// Populates a staging directory with all log sources.
+    /// The staging directory is managed by the caller.
+    private nonisolated static func buildStagingDirectory(
+        at stagingDir: URL,
+        formData: LogReportFormData? = nil
+    ) async throws {
         let fileManager = FileManager.default
-        let tempDir = fileManager.temporaryDirectory
-            .appendingPathComponent("vellum-log-export-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+        try await populateStagingDirectory(at: stagingDir, formData: formData, fileManager: fileManager)
+    }
 
-        defer {
-            try? fileManager.removeItem(at: tempDir)
-        }
+    /// Collects all log sources into the given staging directory.
+    private nonisolated static func populateStagingDirectory(
+        at tempDir: URL,
+        formData: LogReportFormData?,
+        fileManager: FileManager
+    ) async throws {
 
         let home = NSHomeDirectory()
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
@@ -342,15 +398,17 @@ enum LogExporter {
         guard !collected.isEmpty else {
             throw ExportError.noLogsFound
         }
+    }
 
-        // Create tar.gz using /usr/bin/tar
+    /// Creates a tar.gz archive from the contents of `sourceDir`.
+    private nonisolated static func createTarArchive(from sourceDir: URL, destination: URL) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
             process.arguments = [
                 "czf",
                 destination.path,
-                "-C", tempDir.path,
+                "-C", sourceDir.path,
                 ".",
             ]
 
@@ -771,7 +829,7 @@ enum LogExporter {
         do {
             let store = try OSLogStore(scope: .currentProcessIdentifier)
             let oneDayAgo = store.position(date: Date().addingTimeInterval(-86400))
-            let subsystem = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+            let subsystem = Bundle.appBundleIdentifier
 
             let entries = try store.getEntries(
                 at: oneDayAgo,
@@ -1267,10 +1325,117 @@ enum LogExporter {
         try? content.write(to: url, atomically: true, encoding: .utf8)
     }
 
+    // MARK: - Upload Retry Helpers
+
+    /// Removes the largest item from the staging directory, updates the
+    /// `removed-items.log`, and rebuilds the tar archive — all off the main
+    /// actor so the UI stays responsive during retries.
+    ///
+    /// Returns the description of the removed item, or `nil` if nothing
+    /// was left to remove.
+    private nonisolated static func trimStagingAndRebuildArchive(
+        stagingDir: URL,
+        archiveURL: URL,
+        previouslyRemoved: [String]
+    ) async throws -> String? {
+        let fileManager = FileManager.default
+
+        guard let removed = removeLargestItem(in: stagingDir, fileManager: fileManager) else {
+            return nil
+        }
+
+        var allRemoved = previouslyRemoved
+        allRemoved.append(removed)
+
+        writeRemovedItemsLog(
+            to: stagingDir.appendingPathComponent("removed-items.log"),
+            removedItems: allRemoved
+        )
+
+        try? fileManager.removeItem(at: archiveURL)
+        try await createTarArchive(from: stagingDir, destination: archiveURL)
+
+        return removed
+    }
+
+    /// Finds the largest file or directory (by total size) in `directory`,
+    /// removes it, and returns its name. Returns `nil` if the directory is
+    /// empty or only contains protected files.
+    private nonisolated static func removeLargestItem(
+        in directory: URL,
+        fileManager: FileManager
+    ) -> String? {
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.totalFileAllocatedSizeKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+
+        // Protect bookkeeping and essential metadata files from removal
+        let protectedNames: Set<String> = ["removed-items.log", "report-metadata.json"]
+        let candidates = contents.filter { !protectedNames.contains($0.lastPathComponent) }
+        guard !candidates.isEmpty else { return nil }
+
+        let largest = candidates.max { a, b in
+            totalSize(of: a, fileManager: fileManager) < totalSize(of: b, fileManager: fileManager)
+        }
+
+        guard let target = largest else { return nil }
+        let name = target.lastPathComponent
+        let size = totalSize(of: target, fileManager: fileManager)
+        do {
+            try fileManager.removeItem(at: target)
+        } catch {
+            log.warning("Failed to remove \(name) from staging directory: \(error.localizedDescription)")
+            return nil
+        }
+        log.info("Removed \(name) (\(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))) from staging directory")
+        return "\(name) (\(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)))"
+    }
+
+    /// Returns the total size in bytes of a file or directory (recursive).
+    private nonisolated static func totalSize(of url: URL, fileManager: FileManager) -> Int {
+        let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .totalFileAllocatedSizeKey])
+        if values?.isDirectory == true {
+            guard let enumerator = fileManager.enumerator(
+                at: url,
+                includingPropertiesForKeys: [.totalFileAllocatedSizeKey],
+                options: [.skipsHiddenFiles]
+            ) else { return 0 }
+            var total = 0
+            for case let fileURL as URL in enumerator {
+                let fileValues = try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey])
+                total += fileValues?.totalFileAllocatedSize ?? 0
+            }
+            return total
+        }
+        return values?.totalFileAllocatedSize ?? 0
+    }
+
+    /// Writes (or overwrites) the `removed-items.log` file listing all items
+    /// that were stripped from the archive to reduce its size.
+    private nonisolated static func writeRemovedItemsLog(
+        to url: URL,
+        removedItems: [String]
+    ) {
+        var lines = [
+            "The following items were removed from this feedback archive because",
+            "the upload exceeded the server's maximum request size (HTTP 413).",
+            "Items are listed in removal order (largest first per iteration).",
+            "",
+        ]
+        for (index, item) in removedItems.enumerated() {
+            lines.append("\(index + 1). \(item)")
+        }
+        let content = lines.joined(separator: "\n")
+        try? content.write(to: url, atomically: true, encoding: .utf8)
+    }
+
     enum ExportError: LocalizedError {
         case noLogsFound
         case tarFailed(String)
         case unsafeArchivePath(String)
+        case requestTooLarge
 
         var errorDescription: String? {
             switch self {
@@ -1280,6 +1445,8 @@ enum LogExporter {
                 return "Failed to create archive: \(detail)"
             case .unsafeArchivePath(let path):
                 return "Archive contains unsafe path: \(path)"
+            case .requestTooLarge:
+                return "Feedback archive is too large to upload even after removing the largest files."
             }
         }
     }

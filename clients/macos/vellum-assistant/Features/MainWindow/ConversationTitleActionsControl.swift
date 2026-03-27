@@ -19,12 +19,11 @@ struct ConversationTitleActionsControl: View {
             VButton(
                 label: presentation.displayTitle,
                 rightIcon: presentation.showsActionsMenu ? VIcon.chevronDown.rawValue : nil,
-                style: .ghost
+                style: .ghost,
+                tintColor: VColor.contentDefault
             ) {
                 if presentation.showsActionsMenu {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                        showDrawer.toggle()
-                    }
+                    showDrawer.toggle()
                 }
             }
 
@@ -82,6 +81,6 @@ struct ConversationActionsDrawer: View {
 
             VMenuItem(icon: VIcon.archive.rawValue, label: "Archive", action: onArchive)
         }
-        .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
+        .transition(.identity)
     }
 }

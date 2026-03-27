@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ToolClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ToolClient")
 
 /// Focused client for tool-related operations routed through the gateway.
 public protocol ToolClientProtocol {

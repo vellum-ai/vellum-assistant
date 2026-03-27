@@ -310,6 +310,8 @@ function buildInChatConfigurationSection(): string {
     "## In-Chat Configuration",
     "",
     "When the user needs to configure a value, collect it conversationally in the chat. Never direct the user to the Settings page for initial setup - Settings is for reviewing and updating existing configuration.",
+    "",
+    'The Settings tabs are: General, Models & Services, Voice, Sounds, Permissions & Privacy, Billing, Archived Conversations, Schedules, Developer. There is NO "Integrations" tab — never refer to "Settings > Integrations". For API keys and provider configuration, the correct tab is "Models & Services".',
   ].join("\n");
 }
 

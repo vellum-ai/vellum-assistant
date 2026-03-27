@@ -16,9 +16,9 @@
 ## Highlights
 
 <table>
-<tr><td>🖥️ <b>Native Clients</b></td><td>macOS menu bar app with computer-use (accessibility + CGEvent) and iOS chat client. ~50% shared code via Swift Package. Standalone or connected-to-Mac.</td></tr>
+<tr><td>🖥️ <b>Native Clients</b></td><td>macOS menu bar app with computer-use (accessibility + CGEvent) and iOS chat client. Standalone or connected-to-Mac.</td></tr>
 <tr><td>🔧 <b>Extensible Skills</b></td><td>40+ bundled skills. The assistant can author, test, and persist new skills at runtime. Version-bound approvals and mutation protection.</td></tr>
-<tr><td>💬 <b>Multi-Channel</b></td><td>Desktop, Telegram, Slack, Gmail, SMS, phone calls — one gateway, one conversation. OAuth2 integrations and unified messaging.</td></tr>
+<tr><td>💬 <b>Multi-Channel</b></td><td>Desktop, Telegram, Slack, Gmail, SMS, phone calls — one gateway, multiple conversations, shared memory. OAuth2 integrations and unified messaging.</td></tr>
 <tr><td>🔒 <b>Security-First</b></td><td>OS-level sandboxing (sandbox-exec / bwrap). Keychain-backed credential vault. Secret ingress blocking. Scoped trust rules.</td></tr>
 <tr><td>🌐 <b>Browser & Computer Use</b></td><td>Headless browser automation (navigate, click, type, screenshot, extract). macOS computer-use via accessibility APIs. Credential-aware form filling.</td></tr>
 <tr><td>📡 <b>Real-Time Streaming</b></td><td>SSE event stream with JWT auth. Streaming deltas for text, thinking, tool use, and attachments. Up to 100 concurrent connections.</td></tr>
@@ -29,29 +29,48 @@
 
 ## Get Started
 
+The following guide is for running the assistant in any environment of your choosing.
+
 ### Install
+
+**Prerequisites:** [Bun](https://bun.sh) is the only requirement. The assistant's hatch process is expected to cover all other needs.
+
+```bash
+bun install -g vellum  # Install the vellum package
+vellum hatch           # first-time assistant setup
+```
+
+### Install From Source
 
 ```bash
 git clone https://github.com/vellum-ai/vellum-assistant.git
 cd vellum-assistant
 ./setup.sh              # installs deps, links packages, registers the global `vellum` CLI
 vellum hatch            # first-time assistant setup
-vellum wake             # start assistant + gateway
 ```
-
-> **Prerequisites:** [Bun](https://bun.sh) is the only requirement. The setup script handles everything else — package dependencies, git hooks, local package linking, and the global `vellum` command.
 
 ### Vellum CLI
 
+List of the most common CLI commands when interacting with your assistant.
+
 ```bash
 vellum hatch       # first-time assistant setup
-vellum wake        # start assistant + gateway
-vellum retire      # shut down an assistant instance
-vellum sleep       # stop everything
+vellum retire      # shut down an assistant instance and clean up its data
+vellum ps          # view running assistants
+vellum wake        # start services (assistant + gateway + credential-executor)
+vellum sleep       # stop services, keeping the assistant's data.
 vellum upgrade     # upgrade to the latest version
+vellum client      # connect to a running assistant and interact with it through the terminal
 ```
 
-> **Managed mode:** The macOS app also supports signing in via the Vellum platform and connecting to a hosted assistant — no local runtime required.
+All commands reference a "default" assistant without specifying an argument. If you are tracking multiple assistants, pass in the assistant id as the second argument.
+
+### Desktop App
+
+The [Desktop App](./clients/macos/README.md) comes with the Vellum CLI bundled in, so you won't need to pre-install the CLI if you prefer the Desktop interface. We support two modes today:
+
+- **Local mode:** Run the assistant on the same machine as the Desktop App.
+- **Managed mode:** Sign in via the Vellum platform and connecting to a hosted assistant — no local runtime required.
 
 ---
 

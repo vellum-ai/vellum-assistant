@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HostProxyClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HostProxyClient")
 
 /// Focused client for posting host proxy execution results back to the gateway.
 public protocol HostProxyClientProtocol {

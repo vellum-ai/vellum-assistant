@@ -55,6 +55,16 @@ public struct VMenu<Content: View>: View {
     }
 }
 
+// MARK: - VMenuItemVariant
+
+/// Visual variants for `VMenuItem`.
+public enum VMenuItemVariant {
+    /// Standard menu item with default icon and text colors.
+    case `default`
+    /// Destructive action — icon and text use `VColor.systemNegativeStrong`.
+    case destructive
+}
+
 // MARK: - VMenuItemSize
 
 /// Size variants for `VMenuItem`.
@@ -78,6 +88,9 @@ public enum VMenuItemSize {
 /// ```swift
 /// VMenuItem(icon: VIcon.settings.rawValue, label: "Settings") { openSettings() }
 ///
+/// // Destructive action (red icon and text):
+/// VMenuItem(icon: VIcon.trash.rawValue, label: "Delete", variant: .destructive) { handleDelete() }
+///
 /// // Regular size (14pt, same as VNavItem):
 /// VMenuItem(icon: VIcon.settings.rawValue, label: "Settings", size: .regular) { openSettings() }
 ///
@@ -90,6 +103,7 @@ public struct VMenuItem<Trailing: View>: View {
     public let icon: String?
     public let label: String
     public let isActive: Bool
+    public let variant: VMenuItemVariant
     public let size: VMenuItemSize
     public let action: () -> Void
     public let trailing: Trailing
@@ -98,11 +112,11 @@ public struct VMenuItem<Trailing: View>: View {
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovered = false
 
-
     public init(
         icon: String? = nil,
         label: String,
         isActive: Bool = false,
+        variant: VMenuItemVariant = .default,
         size: VMenuItemSize = .compact,
         action: @escaping () -> Void,
         @ViewBuilder trailing: () -> Trailing
@@ -110,21 +124,29 @@ public struct VMenuItem<Trailing: View>: View {
         self.icon = icon
         self.label = label
         self.isActive = isActive
+        self.variant = variant
         self.size = size
         self.action = action
         self.trailing = trailing()
     }
 
     private var iconColor: Color {
-        isActive ? VColor.primaryActive : VColor.primaryBase
+        if variant == .destructive { return VColor.systemNegativeStrong }
+        return isActive ? VColor.primaryActive : VColor.primaryBase
     }
 
     private var textColor: Color {
-        isActive ? VColor.contentEmphasized : VColor.contentSecondary
+        if variant == .destructive { return VColor.systemNegativeStrong }
+        return isActive ? VColor.contentEmphasized : VColor.contentSecondary
     }
 
     public var body: some View {
         if size == .regular {
+            let _ = {
+                if variant != .default {
+                    assertionFailure("VMenuItem: variant \(variant) is not supported with .regular size (delegates to VNavItem)")
+                }
+            }()
             VNavItem(
                 icon: icon,
                 label: label,
@@ -178,10 +200,11 @@ public extension VMenuItem where Trailing == EmptyView {
         icon: String? = nil,
         label: String,
         isActive: Bool = false,
+        variant: VMenuItemVariant = .default,
         size: VMenuItemSize = .compact,
         action: @escaping () -> Void
     ) {
-        self.init(icon: icon, label: label, isActive: isActive, size: size, action: action) {
+        self.init(icon: icon, label: label, isActive: isActive, variant: variant, size: size, action: action) {
             EmptyView()
         }
     }

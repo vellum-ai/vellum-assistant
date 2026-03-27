@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "EventStreamClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "EventStreamClient")
 
 /// Client that manages an SSE connection to the assistant runtime and broadcasts
 /// parsed `ServerMessage` values to multiple independent subscribers.

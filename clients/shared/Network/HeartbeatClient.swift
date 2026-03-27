@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HeartbeatClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HeartbeatClient")
 
 /// Focused client for heartbeat-related operations routed through the gateway.
 ///

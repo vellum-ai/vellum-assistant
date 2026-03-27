@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "LLMContextClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "LLMContextClient")
 
 // MARK: - Normalized LLM Context Models
 

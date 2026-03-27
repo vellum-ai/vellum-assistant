@@ -2,7 +2,7 @@ import AppKit
 import ScreenCaptureKit
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThumbnailProvider")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ThumbnailProvider")
 
 /// Result of a thumbnail capture attempt.
 struct ThumbnailResult {
@@ -112,7 +112,7 @@ actor ThumbnailProvider {
         }
         let result: ThumbnailResult
         do {
-            let selfBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+            let selfBundleId = Bundle.appBundleIdentifier
             let selfPid = ProcessInfo.processInfo.processIdentifier
 
             // Get current shareable content to find Vellum app windows to exclude.

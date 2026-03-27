@@ -2,7 +2,7 @@ import Foundation
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AvatarComponentService")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AvatarComponentService")
 
 /// Character component definitions and network fetch for syncing with the
 /// runtime's `avatar/character-components` endpoint. The response provides

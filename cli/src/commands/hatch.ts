@@ -47,7 +47,11 @@ import {
   stopLocalProcesses,
 } from "../lib/local";
 import { maybeStartNgrokTunnel } from "../lib/ngrok";
-import { getPlatformUrl } from "../lib/platform-client";
+import {
+  getPlatformUrl,
+  hatchAssistant,
+  readPlatformToken,
+} from "../lib/platform-client";
 import { httpHealthCheck } from "../lib/http-client";
 import { detectOrphanedProcesses } from "../lib/orphan-detection";
 import { isProcessAlive, stopProcess } from "../lib/process";
@@ -237,7 +241,7 @@ function parseArgs(): HatchArgs {
       console.log("  -d                        Run in detached mode");
       console.log("  --name <name>             Custom instance name");
       console.log(
-        "  --remote <host>           Remote host (local, gcp, aws, docker, custom)",
+        "  --remote <host>           Remote host (local, gcp, aws, docker, custom, vellum)",
       );
       console.log(
         "  --restart                 Restart processes without onboarding side effects",
@@ -943,6 +947,48 @@ export async function hatch(): Promise<void> {
     return;
   }
 
+  if (remote === "vellum") {
+    await hatchVellumPlatform();
+    return;
+  }
+
   console.error(`Error: Remote host '${remote}' is not yet supported.`);
   process.exit(1);
+}
+
+async function hatchVellumPlatform(): Promise<void> {
+  const token = readPlatformToken();
+  if (!token) {
+    console.error("Not logged in. Run `vellum login --token <token>` first.");
+    process.exit(1);
+  }
+
+  const config = SPECIES_CONFIG.vellum;
+  console.log("");
+  for (const line of config.art) {
+    console.log(`   ${line}`);
+  }
+  console.log("");
+  console.log("   Hatching assistant on Vellum platform...");
+  console.log("");
+
+  const result = await hatchAssistant(token);
+
+  const platformUrl = getPlatformUrl();
+
+  saveAssistantEntry({
+    assistantId: result.id,
+    runtimeUrl: platformUrl,
+    cloud: "vellum",
+    species: "vellum",
+    hatchedAt: new Date().toISOString(),
+  });
+  setActiveAssistant(result.id);
+
+  console.log(`   ${config.hatchedEmoji}  Your assistant has hatched!`);
+  console.log("");
+  console.log(`   ID:     ${result.id}`);
+  console.log(`   Name:   ${result.name}`);
+  console.log(`   Status: ${result.status}`);
+  console.log("");
 }

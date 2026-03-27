@@ -3,7 +3,7 @@ import Foundation
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationRestorer")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationRestorer")
 
 /// Delegate protocol so the restorer can read and mutate conversation state
 /// owned by `ConversationManager`.

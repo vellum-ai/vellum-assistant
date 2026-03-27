@@ -2,7 +2,7 @@ import Foundation
 import os
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "VellumCli")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "VellumCli")
 
 /// Thread-safe accumulator for collecting stderr output from a child process.
 private final class StderrAccumulator: @unchecked Sendable {

@@ -294,8 +294,7 @@ extension MainWindowView {
                         startNewConversation()
                     }
                 )
-                .overlay(alignment: .topTrailing) { panelDismissButton }
-                .background(VColor.surfaceBase)
+                    .background(VColor.surfaceBase)
             } else if panelType == .documentEditor {
                 let config = windowState.layoutConfig
                 VSplitView(
@@ -439,7 +438,6 @@ extension MainWindowView {
                 activeSessionId: conversationManager.activeViewModel?.conversationId,
                 onClose: { windowState.dismissOverlay() }
             )
-            .overlay(alignment: .topTrailing) { panelDismissButton }
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(windowState.avatarCustomizationReturnPanel) })
         case .generated:
@@ -477,8 +475,6 @@ extension MainWindowView {
                     startNewConversation()
                 }
             )
-            .overlay(alignment: .topTrailing) { panelDismissButton }
-            .background(VColor.surfaceBase)
         case .intelligence:
             IntelligencePanel(
                 onClose: { windowState.dismissOverlay() },
@@ -511,14 +507,12 @@ extension MainWindowView {
                 initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
                 pendingMemoryId: $windowState.pendingMemoryId
             )
-            .overlay(alignment: .topTrailing) { panelDismissButton }
             .background(VColor.surfaceOverlay)
         case .usageDashboard:
             UsageDashboardPanel(
                 store: usageDashboardStore,
                 onClose: { windowState.dismissOverlay() }
             )
-            .overlay(alignment: .topTrailing) { panelDismissButton }
         }
     }
 

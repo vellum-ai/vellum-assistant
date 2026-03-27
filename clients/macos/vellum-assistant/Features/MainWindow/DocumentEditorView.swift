@@ -3,7 +3,7 @@ import WebKit
 import os
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DocumentEditor")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "DocumentEditor")
 
 /// Built-in document editor view using Toast UI Editor.
 /// Displayed in the Directory panel's Documents tab.

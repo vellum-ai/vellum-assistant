@@ -3,7 +3,7 @@ import AppKit
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "DictationContext")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "DictationContext")
 
 /// Captures the user's current context (frontmost app, window, selection, text field status)
 /// at voice dictation activation time using Accessibility APIs.
@@ -31,8 +31,7 @@ struct DictationContextCapture {
         let bundleIdentifier = frontApp.bundleIdentifier ?? ""
 
         // Skip capturing our own app's context during voice activation
-        // (Bundle.main.bundleIdentifier is nil in SPM builds, so use hardcoded ID)
-        if bundleIdentifier == "com.vellum.vellum-assistant" {
+        if bundleIdentifier == Bundle.main.bundleIdentifier {
             log.info("Frontmost app is self — returning default context")
             return DictationContext(
                 bundleIdentifier: bundleIdentifier,

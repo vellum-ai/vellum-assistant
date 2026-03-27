@@ -9,7 +9,7 @@ import UIKit
 #error("Unsupported platform")
 #endif
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatMessageManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatMessageManager")
 
 /// Owns all message-list and send-state @Published properties that were previously
 /// scattered across ChatViewModel.  ChatViewModel holds a reference to this object

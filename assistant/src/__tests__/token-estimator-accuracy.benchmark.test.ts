@@ -205,7 +205,7 @@ function makeSystemPrompt(size: "small" | "production" = "small"): string {
     "### OAuth Setup",
     "Most integrations use OAuth for authentication.",
     "Guide the user through the OAuth flow when setting up a new integration:",
-    "1. Navigate to Settings > Integrations",
+    "1. Navigate to Settings > Models & Services",
     "2. Click 'Connect' for the desired service",
     "3. Authorize in the browser popup",
     "4. Confirm the connection is active",

@@ -143,7 +143,10 @@ export function upsertJournalMemoriesFromDisk(
 
     // Filter for .md files, excluding readme.md (case-insensitive)
     const mdFiles = files.filter(
-      (f) => f.endsWith(".md") && f.toLowerCase() !== "readme.md",
+      (f) =>
+        f.endsWith(".md") &&
+        !f.startsWith(".") &&
+        f.toLowerCase() !== "readme.md",
     );
 
     let upserted = 0;
@@ -178,7 +181,10 @@ export function upsertJournalMemoriesFromDisk(
         if (!statSync(subdirPath).isDirectory()) continue;
 
         const subFiles = readdirSync(subdirPath).filter(
-          (f) => f.endsWith(".md") && f.toLowerCase() !== "readme.md",
+          (f) =>
+            f.endsWith(".md") &&
+            !f.startsWith(".") &&
+            f.toLowerCase() !== "readme.md",
         );
 
         for (const filename of subFiles) {

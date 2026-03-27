@@ -2,7 +2,7 @@ import ApplicationServices
 import AppKit
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AXTree")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AXTree")
 
 struct AXElement: Identifiable {
     let id: Int

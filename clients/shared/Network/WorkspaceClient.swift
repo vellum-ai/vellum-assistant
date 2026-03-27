@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "WorkspaceClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "WorkspaceClient")
 
 /// Focused client for workspace file-system operations routed through the gateway.
 public protocol WorkspaceClientProtocol {

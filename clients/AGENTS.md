@@ -317,6 +317,9 @@ Swift does not allow `private` members to be accessed from a different file, eve
 - Only use `private` for members that are truly file-scoped. Use `internal` for members shared across extension files of the same type.
 - Note this in PR descriptions when widening access — reviewers should verify no unintended callers exist.
 
+### Terminology: Avoid "Daemon" in Client Code
+In client-facing code (variable names, comments, UI strings), prefer **"assistant"** over **"daemon"**. The daemon is an implementation detail of the backend; client code should use user-facing terminology. For example, use `assistantLoadingTimedOut` instead of `daemonLoadingTimedOut`. Existing usages of "daemon" in variable names should be updated opportunistically when touching the surrounding code.
+
 ### Comment Quality
 - Comments and docstrings must describe the code's intent and behavior, not its refactoring history.
 - Do not leave breadcrumb comments like `// moved to X.swift` or `// extracted from Y()`. These become stale and clutter the code.

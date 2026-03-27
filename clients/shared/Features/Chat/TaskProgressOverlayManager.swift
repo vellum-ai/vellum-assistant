@@ -3,7 +3,7 @@ import SwiftUI
 import AppKit
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "TaskProgressOverlay")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "TaskProgressOverlay")
 
 /// Manages a floating NSPanel that shows a task_progress widget pinned to the
 /// top-right of the screen. Follows BrowserPiPManager / SessionOverlayWindow patterns.

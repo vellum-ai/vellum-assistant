@@ -5,7 +5,7 @@ import UserNotifications
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate")
 
 // MARK: - Ghost Window Detection
 

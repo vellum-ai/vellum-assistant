@@ -837,7 +837,7 @@ public struct ToolCallData: Identifiable, Equatable {
         let image = NSImage(data: data)
         let elapsed = CFAbsoluteTimeGetCurrent() - start
         if elapsed > 0.05 {
-            Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ToolCallData")
+            Logger(subsystem: Bundle.appBundleIdentifier, category: "ToolCallData")
                 .warning("Image decode took \(String(format: "%.1f", elapsed * 1000))ms, base64 size \(base64String.count)")
         }
         return image
@@ -849,7 +849,7 @@ public struct ToolCallData: Identifiable, Equatable {
         let image = UIImage(data: data)
         let elapsed = CFAbsoluteTimeGetCurrent() - start
         if elapsed > 0.05 {
-            Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ToolCallData")
+            Logger(subsystem: Bundle.appBundleIdentifier, category: "ToolCallData")
                 .warning("Image decode took \(String(format: "%.1f", elapsed * 1000))ms, base64 size \(base64String.count)")
         }
         return image

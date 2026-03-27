@@ -320,7 +320,7 @@ extension MainWindowView {
 
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    if showDaemonLoading && conversationManager.visibleConversations.isEmpty {
+                    if showDaemonLoading && !assistantLoadingTimedOut && conversationManager.visibleConversations.isEmpty {
                         DaemonLoadingConversationsSkeleton()
                     }
 

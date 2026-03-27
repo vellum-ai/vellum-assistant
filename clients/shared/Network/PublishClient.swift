@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "PublishClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "PublishClient")
 
 /// Focused client for page publishing and link-open operations routed through the gateway.
 public protocol PublishClientProtocol {

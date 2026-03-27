@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "OfflineMessageQueue")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "OfflineMessageQueue")
 
 // MARK: - Queued Message
 

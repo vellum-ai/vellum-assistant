@@ -2,7 +2,7 @@ import Foundation
 import Vision
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ScreenOCR")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScreenOCR")
 
 final class ScreenOCR: Sendable {
     func recognizeText(from jpegData: Data) async -> String {

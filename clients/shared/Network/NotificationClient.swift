@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "NotificationClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "NotificationClient")
 
 /// Focused client for notification delivery acknowledgments.
 public protocol NotificationClientProtocol {

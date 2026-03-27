@@ -352,6 +352,43 @@ struct MarkdownSegmentView: View, Equatable {
             leading.backgroundColor = codeBackgroundColor
             result.insert(leading, at: range.lowerBound)
         }
+        // Apply synthetic italic/bold to emphasized runs.
+        // DM Sans doesn't ship an italic font face, so SwiftUI can't resolve
+        // the italic trait from .emphasized inlinePresentationIntent. We detect
+        // emphasized runs and apply a synthetic oblique via affine transform.
+        var emphOnlyRanges: [Range<AttributedString.Index>] = []
+        var boldEmphRanges: [Range<AttributedString.Index>] = []
+        for run in result.runs {
+            guard let intent = run.inlinePresentationIntent, !intent.contains(.code) else { continue }
+            let isEmph = intent.contains(.emphasized)
+            let isBold = intent.contains(.stronglyEmphasized)
+            if isEmph && isBold {
+                boldEmphRanges.append(run.range)
+            } else if isEmph {
+                emphOnlyRanges.append(run.range)
+            }
+        }
+        if !emphOnlyRanges.isEmpty || !boldEmphRanges.isEmpty {
+            let sz: CGFloat = 16 // matches VFont.chat size
+            var oblique = CGAffineTransform(a: 1, b: 0, c: CGFloat(tan(12.0 * .pi / 180.0)), d: 1, tx: 0, ty: 0)
+            if !emphOnlyRanges.isEmpty {
+                let italicCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, &oblique)
+                let italicFont = Font(italicCT as NSFont)
+                for range in emphOnlyRanges { result[range].font = italicFont }
+            }
+            if !boldEmphRanges.isEmpty {
+                let wght = 0x77676874
+                let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, nil)
+                let boldVars: [CFNumber: CFNumber] = [wght as CFNumber: 700 as CFNumber]
+                let boldItalicCT = CTFontCreateCopyWithAttributes(
+                    baseCT, sz, &oblique,
+                    CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
+                )
+                let boldItalicFont = Font(boldItalicCT as NSFont)
+                for range in boldEmphRanges { result[range].font = boldItalicFont }
+            }
+        }
+
         // Underline links so they are visually distinct from plain text
         for run in result.runs where result[run.range].link != nil {
             result[run.range].underlineStyle = .single

@@ -68,5 +68,6 @@ struct DocumentReopenWidget: View {
                 isHovered = hovering
             }
         }
+        .textSelection(.disabled)
     }
 }

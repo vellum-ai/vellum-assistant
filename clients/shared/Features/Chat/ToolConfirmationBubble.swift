@@ -149,6 +149,7 @@ public struct ToolConfirmationBubble: View {
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .stroke(VColor.borderBase, lineWidth: 0.5)
         )
+        .textSelection(.disabled)
     }
 
     @ViewBuilder
@@ -265,6 +266,7 @@ public struct ToolConfirmationBubble: View {
                         .stroke(VColor.borderBase, lineWidth: 0.5)
                 )
         )
+        .textSelection(.disabled)
         .onGeometryChange(for: Bool.self) { proxy in
             proxy.size.width < 450
         } action: { isCompact in

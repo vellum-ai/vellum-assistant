@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "GuardianClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "GuardianClient")
 
 /// Focused client for guardian operations routed through the gateway.
 public protocol GuardianClientProtocol {

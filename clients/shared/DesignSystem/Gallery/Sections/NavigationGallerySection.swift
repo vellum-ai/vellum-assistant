@@ -296,7 +296,7 @@ struct NavigationGallerySection: View {
                             }
 
                             VMenuSection(header: "Danger Zone") {
-                                VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {}
+                                VMenuItem(icon: VIcon.trash.rawValue, label: "Delete", variant: .destructive) {}
                             }
                         }
                     }

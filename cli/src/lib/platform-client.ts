@@ -65,6 +65,67 @@ export function clearPlatformToken(): void {
   }
 }
 
+const VAK_PREFIX = "vak_";
+
+/**
+ * Returns the appropriate auth header for the given platform token.
+ *
+ * - `vak_`-prefixed tokens are long-lived platform API keys and use
+ *   `Authorization: Bearer`.
+ * - All other tokens are allauth session tokens and use `X-Session-Token`.
+ */
+export function authHeaders(token: string): Record<string, string> {
+  if (token.startsWith(VAK_PREFIX)) {
+    return { Authorization: `Bearer ${token}` };
+  }
+  return { "X-Session-Token": token };
+}
+
+export interface HatchedAssistant {
+  id: string;
+  name: string;
+  status: string;
+}
+
+export async function hatchAssistant(token: string): Promise<HatchedAssistant> {
+  const url = `${getPlatformUrl()}/v1/assistants/hatch/`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(token),
+    },
+    body: JSON.stringify({}),
+  });
+
+  if (response.ok) {
+    return (await response.json()) as HatchedAssistant;
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    const detail = (await response.json().catch(() => ({}))) as {
+      detail?: string;
+    };
+    throw new Error(
+      detail.detail ??
+        "Invalid or expired token. Run `vellum login` to re-authenticate.",
+    );
+  }
+
+  if (response.status === 402) {
+    throw new Error("Insufficient balance to hatch a new assistant.");
+  }
+
+  const errorBody = (await response.json().catch(() => ({}))) as {
+    detail?: string;
+  };
+  throw new Error(
+    errorBody.detail ??
+      `Platform API error: ${response.status} ${response.statusText}`,
+  );
+}
+
 export interface PlatformUser {
   id: string;
   email: string;

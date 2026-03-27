@@ -19,6 +19,16 @@ export const DEFAULT_QDRANT_PORT = 6333;
 export const DEFAULT_CES_PORT = 8090;
 
 /**
+ * Lockfile candidate filenames, checked in priority order.
+ * `.vellum.lock.json` is the current name; `.vellum.lockfile.json` is the
+ * legacy name kept for backwards compatibility with older installs.
+ */
+export const LOCKFILE_NAMES = [
+  ".vellum.lock.json",
+  ".vellum.lockfile.json",
+] as const;
+
+/**
  * Environment variable names for provider API keys, keyed by provider ID.
  * Loaded from the shared registry at `meta/provider-env-vars.json` — the
  * single source of truth also consumed by the assistant runtime and the
@@ -33,6 +43,7 @@ export const VALID_REMOTE_HOSTS = [
   "aws",
   "docker",
   "custom",
+  "vellum",
 ] as const;
 export type RemoteHost = (typeof VALID_REMOTE_HOSTS)[number];
 export const VALID_SPECIES = ["openclaw", "vellum"] as const;
