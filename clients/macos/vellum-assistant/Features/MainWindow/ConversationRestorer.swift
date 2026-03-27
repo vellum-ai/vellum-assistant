@@ -206,16 +206,19 @@ final class ConversationRestorer {
             delegate.restoreLastActiveConversation()
             return
         }
-        guard !response.conversations.isEmpty else {
-            delegate.restoreLastActiveConversation()
-            return
-        }
 
         // Seed groups from the response if available, otherwise fall back to system defaults.
+        // This must run before the empty-response early return so that new/empty workspaces
+        // still initialize groups on first restore.
         if let responseGroups = response.groups, !responseGroups.isEmpty {
             delegate.groups = responseGroups.map { ConversationGroup(from: $0) }
         } else if delegate.groups.isEmpty {
             delegate.groups = [ConversationGroup.pinned, ConversationGroup.scheduled, ConversationGroup.background]
+        }
+
+        guard !response.conversations.isEmpty else {
+            delegate.restoreLastActiveConversation()
+            return
         }
 
         // Filter out private conversations and conversations bound to external channels

@@ -631,7 +631,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Called when the daemon broadcasts `task_run_conversation_created` so the user
     /// can see task execution messages streaming in real-time.
     func createTaskRunConversation(conversationId: String, workItemId: String, title: String) {
-        guard let localId = createBackgroundConversation(conversationId: conversationId, title: title, groupId: ConversationGroup.background.id) else { return }
+        guard let localId = createBackgroundConversation(conversationId: conversationId, title: title, source: "task", groupId: ConversationGroup.background.id) else { return }
         log.info("Created task run conversation \(localId) for conversation \(conversationId) (work item \(workItemId))")
     }
 
