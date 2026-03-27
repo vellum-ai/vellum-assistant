@@ -373,9 +373,6 @@ final class ChatViewModelIOSTests: XCTestCase {
     func testRespondToAlwaysAllowSendsHighRiskDecision() async {
         let mockInteraction = MockInteractionClient()
         mockInteraction.results = [true]
-        mockInteraction.expectedCallCount = 1
-        let exp = expectation(description: "interaction call")
-        mockInteraction.expectation = exp
 
         let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
         vm.conversationId = "sess-hr"
@@ -387,7 +384,7 @@ final class ChatViewModelIOSTests: XCTestCase {
             decision: "always_allow_high_risk"
         )
 
-        await fulfillment(of: [exp], timeout: 5.0)
+        await waitForMockCalls(mockInteraction, count: 1)
 
         XCTAssertEqual(mockInteraction.calls.count, 1)
         XCTAssertEqual(mockInteraction.calls[0].decision, "always_allow_high_risk")
@@ -398,9 +395,6 @@ final class ChatViewModelIOSTests: XCTestCase {
     func testRespondToAlwaysAllowSendsDefaultDecision() async {
         let mockInteraction = MockInteractionClient()
         mockInteraction.results = [true]
-        mockInteraction.expectedCallCount = 1
-        let exp = expectation(description: "interaction call")
-        mockInteraction.expectation = exp
 
         let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
         vm.conversationId = "sess-default"
@@ -411,7 +405,7 @@ final class ChatViewModelIOSTests: XCTestCase {
             selectedScope: "project"
         )
 
-        await fulfillment(of: [exp], timeout: 5.0)
+        await waitForMockCalls(mockInteraction, count: 1)
 
         XCTAssertEqual(mockInteraction.calls.count, 1)
         XCTAssertEqual(mockInteraction.calls[0].decision, "always_allow")
@@ -421,9 +415,6 @@ final class ChatViewModelIOSTests: XCTestCase {
         let mockInteraction = MockInteractionClient()
         // First call (always_allow_high_risk) fails, fallback (allow) also fails
         mockInteraction.results = [false, false]
-        mockInteraction.expectedCallCount = 2
-        let exp = expectation(description: "both calls complete")
-        mockInteraction.expectation = exp
 
         let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
         vm.conversationId = "sess-fallback"
@@ -450,7 +441,7 @@ final class ChatViewModelIOSTests: XCTestCase {
             decision: "always_allow_high_risk"
         )
 
-        await fulfillment(of: [exp], timeout: 5.0)
+        await waitForMockCalls(mockInteraction, count: 2)
 
         // Both attempts failed — confirmation should be reverted to pending
         XCTAssertEqual(mockInteraction.calls.count, 2)
@@ -463,9 +454,6 @@ final class ChatViewModelIOSTests: XCTestCase {
         let mockInteraction = MockInteractionClient()
         // First call (always_allow_high_risk) fails, fallback (allow) succeeds
         mockInteraction.results = [false, true]
-        mockInteraction.expectedCallCount = 2
-        let exp = expectation(description: "both calls complete")
-        mockInteraction.expectation = exp
 
         let vm = ChatViewModel(connectionManager: mockClient, eventStreamClient: mockClient.eventStreamClient, interactionClient: mockInteraction)
         vm.conversationId = "sess-fail-once"
@@ -492,7 +480,7 @@ final class ChatViewModelIOSTests: XCTestCase {
             decision: "always_allow_high_risk"
         )
 
-        await fulfillment(of: [exp], timeout: 5.0)
+        await waitForMockCalls(mockInteraction, count: 2)
 
         // First attempted decision should be always_allow_high_risk (the one that failed)
         XCTAssertEqual(mockInteraction.calls.count, 2)
@@ -518,6 +506,18 @@ final class ChatViewModelIOSTests: XCTestCase {
             try? await Task.sleep(for: .milliseconds(10))
         }
     }
+
+    /// Poll until the mock's call count reaches the expected value.
+    /// Uses Task.sleep to yield the main actor cooperatively, avoiding the
+    /// main-actor scheduling issues that XCTestExpectation + fulfillment(of:)
+    /// can cause when the production code spawns unstructured Tasks with
+    /// sequential async calls.
+    private func waitForMockCalls(_ mock: MockInteractionClient, count: Int, timeout: TimeInterval = 5.0) async {
+        let deadline = ContinuousClock.now + .seconds(timeout)
+        while mock.calls.count < count && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
 }
 
 // MARK: - Test Doubles
@@ -535,16 +535,10 @@ private final class MockInteractionClient: InteractionClientProtocol {
     private(set) var calls: [Call] = []
     /// Return values for successive calls. Last value repeats for any extra calls.
     var results: [Bool] = [true]
-    /// Fulfilled when `calls.count` reaches `expectedCallCount`.
-    var expectation: XCTestExpectation?
-    var expectedCallCount: Int = 1
 
     func sendConfirmationResponse(requestId: String, decision: String, selectedPattern: String?, selectedScope: String?) async -> Bool {
         let result = calls.count < results.count ? results[calls.count] : results.last ?? true
         calls.append(Call(requestId: requestId, decision: decision, selectedPattern: selectedPattern, selectedScope: selectedScope))
-        if calls.count >= expectedCallCount {
-            expectation?.fulfill()
-        }
         return result
     }
 
