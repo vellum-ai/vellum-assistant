@@ -236,6 +236,7 @@ public final class ChatViewModel: ObservableObject {
     private var messageManagerPublishCount = 0
     private var attachmentManagerPublishCount = 0
     private var errorManagerPublishCount = 0
+    private var btwStatePublishCount = 0
     private var lastRateLogTime = Date()
 
     private func trackPublish(source: String) {
@@ -244,19 +245,21 @@ public final class ChatViewModel: ObservableObject {
         case "messageManager": messageManagerPublishCount += 1
         case "attachmentManager": attachmentManagerPublishCount += 1
         case "errorManager": errorManagerPublishCount += 1
+        case "btwState": btwStatePublishCount += 1
         default: break
         }
         let now = Date()
         if now.timeIntervalSince(lastRateLogTime) >= 5 {
             os_log(
                 .debug, log: Self.perfLog,
-                "ChatViewModel publish rate: %d/5s (msg=%d, attach=%d, err=%d)",
-                publishCount, messageManagerPublishCount, attachmentManagerPublishCount, errorManagerPublishCount
+                "ChatViewModel publish rate: %d/5s (msg=%d, attach=%d, err=%d, btw=%d)",
+                publishCount, messageManagerPublishCount, attachmentManagerPublishCount, errorManagerPublishCount, btwStatePublishCount
             )
             publishCount = 0
             messageManagerPublishCount = 0
             attachmentManagerPublishCount = 0
             errorManagerPublishCount = 0
+            btwStatePublishCount = 0
             lastRateLogTime = now
         }
     }
