@@ -41,6 +41,7 @@ import {
   updateMetaFile,
 } from "./conversation-disk-view.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
+import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { getDb, rawAll, rawExec, rawGet, rawRun } from "./db.js";
 import { indexMessageNow } from "./indexer.js";
 import { enqueueMemoryJob } from "./jobs-store.js";
@@ -244,6 +245,7 @@ export function createConversation(
         conversationType?: "standard" | "private" | "background";
         source?: string;
         scheduleJobId?: string;
+        groupId?: string;
       },
 ) {
   const db = getDb();
@@ -254,9 +256,16 @@ export function createConversation(
       : (titleOrOpts ?? {});
   const conversationType = opts.conversationType ?? "standard";
   const source = opts.source ?? "user";
+  const groupId = opts.groupId;
   const id = uuid();
   const memoryScopeId =
     conversationType === "private" ? `private:${id}` : "default";
+
+  // Ensure group_id column exists before INSERT that may include group_id.
+  if (groupId) {
+    ensureGroupMigration();
+  }
+
   const conversation = {
     id,
     title: opts.title ?? null,
@@ -298,6 +307,12 @@ export function createConversation(
       }
       throw err;
     }
+  }
+
+  // group_id is NOT in the Drizzle schema (raw-query-only pattern, matching
+  // display_order and is_pinned). Set it via raw SQL after the Drizzle insert.
+  if (groupId) {
+    rawRun("UPDATE conversations SET group_id = ? WHERE id = ?", groupId, id);
   }
 
   initConversationDir({ ...conversation, originChannel: null });
@@ -342,6 +357,20 @@ export function getConversationType(
 export function getConversationMemoryScopeId(conversationId: string): string {
   const conv = getConversation(conversationId);
   return conv?.memoryScopeId ?? "default";
+}
+
+/**
+ * Fetch group_id for a conversation via raw SQL. group_id is NOT in the
+ * Drizzle schema (raw-query-only pattern), so ConversationRow doesn't
+ * include it. This helper is used by forkConversation to inherit group_id.
+ */
+export function getConversationGroupId(conversationId: string): string | null {
+  ensureGroupMigration();
+  const row = rawGet<{ group_id: string | null }>(
+    "SELECT group_id FROM conversations WHERE id = ?",
+    conversationId,
+  );
+  return row?.group_id ?? null;
 }
 
 export function forkConversation(params: {
@@ -407,10 +436,14 @@ export function forkConversation(params: {
   // (linkAttachmentToMessage, relinkAttachments, seedForkedConversationAttention)
   // use the same underlying bun:sqlite connection, so their writes participate
   // in this transaction automatically.
+  // Inherit group_id from parent via raw SQL helper (group_id is not in Drizzle schema)
+  const parentGroupId = getConversationGroupId(conversationId);
+
   const forkedConversation = db.transaction(() => {
     const fc = createConversation({
       title: forkTitle,
       conversationType: "standard",
+      groupId: parentGroupId ?? undefined,
     });
 
     db.update(conversations)
@@ -1670,18 +1703,45 @@ export function batchSetDisplayOrders(
     id: string;
     displayOrder: number | null;
     isPinned: boolean;
+    groupId?: string | null;
   }>,
 ): void {
   ensureDisplayOrderMigration();
+  ensureGroupMigration();
   rawExec("BEGIN");
   try {
     for (const update of updates) {
-      rawRun(
-        "UPDATE conversations SET display_order = ?, is_pinned = ? WHERE id = ?",
-        update.displayOrder,
-        update.isPinned ? 1 : 0,
-        update.id,
-      );
+      if (update.groupId !== undefined) {
+        // New client: groupId is authoritative
+        // Derive is_pinned from groupId
+        rawRun(
+          "UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ? WHERE id = ?",
+          update.displayOrder,
+          update.groupId === "system:pinned" ? 1 : 0,
+          update.groupId,
+          update.id,
+        );
+      } else {
+        // Old client: no groupId in payload
+        // isPinned true -> set group_id = system:pinned
+        // isPinned false -> clear group_id ONLY IF currently system:pinned
+        //                   otherwise preserve existing group_id
+        if (update.isPinned) {
+          rawRun(
+            "UPDATE conversations SET display_order = ?, is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
+            update.displayOrder,
+            update.id,
+          );
+        } else {
+          rawRun(
+            `UPDATE conversations SET display_order = ?, is_pinned = 0,
+             group_id = CASE WHEN group_id = 'system:pinned' THEN NULL ELSE group_id END
+             WHERE id = ?`,
+            update.displayOrder,
+            update.id,
+          );
+        }
+      }
     }
     rawExec("COMMIT");
   } catch (err) {
@@ -1692,21 +1752,30 @@ export function batchSetDisplayOrders(
 
 export function getDisplayMetaForConversations(
   conversationIds: string[],
-): Map<string, { displayOrder: number | null; isPinned: boolean }> {
+): Map<
+  string,
+  { displayOrder: number | null; isPinned: boolean; groupId: string | null }
+> {
   ensureDisplayOrderMigration();
+  ensureGroupMigration();
   const result = new Map<
     string,
-    { displayOrder: number | null; isPinned: boolean }
+    { displayOrder: number | null; isPinned: boolean; groupId: string | null }
   >();
   if (conversationIds.length === 0) return result;
   for (const id of conversationIds) {
     const row = rawGet<{
       display_order: number | null;
       is_pinned: number | null;
-    }>("SELECT display_order, is_pinned FROM conversations WHERE id = ?", id);
+      group_id: string | null;
+    }>(
+      "SELECT display_order, is_pinned, group_id FROM conversations WHERE id = ?",
+      id,
+    );
     result.set(id, {
       displayOrder: row?.display_order ?? null,
       isPinned: (row?.is_pinned ?? 0) === 1,
+      groupId: row?.group_id ?? null,
     });
   }
   return result;

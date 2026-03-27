@@ -52,6 +52,7 @@ public struct ConversationForkClient: ConversationForkClientProtocol {
             assistantAttention: conversation.assistantAttention,
             displayOrder: conversation.displayOrder,
             isPinned: conversation.isPinned,
+            groupId: conversation.groupId,
             forkParent: conversation.forkParent
         )
     }

@@ -51,13 +51,15 @@ public struct ConversationListClient: ConversationListClientProtocol {
                     assistantAttention: $0.assistantAttention,
                     displayOrder: $0.displayOrder,
                     isPinned: $0.isPinned,
+                    groupId: $0.groupId,
                     forkParent: $0.forkParent
                 )
             }
             return ConversationListResponse(
                 type: "conversation_list_response",
                 conversations: items,
-                hasMore: decoded.hasMore
+                hasMore: decoded.hasMore,
+                groups: decoded.groups
             )
         } catch {
             log.error("fetchConversationList error: \(error.localizedDescription)")
@@ -194,6 +196,14 @@ public struct ConversationListClient: ConversationListClientProtocol {
                     if let order = u.displayOrder {
                         entry["displayOrder"] = order
                     }
+
+                    #if os(macOS)
+                    // macOS always sends groupId key: JSON null for ungrouped, string for grouped.
+                    // This lets the server distinguish "explicitly ungrouped" (null) from "old client" (key absent).
+                    entry["groupId"] = u.groupId as Any
+                    #endif
+                    // iOS: key is omitted entirely -- server treats as old client, preserves existing group_id.
+
                     return entry
                 }
             ]
@@ -209,6 +219,110 @@ public struct ConversationListClient: ConversationListClientProtocol {
             return true
         } catch {
             log.error("reorderConversations error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    // MARK: - Group Management
+
+    public func fetchGroups() async -> [ConversationGroupResponse]? {
+        do {
+            let response = try await GatewayHTTPClient.get(
+                path: "assistants/{assistantId}/groups",
+                timeout: 15
+            )
+            guard response.isSuccess else {
+                log.error("fetchGroups failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            struct GroupsResponse: Decodable {
+                let groups: [ConversationGroupResponse]
+            }
+            let decoded = try JSONDecoder().decode(GroupsResponse.self, from: response.data)
+            return decoded.groups
+        } catch {
+            log.error("fetchGroups error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func createGroup(name: String) async -> ConversationGroupResponse? {
+        do {
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/groups",
+                json: ["name": name],
+                timeout: 10
+            )
+            guard response.isSuccess || response.statusCode == 201 else {
+                log.error("createGroup failed (HTTP \(response.statusCode))")
+                return nil
+            }
+            return try JSONDecoder().decode(ConversationGroupResponse.self, from: response.data)
+        } catch {
+            log.error("createGroup error: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public func updateGroup(groupId: String, name: String?, sortPosition: Double?) async -> Bool {
+        do {
+            var body: [String: Any] = [:]
+            if let name { body["name"] = name }
+            if let sortPosition { body["sortPosition"] = sortPosition }
+
+            let response = try await GatewayHTTPClient.patch(
+                path: "assistants/{assistantId}/groups/\(groupId)",
+                json: body,
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("updateGroup failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("updateGroup error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    public func deleteGroup(groupId: String) async -> Bool {
+        do {
+            let response = try await GatewayHTTPClient.delete(
+                path: "assistants/{assistantId}/groups/\(groupId)",
+                timeout: 10
+            )
+            guard response.isSuccess || response.statusCode == 204 else {
+                log.error("deleteGroup failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("deleteGroup error: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    public func reorderGroups(updates: [(groupId: String, sortPosition: Double)]) async -> Bool {
+        do {
+            let body: [String: Any] = [
+                "updates": updates.map { [
+                    "groupId": $0.groupId,
+                    "sortPosition": $0.sortPosition
+                ] as [String: Any] }
+            ]
+            let response = try await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/groups/reorder",
+                json: body,
+                timeout: 10
+            )
+            guard response.isSuccess else {
+                log.error("reorderGroups failed (HTTP \(response.statusCode))")
+                return false
+            }
+            return true
+        } catch {
+            log.error("reorderGroups error: \(error.localizedDescription)")
             return false
         }
     }
@@ -266,10 +380,12 @@ private struct HTTPConversationsListResponse: Decodable {
         let assistantAttention: AssistantAttention?
         let displayOrder: Double?
         let isPinned: Bool?
+        let groupId: String?
         let forkParent: ConversationForkParent?
     }
     let conversations: [Conversation]
     let hasMore: Bool?
+    let groups: [ConversationGroupResponse]?
 }
 
 /// The HTTP search endpoint omits the `type` discriminator, so we decode

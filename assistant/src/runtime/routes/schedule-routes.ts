@@ -229,6 +229,7 @@ async function handleRunScheduleNow(
       );
       const fallbackConversation = bootstrapConversation({
         source: "schedule",
+        groupId: "system:scheduled",
         origin: "schedule",
         systemHint: `Schedule (manual): ${schedule.name}`,
       });
@@ -241,6 +242,7 @@ async function handleRunScheduleNow(
   // Regular message-based schedule
   const conversation = bootstrapConversation({
     source: "schedule",
+    groupId: "system:scheduled",
     origin: "schedule",
     systemHint: `Schedule (manual): ${schedule.name}`,
   });
