@@ -20,6 +20,7 @@ struct IntelligencePanel: View {
     @State private var isContactsEnabled: Bool = false
     @State private var isEmailEnabled: Bool = false
     @State private var pendingSkillId: String?
+    @State private var pendingFilePath: String?
     private static let contactsFeatureFlagKey = "contacts"
     private static let emailFeatureFlagKey = "email-channel"
 
@@ -136,6 +137,10 @@ struct IntelligencePanel: View {
                 onNavigateToSkill: { skillId in
                     pendingSkillId = skillId
                     withAnimation(VAnimation.fast) { selectedTab = .installedSkills }
+                },
+                onNavigateToFile: { path in
+                    pendingFilePath = path
+                    withAnimation(VAnimation.fast) { selectedTab = .workspace }
                 }
             )
             .padding(.top, VSpacing.sm)
@@ -153,7 +158,7 @@ struct IntelligencePanel: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .workspace:
-            WorkspacePanel()
+            WorkspacePanel(pendingFilePath: $pendingFilePath)
                 .padding(.top, VSpacing.sm)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
