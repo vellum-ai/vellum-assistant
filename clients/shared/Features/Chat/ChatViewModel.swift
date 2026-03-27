@@ -1472,6 +1472,9 @@ public final class ChatViewModel: ObservableObject {
         let isWorkspaceRefinement = activeSurfaceId != nil && !isChatDockedToSide && !shouldBypassWorkspaceRefinement
 
         let willBeQueued = isSending && conversationId != nil
+        // [DIAG] Log state at the moment the user sends a message
+        let diagAssistantId = currentAssistantMessageId?.uuidString.prefix(8) ?? "nil"
+        log.info("[DIAG] sendMessage: isSending=\(self.isSending) willBeQueued=\(willBeQueued) currentAssistantMessageId=\(diagAssistantId) conversationId=\(self.conversationId ?? "nil") pendingQueuedCount=\(self.pendingQueuedCount) msgCount=\(self.messages.count) text=\(rawText.prefix(40))")
         var queuedMessageId: UUID?
         if !isWorkspaceRefinement {
             let status: ChatMessageStatus = willBeQueued ? .queued(position: 0) : .sent
