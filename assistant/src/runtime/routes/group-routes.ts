@@ -154,7 +154,12 @@ export function groupRouteDefinitions(): RouteDefinition[] {
       tags: ["groups"],
       requestBody: z.object({
         updates: z
-          .array(z.unknown())
+          .array(
+            z.object({
+              groupId: z.string(),
+              sortPosition: z.number(),
+            }),
+          )
           .describe("Array of { groupId, sortPosition } objects"),
       }),
       handler: async ({ req }) => {

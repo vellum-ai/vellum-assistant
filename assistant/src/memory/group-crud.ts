@@ -8,7 +8,7 @@
 import { v4 as uuid } from "uuid";
 
 import { ensureGroupMigration } from "./conversation-group-migration.js";
-import { rawAll, rawGet, rawRun } from "./db.js";
+import { rawAll, rawExec, rawGet, rawRun } from "./db.js";
 
 export interface ConversationGroupRow {
   id: string;
@@ -169,12 +169,19 @@ export function reorderGroups(
 ): void {
   ensureGroupMigration();
   const now = Math.floor(Date.now() / 1000);
-  for (const update of updates) {
-    rawRun(
-      "UPDATE conversation_groups SET sort_position = ?, updated_at = ? WHERE id = ?",
-      update.sortPosition,
-      now,
-      update.groupId,
-    );
+  rawExec("BEGIN");
+  try {
+    for (const update of updates) {
+      rawRun(
+        "UPDATE conversation_groups SET sort_position = ?, updated_at = ? WHERE id = ?",
+        update.sortPosition,
+        now,
+        update.groupId,
+      );
+    }
+    rawExec("COMMIT");
+  } catch (err) {
+    rawExec("ROLLBACK");
+    throw err;
   }
 }
