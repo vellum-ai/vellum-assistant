@@ -13,6 +13,12 @@ let mockGetSecureKeyViaDaemon: (
   account: string,
 ) => Promise<string | undefined> = async () => undefined;
 
+let mockSetSecureKeyViaDaemon: (
+  type: string,
+  name: string,
+  value: string,
+) => Promise<boolean> = async () => true;
+
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
@@ -21,7 +27,8 @@ mock.module("../../../lib/daemon-credential-client.js", () => ({
   getSecureKeyViaDaemon: (account: string) =>
     mockGetSecureKeyViaDaemon(account),
   deleteSecureKeyViaDaemon: async () => "not-found" as const,
-  setSecureKeyViaDaemon: async () => false,
+  setSecureKeyViaDaemon: (type: string, name: string, value: string) =>
+    mockSetSecureKeyViaDaemon(type, name, value),
   getProviderKeyViaDaemon: async () => undefined,
   getSecureKeyResultViaDaemon: async () => ({
     value: undefined,
@@ -174,6 +181,7 @@ async function runCommand(
 describe("assistant platform connect", () => {
   beforeEach(() => {
     mockGetSecureKeyViaDaemon = async () => undefined;
+    mockSetSecureKeyViaDaemon = async () => true;
     process.exitCode = 0;
     // Remove any signal file left by previous tests
     try {
@@ -238,5 +246,193 @@ describe("assistant platform connect", () => {
     // AND no emit-event signal file was written
     const signalPath = join(testDir, "signals", "emit-event");
     expect(existsSync(signalPath)).toBe(false);
+  });
+
+  test("stores credentials and returns success", async () => {
+    const storedCredentials: Array<{
+      type: string;
+      name: string;
+      value: string;
+    }> = [];
+    mockSetSecureKeyViaDaemon = async (type, name, value) => {
+      storedCredentials.push({ type, name, value });
+      return true;
+    };
+
+    const { exitCode, stdout } = await runCommand([
+      "platform",
+      "connect",
+      "--base-url",
+      "https://platform.vellum.ai",
+      "--api-key",
+      "vak_test-key",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.connected).toBe(true);
+    expect(parsed.baseUrl).toBe("https://platform.vellum.ai");
+
+    expect(storedCredentials).toEqual([
+      {
+        type: "credential",
+        name: "vellum:platform_base_url",
+        value: "https://platform.vellum.ai",
+      },
+      {
+        type: "credential",
+        name: "vellum:assistant_api_key",
+        value: "vak_test-key",
+      },
+    ]);
+  });
+
+  test("stores all optional credentials when provided", async () => {
+    const storedCredentials: Array<{
+      type: string;
+      name: string;
+      value: string;
+    }> = [];
+    mockSetSecureKeyViaDaemon = async (type, name, value) => {
+      storedCredentials.push({ type, name, value });
+      return true;
+    };
+
+    const { exitCode, stdout } = await runCommand([
+      "platform",
+      "connect",
+      "--base-url",
+      "https://platform.vellum.ai",
+      "--api-key",
+      "vak_test-key",
+      "--assistant-id",
+      "asst-123",
+      "--organization-id",
+      "org-456",
+      "--user-id",
+      "user-789",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.connected).toBe(true);
+
+    const storedNames = storedCredentials.map((c) => c.name);
+    expect(storedNames).toContain("vellum:platform_base_url");
+    expect(storedNames).toContain("vellum:assistant_api_key");
+    expect(storedNames).toContain("vellum:platform_assistant_id");
+    expect(storedNames).toContain("vellum:platform_organization_id");
+    expect(storedNames).toContain("vellum:platform_user_id");
+  });
+
+  test("fails when --base-url is missing", async () => {
+    const { exitCode, stdout } = await runCommand([
+      "platform",
+      "connect",
+      "--api-key",
+      "vak_test-key",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("--base-url");
+    expect(parsed.error).toContain("--api-key");
+  });
+
+  test("fails when --api-key is missing", async () => {
+    const { exitCode, stdout } = await runCommand([
+      "platform",
+      "connect",
+      "--base-url",
+      "https://platform.vellum.ai",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("--base-url");
+    expect(parsed.error).toContain("--api-key");
+  });
+
+  test("fails with invalid base URL", async () => {
+    const { exitCode, stdout } = await runCommand([
+      "platform",
+      "connect",
+      "--base-url",
+      "not-a-url",
+      "--api-key",
+      "vak_test-key",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Invalid base URL");
+  });
+
+  test("normalizes trailing slashes in base URL", async () => {
+    const storedCredentials: Array<{
+      type: string;
+      name: string;
+      value: string;
+    }> = [];
+    mockSetSecureKeyViaDaemon = async (type, name, value) => {
+      storedCredentials.push({ type, name, value });
+      return true;
+    };
+
+    const { exitCode, stdout } = await runCommand([
+      "platform",
+      "connect",
+      "--base-url",
+      "https://platform.vellum.ai/some/path/",
+      "--api-key",
+      "vak_test-key",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(0);
+
+    const parsed = JSON.parse(stdout);
+    expect(parsed.baseUrl).toBe("https://platform.vellum.ai");
+
+    const baseUrlEntry = storedCredentials.find(
+      (c) => c.name === "vellum:platform_base_url",
+    );
+    expect(baseUrlEntry?.value).toBe("https://platform.vellum.ai");
+  });
+
+  test("fails when credential storage fails", async () => {
+    mockSetSecureKeyViaDaemon = async () => false;
+
+    const { exitCode, stdout } = await runCommand([
+      "platform",
+      "connect",
+      "--base-url",
+      "https://platform.vellum.ai",
+      "--api-key",
+      "vak_test-key",
+      "--json",
+    ]);
+
+    expect(exitCode).toBe(1);
+
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Failed to store credentials");
+    expect(parsed.error).toContain("vellum:platform_base_url");
   });
 });
