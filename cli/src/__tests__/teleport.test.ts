@@ -22,14 +22,16 @@ process.env.VELLUM_LOCKFILE_DIR = testDir;
 // Mocks — must be set up before importing the module under test
 // ---------------------------------------------------------------------------
 
-const findAssistantByNameMock = mock(
-  (_name: string): import("../lib/assistant-config.js").AssistantEntry | null =>
-    null,
-);
+// Import the real assistant-config module — do NOT mock it with mock.module()
+// because Bun's mock.module() replaces the module globally and leaks into
+// other test files (e.g. multi-local.test.ts) running in the same process.
+// Instead, we use spyOn to mock findAssistantByName on the imported module object.
+import * as assistantConfig from "../lib/assistant-config.js";
 
-mock.module("../lib/assistant-config.js", () => ({
-  findAssistantByName: findAssistantByNameMock,
-}));
+const findAssistantByNameMock = spyOn(
+  assistantConfig,
+  "findAssistantByName",
+).mockReturnValue(null);
 
 const loadGuardianTokenMock = mock((_id: string) => ({
   accessToken: "local-token",
@@ -103,6 +105,7 @@ import type { AssistantEntry } from "../lib/assistant-config.js";
 // ---------------------------------------------------------------------------
 
 afterAll(() => {
+  findAssistantByNameMock.mockRestore();
   rmSync(testDir, { recursive: true, force: true });
   delete process.env.VELLUM_LOCKFILE_DIR;
 });
