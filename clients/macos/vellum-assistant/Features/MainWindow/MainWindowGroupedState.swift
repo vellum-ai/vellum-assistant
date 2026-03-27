@@ -42,8 +42,12 @@ final class SidebarInteractionState {
     var showAllConversations: Bool = false
     var showAllScheduleConversations: Bool = false
     var showAllBackgroundConversations: Bool = false
-    var scheduleSectionCollapsed: Bool = false
-    var backgroundSectionCollapsed: Bool = false
+    var scheduleSectionCollapsed: Bool = UserDefaults.standard.bool(forKey: "scheduleSectionCollapsed") {
+        didSet { UserDefaults.standard.set(scheduleSectionCollapsed, forKey: "scheduleSectionCollapsed") }
+    }
+    var backgroundSectionCollapsed: Bool = UserDefaults.standard.bool(forKey: "backgroundSectionCollapsed") {
+        didSet { UserDefaults.standard.set(backgroundSectionCollapsed, forKey: "backgroundSectionCollapsed") }
+    }
     /// Set of schedule group keys (scheduleJobId values) that are currently expanded.
     var expandedScheduleGroups: Set<String> = []
     var showAllApps: Bool = false
