@@ -1,8 +1,8 @@
 import Foundation
 
 /// Thin @MainActor coordinator that wraps `SurfaceRefetchManager` and owns the
-/// per-surface task dictionary. Extracted from ChatViewModel to reduce VM size.
-/// This is NOT @Observable — it holds no view-facing state.
+/// per-surface task dictionary, keeping refetch lifecycle separate from the view model.
+/// Not @Observable — holds no view-facing state.
 @MainActor
 public final class SurfaceRefetchCoordinator {
     /// Callback invoked on the main actor with the refetch result so the caller
