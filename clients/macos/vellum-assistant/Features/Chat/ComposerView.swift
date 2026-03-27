@@ -64,6 +64,9 @@ struct ComposerView: View {
     var isInteractionEnabled: Bool = true
 
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
+    #if os(macOS)
+    @Environment(\.dropActions) private var dropActions
+    #endif
     @FocusState private var composerFocus: Bool
     @State private var isComposerFocused = false
     /// Incremented when inputText is cleared externally (e.g. after send) to force
@@ -117,6 +120,11 @@ struct ComposerView: View {
                 textEntryComposer
             }
         }
+        #if os(macOS)
+        .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: dropActions.isDropTargeted) { providers in
+            ComposerDropHandler.handleDrop(providers: providers, actions: dropActions)
+        }
+        #endif
         .fixedSize(horizontal: false, vertical: true)
         .animation(VAnimation.fast, value: showSlashMenu)
         .padding(.horizontal, VSpacing.lg)
