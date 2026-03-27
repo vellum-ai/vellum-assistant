@@ -103,7 +103,7 @@ async function getAccessToken(
 async function exportFromAssistant(
   entry: AssistantEntry,
   cloud: string,
-): Promise<Uint8Array> {
+): Promise<Uint8Array<ArrayBuffer>> {
   if (cloud === "vellum") {
     // Platform source — use Django async export
     const token = readPlatformToken();
@@ -341,7 +341,7 @@ interface ImportResponse {
 async function importToAssistant(
   entry: AssistantEntry,
   cloud: string,
-  bundleData: Uint8Array,
+  bundleData: Uint8Array<ArrayBuffer>,
   dryRun: boolean,
 ): Promise<void> {
   if (cloud === "vellum") {
@@ -469,7 +469,7 @@ async function importToAssistant(
               Authorization: `Bearer ${accessToken}`,
               "Content-Type": "application/octet-stream",
             },
-            body: bundleData,
+            body: new Blob([bundleData]),
             signal: AbortSignal.timeout(120_000),
           },
         );
@@ -507,7 +507,7 @@ async function importToAssistant(
           Authorization: `Bearer ${accessToken}`,
           "Content-Type": "application/octet-stream",
         },
-        body: bundleData,
+        body: new Blob([bundleData]),
         signal: AbortSignal.timeout(120_000),
       });
     } catch (err) {
