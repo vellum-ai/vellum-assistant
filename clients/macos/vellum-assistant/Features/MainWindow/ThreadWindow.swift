@@ -170,7 +170,7 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
 /// Avoids observing `ConversationManager` directly — only the specific callbacks
 /// and data needed are passed in to prevent broad re-renders.
 private struct ThreadWindowContentView: View {
-    @ObservedObject var viewModel: ChatViewModel
+    var viewModel: ChatViewModel
     let conversationLocalId: UUID
     @ObservedObject var conversationManager: ConversationManager
     @ObservedObject var settingsStore: SettingsStore
