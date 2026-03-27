@@ -276,6 +276,26 @@ public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelega
         }
     }
 
+    // MARK: - @Observable → ObservableObject bridge for ChatAttachmentManager
+
+    /// Recursively observe all tracked properties on the @Observable
+    /// ChatAttachmentManager and forward changes into ChatViewModel's
+    /// ObservableObject objectWillChange via the coalesced publish path.
+    private func observeAttachmentManager() {
+        withObservationTracking {
+            _ = attachmentManager.pendingAttachments
+            _ = attachmentManager.isLoadingAttachment
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scheduleCoalescedPublish()
+                #if DEBUG
+                self?.trackPublish(source: "attachmentManager")
+                #endif
+                self?.observeAttachmentManager() // re-arm
+            }
+        }
+    }
+
     // MARK: - Debug publish-rate counters
 
     private static let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
@@ -1166,14 +1186,11 @@ public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelega
                 #endif
             }
             .store(in: &cancellables)
-        attachmentManager.objectWillChange
-            .sink { [weak self] _ in
-                self?.scheduleCoalescedPublish()
-                #if DEBUG
-                self?.trackPublish(source: "attachmentManager")
-                #endif
-            }
-            .store(in: &cancellables)
+        // ChatAttachmentManager is @Observable — bridge its changes into
+        // ChatViewModel's ObservableObject objectWillChange via
+        // withObservationTracking so views that read attachment state through
+        // ChatViewModel's computed forwarding properties still update.
+        observeAttachmentManager()
         // ChatErrorManager is @Observable — bridge its changes into
         // ChatViewModel's ObservableObject objectWillChange via
         // withObservationTracking so views that read error state through
