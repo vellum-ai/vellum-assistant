@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationListClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationListClient")
 
 /// Focused client for conversation list and management operations via the gateway.
 public protocol ConversationListClientProtocol {

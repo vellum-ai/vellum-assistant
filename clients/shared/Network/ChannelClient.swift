@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChannelClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChannelClient")
 
 /// Focused client for channel readiness operations routed through the gateway.
 public protocol ChannelClientProtocol {

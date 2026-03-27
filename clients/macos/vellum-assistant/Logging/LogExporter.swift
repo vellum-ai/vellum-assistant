@@ -5,7 +5,7 @@ import OSLog
 import VellumAssistantShared
 
 private let log = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    subsystem: Bundle.appBundleIdentifier,
     category: "LogExporter"
 )
 
@@ -829,7 +829,7 @@ enum LogExporter {
         do {
             let store = try OSLogStore(scope: .currentProcessIdentifier)
             let oneDayAgo = store.position(date: Date().addingTimeInterval(-86400))
-            let subsystem = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+            let subsystem = Bundle.appBundleIdentifier
 
             let entries = try store.getEntries(
                 at: oneDayAgo,

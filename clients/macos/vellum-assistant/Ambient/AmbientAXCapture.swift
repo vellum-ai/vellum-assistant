@@ -2,7 +2,7 @@ import ApplicationServices
 import AppKit
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AmbientAX")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AmbientAX")
 
 struct ElementSummary {
     let role: String
@@ -44,7 +44,7 @@ enum AmbientAXCapture {
 
     // MARK: - Public API
 
-    private static let ownBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+    private static let ownBundleId = Bundle.appBundleIdentifier
 
     static func capture() async -> AmbientSnapshot? {
         guard let frontApp = NSWorkspace.shared.frontmostApplication else {

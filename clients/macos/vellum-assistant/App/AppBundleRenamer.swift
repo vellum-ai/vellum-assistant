@@ -2,7 +2,7 @@ import AppKit
 import os
 
 private let log = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    subsystem: Bundle.appBundleIdentifier,
     category: "AppBundleRenamer"
 )
 
@@ -47,7 +47,7 @@ enum AppBundleRenamer {
         let currentAppName = bundleURL.deletingPathExtension().lastPathComponent
         let currentExeName = Bundle.main.object(forInfoDictionaryKey: "CFBundleExecutable") as? String
             ?? currentAppName
-        let bundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+        let bundleId = Bundle.appBundleIdentifier
         let pid = ProcessInfo.processInfo.processIdentifier
 
         // Verify we can write to the parent directory (e.g. dist/).

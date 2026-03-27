@@ -7,7 +7,7 @@ import os
 import AppKit
 #endif
 
-private let composerLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "Composer")
+private let composerLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "Composer")
 
 struct ComposerView: View {
     private let composerMaxHeight: CGFloat = 300

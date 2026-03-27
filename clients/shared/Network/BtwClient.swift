@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "BtwClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "BtwClient")
 
 /// Focused client for BTW side-chain messages routed through the gateway.
 public protocol BtwClientProtocol {

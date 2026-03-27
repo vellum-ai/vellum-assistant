@@ -3,7 +3,7 @@ import Sparkle
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "UpdateManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "UpdateManager")
 
 /// Thin wrapper around Sparkle's `SPUUpdater` for auto-update functionality.
 ///

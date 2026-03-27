@@ -3,7 +3,7 @@ import Foundation
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SoundManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "SoundManager")
 
 /// Supported audio file extensions for custom sounds.
 private let supportedSoundExtensions: Set<String> = ["aiff", "wav", "mp3", "m4a", "caf"]

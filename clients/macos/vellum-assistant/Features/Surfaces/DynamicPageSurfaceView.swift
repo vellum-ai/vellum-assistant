@@ -3,7 +3,7 @@ import SwiftUI
 import os
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DynamicPage")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "DynamicPage")
 
 /// NSView that clips its subviews to a rounded rect using a CAShapeLayer mask.
 /// This reliably clips WKWebView content, which ignores plain masksToBounds.

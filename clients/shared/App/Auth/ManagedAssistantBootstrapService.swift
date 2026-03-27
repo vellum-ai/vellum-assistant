@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ManagedAssistantBootstrap")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ManagedAssistantBootstrap")
 
 /// Outcome of a managed assistant bootstrap attempt.
 public enum ManagedBootstrapOutcome: Sendable {

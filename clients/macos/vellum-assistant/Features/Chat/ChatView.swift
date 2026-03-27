@@ -3,7 +3,7 @@ import SwiftUI
 import VellumAssistantShared
 import UniformTypeIdentifiers
 
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "ChatView")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatView")
 
 struct ChatView: View {
     let messages: [ChatMessage]

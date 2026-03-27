@@ -438,6 +438,12 @@ if [ "$CMD" = "release" ] || [ "$CMD" = "release-application" ]; then
     fi
 fi
 
+# Use a distinct bundle ID for debug builds so that `log stream` filtering
+# does not pick up logs from the production app running on the same machine.
+if [ "$CONFIG" = "debug" ]; then
+    BUNDLE_ID="com.vellum.vellum-assistant-dev"
+fi
+
 # 1. Build with SPM (or use prebuilt binaries if PREBUILT_BIN_PATH is set)
 if [ -n "${PREBUILT_BIN_PATH:-}" ]; then
     echo "Using prebuilt binaries from $PREBUILT_BIN_PATH"

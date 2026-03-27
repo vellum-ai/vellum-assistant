@@ -4,7 +4,7 @@ import ScreenCaptureKit
 import VideoToolbox
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ScreenRecorder")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScreenRecorder")
 
 /// Result of a completed recording.
 struct RecordingResult: Sendable {

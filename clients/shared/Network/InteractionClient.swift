@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "InteractionClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "InteractionClient")
 
 /// Focused client for user interaction responses (confirmations, secrets)
 /// routed through the gateway.
