@@ -243,6 +243,15 @@ struct SidebarConversationItem: View, Equatable {
         .pointerCursor { hovering in
             onHoverChange(hovering)
         }
+        .onChange(of: conversation) { _, _ in
+            // Reset menu state when conversation props change (e.g., groupId changed
+            // due to pin/unpin). Without this, isMenuOpen can get stuck true when
+            // the menu action causes the conversation to move to a different section,
+            // and VMenuPanel.onDismiss doesn't fire properly.
+            if isMenuOpen {
+                isMenuOpen = false
+            }
+        }
         .onDrag {
             onDragStart()
             return NSItemProvider(object: conversation.id.uuidString as NSString)
