@@ -434,9 +434,17 @@ struct GroupedReorderDropDelegate: DropDelegate {
         // Use section-local index for direction detection (not global visibleConversations)
         let groupConversations = conversationManager.groupedConversations
             .first { $0.group?.id == groupId }?.conversations ?? []
-        let sIdx = groupConversations.firstIndex(where: { $0.id == dragId }) ?? 0
+        let sIdx = groupConversations.firstIndex(where: { $0.id == dragId })
         let tIdx = groupConversations.firstIndex(where: { $0.id == targetConversation.id }) ?? 0
-        sidebar.dropIndicatorAtBottom = sIdx < tIdx
+        if let sIdx {
+            // Same-group drag: compare indices to determine direction
+            sidebar.dropIndicatorAtBottom = sIdx < tIdx
+        } else {
+            // Cross-group drag: source isn't in this section, default to top
+            // indicator (insert before the target) so the visual position matches
+            // the actual insertion point.
+            sidebar.dropIndicatorAtBottom = false
+        }
     }
 
     func dropExited(info: DropInfo) {
@@ -447,10 +455,11 @@ struct GroupedReorderDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         let sourceId = sidebar.draggingConversationId
+        let insertAfter = sidebar.dropIndicatorAtBottom
         sidebar.dropTargetConversationId = nil
         sidebar.draggingConversationId = nil
         guard let sourceId = sourceId, sourceId != targetConversation.id else { return false }
-        return conversationManager.moveConversation(sourceId: sourceId, targetId: targetConversation.id)
+        return conversationManager.moveConversation(sourceId: sourceId, targetId: targetConversation.id, insertAfterTarget: insertAfter)
     }
 }
 

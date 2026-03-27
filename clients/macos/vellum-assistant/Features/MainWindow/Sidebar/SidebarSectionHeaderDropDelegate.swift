@@ -12,7 +12,9 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
     func validateDrop(info: DropInfo) -> Bool {
         // M4: only conversation drops are supported (via sidebar.draggingConversationId).
         // M5 extends this to also handle group reorder via SidebarDropPayload.parse.
-        guard sidebar.draggingConversationId != nil else { return false }
+        guard let sourceId = sidebar.draggingConversationId,
+              let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
+              source.groupId != groupId else { return false }
         return true
     }
 
@@ -37,6 +39,9 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
         sidebar.dropTargetSectionId = nil
         sidebar.draggingConversationId = nil
         guard let sourceId else { return false }
+        // No-op if the conversation is already in this group (prevents clearing displayOrder)
+        if let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
+           source.groupId == groupId { return false }
         conversationManager.moveConversationToGroup(sourceId, groupId: groupId)
         return true
     }

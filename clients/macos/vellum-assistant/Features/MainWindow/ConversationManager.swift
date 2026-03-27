@@ -1225,7 +1225,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// to the target's group. displayOrder is scoped to the TARGET GROUP only — conversations
     /// in other groups are untouched.
     @discardableResult
-    func moveConversation(sourceId: UUID, targetId: UUID) -> Bool {
+    func moveConversation(sourceId: UUID, targetId: UUID, insertAfterTarget: Bool? = nil) -> Bool {
         guard let sourceIdx = conversations.firstIndex(where: { $0.id == sourceId }),
               let targetIdx = conversations.firstIndex(where: { $0.id == targetId }) else { return false }
         let targetConversation = conversations[targetIdx]
@@ -1256,9 +1256,14 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // Direction-aware insertion:
         // Determine if source was visually above target (dragging down) using
         // section-local indices, not global visibleConversations indices.
+        // For cross-group drags, use the caller-provided insertAfterTarget
+        // (derived from the drop indicator) so the insertion position matches
+        // the visual indicator the user saw.
         let draggingDown: Bool
-        if sourceGroupId != targetGroupId {
-            // Cross-group drag: treat as dragging down (insert after target)
+        if let insertAfterTarget {
+            draggingDown = insertAfterTarget
+        } else if sourceGroupId != targetGroupId {
+            // Cross-group without explicit direction: default to insert after target
             draggingDown = true
         } else {
             let sourceLocalIdx = groupMembers.firstIndex(where: { $0.id == sourceId })
