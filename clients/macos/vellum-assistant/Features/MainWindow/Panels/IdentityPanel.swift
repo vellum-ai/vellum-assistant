@@ -180,9 +180,6 @@ struct IdentityPanel: View {
                 identity: identity,
                 skills: skills,
                 workspaceFiles: workspaceFiles,
-                onFileSelected: { path in
-                    viewingFilePath = path
-                },
                 onNavigateToSkill: onNavigateToSkill,
                 onNavigateToFile: onNavigateToFile,
                 isFullscreen: $isFullscreen

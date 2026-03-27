@@ -764,7 +764,6 @@ struct ConstellationView: View {
     let identity: IdentityInfo?
     let skills: [SkillInfo]
     let workspaceFiles: [WorkspaceFileNode]
-    var onFileSelected: ((String) -> Void)?
     var onNavigateToSkill: ((String) -> Void)?
     var onNavigateToFile: ((String) -> Void)?
     @Binding var isFullscreen: Bool
@@ -1044,9 +1043,9 @@ struct ConstellationView: View {
                     selectedPopoverItem = nil
                     selectedPopoverNodeId = nil
                 }
-                if let path = item.filePath {
-                    onNavigateToFile?(path)
-                }
+                // Use filePath for files, fall back to label for directories (e.g. "skills/")
+                let path = item.filePath ?? item.label
+                onNavigateToFile?(path)
             }
         }
     }
@@ -1191,13 +1190,13 @@ struct ConstellationView: View {
     private var shapeLegend: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
             legendRow(shape: AnyView(
-                Circle()
+                RoundedRectangle(cornerRadius: 4)
                     .stroke(VColor.contentTertiary, lineWidth: 2)
                     .frame(width: 14, height: 14)
             ), label: "Category")
 
             legendRow(shape: AnyView(
-                Circle()
+                RoundedRectangle(cornerRadius: 4)
                     .stroke(VColor.contentTertiary, style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
                     .frame(width: 12, height: 12)
             ), label: "Subcategory")
@@ -1397,9 +1396,7 @@ struct ConstellationView: View {
                         item: item,
                         size: skillNodeSize,
                         onDoubleTap: { zoomToNode(nodeId, viewSize: size) },
-                        onTap: (item.filePath != nil || item.description != nil)
-                            ? { togglePopover(item: item, nodeId: node.id) }
-                            : nil
+                        onTap: { togglePopover(item: item, nodeId: node.id) }
                     )
                     .position(effPos)
                     .gesture(nodeDragGesture(nodeId: nodeId))
