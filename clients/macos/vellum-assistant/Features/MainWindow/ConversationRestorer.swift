@@ -202,18 +202,18 @@ final class ConversationRestorer {
             return
         }
 
-        guard delegate.restoreRecentConversations else {
-            delegate.restoreLastActiveConversation()
-            return
-        }
-
         // Seed groups from the response if available, otherwise fall back to system defaults.
-        // This must run before the empty-response early return so that new/empty workspaces
-        // still initialize groups on first restore.
+        // This must run before the restoreRecentConversations guard so that users who
+        // disable restore still get groups initialized for the session.
         if let responseGroups = response.groups, !responseGroups.isEmpty {
             delegate.groups = responseGroups.map { ConversationGroup(from: $0) }
         } else if delegate.groups.isEmpty {
             delegate.groups = [ConversationGroup.pinned, ConversationGroup.scheduled, ConversationGroup.background]
+        }
+
+        guard delegate.restoreRecentConversations else {
+            delegate.restoreLastActiveConversation()
+            return
         }
 
         guard !response.conversations.isEmpty else {

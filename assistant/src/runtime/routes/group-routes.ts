@@ -92,8 +92,22 @@ export function groupRouteDefinitions(): RouteDefinition[] {
           name?: string;
           sortPosition?: number;
         };
+        if (body.name !== undefined && typeof body.name !== "string") {
+          return httpError("BAD_REQUEST", "name must be a string", 400);
+        }
+        if (
+          body.sortPosition !== undefined &&
+          typeof body.sortPosition !== "number"
+        ) {
+          return httpError("BAD_REQUEST", "sortPosition must be a number", 400);
+        }
         // Custom group sort_position must be >= 3
-        if (body.sortPosition !== undefined && body.sortPosition < 3) {
+        if (
+          body.sortPosition !== undefined &&
+          (typeof body.sortPosition !== "number" ||
+            !isFinite(body.sortPosition) ||
+            body.sortPosition < 3)
+        ) {
           return httpError(
             "BAD_REQUEST",
             "Custom group sort_position must be >= 3",
@@ -164,7 +178,11 @@ export function groupRouteDefinitions(): RouteDefinition[] {
               403,
             );
           }
-          if (update.sortPosition < 3) {
+          if (
+            typeof update.sortPosition !== "number" ||
+            !isFinite(update.sortPosition) ||
+            update.sortPosition < 3
+          ) {
             return httpError(
               "BAD_REQUEST",
               `Custom group sort_position must be >= 3 (got ${update.sortPosition} for ${update.groupId})`,
