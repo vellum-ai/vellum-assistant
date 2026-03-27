@@ -59,11 +59,8 @@ struct AgentPanelContent: View {
                     HStack(spacing: VSpacing.xs) {
                         VIconView(.sparkles, size: 14)
                             .foregroundStyle(VColor.primaryBase)
-                        Text("Tip: ").bold() +
-                        Text("You can ") +
-                        Text("create a new custom skill")
-                            .foregroundStyle(VColor.primaryBase) +
-                        Text(" by describing what you want in chat.")
+                        Text("**Tip:** You can [create a new custom skill](vellum://create-skill) by describing what you want in chat.")
+                            .tint(VColor.primaryBase)
                         Spacer()
                         Button(action: {
                             withAnimation(VAnimation.fast) { bannerDismissed = true }
@@ -85,8 +82,10 @@ struct AgentPanelContent: View {
                         RoundedRectangle(cornerRadius: VRadius.md)
                             .stroke(VColor.primaryBase.opacity(0.18), lineWidth: 1)
                     )
-                    .contentShape(Rectangle())
-                    .onTapGesture { onCreateSkill?() }
+                    .environment(\.openURL, OpenURLAction { _ in
+                        onCreateSkill?()
+                        return .handled
+                    })
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("Tip: You can create a new custom skill by describing what you want in chat.")
                     .accessibilityAddTraits(.isButton)
