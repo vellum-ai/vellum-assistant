@@ -10,7 +10,7 @@
 
 import { getLogger } from "../util/logger.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
-import { rawExec, rawRun } from "./db.js";
+import { rawExec, rawGet, rawRun } from "./db.js";
 
 const log = getLogger("conversation-store");
 
@@ -58,60 +58,78 @@ export function ensureGroupMigration(): void {
       ('system:background', 'Background', 2, TRUE)
   `);
 
-  // 4. One-time backfill (guard: only if not already done)
-  ensureDisplayOrderMigration(); // ensure is_pinned column exists first
+  // 4. One-time backfill (guard: persistent marker prevents re-running on restart)
+  //
+  // The backfill sets group_id on existing conversations based on their attributes.
+  // It must only run once — re-running would overwrite user-explicit ungrouping
+  // (e.g., user removes a conversation from a group → group_id = NULL → next restart
+  // would backfill it back into system:background). A persistent marker row in
+  // conversation_groups tracks whether backfill has already completed.
+  const backfillDone = rawGet<{ id: string }>(
+    "SELECT id FROM conversation_groups WHERE id = '_backfill_complete'",
+  );
 
-  // Canonical classification rules (full decision tree with precedence):
-  //
-  //   1. Pinned:     is_pinned = TRUE
-  //                  → system:pinned (always wins, checked first)
-  //
-  //   2. Scheduled:  source IN ('schedule', 'reminder') OR schedule_job_id IS NOT NULL
-  //                  → system:scheduled (checked second)
-  //
-  //   3. Background: (conversation_type = 'background' AND COALESCE(source, '') != 'notification')
-  //                  OR source IN ('heartbeat', 'task')
-  //                  AND COALESCE(source, '') NOT IN ('schedule', 'reminder')  ← safety + NULL handling
-  //                  AND schedule_job_id IS NULL                               ← safety: prevents overlap with step 2
-  //                  → system:background
-  //
-  //   4. Else:       ungrouped (group_id = NULL)
-  //
-  // Each backfill step uses AND group_id IS NULL to avoid reassignment.
-  // The exclusion guards in step 3 are belt-and-suspenders — step 2's
-  // group_id IS NULL guard already prevents overlap, but the explicit
-  // exclusions make the SQL self-documenting and migration-order-independent.
-  // COALESCE handles NULL source values (legacy rows).
+  if (!backfillDone) {
+    ensureDisplayOrderMigration(); // ensure is_pinned column exists first
 
-  // Step A: Pinned -> system:pinned (runs first, always wins)
-  rawExec(`
-    UPDATE conversations SET group_id = 'system:pinned'
-    WHERE is_pinned = 1 AND group_id IS NULL
-  `);
+    // Canonical classification rules (full decision tree with precedence):
+    //
+    //   1. Pinned:     is_pinned = TRUE
+    //                  → system:pinned (always wins, checked first)
+    //
+    //   2. Scheduled:  source IN ('schedule', 'reminder') OR schedule_job_id IS NOT NULL
+    //                  → system:scheduled (checked second)
+    //
+    //   3. Background: (conversation_type = 'background' AND COALESCE(source, '') != 'notification')
+    //                  OR source IN ('heartbeat', 'task')
+    //                  AND COALESCE(source, '') NOT IN ('schedule', 'reminder')  ← safety + NULL handling
+    //                  AND schedule_job_id IS NULL                               ← safety: prevents overlap with step 2
+    //                  → system:background
+    //
+    //   4. Else:       ungrouped (group_id = NULL)
+    //
+    // Each backfill step uses AND group_id IS NULL to avoid reassignment.
+    // The exclusion guards in step 3 are belt-and-suspenders — step 2's
+    // group_id IS NULL guard already prevents overlap, but the explicit
+    // exclusions make the SQL self-documenting and migration-order-independent.
+    // COALESCE handles NULL source values (legacy rows).
 
-  // Step B: Scheduled -> system:scheduled (schedule/reminder source or has schedule_job_id)
-  rawExec(`
-    UPDATE conversations SET group_id = 'system:scheduled'
-    WHERE (source IN ('schedule', 'reminder') OR schedule_job_id IS NOT NULL)
-    AND group_id IS NULL
-  `);
+    // Step A: Pinned -> system:pinned (runs first, always wins)
+    rawExec(`
+      UPDATE conversations SET group_id = 'system:pinned'
+      WHERE is_pinned = 1 AND group_id IS NULL
+    `);
 
-  // Step C: Background -> system:background (background type, heartbeat, or task — excluding notifications)
-  // Explicit exclusion of schedule sources + schedule_job_id as a safety net.
-  // Step B already catches those via group_id IS NULL guard, but the explicit exclusion
-  // makes the SQL self-documenting and protects against future migration ordering changes.
-  // Note: source can be NULL for legacy rows. NULL != 'notification' evaluates to NULL (not TRUE)
-  // in SQL, so use COALESCE to treat NULL source as empty string for the exclusion checks.
-  rawExec(`
-    UPDATE conversations SET group_id = 'system:background'
-    WHERE (
-      (conversation_type = 'background' AND COALESCE(source, '') != 'notification')
-      OR source IN ('heartbeat', 'task')
-    )
-    AND COALESCE(source, '') NOT IN ('schedule', 'reminder')
-    AND schedule_job_id IS NULL
-    AND group_id IS NULL
-  `);
+    // Step B: Scheduled -> system:scheduled (schedule/reminder source or has schedule_job_id)
+    rawExec(`
+      UPDATE conversations SET group_id = 'system:scheduled'
+      WHERE (source IN ('schedule', 'reminder') OR schedule_job_id IS NOT NULL)
+      AND group_id IS NULL
+    `);
+
+    // Step C: Background -> system:background (background type, heartbeat, or task — excluding notifications)
+    // Explicit exclusion of schedule sources + schedule_job_id as a safety net.
+    // Step B already catches those via group_id IS NULL guard, but the explicit exclusion
+    // makes the SQL self-documenting and protects against future migration ordering changes.
+    // Note: source can be NULL for legacy rows. NULL != 'notification' evaluates to NULL (not TRUE)
+    // in SQL, so use COALESCE to treat NULL source as empty string for the exclusion checks.
+    rawExec(`
+      UPDATE conversations SET group_id = 'system:background'
+      WHERE (
+        (conversation_type = 'background' AND COALESCE(source, '') != 'notification')
+        OR source IN ('heartbeat', 'task')
+      )
+      AND COALESCE(source, '') NOT IN ('schedule', 'reminder')
+      AND schedule_job_id IS NULL
+      AND group_id IS NULL
+    `);
+
+    // Mark backfill as complete so it won't re-run on future process restarts
+    rawExec(`
+      INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group)
+      VALUES ('_backfill_complete', '_backfill_complete', -1, FALSE)
+    `);
+  }
 
   migrated = true;
 }
