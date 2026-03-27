@@ -540,12 +540,12 @@ struct AvailableSkillItemRow: View {
                             .foregroundStyle(VColor.contentEmphasized)
                             .lineLimit(1)
                             .truncationMode(.tail)
-                        VSkillTypePill(type: .available)
                         if skill.source == "clawhub" {
                             VSkillTypePill(type: .openclaw)
                         } else if skill.source == "catalog" {
                             VSkillTypePill(type: .vellum)
                         }
+                        VSkillTypePill(type: .available)
                         Spacer()
                     }
                     Text(skill.description)
