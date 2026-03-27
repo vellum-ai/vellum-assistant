@@ -1385,18 +1385,15 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         _ = await groupClient.reorderGroups(updates: updates)
     }
 
-    /// Merge groups from a conversation list response into the local groups array.
-    /// Groups from the server are authoritative; local-only groups are preserved.
+    /// Replace local groups with the server response (authoritative).
+    /// Groups deleted on another client are pruned; new groups are added.
+    /// Only falls back to system defaults when server returns no groups at all.
     private func mergeGroups(from responseGroups: [ConversationGroupResponse]) {
-        var merged = groups
-        for responseGroup in responseGroups {
-            if let idx = merged.firstIndex(where: { $0.id == responseGroup.id }) {
-                merged[idx] = ConversationGroup(from: responseGroup)
-            } else {
-                merged.append(ConversationGroup(from: responseGroup))
-            }
+        if responseGroups.isEmpty {
+            // Old daemon or empty response — keep existing groups (or system defaults)
+            return
         }
-        groups = merged
+        groups = responseGroups.map { ConversationGroup(from: $0) }
     }
 
     // MARK: - ConversationRestorerDelegate
