@@ -21,6 +21,7 @@ struct IntelligencePanel: View {
     @State private var isEmailEnabled: Bool = false
     @State private var pendingSkillId: String?
     @State private var pendingFilePath: String?
+    @State private var pendingContactId: String?
     private static let contactsFeatureFlagKey = "contacts"
     private static let emailFeatureFlagKey = "email-channel"
 
@@ -141,7 +142,11 @@ struct IntelligencePanel: View {
                 onNavigateToFile: { path in
                     pendingFilePath = path
                     withAnimation(VAnimation.fast) { selectedTab = .workspace }
-                }
+                },
+                onNavigateToContact: isContactsEnabled ? { contactId in
+                    pendingContactId = contactId
+                    withAnimation(VAnimation.fast) { selectedTab = .contacts }
+                } : nil
             )
             .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -169,7 +174,8 @@ struct IntelligencePanel: View {
                 store: store,
                 conversationManager: conversationManager,
                 isEmailEnabled: isEmailEnabled,
-                showToast: showToast
+                showToast: showToast,
+                pendingContactId: $pendingContactId
             )
             .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
