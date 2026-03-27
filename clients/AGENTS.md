@@ -75,7 +75,7 @@ The following classes have been migrated from `ObservableObject` to `@Observable
 
 **macOS-only:** QuickInputTextModel, DevModeManager, RecordingHUDViewModel, NavigationHistory, AmbientAgent, DocumentManager, E2EStatusOverlayViewModel, WatchSession, SurfaceViewModel, SurfaceManager, AppListManager, TerminalSessionManager, MessageAudioPlayer, ContactsViewModel, OpenAIVoiceService, SkillsManager
 
-**Shared (macOS + iOS):** InlineVideoEmbedStateManager, ContactsStore, MemoryItemsStore, ChannelTrustStore, ChatErrorManager, TaskProgressOverlayManager
+**Shared (macOS + iOS):** InlineVideoEmbedStateManager, ContactsStore, MemoryItemsStore, ChannelTrustStore, ChatErrorManager, ChatGreetingState, TaskProgressOverlayManager
 
 </details>
 
@@ -90,7 +90,7 @@ These classes stay `ObservableObject` because they have deep Combine integration
 | `MainWindowState` | Bridges `@Observable` NavigationHistory via `withObservationTracking`; uses `objectWillChange` forwarding |
 | `VoiceModeManager` | Complex Combine pipelines (audio streams, state machine transitions) |
 | `ConversationManager` | Hub object subscribing to many child `objectWillChange` publishers; complex lifecycle |
-| `ChatViewModel` | Extensive Combine pipelines (SSE streaming, message coalescing, debounce); bridges `@Observable` ChatErrorManager via `withObservationTracking` |
+| `ChatViewModel` | Extensive Combine pipelines (SSE streaming, message coalescing, debounce); bridges `@Observable` ChatErrorManager and ChatGreetingState via `withObservationTracking` |
 | `ChatMessageManager` | Tightly coupled to ChatViewModel's Combine publish pipeline |
 | `GatewayConnectionManager` | Combine-based SSE event stream processing |
 | `RecordingManager` | Audio capture Combine pipelines |
@@ -119,7 +119,7 @@ private func observeChild() {
     }
 }
 ```
-See `ChatViewModel.observeErrorManager()` and `MainWindowState.observeNavigationHistory()` for production examples.
+See `ChatViewModel.observeErrorManager()`, `ChatViewModel.observeGreetingState()`, and `MainWindowState.observeNavigationHistory()` for production examples.
 
 **Computed property forwarding.** When both source and target are `@Observable`, computed properties that read from an `@Observable` dependency automatically participate in observation tracking — no manual bridging needed.
 
