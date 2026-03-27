@@ -296,26 +296,26 @@ struct AppsGridView: View {
             hoveredAppId = hovering ? app.id : nil
         }
         .pointerCursor()
-        .contextMenu {
-            Button("Open") {
-                appListManager.recordAppOpen(
-                    id: app.id, name: app.name, icon: app.icon,
-                    previewBase64: app.previewBase64, appType: app.appType
-                )
-                onOpenApp(app.id)
-            }
-            Button(app.isPinned ? "Unpin" : "Pin") {
+        .vContextMenu(width: 200) {
+            VMenuItem(icon: (app.isPinned ? VIcon.pinOff : .pin).rawValue, label: app.isPinned ? "Unpin" : "Pin") {
                 if app.isPinned {
                     appListManager.unpinApp(id: app.id)
                 } else {
                     appListManager.pinApp(id: app.id)
                 }
             }
-            Button("Share") {
+            VMenuItem(icon: VIcon.share.rawValue, label: "Share") {
                 bundleAndShareLocal(appId: app.id)
             }
-            Button("Change Icon") {
+            VMenuItem(icon: VIcon.paintbrush.rawValue, label: "Change Icon") {
                 editingApp = app
+            }
+            VMenuDivider()
+            VMenuItem(icon: VIcon.trash.rawValue, label: "Delete", variant: .destructive) {
+                hoveredAppId = nil
+                Task { await AppsClient().deleteApp(id: app.id) }
+                appListManager.removeApp(id: app.id)
+                AppPreviewImageStore.remove(appId: app.id)
             }
         }
         .accessibilityLabel(app.name)

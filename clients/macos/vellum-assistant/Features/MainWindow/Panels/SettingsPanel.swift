@@ -113,7 +113,6 @@ struct SettingsPanel: View {
     @State private var isSchedulesEnabled: Bool = false
     @State private var isDeveloperEnabled: Bool = false
     @State private var isSoundsEnabled: Bool = true
-    @State private var isGoogleOAuthEnabled: Bool = false
     @State private var isEmbeddingProviderEnabled: Bool = false
     @State private var showingDevUnlock: Bool = false
     @State private var devUnlockText: String = ""
@@ -123,7 +122,6 @@ struct SettingsPanel: View {
     private static let schedulesFeatureFlagKey = "settings-schedules"
     private static let billingFeatureFlagKey = "settings-billing"
     private static let developerFeatureFlagKey = "settings-developer-nav"
-    private static let googleOAuthFeatureFlagKey = "managed-google-oauth"
     private static let embeddingProviderFeatureFlagKey = "settings-embedding-provider"
     private static let soundsFeatureFlagKey = "sounds"
 
@@ -234,8 +232,6 @@ struct SettingsPanel: View {
                     }
                 } else if key == Self.billingFeatureFlagKey {
                     isBillingEnabled = enabled
-                } else if key == Self.googleOAuthFeatureFlagKey {
-                    isGoogleOAuthEnabled = enabled
                 } else if key == Self.embeddingProviderFeatureFlagKey {
                     isEmbeddingProviderEnabled = enabled
                 } else if key == Self.soundsFeatureFlagKey {
@@ -479,13 +475,18 @@ struct SettingsPanel: View {
                 )
             }
 
-            // GOOGLE OAUTH (feature-flagged)
-            if isGoogleOAuthEnabled {
+            // OAUTH PROVIDERS (dynamic from API)
+            ForEach(store.managedOAuthProviders, id: \.provider_key) { provider in
                 Divider()
                     .background(VColor.borderBase)
                     .padding(.vertical, VSpacing.sm)
 
-                OAuthProviderServiceCard(store: store, authManager: authManager, showToast: showToast, providerKey: "google")
+                OAuthProviderServiceCard(
+                    store: store,
+                    authManager: authManager,
+                    showToast: showToast,
+                    providerKey: provider.provider_key
+                )
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -495,6 +496,7 @@ struct SettingsPanel: View {
             store.refreshModelInfo()
             store.loadProviderRoutingSources()
             store.refreshEmbeddingConfig()
+            store.fetchManagedOAuthProviders()
         }
     }
 
@@ -628,9 +630,6 @@ struct SettingsPanel: View {
                 if let developerFlag = flags.first(where: { $0.key == Self.developerFeatureFlagKey }) {
                     isDeveloperEnabled = developerFlag.enabled
                 }
-                if let googleOAuthFlag = flags.first(where: { $0.key == Self.googleOAuthFeatureFlagKey }) {
-                    isGoogleOAuthEnabled = googleOAuthFlag.enabled
-                }
                 if let embeddingProviderFlag = flags.first(where: { $0.key == Self.embeddingProviderFeatureFlagKey }) {
                     isEmbeddingProviderEnabled = embeddingProviderFlag.enabled
                 }
@@ -653,9 +652,6 @@ struct SettingsPanel: View {
 
         if let developerEnabled = resolved[Self.developerFeatureFlagKey] {
             isDeveloperEnabled = developerEnabled
-        }
-        if let googleOAuthEnabled = resolved[Self.googleOAuthFeatureFlagKey] {
-            isGoogleOAuthEnabled = googleOAuthEnabled
         }
         if let embeddingProviderEnabled = resolved[Self.embeddingProviderFeatureFlagKey] {
             isEmbeddingProviderEnabled = embeddingProviderEnabled

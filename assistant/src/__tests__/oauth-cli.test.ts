@@ -406,6 +406,7 @@ describe("assistant oauth providers list", () => {
       defaultScopes: "[]",
       scopePolicy: "{}",
       extraParams: null,
+      managedServiceConfigKey: "google-oauth",
       createdAt: "2025-01-01T00:00:00.000Z",
       updatedAt: "2025-01-01T00:00:00.000Z",
     },
@@ -416,6 +417,7 @@ describe("assistant oauth providers list", () => {
       defaultScopes: "[]",
       scopePolicy: "{}",
       extraParams: null,
+      managedServiceConfigKey: "google-calendar-oauth",
       createdAt: "2025-01-01T00:00:00.000Z",
       updatedAt: "2025-01-01T00:00:00.000Z",
     },
@@ -426,6 +428,7 @@ describe("assistant oauth providers list", () => {
       defaultScopes: "[]",
       scopePolicy: "{}",
       extraParams: null,
+      managedServiceConfigKey: null,
       createdAt: "2025-01-01T00:00:00.000Z",
       updatedAt: "2025-01-01T00:00:00.000Z",
     },
@@ -436,6 +439,7 @@ describe("assistant oauth providers list", () => {
       defaultScopes: "[]",
       scopePolicy: "{}",
       extraParams: null,
+      managedServiceConfigKey: null,
       createdAt: "2025-01-01T00:00:00.000Z",
       updatedAt: "2025-01-01T00:00:00.000Z",
     },
@@ -534,6 +538,54 @@ describe("assistant oauth providers list", () => {
     expect(keys).toContain("google");
     expect(keys).toContain("google-calendar");
     expect(keys).toContain("slack");
+  });
+
+  test("--supports-managed returns only providers with managedServiceConfigKey set", async () => {
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "list",
+      "--supports-managed",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toHaveLength(2);
+    const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
+    expect(keys).toContain("google");
+    expect(keys).toContain("google-calendar");
+    expect(keys).not.toContain("slack");
+    expect(keys).not.toContain("twitter");
+  });
+
+  test("--supports-managed combined with --provider-key applies both filters (AND)", async () => {
+    const { exitCode, stdout } = await runCli([
+      "providers",
+      "list",
+      "--supports-managed",
+      "--provider-key",
+      "google",
+      "--json",
+    ]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    // Both google and google-calendar match --provider-key "google" AND have
+    // managedServiceConfigKey set, so both are returned.
+    expect(parsed).toHaveLength(2);
+    const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
+    expect(keys).toContain("google");
+    expect(keys).toContain("google-calendar");
+  });
+
+  test("without --supports-managed all providers are returned (existing behavior)", async () => {
+    const { exitCode, stdout } = await runCli(["providers", "list", "--json"]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed).toHaveLength(4);
+    const keys = parsed.map((p: { providerKey: string }) => p.providerKey);
+    expect(keys).toContain("google");
+    expect(keys).toContain("google-calendar");
+    expect(keys).toContain("slack");
+    expect(keys).toContain("twitter");
   });
 });
 

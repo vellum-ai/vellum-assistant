@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import os
 import UniformTypeIdentifiers
 #if os(macOS)
@@ -167,24 +168,34 @@ public final class ChatAttachmentManager: ObservableObject {
 
     // MARK: - Private background helpers
 
+    /// Intermediate result from the detached background task, containing only
+    /// thread-safe value types. Platform image types (NSImage/UIImage) are
+    /// constructed on the @MainActor after the task completes.
+    private struct ProcessedAttachmentData {
+        let id: String
+        let filename: String
+        let mimeType: String
+        let base64: String
+        let thumbnailData: Data?
+        let dataLength: Int
+        let filePath: String?
+    }
+
     /// Reads, compresses, and thumbnails an attachment from a file URL.
-    /// All blocking work runs off the main actor; callers receive a ready-to-use
-    /// ChatAttachment (or an error message) and can update UI state directly.
+    /// All blocking work runs off the main actor; platform image construction
+    /// happens back on @MainActor where it is safe.
     private func loadAttachment(url: URL) async -> Result<ChatAttachment, AttachmentError> {
         let attachmentId = UUID().uuidString
         let filename = url.lastPathComponent
         log.debug("[Attachment] readStart id=\(attachmentId) source=fileURL filename=\(filename)")
-        // Suspend (not block) until a concurrency slot is available.
         await loadSemaphore.wait()
-        // Hop off the main actor for all blocking I/O and CPU work.
-        let result = await Task.detached(priority: .userInitiated) {
-            // Pre-read size check to avoid loading huge files into memory.
+        let taskResult: Result<ProcessedAttachmentData, AttachmentError> = await Task.detached(priority: .userInitiated) {
             if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                let fileSize = attrs[.size] as? Int,
                fileSize > Self.memorySafetyLimit {
                 let sizeMB = fileSize / (1024 * 1024)
                 log.error("[Attachment] failed id=\(attachmentId) reason=fileTooLarge sizeMB=\(sizeMB)")
-                return Result<ChatAttachment, AttachmentError>.failure(.message("This file is \(sizeMB) MB which is too large to process safely. Please choose a smaller file."))
+                return .failure(.message("This file is \(sizeMB) MB which is too large to process safely. Please choose a smaller file."))
             }
 
             let data: Data
@@ -192,11 +203,9 @@ public final class ChatAttachmentManager: ObservableObject {
                 data = try Data(contentsOf: url)
             } catch {
                 log.error("[Attachment] failed id=\(attachmentId) reason=readError error=\(error.localizedDescription)")
-                return Result<ChatAttachment, AttachmentError>.failure(.message("Could not read file."))
+                return .failure(.message("Could not read file."))
             }
 
-            // Belt-and-suspenders: validate the actual byte count after reading,
-            // in case the pre-read attributesOfItem check was bypassed.
             if data.count > Self.memorySafetyLimit {
                 let sizeMB = data.count / (1024 * 1024)
                 log.error("[Attachment] failed id=\(attachmentId) reason=dataTooLarge sizeMB=\(sizeMB)")
@@ -205,7 +214,6 @@ public final class ChatAttachmentManager: ObservableObject {
 
             var mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
 
-            // Compress images if needed
             var finalData = data
             var wasCompressed = false
             if let utType = UTType(filenameExtension: url.pathExtension), utType.conforms(to: .image) {
@@ -213,9 +221,7 @@ public final class ChatAttachmentManager: ObservableObject {
                 finalData = compressedData
                 wasCompressed = didCompress
 
-                // Update MIME type if compression changed format
                 if wasCompressed && finalData.count < data.count {
-                    // Detect format from magic bytes
                     let header = [UInt8](finalData.prefix(4))
                     if header[0] == 0xFF && header[1] == 0xD8 {
                         mimeType = "image/jpeg"
@@ -240,78 +246,69 @@ public final class ChatAttachmentManager: ObservableObject {
                 log.info("Image compressed: \(String(format: "%.1f", originalMB))MB → \(String(format: "%.1f", compressedMB))MB")
             }
 
-            #if os(macOS)
-            let thumbnailImage = thumbnail.flatMap { NSImage(data: $0) }
-            #elseif os(iOS)
-            let thumbnailImage = thumbnail.flatMap { UIImage(data: $0) }
-            #else
-            #error("Unsupported platform")
-            #endif
-
-            let attachment = ChatAttachment(
+            return .success(ProcessedAttachmentData(
                 id: attachmentId,
                 filename: filename,
                 mimeType: mimeType,
-                data: base64,
+                base64: base64,
                 thumbnailData: thumbnail,
                 dataLength: base64.count,
-                thumbnailImage: thumbnailImage,
                 filePath: url.path
-            )
-            return .success(attachment)
+            ))
         }.value
         await loadSemaphore.signal()
-        return result
-    }
 
-    /// Converts, validates, compresses, and thumbnails an attachment from raw image data.
-    /// All blocking work runs off the main actor.
-    private func loadAttachment(imageData: Data, filename: String) async -> Result<ChatAttachment, AttachmentError> {
-        let attachmentId = UUID().uuidString
-        log.debug("[Attachment] readStart id=\(attachmentId) source=imageData filename=\(filename) rawBytes=\(imageData.count)")
-        // Suspend (not block) until a concurrency slot is available.
-        await loadSemaphore.wait()
-        let result = await Task.detached(priority: .userInitiated) {
-            // Convert to PNG if needed — raw image data may be TIFF
-            let pngData: Data
+        switch taskResult {
+        case .failure(let error):
+            return .failure(error)
+        case .success(let processed):
             #if os(macOS)
-            if let _ = NSImage(data: imageData) {
-                // Check if already PNG by looking at magic bytes
-                let pngMagic: [UInt8] = [0x89, 0x50, 0x4E, 0x47]
-                let headerBytes = [UInt8](imageData.prefix(4))
-                if headerBytes == pngMagic {
-                    pngData = imageData
-                } else if let bitmapRep = NSBitmapImageRep(data: imageData),
-                          let converted = bitmapRep.representation(using: .png, properties: [:]) {
-                    pngData = converted
-                } else {
-                    log.error("[Attachment] failed id=\(attachmentId) reason=pngConversionFailed")
-                    return Result<ChatAttachment, AttachmentError>.failure(.message("Could not process image."))
-                }
-            } else {
-                log.error("[Attachment] failed id=\(attachmentId) reason=invalidImageData")
-                return Result<ChatAttachment, AttachmentError>.failure(.message("Could not process image."))
-            }
+            let thumbnailImage = processed.thumbnailData.flatMap { NSImage(data: $0) }
             #elseif os(iOS)
-            if let image = UIImage(data: imageData) {
-                // Check if already PNG by looking at magic bytes
-                let pngMagic: [UInt8] = [0x89, 0x50, 0x4E, 0x47]
-                let headerBytes = [UInt8](imageData.prefix(4))
-                if headerBytes == pngMagic {
-                    pngData = imageData
-                } else if let converted = image.pngData() {
-                    pngData = converted
-                } else {
-                    log.error("[Attachment] failed id=\(attachmentId) reason=pngConversionFailed")
-                    return Result<ChatAttachment, AttachmentError>.failure(.message("Could not process image."))
-                }
-            } else {
-                log.error("[Attachment] failed id=\(attachmentId) reason=invalidImageData")
-                return Result<ChatAttachment, AttachmentError>.failure(.message("Could not process image."))
-            }
+            let thumbnailImage = processed.thumbnailData.flatMap { UIImage(data: $0) }
             #else
             #error("Unsupported platform")
             #endif
+            return .success(ChatAttachment(
+                id: processed.id,
+                filename: processed.filename,
+                mimeType: processed.mimeType,
+                data: processed.base64,
+                thumbnailData: processed.thumbnailData,
+                dataLength: processed.dataLength,
+                thumbnailImage: thumbnailImage,
+                filePath: processed.filePath
+            ))
+        }
+    }
+
+    /// Converts, validates, compresses, and thumbnails an attachment from raw image data.
+    /// All blocking work (ImageIO decode/encode, compression) runs off the main actor;
+    /// platform image construction happens back on @MainActor where it is safe.
+    private func loadAttachment(imageData: Data, filename: String) async -> Result<ChatAttachment, AttachmentError> {
+        let attachmentId = UUID().uuidString
+        log.debug("[Attachment] readStart id=\(attachmentId) source=imageData filename=\(filename) rawBytes=\(imageData.count)")
+        await loadSemaphore.wait()
+        let taskResult: Result<ProcessedAttachmentData, AttachmentError> = await Task.detached(priority: .userInitiated) {
+            // Validate that ImageIO can decode the data.
+            guard Self.loadCGImage(from: imageData) != nil else {
+                log.error("[Attachment] failed id=\(attachmentId) reason=invalidImageData")
+                return .failure(.message("Could not process image."))
+            }
+
+            // Convert to PNG if needed — raw image data may be TIFF, HEIC, etc.
+            let pngData: Data
+            let pngMagic: [UInt8] = [0x89, 0x50, 0x4E, 0x47]
+            let headerBytes = [UInt8](imageData.prefix(4))
+            if headerBytes == pngMagic {
+                pngData = imageData
+            } else if let cgImage = Self.loadCGImage(from: imageData),
+                      let converted = Self.encodeCGImage(cgImage, type: .png) {
+                pngData = converted
+            } else {
+                log.error("[Attachment] failed id=\(attachmentId) reason=pngConversionFailed")
+                return .failure(.message("Could not process image."))
+            }
 
             // Memory safety guard for pasted/dropped images
             if pngData.count > Self.memorySafetyLimit {
@@ -320,7 +317,6 @@ public final class ChatAttachmentManager: ObservableObject {
                 return .failure(.message("This image is \(sizeMB) MB which is too large to process safely. Please choose a smaller image."))
             }
 
-            // Compress image if needed
             let (finalData, wasCompressed) = Self.compressImageIfNeeded(data: pngData, maxSize: Self.maxImageSize)
 
             if wasCompressed {
@@ -329,7 +325,6 @@ public final class ChatAttachmentManager: ObservableObject {
                 log.info("Image compressed: \(String(format: "%.1f", originalMB))MB → \(String(format: "%.1f", compressedMB))MB")
             }
 
-            // Detect MIME type from compressed data
             var mimeType = "image/png"
             if wasCompressed {
                 let header = [UInt8](finalData.prefix(4))
@@ -343,92 +338,119 @@ public final class ChatAttachmentManager: ObservableObject {
             let base64 = finalData.base64EncodedString()
             let thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 120)
 
-            #if os(macOS)
-            let thumbnailImage = thumbnail.flatMap { NSImage(data: $0) }
-            #elseif os(iOS)
-            let thumbnailImage = thumbnail.flatMap { UIImage(data: $0) }
-            #else
-            #error("Unsupported platform")
-            #endif
-
-            let attachment = ChatAttachment(
+            return .success(ProcessedAttachmentData(
                 id: attachmentId,
                 filename: filename,
                 mimeType: mimeType,
-                data: base64,
+                base64: base64,
                 thumbnailData: thumbnail,
                 dataLength: base64.count,
-                thumbnailImage: thumbnailImage
-            )
-            return .success(attachment)
+                filePath: nil
+            ))
         }.value
         await loadSemaphore.signal()
-        return result
+
+        switch taskResult {
+        case .failure(let error):
+            return .failure(error)
+        case .success(let processed):
+            #if os(macOS)
+            let thumbnailImage = processed.thumbnailData.flatMap { NSImage(data: $0) }
+            #elseif os(iOS)
+            let thumbnailImage = processed.thumbnailData.flatMap { UIImage(data: $0) }
+            #else
+            #error("Unsupported platform")
+            #endif
+            return .success(ChatAttachment(
+                id: processed.id,
+                filename: processed.filename,
+                mimeType: processed.mimeType,
+                data: processed.base64,
+                thumbnailData: processed.thumbnailData,
+                dataLength: processed.dataLength,
+                thumbnailImage: thumbnailImage
+            ))
+        }
+    }
+
+    // MARK: - Thread-safe ImageIO helpers
+
+    /// Decode a CGImage from raw data via ImageIO with EXIF orientation applied.
+    /// Uses CGImageSourceCreateThumbnailAtIndex at full resolution so the returned
+    /// pixel buffer has the correct orientation baked in (e.g. portrait photos from
+    /// cameras are already rotated). Thread-safe, works on any thread.
+    nonisolated private static func loadCGImage(from data: Data) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        // Read the raw pixel dimensions to request a "thumbnail" at full size.
+        let maxDimension: Int
+        if let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let pixelWidth = properties[kCGImagePropertyPixelWidth] as? Int,
+           let pixelHeight = properties[kCGImagePropertyPixelHeight] as? Int {
+            maxDimension = max(pixelWidth, pixelHeight)
+        } else {
+            // Dimensions unavailable (malformed image); use a large cap so
+            // CGImageSourceCreateThumbnailAtIndex still applies the EXIF transform.
+            maxDimension = 100_000
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxDimension
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
+    /// Encode a CGImage to JPEG or PNG via ImageIO. Thread-safe, works on any thread.
+    nonisolated private static func encodeCGImage(
+        _ cgImage: CGImage,
+        type: UTType,
+        quality: CGFloat? = nil
+    ) -> Data? {
+        let data = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(
+            data as CFMutableData,
+            type.identifier as CFString,
+            1,
+            nil
+        ) else { return nil }
+        var options: [CFString: Any] = [:]
+        if let quality {
+            options[kCGImageDestinationLossyCompressionQuality] = quality
+        }
+        CGImageDestinationAddImage(dest, cgImage, options.isEmpty ? nil : options as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return nil }
+        return data as Data
     }
 
     // MARK: - Static helpers (shared with ChatViewModel+Attachments and mapMessageAttachments)
 
     /// Resize image data to fit within `maxDimension` and return PNG data.
+    /// Uses CGImageSourceCreateThumbnailAtIndex for efficient subsampled decoding
+    /// (only reads the pixels needed for the target size, ~30x faster than full decode).
+    /// Thread-safe — no main thread hop required.
     nonisolated public static func generateThumbnail(from data: Data, maxDimension: CGFloat) -> Data? {
-        #if os(macOS)
-        guard let image = NSImage(data: data) else { return nil }
-        let size = image.size
-        guard size.width > 0 && size.height > 0 else { return nil }
-        let scale = min(maxDimension / size.width, maxDimension / size.height, 1.0)
-        let newSize = NSSize(width: size.width * scale, height: size.height * scale)
-        // NSImage.lockFocus()/draw()/unlockFocus() must run on the main thread.
-        // This helper is called from two contexts:
-        //   1. Task.detached (background) — must hop to main via DispatchQueue.main.sync.
-        //   2. @MainActor callers (e.g. ChatViewModel.mapMessageAttachments) — already on the
-        //      main thread, so DispatchQueue.main.sync would deadlock. Execute inline.
-        let drawBlock = {
-            let resized = NSImage(size: newSize)
-            resized.lockFocus()
-            image.draw(in: NSRect(origin: .zero, size: newSize),
-                       from: NSRect(origin: .zero, size: size),
-                       operation: .copy, fraction: 1.0)
-            resized.unlockFocus()
-            return resized.tiffRepresentation
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxDimension
+        ]
+        guard let cgThumb = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
         }
-        let tiffData: Data? = Thread.isMainThread ? drawBlock() : DispatchQueue.main.sync(execute: drawBlock)
-        guard let tiffData,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let png = bitmap.representation(using: .png, properties: [:]) else { return nil }
-        return png
-        #elseif os(iOS)
-        guard let image = UIImage(data: data) else { return nil }
-        let size = image.size
-        guard size.width > 0 && size.height > 0 else { return nil }
-        let scale = min(maxDimension / size.width, maxDimension / size.height, 1.0)
-        let newSize = CGSize(width: size.width * scale, height: size.height * scale)
-        UIGraphicsBeginImageContextWithOptions(newSize, false, 0.0)
-        image.draw(in: CGRect(origin: .zero, size: newSize))
-        let resized = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-        return resized?.pngData()
-        #else
-        #error("Unsupported platform")
-        #endif
+        return encodeCGImage(cgThumb, type: .png)
     }
 
     /// Compress image data if it exceeds the size limit.
     /// Returns (compressedData, wasCompressed) tuple.
+    /// Thread-safe — uses ImageIO for decoding/encoding and CGContext for resizing.
     nonisolated public static func compressImageIfNeeded(data: Data, maxSize: Int) -> (Data, Bool) {
-        // Check if compression is needed
         guard data.count > maxSize else {
             return (data, false)
         }
 
-        #if os(macOS)
-        // Only NSImage/NSBitmapImageRep calls need the main thread; keep
-        // the CPU-heavy CGContext resize and encoding work off it.
-
-        // Step 1 (AppKit – main thread): extract a CGImage from the raw data.
-        let extractBlock = { () -> CGImage? in
-            guard let image = NSImage(data: data) else { return nil }
-            return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
-        }
-        guard let cgImage = Thread.isMainThread ? extractBlock() : DispatchQueue.main.sync(execute: extractBlock) else {
+        // Step 1: Decode via ImageIO (thread-safe, no platform UI types needed).
+        guard let cgImage = loadCGImage(from: data) else {
             return (data, false)
         }
 
@@ -438,7 +460,7 @@ public final class ChatAttachmentManager: ObservableObject {
             return (data, false)
         }
 
-        // Step 2 (background): CoreGraphics resize – no AppKit required.
+        // Step 2: Resize via CGContext (thread-safe).
         let sizeReduction = Double(maxSize) / Double(data.count)
         let pixelReduction = sqrt(sizeReduction * 0.85) // Target 85% of max for safety margin
         let scale = min(CGFloat(pixelReduction), 1.0)
@@ -466,84 +488,20 @@ public final class ChatAttachmentManager: ObservableObject {
             return (data, false)
         }
 
-        // Step 3 (AppKit – main thread): encode the scaled CGImage via
-        // NSImage/NSBitmapImageRep (tiffRepresentation is not thread-safe).
-        let encodeBlock = { () -> (Data, Bool) in
-            let scaledImage = NSImage(cgImage: scaledCGImage, size: NSSize(width: newWidth, height: newHeight))
-
-            // Try JPEG compression first (better for photos)
-            if let tiffData = scaledImage.tiffRepresentation,
-               let bitmap = NSBitmapImageRep(data: tiffData),
-               let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.75]) {
-                if jpeg.count <= maxSize {
-                    log.info("Compressed image from \(data.count) to \(jpeg.count) bytes (JPEG, \(newWidth)×\(newHeight))")
-                    return (jpeg, true)
-                }
-            }
-
-            // Fallback: try PNG
-            if let tiffData = scaledImage.tiffRepresentation,
-               let bitmap = NSBitmapImageRep(data: tiffData),
-               let png = bitmap.representation(using: .png, properties: [:]) {
-                if png.count <= maxSize {
-                    log.info("Compressed image from \(data.count) to \(png.count) bytes (PNG, \(newWidth)×\(newHeight))")
-                    return (png, true)
-                }
-            }
-
-            log.warning("Failed to compress image to \(maxSize) bytes, final size: \(data.count)")
-            return (data, false)
-        }
-        return Thread.isMainThread ? encodeBlock() : DispatchQueue.main.sync(execute: encodeBlock)
-
-        #elseif os(iOS)
-        guard let image = UIImage(data: data) else {
-            return (data, false)
+        // Step 3: Encode via CGImageDestination (thread-safe).
+        if let jpeg = encodeCGImage(scaledCGImage, type: .jpeg, quality: 0.75),
+           jpeg.count <= maxSize {
+            log.info("Compressed image from \(data.count) to \(jpeg.count) bytes (JPEG, \(newWidth)×\(newHeight))")
+            return (jpeg, true)
         }
 
-        let originalSize = image.size
-        guard originalSize.width > 0 && originalSize.height > 0 else {
-            return (data, false)
-        }
-
-        let sizeReduction = Double(maxSize) / Double(data.count)
-        let pixelReduction = sqrt(sizeReduction * 0.85)
-        let scale = min(CGFloat(pixelReduction), 1.0)
-
-        let newSize = CGSize(
-            width: originalSize.width * scale,
-            height: originalSize.height * scale
-        )
-
-        UIGraphicsBeginImageContextWithOptions(newSize, false, 0.0)
-        image.draw(in: CGRect(origin: .zero, size: newSize))
-        let resized = UIGraphicsGetImageFromCurrentImageContext()
-        UIGraphicsEndImageContext()
-
-        guard let resized = resized else {
-            return (data, false)
-        }
-
-        if let jpeg = resized.jpegData(compressionQuality: 0.75) {
-            if jpeg.count <= maxSize {
-                let dimensions = "\(Int(newSize.width))×\(Int(newSize.height))"
-                log.info("Compressed image from \(data.count) to \(jpeg.count) bytes (JPEG, \(dimensions))")
-                return (jpeg, true)
-            }
-        }
-
-        if let png = resized.pngData() {
-            if png.count <= maxSize {
-                let dimensions = "\(Int(newSize.width))×\(Int(newSize.height))"
-                log.info("Compressed image from \(data.count) to \(png.count) bytes (PNG, \(dimensions))")
-                return (png, true)
-            }
+        if let png = encodeCGImage(scaledCGImage, type: .png),
+           png.count <= maxSize {
+            log.info("Compressed image from \(data.count) to \(png.count) bytes (PNG, \(newWidth)×\(newHeight))")
+            return (png, true)
         }
 
         log.warning("Failed to compress image to \(maxSize) bytes, final size: \(data.count)")
         return (data, false)
-        #else
-        #error("Unsupported platform")
-        #endif
     }
 }

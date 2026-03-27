@@ -75,7 +75,7 @@ The following classes have been migrated from `ObservableObject` to `@Observable
 
 **macOS-only:** QuickInputTextModel, DevModeManager, RecordingHUDViewModel, NavigationHistory, AmbientAgent, DocumentManager, E2EStatusOverlayViewModel, WatchSession, SurfaceViewModel, SurfaceManager, AppListManager, TerminalSessionManager, MessageAudioPlayer, ContactsViewModel, OpenAIVoiceService, SkillsManager
 
-**Shared (macOS + iOS):** InlineVideoEmbedStateManager, ContactsStore, MemoryItemsStore, ChannelTrustStore, ChatErrorManager, ChatGreetingState, TaskProgressOverlayManager
+**Shared (macOS + iOS):** InlineVideoEmbedStateManager, ContactsStore, MemoryItemsStore, ChannelTrustStore, ChatErrorManager, ChatGreetingState, TaskProgressOverlayManager, ChatAttachmentManager, ChatMessageManager
 
 </details>
 
@@ -90,8 +90,7 @@ These classes stay `ObservableObject` because they have deep Combine integration
 | `MainWindowState` | Bridges `@Observable` NavigationHistory via `withObservationTracking`; uses `objectWillChange` forwarding |
 | `VoiceModeManager` | Complex Combine pipelines (audio streams, state machine transitions) |
 | `ConversationManager` | Hub object subscribing to many child `objectWillChange` publishers; complex lifecycle |
-| `ChatViewModel` | Extensive Combine pipelines (SSE streaming, message coalescing, debounce); bridges `@Observable` ChatErrorManager and ChatGreetingState via `withObservationTracking` |
-| `ChatMessageManager` | Tightly coupled to ChatViewModel's Combine publish pipeline |
+| `ChatViewModel` | Extensive Combine pipelines (SSE streaming, message coalescing, debounce); bridges `@Observable` ChatErrorManager, ChatGreetingState, ChatAttachmentManager, and ChatMessageManager via `withObservationTracking` |
 | `GatewayConnectionManager` | Combine-based SSE event stream processing |
 | `RecordingManager` | Audio capture Combine pipelines |
 | `RecordingSourcePickerViewModel` | ScreenCaptureKit async sequences + Combine |
@@ -104,6 +103,14 @@ These classes stay `ObservableObject` because they have deep Combine integration
 #### @Observable migration patterns
 
 **`@ObservationIgnored` for non-reactive bookkeeping.** Mark stored properties that should not trigger view updates with `@ObservationIgnored`. Use this for: Combine cancellables (`Set<AnyCancellable>`), background `Task` handles, delegate/callback closures, internal caches, and constants. Example: `@ObservationIgnored private var cancellables = Set<AnyCancellable>()`.
+
+**`@ObservationIgnored` enables deinit access on `@MainActor @Observable` classes.** The `@Observable` macro synthesizes getter/setter pairs that create actor isolation conflicts in `deinit` ([swift#79551](https://github.com/swiftlang/swift/issues/79551)). To cancel owned tasks in `deinit`, mark them `@ObservationIgnored` so they remain plain stored properties that `deinit` can access. Always explicitly cancel unstructured `Task {}` in `deinit` — do not rely solely on `[weak self]` cleanup, as the task continues running until its next cancellation check ([WWDC23 — Beyond the basics of structured concurrency](https://developer.apple.com/videos/play/wwdc2023/10170/)).
+```swift
+@MainActor @Observable final class MyState {
+    @ObservationIgnored var myTask: Task<Void, Never>?
+    deinit { myTask?.cancel() }
+}
+```
 
 **`withObservationTracking` bridge for `@Observable` → `ObservableObject`.** When an `@Observable` class is owned by an `ObservableObject` parent, bridge changes using a recursive `withObservationTracking` loop that calls `objectWillChange.send()` (or a coalesced publish) on change:
 ```swift

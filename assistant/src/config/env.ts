@@ -218,10 +218,6 @@ export function getPlatformInternalApiKey(): string {
 
 // ── Telemetry ──────────────────────────────────────────────────────────────────
 
-export function getTelemetryPlatformUrl(): string {
-  return str("TELEMETRY_PLATFORM_URL") ?? "";
-}
-
 export function getTelemetryAppToken(): string {
   return str("TELEMETRY_APP_TOKEN") ?? "";
 }

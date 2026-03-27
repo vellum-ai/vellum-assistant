@@ -354,17 +354,39 @@ extension MainWindowView {
 
                     if !scheduleConversations.isEmpty {
                         // Scheduled conversations section
-                        HStack {
-                            Text("Scheduled")
-                                .font(VFont.labelDefault)
-                                .foregroundStyle(VColor.contentTertiary)
-                            Spacer()
+                        let scheduleSectionHasUnread = sidebar.scheduleSectionCollapsed &&
+                            scheduleConversations.contains(where: { $0.hasUnseenLatestAssistantMessage })
+
+                        Button {
+                            withAnimation(VAnimation.fast) { sidebar.scheduleSectionCollapsed.toggle() }
+                        } label: {
+                            HStack(spacing: VSpacing.xs) {
+                                HStack(spacing: 2) {
+                                    VIconView(.chevronRight, size: 10)
+                                        .foregroundStyle(VColor.contentTertiary)
+                                        .rotationEffect(.degrees(sidebar.scheduleSectionCollapsed ? 0 : 90))
+                                        .animation(VAnimation.fast, value: sidebar.scheduleSectionCollapsed)
+                                    if scheduleSectionHasUnread {
+                                        Circle()
+                                            .fill(VColor.systemNegativeStrong)
+                                            .frame(width: 6, height: 6)
+                                            .transition(.opacity)
+                                    }
+                                }
+                                Text("Scheduled")
+                                    .font(VFont.labelDefault)
+                                    .foregroundStyle(VColor.contentTertiary)
+                                Spacer()
+                            }
                         }
-                        .padding(.leading, SidebarLayoutMetrics.iconSlotSize)
+                        .buttonStyle(.plain)
+                        .padding(.leading, VSpacing.xs)
                         .padding(.trailing, VSpacing.md)
                         .padding(.top, SidebarLayoutMetrics.scheduledHeaderTopGap)
                         .padding(.bottom, SidebarLayoutMetrics.scheduledHeaderBottomGap)
+                        .pointerCursor()
 
+                        if !sidebar.scheduleSectionCollapsed {
                         ForEach(displayedScheduleGroups, id: \.key) { group in
                             if group.conversations.count == 1, let conversation = group.conversations.first {
                                 // Single-conversation group: render inline without a disclosure wrapper
@@ -490,21 +512,44 @@ extension MainWindowView {
                             .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
                             .padding(.bottom, VSpacing.xs)
                         }
+                        } // end scheduleSectionCollapsed
                     }
 
                     if !backgroundConversations.isEmpty {
                         // Background conversations section
-                        HStack {
-                            Text("Background")
-                                .font(VFont.labelDefault)
-                                .foregroundStyle(VColor.contentTertiary)
-                            Spacer()
+                        let backgroundSectionHasUnread = sidebar.backgroundSectionCollapsed &&
+                            backgroundConversations.contains(where: { $0.hasUnseenLatestAssistantMessage })
+
+                        Button {
+                            withAnimation(VAnimation.fast) { sidebar.backgroundSectionCollapsed.toggle() }
+                        } label: {
+                            HStack(spacing: VSpacing.xs) {
+                                HStack(spacing: 2) {
+                                    VIconView(.chevronRight, size: 10)
+                                        .foregroundStyle(VColor.contentTertiary)
+                                        .rotationEffect(.degrees(sidebar.backgroundSectionCollapsed ? 0 : 90))
+                                        .animation(VAnimation.fast, value: sidebar.backgroundSectionCollapsed)
+                                    if backgroundSectionHasUnread {
+                                        Circle()
+                                            .fill(VColor.systemNegativeStrong)
+                                            .frame(width: 6, height: 6)
+                                            .transition(.opacity)
+                                    }
+                                }
+                                Text("Background")
+                                    .font(VFont.labelDefault)
+                                    .foregroundStyle(VColor.contentTertiary)
+                                Spacer()
+                            }
                         }
-                        .padding(.leading, SidebarLayoutMetrics.iconSlotSize)
+                        .buttonStyle(.plain)
+                        .padding(.leading, VSpacing.xs)
                         .padding(.trailing, VSpacing.md)
                         .padding(.top, SidebarLayoutMetrics.scheduledHeaderTopGap)
                         .padding(.bottom, SidebarLayoutMetrics.scheduledHeaderBottomGap)
+                        .pointerCursor()
 
+                        if !sidebar.backgroundSectionCollapsed {
                         ForEach(displayedBackgroundConversations) { conversation in
                             makeSidebarRow(conversation: conversation)
                                 .equatable()
@@ -525,6 +570,7 @@ extension MainWindowView {
                             .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
                             .padding(.bottom, VSpacing.xs)
                         }
+                        } // end backgroundSectionCollapsed
                     }
                 }
             }

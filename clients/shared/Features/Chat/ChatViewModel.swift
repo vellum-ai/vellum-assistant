@@ -117,7 +117,7 @@ public struct SurfaceClient: SurfaceClientProtocol {
 /// accesses to them via computed properties.  Existing call sites require no
 /// changes because the public API surface is identical to the previous monolith.
 @MainActor
-public final class ChatViewModel: ObservableObject {
+public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelegate {
 
     // MARK: - Sub-managers
 
@@ -127,8 +127,14 @@ public final class ChatViewModel: ObservableObject {
     public let attachmentManager = ChatAttachmentManager()
     /// Owns errorText, conversationError, and connection-diagnostic properties.
     public let errorManager = ChatErrorManager()
+    /// Owns displayedMessages, pagination window, and load-more logic.
+    public let paginationState: ChatPaginationState
+    /// Owns send/cancel/queue logic.
+    private(set) var sendCoordinator: MessageSendCoordinator!
     /// Owns empty-state greeting and conversation starter properties.
     public let greetingState = ChatGreetingState()
+    /// Owns server message dispatch (handleServerMessage switch).
+    private(set) var actionHandler: ChatActionHandler!
 
     private var cancellables: Set<AnyCancellable> = []
 
@@ -172,11 +178,55 @@ public final class ChatViewModel: ObservableObject {
     /// Used after clearing `inputText` in `sendMessage()` so the TextField
     /// binding updates without the 50ms delay — preventing the field editor
     /// from writing stale text back through the binding.
-    private func flushCoalescedPublish() {
+    func flushCoalescedPublish() {
         subManagerPublishTask?.cancel()
         subManagerPublishTask = nil
         os_signpost(.event, log: Self.stallLog, name: "ChatVM.flush")
         objectWillChange.send()
+    }
+
+    // MARK: - @Observable → ObservableObject bridge for ChatMessageManager
+
+    /// Recursively observe all tracked properties on the @Observable
+    /// ChatMessageManager and forward changes into ChatViewModel's
+    /// ObservableObject objectWillChange via the coalesced publish path.
+    private func observeMessageManager() {
+        withObservationTracking {
+            _ = messageManager.messages
+            _ = messageManager.inputText
+            _ = messageManager.isThinking
+            _ = messageManager.isSending
+            _ = messageManager.assistantActivityPhase
+            _ = messageManager.assistantActivityAnchor
+            _ = messageManager.assistantActivityReason
+            _ = messageManager.assistantStatusText
+            _ = messageManager.isCompacting
+            _ = messageManager.pendingQueuedCount
+            _ = messageManager.suggestion
+            _ = messageManager.isRecording
+            _ = messageManager.recordingAmplitude
+            _ = messageManager.isWorkspaceRefinementInFlight
+            _ = messageManager.refinementMessagePreview
+            _ = messageManager.refinementStreamingText
+            _ = messageManager.refinementFailureText
+            _ = messageManager.surfaceUndoCount
+            _ = messageManager.pendingSkillInvocation
+            _ = messageManager.isWatchSessionActive
+            _ = messageManager.activeSubagents
+            _ = messageManager.dismissedDocumentSurfaceIds
+            _ = messageManager.selectedModel
+            _ = messageManager.configuredProviders
+            _ = messageManager.providerCatalog
+            _ = messageManager.activePendingRequestId
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scheduleCoalescedPublish()
+                #if DEBUG
+                self?.trackPublish(source: "messageManager")
+                #endif
+                self?.observeMessageManager() // re-arm
+            }
+        }
     }
 
     // MARK: - @Observable → ObservableObject bridge for ChatErrorManager
@@ -203,6 +253,29 @@ public final class ChatViewModel: ObservableObject {
                 self?.trackPublish(source: "errorManager")
                 #endif
                 self?.observeErrorManager() // re-arm
+            }
+        }
+    }
+
+    // MARK: - @Observable → ObservableObject bridge for ChatPaginationState
+
+    /// Recursively observe all tracked properties on the @Observable
+    /// ChatPaginationState and forward changes into ChatViewModel's
+    /// ObservableObject objectWillChange via the coalesced publish path.
+    private func observePaginationState() {
+        withObservationTracking {
+            _ = paginationState.displayedMessages
+            _ = paginationState.displayedMessageCount
+            _ = paginationState.isLoadingMoreMessages
+            _ = paginationState.hasMoreHistory
+            _ = paginationState.hasMoreMessages
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scheduleCoalescedPublish()
+                #if DEBUG
+                self?.trackPublish(source: "paginationState")
+                #endif
+                self?.observePaginationState() // re-arm
             }
         }
     }
@@ -262,6 +335,7 @@ public final class ChatViewModel: ObservableObject {
     private var errorManagerPublishCount = 0
     private var btwStatePublishCount = 0
     private var greetingStatePublishCount = 0
+    private var paginationStatePublishCount = 0
     private var lastRateLogTime = Date()
 
     private func trackPublish(source: String) {
@@ -272,14 +346,15 @@ public final class ChatViewModel: ObservableObject {
         case "errorManager": errorManagerPublishCount += 1
         case "btwState": btwStatePublishCount += 1
         case "greetingState": greetingStatePublishCount += 1
+        case "paginationState": paginationStatePublishCount += 1
         default: break
         }
         let now = Date()
         if now.timeIntervalSince(lastRateLogTime) >= 5 {
             os_log(
                 .debug, log: Self.perfLog,
-                "ChatViewModel publish rate: %d/5s (msg=%d, attach=%d, err=%d, btw=%d, greet=%d)",
-                publishCount, messageManagerPublishCount, attachmentManagerPublishCount, errorManagerPublishCount, btwStatePublishCount, greetingStatePublishCount
+                "ChatViewModel publish rate: %d/5s (msg=%d, attach=%d, err=%d, btw=%d, greet=%d, page=%d)",
+                publishCount, messageManagerPublishCount, attachmentManagerPublishCount, errorManagerPublishCount, btwStatePublishCount, greetingStatePublishCount, paginationStatePublishCount
             )
             publishCount = 0
             messageManagerPublishCount = 0
@@ -287,6 +362,7 @@ public final class ChatViewModel: ObservableObject {
             errorManagerPublishCount = 0
             btwStatePublishCount = 0
             greetingStatePublishCount = 0
+            paginationStatePublishCount = 0
             lastRateLogTime = now
         }
     }
@@ -326,7 +402,7 @@ public final class ChatViewModel: ObservableObject {
     /// haven't been marked complete yet. This catches the case where
     /// `messageComplete` fires (clearing `isSending` and `currentAssistantMessageId`)
     /// but tool call chips are still visually running in the UI.
-    private var hasIncompleteToolCalls: Bool {
+    var hasIncompleteToolCalls: Bool {
         guard let lastAssistant = messages.last(where: { $0.role == .assistant }) else {
             return false
         }
@@ -640,7 +716,7 @@ public final class ChatViewModel: ObservableObject {
     private var reconnectLatchTimeoutTask: Task<Void, Never>?
     /// Set to true when daemonDidReconnect fires before conversationId is populated.
     /// Cleared and actioned in the conversationId didSet observer.
-    private var needsOfflineFlush: Bool = false
+    var needsOfflineFlush: Bool = false
     /// Set to true when reconnecting after an SSE gap while a run was in progress.
     /// Causes `populateFromHistory` to do a full message replace instead of
     /// prepending, so the missed assistant response is displayed.
@@ -680,18 +756,18 @@ public final class ChatViewModel: ObservableObject {
     public var isVoiceModeActive: Bool = false
     var pendingUserAttachments: [UserMessageAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
-    private(set) var lastFailedMessageText: String? {
+    var lastFailedMessageText: String? {
         didSet { syncRetryStateToErrorManager() }
     }
-    private(set) var lastFailedMessageDisplayText: String?
-    private(set) var lastFailedMessageAttachments: [UserMessageAttachment]?
-    private(set) var lastFailedMessageAutomated: Bool = false
-    private(set) var lastFailedMessageBypassSecretCheck: Bool = false
+    var lastFailedMessageDisplayText: String?
+    var lastFailedMessageAttachments: [UserMessageAttachment]?
+    var lastFailedMessageAutomated: Bool = false
+    var lastFailedMessageBypassSecretCheck: Bool = false
     /// Set only when a send operation (bootstrapConversation or sendUserMessage) fails.
     /// Used by `isRetryableError` to ensure the retry button only appears for
     /// actual send failures, not for unrelated errors (attachment validation,
     /// confirmation response failures, regenerate errors, etc.).
-    private(set) var lastFailedSendError: String? {
+    var lastFailedSendError: String? {
         didSet { syncRetryStateToErrorManager() }
     }
     /// Stores the text of a message that was blocked by the secret-ingress check.
@@ -718,7 +794,7 @@ public final class ChatViewModel: ObservableObject {
     /// (conversation_create sent, awaiting conversation_info). Used by ConversationManager
     /// to decide whether it's safe to release the VM on archive.
     public var isBootstrapping: Bool { bootstrapCorrelationId != nil }
-    private var messageLoopTask: Task<Void, Never>?
+    var messageLoopTask: Task<Void, Never>?
     /// Monotonically increasing ID used to distinguish successive message-loop
     /// tasks so that a cancelled loop's cleanup doesn't clear a newer replacement.
     private var messageLoopGeneration: UInt64 = 0
@@ -832,9 +908,6 @@ public final class ChatViewModel: ObservableObject {
     /// by the client instead of being sent to the assistant.
     public var onFork: (() -> Void)?
 
-    private static let privateConversationForkErrorText =
-        "Forking is unavailable in private conversations."
-
     /// Whether this view model has had its history loaded from the daemon.
     public var isHistoryLoaded: Bool = false {
         didSet {
@@ -847,55 +920,34 @@ public final class ChatViewModel: ObservableObject {
     /// Observers can check this to avoid treating the history hydration as new activity.
     public internal(set) var isLoadingHistory: Bool = false
 
-    // MARK: - Message Pagination
+    // MARK: - Message Pagination (forwarded from ChatPaginationState)
 
     /// Page size for chat message display; older messages are loaded in this increment.
-    public static let messagePageSize = 50
+    public static let messagePageSize = ChatPaginationState.messagePageSize
 
-    /// Number of messages currently revealed at the top of the conversation.
-    /// The view slices `messages` to `messages.suffix(displayedMessageCount)`.
-    /// Grows by `messagePageSize` each time the user scrolls to the top.
-    /// Set to `Int.max` when the user has loaded all history ("show all" mode), so that new
-    /// incoming messages don't collapse the window back to `suffix(messagePageSize)`.
-    @Published public var displayedMessageCount: Int = messagePageSize
-
-    /// True while a previous-page load is in progress (brief async delay for UX).
-    @Published public var isLoadingMoreMessages: Bool = false
-
-    /// Timeout task that logs a warning at 30s if the daemon is slow, then
-    /// clears `isLoadingMoreMessages` at 60s to unblock the user. The 30s
-    /// warning preserves the flag to avoid misclassifying late-but-valid
-    /// responses (see loadPreviousMessagePage); the 60s hard clear accepts
-    /// the risk of a narrow misclassification window to prevent a permanently
-    /// stuck loading spinner.
-    private var loadMoreTimeoutTask: Task<Void, Never>?
-
-    /// The subset of messages that are actually displayed (excludes subagent notifications
-    /// and other UI-only messages that the view filters before rendering).
-    /// Cached as a stored @Published property to avoid O(n) filter on every access
-    /// during streaming (which can be dozens of times per second).
-    @Published public private(set) var displayedMessages: [ChatMessage] = []
-
-    /// Recompute and cache the displayedMessages from the current messages array.
-    /// Call this after any mutation to messages.
-    ///
-    /// Uses the shared `ChatVisibleMessageFilter` so that `displayedMessages` and the
-    /// macOS message list apply identical visibility rules — this keeps scroll-anchor
-    /// math stable across pagination boundaries.
-    private func updateDisplayedMessages() {
-        displayedMessages = ChatVisibleMessageFilter.visibleMessages(from: messages)
+    public var displayedMessageCount: Int {
+        get { paginationState.displayedMessageCount }
+        set { paginationState.displayedMessageCount = newValue }
     }
 
-    // MARK: - Daemon History Pagination
+    public var isLoadingMoreMessages: Bool {
+        get { paginationState.isLoadingMoreMessages }
+        set { paginationState.isLoadingMoreMessages = newValue }
+    }
 
-    /// Timestamp of the oldest loaded message (ms since epoch). Used as the
-    /// `beforeTimestamp` cursor when fetching the next older page from the daemon.
-    public var historyCursor: Double?
+    public var displayedMessages: [ChatMessage] {
+        paginationState.displayedMessages
+    }
 
-    /// Whether the daemon has indicated that older messages exist beyond the
-    /// currently loaded page. Falls back to `false` for older daemons that don't
-    /// send `hasMore` in the history response.
-    @Published public var hasMoreHistory: Bool = false
+    public var historyCursor: Double? {
+        get { paginationState.historyCursor }
+        set { paginationState.historyCursor = newValue }
+    }
+
+    public var hasMoreHistory: Bool {
+        get { paginationState.hasMoreHistory }
+        set { paginationState.hasMoreHistory = newValue }
+    }
 
     // MARK: - BTW Side-Chain State (forwarded from ChatBtwState)
 
@@ -921,83 +973,22 @@ public final class ChatViewModel: ObservableObject {
         greetingState.conversationStartersLoading
     }
 
-    /// Whether there are more messages above the current display window.
-    /// True when either:
-    ///   1. There are locally loaded messages outside the current display suffix, OR
-    ///   2. The daemon has older pages available to fetch.
-    /// When `displayedMessageCount == Int.max` (show-all mode), only daemon pages apply.
     public var hasMoreMessages: Bool {
-        (displayedMessageCount < displayedMessages.count) || hasMoreHistory
+        paginationState.hasMoreMessages
     }
 
-    /// Called when `loadPreviousMessagePage` needs to fetch an older page from the
-    /// daemon. The conversation restorer sets this so the daemon client request is
-    /// routed through the same pending-history tracking used for initial loads.
-    public var onLoadMoreHistory: ((_ conversationId: String, _ beforeTimestamp: Double) -> Void)?
+    public var onLoadMoreHistory: ((_ conversationId: String, _ beforeTimestamp: Double) -> Void)? {
+        get { paginationState.onLoadMoreHistory }
+        set { paginationState.onLoadMoreHistory = newValue }
+    }
 
-    /// Load the previous page of messages by expanding the display window.
-    /// When all locally loaded messages are already visible and the daemon has
-    /// more history available, requests the next older page from the daemon.
-    /// Returns `true` if there were additional messages to reveal or a fetch was started.
     @discardableResult
     public func loadPreviousMessagePage() async -> Bool {
-        guard hasMoreMessages, !isLoadingMoreMessages else { return false }
-
-        // If the local display window can still grow, expand it first.
-        let locallyHasMore = displayedMessageCount < displayedMessages.count
-        if locallyHasMore {
-            isLoadingMoreMessages = true
-            // Brief delay so the loading indicator is visible before the list shifts.
-            try? await Task.sleep(nanoseconds: 150_000_000)
-            let next = displayedMessageCount + Self.messagePageSize
-            let total = displayedMessages.count
-            // When all messages fit within the expanded window, switch to show-all mode
-            // (Int.max) so future incoming messages don't shrink the visible history back
-            // to a suffix window — the regression described in the parent PR.
-            displayedMessageCount = next >= total ? Int.max : next
-            isLoadingMoreMessages = false
-            return true
-        }
-
-        // All local messages are visible — fetch the next page from the daemon.
-        guard hasMoreHistory, let cursor = historyCursor, let conversationId else { return false }
-        isLoadingMoreMessages = true
-        // Safety timeout: log a warning if the daemon is slow, but do NOT
-        // clear isLoadingMoreMessages here. Callers (ConversationRestorer,
-        // IOSConversationStore) use `vm.isLoadingMoreMessages` to decide whether
-        // a history response is a pagination load. If the timeout clears the
-        // flag before the response arrives, the late-but-valid response is
-        // misclassified as an initial load and replaces all messages instead
-        // of prepending. The flag is properly cleared by populateFromHistory
-        // when the response arrives, or by reconnect/conversation-switch logic if
-        // the daemon disconnects.
-        // At 60s a hard clear of isLoadingMoreMessages fires to prevent a permanent
-        // stuck spinner. This accepts a narrow misclassification window for late
-        // responses arriving between 60-65s.
-        loadMoreTimeoutTask?.cancel()
-        loadMoreTimeoutTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 30_000_000_000) // 30 seconds
-            guard let self, !Task.isCancelled, self.isLoadingMoreMessages else { return }
-            log.warning("Pagination request still pending after 30s — daemon may be unresponsive")
-            try? await Task.sleep(nanoseconds: 30_000_000_000) // +30s = 60s total
-            guard !Task.isCancelled, self.isLoadingMoreMessages else { return }
-            log.error("Pagination request timed out after 60s — resetting pagination state")
-            self.isLoadingMoreMessages = false
-            self.loadMoreTimeoutTask = nil
-        }
-        onLoadMoreHistory?(conversationId, cursor)
-        // The loading indicator is cleared by populateFromHistory when the response arrives.
-        return true
+        await paginationState.loadPreviousMessagePage()
     }
 
-    /// Reset pagination when the conversation switches or history is reloaded.
     public func resetMessagePagination() {
-        displayedMessageCount = Self.messagePageSize
-        historyCursor = nil
-        hasMoreHistory = false
-        loadMoreTimeoutTask?.cancel()
-        loadMoreTimeoutTask = nil
-        isLoadingMoreMessages = false
+        paginationState.resetMessagePagination()
     }
 
     // MARK: - On-Demand Content Rehydration
@@ -1114,8 +1105,8 @@ public final class ChatViewModel: ObservableObject {
         }
         // Hard-delete the stripped messages so ChatMessage objects are freed entirely.
         messages.removeSubrange(0..<trimEnd)
-        // displayedMessages is updated automatically via the messageManager.$messages
-        // publisher subscription set up in init.
+        // displayedMessages is updated automatically via the messageManager.messagesPublisher
+        // Combine bridge subscription set up in ChatPaginationState init.
         // After deleting the oldest messages, advance the history cursor to the oldest
         // retained message and mark that older pages are available from the daemon so
         // the user can paginate back to re-fetch the trimmed messages.
@@ -1180,9 +1171,32 @@ public final class ChatViewModel: ObservableObject {
         self.settingsClient = settingsClient
         self.interactionClient = interactionClient
         self.onToolCallsComplete = onToolCallsComplete
+        self.paginationState = ChatPaginationState(
+            messageManager: messageManager
+        )
 
         // Initialize BTW side-chain state as a self-contained @Observable.
         self.btwState = ChatBtwState(btwClient: btwClient)
+
+        // Set the conversationId provider after all stored properties are
+        // initialized so the closure can capture `self` weakly — Swift
+        // requires all stored properties to be initialized before `self`
+        // is available.
+        paginationState.conversationIdProvider = { [weak self] in self?.conversationId }
+
+        // Initialize the send coordinator with injected dependencies.
+        self.sendCoordinator = MessageSendCoordinator(
+            delegate: self,
+            messageManager: messageManager,
+            attachmentManager: attachmentManager,
+            errorManager: errorManager,
+            btwState: btwState,
+            settingsClient: settingsClient,
+            conversationListClient: conversationListClient
+        )
+
+        // Initialize the action handler for server message dispatch.
+        self.actionHandler = ChatActionHandler(viewModel: self)
 
         // Coalesce sub-manager objectWillChange signals through a single
         // delayed publish. During streaming, sub-managers may fire dozens of
@@ -1192,33 +1206,13 @@ public final class ChatViewModel: ObservableObject {
         // into a single objectWillChange per 50ms window. Views still
         // update promptly, but the SwiftUI diffing cost drops dramatically.
 
-        // Keep displayedMessages in sync with messages via publisher subscription.
-        // This catches every mutation site (current and future) without requiring
-        // manual updateDisplayedMessages() calls at each one.
-        //
-        // Two correctness/perf fixes applied here:
-        // 1. Use the delivered `newMessages` value directly rather than reading
-        //    `self.messages` inside the sink. @Published fires during willSet, so
-        //    the stored property still holds the OLD value when the subscriber runs
-        //    — reading it caused displayedMessages to lag one mutation behind.
-        // 2. Throttle to 50ms so displayedMessages (and any SwiftUI views observing
-        //    it) only refresh at most every 50ms, matching the coalesced publish
-        //    window used for the rest of the view model.
-        messageManager.$messages
-            .throttle(for: .milliseconds(50), scheduler: RunLoop.main, latest: true)
-            .sink { [weak self] newMessages in
-                self?.displayedMessages = ChatVisibleMessageFilter.visibleMessages(from: newMessages)
-            }
-            .store(in: &cancellables)
-
-        messageManager.objectWillChange
-            .sink { [weak self] _ in
-                self?.scheduleCoalescedPublish()
-                #if DEBUG
-                self?.trackPublish(source: "messageManager")
-                #endif
-            }
-            .store(in: &cancellables)
+        // ChatMessageManager is @Observable — bridge its changes into
+        // ChatViewModel's ObservableObject objectWillChange via
+        // withObservationTracking so views that read message state through
+        // ChatViewModel's computed forwarding properties still update.
+        observeMessageManager()
+        // ChatAttachmentManager is still ObservableObject — coalesce its
+        // objectWillChange into ChatViewModel's publish window.
         attachmentManager.objectWillChange
             .sink { [weak self] _ in
                 self?.scheduleCoalescedPublish()
@@ -1232,6 +1226,11 @@ public final class ChatViewModel: ObservableObject {
         // withObservationTracking so views that read error state through
         // ChatViewModel's computed forwarding properties still update.
         observeErrorManager()
+        // ChatPaginationState is @Observable — bridge its changes into
+        // ChatViewModel's ObservableObject objectWillChange via
+        // withObservationTracking so views that read pagination state through
+        // ChatViewModel's computed forwarding properties still update.
+        observePaginationState()
         // ChatBtwState is @Observable — same bridge pattern.
         observeBtwState()
         // ChatGreetingState is @Observable — same bridge pattern.
@@ -1392,213 +1391,11 @@ public final class ChatViewModel: ObservableObject {
         inputText = message
     }
 
-    // MARK: - Sending
-
-    private var sendPathPlatform: ChatSlashCommandPlatform {
-        #if os(macOS)
-        return .macos
-        #elseif os(iOS)
-        return .ios
-        #else
-        #error("Unsupported platform")
-        #endif
-    }
+    // MARK: - Sending (forwarded to MessageSendCoordinator)
 
     public func sendMessage(hidden: Bool = false) {
         os_signpost(.event, log: Self.stallLog, name: "sendMessage")
-        let rawText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let text = rawText
-        let hasAttachments = !pendingAttachments.isEmpty
-        let hasSkillInvocation = pendingSkillInvocation != nil
-        guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
-
-        // Intercept the exact `/fork` command locally so it never falls
-        // through to the assistant as ordinary chat text.
-        if text == "/fork",
-           !hasAttachments,
-           !hasSkillInvocation
-        {
-            inputText = ""
-            suggestion = nil
-            pendingSuggestionRequestId = nil
-            flushCoalescedPublish()
-            if conversationType == "private" {
-                errorText = Self.privateConversationForkErrorText
-                conversationError = nil
-            } else if let onFork {
-                errorText = nil
-                conversationError = nil
-                onFork()
-            } else {
-                errorText = "Send a message before forking this conversation."
-            }
-            return
-        }
-
-        // Intercept /btw side-chain messages before the normal send path.
-        if text.hasPrefix("/btw ") {
-            let question = String(text.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-            inputText = ""
-            pendingAttachments = []
-            pendingSkillInvocation = nil
-            flushCoalescedPublish()
-            sendBtwMessage(question: question)
-            return
-        }
-
-        // Confirmation state is now server-authoritative: the daemon emits
-        // `confirmation_state_changed` events for all resolution paths.
-        // No client-side pessimistic denial is needed.
-
-        // Refresh model state only for slash commands that explicitly opt in.
-        let shouldRefreshModelMetadata = !hasSkillInvocation
-            && ChatSlashCommandCatalog.shouldRefreshModelMetadata(
-                forRawInput: text,
-                platform: sendPathPlatform
-            )
-        if shouldRefreshModelMetadata {
-            Task {
-                let info = await self.settingsClient.fetchModelInfo()
-                if let model = info?.model {
-                    self.selectedModel = model
-                }
-                if let providers = info?.configuredProviders {
-                    self.configuredProviders = Set(providers)
-                }
-                if let allProviders = info?.allProviders, !allProviders.isEmpty {
-                    self.providerCatalog = allProviders
-                }
-            }
-        }
-
-        // Fire auto-title callback on the first user message (skip slash commands
-        // so the conversation title isn't set to a command token)
-        if !rawText.isEmpty, !rawText.hasPrefix("/"), let callback = onFirstUserMessage {
-            onFirstUserMessage = nil
-            callback(rawText)
-        }
-
-        // Notify ConversationManager so the conversation rises to the top of the list
-        onUserMessageSent?()
-
-        // Block rapid-fire only when bootstrapping with a queued message.
-        // When a message-less bootstrap is in flight (e.g. private conversation
-        // pre-allocation), adopt the user's message as the pending message
-        // so it gets sent when conversation_info arrives instead of being dropped.
-        if (isSending || isBootstrapping) && conversationId == nil {
-            if pendingUserMessage == nil {
-                isSending = true
-                let attachments = pendingAttachments
-                pendingAttachments = []
-                pendingUserMessage = text
-                pendingUserMessageDisplayText = rawText
-                pendingUserMessageAutomated = hidden
-                pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
-                    UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath)
-                }
-                isThinking = true
-                var userMsg = ChatMessage(role: .user, text: rawText, status: .sent, skillInvocation: pendingSkillInvocation, attachments: attachments)
-                userMsg.isHidden = hidden
-                messages.append(userMsg)
-                pendingSkillInvocation = nil
-                inputText = ""
-                suggestion = nil
-                pendingSuggestionRequestId = nil
-                errorText = nil
-                conversationError = nil
-                errorManager.isConversationErrorDisplayedInline = false
-                lastFailedMessageText = nil
-                lastFailedMessageDisplayText = nil
-                lastFailedMessageAttachments = nil
-                lastFailedMessageAutomated = false
-                lastFailedMessageBypassSecretCheck = false
-                lastFailedSendError = nil
-                connectionDiagnosticHint = nil
-                secretBlockedMessageText = nil
-                secretBlockedAttachments = nil
-                secretBlockedActiveSurfaceId = nil
-                secretBlockedCurrentPage = nil
-                currentTurnUserText = rawText
-                flushCoalescedPublish()
-                return
-            }
-            pendingSkillInvocation = nil
-            inputText = ""
-            pendingAttachments = []
-            flushCoalescedPublish()
-            return
-        }
-
-        // Snapshot and clear pending attachments
-        let attachments = pendingAttachments
-        pendingAttachments = []
-
-        let shouldBypassWorkspaceRefinement = ChatSlashCommandCatalog.shouldBypassWorkspaceRefinement(
-            forRawInput: text,
-            platform: sendPathPlatform
-        )
-        let isWorkspaceRefinement = activeSurfaceId != nil && !isChatDockedToSide && !shouldBypassWorkspaceRefinement
-
-        let willBeQueued = isSending && conversationId != nil
-        var queuedMessageId: UUID?
-        if !isWorkspaceRefinement {
-            let status: ChatMessageStatus = willBeQueued ? .queued(position: 0) : .sent
-            var userMessage = ChatMessage(role: .user, text: rawText, status: status, skillInvocation: pendingSkillInvocation, attachments: attachments)
-            userMessage.isHidden = hidden
-            messages.append(userMessage)
-            if willBeQueued {
-                pendingMessageIds.append(userMessage.id)
-                queuedMessageId = userMessage.id
-            }
-        } else {
-            isWorkspaceRefinementInFlight = true
-            refinementMessagePreview = text
-            refinementStreamingText = nil
-            refinementTextBuffer = ""
-            refinementReceivedSurfaceUpdate = false
-            refinementFailureText = nil
-            refinementFailureDismissTask?.cancel()
-        }
-        pendingSkillInvocation = nil
-        inputText = ""
-        suggestion = nil
-        pendingSuggestionRequestId = nil
-        errorText = nil
-        conversationError = nil
-        errorManager.isConversationErrorDisplayedInline = false
-        lastFailedMessageText = nil
-        lastFailedMessageDisplayText = nil
-        lastFailedMessageAttachments = nil
-        lastFailedMessageAutomated = false
-        lastFailedMessageBypassSecretCheck = false
-        lastFailedSendError = nil
-        connectionDiagnosticHint = nil
-        secretBlockedMessageText = nil
-        secretBlockedAttachments = nil
-        secretBlockedActiveSurfaceId = nil
-        secretBlockedCurrentPage = nil
-        flushCoalescedPublish()
-
-        let messageAttachments: [UserMessageAttachment]? = attachments.isEmpty ? nil : attachments.map {
-            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath)
-        }
-
-        // Track the user text for this turn so assistantTextDelta can tag the
-        // response correctly (e.g. modelList for "/models") without scanning the
-        // whole transcript. For queued messages this is set in messageDequeued.
-        if !willBeQueued {
-            currentTurnUserText = rawText
-        }
-
-        if conversationId == nil {
-            // First message: need to bootstrap conversation
-            pendingUserMessageDisplayText = rawText
-            pendingUserMessageAutomated = hidden
-            bootstrapConversation(userMessage: text, attachments: messageAttachments)
-        } else {
-            // Subsequent messages: send directly (daemon queues if busy)
-            sendUserMessage(text, displayText: rawText, attachments: messageAttachments, queuedMessageId: queuedMessageId, automated: hidden)
-        }
+        sendCoordinator.sendMessage(hidden: hidden)
     }
 
     // MARK: - BTW Side-Chain (forwarded to ChatBtwState)
@@ -1627,202 +1424,18 @@ public final class ChatViewModel: ObservableObject {
         greetingState.fetchConversationStarters()
     }
 
-    private func bootstrapConversation(userMessage: String?, attachments: [UserMessageAttachment]?) {
-        // Only set sending/thinking indicators when there's an actual user
-        // message; message-less conversation creates (e.g. private conversation
-        // pre-allocation) are silent and shouldn't affect UI state.
-        if userMessage != nil {
-            isSending = true
-            isThinking = true
-        }
-        pendingUserMessage = userMessage
-        pendingUserAttachments = attachments
-
-        // Generate a unique correlation ID so this ChatViewModel only claims
-        // the conversation_info response that belongs to its own conversation_create request.
-        let correlationId = UUID().uuidString
-        self.bootstrapCorrelationId = correlationId
-
-        Task { @MainActor in
-            // Ensure daemon connection
-            if !connectionManager.isConnected {
-                do {
-                    try await connectionManager.connect()
-                } catch {
-                    log.error("Failed to connect to daemon: \(error.localizedDescription)")
-                    self.isThinking = false
-                    self.isSending = false
-                    self.bootstrapCorrelationId = nil
-                    self.lastFailedMessageText = self.pendingUserMessage
-                    self.lastFailedMessageDisplayText = self.pendingUserMessageDisplayText
-                    self.lastFailedMessageAttachments = self.pendingUserAttachments
-                    self.lastFailedMessageAutomated = self.pendingUserMessageAutomated
-                    self.lastFailedMessageBypassSecretCheck = false
-                    self.lastFailedSendError = "Failed to connect to the assistant."
-                    self.connectionDiagnosticHint = Self.connectionDiagnosticHint(for: error)
-                    self.pendingUserMessage = nil
-                    self.pendingUserMessageDisplayText = nil
-                    self.pendingUserAttachments = nil
-                    self.pendingUserMessageAutomated = false
-                    self.errorText = self.lastFailedSendError
-                    return
-                }
-            }
-
-            // Subscribe to daemon stream
-            self.startMessageLoop()
-
-            // Generate conversation ID locally — conversation creation is implicit
-            // for HTTP transport. The conversationKey acts as the conversation.
-            let newConversationId = correlationId
-            self.conversationId = newConversationId
-            self.bootstrapCorrelationId = nil
-            self.onConversationCreated?(newConversationId)
-            // Clear one-shot preactivated skills so they don't leak into a
-            // later conversation if this bootstrap is interrupted before completion.
-            self.preactivatedSkillIds = nil
-            log.info("Chat conversation created: \(newConversationId)")
-
-            // Fetch pending guardian prompts for this conversation
-            self.refreshGuardianPrompts()
-
-            // Send the queued user message, or finalize a message-less
-            // conversation create by clearing the bootstrap sending state.
-            if let pending = self.pendingUserMessage {
-                let attachments = self.pendingUserAttachments
-                let automated = self.pendingUserMessageAutomated
-                self.pendingUserMessage = nil
-                self.pendingUserMessageDisplayText = nil
-                self.pendingUserAttachments = nil
-                self.pendingUserMessageAutomated = false
-                self.sendUserMessage(pending, attachments: attachments, automated: automated)
-            } else {
-                self.isSending = false
-                self.isThinking = false
-            }
-        }
+    func bootstrapConversation(userMessage: String?, attachments: [UserMessageAttachment]?) {
+        sendCoordinator.bootstrapConversation(userMessage: userMessage, attachments: attachments)
     }
 
-    private func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil, automated: Bool = false, bypassSecretCheck: Bool = false) {
-        guard let conversationId else { return }
-
-        // Check connectivity before entering sending state so the UI
-        // doesn't get stuck with isSending/isThinking = true when the
-        // daemon has disconnected between turns.
-        guard connectionManager.isConnected else {
-            log.error("Cannot send user_message: daemon not connected")
-
-            // Buffer the primary (non-queued-retry) send in the offline queue
-            // instead of surfacing an error. The message stays visible with a
-            // "pending" indicator and is flushed automatically on reconnect.
-            if queuedMessageId == nil {
-                log.info("Buffering message in offline queue (conversation: \(conversationId))")
-                OfflineMessageQueue.shared.enqueue(conversationId: conversationId, text: text, displayText: displayText, attachments: attachments, automated: automated)
-                // Mark the corresponding chat message as offline-pending so the UI
-                // can show a visual indicator. Find the last user message with this
-                // text — it is the one just appended by sendMessage().
-                let matchText = displayText ?? text
-                if let idx = messages.indices.reversed().first(where: { messages[$0].role == .user && messages[$0].text == matchText }) {
-                    messages[idx].status = .pendingOffline
-                }
-                // Don't show the error banner — the pending indicator on the bubble
-                // communicates the offline state without interrupting the conversation.
-                return
-            }
-
-            // Always track the failed message for retry support.
-            lastFailedMessageText = text
-            lastFailedMessageDisplayText = displayText
-            lastFailedMessageAttachments = attachments
-            lastFailedMessageAutomated = automated
-            lastFailedMessageBypassSecretCheck = bypassSecretCheck
-            // Only update UI error state for the primary send (not a queued
-            // retry). A queued retry failing must not clobber the active turn's
-            // isSending/isThinking flags or show an error banner over it.
-            if queuedMessageId == nil {
-                lastFailedSendError = "Failed to connect to the assistant."
-                errorText = lastFailedSendError
-            }
-            // Remove the queued message ID to prevent stale FIFO entries
-            if let queuedMessageId {
-                pendingMessageIds.removeAll { $0 == queuedMessageId }
-                // Revert status so the message doesn't appear permanently queued
-                if let idx = messages.firstIndex(where: { $0.id == queuedMessageId }) {
-                    messages[idx].status = .sent
-                }
-            }
-            return
-        }
-
-        isSending = true
-        // Only show "Thinking" for the primary send. Queued messages will
-        // set isThinking = true when they are dequeued for processing.
-        if queuedMessageId == nil {
-            isThinking = true
-        }
-
-        // Make sure we're listening
-        if messageLoopTask == nil {
-            startMessageLoop()
-        }
-
-        eventStreamClient.sendUserMessage(
-            content: text,
-            conversationId: conversationId,
-            attachments: attachments,
-            conversationType: nil,
-            automated: automated ? true : nil,
-            bypassSecretCheck: bypassSecretCheck ? true : nil
-        )
+    func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil, automated: Bool = false, bypassSecretCheck: Bool = false) {
+        sendCoordinator.sendUserMessage(text, displayText: displayText, attachments: attachments, queuedMessageId: queuedMessageId, automated: automated, bypassSecretCheck: bypassSecretCheck)
     }
 
-    // MARK: - Offline Queue Flush
+    // MARK: - Offline Queue Flush (forwarded to MessageSendCoordinator)
 
-    /// Drain the persistent offline queue and send all buffered messages in order.
-    ///
-    /// Called automatically when the daemon reconnects. Only flushes messages whose
-    /// conversationId matches this view model's current conversation, so concurrent view models
-    /// on different conversations don't interfere with each other's queued messages.
-    ///
-    /// Messages are removed from persistent storage one at a time, immediately before
-    /// each send, so a crash mid-flush leaves unprocessed messages intact rather than
-    /// silently dropping them.
     func flushOfflineQueue() {
-        let queue = OfflineMessageQueue.shared
-        guard !queue.isEmpty else { return }
-
-        guard let currentConversationId = conversationId else {
-            // No conversation yet — defer until conversationId is populated.
-            needsOfflineFlush = true
-            return
-        }
-
-        // Read the queue contents without clearing. Filter for this conversation only;
-        // other conversations' messages stay in the persistent store for their own VMs.
-        let mine = queue.allMessages.filter { $0.conversationId == currentConversationId }
-        guard !mine.isEmpty else { return }
-
-        log.info("Flushing \(mine.count) offline-queued message(s) for conversation \(currentConversationId)")
-
-        // Update message bubbles: clear pendingOffline status so they show as sent.
-        for queued in mine {
-            let matchText = queued.displayText ?? queued.text
-            if let idx = messages.indices.reversed().first(where: {
-                messages[$0].role == .user
-                    && messages[$0].text == matchText
-                    && messages[$0].status == .pendingOffline
-            }) {
-                messages[idx].status = .sent
-            }
-        }
-
-        // Remove each message from persistent storage and send it. Removal happens
-        // before the send attempt so a successful removal + failed send is recoverable
-        // via the normal error retry path, rather than duplicating on the next flush.
-        for queued in mine {
-            queue.remove(id: queued.id)
-            sendUserMessage(queued.text, displayText: queued.displayText, attachments: queued.messageAttachments, automated: queued.automated)
-        }
+        sendCoordinator.flushOfflineQueue()
     }
 
     public func startMessageLoop() {
@@ -1980,216 +1593,13 @@ public final class ChatViewModel: ObservableObject {
     }
 
     /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
-    /// Used when archiving a conversation before conversation_info arrives: we want to
-    /// discard the pending message (so it isn't sent once the conversation is claimed)
-    /// but preserve the correlation ID so the VM only claims its own conversation.
+    /// Used when archiving a conversation before conversation_info arrives.
     public func cancelPendingMessage() {
-        pendingUserMessage = nil
-        pendingUserMessageDisplayText = nil
-        pendingUserAttachments = nil
-        pendingUserMessageAutomated = false
-        isWorkspaceRefinementInFlight = false
-        refinementMessagePreview = nil
-        refinementStreamingText = nil
-        isThinking = false
-        isSending = false
+        sendCoordinator.cancelPendingMessage()
     }
 
     public func stopGenerating() {
-        guard isAssistantBusy else { return }
-
-        // If the only reason we're "busy" is orphaned incomplete tool calls
-        // (daemon already sent messageComplete, clearing isSending and
-        // currentAssistantMessageId), complete them locally and return —
-        // there is nothing to cancel on the daemon side.
-        if !isSending && !isThinking && currentAssistantMessageId == nil && hasIncompleteToolCalls {
-            if let lastAssistant = messages.last(where: { $0.role == .assistant }),
-               let index = messages.firstIndex(where: { $0.id == lastAssistant.id }) {
-                for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
-                    messages[index].toolCalls[j].isComplete = true
-                    messages[index].toolCalls[j].completedAt = Date()
-                }
-            }
-            return
-        }
-
-        pendingVoiceMessage = false
-
-        // If we're still bootstrapping (no conversation yet), cancel locally:
-        // discard the pending message so it won't be sent when conversation_info
-        // arrives, and reset UI state immediately since there's nothing to
-        // cancel on the daemon side.
-        if conversationId == nil {
-            pendingUserMessage = nil
-            pendingUserMessageDisplayText = nil
-            pendingUserAttachments = nil
-            pendingUserMessageAutomated = false
-            bootstrapCorrelationId = nil
-            isWorkspaceRefinementInFlight = false
-            refinementMessagePreview = nil
-            refinementStreamingText = nil
-            isThinking = false
-            isSending = false
-            dispatchPendingSendDirect()
-            return
-        }
-
-        // If the daemon is not connected, the cancel message cannot reach it
-        // and no acknowledgment (generation_cancelled / message_complete) will
-        // arrive.  Reset all transient state immediately to avoid a permanently
-        // stuck isCancelling flag that would suppress future assistant deltas.
-        guard connectionManager.isConnected else {
-            log.warning("Cannot send cancel: daemon not connected")
-            isWorkspaceRefinementInFlight = false
-            refinementMessagePreview = nil
-            refinementStreamingText = nil
-            cancelledDuringRefinement = false
-            isSending = false
-            isThinking = false
-            isCancelling = false
-            if let existingId = currentAssistantMessageId,
-               let index = messages.firstIndex(where: { $0.id == existingId }) {
-                messages[index].isStreaming = false
-                messages[index].streamingCodePreview = nil
-                messages[index].streamingCodeToolName = nil
-                for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
-                    messages[index].toolCalls[j].isComplete = true
-                    messages[index].toolCalls[j].completedAt = Date()
-                }
-            }
-            currentAssistantMessageId = nil
-            currentTurnUserText = nil
-            currentAssistantHasText = false
-            lastContentWasToolCall = false
-            discardStreamingBuffer()
-            discardPartialOutputBuffer()
-            pendingQueuedCount = 0
-            pendingMessageIds = []
-            requestIdToMessageId = [:]
-            activeRequestIdToMessageId = [:]
-            pendingLocalDeletions.removeAll()
-            for i in messages.indices {
-                if case .queued = messages[i].status, messages[i].role == .user {
-                    messages[i].status = .sent
-                } else if messages[i].role == .user && messages[i].status == .processing {
-                    messages[i].status = .sent
-                }
-            }
-            dispatchPendingSendDirect()
-            return
-        }
-
-        let cancelConversationId = conversationId!
-        Task {
-            let success = await conversationListClient.cancelGeneration(conversationId: cancelConversationId)
-            if !success {
-                log.error("Failed to send cancel")
-                // Cancel failed to send, so no generationCancelled or
-                // messageComplete event will arrive from the daemon. Reset
-                // all transient state now to avoid stuck UI.
-                isWorkspaceRefinementInFlight = false
-                refinementMessagePreview = nil
-                refinementStreamingText = nil
-                cancelledDuringRefinement = false
-                isSending = false
-                isThinking = false
-                isCancelling = false
-                // Mark current assistant message as stopped
-                if let existingId = currentAssistantMessageId,
-                   let index = messages.firstIndex(where: { $0.id == existingId }) {
-                    messages[index].isStreaming = false
-                    messages[index].streamingCodePreview = nil
-                    messages[index].streamingCodeToolName = nil
-                    for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
-                        messages[index].toolCalls[j].isComplete = true
-                        messages[index].toolCalls[j].completedAt = Date()
-                    }
-                }
-                currentAssistantMessageId = nil
-                currentTurnUserText = nil
-                currentAssistantHasText = false
-                lastContentWasToolCall = false
-                discardStreamingBuffer()
-                discardPartialOutputBuffer()
-                pendingQueuedCount = 0
-                pendingMessageIds = []
-                requestIdToMessageId = [:]
-                activeRequestIdToMessageId = [:]
-                pendingLocalDeletions.removeAll()
-                // Reset processing/queued messages to sent
-                for i in messages.indices {
-                    if case .queued = messages[i].status, messages[i].role == .user {
-                        messages[i].status = .sent
-                    } else if messages[i].role == .user && messages[i].status == .processing {
-                        messages[i].status = .sent
-                    }
-                }
-                dispatchPendingSendDirect()
-            }
-        }
-
-        // Flush any buffered streaming text so already-received tokens are
-        // visible before we set isCancelling (which suppresses future deltas).
-        flushStreamingBuffer()
-
-        // Set cancelling flag so late-arriving deltas are suppressed.
-        // isSending stays true until the daemon acknowledges the cancel
-        // (via generation_cancelled or message_complete) to prevent the
-        // user from sending a new message before the daemon has stopped.
-        isCancelling = true
-        cancelledDuringRefinement = isWorkspaceRefinementInFlight
-        isWorkspaceRefinementInFlight = false
-        isThinking = false
-
-        // Mark current assistant message as stopped and complete any in-progress tool calls
-        // so their chips don't show an endless spinner.
-        if let existingId = currentAssistantMessageId,
-           let index = messages.firstIndex(where: { $0.id == existingId }) {
-            messages[index].isStreaming = false
-            messages[index].streamingCodePreview = nil
-            messages[index].streamingCodeToolName = nil
-            for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
-                messages[index].toolCalls[j].isComplete = true
-                messages[index].toolCalls[j].completedAt = Date()
-            }
-        }
-
-        // Safety timeout: if the daemon never acknowledges the cancel (e.g. a
-        // tool is stuck and blocks the response), force-reset the UI so the
-        // user can start a new interaction.
-        cancelTimeoutTask?.cancel()
-        cancelTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
-            guard let self, !Task.isCancelled else { return }
-            guard self.isCancelling else { return }
-            log.warning("Cancel acknowledgment timed out after 5s — force-resetting UI state")
-            self.isWorkspaceRefinementInFlight = false
-            self.refinementMessagePreview = nil
-            self.refinementStreamingText = nil
-            self.cancelledDuringRefinement = false
-            self.isCancelling = false
-            self.isSending = false
-            self.currentAssistantMessageId = nil
-            self.currentTurnUserText = nil
-            self.currentAssistantHasText = false
-            self.lastContentWasToolCall = false
-            self.discardStreamingBuffer()
-            self.discardPartialOutputBuffer()
-            self.pendingQueuedCount = 0
-            self.pendingMessageIds = []
-            self.requestIdToMessageId = [:]
-            self.activeRequestIdToMessageId = [:]
-            self.pendingLocalDeletions.removeAll()
-            // Reset queued/processing messages to sent (matches other cancel-failure paths)
-            for i in self.messages.indices {
-                if case .queued = self.messages[i].status, self.messages[i].role == .user {
-                    self.messages[i].status = .sent
-                } else if self.messages[i].role == .user && self.messages[i].status == .processing {
-                    self.messages[i].status = .sent
-                }
-            }
-            self.dispatchPendingSendDirect()
-        }
+        sendCoordinator.stopGenerating()
     }
 
     /// Regenerate the last assistant response. Removes the old reply from
@@ -2302,61 +1712,13 @@ public final class ChatViewModel: ObservableObject {
 
     /// Skip the queue: stop the current generation and immediately send a specific queued message.
     public func sendDirectQueuedMessage(messageId: UUID) {
-        guard let index = messages.firstIndex(where: { $0.id == messageId }),
-              case .queued = messages[index].status else { return }
-
-        // Save content before stop clears everything
-        let text = messages[index].text
-        let attachments = messages[index].attachments
-        let skillInvocation = messages[index].skillInvocation
-
-        // Remove this message from local state (it will be re-added by sendMessage)
-        messages.remove(at: index)
-
-        // If the assistant is not busy (or only busy due to orphaned tool
-        // calls), complete any orphaned tool calls and dispatch immediately
-        // instead of going through the cancel flow.
-        if !isSending && !isThinking && currentAssistantMessageId == nil {
-            // Complete any orphaned incomplete tool calls first
-            if hasIncompleteToolCalls,
-               let lastAssistant = messages.last(where: { $0.role == .assistant }),
-               let idx = messages.firstIndex(where: { $0.id == lastAssistant.id }) {
-                for j in messages[idx].toolCalls.indices where !messages[idx].toolCalls[j].isComplete {
-                    messages[idx].toolCalls[j].isComplete = true
-                    messages[idx].toolCalls[j].completedAt = Date()
-                }
-            }
-            inputText = text
-            pendingAttachments = attachments
-            pendingSkillInvocation = skillInvocation
-            sendMessage()
-            return
-        }
-
-        // Store for dispatch after cancellation completes.
-        // Must be set BEFORE stopGenerating() because synchronous cancel paths
-        // (bootstrap, disconnected, send-failure) dispatch immediately.
-        pendingSendDirectText = text
-        pendingSendDirectAttachments = attachments
-        pendingSendDirectSkillInvocation = skillInvocation
-
-        // Stop current generation — this clears all queued messages on the daemon
-        stopGenerating()
+        sendCoordinator.sendDirectQueuedMessage(messageId: messageId)
     }
 
     /// If a send-direct is pending, populate the composer and fire sendMessage.
     /// Called from all cancel-completion paths (generationCancelled, timeout, disconnected, etc.).
     func dispatchPendingSendDirect() {
-        guard let directText = pendingSendDirectText else { return }
-        let directAttachments = pendingSendDirectAttachments ?? []
-        let directSkillInvocation = pendingSendDirectSkillInvocation
-        pendingSendDirectText = nil
-        pendingSendDirectAttachments = nil
-        pendingSendDirectSkillInvocation = nil
-        inputText = directText
-        pendingAttachments = directAttachments
-        pendingSkillInvocation = directSkillInvocation
-        sendMessage()
+        sendCoordinator.dispatchPendingSendDirect()
     }
 
     /// Stop the active watch session and notify the macOS layer.
@@ -2533,68 +1895,12 @@ public final class ChatViewModel: ObservableObject {
 
     /// Resend the secret-blocked message with the bypass flag so the backend skips the check.
     public func sendAnyway() {
-        guard let text = secretBlockedMessageText, let _ = conversationId else { return }
-
-        guard connectionManager.isConnected else {
-            errorText = "Cannot connect to assistant. Please ensure it's running."
-            return
-        }
-
-        // Snapshot and clear stashed context
-        let attachments = secretBlockedAttachments
-
-        secretBlockedMessageText = nil
-        secretBlockedAttachments = nil
-        secretBlockedActiveSurfaceId = nil
-        secretBlockedCurrentPage = nil
-        errorText = nil
-
-        sendUserMessage(text, attachments: attachments, bypassSecretCheck: true)
+        sendCoordinator.sendAnyway()
     }
 
     /// Retry sending the last user message that failed (e.g. due to daemon disconnection).
     public func retryLastMessage() {
-        guard let text = lastFailedMessageText else { return }
-        let displayText = lastFailedMessageDisplayText
-        let attachments = lastFailedMessageAttachments
-        let automated = lastFailedMessageAutomated
-        let bypassSecretCheck = lastFailedMessageBypassSecretCheck
-
-        // Clear failed message state and error
-        lastFailedMessageText = nil
-        lastFailedMessageDisplayText = nil
-        lastFailedMessageAttachments = nil
-        lastFailedMessageAutomated = false
-        lastFailedMessageBypassSecretCheck = false
-        lastFailedSendError = nil
-        errorText = nil
-        connectionDiagnosticHint = nil
-        errorManager.isConversationErrorDisplayedInline = false
-
-        if conversationId == nil {
-            pendingUserMessageDisplayText = displayText
-            pendingUserMessageAutomated = automated
-            bootstrapConversation(userMessage: text, attachments: attachments)
-        } else {
-            // When retrying while another turn is in progress, the retried
-            // message will be queued by the daemon. Track it in
-            // pendingMessageIds so subsequent messageQueued/messageDequeued
-            // events can update the user message's status correctly.
-            var queuedMessageId: UUID?
-            if isSending {
-                // Find the user message that corresponds to the failed text
-                // (it was already appended to messages[] during the original
-                // sendMessage() call). Use the last user message with matching
-                // text as the queue entry.
-                let matchText = displayText ?? text
-                if let idx = messages.lastIndex(where: { $0.role == .user && $0.text == matchText }) {
-                    pendingMessageIds.append(messages[idx].id)
-                    queuedMessageId = messages[idx].id
-                    messages[idx].status = .queued(position: 0)
-                }
-            }
-            sendUserMessage(text, displayText: displayText, attachments: attachments, queuedMessageId: queuedMessageId, automated: automated, bypassSecretCheck: bypassSecretCheck)
-        }
+        sendCoordinator.retryLastMessage()
     }
 
     /// Retry sending a specific failed message. Moves it to the end of the
@@ -2790,20 +2096,6 @@ public final class ChatViewModel: ObservableObject {
         }
     }
 
-    /// Parse string-encoded content order entries ("text:0", "tool:1", "surface:0")
-    /// into ContentBlockRef values.
-    nonisolated private static func parseContentOrder(_ strings: [String]) -> [ContentBlockRef] {
-        strings.compactMap { str in
-            let parts = str.split(separator: ":", maxSplits: 1)
-            guard parts.count == 2, let idx = Int(parts[1]) else { return nil }
-            switch parts[0] {
-            case "text": return .text(idx)
-            case "tool": return .toolCall(idx)
-            case "surface": return .surface(idx)
-            default: return nil
-            }
-        }
-    }
 
     /// Ask the daemon for a follow-up suggestion for the current conversation.
     func fetchSuggestion() {
@@ -2860,7 +2152,7 @@ public final class ChatViewModel: ObservableObject {
         // mapping, image decoding) is isolated in a pure function that accesses
         // no @MainActor state, enabling future background execution.
         let convId = self.conversationId
-        let result = Self.reconstructMessages(from: historyMessages, conversationId: convId)
+        let result = HistoryReconstructionService.reconstructMessages(from: historyMessages, conversationId: convId)
         let chatMessages = result.messages
         let reconstructedSubagents = result.subagents
 
@@ -2892,9 +2184,9 @@ public final class ChatViewModel: ObservableObject {
             } else {
                 displayedMessageCount = Int.max
             }
-            self.loadMoreTimeoutTask?.cancel()
-            self.loadMoreTimeoutTask = nil
-            self.isLoadingMoreMessages = false
+            self.paginationState.loadMoreTimeoutTask?.cancel()
+            self.paginationState.loadMoreTimeoutTask = nil
+            self.paginationState.isLoadingMoreMessages = false
             // TODO: Add pagination-aware trim that doesn't regress historyCursor (follow-up)
             refreshModelMetadataIfNeeded(hasModelCommand)
             os_signpost(.end, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "path=pagination")
@@ -2985,245 +2277,6 @@ public final class ChatViewModel: ObservableObject {
         os_signpost(.end, log: Self.poiLog, name: "populateFromHistory", signpostID: spid, "path=initial messages=%d", chatMessages.count)
     }
 
-    // MARK: - Off-Main History Reconstruction
-
-    /// Result of reconstructing ChatMessages from history response items.
-    struct HistoryReconstructionResult {
-        let messages: [ChatMessage]
-        let subagents: [SubagentInfo]
-    }
-
-    /// Reconstructs ChatMessage and SubagentInfo arrays from raw history items.
-    /// This method is nonisolated and accesses no @MainActor state, so it can
-    /// be called from a background context. Images are decoded eagerly via
-    /// `ToolCallData.decodeImage` and stored in `cachedImage` for display.
-    nonisolated static func reconstructMessages(
-        from historyMessages: [HistoryResponseMessage],
-        conversationId: String?
-    ) -> HistoryReconstructionResult {
-        var chatMessages: [ChatMessage] = []
-        var reconstructedSubagents: [SubagentInfo] = []
-        var spawnParentMap: [String: UUID] = [:]
-
-        for item in historyMessages {
-            let role: ChatRole = item.role == "assistant" ? .assistant : .user
-            var toolCalls: [ToolCallData] = []
-            let toolsBeforeText = item.toolCallsBeforeText ?? true
-            if let historyToolCalls = item.toolCalls {
-                toolCalls = historyToolCalls.map { tc in
-                    // Decode image eagerly — pass imageData:nil to init to skip
-                    // its internal decode, then set cachedImage directly below.
-                    var toolCall = ToolCallData(
-                        toolName: tc.name,
-                        inputSummary: Self.summarizeToolInputStatic(tc.input),
-                        inputFull: "",
-                        inputRawValue: Self.extractToolInputStatic(tc.input),
-                        result: tc.result,
-                        isError: tc.isError ?? false,
-                        isComplete: true,
-                        arrivedBeforeText: toolsBeforeText,
-                        imageData: nil
-                    )
-                    // Decode image eagerly — NSImage/UIImage init from Data is
-                    // thread-safe and the views expect cachedImage to be populated.
-                    toolCall.cachedImage = ToolCallData.decodeImage(from: tc.imageData)
-                    toolCall.reasonDescription = (tc.input["activity"]?.value as? String)
-                        ?? (tc.input["reason"]?.value as? String)
-                        ?? (tc.input["reasoning"]?.value as? String)
-                    if let startMs = tc.startedAt {
-                        toolCall.startedAt = Date(timeIntervalSince1970: Double(startMs) / 1000.0)
-                    }
-                    if let endMs = tc.completedAt {
-                        toolCall.completedAt = Date(timeIntervalSince1970: Double(endMs) / 1000.0)
-                    }
-                    if let decision = tc.confirmationDecision {
-                        switch decision {
-                        case "approved": toolCall.confirmationDecision = .approved
-                        case "denied": toolCall.confirmationDecision = .denied
-                        case "timed_out": toolCall.confirmationDecision = .timedOut
-                        default: break
-                        }
-                    }
-                    toolCall.confirmationLabel = tc.confirmationLabel
-                    let input = tc.input
-                    let estimatedSize: Int = (try? JSONSerialization.data(withJSONObject: input.mapValues { $0.value ?? NSNull() }))?.count ?? 0
-                    if estimatedSize > 10_000 {
-                        let formatted = ToolCallData.formatAllToolInput(input)
-                        toolCall.inputFull = formatted
-                        toolCall.inputFullLength = formatted.count
-                    } else {
-                        toolCall.inputRawDict = input
-                    }
-                    return toolCall
-                }
-            }
-            let attachments: [ChatAttachment] = mapMessageAttachmentsStatic(item.attachments ?? [])
-
-            var inlineSurfaces: [InlineSurfaceData] = []
-            if let historySurfaces = item.surfaces {
-                for surf in historySurfaces {
-                    if let conversationId,
-                       let surface = Surface.from(surf, conversationId: conversationId) {
-                        let appId: String? = {
-                            if case .dynamicPage(let dpData) = surface.data {
-                                return dpData.appId
-                            }
-                            return nil
-                        }()
-                        let ref = SurfaceRef(
-                            surfaceId: surf.surfaceId,
-                            conversationId: conversationId,
-                            surfaceType: surf.surfaceType,
-                            title: surf.title,
-                            appId: appId
-                        )
-                        let inlineSurface = InlineSurfaceData(
-                            id: surface.id,
-                            surfaceType: surface.type,
-                            title: surface.title,
-                            data: surface.data,
-                            actions: surface.actions,
-                            surfaceRef: ref
-                        )
-                        inlineSurfaces.append(inlineSurface)
-                    }
-                }
-            }
-
-            if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty && inlineSurfaces.isEmpty { continue }
-            let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
-
-            var chatMsg: ChatMessage
-            if let dbId = item.id, let uuid = UUID(uuidString: dbId) {
-                chatMsg = ChatMessage(id: uuid, role: role, text: item.text, timestamp: timestamp, attachments: attachments, toolCalls: toolCalls)
-            } else {
-                chatMsg = ChatMessage(role: role, text: item.text, timestamp: timestamp, attachments: attachments, toolCalls: toolCalls)
-            }
-
-            chatMsg.daemonMessageId = item.id
-            chatMsg.wasTruncated = item.wasTruncated ?? false
-            for i in chatMsg.attachments.indices {
-                chatMsg.attachments[i].data = ""
-            }
-            chatMsg.inlineSurfaces = inlineSurfaces
-            if let segments = item.textSegments {
-                chatMsg.textSegments = segments
-            }
-            if let orderStrings = item.contentOrder {
-                chatMsg.contentOrder = Self.parseContentOrder(orderStrings)
-            }
-
-            if role == .assistant {
-                for tc in toolCalls where tc.toolName == "subagent_spawn" {
-                    if let result = tc.result,
-                       let data = result.data(using: .utf8),
-                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                       let spawnedId = json["subagentId"] as? String {
-                        spawnParentMap[spawnedId] = chatMsg.id
-                    }
-                }
-            }
-
-            if let notification = item.subagentNotification {
-                var info = SubagentInfo(
-                    id: notification.subagentId,
-                    label: notification.label,
-                    status: SubagentStatus(wire: notification.status),
-                    parentMessageId: spawnParentMap[notification.subagentId],
-                    conversationId: notification.conversationId
-                )
-                info.error = notification.error
-                reconstructedSubagents.append(info)
-                chatMsg.isSubagentNotification = true
-            }
-
-            chatMessages.append(chatMsg)
-        }
-
-        return HistoryReconstructionResult(messages: chatMessages, subagents: reconstructedSubagents)
-    }
-
-    /// Static version of summarizeToolInput for use in nonisolated context.
-    nonisolated static func summarizeToolInputStatic(_ input: [String: AnyCodable]) -> String {
-        let str = extractToolInputStatic(input)
-        return str.count > 80 ? String(str.prefix(77)) + "..." : str
-    }
-
-    /// Static version of extractToolInput for use in nonisolated context.
-    nonisolated static func extractToolInputStatic(_ input: [String: AnyCodable]) -> String {
-        let key: String
-        let value: AnyCodable
-        if let match = toolInputPriorityKeys.first(where: { input[$0] != nil }),
-           let v = input[match] {
-            key = match
-            value = v
-        } else if let firstKey = input.keys.sorted().first, let v = input[firstKey] {
-            key = firstKey
-            value = v
-        } else {
-            return ""
-        }
-        if isSensitiveKey(key) {
-            return "[redacted]"
-        }
-        if let s = value.value as? String {
-            return s
-        } else if let encoder = try? JSONEncoder().encode(value),
-                  let json = String(data: encoder, encoding: .utf8) {
-            return json
-        } else {
-            return String(describing: value.value ?? "")
-        }
-    }
-
-    /// Static version of mapMessageAttachments for use in nonisolated context.
-    nonisolated static func mapMessageAttachmentsStatic(_ attachments: [UserMessageAttachment]) -> [ChatAttachment] {
-        attachments.compactMap { attachment in
-            let id = attachment.id ?? UUID().uuidString
-            let base64 = attachment.data
-            let dataLength = base64.count
-            let sizeBytes: Int? = attachment.sizeBytes.flatMap { Int(exactly: $0) }
-
-            var thumbnailData: Data?
-            #if os(macOS)
-            var thumbnailImage: NSImage?
-            #elseif os(iOS)
-            var thumbnailImage: UIImage?
-            #else
-            #error("Unsupported platform")
-            #endif
-
-            if attachment.mimeType.hasPrefix("image/"), !base64.isEmpty, let rawData = Data(base64Encoded: base64) {
-                thumbnailData = Self.generateThumbnail(from: rawData, maxDimension: 120)
-                #if os(macOS)
-                thumbnailImage = thumbnailData.flatMap { NSImage(data: $0) }
-                #elseif os(iOS)
-                thumbnailImage = thumbnailData.flatMap { UIImage(data: $0) }
-                #endif
-            } else if let serverThumb = attachment.thumbnailData, !serverThumb.isEmpty,
-                      let thumbData = Data(base64Encoded: serverThumb) {
-                thumbnailData = thumbData
-                #if os(macOS)
-                thumbnailImage = NSImage(data: thumbData)
-                #elseif os(iOS)
-                thumbnailImage = UIImage(data: thumbData)
-                #endif
-            }
-
-            return ChatAttachment(
-                id: id,
-                filename: attachment.filename,
-                mimeType: attachment.mimeType,
-                data: base64,
-                thumbnailData: thumbnailData,
-                dataLength: dataLength,
-                sizeBytes: sizeBytes,
-                thumbnailImage: thumbnailImage,
-                filePath: attachment.filePath,
-                sourceType: attachment.sourceType
-            )
-        }
-    }
 
     private func applyHistoryResponseMarkers(to chatMessages: inout [ChatMessage]) -> Bool {
         var hasModelCommand = false
@@ -3273,7 +2326,8 @@ public final class ChatViewModel: ObservableObject {
         streamingFlushTask?.cancel()
         partialOutputFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
-        loadMoreTimeoutTask?.cancel()
+        // paginationState.loadMoreTimeoutTask uses [weak self] and exits
+        // naturally when ChatPaginationState is deallocated with this object.
         // surfaceRefetchCoordinator is released with self; its deinit cancels tasks.
         // refinementFailureDismissTask and refinementFlushTask are accessed via
         // @MainActor computed properties (forwarded from ChatMessageManager), which

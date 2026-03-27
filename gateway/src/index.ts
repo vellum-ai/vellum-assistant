@@ -56,6 +56,7 @@ import { createVercelControlPlaneProxyHandler } from "./http/routes/vercel-contr
 import { createContactsControlPlaneProxyHandler } from "./http/routes/contacts-control-plane-proxy.js";
 import { createSlackControlPlaneProxyHandler } from "./http/routes/slack-control-plane-proxy.js";
 import { createOAuthAppsProxyHandler } from "./http/routes/oauth-apps-proxy.js";
+import { createOAuthProvidersProxyHandler } from "./http/routes/oauth-providers-proxy.js";
 import { createChannelReadinessProxyHandler } from "./http/routes/channel-readiness-proxy.js";
 import { createRuntimeHealthProxyHandler } from "./http/routes/runtime-health-proxy.js";
 import { createUpgradeBroadcastProxyHandler } from "./http/routes/upgrade-broadcast-proxy.js";
@@ -276,6 +277,7 @@ async function main() {
   const twilioControlPlaneProxy = createTwilioControlPlaneProxyHandler(config);
   const slackControlPlaneProxy = createSlackControlPlaneProxyHandler(config);
   const oauthAppsProxy = createOAuthAppsProxyHandler(config);
+  const oauthProvidersProxy = createOAuthProvidersProxyHandler(config);
   const channelReadinessProxy = createChannelReadinessProxyHandler(config);
   const runtimeHealthProxy = createRuntimeHealthProxyHandler(config);
   const upgradeBroadcastProxy = createUpgradeBroadcastProxyHandler(config);
@@ -706,6 +708,21 @@ async function main() {
       method: "POST",
       auth: "edge",
       handler: (req) => slackControlPlaneProxy.handleShareToSlack(req),
+    },
+
+    // ── OAuth providers ──
+    {
+      path: "/v1/oauth/providers",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => oauthProvidersProxy.handleListProviders(req),
+    },
+    {
+      path: /^\/v1\/oauth\/providers\/([^/]+)\/?$/,
+      method: "GET",
+      auth: "edge",
+      handler: (req, params) =>
+        oauthProvidersProxy.handleGetProvider(req, params[0]),
     },
 
     // ── OAuth apps ──

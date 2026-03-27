@@ -4644,6 +4644,28 @@ paths:
           required: true
           schema:
             type: string
+  /v1/oauth/providers:
+    get:
+      operationId: oauth_providers_get
+      tags:
+        - oauth-providers
+      responses:
+        "200":
+          description: Successful response
+  /v1/oauth/providers/{providerKey}:
+    get:
+      operationId: oauth_providers_by_providerKey_get
+      tags:
+        - oauth-providers
+      responses:
+        "200":
+          description: Successful response
+      parameters:
+        - name: providerKey
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/oauth/start:
     post:
       operationId: oauth_start_post

@@ -18,6 +18,7 @@ import {
   listConnections,
   upsertApp,
 } from "../../oauth/oauth-store.js";
+import { serializeProviderSummary } from "../../oauth/provider-serializer.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
@@ -75,15 +76,7 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
 
         const providerRow = getProvider(providerKey);
         const provider = providerRow
-          ? {
-              provider_key: providerRow.providerKey,
-              display_name: providerRow.displayName ?? null,
-              description: providerRow.description ?? null,
-              dashboard_url: providerRow.dashboardUrl ?? null,
-              client_id_placeholder: providerRow.clientIdPlaceholder ?? null,
-              requires_client_secret: providerRow.requiresClientSecret ?? 1,
-              supports_managed_mode: !!providerRow.managedServiceConfigKey,
-            }
+          ? serializeProviderSummary(providerRow)
           : null;
 
         return Response.json({

@@ -1,6 +1,10 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import type { Command } from "commander";
 
 import { credentialKey } from "../../../security/credential-key.js";
+import { getSignalsDir } from "../../../util/platform.js";
 import { getSecureKeyViaDaemon } from "../../lib/daemon-credential-client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
@@ -83,15 +87,22 @@ Examples:
           return;
         }
 
-        // TODO: Send a UI component to collect credentials from the user
-        writeError(
-          "Platform connect UI component not yet implemented. " +
-            "Credentials will be collected via a secure client-side flow.",
+        // Write a signal file so the daemon's ConfigWatcher publishes the
+        // event to connected clients (e.g. macOS app), opening the General
+        // settings tab which contains the Vellum Platform login card.
+        const signalsDir = getSignalsDir();
+        mkdirSync(signalsDir, { recursive: true });
+        writeFileSync(
+          join(signalsDir, "emit-event"),
+          JSON.stringify({ type: "navigate_settings", tab: "General" }),
         );
+
+        writeOutput(cmd, { ok: true, navigatedToSettings: true });
 
         if (!jsonMode) {
           log.info(
-            "Platform connect will be available once the client-side credential flow is implemented.",
+            "Opening the platform login screen on connected clients. " +
+              "Please complete the sign-in flow in the app.",
           );
         }
       } catch (err) {

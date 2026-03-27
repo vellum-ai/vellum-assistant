@@ -939,7 +939,7 @@ class IOSConversationStore: ObservableObject {
         guard !observedForkAvailabilityConversationIds.contains(conversationLocalId) else { return }
         observedForkAvailabilityConversationIds.insert(conversationLocalId)
 
-        vm.messageManager.$messages
+        vm.messageManager.messagesPublisher
             .map { messages in
                 messages.last(where: { $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden })?.daemonMessageId
             }
@@ -993,7 +993,7 @@ class IOSConversationStore: ObservableObject {
         // Find the conversation's default title; skip if already customized.
         guard conversations.first(where: { $0.id == conversationLocalId })?.title == "New Chat" else { return }
 
-        vm.messageManager.$messages
+        vm.messageManager.messagesPublisher
             .dropFirst()
             .compactMap { messages -> String? in
                 // Trigger once we have at least one user message and the first assistant
@@ -1029,7 +1029,7 @@ class IOSConversationStore: ObservableObject {
         guard !observedActivityConversationIds.contains(conversationLocalId) else { return }
         observedActivityConversationIds.insert(conversationLocalId)
 
-        vm.messageManager.$messages
+        vm.messageManager.messagesPublisher
             .dropFirst()
             .map(\.count)
             .removeDuplicates()

@@ -25,6 +25,7 @@ import { handleBashSignal } from "../signals/bash.js";
 import { handleCancelSignal } from "../signals/cancel.js";
 import { handleConfirmationSignal } from "../signals/confirm.js";
 import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
+import { handleEmitEventSignal } from "../signals/emit-event.js";
 import { handleMcpReloadSignal } from "../signals/mcp-reload.js";
 import { handleShotgunSignal } from "../signals/shotgun.js";
 import { handleTrustRuleSignal } from "../signals/trust-rule.js";
@@ -246,6 +247,7 @@ export class ConfigWatcher {
       "mcp-reload": handleMcpReloadSignal,
       "trust-rule": handleTrustRuleSignal,
       "conversation-undo": handleConversationUndoSignal,
+      "emit-event": handleEmitEventSignal,
     };
 
     const prefixSignalHandlers: Record<

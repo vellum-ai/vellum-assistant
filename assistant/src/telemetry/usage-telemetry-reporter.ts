@@ -10,10 +10,10 @@
  */
 
 import {
+  getPlatformBaseUrl,
   getPlatformOrganizationId,
   getPlatformUserId,
   getTelemetryAppToken,
-  getTelemetryPlatformUrl,
 } from "../config/env.js";
 import {
   getMemoryCheckpoint,
@@ -140,7 +140,7 @@ export class UsageTelemetryReporter {
 
       // Resolve auth context — skip flush when neither auth mode is viable
       const client = await VellumPlatformClient.create();
-      if (!client && (!getTelemetryAppToken() || !getTelemetryPlatformUrl())) {
+      if (!client && !getTelemetryAppToken()) {
         return;
       }
 
@@ -203,9 +203,7 @@ export class UsageTelemetryReporter {
       if (client) {
         resp = await client.fetch(TELEMETRY_PATH, fetchInit);
       } else {
-        const platformUrl = getTelemetryPlatformUrl();
-        if (!platformUrl) return;
-        const url = `${platformUrl}${TELEMETRY_PATH}`;
+        const url = `${getPlatformBaseUrl()}${TELEMETRY_PATH}`;
         resp = await fetch(url, {
           ...fetchInit,
           headers: {

@@ -49,16 +49,16 @@ mock.module("../platform/client.js", () => ({
   },
 }));
 
-const mockGetTelemetryPlatformUrl = mock(() => "https://platform.vellum.ai");
+const mockGetPlatformBaseUrl = mock(() => "https://platform.vellum.ai");
 const mockGetTelemetryAppToken = mock(() => "");
 
 const mockGetPlatformOrganizationId = mock(() => "");
 const mockGetPlatformUserId = mock(() => "");
 
 mock.module("../config/env.js", () => ({
+  getPlatformBaseUrl: mockGetPlatformBaseUrl,
   getPlatformOrganizationId: mockGetPlatformOrganizationId,
   getPlatformUserId: mockGetPlatformUserId,
-  getTelemetryPlatformUrl: mockGetTelemetryPlatformUrl,
   getTelemetryAppToken: mockGetTelemetryAppToken,
   // Re-export anything else the module might import transitively
   str: () => undefined,
@@ -141,7 +141,7 @@ beforeEach(() => {
   mockQueryUnreportedTurnEvents.mockReset();
   mockQueryUnreportedTurnEvents.mockReturnValue([]);
   mockPlatformClient = null;
-  mockGetTelemetryPlatformUrl.mockReset();
+  mockGetPlatformBaseUrl.mockReset();
   mockGetTelemetryAppToken.mockReset();
   mockGetDeviceId.mockReset();
   mockGetDeviceId.mockReturnValue("test-device-id");
@@ -154,7 +154,7 @@ beforeEach(() => {
 
   // Defaults
   mockGetMemoryCheckpoint.mockReturnValue(null);
-  mockGetTelemetryPlatformUrl.mockReturnValue("https://platform.vellum.ai");
+  mockGetPlatformBaseUrl.mockReturnValue("https://platform.vellum.ai");
   mockGetTelemetryAppToken.mockReturnValue("default-test-token");
 
   mockFetch = mock(() =>
@@ -197,7 +197,7 @@ describe("UsageTelemetryReporter", () => {
 
   test("anonymous flush uses X-Telemetry-Token and default URL", async () => {
     mockPlatformClient = null;
-    mockGetTelemetryPlatformUrl.mockReturnValue("https://platform.test.ai");
+    mockGetPlatformBaseUrl.mockReturnValue("https://platform.test.ai");
     mockGetTelemetryAppToken.mockReturnValue("anon-token");
 
     const events = [makeUsageEvent()];

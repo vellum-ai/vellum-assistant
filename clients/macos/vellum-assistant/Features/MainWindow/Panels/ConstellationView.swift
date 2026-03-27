@@ -1064,38 +1064,40 @@ struct ConstellationView: View {
                 canvas(size: proxy.size)
                     .scaleEffect(zoomScale)
                     .offset(totalOffset)
-
-                // Dismiss layer for popover
-                if selectedPopoverItem != nil {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            withAnimation(VAnimation.fast) {
-                                selectedPopoverItem = nil
-                                selectedPopoverNodeId = nil
-                            }
-                        }
-                }
-
-                // Unified popover overlay
-                if let popoverItem = selectedPopoverItem, let popoverNodeId = selectedPopoverNodeId {
-                    let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let nodePos = effectivePosition(forId: popoverNodeId)
-                    let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let scaledX = viewCenter.x + (nodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
-                    let scaledY = viewCenter.y + (nodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
-
-                    NodePopoverView(
-                        item: popoverItem,
-                        onViewDetails: viewDetailsAction(for: popoverItem)
-                    )
-                    .position(x: scaledX, y: scaledY)
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                }
             }
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .clipped()
                 .contentShape(Rectangle())
+                .overlay {
+                    // Dismiss layer for popover
+                    if selectedPopoverItem != nil {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                withAnimation(VAnimation.fast) {
+                                    selectedPopoverItem = nil
+                                    selectedPopoverNodeId = nil
+                                }
+                            }
+                    }
+                }
+                .overlay {
+                    // Popover overlay (outside clipped area so it doesn't get cut off)
+                    if let popoverItem = selectedPopoverItem, let popoverNodeId = selectedPopoverNodeId {
+                        let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                        let nodePos = effectivePosition(forId: popoverNodeId)
+                        let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                        let rawX = viewCenter.x + (nodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
+                        let rawY = viewCenter.y + (nodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
+
+                        NodePopoverView(
+                            item: popoverItem,
+                            onViewDetails: viewDetailsAction(for: popoverItem)
+                        )
+                        .position(x: rawX, y: rawY)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
+                }
                 .overlay(alignment: .topLeading) {
                     fullscreenToggle
                         .padding(VSpacing.lg)
