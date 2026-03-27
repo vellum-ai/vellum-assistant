@@ -2,7 +2,7 @@ import Combine
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatPaginationState")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatPaginationState")
 
 /// Owns message-pagination and display-window state: the visible message
 /// suffix window, daemon cursor-based history loading, and the throttled

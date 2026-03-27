@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatViewModel+StreamingHelpers")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatViewModel+StreamingHelpers")
 
 // MARK: - Streaming Delta Throttle & Partial Output Coalescing
 

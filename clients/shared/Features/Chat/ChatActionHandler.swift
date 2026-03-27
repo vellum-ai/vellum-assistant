@@ -8,7 +8,7 @@ import UIKit
 #error("Unsupported platform")
 #endif
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatActionHandler")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatActionHandler")
 
 // MARK: - ChatActionHandler
 

@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatGreetingState")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatGreetingState")
 
 /// Owns empty-state greeting and conversation starter properties that were
 /// previously part of ChatViewModel.  ChatViewModel holds a reference to this
