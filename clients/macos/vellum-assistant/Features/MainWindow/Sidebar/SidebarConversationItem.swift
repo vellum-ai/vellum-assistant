@@ -120,7 +120,7 @@ struct SidebarConversationItem: View, Equatable {
                     iconSize: 20,
                     tooltip: conversation.isPinned ? "Unpin" : "Pin",
                     iconColor: VColor.contentSecondary,
-                    iconRotation: .degrees(-45)
+                    iconRotation: conversation.isPinned ? .degrees(0) : .degrees(-45)
                 ) {
                     onTogglePin()
                 }
