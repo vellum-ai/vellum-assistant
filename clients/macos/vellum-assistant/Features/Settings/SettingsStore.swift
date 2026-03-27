@@ -2049,7 +2049,6 @@ public final class SettingsStore: ObservableObject {
             guard let response = await settingsClient.fetchPlatformConfig() else { return }
             if response.success {
                 self.platformBaseUrl = response.baseUrl
-                AuthService.shared.configuredBaseURL = response.baseUrl
             }
         }
     }
@@ -2058,16 +2057,13 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let previous = platformBaseUrl
         platformBaseUrl = trimmed
-        AuthService.shared.configuredBaseURL = trimmed
         Task {
             guard let response = await settingsClient.setPlatformConfig(baseUrl: trimmed) else {
                 self.platformBaseUrl = previous
-                AuthService.shared.configuredBaseURL = previous
                 return
             }
             if !response.success {
                 self.platformBaseUrl = previous
-                AuthService.shared.configuredBaseURL = previous
                 if let error = response.error {
                     log.error("Platform config update failed: \(error)")
                 }

@@ -391,7 +391,6 @@ public enum GatewayHTTPClient {
                 // `AuthService.shared.baseURL` is @MainActor-isolated and
                 // cannot be read from a nonisolated synchronous context.
                 baseURL = AuthService.resolveBaseURL(
-                    configuredBaseURL: AuthService.currentConfiguredBaseURL,
                     environment: ProcessInfo.processInfo.environment,
                     userDefaults: .standard
                 )

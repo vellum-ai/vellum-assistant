@@ -95,13 +95,6 @@ extension AppDelegate {
 
         let assistant = loadAssistantFromLockfile()
 
-        // Seed AuthService with the platform URL from the lockfile so that any
-        // platform API calls before the daemon connects (e.g. organization
-        // resolution during managed bootstrap) use the correct URL.
-        if let assistant, assistant.isManaged, let runtimeUrl = assistant.runtimeUrl, !runtimeUrl.isEmpty {
-            AuthService.shared.configuredBaseURL = runtimeUrl
-        }
-
         configureDaemonTransport(for: assistant)
 
         // Set recovery credentials for automatic 401 re-bootstrap

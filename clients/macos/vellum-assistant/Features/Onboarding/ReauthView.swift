@@ -163,19 +163,6 @@ struct ReauthView: View {
         authManager.errorMessage = nil
         defer { isActivatingManagedAssistant = false }
 
-        // Seed AuthService with the platform URL from the existing lockfile entry
-        // so that organization resolution hits the correct platform (e.g. dev-platform
-        // vs production) before the daemon is connected.
-        if let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
-           let managedAssistant = LockfileAssistant.loadByName(connectedId),
-           managedAssistant.isManaged,
-           let runtimeUrl = managedAssistant.runtimeUrl, !runtimeUrl.isEmpty {
-            AuthService.shared.configuredBaseURL = runtimeUrl
-        } else if let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.isManaged }),
-                  let runtimeUrl = managedAssistant.runtimeUrl, !runtimeUrl.isEmpty {
-            AuthService.shared.configuredBaseURL = runtimeUrl
-        }
-
         do {
             let activation = try await ManagedAssistantConnectionCoordinator().activateManagedAssistantAfterReauth()
             didComplete = true
