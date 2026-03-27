@@ -32,6 +32,11 @@ struct SidebarSectionView: View {
     var onCancelRename: (() -> Void)?
     var onDelete: (() -> Void)?
 
+    /// The currently selected conversation ID. Passed through so that SwiftUI
+    /// re-evaluates this view's body (and thus re-calls makeRow) when selection changes.
+    /// Without this, SidebarSectionView doesn't observe windowState and rows show stale selection.
+    let selectedConversationId: UUID?
+
     var onToggleExpand: () -> Void
     var onToggleShowAll: () -> Void
     var makeRow: (ConversationModel) -> SidebarConversationItem
