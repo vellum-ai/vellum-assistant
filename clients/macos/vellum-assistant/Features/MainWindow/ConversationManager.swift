@@ -57,6 +57,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     private let conversationListClient: any ConversationListClientProtocol = ConversationListClient()
     /// Concrete client for group CRUD operations (not on the protocol).
     private let groupClient = ConversationListClient()
+    /// Debounce task for coalescing rapid reorder persistence calls (e.g. during drag).
+    private var reorderDebounceTask: Task<Void, Never>?
     var serverOffset: Int = 0
     @Published var activeConversationId: UUID? {
         didSet {
@@ -1314,21 +1316,27 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     /// Send the current conversation ordering to the daemon so it persists across restarts.
     /// Includes groupId in the payload so the server can track group membership.
+    /// Debounced: rapid successive calls (e.g. during drag) are coalesced into a single
+    /// API call after 300ms of inactivity.
     private func sendReorderConversations() {
-        let visible = visibleConversations
-        var updates: [ReorderConversationsRequestUpdate] = []
-        for conversation in visible {
-            guard let conversationId = conversation.conversationId else { continue }
-            updates.append(ReorderConversationsRequestUpdate(
-                conversationId: conversationId,
-                displayOrder: conversation.displayOrder.map { Double($0) },
-                isPinned: conversation.isPinned,
-                groupId: conversation.groupId
-            ))
-        }
-        guard !updates.isEmpty else { return }
-        Task {
-            let success = await conversationListClient.reorderConversations(updates: updates)
+        reorderDebounceTask?.cancel()
+        reorderDebounceTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+
+            let visible = self.visibleConversations
+            var updates: [ReorderConversationsRequestUpdate] = []
+            for conversation in visible {
+                guard let conversationId = conversation.conversationId else { continue }
+                updates.append(ReorderConversationsRequestUpdate(
+                    conversationId: conversationId,
+                    displayOrder: conversation.displayOrder.map { Double($0) },
+                    isPinned: conversation.isPinned,
+                    groupId: conversation.groupId
+                ))
+            }
+            guard !updates.isEmpty else { return }
+            let success = await self.conversationListClient.reorderConversations(updates: updates)
             if !success {
                 log.error("Failed to send reorder_conversations")
             }
