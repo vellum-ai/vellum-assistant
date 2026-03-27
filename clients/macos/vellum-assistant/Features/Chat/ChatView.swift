@@ -178,218 +178,24 @@ struct ChatView: View {
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "ChatView.body")
         #endif
         ZStack {
-            VStack(spacing: 0) {
-                if showSkeleton {
-                    ChatLoadingSkeleton()
-                        .padding(VSpacing.lg)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("Loading chat history")
-                } else if isEmptyState && isBootstrapping {
-                    if isBootstrapTimedOut {
-                        ChatBootstrapTimeoutView(onSendLogs: onBootstrapSendLogs)
-                    } else {
-                        ChatBootstrapLoadingView()
-                    }
-                } else if isEmptyState {
-                    if isTemporaryChat {
-                        ChatTemporaryChatEmptyStateView(
-                            inputText: $inputText,
-                            isSending: isSending,
-                            isAssistantBusy: isAssistantBusy,
-                            isRecording: isRecording,
-                            suggestion: suggestion,
-                            pendingAttachments: pendingAttachments,
-                            isLoadingAttachment: isLoadingAttachment,
-                            onSend: onSend,
-                            onStop: onStop,
-                            onAcceptSuggestion: onAcceptSuggestion,
-                            onAttach: onAttach,
-                            onRemoveAttachment: onRemoveAttachment,
-                            onPaste: onPaste,
-                            onMicrophoneToggle: onMicrophoneToggle,
-                            recordingAmplitude: recordingAmplitude,
-                            onDictateToggle: onDictateToggle,
-                            onVoiceModeToggle: onVoiceModeToggle,
-                            conversationId: conversationId
-                        )
-                    } else {
-                        ChatEmptyStateView(
-                            inputText: $inputText,
-                            isSending: isSending,
-                            isAssistantBusy: isAssistantBusy,
-                            isRecording: isRecording,
-                            suggestion: suggestion,
-                            pendingAttachments: pendingAttachments,
-                            isLoadingAttachment: isLoadingAttachment,
-                            onSend: onSend,
-                            onStop: onStop,
-                            onAcceptSuggestion: onAcceptSuggestion,
-                            onAttach: onAttach,
-                            onRemoveAttachment: onRemoveAttachment,
-                            onPaste: onPaste,
-                            onMicrophoneToggle: onMicrophoneToggle,
-                            recordingAmplitude: recordingAmplitude,
-                            onDictateToggle: onDictateToggle,
-                            onVoiceModeToggle: onVoiceModeToggle,
-                            conversationId: conversationId,
-                            daemonGreeting: daemonGreeting,
-                            onRequestGreeting: onRequestGreeting,
-                            conversationStarters: conversationStarters,
-                            conversationStartersLoading: conversationStartersLoading,
-                            onSelectStarter: onSelectStarter,
-                            onFetchConversationStarters: onFetchConversationStarters
-                        )
-                    }
-                } else {
-                    VStack(spacing: 0) {
-                        MessageListView(
-                            messages: messages,
-                            isSending: isSending,
-                            isThinking: isThinking,
-                            isCompacting: isCompacting,
-                            assistantActivityPhase: assistantActivityPhase,
-                            assistantActivityAnchor: assistantActivityAnchor,
-                            assistantActivityReason: assistantActivityReason,
-                            assistantStatusText: assistantStatusText,
-                            selectedModel: selectedModel,
-                            configuredProviders: configuredProviders,
-                            providerCatalog: providerCatalog,
-                            activeSubagents: activeSubagents,
-                            dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
-                            onConfirmationAllow: onConfirmationAllow,
-                            onConfirmationDeny: onConfirmationDeny,
-                            onAlwaysAllow: onAlwaysAllow,
-                            onTemporaryAllow: onTemporaryAllow,
-                            onSurfaceAction: onSurfaceAction,
-                            onGuardianAction: onGuardianAction,
-                            onDismissDocumentWidget: onDismissDocumentWidget,
-                            onForkFromMessage: onForkFromMessage,
-                            showInspectButton: showInspectButton,
-                            isTTSEnabled: isTTSEnabled,
-                            onInspectMessage: onInspectMessage,
-                            mediaEmbedSettings: mediaEmbedSettings,
-                            onAbortSubagent: onAbortSubagent,
-                            onSubagentTap: onSubagentTap,
-                            onRehydrateMessage: onRehydrateMessage,
-                            onSurfaceRefetch: onSurfaceRefetch,
-                            onRetryFailedMessage: onRetryFailedMessage,
-                            onRetryConversationError: onRetryConversationError,
-                            subagentDetailStore: subagentDetailStore,
-                            activePendingRequestId: activePendingRequestId,
-                            displayedMessageCount: displayedMessageCount,
-                            hasMoreMessages: hasMoreMessages,
-                            isLoadingMoreMessages: isLoadingMoreMessages,
-                            loadPreviousMessagePage: loadPreviousMessagePage,
-                            conversationId: conversationId,
-                            anchorMessageId: $anchorMessageId,
-                            highlightedMessageId: $highlightedMessageId,
-                            isNearBottom: $isNearBottom,
-                            containerWidth: containerWidth
-                        )
-
-                        if let exhaustedError = creditsExhaustedError, exhaustedError.isCreditsExhausted {
-                            CreditsExhaustedBanner(
-                                onAddFunds: { onAddFunds?() }
-                            )
-                            .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
-                            .frame(maxWidth: .infinity)
-                            .padding(.bottom, -VSpacing.sm)
-                        }
-
-                        if let _ = providerNotConfiguredError {
-                            MissingApiKeyBanner(
-                                onOpenSettings: { onOpenModelsAndServices?() },
-                                onDismiss: { onDismissProviderNotConfigured?() }
-                            )
-                            .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
-                            .frame(maxWidth: .infinity)
-                            .padding(.bottom, -VSpacing.sm)
-                        }
-
-                        if isReadonly {
-                            HStack(spacing: VSpacing.xs) {
-                                VIconView(.eye, size: 14)
-                                Text("Read-only conversation")
-                                    .font(VFont.caption)
-                            }
-                            .foregroundStyle(VColor.contentTertiary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, VSpacing.md)
-                        } else {
-                            ComposerSection(
-                                inputText: $inputText,
-                                isSending: isSending,
-                                isAssistantBusy: isAssistantBusy,
-                                hasPendingConfirmation: activePendingRequestId != nil,
-                                onAllowPendingConfirmation: {
-                                    if let requestId = activePendingRequestId {
-                                        onConfirmationAllow(requestId)
-                                    }
-                                },
-                                isRecording: isRecording,
-                                suggestion: suggestion,
-                                pendingAttachments: pendingAttachments,
-                                isLoadingAttachment: isLoadingAttachment,
-                                onSend: onSend,
-                                onStop: onStop,
-                                onAcceptSuggestion: onAcceptSuggestion,
-                                onAttach: onAttach,
-                                onRemoveAttachment: onRemoveAttachment,
-                                onPaste: onPaste,
-                                onMicrophoneToggle: onMicrophoneToggle,
-                                watchSession: watchSession,
-                                onStopWatch: onStopWatch,
-                                voiceModeManager: voiceModeManager,
-                                voiceService: voiceService,
-                                onEndVoiceMode: onEndVoiceMode,
-                                recordingAmplitude: recordingAmplitude,
-                                onDictateToggle: onDictateToggle,
-                                onVoiceModeToggle: onVoiceModeToggle,
-                                conversationId: conversationId,
-                                isInteractionEnabled: isInteractionEnabled
-                            )
-                        }
-                    }
+            mainContentStack
+                .background(alignment: .bottom) {
+                    chatBackground
                 }
-            }
-            .background(alignment: .bottom) {
-                chatBackground
-            }
-            .background(VColor.surfaceBase)
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(key: ChatContainerWidthKey.self, value: geo.size.width)
-                }
-            )
-            .onPreferenceChange(ChatContainerWidthKey.self) { containerWidth = $0 }
-            .disabled(!isInteractionEnabled)
-            .overlay(alignment: .bottom) {
-                btwOverlay
-            }
-            .animation(VAnimation.fast, value: btwResponse != nil)
-
-            // Drop target overlay — hidden for internal image drags
-            if isDropTargeted && !isDraggingInternalImage {
-                RoundedRectangle(cornerRadius: VRadius.lg)
-                    .stroke(VColor.primaryBase, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
-                    .background(
-                        RoundedRectangle(cornerRadius: VRadius.lg)
-                            .fill(VColor.primaryBase.opacity(0.08))
-                    )
-                    .overlay {
-                        VStack(spacing: VSpacing.sm) {
-                            VIconView(.arrowDownToLine, size: 28)
-                                .foregroundStyle(VColor.primaryBase)
-                            Text("Drop files here")
-                                .font(VFont.bodyMediumDefault)
-                                .foregroundStyle(VColor.primaryBase)
-                        }
+                .background(VColor.surfaceBase)
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: ChatContainerWidthKey.self, value: geo.size.width)
                     }
-                    .padding(VSpacing.lg)
-                    .allowsHitTesting(false)
-                    .transition(.opacity)
-            }
+                )
+                .onPreferenceChange(ChatContainerWidthKey.self) { containerWidth = $0 }
+                .disabled(!isInteractionEnabled)
+                .overlay(alignment: .bottom) {
+                    btwOverlay
+                }
+                .animation(VAnimation.fast, value: btwResponse != nil)
+
+            dropTargetOverlay
         }
         .environment(\.dropActions, currentDropActions)
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
@@ -429,20 +235,16 @@ struct ChatView: View {
         }
         .animation(VAnimation.fast, value: isSearchActive)
         .onChange(of: searchText) {
-            // Reset to first match when query changes
             currentMatchIndex = 0
             scrollToCurrentMatch()
         }
         .onChange(of: searchMatches.count) {
-            // Clamp currentMatchIndex when matches change (e.g. streaming, deletion)
-            // to avoid "4 of 2" display or broken navigation.
             let count = searchMatches.count
             if currentMatchIndex >= count {
                 currentMatchIndex = max(count - 1, 0)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .activateChatSearch)) { notification in
-            // Scope to the active conversation so only the visible ChatView activates.
             if let targetId = notification.object as? UUID, targetId != conversationId {
                 return
             }
@@ -450,11 +252,6 @@ struct ChatView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .internalImageDragStarted)) { _ in
             isDraggingInternalImage = true
-            // Install one-shot monitors to detect when the drag ends.
-            // NSDraggingSession consumes the drag-ending mouse-up internally,
-            // so a single local monitor misses drops on external apps.
-            // Global monitor catches mouse-up in other apps (Finder, Desktop).
-            // Local monitor catches mouse-up within our app (cancel + release).
             installDragEndMonitors()
         }
         .onChange(of: shouldShowSkeleton, initial: true) { _, shouldShow in
@@ -471,6 +268,216 @@ struct ChatView: View {
         }
         .onDisappear {
             removeDragEndMonitors()
+        }
+    }
+
+    // MARK: - Body Subviews (extracted to help the Swift type checker)
+
+    @ViewBuilder
+    private var mainContentStack: some View {
+        VStack(spacing: 0) {
+            if showSkeleton {
+                ChatLoadingSkeleton()
+                    .padding(VSpacing.lg)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Loading chat history")
+            } else if isEmptyState && isBootstrapping {
+                if isBootstrapTimedOut {
+                    ChatBootstrapTimeoutView(onSendLogs: onBootstrapSendLogs)
+                } else {
+                    ChatBootstrapLoadingView()
+                }
+            } else if isEmptyState {
+                if isTemporaryChat {
+                    ChatTemporaryChatEmptyStateView(
+                        inputText: $inputText,
+                        isSending: isSending,
+                        isAssistantBusy: isAssistantBusy,
+                        isRecording: isRecording,
+                        suggestion: suggestion,
+                        pendingAttachments: pendingAttachments,
+                        isLoadingAttachment: isLoadingAttachment,
+                        onSend: onSend,
+                        onStop: onStop,
+                        onAcceptSuggestion: onAcceptSuggestion,
+                        onAttach: onAttach,
+                        onRemoveAttachment: onRemoveAttachment,
+                        onPaste: onPaste,
+                        onMicrophoneToggle: onMicrophoneToggle,
+                        recordingAmplitude: recordingAmplitude,
+                        onDictateToggle: onDictateToggle,
+                        onVoiceModeToggle: onVoiceModeToggle,
+                        conversationId: conversationId
+                    )
+                } else {
+                    ChatEmptyStateView(
+                        inputText: $inputText,
+                        isSending: isSending,
+                        isAssistantBusy: isAssistantBusy,
+                        isRecording: isRecording,
+                        suggestion: suggestion,
+                        pendingAttachments: pendingAttachments,
+                        isLoadingAttachment: isLoadingAttachment,
+                        onSend: onSend,
+                        onStop: onStop,
+                        onAcceptSuggestion: onAcceptSuggestion,
+                        onAttach: onAttach,
+                        onRemoveAttachment: onRemoveAttachment,
+                        onPaste: onPaste,
+                        onMicrophoneToggle: onMicrophoneToggle,
+                        recordingAmplitude: recordingAmplitude,
+                        onDictateToggle: onDictateToggle,
+                        onVoiceModeToggle: onVoiceModeToggle,
+                        conversationId: conversationId,
+                        daemonGreeting: daemonGreeting,
+                        onRequestGreeting: onRequestGreeting,
+                        conversationStarters: conversationStarters,
+                        conversationStartersLoading: conversationStartersLoading,
+                        onSelectStarter: onSelectStarter,
+                        onFetchConversationStarters: onFetchConversationStarters
+                    )
+                }
+            } else {
+                activeConversationContent
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var activeConversationContent: some View {
+        VStack(spacing: 0) {
+            MessageListView(
+                messages: messages,
+                isSending: isSending,
+                isThinking: isThinking,
+                isCompacting: isCompacting,
+                assistantActivityPhase: assistantActivityPhase,
+                assistantActivityAnchor: assistantActivityAnchor,
+                assistantActivityReason: assistantActivityReason,
+                assistantStatusText: assistantStatusText,
+                selectedModel: selectedModel,
+                configuredProviders: configuredProviders,
+                providerCatalog: providerCatalog,
+                activeSubagents: activeSubagents,
+                dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
+                onConfirmationAllow: onConfirmationAllow,
+                onConfirmationDeny: onConfirmationDeny,
+                onAlwaysAllow: onAlwaysAllow,
+                onTemporaryAllow: onTemporaryAllow,
+                onSurfaceAction: onSurfaceAction,
+                onGuardianAction: onGuardianAction,
+                onDismissDocumentWidget: onDismissDocumentWidget,
+                onForkFromMessage: onForkFromMessage,
+                showInspectButton: showInspectButton,
+                isTTSEnabled: isTTSEnabled,
+                onInspectMessage: onInspectMessage,
+                mediaEmbedSettings: mediaEmbedSettings,
+                onAbortSubagent: onAbortSubagent,
+                onSubagentTap: onSubagentTap,
+                onRehydrateMessage: onRehydrateMessage,
+                onSurfaceRefetch: onSurfaceRefetch,
+                onRetryFailedMessage: onRetryFailedMessage,
+                onRetryConversationError: onRetryConversationError,
+                subagentDetailStore: subagentDetailStore,
+                activePendingRequestId: activePendingRequestId,
+                displayedMessageCount: displayedMessageCount,
+                hasMoreMessages: hasMoreMessages,
+                isLoadingMoreMessages: isLoadingMoreMessages,
+                loadPreviousMessagePage: loadPreviousMessagePage,
+                conversationId: conversationId,
+                anchorMessageId: $anchorMessageId,
+                highlightedMessageId: $highlightedMessageId,
+                isNearBottom: $isNearBottom,
+                containerWidth: containerWidth
+            )
+
+            if let exhaustedError = creditsExhaustedError, exhaustedError.isCreditsExhausted {
+                CreditsExhaustedBanner(
+                    onAddFunds: { onAddFunds?() }
+                )
+                .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, -VSpacing.sm)
+            }
+
+            if let _ = providerNotConfiguredError {
+                MissingApiKeyBanner(
+                    onOpenSettings: { onOpenModelsAndServices?() },
+                    onDismiss: { onDismissProviderNotConfigured?() }
+                )
+                .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, -VSpacing.sm)
+            }
+
+            if isReadonly {
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.eye, size: 14)
+                    Text("Read-only conversation")
+                        .font(VFont.caption)
+                }
+                .foregroundStyle(VColor.contentTertiary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, VSpacing.md)
+            } else {
+                ComposerSection(
+                    inputText: $inputText,
+                    isSending: isSending,
+                    isAssistantBusy: isAssistantBusy,
+                    hasPendingConfirmation: activePendingRequestId != nil,
+                    onAllowPendingConfirmation: {
+                        if let requestId = activePendingRequestId {
+                            onConfirmationAllow(requestId)
+                        }
+                    },
+                    isRecording: isRecording,
+                    suggestion: suggestion,
+                    pendingAttachments: pendingAttachments,
+                    isLoadingAttachment: isLoadingAttachment,
+                    onSend: onSend,
+                    onStop: onStop,
+                    onAcceptSuggestion: onAcceptSuggestion,
+                    onAttach: onAttach,
+                    onRemoveAttachment: onRemoveAttachment,
+                    onPaste: onPaste,
+                    onMicrophoneToggle: onMicrophoneToggle,
+                    watchSession: watchSession,
+                    onStopWatch: onStopWatch,
+                    voiceModeManager: voiceModeManager,
+                    voiceService: voiceService,
+                    onEndVoiceMode: onEndVoiceMode,
+                    recordingAmplitude: recordingAmplitude,
+                    onDictateToggle: onDictateToggle,
+                    onVoiceModeToggle: onVoiceModeToggle,
+                    conversationId: conversationId,
+                    isInteractionEnabled: isInteractionEnabled
+                )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var dropTargetOverlay: some View {
+        if isDropTargeted && !isDraggingInternalImage {
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.primaryBase, style: StrokeStyle(lineWidth: 2, dash: [8, 4]))
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.lg)
+                        .fill(VColor.primaryBase.opacity(0.08))
+                )
+                .overlay {
+                    VStack(spacing: VSpacing.sm) {
+                        VIconView(.arrowDownToLine, size: 28)
+                            .foregroundStyle(VColor.primaryBase)
+                        Text("Drop files here")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.primaryBase)
+                    }
+                }
+                .padding(VSpacing.lg)
+                .allowsHitTesting(false)
+                .transition(.opacity)
         }
     }
 
