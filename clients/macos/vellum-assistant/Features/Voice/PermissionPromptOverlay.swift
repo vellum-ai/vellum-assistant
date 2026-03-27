@@ -5,7 +5,7 @@ import SwiftUI
 import os
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "PermissionPrompt")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "PermissionPrompt")
 
 /// Floating overlay for microphone / speech-recognition permission prompts.
 /// Supports two scenarios:

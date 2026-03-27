@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SettingsClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "SettingsClient")
 
 /// Focused client for settings-related operations routed through the gateway.
 ///

@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DocumentClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "DocumentClient")
 
 /// Focused client for document persistence operations routed through the gateway.
 public protocol DocumentClientProtocol {

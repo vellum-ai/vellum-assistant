@@ -4,7 +4,7 @@ import SwiftUI
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+AuthLifecycle")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate+AuthLifecycle")
 
 // MARK: - Auth lifecycle: login, logout, restart, retire, switch assistant
 

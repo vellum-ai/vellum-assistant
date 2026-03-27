@@ -6,7 +6,7 @@ import Foundation
 import os
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SettingsStore")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "SettingsStore")
 
 /// UserDefaults key for tracking explicit key deletions that may not have reached the daemon.
 private let kPendingKeyDeletionTombstones = "pendingKeyDeletionTombstones"

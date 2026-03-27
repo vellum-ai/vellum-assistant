@@ -4,7 +4,7 @@ import CoreText
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+Notifications")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate+Notifications")
 private let fallbackDedupWindowMs: Double = 30_000
 private let fallbackDelayNs: UInt64 = 750_000_000
 private let notificationPermissionToastCooldownMs: Double = 30_000

@@ -1,8 +1,8 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationHistoryClient")
-private let perfLog = OSLog(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: .pointsOfInterest)
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationHistoryClient")
+private let perfLog = OSLog(subsystem: Bundle.appBundleIdentifier, category: .pointsOfInterest)
 
 /// Focused client for conversation history operations routed through the gateway.
 public protocol ConversationHistoryClientProtocol {

@@ -3,7 +3,7 @@ import Foundation
 import os
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "BundleSandbox")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "BundleSandbox")
 
 /// Manages unpacking shared .vellum bundles into a sandboxed directory.
 enum BundleSandbox {

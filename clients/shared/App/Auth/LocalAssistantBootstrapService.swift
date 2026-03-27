@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "LocalAssistantBootstrap")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "LocalAssistantBootstrap")
 
 /// Platform-agnostic credential storage abstraction.
 /// On macOS, callers supply a file-based implementation (FileCredentialStorage).

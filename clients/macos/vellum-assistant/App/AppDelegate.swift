@@ -8,7 +8,7 @@ import SwiftUI
 import UserNotifications
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate")
 
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {

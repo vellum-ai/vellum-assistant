@@ -2,7 +2,7 @@ import Combine
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "GatewayConnectionManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "GatewayConnectionManager")
 
 /// Minimal decode of the /v1/health response to extract the version field.
 private struct HealthVersionResponse: Decodable {

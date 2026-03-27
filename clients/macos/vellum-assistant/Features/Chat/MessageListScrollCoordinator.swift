@@ -5,7 +5,7 @@ import os
 import SwiftUI
 import VellumAssistantShared
 
-let scrollCoordinatorLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "MessageListScrollCoordinator")
+let scrollCoordinatorLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "MessageListScrollCoordinator")
 
 // MARK: - Bottom Pin Types
 

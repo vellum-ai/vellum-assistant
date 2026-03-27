@@ -5,7 +5,7 @@ import os
 
 @MainActor final class MetricKitManager: NSObject {
     private let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+        subsystem: Bundle.appBundleIdentifier,
         category: "MetricKit"
     )
 

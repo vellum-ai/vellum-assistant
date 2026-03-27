@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HostToolExecutor")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HostToolExecutor")
 
 /// Standalone executor for host tool requests (bash commands, file operations).
 /// These run locally on macOS and post results back via `HostProxyClient`.

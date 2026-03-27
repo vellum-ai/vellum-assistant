@@ -2,7 +2,7 @@ import Foundation
 import AppKit
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "PTTActivator")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "PTTActivator")
 
 /// Describes how the push-to-talk activation input is detected.
 struct PTTActivator: Codable, Equatable {

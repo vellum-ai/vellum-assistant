@@ -3,7 +3,7 @@ import os
 import SwiftUI
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AssistantUpgrade")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AssistantUpgrade")
 
 /// Topology classification for upgrade UI behavior.
 enum AssistantTopology {

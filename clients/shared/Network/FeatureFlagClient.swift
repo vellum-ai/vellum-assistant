@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "FeatureFlagClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "FeatureFlagClient")
 
 /// Focused client for feature-flag and privacy-config operations routed through the gateway.
 public protocol FeatureFlagClientProtocol {

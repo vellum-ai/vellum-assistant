@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "WorkItemClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "WorkItemClient")
 
 /// Focused client for work-item (task queue) operations routed through the gateway.
 ///

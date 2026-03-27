@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ScheduleClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScheduleClient")
 
 /// Focused client for schedule management operations routed through the gateway.
 public protocol ScheduleClientProtocol {

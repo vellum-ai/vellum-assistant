@@ -5,7 +5,7 @@ import UserNotifications
 import os
 import Combine
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationManager")
 private let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
 // Legacy UserDefaults key preserved from the session-to-conversation rename.
 private let archivedConversationsKey = "archivedSessionIds"

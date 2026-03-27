@@ -3,7 +3,7 @@ import AVFoundation
 import Speech
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "OpenAIVoiceService")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "OpenAIVoiceService")
 
 enum VoiceServiceError: Error, LocalizedError {
     case speechRecognitionUnavailable

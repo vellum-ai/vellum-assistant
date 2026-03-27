@@ -266,7 +266,7 @@ All design system types use the `V` prefix (VButton, VColor, VFont, etc.). Alway
 ## Key Constraints
 
 - **Dock icon** — the app always shows a dock icon (no `LSUIElement`). The dock icon displays the assistant's avatar via `applicationIconImage`. On explicit disconnect (logout/retire/switch with no remaining assistants), `setActivationPolicy(.accessory)` hides the dock icon.
-- **`Bundle.main.bundleIdentifier` is nil** in SPM builds. All `os.Logger` instances use hardcoded fallback `"com.vellum.vellum-assistant"`.
+- **`Bundle.main.bundleIdentifier` is nil** in SPM builds. Use `Bundle.appBundleIdentifier` (defined in `clients/shared/Utilities/AppBundleIdentifier.swift`) for all logger subsystems and self-detection checks — it resolves `Bundle.main.bundleIdentifier` with a fallback to `"com.vellum.vellum-assistant"`. Never hardcode the bundle identifier string directly.
 - **Adding .swift files**: Auto-picked up by SPM. No manual project file edits needed. New files go in `vellum-assistant/` (library target); only `@main` entry point lives in `vellum-assistant-app/`.
 - **Popover close delay** — 300ms initial delay before session starts to let the popover close and target app regain focus.
 - **SessionState enum** must stay in sync with `SessionOverlayView` pattern matching.

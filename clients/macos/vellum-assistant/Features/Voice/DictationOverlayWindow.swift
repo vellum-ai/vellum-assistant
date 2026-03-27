@@ -3,7 +3,7 @@ import SwiftUI
 import os
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DictationOverlay")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "DictationOverlay")
 
 @MainActor
 final class DictationOverlayWindow {

@@ -3,7 +3,7 @@ import AppKit
 import os
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DocumentManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "DocumentManager")
 
 /// Manages the state of the built-in document editor.
 /// One active document at a time, displayed in the Directory panel's Documents tab.

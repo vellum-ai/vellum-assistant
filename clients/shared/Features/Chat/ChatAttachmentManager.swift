@@ -9,7 +9,7 @@ import UIKit
 #error("Unsupported platform")
 #endif
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatAttachmentManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatAttachmentManager")
 
 /// Async-compatible semaphore that suspends (not blocks) waiting tasks.
 /// Drop-in replacement for DispatchSemaphore in structured concurrency contexts,

@@ -8,7 +8,7 @@ import Accelerate
 import os
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "VoiceInput")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "VoiceInput")
 
 
 /// Determines how voice transcriptions are routed after speech recognition completes.

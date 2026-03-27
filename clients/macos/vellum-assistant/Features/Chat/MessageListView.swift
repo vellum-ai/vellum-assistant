@@ -4,7 +4,7 @@ import os
 import SwiftUI
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "MessageListView")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "MessageListView")
 private let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
 
 // MARK: - Scroll Suppression Environment
