@@ -1221,17 +1221,11 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     /// Move a conversation to a new position in the visible list (for drag-and-drop reorder).
-    /// Works for any conversation: pinned-to-pinned reorders among pinned items,
-    /// unpinned-to-pinned pins the source, and unpinned-to-unpinned reorders
-    /// using displayOrder. When the target is a schedule conversation, the source is
-    /// inserted at the end of the unpinned regular conversations list (the boundary
-    /// between regular and scheduled conversations).
-    ///
-    /// Only assigns displayOrder to the dragged conversation and conversations that already
-    /// had an explicit displayOrder. Conversations without explicit ordering (sorted
-    /// by recency) keep nil displayOrder so new conversations continue to appear at top.
+    /// Group-aware: if source and target are in different groups, the source is reassigned
+    /// to the target's group. displayOrder is scoped to the TARGET GROUP only — conversations
+    /// in other groups are untouched.
     @discardableResult
-    func moveConversation(sourceId: UUID, targetId: UUID) -> Bool {
+    func moveConversation(sourceId: UUID, targetId: UUID, insertAfterTarget: Bool? = nil) -> Bool {
         guard let sourceIdx = conversations.firstIndex(where: { $0.id == sourceId }),
               let targetIdx = conversations.firstIndex(where: { $0.id == targetId }) else { return false }
         let targetConversation = conversations[targetIdx]
@@ -1240,90 +1234,64 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // @Published write, preventing SwiftUI ForEach re-entrancy crashes.
         var draft = conversations
 
-        if targetConversation.isPinned {
-            // Dropping onto a pinned conversation — pin the source if needed and reorder
-            let sourceWasPinned = draft[sourceIdx].isPinned
-            if !sourceWasPinned {
-                draft[sourceIdx].groupId = ConversationGroup.pinned.id
-            }
-            let targetOrder = targetConversation.displayOrder ?? 0
-            let sourceOrder = sourceWasPinned ? (draft[sourceIdx].displayOrder ?? Int.max) : Int.max
+        let sourceGroupId = draft[sourceIdx].groupId
+        let targetGroupId = targetConversation.groupId
 
-            // Direction-aware: if source is above target (lower order), insert after target
-            let insertOrder = sourceOrder < targetOrder ? targetOrder + 1 : targetOrder
+        // Cross-group drag: assign source to target's group
+        if sourceGroupId != targetGroupId {
+            draft[sourceIdx].groupId = targetGroupId
+        }
 
-            draft[sourceIdx].displayOrder = insertOrder
-            for i in draft.indices where draft[i].isPinned && draft[i].id != sourceId {
-                if let order = draft[i].displayOrder, order >= insertOrder {
-                    draft[i].displayOrder = order + 1
-                }
-            }
-            recompactPinnedDisplayOrders(in: &draft)
+        // Reorder within TARGET GROUP only (not global — prevents corrupting other groups).
+        var groupMembers = draft
+            .filter { $0.groupId == targetGroupId && !$0.isArchived && $0.kind != .private }
+            .sorted { visibleConversationSortOrder($0, $1) }
+
+        // Remove source from the group member list
+        var reordered = groupMembers.filter { $0.id != sourceId }
+
+        // Find target's index in the filtered list
+        let targetInReordered = reordered.firstIndex(where: { $0.id == targetId })
+
+        // Direction-aware insertion:
+        // Determine if source was visually above target (dragging down) using
+        // section-local indices, not global visibleConversations indices.
+        // For cross-group drags, use the caller-provided insertAfterTarget
+        // (derived from the drop indicator) so the insertion position matches
+        // the visual indicator the user saw.
+        let draggingDown: Bool
+        if let insertAfterTarget {
+            draggingDown = insertAfterTarget
+        } else if sourceGroupId != targetGroupId {
+            // Cross-group without explicit direction: default to insert after target
+            draggingDown = true
         } else {
-            // Dropping onto an unpinned conversation — reorder using displayOrder.
-            // Capture pinned state BEFORE modifications so direction detection
-            // isn't affected by the unpin changing the source's list position.
-            let sourceWasPinned = draft[sourceIdx].isPinned
+            let sourceLocalIdx = groupMembers.firstIndex(where: { $0.id == sourceId })
+            let targetLocalIdx = groupMembers.firstIndex(where: { $0.id == targetId })
+            draggingDown = (sourceLocalIdx ?? 0) < (targetLocalIdx ?? 0)
+        }
 
-            if sourceWasPinned {
-                draft[sourceIdx].groupId = nil
-                draft[sourceIdx].displayOrder = nil
-            }
+        let insertPos: Int
+        if draggingDown {
+            let targetIdx = targetInReordered ?? reordered.endIndex
+            insertPos = min(targetIdx + 1, reordered.endIndex)
+        } else {
+            insertPos = targetInReordered ?? reordered.endIndex
+        }
 
-            // Build the unpinned list in sidebar display order: regular conversations first,
-            // then schedule conversations. This matches the UI sections and prevents dropping
-            // onto a schedule conversation from inserting the source among regular conversations
-            // at the wrong position.
-            let visible = draft.filter { !$0.isArchived && $0.kind != .private }
-                .sorted { visibleConversationSortOrder($0, $1) }
-            let allUnpinned = visible.filter { !$0.isPinned }
-            let regularUnpinned = allUnpinned.filter { !$0.isScheduleConversation }
-            let scheduleUnpinned = allUnpinned.filter { $0.isScheduleConversation }
-            let unpinned = regularUnpinned + scheduleUnpinned
+        if let movedConversation = groupMembers.first(where: { $0.id == sourceId }) ?? [draft[sourceIdx]].first {
+            reordered.insert(movedConversation, at: insertPos)
+        }
 
-            var reordered = unpinned.filter { $0.id != sourceId }
-
-            let insertPos: Int
-            let sourceConversation = draft[sourceIdx]
-            if targetConversation.isScheduleConversation && !sourceConversation.isScheduleConversation {
-                // Cross-section drag: insert at section boundary
-                insertPos = reordered.firstIndex(where: { $0.isScheduleConversation }) ?? reordered.endIndex
-            } else {
-                // Direction-aware: if source was visually above target (dragging down),
-                // insert AFTER target; if below (dragging up), insert BEFORE target.
-                // Pinned conversations are always visually above unpinned ones, so a
-                // pinned→unpinned drag is always "dragging down".
-                let draggingDown: Bool
-                if sourceWasPinned {
-                    draggingDown = true
-                } else {
-                    let sourceVisualIdx = unpinned.firstIndex(where: { $0.id == sourceId })
-                    let targetVisualIdx = unpinned.firstIndex(where: { $0.id == targetId })
-                    draggingDown = (sourceVisualIdx ?? 0) < (targetVisualIdx ?? 0)
-                }
-
-                if draggingDown {
-                    let targetInFiltered = reordered.firstIndex(where: { $0.id == targetId }) ?? reordered.endIndex
-                    insertPos = min(targetInFiltered + 1, reordered.endIndex)
-                } else {
-                    insertPos = reordered.firstIndex(where: { $0.id == targetId }) ?? reordered.endIndex
-                }
-            }
-
-            if let movedConversation = unpinned.first(where: { $0.id == sourceId }) ?? [draft[sourceIdx]].first {
-                reordered.insert(movedConversation, at: insertPos)
-            }
-
-            // Assign displayOrder to ALL conversations in the reordered list. When a
-            // user drags a conversation they are explicitly defining an ordering, so every
-            // conversation in the affected section needs a concrete displayOrder. Without
-            // this, dragging between recency-sorted conversations (nil displayOrder) would
-            // only assign an order to the source, causing it to jump to the top of
-            // the list since visibleConversations sorts non-nil displayOrder above nil.
-            for (order, item) in reordered.enumerated() {
-                if let idx = draft.firstIndex(where: { $0.id == item.id }) {
-                    draft[idx].displayOrder = order
-                }
+        // Assign displayOrder to ALL conversations in the target group. When a
+        // user drags a conversation they are explicitly defining an ordering, so every
+        // conversation in the affected group needs a concrete displayOrder. Without
+        // this, dragging between recency-sorted conversations (nil displayOrder) would
+        // only assign an order to the source, causing it to jump to the top of
+        // the list since visibleConversations sorts non-nil displayOrder above nil.
+        for (order, item) in reordered.enumerated() {
+            if let idx = draft.firstIndex(where: { $0.id == item.id }) {
+                draft[idx].displayOrder = order
             }
         }
 
@@ -1331,16 +1299,6 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         conversations = draft
         sendReorderConversations()
         return true
-    }
-
-    /// Recompact displayOrders for pinned conversations (no @Published writes).
-    private func recompactPinnedDisplayOrders(in draft: inout [ConversationModel]) {
-        let pinned = draft.enumerated()
-            .filter { $0.element.isPinned }
-            .sorted { ($0.element.displayOrder ?? 0) < ($1.element.displayOrder ?? 0) }
-        for (order, item) in pinned.enumerated() {
-            draft[item.offset].displayOrder = order
-        }
     }
 
     /// Send the current conversation ordering to the daemon so it persists across restarts.

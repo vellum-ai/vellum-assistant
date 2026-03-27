@@ -13,6 +13,7 @@ struct ScheduleReorderDropDelegate: DropDelegate {
               dragId != targetConversation.id,
               let sourceConversation = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
               sourceConversation.isScheduleConversation,
+              sourceConversation.groupId == targetConversation.groupId,
               sourceConversation.scheduleJobId == targetConversation.scheduleJobId
         else { return false }
         return true
@@ -27,13 +28,16 @@ struct ScheduleReorderDropDelegate: DropDelegate {
               dragId != targetConversation.id,
               let sourceConversation = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
               sourceConversation.isScheduleConversation,
+              sourceConversation.groupId == targetConversation.groupId,
               sourceConversation.scheduleJobId == targetConversation.scheduleJobId
         else { return }
 
         sidebar.dropTargetConversationId = targetConversation.id
-        let visible = conversationManager.visibleConversations
-        let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
-        let tIdx = visible.firstIndex(where: { $0.id == targetConversation.id }) ?? 0
+        // Use section-local index for direction detection (not global visibleConversations)
+        let groupConversations = conversationManager.groupedConversations
+            .first { $0.group?.id == targetConversation.groupId }?.conversations ?? []
+        let sIdx = groupConversations.firstIndex(where: { $0.id == dragId }) ?? 0
+        let tIdx = groupConversations.firstIndex(where: { $0.id == targetConversation.id }) ?? 0
         sidebar.dropIndicatorAtBottom = sIdx < tIdx
     }
 
