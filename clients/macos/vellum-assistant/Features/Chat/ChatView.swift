@@ -92,6 +92,7 @@ struct ChatView: View {
     var onFetchConversationStarters: (() -> Void)? = nil
     var activePendingRequestId: String?
     var isInteractionEnabled: Bool = true
+    var isReadonly: Bool = false
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
     /// Message ID to visually highlight after an anchor scroll completes.
@@ -306,38 +307,49 @@ struct ChatView: View {
                             .padding(.bottom, -VSpacing.sm)
                         }
 
-                        ComposerSection(
-                            inputText: $inputText,
-                            isSending: isSending,
-                            isAssistantBusy: isAssistantBusy,
-                            hasPendingConfirmation: activePendingRequestId != nil,
-                            onAllowPendingConfirmation: {
-                                if let requestId = activePendingRequestId {
-                                    onConfirmationAllow(requestId)
-                                }
-                            },
-                            isRecording: isRecording,
-                            suggestion: suggestion,
-                            pendingAttachments: pendingAttachments,
-                            isLoadingAttachment: isLoadingAttachment,
-                            onSend: onSend,
-                            onStop: onStop,
-                            onAcceptSuggestion: onAcceptSuggestion,
-                            onAttach: onAttach,
-                            onRemoveAttachment: onRemoveAttachment,
-                            onPaste: onPaste,
-                            onMicrophoneToggle: onMicrophoneToggle,
-                            watchSession: watchSession,
-                            onStopWatch: onStopWatch,
-                            voiceModeManager: voiceModeManager,
-                            voiceService: voiceService,
-                            onEndVoiceMode: onEndVoiceMode,
-                            recordingAmplitude: recordingAmplitude,
-                            onDictateToggle: onDictateToggle,
-                            onVoiceModeToggle: onVoiceModeToggle,
-                            conversationId: conversationId,
-                            isInteractionEnabled: isInteractionEnabled
-                        )
+                        if isReadonly {
+                            HStack(spacing: VSpacing.xs) {
+                                VIconView(.eye, size: 14)
+                                Text("Read-only conversation")
+                                    .font(VFont.caption)
+                            }
+                            .foregroundStyle(VColor.contentTertiary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, VSpacing.md)
+                        } else {
+                            ComposerSection(
+                                inputText: $inputText,
+                                isSending: isSending,
+                                isAssistantBusy: isAssistantBusy,
+                                hasPendingConfirmation: activePendingRequestId != nil,
+                                onAllowPendingConfirmation: {
+                                    if let requestId = activePendingRequestId {
+                                        onConfirmationAllow(requestId)
+                                    }
+                                },
+                                isRecording: isRecording,
+                                suggestion: suggestion,
+                                pendingAttachments: pendingAttachments,
+                                isLoadingAttachment: isLoadingAttachment,
+                                onSend: onSend,
+                                onStop: onStop,
+                                onAcceptSuggestion: onAcceptSuggestion,
+                                onAttach: onAttach,
+                                onRemoveAttachment: onRemoveAttachment,
+                                onPaste: onPaste,
+                                onMicrophoneToggle: onMicrophoneToggle,
+                                watchSession: watchSession,
+                                onStopWatch: onStopWatch,
+                                voiceModeManager: voiceModeManager,
+                                voiceService: voiceService,
+                                onEndVoiceMode: onEndVoiceMode,
+                                recordingAmplitude: recordingAmplitude,
+                                onDictateToggle: onDictateToggle,
+                                onVoiceModeToggle: onVoiceModeToggle,
+                                conversationId: conversationId,
+                                isInteractionEnabled: isInteractionEnabled
+                            )
+                        }
                     }
                 }
             }
