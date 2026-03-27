@@ -376,24 +376,14 @@ extension AppDelegate {
     }
 
     /// Returns `true` when `~/.vellum.lock.json` contains at least one
-    /// assistant entry.
+    /// assistant entry that belongs to the current platform environment.
+    /// Cross-environment managed assistants (e.g. dev-platform in a
+    /// production build) are excluded.
     func lockfileHasAssistants() -> Bool {
-        let primaryPath = LockfilePaths.primaryPath
-        let fileExists = FileManager.default.fileExists(atPath: primaryPath)
-        log.info("[lockfileCheck] primaryPath=\(primaryPath, privacy: .public) exists=\(fileExists)")
-
-        guard let json = LockfilePaths.read() else {
-            log.warning("[lockfileCheck] LockfilePaths.read() returned nil")
-            return false
-        }
-
-        guard let assistants = json["assistants"] as? [[String: Any]] else {
-            log.warning("[lockfileCheck] lockfile has no 'assistants' array")
-            return false
-        }
-
-        log.info("[lockfileCheck] found \(assistants.count) assistant(s)")
-        return !assistants.isEmpty
+        let all = LockfileAssistant.loadAll()
+        let valid = all.filter { $0.isCurrentEnvironment }
+        log.info("[lockfileCheck] found \(all.count) assistant(s), \(valid.count) in current environment")
+        return !valid.isEmpty
     }
 
     /// Check whether the local gateway is healthy by hitting its /healthz endpoint.
