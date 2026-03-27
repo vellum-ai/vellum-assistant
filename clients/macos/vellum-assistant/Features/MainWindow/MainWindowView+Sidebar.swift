@@ -131,7 +131,11 @@ extension MainWindowView {
             onSelect: onSelect,
             onTogglePin: {
                 withAnimation(VAnimation.standard) {
-                    if conversation.isPinned {
+                    // Look up current pin state from the live conversations array,
+                    // not the captured struct value (which may be stale).
+                    let currentlyPinned = conversationManager.conversations
+                        .first(where: { $0.id == conversation.id })?.isPinned ?? false
+                    if currentlyPinned {
                         conversationManager.unpinConversation(id: conversation.id)
                     } else {
                         conversationManager.pinConversation(id: conversation.id)
