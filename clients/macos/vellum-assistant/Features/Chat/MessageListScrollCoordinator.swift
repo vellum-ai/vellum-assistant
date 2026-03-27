@@ -303,23 +303,29 @@ final class MessageListScrollCoordinator: ObservableObject {
         expansionTimeoutTask = nil
         if wasActive {
             scrollCoordinatorLog.debug("Scroll suppression cleared: clearAll (was: \(reasons))")
+            #if DEBUG
             os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged",
                         "off reason=clearAll(was:%{public}s)", reasons)
+            #endif
         }
     }
 
     /// Shared logging for suppression state transitions.
     private func logSuppressionChange(started reason: String) {
         scrollCoordinatorLog.debug("Scroll suppression started: \(reason) — active: \(self.activeSuppressionReasons.joined(separator: ", "))")
+        #if DEBUG
         os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged",
                     "on reason=%{public}s", reason)
+        #endif
     }
 
     /// Shared logging for suppression state transitions.
     private func logSuppressionChange(ended reason: String) {
         scrollCoordinatorLog.debug("Scroll suppression ended: \(reason) — active: \(self.activeSuppressionReasons.joined(separator: ", "))")
+        #if DEBUG
         os_signpost(.event, log: PerfSignposts.log, name: "scrollSuppressionChanged",
                     "off reason=%{public}s", reason)
+        #endif
     }
 
     // MARK: - Follow/Detach State

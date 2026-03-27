@@ -6,16 +6,17 @@ import UniformTypeIdentifiers
 
 private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "ChatView")
 
-// MARK: - Performance Baseline Success Criteria
+// MARK: - Performance Measurement (Post-@Observable Migration)
 //
 // The os_signpost instrumentation in ChatView, MessageListView, and ChatBubble
-// establishes a performance baseline for the @Observable migration. Measure
-// these metrics during a 50-message streaming session using Instruments (Points
-// of Interest template) BEFORE and AFTER the migration:
+// is guarded behind `#if DEBUG` for ongoing performance monitoring. To measure
+// the @Observable migration impact, run a 50-message streaming session in
+// Instruments (Points of Interest template) and compare against the pre-migration
+// baseline:
 //
-//   1. ≥50% reduction in ChatBubble body evaluations per streaming burst
-//   2. < 500ms total hitch time during 50-message streaming session
-//   3. ≥30% reduction in mean graph update duration during streaming
+//   1. ChatBubble body evaluations per streaming burst (target: ≥50% reduction)
+//   2. Total hitch time (target: < 500ms, baseline ~2s)
+//   3. Mean graph update duration (target: ≥30% reduction)
 
 struct ChatView: View {
     let messages: [ChatMessage]
@@ -173,7 +174,9 @@ struct ChatView: View {
     }
 
     var body: some View {
+        #if DEBUG
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "ChatView.body")
+        #endif
         ZStack {
             VStack(spacing: 0) {
                 if showSkeleton {

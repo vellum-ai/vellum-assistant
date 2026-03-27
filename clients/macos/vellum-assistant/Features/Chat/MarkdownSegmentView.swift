@@ -150,8 +150,10 @@ struct MarkdownSegmentView: View, Equatable {
     }
 
     private func computeGroupedSegments() -> [SegmentGroup] {
+        #if DEBUG
         os_signpost(.begin, log: PerfSignposts.log, name: "markdownGroupSegments")
         defer { os_signpost(.end, log: PerfSignposts.log, name: "markdownGroupSegments") }
+        #endif
         var groups: [SegmentGroup] = []
         var currentRun: [MarkdownSegment] = []
 
@@ -236,8 +238,10 @@ struct MarkdownSegmentView: View, Equatable {
     /// Builds (or retrieves from cache) a single AttributedString from
     /// consecutive text-selectable segments.
     private func buildCombinedAttributedString(from segments: [MarkdownSegment]) -> AttributedString {
+        #if DEBUG
         os_signpost(.begin, log: PerfSignposts.log, name: "attributedStringBuild")
         defer { os_signpost(.end, log: PerfSignposts.log, name: "attributedStringBuild") }
+        #endif
         // Build a stable cache key from the segment contents and style
         // inputs that affect the output (e.g. secondaryTextColor for list
         // prefix coloring) so different visual contexts don't share entries.
