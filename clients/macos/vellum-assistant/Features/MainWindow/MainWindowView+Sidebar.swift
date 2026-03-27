@@ -420,7 +420,7 @@ extension MainWindowView {
             ScrollView(.vertical) {
                 conversationGroupsList
             }
-            .scrollIndicators(.automatic)
+            .scrollIndicators(.never)
             .onChange(of: scheduledUnreadCount) { _, newCount in
                 // Auto-expand the Scheduled section when new unread arrives
                 // while collapsed. Other sections (Background, Custom, Pinned)
