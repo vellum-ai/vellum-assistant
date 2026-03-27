@@ -366,15 +366,17 @@ struct AgentPanelContent: View {
     private func sourceLabel(_ source: String) -> String {
         switch source {
         case "bundled":
-            return "Core"
-        case "managed", "clawhub":
-            return "Installed"
+            return "Vellum"
+        case "clawhub":
+            return "OpenClaw"
+        case "managed":
+            return "Managed"
         case "workspace":
-            return "Created"
-        case "extra":
-            return "Extra"
+            return "User Made"
         case "catalog":
             return "Available"
+        case "extra":
+            return "Extra"
         default:
             return source.replacingOccurrences(of: "-", with: " ").capitalized
         }
