@@ -22,6 +22,7 @@ import { join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
+import { getCommitMessageGenerator } from "../workspace/provider-commit-message-generator.js";
 import { getAppsDir, resolveAppDir } from "./app-store.js";
 
 const log = getLogger("app-git");
@@ -175,16 +176,55 @@ export async function commitAppTurnChanges(
     ensureAppGitignoreRules(appsDir);
 
     const gitService = getWorkspaceGitService(appsDir);
+
+    // Pre-check for changes and attempt LLM message before taking the mutex
+    let llmMessage: string | undefined;
+    try {
+      const preStatus = await gitService.getStatus();
+      if (preStatus.clean) return;
+
+      const changedFiles = [
+        ...new Set([
+          ...preStatus.staged,
+          ...preStatus.modified,
+          ...preStatus.untracked,
+        ]),
+      ];
+
+      const generator = getCommitMessageGenerator();
+      const result = await generator.generateCommitMessage(
+        {
+          workspaceDir: appsDir,
+          trigger: "turn",
+          conversationId,
+          turnNumber,
+          changedFiles,
+          timestampMs: Date.now(),
+        },
+        { changedFiles },
+      );
+      if (result.source === "llm") {
+        llmMessage = result.message;
+      }
+    } catch {
+      // Non-fatal — fall through to deterministic message
+    }
+
     await gitService.commitIfDirty((status) => {
+      if (llmMessage) {
+        return {
+          message: llmMessage,
+          metadata: { conversationId, turnNumber },
+        };
+      }
+
+      // Deterministic fallback: derive app names from changed file paths
       const allFiles = [
         ...new Set([...status.staged, ...status.modified, ...status.untracked]),
       ];
-
-      // Derive unique app names from file paths like "my-app.json" or "my-app/index.html"
       const appNames = [
         ...new Set(allFiles.map((f) => f.split("/")[0].replace(/\.json$/, ""))),
       ];
-
       const subject =
         appNames.length === 1
           ? `update ${appNames[0]}`
