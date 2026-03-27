@@ -66,7 +66,10 @@ struct ConversationModel: Identifiable, Hashable {
         return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
     }
 
-    var isChannelConversation: Bool { originChannel != nil }
+    var isChannelConversation: Bool {
+        guard let originChannel else { return false }
+        return originChannel != "vellum"
+    }
 
     static func == (lhs: ConversationModel, rhs: ConversationModel) -> Bool {
         lhs.id == rhs.id &&
