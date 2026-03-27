@@ -986,16 +986,9 @@ export async function handleSendMessage(
         // Defer event publishing to next tick (same pattern as unknown-slash
         // fast path) so the HTTP response reaches the client before SSE
         // events arrive.
-        //
-        // IMPORTANT: message_complete must NOT include conversationId here.
-        // The client's serverToLocalConversationMap mapping may not exist
-        // yet when this SSE event arrives (the HTTP 202 response that
-        // triggers the mapping races with the SSE stream).  Without a
-        // conversationId the client's belongsToConversation(nil) returns
-        // true, matching the assistant_text_delta which also omits it.
         setTimeout(() => {
           onEvent({ type: "assistant_text_delta", text: cannedGreeting });
-          onEvent({ type: "message_complete" });
+          onEvent({ type: "message_complete", conversationId });
           conversation.processing = false;
           silentlyWithLog(
             conversation.drainQueue(),
