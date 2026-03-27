@@ -12,13 +12,13 @@ export const ThinkingConfigSchema = z
   .object({
     enabled: z
       .boolean({ error: "thinking.enabled must be a boolean" })
-      .default(false)
+      .default(true)
       .describe(
         "Whether to enable extended thinking (chain-of-thought) for the model",
       ),
     streamThinking: z
       .boolean({ error: "thinking.streamThinking must be a boolean" })
-      .default(false)
+      .default(true)
       .describe(
         "Whether to stream the model's thinking tokens to the client in real time",
       ),
