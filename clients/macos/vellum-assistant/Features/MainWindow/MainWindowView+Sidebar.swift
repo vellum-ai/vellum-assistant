@@ -129,7 +129,6 @@ extension MainWindowView {
             countMode: group.id == ConversationGroup.scheduled.id
                 ? .subGroups(grouper: { $0.scheduleJobId })
                 : .items,
-            selectedConversationId: conversationManager.activeConversationId,
             isRenaming: sidebar.renamingGroupId == group.id,
             renamingName: Binding(
                 get: { sidebar.renamingGroupName },
@@ -149,6 +148,7 @@ extension MainWindowView {
             onDelete: group.isSystemGroup ? nil : {
                 Task<Void, Never> { await conversationManager.deleteGroup(group.id) }
             },
+            selectedConversationId: conversationManager.activeConversationId,
             onToggleExpand: { sidebar.toggleSection(group.id) },
             onToggleShowAll: { sidebar.toggleShowAll(group.id) },
             makeRow: { makeSidebarRow(conversation: $0) },
