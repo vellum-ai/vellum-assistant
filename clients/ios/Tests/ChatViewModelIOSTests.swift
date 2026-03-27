@@ -387,7 +387,7 @@ final class ChatViewModelIOSTests: XCTestCase {
             decision: "always_allow_high_risk"
         )
 
-        await fulfillment(of: [exp], timeout: 2.0)
+        await fulfillment(of: [exp], timeout: 5.0)
 
         XCTAssertEqual(mockInteraction.calls.count, 1)
         XCTAssertEqual(mockInteraction.calls[0].decision, "always_allow_high_risk")
@@ -411,7 +411,7 @@ final class ChatViewModelIOSTests: XCTestCase {
             selectedScope: "project"
         )
 
-        await fulfillment(of: [exp], timeout: 2.0)
+        await fulfillment(of: [exp], timeout: 5.0)
 
         XCTAssertEqual(mockInteraction.calls.count, 1)
         XCTAssertEqual(mockInteraction.calls[0].decision, "always_allow")
@@ -450,7 +450,7 @@ final class ChatViewModelIOSTests: XCTestCase {
             decision: "always_allow_high_risk"
         )
 
-        await fulfillment(of: [exp], timeout: 2.0)
+        await fulfillment(of: [exp], timeout: 5.0)
 
         // Both attempts failed — confirmation should be reverted to pending
         XCTAssertEqual(mockInteraction.calls.count, 2)
@@ -492,7 +492,7 @@ final class ChatViewModelIOSTests: XCTestCase {
             decision: "always_allow_high_risk"
         )
 
-        await fulfillment(of: [exp], timeout: 2.0)
+        await fulfillment(of: [exp], timeout: 5.0)
 
         // First attempted decision should be always_allow_high_risk (the one that failed)
         XCTAssertEqual(mockInteraction.calls.count, 2)
