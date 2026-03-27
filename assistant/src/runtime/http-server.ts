@@ -163,6 +163,7 @@ import { migrationRollbackRouteDefinitions } from "./routes/migration-rollback-r
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { notificationRouteDefinitions } from "./routes/notification-routes.js";
 import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
+import { oauthProvidersRouteDefinitions } from "./routes/oauth-providers.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
 import {
   handlePairingRequest,
@@ -1204,6 +1205,7 @@ export class RuntimeHttpServer {
       ...twilioRouteDefinitions(),
       ...vercelRouteDefinitions(),
       ...channelReadinessRouteDefinitions(),
+      ...oauthProvidersRouteDefinitions(),
       ...oauthAppsRouteDefinitions(),
       ...attachmentRouteDefinitions(),
 

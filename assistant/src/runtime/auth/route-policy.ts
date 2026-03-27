@@ -463,6 +463,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "oauth/apps/connections", scopes: ["settings.read"] },
   { endpoint: "oauth/apps/connect", scopes: ["settings.write"] },
   { endpoint: "oauth/connections", scopes: ["settings.write"] },
+  { endpoint: "oauth/providers", scopes: ["settings.read"] },
 
   // Ingress config
   { endpoint: "integrations/ingress/config:GET", scopes: ["settings.read"] },
