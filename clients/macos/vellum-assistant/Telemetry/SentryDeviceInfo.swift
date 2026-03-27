@@ -19,30 +19,44 @@ enum SentryDeviceInfo {
         #endif
     }()
 
+    /// UserDefaults key used to persist the last-known user_id so it is
+    /// available on the next cold launch for crash-event scope tags.
+    private static let lastUserIdKey = "SentryDeviceInfo.lastUserId"
+
+    /// Applies standard telemetry tags to the given scope. Used by both
+    /// `initialScope` (so stored crash events carry tags) and
+    /// `configureSentryScope` (for the live scope after start).
+    static func applyTags(to scope: Scope) {
+        scope.setTag(value: deviceId, key: "device_id")
+        if let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+           LockfileAssistant.loadAll().contains(where: { $0.assistantId == storedId }) {
+            scope.setTag(value: storedId, key: "assistant_id")
+        } else {
+            scope.removeTag(key: "assistant_id")
+        }
+        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
+            scope.setTag(value: orgId, key: "organization_id")
+        } else {
+            scope.removeTag(key: "organization_id")
+        }
+        if let userId = UserDefaults.standard.string(forKey: lastUserIdKey), !userId.isEmpty {
+            scope.setTag(value: userId, key: "user_id")
+        }
+        scope.setTag(value: ProcessInfo.processInfo.operatingSystemVersionString, key: "os_version")
+        if let commitSHA = Bundle.main.infoDictionary?["VellumCommitSHA"] as? String, !commitSHA.isEmpty {
+            scope.setTag(value: commitSHA, key: "commit")
+        }
+        if let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
+            scope.setTag(value: clientVersion, key: "client_version")
+        }
+    }
+
     /// Configures the Sentry scope with device and assistant tags.
-    /// Call after every `SentrySDK.start` (AppDelegate init, MetricKitManager restart,
-    /// manual report temporary start) so all events carry filtering context.
+    /// Call after every `SentrySDK.start` (AppDelegate init, MetricKitManager restart)
+    /// so all events carry filtering context.
     static func configureSentryScope() {
         SentrySDK.configureScope { scope in
-            scope.setTag(value: deviceId, key: "device_id")
-            if let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
-               LockfileAssistant.loadAll().contains(where: { $0.assistantId == storedId }) {
-                scope.setTag(value: storedId, key: "assistant_id")
-            } else {
-                scope.removeTag(key: "assistant_id")
-            }
-            if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
-                scope.setTag(value: orgId, key: "organization_id")
-            } else {
-                scope.removeTag(key: "organization_id")
-            }
-            scope.setTag(value: ProcessInfo.processInfo.operatingSystemVersionString, key: "os_version")
-            if let commitSHA = Bundle.main.infoDictionary?["VellumCommitSHA"] as? String, !commitSHA.isEmpty {
-                scope.setTag(value: commitSHA, key: "commit")
-            }
-            if let clientVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String {
-                scope.setTag(value: clientVersion, key: "client_version")
-            }
+            applyTags(to: scope)
         }
     }
 
@@ -70,7 +84,14 @@ enum SentryDeviceInfo {
     }
 
     /// Updates the `user_id` Sentry tag when the authenticated user changes.
+    /// Also persists the value to UserDefaults so it is available via
+    /// `applyTags(to:)` on the next cold launch for crash-event scope tags.
     static func updateUserTag(_ userId: String?) {
+        if let id = userId, !id.isEmpty {
+            UserDefaults.standard.set(id, forKey: lastUserIdKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: lastUserIdKey)
+        }
         SentrySDK.configureScope { scope in
             if let id = userId, !id.isEmpty {
                 scope.setTag(value: id, key: "user_id")

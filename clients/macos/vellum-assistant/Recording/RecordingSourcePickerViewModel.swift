@@ -3,7 +3,7 @@ import ScreenCaptureKit
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "RecordingSourcePicker")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "RecordingSourcePicker")
 
 // MARK: - Preview Types
 
@@ -199,7 +199,7 @@ final class RecordingSourcePickerViewModel: ObservableObject {
 
         do {
             let shareable = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-            let selfBundleId = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+            let selfBundleId = Bundle.appBundleIdentifier
 
             // Build a lookup from CGDirectDisplayID -> NSScreen for metadata
             let screens = NSScreen.screens

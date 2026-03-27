@@ -236,7 +236,7 @@ public struct ToolConfirmationBubble: View {
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentDefault)
                     }
-                    .offset(x: -1)
+                    .padding(.leading, -1)
                 }
                 .buttonStyle(.plain)
 
@@ -268,7 +268,9 @@ public struct ToolConfirmationBubble: View {
         .onGeometryChange(for: Bool.self) { proxy in
             proxy.size.width < 450
         } action: { isCompact in
-            useCompactConfirmationLayout = isCompact
+            withAnimation(.none) {
+                useCompactConfirmationLayout = isCompact
+            }
         }
         .onAppear {
             if isKeyboardActive {
@@ -464,6 +466,7 @@ public struct ToolConfirmationBubble: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .strokeBorder(VColor.primaryBase, lineWidth: isPrimaryAllowKeyboardSelected ? 2 : 0)
+                        .allowsHitTesting(false)
                 )
 
             VButton(label: "Deny", style: .danger, size: .compact) {
@@ -473,6 +476,7 @@ public struct ToolConfirmationBubble: View {
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .strokeBorder(VColor.systemNegativeStrong, lineWidth: keyboardModel?.selectedAction == .dontAllow ? 2 : 0)
+                    .allowsHitTesting(false)
             )
         }
     }

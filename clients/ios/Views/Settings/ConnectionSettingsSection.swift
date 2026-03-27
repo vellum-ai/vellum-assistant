@@ -163,11 +163,13 @@ struct DaemonConnectionSection: View {
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.systemNegativeStrong)
                 }
-            } header: {
-                Text("Vellum Account")
-            } footer: {
-                Text("Sign in to connect to your cloud assistant.")
-            }
+                } header: {
+                    Text("Vellum Account")
+                } footer: {
+                    if !authManager.isAuthenticated {
+                        Text("Sign in to connect to your cloud assistant.")
+                    }
+                }
 
         }
         .navigationTitle("Connect")

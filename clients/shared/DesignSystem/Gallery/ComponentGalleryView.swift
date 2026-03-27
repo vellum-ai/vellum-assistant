@@ -58,17 +58,18 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
         case .chat:
             return [
                 GalleryComponent("voiceComposer", "VStreamingWaveform", keywords: ["voice composer", "waveform", "dictation"], description: "Animated waveform for voice dictation and conversation audio feedback."),
-                GalleryComponent("skillInvocation", "SkillInvocationChip", keywords: ["skill invocation", "skill chip"], description: "Compact pill showing a skill being invoked with its name and status."),
+
                 GalleryComponent("subagentStatus", "SubagentStatusChip", keywords: ["subagent status", "subagent conversation"], description: "Status chip for subagent conversations showing name and activity state."),
                 GalleryComponent("toolChips", "ToolCallChip", keywords: ["tool chips", "tool call"], description: "Compact chip showing a tool call with name, status icon, and optional duration."),
                 GalleryComponent("stepIndicators", "CurrentStepIndicator", keywords: ["step indicators", "progress bar", "tool call progress"], description: "Progress bar showing the current step in a multi-step tool call."),
                 GalleryComponent("progressIndicators", "TypingIndicatorView", keywords: ["progress indicators", "typing", "running"], description: "Animated dots indicating the assistant is typing or processing."),
                 GalleryComponent("toolConfirmations", "ToolConfirmationBubble", keywords: ["tool confirmations", "permission", "approval"], description: "Approval bubble for tool calls that require user permission before execution."),
+                GalleryComponent("surfaceActions", "Surface Action Buttons", keywords: ["surface actions", "action pills", "inline buttons", "pick something"], description: "Inline action pills in assistant bubbles letting users pick from options. Supports secondary, primary, and destructive styles."),
             ]
         case .display:
             return [
                 GalleryComponent("vCard", "VCard", keywords: ["card"], description: "Container with surface background, border, and configurable padding. Use .vCard() modifier for simple wrapping.", useInsteadOf: "Manual padding + background + cornerRadius"),
-                GalleryComponent("vInteractiveCard", "VInteractiveCard", keywords: ["interactive card", "tappable card"], description: "Tappable card with hover highlight, border, and pointer cursor. Use for list/grid items that navigate on tap.", useInsteadOf: "Button + .buttonStyle(.plain) + .pointerCursor() with manual card chrome"),
+
                 GalleryComponent("vEmptyState", "VEmptyState", keywords: ["empty state"], description: "Centered placeholder with icon, title, subtitle, and optional action button for empty content areas."),
                 GalleryComponent("vDisclosureSection", "VDisclosureSection", keywords: ["disclosure", "collapsible"], description: "Full-row clickable disclosure with animated chevron. Replaces DisclosureGroup.", useInsteadOf: "Raw DisclosureGroup"),
                 GalleryComponent("vListRow", "VListRow", keywords: ["list row"], description: "List item with hover highlight and optional tap action."),
@@ -124,13 +125,16 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("ifMod", ".if()", keywords: ["conditional modifier"], description: "Conditionally applies a view transformation. Use sparingly — prefer named modifiers for common patterns."),
                 GalleryComponent("vShimmer", ".vShimmer()", keywords: ["shimmer", "loading animation"], description: "Sweeps a translucent highlight across the view for skeleton loading animations. Respects reduced motion."),
                 GalleryComponent("inlineWidgetCard", ".inlineWidgetCard()", keywords: ["inline widget", "card"], description: "Standard card chrome for inline chat widgets with padding, background, border, and optional hover highlight."),
+                GalleryComponent("onRightClick", ".onRightClick()", keywords: ["right click", "right-click", "secondary click", "context"], description: "Detects right-click (secondary click) and reports screen-coordinate position. Does not interfere with left-click, hover, or drag."),
+                GalleryComponent("vContextMenu", ".vContextMenu()", keywords: ["context menu", "right click", "right-click", "secondary click"], description: "Custom context menu using VMenu that appears on right-click. Menu items auto-dismiss. Uses a floating NSPanel for correct z-order and positioning.", useInsteadOf: ".contextMenu { } when you want VMenu styling"),
             ]
         case .navigation:
             return [
                 GalleryComponent("vSegmentedControl", "VTabs", keywords: ["segmented control", "tabs"], description: "Segmented control with underline, pill, or compact pill styles for switching between views."),
-                GalleryComponent("vSidebarRow", "VSidebarRow", keywords: ["sidebar row", "navigation row"], description: "Sidebar navigation row with icon, label, hover/active states, trailing disclosure icon, and collapsed mode."),
+                GalleryComponent("vNavItem", "VNavItem", keywords: ["sidebar row", "navigation row"], description: "Sidebar navigation row with icon, label, hover/active states, trailing disclosure icon, and collapsed mode."),
                 GalleryComponent("vLink", "VLink", keywords: ["link", "url", "external link", "hyperlink"], description: "Styled external link that opens a URL in the default browser. Applies pointer cursor, single-line truncation, and caption font by default."),
                 GalleryComponent("vThemeToggle", "VThemeToggle", keywords: ["theme toggle", "dark mode", "light mode"], description: "Three-way theme toggle (System / Light / Dark). Reads and writes themePreference in UserDefaults."),
+                GalleryComponent("vMenu", "VMenu", keywords: ["menu", "popover", "dropdown", "drawer", "overflow"], description: "Reusable popover container with section headers, dividers, action items, and custom rows. Use instead of manual drawer chrome."),
             ]
         case .tokens:
             return [
@@ -266,7 +270,7 @@ struct ComponentGalleryView: View {
         let isCategoryExpanded = isSearching || expandedCategories.contains(category)
 
         VStack(spacing: 0) {
-            VSidebarRow(
+            VNavItem(
                 icon: category.vIcon.rawValue,
                 label: category.rawValue,
                 trailingIcon: VIcon.chevronRight.rawValue,
@@ -302,7 +306,7 @@ struct ComponentGalleryView: View {
     private func sidebarRow(label: String, page: GalleryPage) -> some View {
         let isSelected = selectedPage == page
 
-        return VSidebarRow(
+        return VNavItem(
             label: label,
             isActive: isSelected
         ) {

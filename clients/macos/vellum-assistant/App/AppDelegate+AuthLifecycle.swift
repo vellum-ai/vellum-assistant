@@ -4,7 +4,7 @@ import SwiftUI
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+AuthLifecycle")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate+AuthLifecycle")
 
 // MARK: - Auth lifecycle: login, logout, restart, retire, switch assistant
 
@@ -414,6 +414,14 @@ extension AppDelegate {
     /// 4. Reconfigure transport and reconnect
     /// 5. Resume credential bootstrap
     func performSwitchAssistant(to assistant: LockfileAssistant) {
+        // If switching to a managed assistant while logged out, prompt login first.
+        if assistant.isManaged && !authManager.isAuthenticated {
+            // Persist the target so we can switch after login completes.
+            UserDefaults.standard.set(assistant.assistantId, forKey: "pendingManagedSwitchAssistantId")
+            showAuthWindow()
+            return
+        }
+
         // 1. Clear assistant-scoped runtime state while the assistant is still
         // running so forceStop can deliver a recording_status message.
         recordingManager.forceStop()

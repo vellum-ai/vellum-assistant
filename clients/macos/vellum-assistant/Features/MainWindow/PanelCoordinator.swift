@@ -94,6 +94,17 @@ extension MainWindowView {
                     vm?.pendingSkillInvocation = nil
                     windowState.selection = nil
                 },
+                onCreateSkill: {
+                    conversationManager.openConversation(
+                        message: "I'd like to create a new custom skill. What info do you need from me?",
+                        forceNew: true
+                    )
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    } else {
+                        windowState.selection = nil
+                    }
+                },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
@@ -482,6 +493,16 @@ extension MainWindowView {
                     vm?.pendingSkillInvocation = nil
                     windowState.dismissOverlay()
                 },
+                onCreateSkill: {
+                    conversationManager.openConversation(
+                        message: "I'd like to create a new custom skill. What info do you need from me?",
+                        forceNew: true
+                    )
+                    windowState.dismissOverlay()
+                    if let id = conversationManager.activeConversationId {
+                        windowState.selection = .conversation(id)
+                    }
+                },
                 connectionManager: connectionManager,
                 eventStreamClient: eventStreamClient,
                 store: settingsStore,
@@ -647,6 +668,7 @@ struct ActiveChatViewWrapper: View {
             isThinking: viewModel.isThinking,
             isCompacting: viewModel.isCompacting,
             isSending: viewModel.isSending,
+            isAssistantBusy: viewModel.isAssistantBusy,
             suggestion: viewModel.suggestion,
             pendingAttachments: viewModel.pendingAttachments,
             isLoadingAttachment: viewModel.isLoadingAttachment,
@@ -745,6 +767,7 @@ struct ActiveChatViewWrapper: View {
                 viewModel?.inputText = starter.prompt
             },
             onFetchConversationStarters: { [weak viewModel] in viewModel?.fetchConversationStarters() },
+            activePendingRequestId: viewModel.activePendingRequestId,
             isInteractionEnabled: inspectorMessageId == nil,
             anchorMessageId: $anchorMessageId,
             highlightedMessageId: $highlightedMessageId,

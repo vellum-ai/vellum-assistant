@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HostToolExecutor")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HostToolExecutor")
 
 /// Standalone executor for host tool requests (bash commands, file operations).
 /// These run locally on macOS and post results back via `HostProxyClient`.
@@ -48,6 +48,7 @@ public enum HostToolExecutor {
     /// Execute a host bash request locally and post the result back to the daemon.
     /// Spawns `/bin/bash -c -- <command>` via `Foundation.Process`, enforces a
     /// timeout, and collects stdout/stderr.
+    @MainActor
     public static func executeHostBashRequest(_ request: HostBashRequest) {
         Task.detached {
             // If already cancelled before we start, skip entirely
@@ -233,6 +234,7 @@ public enum HostToolExecutor {
     #if os(macOS)
     /// Execute a host file request locally and post the result back to the daemon.
     /// Dispatches by operation: read, write, or edit.
+    @MainActor
     public static func executeHostFileRequest(_ request: HostFileRequest) {
         Task.detached {
             // Check cancellation BEFORE performing the file operation to prevent

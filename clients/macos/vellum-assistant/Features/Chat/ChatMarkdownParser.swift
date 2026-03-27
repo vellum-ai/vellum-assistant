@@ -360,7 +360,6 @@ struct MarkdownTableView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.sm)
-                        .textSelection(.enabled)
                 }
             }
 
@@ -395,7 +394,6 @@ struct MarkdownTableView: View {
         return Text(attributed)
             .font(VFont.bodyMediumLighter)
             .foregroundStyle(VColor.contentDefault)
-            .textSelection(.enabled)
             // lineLimit(nil) ensures text wraps within the column width
             // instead of truncating with "..." on a single line.
             .lineLimit(nil)

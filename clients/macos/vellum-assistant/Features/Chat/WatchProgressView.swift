@@ -39,7 +39,6 @@ struct WatchProgressView: View {
                 Text("Watching your workflow...")
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentDefault)
-                    .textSelection(.enabled)
 
                 Spacer()
 
@@ -60,12 +59,10 @@ struct WatchProgressView: View {
                     Text("\(elapsedFormatted) / \(totalFormatted)")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentSecondary)
-                        .textSelection(.enabled)
                     Spacer()
                     Text("\(session.captureCount)/\(session.totalExpected) captures")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentSecondary)
-                        .textSelection(.enabled)
                 }
             }
 
@@ -75,7 +72,6 @@ struct WatchProgressView: View {
                     Text(session.currentApp)
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentSecondary)
-                        .textSelection(.enabled)
                         .padding(.horizontal, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
                         .background(
@@ -86,6 +82,7 @@ struct WatchProgressView: View {
                 }
             }
         }
+        .textSelection(.enabled)
         .padding(VSpacing.md)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)

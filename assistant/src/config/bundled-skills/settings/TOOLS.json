@@ -57,7 +57,7 @@
     },
     {
       "name": "navigate_settings_tab",
-      "description": "Open the Vellum settings panel to a specific tab (e.g. General, Channels, Voice). Use this when the user needs to review or adjust settings visually.",
+      "description": "Open the Vellum settings panel to a specific tab (e.g. General, Models & Services, Voice). Use this when the user needs to review or adjust settings visually.",
       "category": "system",
       "risk": "low",
       "input_schema": {
@@ -67,11 +67,13 @@
             "type": "string",
             "enum": [
               "General",
-              "Channels",
               "Models & Services",
               "Voice",
+              "Sounds",
               "Permissions & Privacy",
-              "Contacts",
+              "Billing",
+              "Archived Conversations",
+              "Schedules",
               "Developer"
             ],
             "description": "The settings tab to navigate to"

@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "TTSClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "TTSClient")
 
 /// Result of a message TTS synthesis request.
 public enum TTSResult: Sendable {

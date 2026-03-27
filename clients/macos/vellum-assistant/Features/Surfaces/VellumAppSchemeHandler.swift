@@ -2,7 +2,7 @@ import Foundation
 @preconcurrency import WebKit
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "VellumAppScheme")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "VellumAppScheme")
 
 /// Custom URL scheme handler for `vellumapp://{uuid}/path` URLs.
 /// Maps requests to files in the bundled shared-apps directory.

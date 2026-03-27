@@ -8,7 +8,7 @@ import CryptoKit
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AuthManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AuthManager")
 
 public enum AuthState {
     case loading

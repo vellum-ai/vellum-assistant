@@ -2,7 +2,7 @@ import AppKit
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+BundleHandling")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate+BundleHandling")
 
 extension AppDelegate {
 

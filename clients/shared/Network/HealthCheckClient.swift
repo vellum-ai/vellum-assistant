@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HealthCheckClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HealthCheckClient")
 
 /// Checks assistant reachability.
 ///

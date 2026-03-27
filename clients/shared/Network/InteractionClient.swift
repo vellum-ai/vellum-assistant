@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "InteractionClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "InteractionClient")
 
 /// Focused client for user interaction responses (confirmations, secrets)
 /// routed through the gateway.
@@ -29,7 +29,7 @@ public struct InteractionClient: InteractionClientProtocol {
             if let selectedPattern { body["selectedPattern"] = selectedPattern }
             if let selectedScope { body["selectedScope"] = selectedScope }
 
-            let path = try await Self.approvalPath(endpoint: "confirm")
+            let path = try Self.approvalPath(endpoint: "confirm")
             log.info("[confirm-flow] Sending POST /confirm: requestId=\(requestId, privacy: .public) decision=\(decision, privacy: .public)")
             let response = try await GatewayHTTPClient.post(path: path, json: body, timeout: 10)
             if !response.isSuccess {
@@ -78,7 +78,7 @@ public struct InteractionClient: InteractionClientProtocol {
             body["value"] = value ?? ""
             if let delivery { body["delivery"] = delivery }
 
-            let path = try await Self.approvalPath(endpoint: "secret")
+            let path = try Self.approvalPath(endpoint: "secret")
             let response = try await GatewayHTTPClient.post(path: path, json: body, timeout: 10)
             if !response.isSuccess {
                 log.error("sendSecretResponse failed (HTTP \(response.statusCode))")
@@ -99,8 +99,8 @@ public struct InteractionClient: InteractionClientProtocol {
     /// Managed connections route through the platform proxy which expects
     /// `assistants/{assistantId}/<endpoint>`. Non-managed connections (local
     /// gateway or direct remote runtime) use flat `<endpoint>` paths.
-    private static func approvalPath(endpoint: String) async throws -> String {
-        let managed = try await GatewayHTTPClient.isConnectionManaged()
+    private static func approvalPath(endpoint: String) throws -> String {
+        let managed = try GatewayHTTPClient.isConnectionManaged()
         return managed ? "assistants/{assistantId}/\(endpoint)" : endpoint
     }
 }

@@ -227,21 +227,17 @@ struct JSONTreeView: View {
 
     @ViewBuilder
     private func treeContent(_ node: JSONNode) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            GeometryReader { proxy in
-                ScrollView([.vertical, .horizontal]) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        JSONNodeRow(
-                            node: node,
-                            key: nil,
-                            depth: 0,
-                            expandedPaths: $expandedPaths
-                        )
-                    }
-                    .padding(VSpacing.md)
-                    .frame(minWidth: proxy.size.width, minHeight: proxy.size.height, alignment: .topLeading)
-                }
+        ScrollView([.vertical, .horizontal]) {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                JSONNodeRow(
+                    node: node,
+                    key: nil,
+                    depth: 0,
+                    expandedPaths: $expandedPaths
+                )
             }
+            .padding(VSpacing.md)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }

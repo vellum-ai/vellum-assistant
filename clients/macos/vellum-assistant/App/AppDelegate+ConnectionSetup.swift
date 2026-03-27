@@ -2,7 +2,7 @@ import AppKit
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+ConnectionSetup")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate+ConnectionSetup")
 
 extension AppDelegate {
 
@@ -76,6 +76,17 @@ extension AppDelegate {
         log.info("Configured remote assistant \(assistant.assistantId, privacy: .public)")
     }
 
+    // MARK: - Managed Reconnection
+
+    /// Re-establish the gateway connection for a managed assistant after the
+    /// user signs in from Settings. Resets `hasSetupDaemon` so the next call
+    /// to `setupGatewayConnectionManager()` runs the full setup again.
+    func reconnectManagedAssistant() {
+        UserDefaults.standard.removeObject(forKey: "pendingManagedSwitchAssistantId")
+        hasSetupDaemon = false
+        setupGatewayConnectionManager()
+    }
+
     // MARK: - Gateway Connection Setup
 
     func setupGatewayConnectionManager() {
@@ -83,6 +94,13 @@ extension AppDelegate {
         hasSetupDaemon = true
 
         let assistant = loadAssistantFromLockfile()
+
+        // Seed AuthService with the platform URL from the lockfile so that any
+        // platform API calls before the daemon connects (e.g. organization
+        // resolution during managed bootstrap) use the correct URL.
+        if let assistant, assistant.isManaged, let runtimeUrl = assistant.runtimeUrl, !runtimeUrl.isEmpty {
+            AuthService.shared.configuredBaseURL = runtimeUrl
+        }
 
         configureDaemonTransport(for: assistant)
 
@@ -145,10 +163,12 @@ extension AppDelegate {
     /// Subscribe to the event stream and dispatch events to their handlers.
     /// Each event type is handled in a single switch statement.
     private func startEventSubscription() {
-        Task { @MainActor [weak self] in
+        eventSubscriptionTask?.cancel()
+        eventSubscriptionTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let stream = self.eventStreamClient.subscribe()
             for await message in stream {
+                guard !Task.isCancelled else { break }
                 switch message {
                 case .notificationIntent(let msg):
                     self.deliverNotificationIntent(msg)
@@ -350,6 +370,17 @@ extension AppDelegate {
                 case .secretRequest(let msg):
                     self.secretPromptManager.showPrompt(msg)
                     SoundManager.shared.play(.needsInput)
+
+                case .conversationError(let msg):
+                    if msg.code == .authenticationRequired && self.isCurrentAssistantManaged {
+                        log.info("Received authenticationRequired error for managed assistant — showing reauth screen")
+                        // Only set pending if not already set (preserve user's intended switch target)
+                        if UserDefaults.standard.string(forKey: "pendingManagedSwitchAssistantId") == nil,
+                           let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
+                            UserDefaults.standard.set(assistantId, forKey: "pendingManagedSwitchAssistantId")
+                        }
+                        self.showAuthWindow()
+                    }
 
                 default:
                     break

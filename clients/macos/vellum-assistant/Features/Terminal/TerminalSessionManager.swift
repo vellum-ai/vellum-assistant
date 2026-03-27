@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "TerminalSession")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "TerminalSession")
 
 /// Manages the lifecycle of a single PTY terminal session against the platform API.
 ///

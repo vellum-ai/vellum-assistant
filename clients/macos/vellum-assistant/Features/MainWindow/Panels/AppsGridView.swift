@@ -20,6 +20,7 @@ struct AppsGridView: View {
     @State private var shareAppIcon: NSImage?
     @State private var showShareSheet = false
     @State private var isBundling = false
+    @State private var menuOpenAppId: String?
 
     // Shared apps fetched from daemon
     @State private var sharedApps: [SharedAppItem] = []
@@ -206,58 +207,53 @@ struct AppsGridView: View {
                         .stroke(VColor.borderBase, lineWidth: 1)
                 )
                 .overlay(alignment: .topTrailing) {
-                    ZStack {
+                    Group {
                         if isBundling && sharingAppId == app.id {
                             ProgressView()
                                 .controlSize(.small)
                                 .frame(width: 24, height: 24)
                         } else {
-                            VButton(label: "App actions", iconOnly: VIcon.ellipsis.rawValue, style: .primary, iconSize: 24) {}
-                                .allowsHitTesting(false)
-                        }
-                        Menu {
-                            Button {
-                                if app.isPinned {
-                                    appListManager.unpinApp(id: app.id)
-                                } else {
-                                    appListManager.pinApp(id: app.id)
+                            VButton(label: "App actions", iconOnly: VIcon.ellipsis.rawValue, style: .primary, iconSize: 24) {
+                                guard menuOpenAppId != app.id else { return }
+                                menuOpenAppId = app.id
+                                let appearance = NSApp.keyWindow?.effectiveAppearance
+                                VMenuPanel.show(
+                                    at: NSEvent.mouseLocation,
+                                    sourceAppearance: appearance
+                                ) {
+                                    VMenu(width: 200) {
+                                        VMenuItem(icon: (app.isPinned ? VIcon.pinOff : .pin).rawValue, label: app.isPinned ? "Unpin" : "Pin") {
+                                            if app.isPinned {
+                                                appListManager.unpinApp(id: app.id)
+                                            } else {
+                                                appListManager.pinApp(id: app.id)
+                                            }
+                                        }
+                                        VMenuItem(icon: VIcon.share.rawValue, label: "Share") {
+                                            bundleAndShareLocal(appId: app.id)
+                                        }
+                                        VMenuItem(icon: VIcon.paintbrush.rawValue, label: "Change Icon") {
+                                            editingApp = app
+                                        }
+                                        VMenuDivider()
+                                        VMenuItem(icon: VIcon.trash.rawValue, label: "Delete", variant: .destructive) {
+                                            hoveredAppId = nil
+                                            Task { await AppsClient().deleteApp(id: app.id) }
+                                            appListManager.removeApp(id: app.id)
+                                            AppPreviewImageStore.remove(appId: app.id)
+                                        }
+                                    }
+                                } onDismiss: {
+                                    menuOpenAppId = nil
                                 }
-                            } label: {
-                                Label { Text(app.isPinned ? "Unpin" : "Pin") } icon: { VIconView(app.isPinned ? .pinOff : .pin, size: 14) }
                             }
-                            Button {
-                                bundleAndShareLocal(appId: app.id)
-                            } label: {
-                                Label { Text("Share") } icon: { VIconView(.share, size: 14) }
-                            }
-                            Button {
-                                editingApp = app
-                            } label: {
-                                Label { Text("Change Icon") } icon: { VIconView(.paintbrush, size: 14) }
-                            }
-                            Button(role: .destructive) {
-                                    hoveredAppId = nil
-                                Task { await AppsClient().deleteApp(id: app.id) }
-                                appListManager.removeApp(id: app.id)
-                                AppPreviewImageStore.remove(appId: app.id)
-                            } label: {
-                                Label { Text("Delete") } icon: { VIconView(.trash, size: 14) }
-                            }
-                        } label: {
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .frame(width: 32, height: 32)
                         }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
                     }
-                    .fixedSize()
-                    .accessibilityLabel("App actions")
                     .padding(VSpacing.sm)
                     .contentShape(Rectangle())
                     .onTapGesture {} // absorb tap so it doesn't propagate to parent Button
-                    .opacity(isHovered || (isBundling && sharingAppId == app.id) ? 1 : 0)
-                    .allowsHitTesting(isHovered || (isBundling && sharingAppId == app.id))
+                    .opacity(isHovered || menuOpenAppId == app.id || (isBundling && sharingAppId == app.id) ? 1 : 0)
+                    .allowsHitTesting(isHovered || menuOpenAppId == app.id || (isBundling && sharingAppId == app.id))
                     .animation(VAnimation.fast, value: isHovered)
                     .overlay {
                         AppSharePanel(

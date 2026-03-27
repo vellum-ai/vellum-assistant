@@ -5,11 +5,13 @@ import type {
 
 const SETTINGS_TABS = [
   "General",
-  "Channels",
   "Models & Services",
   "Voice",
+  "Sounds",
   "Permissions & Privacy",
-  "Contacts",
+  "Billing",
+  "Archived Conversations",
+  "Schedules",
   "Developer",
 ] as const;
 

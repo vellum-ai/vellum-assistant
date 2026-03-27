@@ -1,7 +1,8 @@
+import Combine
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "GatewayConnectionManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "GatewayConnectionManager")
 
 /// Minimal decode of the /v1/health response to extract the version field.
 private struct HealthVersionResponse: Decodable {
@@ -270,7 +271,7 @@ public final class GatewayConnectionManager: ObservableObject {
 
     private func performHealthCheck() async throws {
         do {
-            let isManaged = (try? await GatewayHTTPClient.isConnectionManaged()) ?? false
+            let isManaged = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
             let healthPath = isManaged ? "assistants/{assistantId}/health" : "health"
             let response = try await GatewayHTTPClient.get(
                 path: healthPath,
@@ -280,11 +281,7 @@ public final class GatewayConnectionManager: ObservableObject {
 
             guard response.isSuccess else {
                 if response.statusCode == 401 {
-                    await handleAuthenticationFailure()
-                    let isManaged = (try? await GatewayHTTPClient.isConnectionManaged()) ?? false
-                    if isManaged {
-                        shouldReconnect = false
-                    }
+                    handleAuthenticationFailure()
                 }
                 throw ConnectionError.healthCheckFailed
             }
@@ -481,8 +478,8 @@ public final class GatewayConnectionManager: ObservableObject {
 
     // MARK: - 401 Recovery
 
-    private func handleAuthenticationFailure() async {
-        let isManaged = (try? await GatewayHTTPClient.isConnectionManaged()) ?? false
+    private func handleAuthenticationFailure() {
+        let isManaged = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
         if isManaged {
             log.warning("401 in managed mode — session token may be expired")
             eventStreamClient.broadcastMessage(.conversationError(ConversationErrorMessage(
@@ -687,6 +684,24 @@ public final class GatewayConnectionManager: ObservableObject {
         }
     }
     #endif
+
+    // MARK: - Async Observation
+
+    /// An `AsyncStream` that emits whenever `isConnected` changes.
+    ///
+    /// Prefer this over `$isConnected.values` — Combine's `AsyncPublisher`
+    /// does not terminate on task cancellation, which can cause
+    /// `withTaskGroup` to hang indefinitely.
+    public var isConnectedStream: AsyncStream<Bool> {
+        AsyncStream { continuation in
+            let cancellable = self.$isConnected.sink { value in
+                continuation.yield(value)
+            }
+            continuation.onTermination = { _ in
+                cancellable.cancel()
+            }
+        }
+    }
 
     // MARK: - Helpers
 

@@ -1,7 +1,8 @@
+import CoreGraphics
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DebugStateWriter")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "DebugStateWriter")
 
 /// Periodically writes a JSON snapshot of the app's live state to a well-known
 /// file path so external tools (e.g. Claude Code) can read it for instant
@@ -10,7 +11,7 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// File: `~/Library/Application Support/vellum-assistant/debug-state.json`
 @MainActor
 final class DebugStateWriter {
-    private var timer: Timer?
+    private var timerTask: Task<Void, Never>?
     private weak var appDelegate: AppDelegate?
 
     let fileURL: URL
@@ -34,20 +35,24 @@ final class DebugStateWriter {
     func start(appDelegate: AppDelegate) {
         self.appDelegate = appDelegate
         captureAndWrite()
-        timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+        timerTask?.cancel()
+        timerTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled else { break }
                 self?.captureAndWrite()
             }
         }
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        timerTask?.cancel()
+        timerTask = nil
     }
 
     private func captureAndWrite() {
         guard let appDelegate else { return }
+        if CGDisplayIsAsleep(CGMainDisplayID()) != 0 { return }
         let snapshot = captureSnapshot(from: appDelegate)
 
         // Encode and write on a background thread to avoid blocking the main
@@ -82,7 +87,7 @@ final class DebugStateWriter {
         )
 
         let conversationSnapshots: [DebugSnapshot.ConversationInfo] = (conversationManager?.conversations ?? []).map { conversation in
-            let vm = conversationManager?.chatViewModel(for: conversation.id)
+            let vm = conversationManager?.existingChatViewModel(for: conversation.id)
             return DebugSnapshot.ConversationInfo(
                 id: conversation.id.uuidString,
                 title: conversation.title,

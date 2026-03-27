@@ -348,9 +348,107 @@ struct ModifiersGallerySection: View {
                 }
             }
 
+            #if os(macOS)
+            if filter == nil || filter == "onRightClick" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - .onRightClick()
+                GallerySectionHeader(
+                    title: ".onRightClick()",
+                    description: "Detects right-click (secondary click) and reports the screen-coordinate position. Uses an NSEvent local monitor so it does not interfere with left-click, hover, or drag gestures."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Right-click the area below").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        RightClickDemo()
+                    }
+                }
+            }
+
+            if filter == nil || filter == "vContextMenu" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - .vContextMenu()
+                GallerySectionHeader(
+                    title: ".vContextMenu()",
+                    description: "Custom context menu using VMenu that appears on right-click. Menu items auto-dismiss the menu when tapped. Uses a floating NSPanel for correct z-order and screen-edge clamping.",
+                    useInsteadOf: ".contextMenu { } when you want VMenu styling"
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Right-click the card below").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        Text("Right-click me!")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentDefault)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(VSpacing.lg)
+                            .background(VColor.surfaceBase)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            .vContextMenu(width: 200) {
+                                VMenuItem(icon: VIcon.copy.rawValue, label: "Copy") {}
+                                VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") {}
+                                VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {}
+                                VMenuDivider()
+                                VMenuItem(icon: VIcon.externalLink.rawValue, label: "Open in New Window") {}
+                            }
+                    }
+                }
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("With sections and disabled items").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        Text("Right-click me too!")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentDefault)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(VSpacing.lg)
+                            .background(VColor.surfaceBase)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            .vContextMenu(width: 220) {
+                                VMenuSection(header: "Actions") {
+                                    VMenuItem(icon: VIcon.pin.rawValue, label: "Pin") {}
+                                    VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") {}
+                                    VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {}
+                                    VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {}
+                                        .disabled(true)
+                                }
+                                VMenuDivider()
+                                VMenuItem(icon: VIcon.messageCircle.rawValue, label: "Share Feedback") {}
+                            }
+                    }
+                }
+            }
+            #endif
+
         }
     }
 }
+
+#if os(macOS)
+private struct RightClickDemo: View {
+    @State private var lastClick: String = "No right-click yet"
+
+    var body: some View {
+        Text(lastClick)
+            .font(VFont.bodyMediumDefault)
+            .foregroundStyle(VColor.contentDefault)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(VSpacing.lg)
+            .background(VColor.surfaceBase)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .onRightClick { point in
+                lastClick = "Right-clicked at (\(Int(point.x)), \(Int(point.y)))"
+            }
+    }
+}
+#endif
 
 // MARK: - Component Page Router
 
@@ -366,6 +464,8 @@ extension ModifiersGallerySection {
         case "ifMod": ModifiersGallerySection(filter: "ifMod")
         case "vShimmer": ModifiersGallerySection(filter: "vShimmer")
         case "inlineWidgetCard": ModifiersGallerySection(filter: "inlineWidgetCard")
+        case "onRightClick": ModifiersGallerySection(filter: "onRightClick")
+        case "vContextMenu": ModifiersGallerySection(filter: "vContextMenu")
         default: EmptyView()
         }
     }

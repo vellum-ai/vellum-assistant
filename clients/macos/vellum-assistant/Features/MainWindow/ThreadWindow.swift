@@ -3,7 +3,7 @@ import SwiftUI
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThreadWindow")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ThreadWindow")
 
 /// Standalone NSWindow that hosts a single conversation thread.
 /// Used by `ThreadWindowManager` to pop a thread out of the main window
@@ -276,6 +276,7 @@ private struct ThreadWindowContentView: View {
             isThinking: viewModel.isThinking,
             isCompacting: viewModel.isCompacting,
             isSending: viewModel.isSending,
+            isAssistantBusy: viewModel.isAssistantBusy,
             suggestion: viewModel.suggestion,
             pendingAttachments: viewModel.pendingAttachments,
             isLoadingAttachment: viewModel.isLoadingAttachment,
@@ -323,6 +324,7 @@ private struct ThreadWindowContentView: View {
             },
             subagentDetailStore: viewModel.subagentDetailStore,
             isHistoryLoaded: viewModel.isHistoryLoaded,
+            activePendingRequestId: viewModel.activePendingRequestId,
             anchorMessageId: $anchorMessageId,
             highlightedMessageId: $highlightedMessageId,
             creditsExhaustedError: viewModel.errorManager.conversationError?.isCreditsExhausted == true ? viewModel.errorManager.conversationError : nil,

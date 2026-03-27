@@ -26,13 +26,13 @@ function buildFtsMatchQuery(text: string): string | null {
 
 export function listConversations(
   limit?: number,
-  includeBackground = false,
+  backgroundOnly = false,
   offset = 0,
 ): ConversationRow[] {
   ensureDisplayOrderMigration();
   const db = getDb();
-  const where = includeBackground
-    ? undefined
+  const where = backgroundOnly
+    ? sql`${conversations.conversationType} = 'background'`
     : sql`${conversations.conversationType} NOT IN ('background', 'private')`;
   const query = db
     .select()
@@ -44,10 +44,10 @@ export function listConversations(
   return query.all().map(parseConversation);
 }
 
-export function countConversations(includeBackground = false): number {
+export function countConversations(backgroundOnly = false): number {
   const db = getDb();
-  const where = includeBackground
-    ? undefined
+  const where = backgroundOnly
+    ? sql`${conversations.conversationType} = 'background'`
     : sql`${conversations.conversationType} NOT IN ('background', 'private')`;
   const [{ total }] = db
     .select({ total: count() })

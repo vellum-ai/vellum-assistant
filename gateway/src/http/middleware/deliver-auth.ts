@@ -1,4 +1,7 @@
 import { verifyToken } from "../../auth/token-service.js";
+import { getLogger } from "../../logger.js";
+
+const log = getLogger("deliver-auth");
 
 /**
  * Creates a fail-closed auth check for delivery routes.
@@ -21,12 +24,20 @@ export function checkDeliverAuth(
 
   const authHeader = req.headers.get("authorization");
   if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
+    log.warn(
+      { path: new URL(req.url).pathname },
+      "Deliver auth rejected: missing or malformed Authorization header",
+    );
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const token = authHeader.slice(7);
   const result = verifyToken(token, "vellum-daemon");
   if (!result.ok) {
+    log.warn(
+      { path: new URL(req.url).pathname, reason: result.reason },
+      "Deliver auth rejected: token validation failed",
+    );
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 

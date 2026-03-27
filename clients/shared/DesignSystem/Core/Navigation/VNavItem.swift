@@ -7,16 +7,16 @@ import SwiftUI
 ///
 /// Usage:
 /// ```swift
-/// VSidebarRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: true) {
+/// VNavItem(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: true) {
 ///     showPanel(.intelligence)
 /// }
 ///
 /// // With trailing content:
-/// VSidebarRow(label: "Identity", isActive: true, action: { }) {
+/// VNavItem(label: "Identity", isActive: true, action: { }) {
 ///     Text("5").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
 /// }
 /// ```
-public struct VSidebarRow<Trailing: View>: View {
+public struct VNavItem<Trailing: View>: View {
     public let icon: String?
     public let label: String
     public var isActive: Bool
@@ -26,11 +26,8 @@ public struct VSidebarRow<Trailing: View>: View {
 
     @State private var isHovered = false
 
-    /// Icon slot size — all leading icons occupy a uniform 20x20 frame.
-    private static var iconSlotSize: CGFloat { 20 }
-
-    /// Minimum row height to ensure touch/click targets remain accessible.
-    private static var rowMinHeight: CGFloat { 32 }
+    private static var iconSlotSize: CGFloat { VSize.iconSlot }
+    private static var rowMinHeight: CGFloat { VSize.rowMinHeight }
 
     public init(
         icon: String? = nil,
@@ -59,7 +56,7 @@ public struct VSidebarRow<Trailing: View>: View {
     public var body: some View {
         HStack(spacing: isExpanded ? VSpacing.xs : 0) {
             if let icon {
-                VIconView(.resolve(icon), size: 13)
+                VIconView(.resolve(icon), size: VSize.iconDefault)
                     .foregroundStyle(iconColor)
                     .frame(width: Self.iconSlotSize, height: Self.iconSlotSize)
             }
@@ -91,16 +88,15 @@ public struct VSidebarRow<Trailing: View>: View {
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .contentShape(Rectangle())
         .onTapGesture { action() }
-        .onHover { isHovered = $0 }
         .padding(.horizontal, 0)
         .help(isExpanded ? "" : label)
-        .pointerCursor()
+        .pointerCursor(onHover: { isHovered = $0 })
     }
 }
 
 // MARK: - Convenience initializers
 
-public extension VSidebarRow where Trailing == EmptyView {
+public extension VNavItem where Trailing == EmptyView {
     /// Simple row with no trailing content.
     init(
         icon: String? = nil,
@@ -115,7 +111,7 @@ public extension VSidebarRow where Trailing == EmptyView {
     }
 }
 
-public extension VSidebarRow where Trailing == VSidebarRowTrailingIcon {
+public extension VNavItem where Trailing == VNavItemTrailingIcon {
     /// Row with a trailing icon and optional rotation (used by the main sidebar for disclosure arrows).
     init(
         icon: String? = nil,
@@ -128,7 +124,7 @@ public extension VSidebarRow where Trailing == VSidebarRowTrailingIcon {
     ) {
         let active = isActive
         self.init(icon: icon, label: label, isActive: isActive, isExpanded: isExpanded, action: action) {
-            VSidebarRowTrailingIcon(
+            VNavItemTrailingIcon(
                 icon: trailingIcon,
                 rotation: trailingIconRotation,
                 isActive: active
@@ -138,7 +134,7 @@ public extension VSidebarRow where Trailing == VSidebarRowTrailingIcon {
 }
 
 /// Trailing icon view extracted so the convenience init can reference a concrete type.
-public struct VSidebarRowTrailingIcon: View {
+public struct VNavItemTrailingIcon: View {
     let icon: String
     var rotation: Angle = .zero
     var isActive: Bool = false

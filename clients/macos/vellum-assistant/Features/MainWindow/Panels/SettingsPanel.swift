@@ -383,6 +383,12 @@ struct SettingsPanel: View {
                 // to skip the wait. Mirrors the reset in proceedToApp().
                 AppDelegate.shared?.localBootstrapDidComplete = false
                 AppDelegate.shared?.ensureLocalAssistantApiKey()
+
+                // For managed assistants, re-establish the connection now that
+                // the user has a valid session token.
+                if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
+                    AppDelegate.shared?.reconnectManagedAssistant()
+                }
             })
         case .modelsAndServices:
             integrationsContent

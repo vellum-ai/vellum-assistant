@@ -16,6 +16,7 @@ import {
   DEFAULT_DAEMON_PORT,
   DEFAULT_GATEWAY_PORT,
   DEFAULT_QDRANT_PORT,
+  LOCKFILE_NAMES,
 } from "./constants.js";
 import { probePort } from "./port-probe.js";
 
@@ -119,10 +120,7 @@ function getLockfileDir(): string {
 
 function readLockfile(): LockfileData {
   const base = getLockfileDir();
-  const candidates = [
-    join(base, ".vellum.lock.json"),
-    join(base, ".vellum.lockfile.json"),
-  ];
+  const candidates = LOCKFILE_NAMES.map((name) => join(base, name));
   for (const lockfilePath of candidates) {
     if (!existsSync(lockfilePath)) continue;
     try {
@@ -139,7 +137,7 @@ function readLockfile(): LockfileData {
 }
 
 function writeLockfile(data: LockfileData): void {
-  const lockfilePath = join(getLockfileDir(), ".vellum.lock.json");
+  const lockfilePath = join(getLockfileDir(), LOCKFILE_NAMES[0]);
   const tmpPath = `${lockfilePath}.${randomBytes(4).toString("hex")}.tmp`;
   try {
     writeFileSync(tmpPath, JSON.stringify(data, null, 2) + "\n");

@@ -8,7 +8,7 @@ import SwiftUI
 import UserNotifications
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate")
 
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -95,8 +95,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     var pairingApprovalWindow: PairingApprovalWindow?
     var acpPermissionWindow: AcpPermissionWindow?
-    var crashReportWindow: NSWindow?
-    var crashReportWindowObserver: NSObjectProtocol?
     var logReportWindow: NSWindow?
     var logReportWindowObserver: NSObjectProtocol?
     /// Background task that retries actor-token bootstrap until success.
@@ -132,6 +130,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var refreshSkillsTask: Task<Void, Never>?
     var cachedApps: [AppItem] = []
     var refreshAppsTask: Task<Void, Never>?
+    /// The currently-active SSE event subscription task. Stored so it can be
+    /// cancelled before creating a new subscription (e.g. on reconnection or
+    /// assistant switch), preventing duplicate event processing.
+    var eventSubscriptionTask: Task<Void, Never>?
     /// Pending fallback notification tokens, keyed by conversationId.
     /// Used to avoid duplicate native alerts when notification_intent arrives.
     var pendingFallbackNotifications: [String: UUID] = [:]
@@ -355,10 +357,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let sendDiagnostics = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
             ?? UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
             ?? true
+
+        // Collect pending IPS crash logs BEFORE starting Sentry so they
+        // can be attached to the scope for the automatic crash event.
+        let crashLogURLs = sendDiagnostics ? CrashReporter.pendingCrashLogURLs() : []
+
         if sendDiagnostics && !MetricKitManager.macosDSN.isEmpty {
             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
             let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
             let commitSHA = Bundle.main.infoDictionary?["VellumCommitSHA"] as? String
+            nonisolated(unsafe) var crashedLastRun = false
             SentrySDK.start { options in
                 options.dsn = MetricKitManager.macosDSN
                 options.releaseName = "vellum-macos@\(appVersion)"
@@ -371,14 +379,45 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 options.sendDefaultPii = false
                 options.maxAttachmentSize = MetricKitManager.sentryMaxAttachmentSize
+
+                if !crashLogURLs.isEmpty {
+                    options.onCrashedLastRun = { _ in crashedLastRun = true }
+                }
+
+                // Configure initialScope so telemetry tags AND IPS crash
+                // log attachments are present BEFORE the SDK flushes stored
+                // crash events. The crash event envelope is built during
+                // start(), so these ride along with the fatal event itself.
+                options.initialScope = { scope in
+                    SentryDeviceInfo.applyTags(to: scope)
+                    for url in crashLogURLs {
+                        scope.addAttachment(
+                            Attachment(path: url.path, filename: url.lastPathComponent)
+                        )
+                    }
+                    return scope
+                }
             }
+            // Also configure the live scope for events after start().
             SentryDeviceInfo.configureSentryScope()
+
+            // The crash event's envelope was built during start() and
+            // already includes the IPS scope attachments. Clear them
+            // synchronously so no subsequent events carry the files.
+            if !crashLogURLs.isEmpty {
+                SentrySDK.configureScope { scope in
+                    scope.clearAttachments()
+                }
+                if crashedLastRun {
+                    CrashReporter.markAsSeen(crashLogURLs)
+                }
+            }
+
             SentryLogReporter.start()
         }
 
-        // Surface any crash log from the previous session so the user can send
-        // it. Also records this launch timestamp for the next session's check.
-        checkForPreviousCrash()
+        // Record this launch so the next session can identify new crashes.
+        CrashReporter.recordLaunch()
 
         // Migration: remove legacy ios-pairing-enabled flag file.
         // The old "Enable iOS Pairing" toggle created this file to expose
@@ -482,6 +521,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         guard !hasSetupApp else {
+            // Check for a pending managed assistant switch (set by performSwitchAssistant
+            // when the user was logged out). Now that the user has re-authenticated and
+            // the app is already set up, complete the switch.
+            if let pendingId = UserDefaults.standard.string(forKey: "pendingManagedSwitchAssistantId"),
+               !pendingId.isEmpty {
+                UserDefaults.standard.removeObject(forKey: "pendingManagedSwitchAssistantId")
+                if let assistant = LockfileAssistant.loadByName(pendingId) {
+                    performSwitchAssistant(to: assistant)
+                    return
+                }
+            }
             showMainWindow()
             return
         }
@@ -521,6 +571,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         if !hasPlayedAppOpenSound {
             hasPlayedAppOpenSound = true
             SoundManager.shared.play(.appOpen)
+        }
+
+        // On cold-start reauth (non-first-launch), check for a pending managed
+        // assistant switch BEFORE bootstrapping credentials. This avoids
+        // provisioning against the wrong assistant only to immediately switch.
+        if !isFirstLaunch,
+           let pendingId = UserDefaults.standard.string(forKey: "pendingManagedSwitchAssistantId"),
+           !pendingId.isEmpty {
+            UserDefaults.standard.removeObject(forKey: "pendingManagedSwitchAssistantId")
+            if let assistant = LockfileAssistant.loadByName(pendingId) {
+                performSwitchAssistant(to: assistant)
+                return
+            }
         }
 
         // Ensure actor credentials are present. On first launch this performs
@@ -605,6 +668,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.onboardingState = nil
                 }
             }
+
             showMainWindow()
             debugStateWriter.start(appDelegate: self)
         }
@@ -652,6 +716,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         recordingManager.forceStop()
         recordingHUDWindow?.dismiss()
         e2eStatusOverlayWindow?.dismiss()
+        eventSubscriptionTask?.cancel()
         debugStateWriter.stop()
         RandomSoundTimer.shared.stop()
         SoundManager.shared.stop()

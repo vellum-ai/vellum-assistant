@@ -8,6 +8,7 @@ import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import {
+  getPlatformAssistantId,
   getQdrantHttpPortEnv,
   getQdrantUrlEnv,
   getRuntimeHttpHost,
@@ -198,11 +199,13 @@ export async function startCesProcess(
       // after hatch and stored in the credential store — CES can't read
       // the env var, so we pass it via the handshake.
       const proxyCtx = await resolveManagedProxyContext();
-      const { accepted, reason } = await client.handshake(
-        proxyCtx.assistantApiKey
+      const assistantId = getPlatformAssistantId();
+      const { accepted, reason } = await client.handshake({
+        ...(proxyCtx.assistantApiKey
           ? { assistantApiKey: proxyCtx.assistantApiKey }
-          : undefined,
-      );
+          : {}),
+        ...(assistantId ? { assistantId } : {}),
+      });
       if (abortController.signal.aborted) {
         client.close();
         throw new Error("CES initialization aborted during shutdown");
@@ -511,11 +514,13 @@ export async function runDaemon(): Promise<void> {
             const transport = await pm.start();
             const newClient = createCesClient(transport);
             const proxyCtx = await resolveManagedProxyContext();
-            const { accepted, reason } = await newClient.handshake(
-              proxyCtx.assistantApiKey
+            const assistantId = getPlatformAssistantId();
+            const { accepted, reason } = await newClient.handshake({
+              ...(proxyCtx.assistantApiKey
                 ? { assistantApiKey: proxyCtx.assistantApiKey }
-                : undefined,
-            );
+                : {}),
+              ...(assistantId ? { assistantId } : {}),
+            });
             if (accepted) {
               log.info("CES reconnection handshake accepted");
               return newClient;

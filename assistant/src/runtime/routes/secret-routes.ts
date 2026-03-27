@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  getPlatformAssistantId,
   setPlatformAssistantId,
   setPlatformBaseUrl,
   setPlatformOrganizationId,
@@ -86,7 +87,10 @@ async function queueApiKeyPropagation(
         return;
       }
       try {
-        await cesClient.updateAssistantApiKey(apiKey);
+        await cesClient.updateAssistantApiKey(
+          apiKey,
+          getPlatformAssistantId() || undefined,
+        );
         log.info(
           "Pushed queued assistant API key to CES after handshake completed",
         );
@@ -282,7 +286,10 @@ export async function handleAddSecret(
           if (cesClient) {
             if (cesClient.isReady()) {
               try {
-                await cesClient.updateAssistantApiKey(value);
+                await cesClient.updateAssistantApiKey(
+                  value,
+                  getPlatformAssistantId() || undefined,
+                );
                 log.info(
                   "Pushed assistant API key to CES after managed proxy credential update",
                 );

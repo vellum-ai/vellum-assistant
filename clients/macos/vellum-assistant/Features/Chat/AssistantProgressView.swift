@@ -926,7 +926,6 @@ private struct StepDetailRow: View {
                         Text(resolvedInputFull)
                             .font(VFont.bodySmallDefault)
                             .foregroundStyle(VColor.contentSecondary)
-                            .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -1000,14 +999,12 @@ private struct StepDetailRow: View {
                     Text(attrText)
                         .font(VFont.bodySmallDefault)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 } else if let plainText = text {
                     Text(plainText)
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -1039,13 +1036,11 @@ private struct StepDetailRow: View {
             Text(attrText)
                 .font(VFont.bodySmallDefault)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
         } else if let plainText = text {
             Text(plainText)
                 .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
         }
     }
 

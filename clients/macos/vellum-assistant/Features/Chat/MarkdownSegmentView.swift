@@ -38,7 +38,7 @@ struct MarkdownSegmentView: View, Equatable {
 
     var body: some View {
         let groups = groupedSegments
-        let scaledBodySize: CGFloat = 14
+        let chatFont = VFont.chat
         let scaledCodeLabelSize: CGFloat = 11
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
@@ -46,17 +46,18 @@ struct MarkdownSegmentView: View, Equatable {
                 case .selectableRun(let runSegments):
                     let attributed = buildCombinedAttributedString(from: runSegments)
                     Text(attributed)
-                        .font(.system(size: scaledBodySize))
+                        .font(chatFont)
                         .lineSpacing(4)
                         .foregroundStyle(textColor)
                         .tint(tintColor)
-                        .textSelection(.enabled)
                         .optionalMaxWidth(maxContentWidth)
                         // lineLimit(nil) wraps text in a single measurement pass, avoiding
                         // the double-measurement that fixedSize causes (measure at ideal
                         // size, then constrain to proposed width).
                         .lineLimit(nil)
-                        .streamingFade(isStreaming: isStreaming, characterCount: attributed.characters.count)
+                        // Text streams at 50ms chunk intervals which is visually smooth;
+                        // the former StreamingFadeRenderer was a no-op that never used its
+                        // animatable data for per-glyph effects, so it was removed.
 
                 case .heading(let level, let headingText):
                     let headingFont: Font = switch level {
@@ -68,7 +69,6 @@ struct MarkdownSegmentView: View, Equatable {
                     Text(headingText)
                         .font(headingFont)
                         .foregroundStyle(textColor)
-                        .textSelection(.enabled)
                         .optionalMaxWidth(maxContentWidth)
                         // lineLimit(nil) avoids the double-measurement from fixedSize.
                         .lineLimit(nil)
@@ -314,7 +314,7 @@ struct MarkdownSegmentView: View, Equatable {
                     if let cached = prefixWidthCache[prefixText] {
                         prefixWidth = cached
                     } else {
-                        let font = NSFont.systemFont(ofSize: 14)
+                        let font = NSFont(name: "DMSans-Regular", size: 16) ?? NSFont.systemFont(ofSize: 16)
                         let prefixNS = NSString(string: prefixText)
                         prefixWidth = prefixNS.size(withAttributes: [.font: font]).width
                         if prefixWidthCache.count < 200 {
@@ -352,6 +352,43 @@ struct MarkdownSegmentView: View, Equatable {
             leading.backgroundColor = codeBackgroundColor
             result.insert(leading, at: range.lowerBound)
         }
+        // Apply synthetic italic/bold to emphasized runs.
+        // DM Sans doesn't ship an italic font face, so SwiftUI can't resolve
+        // the italic trait from .emphasized inlinePresentationIntent. We detect
+        // emphasized runs and apply a synthetic oblique via affine transform.
+        var emphOnlyRanges: [Range<AttributedString.Index>] = []
+        var boldEmphRanges: [Range<AttributedString.Index>] = []
+        for run in result.runs {
+            guard let intent = run.inlinePresentationIntent, !intent.contains(.code) else { continue }
+            let isEmph = intent.contains(.emphasized)
+            let isBold = intent.contains(.stronglyEmphasized)
+            if isEmph && isBold {
+                boldEmphRanges.append(run.range)
+            } else if isEmph {
+                emphOnlyRanges.append(run.range)
+            }
+        }
+        if !emphOnlyRanges.isEmpty || !boldEmphRanges.isEmpty {
+            let sz: CGFloat = 16 // matches VFont.chat size
+            var oblique = CGAffineTransform(a: 1, b: 0, c: CGFloat(tan(12.0 * .pi / 180.0)), d: 1, tx: 0, ty: 0)
+            if !emphOnlyRanges.isEmpty {
+                let italicCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, &oblique)
+                let italicFont = Font(italicCT as NSFont)
+                for range in emphOnlyRanges { result[range].font = italicFont }
+            }
+            if !boldEmphRanges.isEmpty {
+                let wght = 0x77676874
+                let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, nil)
+                let boldVars: [CFNumber: CFNumber] = [wght as CFNumber: 700 as CFNumber]
+                let boldItalicCT = CTFontCreateCopyWithAttributes(
+                    baseCT, sz, &oblique,
+                    CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
+                )
+                let boldItalicFont = Font(boldItalicCT as NSFont)
+                for range in boldEmphRanges { result[range].font = boldItalicFont }
+            }
+        }
+
         // Underline links so they are visually distinct from plain text
         for run in result.runs where result[run.range].link != nil {
             result[run.range].underlineStyle = .single
@@ -397,7 +434,6 @@ private struct CodeBlockView: View {
                 Text(code)
                     .font(.custom("DMMono-Regular", size: 13))
                     .foregroundStyle(textColor)
-                    .textSelection(.enabled)
                     .fixedSize(horizontal: true, vertical: true)
                     .padding(VSpacing.sm)
             }
@@ -444,20 +480,3 @@ private extension View {
     }
 }
 
-// MARK: - Streaming Typewriter
-
-private extension View {
-    /// Conditionally applies `StreamingFadeRenderer` during streaming.
-    /// Characters appear one by one (typewriter style) as SwiftUI
-    /// interpolates the renderer's animatable `elapsedCount`.
-    @ViewBuilder
-    func streamingFade(isStreaming: Bool, characterCount: Int) -> some View {
-        if isStreaming {
-            self
-                .textRenderer(StreamingFadeRenderer(elapsedCount: Double(characterCount)))
-                .animation(.linear(duration: 0.22), value: characterCount)
-        } else {
-            self
-        }
-    }
-}

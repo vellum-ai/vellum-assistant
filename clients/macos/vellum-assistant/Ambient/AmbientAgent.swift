@@ -5,7 +5,7 @@ import Combine
 import UserNotifications
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AmbientAgent")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AmbientAgent")
 
 @MainActor
 @Observable

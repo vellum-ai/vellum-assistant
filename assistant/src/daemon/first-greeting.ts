@@ -22,7 +22,12 @@ export function isWakeUpGreeting(
 ): boolean {
   if (conversationMessageCount !== 0) return false;
   if (!existsSync(getWorkspacePromptPath("BOOTSTRAP.md"))) return false;
-  return content.trim().toLowerCase() === "wake up, my friend.";
+  return (
+    content
+      .trim()
+      .toLowerCase()
+      .replace(/[.!?]+$/, "") === "wake up, my friend"
+  );
 }
 
 /**

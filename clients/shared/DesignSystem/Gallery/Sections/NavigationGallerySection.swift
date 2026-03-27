@@ -78,7 +78,7 @@ struct NavigationGallerySection: View {
                     description: "Compact pill-style segmented control for inline use in toolbars and headers."
                 )
 
-                VCard(padding: VSpacing.lg) {
+                VCard {
                     VStack(alignment: .leading, spacing: VSpacing.md) {
                         Divider().background(VColor.borderBase)
 
@@ -97,13 +97,13 @@ struct NavigationGallerySection: View {
 
             }
 
-            if filter == nil || filter == "vSidebarRow" {
+            if filter == nil || filter == "vNavItem" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
                 }
-                // MARK: - VSidebarRow
+                // MARK: - VNavItem
                 GallerySectionHeader(
-                    title: "VSidebarRow",
+                    title: "VNavItem",
                     description: "Sidebar navigation row with icon, label, hover/active states, and optional trailing icon. Used by the main app sidebar and the component gallery."
                 )
 
@@ -111,13 +111,13 @@ struct NavigationGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("States").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
 
-                        VSidebarRow(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: sidebarRowActive == "Intelligence") {
+                        VNavItem(icon: VIcon.brain.rawValue, label: "Intelligence", isActive: sidebarRowActive == "Intelligence") {
                             sidebarRowActive = "Intelligence"
                         }
-                        VSidebarRow(icon: VIcon.bookOpen.rawValue, label: "Library", isActive: sidebarRowActive == "Library") {
+                        VNavItem(icon: VIcon.bookOpen.rawValue, label: "Library", isActive: sidebarRowActive == "Library") {
                             sidebarRowActive = "Library"
                         }
-                        VSidebarRow(icon: VIcon.settings.rawValue, label: "Settings", isActive: sidebarRowActive == "Settings") {
+                        VNavItem(icon: VIcon.settings.rawValue, label: "Settings", isActive: sidebarRowActive == "Settings") {
                             sidebarRowActive = "Settings"
                         }
                     }
@@ -127,9 +127,9 @@ struct NavigationGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Without Icon").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
 
-                        VSidebarRow(label: "Overview", isActive: false) {}
-                        VSidebarRow(label: "VButton", isActive: true) {}
-                        VSidebarRow(label: "VSplitButton", isActive: false) {}
+                        VNavItem(label: "Overview", isActive: false) {}
+                        VNavItem(label: "VButton", isActive: true) {}
+                        VNavItem(label: "VSplitButton", isActive: false) {}
                     }
                 }
 
@@ -137,7 +137,7 @@ struct NavigationGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Trailing Icon (Disclosure)").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
 
-                        VSidebarRow(
+                        VNavItem(
                             icon: VIcon.layers.rawValue,
                             label: "Display",
                             trailingIcon: VIcon.chevronRight.rawValue,
@@ -149,9 +149,9 @@ struct NavigationGallerySection: View {
                         }
 
                         if sidebarDisclosureExpanded {
-                            VSidebarRow(label: "VCard", isActive: false) {}
+                            VNavItem(label: "VCard", isActive: false) {}
                                 .padding(.leading, VSpacing.md)
-                            VSidebarRow(label: "VEmptyState", isActive: false) {}
+                            VNavItem(label: "VEmptyState", isActive: false) {}
                                 .padding(.leading, VSpacing.md)
                         }
                     }
@@ -161,17 +161,17 @@ struct NavigationGallerySection: View {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Trailing Content").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
 
-                        VSidebarRow(label: "All", isActive: true, action: {}) {
+                        VNavItem(label: "All", isActive: true, action: {}) {
                             Text("42")
                                 .font(VFont.labelDefault)
                                 .foregroundStyle(VColor.contentTertiary)
                         }
-                        VSidebarRow(label: "Identity", action: {}) {
+                        VNavItem(label: "Identity", action: {}) {
                             Text("12")
                                 .font(VFont.labelDefault)
                                 .foregroundStyle(VColor.contentTertiary)
                         }
-                        VSidebarRow(label: "Preference", action: {}) {
+                        VNavItem(label: "Preference", action: {}) {
                             Text("8")
                                 .font(VFont.labelDefault)
                                 .foregroundStyle(VColor.contentTertiary)
@@ -184,9 +184,9 @@ struct NavigationGallerySection: View {
                         Text("Collapsed Mode").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
 
                         HStack(spacing: VSpacing.md) {
-                            VSidebarRow(icon: VIcon.brain.rawValue, label: "Intelligence", isExpanded: false) {}
-                            VSidebarRow(icon: VIcon.bookOpen.rawValue, label: "Library", isActive: true, isExpanded: false) {}
-                            VSidebarRow(icon: VIcon.settings.rawValue, label: "Settings", isExpanded: false) {}
+                            VNavItem(icon: VIcon.brain.rawValue, label: "Intelligence", isExpanded: false) {}
+                            VNavItem(icon: VIcon.bookOpen.rawValue, label: "Library", isActive: true, isExpanded: false) {}
+                            VNavItem(icon: VIcon.settings.rawValue, label: "Settings", isExpanded: false) {}
                         }
                         .frame(maxWidth: 200)
                     }
@@ -252,6 +252,130 @@ struct NavigationGallerySection: View {
                 }
             }
 
+            if filter == nil || filter == "vMenu" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VMenu (Simple Action Menu)
+                GallerySectionHeader(
+                    title: "VMenu",
+                    description: "Reusable popover container with section headers, dividers, action items, and custom rows. Use instead of manual drawer chrome."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Simple Action Menu").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        VMenu {
+                            VMenuItem(icon: VIcon.copy.rawValue, label: "Copy") {}
+                            VMenuItem(icon: VIcon.gitBranch.rawValue, label: "Fork") {}
+                            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {}
+                        }
+                    }
+                }
+
+                Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+                // MARK: - VMenu (Sections)
+                GallerySectionHeader(
+                    title: "VMenu with Sections",
+                    description: "VMenuSection groups items with an optional header label and divider."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Menu with Section Headers").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        VMenu {
+                            VMenuItem(icon: VIcon.pencil.rawValue, label: "Edit") {}
+                            VMenuItem(icon: VIcon.copy.rawValue, label: "Duplicate") {}
+
+                            VMenuSection(header: "Analytics") {
+                                VMenuItem(icon: VIcon.barChart.rawValue, label: "View Stats") {}
+                                VMenuItem(icon: VIcon.scrollText.rawValue, label: "View Logs") {}
+                            }
+
+                            VMenuSection(header: "Danger Zone") {
+                                VMenuItem(icon: VIcon.trash.rawValue, label: "Delete", variant: .destructive) {}
+                            }
+                        }
+                    }
+                }
+
+                Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+                // MARK: - VMenu (Active Item)
+                GallerySectionHeader(
+                    title: "VMenu with Active Item",
+                    description: "A VMenuItem with isActive: true shows the highlighted/selected state."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Active Item Highlight").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        VMenu {
+                            VMenuItem(icon: VIcon.pin.rawValue, label: "Pinned") {}
+                            VMenuItem(icon: VIcon.settings.rawValue, label: "Settings", isActive: true) {}
+                            VMenuItem(icon: VIcon.externalLink.rawValue, label: "Open External") {}
+                        }
+                    }
+                }
+
+                Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+                // MARK: - VMenu (Custom Row)
+                GallerySectionHeader(
+                    title: "VMenu with Custom Row",
+                    description: "VMenuCustomRow embeds arbitrary content in a menu with consistent horizontal alignment."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Custom Row Content").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        VMenu {
+                            VMenuItem(icon: VIcon.settings.rawValue, label: "Settings") {}
+                            VMenuDivider()
+                            VMenuCustomRow {
+                                HStack {
+                                    Text("Theme")
+                                        .font(VFont.bodySmallDefault)
+                                        .foregroundStyle(VColor.contentDefault)
+                                    Spacer()
+                                    VThemeToggle(showLabel: false)
+                                }
+                                .padding(.vertical, VSpacing.xs)
+                            }
+                            VMenuDivider()
+                            VMenuItem(icon: VIcon.logOut.rawValue, label: "Sign Out") {}
+                        }
+                    }
+                }
+
+                Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+                // MARK: - VMenu (Fixed Width)
+                GallerySectionHeader(
+                    title: "VMenu with Fixed Width",
+                    description: "Pass a width parameter to constrain the menu to a fixed size."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Fixed Width (200pt)").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        VMenu(width: 200) {
+                            VMenuItem(icon: VIcon.copy.rawValue, label: "Copy") {}
+                            VMenuItem(icon: VIcon.gitBranch.rawValue, label: "Fork") {}
+                            VMenuDivider()
+                            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {}
+                        }
+                    }
+                }
+            }
+
+
         }
     }
 }
@@ -263,9 +387,10 @@ extension NavigationGallerySection {
     static func componentPage(_ id: String) -> some View {
         switch id {
         case "vSegmentedControl": NavigationGallerySection(filter: "vSegmentedControl")
-        case "vSidebarRow": NavigationGallerySection(filter: "vSidebarRow")
+        case "vNavItem": NavigationGallerySection(filter: "vNavItem")
         case "vLink": NavigationGallerySection(filter: "vLink")
         case "vThemeToggle": NavigationGallerySection(filter: "vThemeToggle")
+        case "vMenu": NavigationGallerySection(filter: "vMenu")
         default: EmptyView()
         }
     }

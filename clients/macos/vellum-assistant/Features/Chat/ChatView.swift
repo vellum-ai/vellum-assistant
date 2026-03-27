@@ -3,7 +3,7 @@ import SwiftUI
 import VellumAssistantShared
 import UniformTypeIdentifiers
 
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "ChatView")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatView")
 
 struct ChatView: View {
     let messages: [ChatMessage]
@@ -11,6 +11,7 @@ struct ChatView: View {
     let isThinking: Bool
     let isCompacting: Bool
     let isSending: Bool
+    let isAssistantBusy: Bool
     let suggestion: String?
     let pendingAttachments: [ChatAttachment]
     var isLoadingAttachment: Bool = false
@@ -77,6 +78,7 @@ struct ChatView: View {
     var conversationStartersLoading: Bool = false
     var onSelectStarter: ((ConversationStarter) -> Void)? = nil
     var onFetchConversationStarters: (() -> Void)? = nil
+    var activePendingRequestId: String?
     var isInteractionEnabled: Bool = true
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
@@ -153,7 +155,7 @@ struct ChatView: View {
 
     /// Message IDs whose text contains the search query, ordered chronologically.
     private var searchMatches: [UUID] {
-        guard !searchText.isEmpty else { return [] }
+        guard isSearchActive, !searchText.isEmpty else { return [] }
         let query = searchText.lowercased()
         return messages.filter { $0.text.lowercased().contains(query) }.map(\.id)
     }
@@ -178,6 +180,7 @@ struct ChatView: View {
                         ChatTemporaryChatEmptyStateView(
                             inputText: $inputText,
                             isSending: isSending,
+                            isAssistantBusy: isAssistantBusy,
                             isRecording: isRecording,
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
@@ -198,6 +201,7 @@ struct ChatView: View {
                         ChatEmptyStateView(
                             inputText: $inputText,
                             isSending: isSending,
+                            isAssistantBusy: isAssistantBusy,
                             isRecording: isRecording,
                             suggestion: suggestion,
                             pendingAttachments: pendingAttachments,
@@ -256,6 +260,7 @@ struct ChatView: View {
                             onRetryFailedMessage: onRetryFailedMessage,
                             onRetryConversationError: onRetryConversationError,
                             subagentDetailStore: subagentDetailStore,
+                            activePendingRequestId: activePendingRequestId,
                             displayedMessageCount: displayedMessageCount,
                             hasMoreMessages: hasMoreMessages,
                             isLoadingMoreMessages: isLoadingMoreMessages,
@@ -286,17 +291,13 @@ struct ChatView: View {
                             .padding(.bottom, -VSpacing.sm)
                         }
 
-                        let composerMessages = ChatVisibleMessageFilter.paginatedMessages(
-                            from: messages,
-                            displayedMessageCount: displayedMessageCount
-                        )
-
                         ComposerSection(
                             inputText: $inputText,
                             isSending: isSending,
-                            hasPendingConfirmation: PendingConfirmationFocusSelector.activeRequestId(from: composerMessages) != nil,
+                            isAssistantBusy: isAssistantBusy,
+                            hasPendingConfirmation: activePendingRequestId != nil,
                             onAllowPendingConfirmation: {
-                                if let requestId = PendingConfirmationFocusSelector.activeRequestId(from: composerMessages) {
+                                if let requestId = activePendingRequestId {
                                     onConfirmationAllow(requestId)
                                 }
                             },
@@ -363,6 +364,7 @@ struct ChatView: View {
                     .transition(.opacity)
             }
         }
+        .environment(\.dropActions, currentDropActions)
         .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }
@@ -533,114 +535,26 @@ struct ChatView: View {
         }
     }
 
-    /// Handle dropped items — supports both file URLs and raw image data.
-    /// File URLs are preferred (preserves original filenames); raw image data
-    /// is used as a fallback for providers without a backing file (e.g. screenshot
-    /// thumbnails or images dragged from certain apps).
+    /// DropActions instance built from ChatView's existing callbacks and state,
+    /// reused by both the `.onDrop()` on ChatView and the environment injection
+    /// so ComposerView's inner `.onDrop()` shares the same handler.
+    private var currentDropActions: DropActions {
+        DropActions(
+            onDropFiles: onDropFiles,
+            onDropImageData: onDropImageData,
+            onDropStarted: onDropStarted,
+            onDropEnded: onDropEnded,
+            isDropTargeted: $isDropTargeted,
+            isDraggingInternalImage: $isDraggingInternalImage,
+            onInternalDragRejected: { self.removeDragEndMonitors() }
+        )
+    }
+
+    /// Handle dropped items by delegating to the shared ComposerDropHandler.
+    /// Kept as a thin wrapper so the `.onDrop()` on ChatView (the outer/fallback
+    /// drop target for the message list area) continues to work.
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
-        // Reset overlay immediately — SwiftUI's isTargeted binding may not
-        // reset reliably when AppKit's NSDraggingDestination (e.g. the
-        // NSTextView inside the composer) intercepts the drag session.
-        isDropTargeted = false
-
-        // Reject drops from internal image drags — the user is dragging an
-        // assistant-rendered image to Finder/Desktop, not uploading it back.
-        if isDraggingInternalImage {
-            isDraggingInternalImage = false
-            removeDragEndMonitors()
-            return false
-        }
-
-        // Signal loading immediately so the "Processing…" chip appears without
-        // waiting for NSItemProvider async callbacks to resolve.
-        onDropStarted?()
-
-        var urls: [URL] = []
-        var imageDataItems: [NSItemProvider] = []
-        let group = DispatchGroup()
-
-        for provider in providers {
-            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                let hasImageFallback = provider.hasItemConformingToTypeIdentifier(UTType.image.identifier)
-                    || provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
-                    || provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier)
-                group.enter()
-                _ = provider.loadObject(ofClass: URL.self) { url, error in
-                    DispatchQueue.main.async {
-                        if let url, FileManager.default.fileExists(atPath: url.path) {
-                            urls.append(url)
-                            group.leave()
-                        } else if hasImageFallback {
-                            let typeIdentifier: String
-                            if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
-                                typeIdentifier = UTType.png.identifier
-                            } else if provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier) {
-                                typeIdentifier = UTType.tiff.identifier
-                            } else {
-                                typeIdentifier = UTType.image.identifier
-                            }
-                            let suggestedName = provider.suggestedName
-                            provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
-                                DispatchQueue.main.async {
-                                    if let data {
-                                        onDropImageData(data, suggestedName)
-                                    } else if let url, url.isFileURL {
-                                        // Image data load failed — fall back to
-                                        // the file URL (may be a file promise).
-                                        urls.append(url)
-                                    }
-                                    group.leave()
-                                }
-                            }
-                        } else if let url, url.isFileURL {
-                            // File URL doesn't exist on disk yet (e.g. file
-                            // promises from Music.app, Voice Memos) and no
-                            // image data fallback is available. Try the URL
-                            // anyway — the attachment loader will report an
-                            // error if the file is truly inaccessible.
-                            urls.append(url)
-                            group.leave()
-                        } else {
-                            group.leave()
-                        }
-                    }
-                }
-            } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier)
-                        || provider.hasItemConformingToTypeIdentifier(UTType.png.identifier)
-                        || provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier) {
-                imageDataItems.append(provider)
-            }
-        }
-
-        for provider in imageDataItems {
-            let typeIdentifier: String
-            if provider.hasItemConformingToTypeIdentifier(UTType.png.identifier) {
-                typeIdentifier = UTType.png.identifier
-            } else if provider.hasItemConformingToTypeIdentifier(UTType.tiff.identifier) {
-                typeIdentifier = UTType.tiff.identifier
-            } else {
-                typeIdentifier = UTType.image.identifier
-            }
-
-            let suggestedName = provider.suggestedName
-            group.enter()
-            provider.loadDataRepresentation(forTypeIdentifier: typeIdentifier) { data, _ in
-                DispatchQueue.main.async {
-                    if let data {
-                        onDropImageData(data, suggestedName)
-                    }
-                    group.leave()
-                }
-            }
-        }
-
-        group.notify(queue: .main) {
-            if !urls.isEmpty { onDropFiles(urls) }
-            // End the external load now that all providers have resolved and
-            // the individual addAttachment calls have taken over tracking.
-            onDropEnded?()
-        }
-        return true
+        ComposerDropHandler.handleDrop(providers: providers, actions: currentDropActions)
     }
 
     // MARK: - Search Helpers

@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import os
 #if os(macOS)
@@ -8,7 +9,7 @@ import UIKit
 #error("Unsupported platform")
 #endif
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatMessageManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatMessageManager")
 
 /// Owns all message-list and send-state @Published properties that were previously
 /// scattered across ChatViewModel.  ChatViewModel holds a reference to this object
@@ -20,6 +21,38 @@ public final class ChatMessageManager: ObservableObject {
     // MARK: - Message list
 
     @Published public var messages: [ChatMessage] = []
+
+    /// Active pending confirmation request ID, derived from `messages` via a
+    /// Combine pipeline. Views read this O(1) cached value instead of scanning
+    /// the message array each render cycle.
+    ///
+    /// Not `@Published` — this value only changes when `messages` changes, and
+    /// `messages` is already `@Published`. A second `@Published` here would
+    /// emit a redundant `objectWillChange` in the same willSet call stack,
+    /// doubling SwiftUI invalidation during streaming.
+    ///
+    /// - SeeAlso: [Improving your app's performance (Apple Developer)](https://developer.apple.com/documentation/swiftui/improving-your-app-s-performance)
+    /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
+    public private(set) var activePendingRequestId: String?
+
+    private var activePendingRequestIdSub: AnyCancellable?
+
+    init() {
+        // Uses visibleMessages (all non-hidden) rather than paginatedMessages
+        // because pending confirmations are always near the end of the list,
+        // within the initial pagination window. The broader scope ensures the
+        // model always knows the true pending state regardless of pagination.
+        activePendingRequestIdSub = $messages
+            .map { messages in
+                PendingConfirmationFocusSelector.activeRequestId(
+                    from: ChatVisibleMessageFilter.visibleMessages(from: messages)
+                )
+            }
+            .removeDuplicates()
+            .sink { [weak self] newValue in
+                self?.activePendingRequestId = newValue
+            }
+    }
 
     // MARK: - Input / send state
 

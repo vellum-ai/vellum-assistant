@@ -4,7 +4,7 @@ import SwiftUI
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+MenuBar")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate+MenuBar")
 
 extension Notification.Name {
     /// Posted when the user triggers Edit > Find (Cmd+F) from the menu bar.

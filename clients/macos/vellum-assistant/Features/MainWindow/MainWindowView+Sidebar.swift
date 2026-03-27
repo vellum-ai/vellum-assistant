@@ -177,7 +177,6 @@ extension MainWindowView {
             isSelected: isConversationSelected(conversation),
             interactionState: conversationManager.interactionState(for: conversation.id),
             isHovered: sidebar.isHoveredConversation == conversation.id,
-            isPendingDeletion: sidebar.conversationPendingDeletion == conversation.id,
             selectConversation: { selectConversation(conversation) },
             onSelect: onSelect,
             onTogglePin: {
@@ -190,20 +189,13 @@ extension MainWindowView {
                 }
             },
             onArchive: { conversationManager.archiveConversation(id: conversation.id) },
-            onBeginArchive: { sidebar.conversationPendingDeletion = conversation.id },
-            onConfirmArchive: {
-                conversationManager.archiveConversation(id: conversation.id)
-                sidebar.conversationPendingDeletion = nil
-            },
             onStartRename: {
                 sidebar.renamingConversationId = conversation.id
                 sidebar.renameText = conversation.title
             },
             onMarkUnread: { conversationManager.markConversationUnread(conversationId: conversation.id) },
             onHoverChange: { hovering in
-                withAnimation(VAnimation.fast) {
-                    sidebar.setConversationHover(conversationId: conversation.id, hovering: hovering)
-                }
+                sidebar.setConversationHover(conversationId: conversation.id, hovering: hovering)
             },
             onDragStart: {
                 sidebar.draggingConversationId = conversation.id
@@ -306,8 +298,8 @@ extension MainWindowView {
             )
 
             ScrollView {
-                VStack(spacing: 0) {
-                    if showDaemonLoading && displayedConversations.isEmpty {
+                LazyVStack(spacing: 0) {
+                    if showDaemonLoading && !assistantLoadingTimedOut && displayedConversations.isEmpty {
                         DaemonLoadingConversationsSkeleton()
                     }
 
@@ -357,7 +349,6 @@ extension MainWindowView {
                             Spacer()
                         }
                         .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
-                        .padding(.top, VSpacing.sm)
                         .padding(.bottom, VSpacing.xs)
                     }
 
@@ -497,7 +488,6 @@ extension MainWindowView {
                                 Spacer()
                             }
                             .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
-                            .padding(.top, VSpacing.sm)
                             .padding(.bottom, VSpacing.xs)
                         }
                     }
@@ -533,7 +523,6 @@ extension MainWindowView {
                                 Spacer()
                             }
                             .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
-                            .padding(.top, VSpacing.sm)
                             .padding(.bottom, VSpacing.xs)
                         }
                     }

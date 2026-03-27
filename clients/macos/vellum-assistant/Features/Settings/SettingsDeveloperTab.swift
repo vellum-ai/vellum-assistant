@@ -825,7 +825,21 @@ struct SettingsDeveloperTab: View {
         do {
             assistantFlags = try await featureFlagClient.getFeatureFlags()
         } catch {
-            assistantFlagsError = error.localizedDescription
+            // Fall back to the bundled registry + local persisted overrides
+            if let registry = loadFeatureFlagRegistry() {
+                let resolved = AssistantFeatureFlagResolver.resolvedFlags(registry: registry)
+                assistantFlags = registry.assistantScopeFlags().map { def in
+                    AssistantFeatureFlag(
+                        key: def.key,
+                        enabled: resolved[def.key] ?? def.defaultEnabled,
+                        defaultEnabled: def.defaultEnabled,
+                        description: def.description,
+                        label: def.label
+                    )
+                }
+            } else {
+                assistantFlagsError = error.localizedDescription
+            }
         }
         isLoadingAssistantFlags = false
     }

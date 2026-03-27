@@ -38,23 +38,55 @@ WORKDIR /app/assistant
 
 # Install runtime dependencies for Playwright and tree-sitter
 RUN apt-get update && apt-get install -y \
-    curl \
-    unzip \
+    bubblewrap \
     ca-certificates \
-    python3 \
-    libnss3 \
-    libfreetype6 \
-    libharfbuzz0b \
+    curl \
+    ffmpeg \
     fonts-freefont-ttf \
-    make \
     g++ \
     git \
-    sudo \
     htop \
-    procps \
     jq \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libatspi2.0-0 \
+    libcairo2 \
+    libcups2 \
+    libdrm2 \
+    libfreetype6 \
+    libgbm1 \
+    libharfbuzz0b \
+    libnspr4 \
+    libnss3 \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libx11-6 \
+    libx11-xcb1 \
+    libxcb-dri3-0 \
+    libxcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxi6 \
+    libxkbcommon0 \
+    libxrandr2 \
+    libxrender1 \
+    libxshmfence1 \
+    libxtst6 \
+    lsof \
+    make \
+    openssl \
+    procps \
+    python3 \
+    sqlite3 \
+    sudo \
+    unzip \
     uuid-runtime \
     vim \
+    xclip \
+    xdg-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy bun binary from builder instead of re-installing

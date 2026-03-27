@@ -1,8 +1,15 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  unlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
+import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { skillFlagKey } from "../config/skill-state.js";
 import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
@@ -10,6 +17,7 @@ import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import {
+  getConversationsDir,
   getWorkspaceDir,
   getWorkspacePromptPath,
   isMacOS,
@@ -81,6 +89,24 @@ export function ensurePromptFiles(): void {
           "Failed to create BOOTSTRAP.md from template",
         );
       }
+    }
+  }
+
+  // Auto-delete stale BOOTSTRAP.md at startup.  The model is instructed to
+  // delete it at the end of the first conversation, but if the user closes
+  // the app or starts a new thread before the model gets another turn, it
+  // never gets the chance.  If BOOTSTRAP.md still exists but prior
+  // conversations are present, the onboarding window has passed — clean up.
+  const bootstrapCleanup = getWorkspacePromptPath("BOOTSTRAP.md");
+  if (!isFirstRun && existsSync(bootstrapCleanup)) {
+    const convDir = getConversationsDir();
+    try {
+      if (existsSync(convDir) && readdirSync(convDir).length > 0) {
+        unlinkSync(bootstrapCleanup);
+        log.info("Auto-deleted stale BOOTSTRAP.md — prior conversations exist");
+      }
+    } catch (err) {
+      log.warn({ err }, "Failed to auto-delete stale BOOTSTRAP.md");
     }
   }
 
@@ -171,6 +197,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // System Permissions section removed — guidance lives in request_system_permission tool description.
   // Parallel Task Orchestration section removed — orchestration skill description + hints cover this.
   staticParts.push(buildAccessPreferenceSection(hasNoClient));
+  staticParts.push(buildCredentialSecuritySection());
   // Memory Persistence, Memory Recall, Workspace Reflection, Learning from Mistakes
   // sections removed — guidance lives in memory_manage/memory_recall tool descriptions
   // and the Proactive Workspace Editing subsection in Configuration.
@@ -206,7 +233,15 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const userIsTemplate = isTemplateContent(user, "USER.md");
 
   if (identity && !identityIsTemplate) {
-    dynamicParts.push(identity);
+    // Strip placeholder lines (e.g. "- **Name:** _(not yet chosen)_") so
+    // the model doesn't treat unresolved fields as prompts to ask the user.
+    const cleanedIdentity = identity
+      .split("\n")
+      .filter((line) => !/_\(not yet (?:chosen|established)\)_/.test(line))
+      .join("\n");
+    if (cleanedIdentity.trim()) {
+      dynamicParts.push(cleanedIdentity);
+    }
   }
   if (soul) dynamicParts.push(soul);
   if (options?.userPersona) dynamicParts.push(options.userPersona);
@@ -275,6 +310,8 @@ function buildInChatConfigurationSection(): string {
     "## In-Chat Configuration",
     "",
     "When the user needs to configure a value, collect it conversationally in the chat. Never direct the user to the Settings page for initial setup - Settings is for reviewing and updating existing configuration.",
+    "",
+    'The Settings tabs are: General, Models & Services, Voice, Sounds, Permissions & Privacy, Billing, Archived Conversations, Schedules, Developer. There is NO "Integrations" tab — never refer to "Settings > Integrations". For API keys and provider configuration, the correct tab is "Models & Services".',
   ].join("\n");
 }
 
@@ -297,6 +334,14 @@ function buildAccessPreferenceSection(hasNoClient: boolean): string {
           "On macOS, prefer osascript/CLI via `host_bash` over computer use tools, which take over the user's cursor. Use foreground computer use only when no scripting alternative exists or the user explicitly asks.",
         ]
       : []),
+  ].join("\n");
+}
+
+function buildCredentialSecuritySection(): string {
+  return [
+    "## Credential Security",
+    "",
+    'Never ask users to share secrets (API keys, tokens, passwords, webhook secrets) in chat — secret messages may be blocked at ingress. Use the `credential_store` tool with `action: "prompt"` instead; it collects secrets through a secure UI that never exposes the value in the conversation. Non-secret values (Client IDs, Account SIDs, usernames) may be collected conversationally.',
   ].join("\n");
 }
 
@@ -323,16 +368,16 @@ function buildIntegrationSection(): string {
 }
 
 function buildContainerizedSection(): string {
-  const baseDataDir = getBaseDataDir() ?? "$BASE_DATA_DIR";
+  const workspaceDir = getWorkspaceDir();
   return [
     "## Running in a Container - Data Persistence",
     "",
-    `You are running inside a container. Only the directory \`${baseDataDir}\` is mounted to a persistent volume.`,
+    `You are running inside a container. Only the directory \`${workspaceDir}\` is mounted to a persistent volume.`,
     "",
     "**Any new files or data you create MUST be written inside that directory, or they will be lost when the container restarts.**",
     "",
     "Rules:",
-    `- Always store new data, notes, memories, configs, and downloads under \`${baseDataDir}\``,
+    `- Always store new data, notes, memories, configs, and downloads under \`${workspaceDir}\``,
     "- Never write persistent data to system directories, `/tmp`, or paths outside the mounted volume",
     "- When in doubt, prefer paths nested under the data directory",
     "- If you create a file that is only needed temporarily (scratch files, intermediate outputs, download staging), delete it when you are done - disk space on the persistent volume is finite and will grow unboundedly if temp files are not cleaned up",
@@ -435,9 +480,9 @@ function readPromptFile(path: string): string | null {
  * This is useful for injecting identity context into subsystems (e.g. memory
  * extraction) that run outside the main system prompt pipeline.
  */
-export function buildCoreIdentityContext(
-  opts?: { userPersona?: string | null },
-): string | null {
+export function buildCoreIdentityContext(opts?: {
+  userPersona?: string | null;
+}): string | null {
   const parts: string[] = [];
   for (const file of PROMPT_FILES) {
     const content = readPromptFile(getWorkspacePromptPath(file));

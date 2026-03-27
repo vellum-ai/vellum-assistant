@@ -2,7 +2,7 @@ import VellumAssistantShared
 import SwiftUI
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HatchingStepView")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HatchingStepView")
 
 @MainActor
 struct HatchingStepView: View {

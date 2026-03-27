@@ -33,7 +33,7 @@ enum ExecutorError: LocalizedError {
     }
 }
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ActionExecutor")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ActionExecutor")
 
 final class ActionExecutor {
     private let eventSource: CGEventSource?

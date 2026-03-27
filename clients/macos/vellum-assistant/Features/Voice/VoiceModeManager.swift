@@ -4,7 +4,7 @@ import Observation
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "VoiceModeManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "VoiceModeManager")
 
 @MainActor
 final class VoiceModeManager: ObservableObject {

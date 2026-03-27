@@ -3,7 +3,7 @@ import Foundation
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationRestorer")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationRestorer")
 
 /// Delegate protocol so the restorer can read and mutate conversation state
 /// owned by `ConversationManager`.
@@ -350,8 +350,29 @@ final class ConversationRestorer {
             // per-request timeout) while still covering the daemon restart race.
             let maxAttempts = 2
             for attempt in 1...maxAttempts {
-                if let response = await conversationListClient.fetchConversationList(offset: 0, limit: 50) {
-                    self.handleConversationListResponse(response)
+                // Fetch foreground and background conversations in parallel so
+                // background conversations don't consume pagination slots from
+                // the main list.
+                async let foregroundResult = conversationListClient.fetchConversationList(offset: 0, limit: 50, conversationType: nil)
+                async let backgroundResult = conversationListClient.fetchConversationList(offset: 0, limit: 50, conversationType: "background")
+                let foreground = await foregroundResult
+                let background = await backgroundResult
+
+                if let foreground {
+                    // Deduplicate by conversation ID so that daemons that don't
+                    // yet support the conversationType query param (which return
+                    // the same conversations for both requests) don't produce
+                    // duplicate sidebar entries.
+                    var seenIds = Set(foreground.conversations.map(\.id))
+                    let uniqueBackground = (background?.conversations ?? []).filter {
+                        seenIds.insert($0.id).inserted
+                    }
+                    let merged = ConversationListResponse(
+                        type: foreground.type,
+                        conversations: foreground.conversations + uniqueBackground,
+                        hasMore: foreground.hasMore
+                    )
+                    self.handleConversationListResponse(merged)
                     return
                 }
                 if attempt < maxAttempts {

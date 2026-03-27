@@ -117,6 +117,11 @@ public enum VFont {
     public static let labelDefault = dmSans(weight: 400, size: 11)
     public static let labelSmall   = dmSans(weight: 400, size: 10)
 
+    // MARK: - Menu
+
+    /// 13pt DM Sans — compact menu item text matching sidebar conversation rows.
+    public static let menuCompact = dmSans(weight: 400, size: 13)
+
     // MARK: - Chat (Figma — 16pt Medium with 24px line height, applied via .lineSpacing)
 
     public static let chat = dmSans(weight: 400, size: 16)

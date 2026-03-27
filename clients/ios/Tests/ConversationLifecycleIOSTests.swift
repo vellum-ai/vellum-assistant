@@ -854,7 +854,7 @@ private final class MockConversationListClient: ConversationListClientProtocol {
     private(set) var sentSeenSignals: [ConversationSeenSignal] = []
     private(set) var reorderRequests: [[ReorderConversationsRequestUpdate]] = []
 
-    func fetchConversationList(offset: Int, limit: Int) async -> ConversationListResponse? { nil }
+    func fetchConversationList(offset: Int, limit: Int, conversationType: String?) async -> ConversationListResponse? { nil }
     func switchConversation(conversationId: String) async -> Bool { true }
     func renameConversation(conversationId: String, name: String) async -> Bool { true }
     func clearAllConversations() async -> Bool { true }

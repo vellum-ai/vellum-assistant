@@ -162,6 +162,9 @@ struct OAuthProviderServiceCard: View {
             ) {
                 Task {
                     await authManager.loginWithToast(showToast: showToast, onSuccess: {
+                        if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
+                            AppDelegate.shared?.reconnectManagedAssistant()
+                        }
                         Task { await store.fetchManagedOAuthConnections(providerKey: providerKey, userId: currentUserId) }
                     })
                 }

@@ -55,37 +55,6 @@ struct ChatGallerySection: View {
                 }
             }
 
-            if filter == nil || filter == "skillInvocation" {
-                if filter == nil {
-                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-                }
-                // MARK: - SkillInvocationChip
-                GallerySectionHeader(
-                    title: "SkillInvocationChip",
-                    description: "Inline chip showing a skill invocation with emoji, name, and description."
-                )
-
-                VCard {
-                    VStack(alignment: .leading, spacing: VSpacing.lg) {
-                        SkillInvocationChip(
-                            data: SkillInvocationData(
-                                name: "Summarize",
-                                emoji: "\u{1F4DD}",
-                                description: "Condense long text into key points and takeaways."
-                            )
-                        )
-
-                        SkillInvocationChip(
-                            data: SkillInvocationData(
-                                name: "Web Search",
-                                emoji: "\u{1F50D}",
-                                description: "Search the web for up-to-date information."
-                            )
-                        )
-                    }
-                }
-            }
-
             if filter == nil || filter == "subagentStatus" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
@@ -521,6 +490,65 @@ struct ChatGallerySection: View {
                 }
             }
 
+            if filter == nil || filter == "surfaceActions" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - Surface Action Buttons
+                GallerySectionHeader(
+                    title: "Surface Action Buttons",
+                    description: "Inline action pills rendered inside assistant chat bubbles. Used by InlineSurfaceRouter to let the user pick from options the assistant presents."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Styles").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        VStack(alignment: .leading, spacing: VSpacing.sm) {
+                            surfaceActionPill(label: "Summarize a file on my machine", style: .secondary)
+                            surfaceActionPill(label: "Research a topic and make me a deck", style: .secondary)
+                            surfaceActionPill(label: "Vibe code an app", style: .secondary)
+                        }
+
+                        Divider().background(VColor.borderBase)
+
+                        Text("Primary").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+                        surfaceActionPill(label: "Confirm and proceed", style: .primary)
+
+                        Text("Destructive").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+                        surfaceActionPill(label: "Delete all files", style: .destructive)
+                    }
+                }
+            }
+
+        }
+    }
+
+    private func surfaceActionPill(label: String, style: SurfaceActionStyle) -> some View {
+        Text(label)
+            .font(VFont.bodyMediumDefault)
+            .foregroundStyle(surfaceActionForeground(style))
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.vertical, VSpacing.sm)
+            .background(
+                RoundedRectangle(cornerRadius: VRadius.md)
+                    .fill(surfaceActionBackground(style))
+            )
+    }
+
+    private func surfaceActionForeground(_ style: SurfaceActionStyle) -> Color {
+        switch style {
+        case .primary: return VColor.auxWhite
+        case .destructive: return VColor.auxWhite
+        case .secondary: return VColor.contentDefault
+        }
+    }
+
+    private func surfaceActionBackground(_ style: SurfaceActionStyle) -> Color {
+        switch style {
+        case .primary: return VColor.primaryBase
+        case .destructive: return VColor.systemNegativeStrong
+        case .secondary: return VColor.borderBase.opacity(0.5)
         }
     }
 }
@@ -532,12 +560,13 @@ extension ChatGallerySection {
     static func componentPage(_ id: String) -> some View {
         switch id {
         case "voiceComposer": ChatGallerySection(filter: "voiceComposer")
-        case "skillInvocation": ChatGallerySection(filter: "skillInvocation")
+
         case "subagentStatus": ChatGallerySection(filter: "subagentStatus")
         case "toolChips": ChatGallerySection(filter: "toolChips")
         case "stepIndicators": ChatGallerySection(filter: "stepIndicators")
         case "progressIndicators": ChatGallerySection(filter: "progressIndicators")
         case "toolConfirmations": ChatGallerySection(filter: "toolConfirmations")
+        case "surfaceActions": ChatGallerySection(filter: "surfaceActions")
         default: EmptyView()
         }
     }

@@ -9,7 +9,7 @@ import UIKit
 #endif
 import Network
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatErrorManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatErrorManager")
 
 /// Owns error-related properties that were previously part of ChatViewModel.
 /// ChatViewModel holds a reference to this object and forwards reads/writes via

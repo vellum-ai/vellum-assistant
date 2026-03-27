@@ -8,7 +8,7 @@ import Accelerate
 import os
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "VoiceInput")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "VoiceInput")
 
 
 /// Determines how voice transcriptions are routed after speech recognition completes.
@@ -496,7 +496,7 @@ final class VoiceInputManager {
     /// instead of going through DictationTextInserter which would double-insert.
     private func captureContextAndBeginRecording() {
         if currentMode == .dictation {
-            let isVellumFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.vellum.vellum-assistant"
+            let isVellumFrontmost = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Bundle.main.bundleIdentifier
             if !isVellumFrontmost {
                 currentDictationContext = DictationContextCapture.capture()
             }

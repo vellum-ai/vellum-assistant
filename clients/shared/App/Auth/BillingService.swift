@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "BillingService")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "BillingService")
 
 @MainActor
 public final class BillingService {

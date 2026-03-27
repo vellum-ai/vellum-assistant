@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "TraceEventClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "TraceEventClient")
 
 /// Focused client for trace event history operations routed through the gateway.
 public protocol TraceEventClientProtocol {

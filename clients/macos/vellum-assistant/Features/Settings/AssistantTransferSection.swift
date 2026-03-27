@@ -3,7 +3,7 @@ import os
 import SwiftUI
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AssistantTransfer")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AssistantTransfer")
 
 /// Transfer UI for moving an assistant between local and cloud (managed) hosting.
 ///

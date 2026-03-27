@@ -28,7 +28,7 @@ export async function checkManagedHealth(
   let orgId: string;
   try {
     const { fetchOrganizationId } = await import("./platform-client.js");
-    orgId = await fetchOrganizationId(token);
+    orgId = await fetchOrganizationId(token, runtimeUrl);
   } catch (err) {
     return {
       status: "error (auth)",

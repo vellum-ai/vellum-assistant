@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "MessageClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "MessageClient")
 
 /// Result of uploading a single attachment.
 public enum AttachmentUploadResult: Sendable {
