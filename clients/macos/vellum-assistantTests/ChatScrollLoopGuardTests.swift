@@ -394,6 +394,61 @@ final class ChatScrollLoopGuardTests: XCTestCase {
         XCTAssertTrue(counts.isEmpty)
     }
 
+    // MARK: - isTripped (Circuit Breaker)
+
+    func testIsTrippedReturnsFalseBeforeTripping() {
+        XCTAssertFalse(guard_.isTripped(conversationId: conversationId))
+    }
+
+    func testIsTrippedReturnsTrueAfterTripping() {
+        var timestamp: TimeInterval = 1000.0
+
+        // Trip the guard with a scrollTo burst.
+        for _ in 0..<20 {
+            guard_.record(.scrollToRequested, conversationId: conversationId, timestamp: timestamp)
+            timestamp += 0.1
+        }
+
+        XCTAssertTrue(
+            guard_.isTripped(conversationId: conversationId, timestamp: timestamp),
+            "isTripped should return true during cooldown"
+        )
+    }
+
+    func testIsTrippedReturnsFalseAfterCooldown() {
+        var timestamp: TimeInterval = 1000.0
+
+        // Trip the guard.
+        for _ in 0..<20 {
+            guard_.record(.scrollToRequested, conversationId: conversationId, timestamp: timestamp)
+            timestamp += 0.1
+        }
+
+        // Advance past the cooldown window.
+        timestamp += ChatScrollLoopGuard.cooldownDuration + 0.1
+
+        XCTAssertFalse(
+            guard_.isTripped(conversationId: conversationId, timestamp: timestamp),
+            "isTripped should return false after quiet cooldown window"
+        )
+    }
+
+    func testIsTrippedIsolatedByConversation() {
+        var timestamp: TimeInterval = 1000.0
+
+        // Trip the guard for conversation A.
+        for _ in 0..<20 {
+            guard_.record(.scrollToRequested, conversationId: "conv-a", timestamp: timestamp)
+            timestamp += 0.1
+        }
+
+        XCTAssertTrue(guard_.isTripped(conversationId: "conv-a", timestamp: timestamp))
+        XCTAssertFalse(
+            guard_.isTripped(conversationId: "conv-b", timestamp: timestamp),
+            "Unrelated conversation should not be tripped"
+        )
+    }
+
     // MARK: - ScrollTo Threshold Boundary Tests
 
     func testNormalScrollToRateDoesNotTrip() {

@@ -162,6 +162,27 @@ final class ChatScrollLoopGuard {
         states.removeAll()
     }
 
+    /// Returns `true` when the guard is in cooldown for the given conversation,
+    /// meaning a scroll loop was recently detected. Callers (e.g. `requestBottomPin`)
+    /// use this as a circuit breaker to suppress programmatic scroll requests until
+    /// the loop subsides — the guard re-arms after a full quiet window elapses.
+    func isTripped(
+        conversationId: String,
+        timestamp: TimeInterval = ProcessInfo.processInfo.systemUptime
+    ) -> Bool {
+        guard var state = states[conversationId] else { return false }
+
+        // Re-arm check: if enough quiet time has elapsed, exit cooldown.
+        if state.inCooldown, let lastEvent = state.lastEventTime {
+            if timestamp - lastEvent >= Self.cooldownDuration {
+                state.inCooldown = false
+                states[conversationId] = state
+            }
+        }
+
+        return state.inCooldown
+    }
+
     /// Returns the current rolling event counts for a conversation.
     /// Used by `DebugStateWriter` to include hot-path rates in `debug-state.json`.
     func currentCounts(

@@ -363,16 +363,22 @@ extension MessageListScrollCoordinator {
             return true
         }
 
-        // Non-user-initiated requests are gated on BOTH follow-state and
-        // suppression. The isFollowingBottom check prevents yanking detached
-        // users to the bottom. The !isSuppressed check prevents auto-scroll
-        // from fighting pagination, expansion, and resize suppression.
+        // Non-user-initiated requests are gated on follow-state, suppression,
+        // AND scroll-loop detection. The loop guard acts as a circuit breaker:
+        // when a scroll loop is detected (>15 scrollTo or >40 body evals in 2s),
+        // all programmatic pin requests are suppressed until the loop subsides.
+        // This breaks the scroll→body-eval→scroll feedback cycle that otherwise
+        // pins the CPU at 100%.
         guard isFollowingBottom else {
             scrollCoordinatorLog.debug("[BottomPin] suppressed reason=\(reason.rawValue) isFollowingBottom=false")
             return false
         }
         guard !isSuppressed else {
             scrollCoordinatorLog.debug("[BottomPin] suppressed reason=\(reason.rawValue) isSuppressed=true")
+            return false
+        }
+        guard !diagnostics.isScrollLoopTripped(conversationId: currentConversationId) else {
+            scrollCoordinatorLog.debug("[BottomPin] suppressed reason=\(reason.rawValue) scrollLoopTripped=true")
             return false
         }
 

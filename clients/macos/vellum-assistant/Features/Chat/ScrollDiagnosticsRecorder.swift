@@ -63,6 +63,14 @@ final class ScrollDiagnosticsRecorder {
         }
     }
 
+    /// Returns `true` when the loop guard is tripped (in cooldown) for the given
+    /// conversation, meaning a scroll loop was recently detected. Used by the
+    /// scroll coordinator as a circuit breaker to suppress programmatic scrolls.
+    func isScrollLoopTripped(conversationId: UUID?) -> Bool {
+        let convId = conversationId?.uuidString ?? "unknown"
+        return scrollLoopGuard.isTripped(conversationId: convId)
+    }
+
     // MARK: - Non-Finite Geometry Logging
 
     /// Logs a one-time warning when scroll geometry first becomes non-finite.
