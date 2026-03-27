@@ -24,19 +24,34 @@ jobs:
         id: extract
         run: |
           BRANCH="${GITHUB_REF_NAME}"
-          if [[ "$BRANCH" != release/v* ]]; then
-            echo "::error::Workflow must run on a release/v* branch, got '$BRANCH'"
+          if [[ "$BRANCH" == release/v* ]]; then
+            VERSION="${BRANCH#release/v}"
+          elif [ "$BRANCH" = "main" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            git fetch --tags
+            LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+            if [ -z "$LATEST_TAG" ]; then
+              LATEST_TAG="v0.0.0"
+            fi
+            LATEST_VERSION=${LATEST_TAG#v}
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+            PATCH=$((PATCH + 1))
+            VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            echo "Computed next patch version from $LATEST_TAG: $VERSION"
+          else
+            echo "::error::Workflow must run on a release/v* branch or be manually dispatched from main, got '$BRANCH'"
             exit 1
           fi
-          VERSION="${BRANCH#release/v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Detect staging release
         id: detect-staging
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "is_staging=true" >> "$GITHUB_OUTPUT"
+            echo "Manual dispatch from main — staging deploy"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "is_staging=false" >> "$GITHUB_OUTPUT"
-            echo "Manual dispatch — full production release"
+            echo "Manual dispatch on release branch — full production release"
           else
             echo "is_staging=true" >> "$GITHUB_OUTPUT"
             echo "Commit-triggered release — staging only"
