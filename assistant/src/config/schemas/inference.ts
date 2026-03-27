@@ -29,7 +29,7 @@ export const EffortSchema = z
   .enum(["low", "medium", "high", "max"], {
     error: 'effort must be "low", "medium", "high", or "max"',
   })
-  .default("high")
+  .default("max")
   .describe(
     "How much effort the model should put into its response — lower effort is faster and cheaper",
   );
