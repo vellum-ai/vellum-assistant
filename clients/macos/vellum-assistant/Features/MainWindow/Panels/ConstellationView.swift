@@ -1304,6 +1304,85 @@ private func placeSkillCluster(
     }
 }
 
+// MARK: - Constellation Legend View
+
+/// Compact legend overlay showing node type differentiation with representative shapes and colors.
+private struct ConstellationLegendView: View {
+    let showContacts: Bool
+
+    private let shapeSize: CGFloat = 10
+    private let innerShapeSize: CGFloat = 7
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            legendRow(label: "Skills", color: VColor.funGreen) {
+                Circle()
+                    .fill(VColor.funGreen.opacity(0.25))
+                    .overlay(Circle().stroke(VColor.funGreen.opacity(0.6), lineWidth: 1.5))
+                    .frame(width: shapeSize, height: shapeSize)
+            }
+
+            legendRow(label: "Memories", color: VColor.funBlue) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(VColor.funBlue.opacity(0.25))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 2)
+                            .stroke(VColor.funBlue.opacity(0.6), lineWidth: 1.5)
+                    )
+                    .frame(width: shapeSize, height: shapeSize)
+                    .rotationEffect(.degrees(45))
+            }
+
+            if showContacts {
+                legendRow(label: "Contacts", color: VColor.funCoral) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(VColor.funCoral.opacity(0.25))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 2)
+                                    .stroke(VColor.funCoral.opacity(0.6), lineWidth: 1.5)
+                            )
+                            .frame(width: shapeSize, height: shapeSize)
+
+                        RoundedRectangle(cornerRadius: 1)
+                            .stroke(VColor.funCoral.opacity(0.4), lineWidth: 1)
+                            .frame(width: innerShapeSize, height: innerShapeSize)
+                    }
+                }
+            }
+
+            legendRow(label: "Files", color: VColor.funGreen) {
+                Circle()
+                    .fill(VColor.funGreen.opacity(0.25))
+                    .overlay(Circle().stroke(VColor.funGreen.opacity(0.6), lineWidth: 1.5))
+                    .frame(width: shapeSize, height: shapeSize)
+            }
+        }
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(VColor.surfaceOverlay)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private func legendRow<Shape: View>(label: String, color: Color, @ViewBuilder shape: () -> Shape) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            shape()
+                .frame(width: 14, height: 14)
+
+            Text(label)
+                .font(VFont.labelSmall)
+                .foregroundStyle(VColor.contentSecondary)
+        }
+    }
+}
+
 // MARK: - Constellation View
 
 struct ConstellationView: View {
@@ -1721,6 +1800,12 @@ struct ConstellationView: View {
                 .overlay(alignment: .topLeading) {
                     fullscreenToggle
                         .padding(VSpacing.lg)
+                }
+                .overlay(alignment: .bottomLeading) {
+                    ConstellationLegendView(showContacts: !contacts.isEmpty)
+                        .padding(VSpacing.lg)
+                        .opacity(phase.skillsVisible ? 1 : 0)
+                        .animation(VAnimation.standard, value: phase)
                 }
                 .overlay(alignment: .bottomTrailing) {
                     viewportControls(viewSize: proxy.size)
