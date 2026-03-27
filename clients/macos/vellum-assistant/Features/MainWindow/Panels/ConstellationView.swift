@@ -1,15 +1,6 @@
 import SwiftUI
 import VellumAssistantShared
 
-// MARK: - Preference Keys
-
-private struct PopoverSizeKey: PreferenceKey {
-    static var defaultValue: CGSize = CGSize(width: 250, height: 120)
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
-    }
-}
-
 // MARK: - Skill Category
 
 enum SkillCategory: String, CaseIterable {
@@ -991,15 +982,9 @@ struct ConstellationView: View {
                         let clampedY = min(max(rawY, popoverSize.height / 2 + margin), proxy.size.height - popoverSize.height / 2 - margin)
 
                         SkillPopoverView(item: selected)
-                            .background(
-                                GeometryReader { popoverProxy in
-                                    Color.clear.preference(
-                                        key: PopoverSizeKey.self,
-                                        value: popoverProxy.size
-                                    )
-                                }
-                            )
-                            .onPreferenceChange(PopoverSizeKey.self) { size in
+                            .onGeometryChange(for: CGSize.self) { proxy in
+                                proxy.size
+                            } action: { size in
                                 popoverSize = size
                             }
                             .position(x: clampedX, y: clampedY)
