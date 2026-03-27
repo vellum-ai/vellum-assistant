@@ -468,6 +468,7 @@ struct ChatBubble: View {
                 onRetryFailedMessage?(message.id)
             }
         }
+        .textSelection(.disabled)
     }
 
     // MARK: - Overflow Menu
@@ -529,6 +530,7 @@ struct ChatBubble: View {
                 .vTooltip("Inspect", edge: .bottom)
             }
         }
+        .textSelection(.disabled)
     }
 
     // MARK: - TTS Button
