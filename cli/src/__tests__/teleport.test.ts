@@ -613,8 +613,11 @@ describe("teleport transfer routing", () => {
       expect(platformPollExportStatusMock).toHaveBeenCalled();
       expect(platformDownloadExportMock).toHaveBeenCalled();
 
-      // Local import: should call fetch to /v1/migrations/import
-      const importCalls = filterFetchCalls(fetchMock, "/v1/migrations/import");
+      // Local import: should call fetch to /v1/migrations/import (but not /import-preflight)
+      const importCalls = filterFetchCalls(
+        fetchMock,
+        "/v1/migrations/import",
+      ).filter((call) => !extractUrl(call[0]).includes("/import-preflight"));
       expect(importCalls.length).toBe(1);
 
       // Should NOT call platformImportBundle
