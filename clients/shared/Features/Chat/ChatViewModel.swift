@@ -133,6 +133,8 @@ public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelega
     private(set) var sendCoordinator: MessageSendCoordinator!
     /// Owns empty-state greeting and conversation starter properties.
     public let greetingState = ChatGreetingState()
+    /// Owns server message dispatch (handleServerMessage switch).
+    private(set) var actionHandler: ChatActionHandler!
 
     private var cancellables: Set<AnyCancellable> = []
 
@@ -1148,6 +1150,9 @@ public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelega
             settingsClient: settingsClient,
             conversationListClient: conversationListClient
         )
+
+        // Initialize the action handler for server message dispatch.
+        self.actionHandler = ChatActionHandler(viewModel: self)
 
         // Coalesce sub-manager objectWillChange signals through a single
         // delayed publish. During streaming, sub-managers may fire dozens of
