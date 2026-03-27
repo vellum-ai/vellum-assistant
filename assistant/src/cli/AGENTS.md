@@ -93,7 +93,7 @@ are created during the OAuth authorization flow or can be managed manually via
 their respective subcommands.
 
 Examples:
-  $ assistant oauth connect google --open-browser
+  $ assistant oauth connect google
   $ assistant oauth status google
 `,
 );

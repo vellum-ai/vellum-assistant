@@ -80,8 +80,8 @@ export function registerConnectCommand(oauth: Command): void {
     )
     .option("--scopes <scopes...>", "Scopes to request for the authorization")
     .option(
-      "--open-browser",
-      "Open the auth URL in the browser and wait for completion",
+      "--no-browser",
+      "Print the auth URL instead of opening it in the browser",
     )
     .option("--client-id <id>", "BYO app client ID disambiguation")
     .addHelpText(
@@ -93,21 +93,22 @@ Arguments:
 
 In managed mode, --scopes must be in the provider's allowed set (use full
 scope URLs). In BYO mode, --scopes are appended to the provider's defaults.
-The --open-browser flag polls for a platform connection (managed) or starts
-a local callback server (BYO).
+By default, the browser opens automatically and the command waits for
+completion. Use --no-browser to print the URL instead (useful for headless
+or SSH sessions).
 
 Examples:
   $ assistant oauth connect google
-  $ assistant oauth connect google --open-browser
+  $ assistant oauth connect google --no-browser
   $ assistant oauth connect google --scopes https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events
-  $ assistant oauth connect google --client-id abc123 --open-browser`,
+  $ assistant oauth connect google --client-id abc123`,
     )
     .action(
       async (
         provider: string,
         opts: {
           scopes?: string[];
-          openBrowser?: boolean;
+          browser?: boolean;
           clientId?: string;
         },
         cmd: Command,
@@ -166,7 +167,7 @@ Examples:
             let redirectServer:
               | { redirectUrl: string; cleanup: () => void }
               | undefined;
-            if (opts.openBrowser) {
+            if (opts.browser !== false) {
               try {
                 redirectServer = await startManagedRedirectServer(provider);
                 body.redirect_after_connect = redirectServer.redirectUrl;
@@ -201,7 +202,7 @@ Examples:
                 return;
               }
 
-              if (opts.openBrowser) {
+              if (opts.browser !== false) {
                 // Snapshot existing connection IDs before opening browser
                 const snapshotEntries = await fetchActiveConnections(
                   client,
@@ -287,7 +288,7 @@ Examples:
                   }
                 }
               } else {
-                // No --open-browser: output the connect URL
+                // --no-browser: output the connect URL
                 if (jsonMode) {
                   writeOutput(cmd, {
                     ok: true,
@@ -357,8 +358,8 @@ Examples:
               service: provider,
               clientId,
               clientSecret,
-              isInteractive: !!opts.openBrowser,
-              openUrl: opts.openBrowser ? openInBrowser : undefined,
+              isInteractive: opts.browser !== false,
+              openUrl: opts.browser !== false ? openInBrowser : undefined,
               ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),
             });
 
