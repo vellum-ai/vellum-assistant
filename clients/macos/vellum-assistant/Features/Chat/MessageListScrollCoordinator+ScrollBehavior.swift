@@ -73,7 +73,7 @@ extension MessageListScrollCoordinator {
             // don't trigger overflow detection leave the user stranded
             // near the top.
             let wasPushToTop = pushToTopMessageId != nil
-            pushToTopMessageId = nil
+            if wasPushToTop { pushToTopMessageId = nil }
             if wasPushToTop && isFollowingBottom {
                 requestBottomPin(
                     reason: .messageCount,
@@ -443,7 +443,7 @@ extension MessageListScrollCoordinator {
         scrollRestoreTask?.cancel()
         scrollRestoreTask = nil
         clearAllSuppression()
-        pushToTopMessageId = nil
+        if pushToTopMessageId != nil { pushToTopMessageId = nil }
         detachFromBottom()
         hasReceivedScrollEvent = true
     }
