@@ -101,6 +101,7 @@ export interface ProviderResponse {
     outputTokens: number;
     cacheCreationInputTokens?: number;
     cacheReadInputTokens?: number;
+    reasoningTokens?: number;
   };
   stopReason: string;
   /** Raw JSON request body sent to the provider (for diagnostics logging). */
