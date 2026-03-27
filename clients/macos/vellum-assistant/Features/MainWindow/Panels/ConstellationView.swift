@@ -222,6 +222,8 @@ private enum TreeNodeKind {
     case memoryCategory
     case memoryKindSubCategory(MemoryKind)
     case memoryItem(OrbitItem)
+    case contactCategory
+    case contactItem(OrbitItem)
 }
 
 private struct TreeNode: Identifiable {
@@ -543,6 +545,171 @@ private struct MemoryNodeView: View {
     }
 }
 
+// MARK: - Contact Category Node View
+
+private struct ContactCategoryNodeView: View {
+    let size: CGFloat
+
+    @State private var isHovered = false
+
+    private let color = VColor.funCoral
+
+    var body: some View {
+        VStack(spacing: 4) {
+            VIconView(.users, size: 24)
+                .foregroundStyle(color)
+
+            Text("Contacts")
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentDefault)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: size * 0.85)
+        }
+        .frame(width: size, height: size)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: VRadius.xl).fill(VColor.surfaceOverlay)
+                RoundedRectangle(cornerRadius: VRadius.xl).fill(color.opacity(isHovered ? 0.25 : 0.14))
+            }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .stroke(color.opacity(isHovered ? 0.85 : 0.55), lineWidth: isHovered ? 2.5 : 2)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .contentShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .nativeTooltip("Contacts")
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
+    }
+}
+
+// MARK: - Contact Node View (Double Border)
+
+private struct ContactNodeView: View {
+    let item: OrbitItem
+    let size: CGFloat
+    var onTap: (() -> Void)?
+
+    @State private var isHovered = false
+
+    private var isTappable: Bool { onTap != nil }
+
+    var body: some View {
+        VStack(spacing: 3) {
+            VIconView(item.icon, size: 18)
+                .foregroundStyle(item.color)
+
+            Text(item.label)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentDefault)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: size * 0.82)
+        }
+        .frame(width: size, height: size)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.surfaceOverlay)
+                RoundedRectangle(cornerRadius: VRadius.lg).fill(item.color.opacity(isHovered ? 0.20 : 0.10))
+            }
+        )
+        .overlay(
+            // Double border: outer border
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(item.color.opacity(isHovered ? 0.70 : 0.40), lineWidth: isHovered ? 2 : 1.5)
+        )
+        .overlay(
+            // Double border: inner border (inset)
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(item.color.opacity(isHovered ? 0.50 : 0.25), lineWidth: isHovered ? 1.5 : 1)
+                .padding(4)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .nativeTooltip(item.label)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
+        .if(isTappable) { view in
+            view.pointerCursor()
+        }
+        .onTapGesture {
+            onTap?()
+        }
+    }
+}
+
+// MARK: - Contact Popover View
+
+private struct ContactPopoverView: View {
+    let item: OrbitItem
+    var onViewDetails: (() -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                VIconView(.users, size: 14)
+                    .foregroundStyle(item.color)
+
+                Text(item.label)
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(2)
+            }
+
+            if let description = item.description, !description.isEmpty {
+                Text(description)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .lineLimit(4)
+            }
+
+            Text("Contact")
+                .font(VFont.labelSmall)
+                .foregroundStyle(VColor.funCoral)
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xxs)
+                .background(
+                    Capsule()
+                        .fill(VColor.funCoral.opacity(0.15))
+                )
+
+            if let onViewDetails {
+                Button(action: onViewDetails) {
+                    HStack(spacing: VSpacing.xxs) {
+                        Text("View Details")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.primaryBase)
+                        VIconView(.arrowRight, size: 10)
+                            .foregroundStyle(VColor.primaryBase)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("View contact details")
+            }
+        }
+        .padding(VSpacing.md)
+        .frame(maxWidth: 250, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.surfaceBase)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
+        .vShadow(VShadow.md)
+    }
+}
+
 // MARK: - Animation Phase
 
 private enum AnimationPhase: Equatable {
@@ -804,7 +971,7 @@ private func resolveOverlap(
 /// Each category's subtree stays within its angular sector to prevent cross-category overlap.
 /// Skills are placed in compact grids extending outward from their parent.
 /// Every node is checked against all previously-placed nodes to prevent overlap.
-private func buildTree(center: CGPoint, groups: [CategoryGroup], memoryGroups: [MemoryKindGroup] = [], centerSize: CGFloat = 90) -> (nodes: [TreeNode], edges: [EdgeLine]) {
+private func buildTree(center: CGPoint, groups: [CategoryGroup], memoryGroups: [MemoryKindGroup] = [], contactItems: [OrbitItem] = [], centerSize: CGFloat = 90) -> (nodes: [TreeNode], edges: [EdgeLine]) {
     var nodes: [TreeNode] = []
     var edges: [EdgeLine] = []
 
@@ -827,9 +994,10 @@ private func buildTree(center: CGPoint, groups: [CategoryGroup], memoryGroups: [
         radius: centerSize / 2
     ))
 
-    // Total top-level categories = skill categories + memories (if any)
+    // Total top-level categories = skill categories + memories (if any) + contacts (if any)
     let hasMemories = !memoryGroups.isEmpty
-    let totalTopLevel = groups.count + (hasMemories ? 1 : 0)
+    let hasContacts = !contactItems.isEmpty
+    let totalTopLevel = groups.count + (hasMemories ? 1 : 0) + (hasContacts ? 1 : 0)
     guard totalTopLevel > 0 else { return (nodes, edges) }
 
     let catCount = totalTopLevel
@@ -1038,7 +1206,101 @@ private func buildTree(center: CGPoint, groups: [CategoryGroup], memoryGroups: [
         }
     }
 
+    // MARK: Contacts category tree
+    if hasContacts {
+        let contactCatIdx = groups.count + (hasMemories ? 1 : 0)
+        let contactCatAngle = -.pi / 2 + CGFloat(contactCatIdx) * sectorAngle
+        let contactCatId = "cat-contacts"
+        let contactColor = VColor.funCoral
+
+        let contactCatPos = resolveOverlap(
+            proposed: CGPoint(
+                x: center.x + centerToCatRadius * cos(contactCatAngle),
+                y: center.y + centerToCatRadius * sin(contactCatAngle)
+            ),
+            nodeRadius: catSize / 2,
+            existingNodes: nodes,
+            gap: nodeGap
+        )
+
+        nodes.append(TreeNode(
+            id: contactCatId,
+            kind: .contactCategory,
+            parentId: "__center__",
+            depth: 1,
+            position: contactCatPos,
+            radius: catSize / 2
+        ))
+
+        edges.append(EdgeLine(
+            id: "edge-center-contacts",
+            fromId: "__center__",
+            toId: contactCatId,
+            color: contactColor
+        ))
+
+        // Place contact item nodes
+        placeContactCluster(
+            items: contactItems, parentId: contactCatId, parentPos: contactCatPos,
+            outwardAngle: contactCatAngle, outwardDist: skillOutwardDist,
+            childSize: skillSize, gap: nodeGap, depth: 2,
+            contactColor: contactColor, edgePrefix: contactCatId,
+            nodes: &nodes, edges: &edges
+        )
+    }
+
     return (nodes, edges)
+}
+
+/// Place contact nodes in a compact cluster, similar to placeSkillCluster.
+private func placeContactCluster(
+    items: [OrbitItem], parentId: String, parentPos: CGPoint,
+    outwardAngle: CGFloat, outwardDist: CGFloat,
+    childSize: CGFloat, gap: CGFloat, depth: Int,
+    contactColor: Color, edgePrefix: String,
+    nodes: inout [TreeNode], edges: inout [EdgeLine]
+) {
+    guard !items.isEmpty else { return }
+
+    let spacing = childSize + gap
+    let outX = cos(outwardAngle)
+    let outY = sin(outwardAngle)
+    let perpX = -outY
+    let perpY = outX
+
+    let maxPerRow = 3
+    let rowDepthGap = spacing * 0.88
+
+    for (idx, item) in items.enumerated() {
+        let row = idx / maxPerRow
+        let col = idx % maxPerRow
+        let colsInRow = min(maxPerRow, items.count - row * maxPerRow)
+
+        let perpOffset = (CGFloat(col) - CGFloat(colsInRow - 1) / 2) * spacing
+        let stagger: CGFloat = (row % 2 == 1 && colsInRow < maxPerRow) ? spacing * 0.5 : 0
+        let outOffset = outwardDist + CGFloat(row) * rowDepthGap
+
+        let proposed = CGPoint(
+            x: parentPos.x + outOffset * outX + (perpOffset + stagger) * perpX,
+            y: parentPos.y + outOffset * outY + (perpOffset + stagger) * perpY
+        )
+
+        let pos = resolveOverlap(
+            proposed: proposed,
+            nodeRadius: childSize / 2,
+            existingNodes: nodes,
+            gap: gap
+        )
+
+        nodes.append(TreeNode(
+            id: item.id, kind: .contactItem(item), parentId: parentId,
+            depth: depth, position: pos, radius: childSize / 2
+        ))
+        edges.append(EdgeLine(
+            id: "edge-\(edgePrefix)-contact-\(idx)",
+            fromId: parentId, toId: item.id, color: contactColor
+        ))
+    }
 }
 
 /// Place memory nodes in a compact cluster, similar to placeSkillCluster.
@@ -1155,9 +1417,11 @@ struct ConstellationView: View {
     let skills: [SkillInfo]
     let workspaceFiles: [WorkspaceFileNode]
     let memories: [MemoryItemPayload]
+    let contacts: [ContactPayload]
     var onFileSelected: ((String) -> Void)?
     var onNavigateToSkill: ((String) -> Void)?
     var onNavigateToFile: ((String) -> Void)?
+    var onNavigateToContact: ((String) -> Void)?
     var onNavigateToMemory: ((String) -> Void)?
     @Binding var isFullscreen: Bool
     @State private var appearance = AvatarAppearanceManager.shared
@@ -1171,6 +1435,8 @@ struct ConstellationView: View {
     @State private var selectedNodeId: String?
     @State private var selectedFileItem: OrbitItem?
     @State private var selectedFileNodeId: String?
+    @State private var selectedContactItem: OrbitItem?
+    @State private var selectedContactNodeId: String?
     @State private var selectedMemoryItem: OrbitItem?
     @State private var selectedMemoryNodeId: String?
     @State private var zoomedNodeId: String?
@@ -1267,6 +1533,20 @@ struct ConstellationView: View {
         return result
     }
 
+    /// Contact items for the constellation layout.
+    private var contactItems: [OrbitItem] {
+        contacts.filter { $0.role != "guardian" }.map { contact in
+            OrbitItem(
+                id: "contact-\(contact.id)",
+                label: contact.displayName,
+                icon: .users,
+                color: VColor.funCoral,
+                description: contact.notes,
+                kind: .contact
+            )
+        }
+    }
+
     /// Whether the user has uploaded a custom avatar image (vs. the bundled native character).
     /// Native characters set characterBodyShape/eyeStyle/color when saved, so if any
     /// component is present the avatar is a built character, not a custom upload.
@@ -1276,7 +1556,7 @@ struct ConstellationView: View {
 
     /// Computes tree layout synchronously and populates all state vars.
     private func computeLayout(center: CGPoint) {
-        let result = buildTree(center: center, groups: groups, memoryGroups: memoryKindGroups, centerSize: centerAvatarSize)
+        let result = buildTree(center: center, groups: groups, memoryGroups: memoryKindGroups, contactItems: contactItems, centerSize: centerAvatarSize)
         treeNodes = result.nodes
         treeEdges = result.edges
         var positions: [String: CGPoint] = [:]
@@ -1451,7 +1731,7 @@ struct ConstellationView: View {
                     .offset(totalOffset)
 
                 // Dismiss layer for popover
-                if selectedSkillItem != nil || selectedFileItem != nil || selectedMemoryItem != nil {
+                if selectedSkillItem != nil || selectedFileItem != nil || selectedContactItem != nil || selectedMemoryItem != nil {
                     Color.clear
                         .contentShape(Rectangle())
                         .onTapGesture {
@@ -1460,6 +1740,8 @@ struct ConstellationView: View {
                                 selectedNodeId = nil
                                 selectedFileItem = nil
                                 selectedFileNodeId = nil
+                                selectedContactItem = nil
+                                selectedContactNodeId = nil
                                 selectedMemoryItem = nil
                                 selectedMemoryNodeId = nil
                             }
@@ -1515,6 +1797,30 @@ struct ConstellationView: View {
                         } : nil
                     )
                     .position(x: fileScaledX, y: fileScaledY)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                }
+
+                // Contact popover overlay
+                if let contactItem = selectedContactItem, let contactNodeId = selectedContactNodeId {
+                    let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                    let contactNodePos = effectivePosition(forId: contactNodeId)
+                    let contactViewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                    let contactScaledX = contactViewCenter.x + (contactNodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
+                    let contactScaledY = contactViewCenter.y + (contactNodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
+
+                    ContactPopoverView(
+                        item: contactItem,
+                        onViewDetails: {
+                            withAnimation(VAnimation.fast) {
+                                selectedContactItem = nil
+                                selectedContactNodeId = nil
+                            }
+                            // Extract the original contact ID from the orbit item ID
+                            let contactId = String(contactItem.id.dropFirst("contact-".count))
+                            onNavigateToContact?(contactId)
+                        }
+                    )
+                    .position(x: contactScaledX, y: contactScaledY)
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
 
@@ -1586,14 +1892,19 @@ struct ConstellationView: View {
                 .onChange(of: memories.count) { _, _ in
                     layoutAndAnimate(viewSize: proxy.size)
                 }
+                .onChange(of: contacts.count) { _, _ in
+                    layoutAndAnimate(viewSize: proxy.size)
+                }
                 #if os(macOS)
                 .onKeyPress(.escape) {
-                    if selectedSkillItem != nil || selectedFileItem != nil || selectedMemoryItem != nil {
+                    if selectedSkillItem != nil || selectedFileItem != nil || selectedContactItem != nil || selectedMemoryItem != nil {
                         withAnimation(VAnimation.fast) {
                             selectedSkillItem = nil
                             selectedNodeId = nil
                             selectedFileItem = nil
                             selectedFileNodeId = nil
+                            selectedContactItem = nil
+                            selectedContactNodeId = nil
                             selectedMemoryItem = nil
                             selectedMemoryNodeId = nil
                         }
@@ -1867,6 +2178,50 @@ struct ConstellationView: View {
                                 } else {
                                     selectedMemoryItem = item
                                     selectedMemoryNodeId = node.id
+                                }
+                            }
+                        }
+                    )
+                    .position(effPos)
+                    .gesture(nodeDragGesture(nodeId: nodeId))
+                    .scaleEffect(phase.skillsVisible ? 1 : 0.4)
+                    .opacity(phase.skillsVisible ? 1 : 0)
+                    .animation(
+                        .spring(response: 0.5, dampingFraction: 0.7)
+                            .delay(0.08 + Double(idx) * 0.02),
+                        value: phase
+                    )
+
+                case .contactCategory:
+                    ContactCategoryNodeView(size: categoryNodeSize)
+                        .onTapGesture(count: 2) { zoomToNode(nodeId, viewSize: size) }
+                        .position(effPos)
+                        .gesture(nodeDragGesture(nodeId: nodeId))
+                        .scaleEffect(phase.categoriesVisible ? 1 : 0.3)
+                        .opacity(phase.categoriesVisible ? 1 : 0)
+                        .animation(
+                            .spring(response: 0.45, dampingFraction: 0.7)
+                                .delay(Double(idx) * 0.04),
+                            value: phase
+                        )
+
+                case .contactItem(let item):
+                    ContactNodeView(
+                        item: item,
+                        size: skillNodeSize,
+                        onTap: {
+                            withAnimation(VAnimation.fast) {
+                                // Dismiss other popovers
+                                selectedSkillItem = nil
+                                selectedNodeId = nil
+                                selectedFileItem = nil
+                                selectedFileNodeId = nil
+                                if selectedContactItem?.id == item.id {
+                                    selectedContactItem = nil
+                                    selectedContactNodeId = nil
+                                } else {
+                                    selectedContactItem = item
+                                    selectedContactNodeId = node.id
                                 }
                             }
                         }
