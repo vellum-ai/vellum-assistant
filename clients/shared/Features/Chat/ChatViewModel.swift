@@ -1211,11 +1211,16 @@ public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelega
         // withObservationTracking so views that read message state through
         // ChatViewModel's computed forwarding properties still update.
         observeMessageManager()
-        // ChatAttachmentManager is @Observable — bridge its changes into
-        // ChatViewModel's ObservableObject objectWillChange via
-        // withObservationTracking so views that read attachment state through
-        // ChatViewModel's computed forwarding properties still update.
-        observeAttachmentManager()
+        // ChatAttachmentManager is still ObservableObject — coalesce its
+        // objectWillChange into ChatViewModel's publish window.
+        attachmentManager.objectWillChange
+            .sink { [weak self] _ in
+                self?.scheduleCoalescedPublish()
+                #if DEBUG
+                self?.trackPublish(source: "attachmentManager")
+                #endif
+            }
+            .store(in: &cancellables)
         // ChatErrorManager is @Observable — bridge its changes into
         // ChatViewModel's ObservableObject objectWillChange via
         // withObservationTracking so views that read error state through
