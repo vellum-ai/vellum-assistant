@@ -415,7 +415,7 @@ struct ChatView: View {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.eye, size: 14)
                     Text("Read-only conversation")
-                        .font(VFont.caption)
+                        .font(VFont.bodySmallDefault)
                 }
                 .foregroundStyle(VColor.contentTertiary)
                 .frame(maxWidth: .infinity)
