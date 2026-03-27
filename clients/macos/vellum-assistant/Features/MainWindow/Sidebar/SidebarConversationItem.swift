@@ -4,13 +4,13 @@ import VellumAssistantShared
 /// A single conversation row in the sidebar, handling hover, pin, archive, rename,
 /// and drag interactions.
 ///
-/// This is a pure value view — all state is pre-resolved into value-type props
-/// and action closures, so SwiftUI can skip re-evaluation via `Equatable`.
+/// Hover state is owned locally via `@State` so it resets automatically when the
+/// view's identity changes (e.g., conversation moves between ForEach sections on
+/// pin/unpin). Props and action closures use `Equatable` to skip re-evaluation.
 struct SidebarConversationItem: View, Equatable {
     let conversation: ConversationModel
     let isSelected: Bool
     let interactionState: ConversationInteractionState
-    let isHovered: Bool
 
     // Action closures — not compared in Equatable
     var selectConversation: () -> Void
@@ -19,8 +19,9 @@ struct SidebarConversationItem: View, Equatable {
     var onArchive: () -> Void
     var onStartRename: () -> Void
     var onMarkUnread: () -> Void
-    var onHoverChange: (Bool) -> Void
     var onDragStart: () -> Void
+    /// Called on hover-in when stale drag state is detected, signalling the drag ended.
+    var onDragEndDetected: (() -> Void)? = nil
     var onOpenInNewWindow: (() -> Void)?
     var onShowFeedback: (() -> Void)?
     /// Available groups for the "Move to" submenu. Excludes the conversation's current group.
@@ -32,7 +33,6 @@ struct SidebarConversationItem: View, Equatable {
         lhs.conversation == rhs.conversation &&
         lhs.isSelected == rhs.isSelected &&
         lhs.interactionState == rhs.interactionState &&
-        lhs.isHovered == rhs.isHovered &&
         lhs.moveToGroups == rhs.moveToGroups
     }
 
@@ -48,7 +48,11 @@ struct SidebarConversationItem: View, Equatable {
         return ConversationGroup(id: gid, name: "", sortPosition: 0, isSystemGroup: false)
     }
 
+    @State private var isMouseInside: Bool = false
     @State private var isMenuOpen: Bool = false
+
+    /// Effective hover state, used throughout the body for visual affordances.
+    private var isHovered: Bool { isMouseInside }
     private var hasTrailingIcon: Bool { isHovered || isMenuOpen }
     private var canMarkUnread: Bool {
         !conversation.hasUnseenLatestAssistantMessage &&
@@ -198,7 +202,7 @@ struct SidebarConversationItem: View, Equatable {
         }
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .contentShape(Rectangle())
-        .animation(VAnimation.fast, value: isHovered)
+        .animation(VAnimation.fast, value: isMouseInside)
         .animation(VAnimation.fast, value: isMenuOpen)
         .onTapGesture {
             selectConversation()
@@ -241,17 +245,16 @@ struct SidebarConversationItem: View, Equatable {
             contextMenuContent
         }
         .pointerCursor { hovering in
-            onHoverChange(hovering)
+            isMouseInside = hovering
+            if hovering {
+                onDragEndDetected?()
+            }
         }
         .onChange(of: conversation) { _, _ in
-            // When conversation props change (e.g., groupId from pin/unpin), the view
-            // may be destroyed and recreated in a different section. Reset local state
-            // and send a hover-out to prevent stuck hover/menu states.
+            // Reset menu state when conversation props change within the same view
+            // lifecycle (e.g., title update while menu is open).
             if isMenuOpen {
                 isMenuOpen = false
-            }
-            if isHovered {
-                onHoverChange(false)
             }
         }
         .onDrag {

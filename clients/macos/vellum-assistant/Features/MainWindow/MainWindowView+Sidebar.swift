@@ -173,7 +173,6 @@ extension MainWindowView {
             conversation: conversation,
             isSelected: isConversationSelected(conversation),
             interactionState: conversationManager.interactionState(for: conversation.id),
-            isHovered: sidebar.isHoveredConversation == conversation.id,
             selectConversation: { selectConversation(conversation) },
             onSelect: onSelect,
             onTogglePin: {
@@ -193,12 +192,11 @@ extension MainWindowView {
                 sidebar.renameText = conversation.title
             },
             onMarkUnread: { conversationManager.markConversationUnread(conversationId: conversation.id) },
-            onHoverChange: { hovering in
-                sidebar.setConversationHover(conversationId: conversation.id, hovering: hovering)
-            },
             onDragStart: {
                 sidebar.draggingConversationId = conversation.id
-                sidebar.isHoveredConversation = nil
+            },
+            onDragEndDetected: {
+                sidebar.clearStaleDragState()
             },
             onOpenInNewWindow: conversation.conversationId != nil ? {
                 AppDelegate.shared?.threadWindowManager?.openThread(

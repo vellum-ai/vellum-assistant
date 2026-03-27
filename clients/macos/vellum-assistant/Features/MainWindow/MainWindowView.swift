@@ -546,8 +546,6 @@ struct MainWindowView: View {
                 )
             )
         )
-        // Hover->pending-deletion invariant is now owned by
-        // SidebarInteractionState.setConversationHover(conversationId:hovering:)
     }
 
     private var coreLayoutGeometryView: some View {

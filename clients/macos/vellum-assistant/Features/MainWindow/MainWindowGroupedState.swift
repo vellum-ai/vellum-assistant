@@ -28,14 +28,11 @@ final class SharingState {
     var errorDismissTask: Task<Void, Never>?
 }
 
-/// Sidebar interaction state -- hover, rename, expand/collapse lists, drawer.
+/// Sidebar interaction state — cross-row concerns (drag, rename, expand/collapse).
+/// Per-row affordances (hover, menu) are owned locally by each `SidebarConversationItem`.
 @Observable
 @MainActor
 final class SidebarInteractionState {
-    var isHoveredConversation: UUID?
-    /// In-flight hover work item — cancelled when a newer hover event arrives
-    /// so that only the latest intent takes effect.
-    private var pendingHoverWork: DispatchWorkItem?
     var isHoveredApp: String?
     var renamingConversationId: UUID?
     var renameText: String = ""
@@ -100,61 +97,13 @@ final class SidebarInteractionState {
 
     var showPreferencesDrawer: Bool = false
 
-    /// Updates conversation hover state. Centralises the invariant so callers
-    /// don't need to coordinate.
-    ///
-    /// During an active drag, hover updates are suppressed to avoid triggering
-    /// icon-swap animations and unnecessary re-renders across sibling rows.
-    ///
-    /// The actual mutation is deferred to the next run-loop cycle via
-    /// `DispatchQueue.main.async`. This breaks a synchronous feedback loop:
-    /// when SwiftUI re-evaluates hover state during a layout pass
-    /// (`HoverResponder.updatePhase`), a synchronous `@Observable` mutation
-    /// triggers `ObservationRegistrar.willSet` → `GraphHost.flushTransactions`,
-    /// starting a nested layout pass that re-evaluates hover — and because
-    /// the value genuinely alternates (UUID ↔ nil) on each cycle, an equality
-    /// guard alone cannot stop the loop. Deferring ensures the mutation
-    /// happens outside the current layout transaction.
-    ///
-    /// `SidebarConversationItem` applies `.animation(VAnimation.fast, value:
-    /// isHovered)`, so the one-tick deferral is visually imperceptible.
-    ///
-    /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
-    func setConversationHover(conversationId: UUID?, hovering: Bool) {
-        // Suppress hover changes while dragging to prevent visual jank.
-        // When a hover-in arrives while dragging, the drag session must have
-        // ended (SwiftUI resumes hover tracking only after the drag completes).
-        // Clean up stale drag state so hover interactions resume.
-        if draggingConversationId != nil {
-            if hovering {
-                draggingConversationId = nil
-                dropTargetConversationId = nil
-            } else {
-                return
-            }
-        }
-
-        let newValue: UUID? = hovering
-            ? conversationId
-            : (isHoveredConversation == conversationId ? nil : isHoveredConversation)
-
-        // Cancel any in-flight hover work — only the latest intent matters.
-        // This prevents a deferred hover-out from clobbering a rapid hover-in
-        // that arrives in the same run-loop tick.
-        pendingHoverWork?.cancel()
-        pendingHoverWork = nil
-
-        guard isHoveredConversation != newValue else { return }
-
-        // Defer to next run-loop tick to escape any in-progress layout pass.
-        // Re-check the guard inside the closure in case another event
-        // already updated the value before this block executes.
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, self.draggingConversationId == nil, self.isHoveredConversation != newValue else { return }
-            self.isHoveredConversation = newValue
-        }
-        pendingHoverWork = work
-        DispatchQueue.main.async(execute: work)
+    /// Clears stale drag state. Called as a fallback when a post-drag hover-in
+    /// is detected by a conversation row, indicating the drag session ended
+    /// without a successful drop (e.g., dropped outside any valid target).
+    func clearStaleDragState() {
+        guard draggingConversationId != nil else { return }
+        draggingConversationId = nil
+        dropTargetConversationId = nil
     }
 
     /// Conversation ID that is currently the drop target during a drag-and-drop reorder.

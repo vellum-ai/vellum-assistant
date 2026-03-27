@@ -31,7 +31,6 @@ struct ConversationSwitcherDrawer: View {
                         conversation: conversation,
                         isSelected: isConversationSelected(conversation),
                         interactionState: conversationManager.interactionState(for: conversation.id),
-                        isHovered: sidebar.isHoveredConversation == conversation.id,
                         selectConversation: { selectConversation(conversation) },
                         onSelect: onDismiss,
                         onTogglePin: {
@@ -49,12 +48,11 @@ struct ConversationSwitcherDrawer: View {
                             sidebar.renameText = conversation.title
                         },
                         onMarkUnread: { conversationManager.markConversationUnread(conversationId: conversation.id) },
-                        onHoverChange: { hovering in
-                            sidebar.setConversationHover(conversationId: conversation.id, hovering: hovering)
-                        },
                         onDragStart: {
                             sidebar.draggingConversationId = conversation.id
-                            sidebar.isHoveredConversation = nil
+                        },
+                        onDragEndDetected: {
+                            sidebar.clearStaleDragState()
                         },
                         onOpenInNewWindow: conversation.conversationId != nil ? {
                             AppDelegate.shared?.threadWindowManager?.openThread(
@@ -71,10 +69,5 @@ struct ConversationSwitcherDrawer: View {
             }
         }
         .fixedSize(horizontal: false, vertical: true)
-        .onDisappear {
-            if sidebar.isHoveredConversation != nil {
-                sidebar.isHoveredConversation = nil
-            }
-        }
     }
 }
