@@ -48,27 +48,10 @@ mock.module("../tools/registry.js", () => ({
 // Mock oauth-store to avoid SQLite dependency in unit tests
 // ---------------------------------------------------------------------------
 
-let mockGetMostRecentAppByProvider: ReturnType<
-  typeof mock<(key: string) => unknown>
->;
-let mockGetAppByProviderAndClientId: ReturnType<
-  typeof mock<(key: string, clientId: string) => unknown>
->;
-let mockGetProvider: ReturnType<typeof mock<(key: string) => unknown>>;
-
-mock.module("../oauth/oauth-store.js", () => {
-  mockGetMostRecentAppByProvider = mock(() => undefined);
-  mockGetAppByProviderAndClientId = mock(() => undefined);
-  mockGetProvider = mock(() => undefined);
-  return {
-    getMostRecentAppByProvider: mockGetMostRecentAppByProvider,
-    getAppByProviderAndClientId: mockGetAppByProviderAndClientId,
-    getProvider: mockGetProvider,
-    listConnections: mock(() => []),
-    seedProviders: mock(() => {}),
-    disconnectOAuthProvider: mock(async () => "not-found" as const),
-  };
-});
+mock.module("../oauth/oauth-store.js", () => ({
+  disconnectOAuthProvider: mock(async () => "not-found" as const),
+  getActiveConnection: mock(() => undefined),
+}));
 
 let manualConnectionStore: Record<string, string> = {};
 let slackChannelConfigCalls: Array<{
@@ -179,36 +162,6 @@ mock.module("../daemon/handlers/config-slack-channel.js", () => ({
       warning,
     };
   },
-}));
-
-// ---------------------------------------------------------------------------
-// Mock public ingress URL — not available in unit tests. The connect
-// orchestrator dynamically imports this for non-interactive flows.
-// ---------------------------------------------------------------------------
-
-mock.module("../inbound/public-ingress-urls.js", () => ({
-  getPublicBaseUrl: () => {
-    throw new Error("No public ingress URL configured");
-  },
-}));
-
-// ---------------------------------------------------------------------------
-// Mock prepareOAuth2Flow — unit tests should not start real loopback HTTP
-// servers. The connect orchestrator still runs its own validation logic
-// (scope policy, non-interactive ingress checks, etc.) but the actual
-// OAuth flow setup is stubbed.
-// ---------------------------------------------------------------------------
-
-mock.module("../security/oauth2.js", () => ({
-  prepareOAuth2Flow: mock(async () => ({
-    authUrl: "https://mock-auth-url.example.com/authorize",
-    state: "mock-state",
-    completion: new Promise(() => {}),
-  })),
-  startOAuth2Flow: mock(async () => ({
-    grantedScopes: [],
-    tokens: { access_token: "mock-token" },
-  })),
 }));
 
 // ---------------------------------------------------------------------------
@@ -749,372 +702,7 @@ describe("credential_store tool — prompt action", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. Vault — oauth2_connect error paths
-// ---------------------------------------------------------------------------
-
-describe("credential_store tool — oauth2_connect error paths", () => {
-  /** Well-known provider rows returned by the mocked getProvider */
-  const wellKnownProviders: Record<string, object> = {
-    google: {
-      key: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
-      defaultScopes: JSON.stringify(["https://mail.google.com/"]),
-      scopePolicy: JSON.stringify({}),
-      callbackTransport: "loopback",
-      loopbackPort: 8756,
-    },
-    slack: {
-      key: "slack",
-      authUrl: "https://slack.com/oauth/v2/authorize",
-      tokenUrl: "https://slack.com/api/oauth.v2.access",
-      defaultScopes: JSON.stringify(["channels:read"]),
-      scopePolicy: JSON.stringify({}),
-    },
-  };
-
-  beforeEach(() => {
-    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
-    mkdirSync(TEST_DIR, { recursive: true });
-    _setStorePath(STORE_PATH);
-    _resetBackend();
-    _setMetadataPath(join(TEST_DIR, "metadata.json"));
-    // Return well-known provider rows so vault.ts knows google/slack are
-    // registered, and custom providers return undefined.
-    mockGetProvider.mockImplementation(
-      (key: string) => wellKnownProviders[key] ?? undefined,
-    );
-    mockGetMostRecentAppByProvider.mockClear();
-    mockGetMostRecentAppByProvider.mockImplementation(() => undefined);
-    mockGetAppByProviderAndClientId.mockClear();
-    mockGetAppByProviderAndClientId.mockImplementation(() => undefined);
-  });
-
-  afterEach(() => {
-    _setMetadataPath(null);
-    _setStorePath(null);
-    _resetBackend();
-    mockGetProvider.mockImplementation(() => undefined);
-    mockGetMostRecentAppByProvider.mockImplementation(() => undefined);
-    mockGetAppByProviderAndClientId.mockImplementation(() => undefined);
-  });
-
-  test("requires service parameter", async () => {
-    const result = await credentialStoreTool.execute(
-      { action: "oauth2_connect" },
-      _ctx,
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("service is required");
-  });
-
-  test("rejects unknown service without registered provider", async () => {
-    const result = await credentialStoreTool.execute(
-      {
-        action: "oauth2_connect",
-        service: "custom-svc",
-        auth_url: "https://a",
-        token_url: "https://t",
-        scopes: ["read"],
-      },
-      _ctx,
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("no OAuth provider registered");
-  });
-
-  test("requires client_id", async () => {
-    mockGetProvider.mockImplementation((key: string) => {
-      if (key === "custom-svc") {
-        return {
-          key: "custom-svc",
-          authUrl: "https://auth.example.com",
-          tokenUrl: "https://token.example.com",
-          defaultScopes: JSON.stringify(["read"]),
-          scopePolicy: JSON.stringify({}),
-        };
-      }
-      return wellKnownProviders[key] ?? undefined;
-    });
-    const result = await credentialStoreTool.execute(
-      {
-        action: "oauth2_connect",
-        service: "custom-svc",
-        scopes: ["read"],
-      },
-      _ctx,
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("client_id is required");
-  });
-
-  test("non-interactive loopback oauth2_connect returns deferred auth URL", async () => {
-    // After the blanket non-interactive guard was removed (#16337),
-    // loopback-transport flows succeed with a deferred auth URL so the
-    // agent can present it to the user.
-    mockGetProvider.mockImplementation((key: string) => {
-      if (key === "custom-svc") {
-        return {
-          key: "custom-svc",
-          authUrl: "https://auth.example.com",
-          tokenUrl: "https://token.example.com",
-          defaultScopes: JSON.stringify(["read"]),
-          scopePolicy: JSON.stringify({}),
-        };
-      }
-      return wellKnownProviders[key] ?? undefined;
-    });
-
-    const result = await credentialStoreTool.execute(
-      {
-        action: "oauth2_connect",
-        service: "custom-svc",
-        auth_url: "https://auth.example.com",
-        token_url: "https://token.example.com",
-        scopes: ["read"],
-        client_id: "test-client-id",
-      },
-      { ..._ctx, isInteractive: false },
-    );
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("mock-auth-url.example.com");
-  });
-
-  test("rejects missing client_id for google", async () => {
-    // Missing client_id should fail
-    const result = await credentialStoreTool.execute(
-      {
-        action: "oauth2_connect",
-        service: "google",
-      },
-      _ctx,
-    );
-    expect(result.isError).toBe(true);
-    // Should fail on client_id since none is stored
-    expect(result.content).toContain("client_id is required");
-  });
-
-  test("resolves slack to its canonical name", async () => {
-    const result = await credentialStoreTool.execute(
-      {
-        action: "oauth2_connect",
-        service: "slack",
-      },
-      _ctx,
-    );
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("client_id is required");
-  });
-
-  test("uses stored client_id from oauth-store DB", async () => {
-    // Mock getMostRecentAppByProvider to return an app with a client_id
-    // and store client_secret in the secure store.
-    mockGetMostRecentAppByProvider.mockImplementation(() => ({
-      id: "test-app-id",
-      providerKey: "google",
-      clientId: "stored-client-id-123",
-      clientSecretCredentialPath: "oauth_app/test-app-id/client_secret",
-      createdAt: Date.now(),
-    }));
-    mockGetProvider.mockImplementation(() => ({
-      key: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
-      defaultScopes: JSON.stringify(["https://mail.google.com/"]),
-      scopePolicy: JSON.stringify({}),
-      callbackTransport: "loopback",
-      loopbackPort: 8756,
-    }));
-    await setSecureKeyAsync(
-      "oauth_app/test-app-id/client_secret",
-      "test-secret",
-    );
-
-    const result = await credentialStoreTool.execute(
-      {
-        action: "oauth2_connect",
-        service: "google",
-      },
-      { ..._ctx, isInteractive: false },
-    );
-
-    // Should pass client_id and client_secret checks — the flow proceeds
-    // through the channel path (google uses loopback transport so no
-    // public ingress URL is needed) and returns the authorization URL.
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("To connect google, open this link");
-    expect(result.content).not.toContain("client_id is required");
-    expect(result.content).not.toContain("client_secret is required");
-
-    // Reset mocks
-    mockGetMostRecentAppByProvider.mockImplementation(() => undefined);
-    mockGetProvider.mockImplementation(() => undefined);
-  });
-
-  test("uses getAppByProviderAndClientId when client_id is provided without client_secret", async () => {
-    // When client_id is supplied but client_secret is not, the vault should
-    // look up the matching app via getAppByProviderAndClientId (not the
-    // most-recent-app heuristic) so the secret comes from the correct app.
-    mockGetAppByProviderAndClientId.mockImplementation(
-      (providerKey: string, cId: string) => {
-        if (providerKey === "google" && cId === "caller-supplied-client-id") {
-          return {
-            id: "matched-app-id",
-            providerKey: "google",
-            clientId: "caller-supplied-client-id",
-            clientSecretCredentialPath:
-              "oauth_app/matched-app-id/client_secret",
-            createdAt: Date.now(),
-          };
-        }
-        return undefined;
-      },
-    );
-    mockGetProvider.mockImplementation(() => ({
-      key: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
-      defaultScopes: JSON.stringify(["https://mail.google.com/"]),
-      scopePolicy: JSON.stringify({}),
-      callbackTransport: "loopback",
-      loopbackPort: 8756,
-    }));
-    await setSecureKeyAsync(
-      "oauth_app/matched-app-id/client_secret",
-      "matched-secret",
-    );
-
-    const result = await credentialStoreTool.execute(
-      {
-        action: "oauth2_connect",
-        service: "google",
-        client_id: "caller-supplied-client-id",
-      },
-      { ..._ctx, isInteractive: false },
-    );
-
-    // Should succeed — client_secret resolved from the matched app
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("To connect google, open this link");
-    // getMostRecentAppByProvider should NOT have been called since client_id was known
-    expect(mockGetMostRecentAppByProvider).not.toHaveBeenCalled();
-
-    // Reset mocks
-    mockGetAppByProviderAndClientId.mockImplementation(() => undefined);
-    mockGetProvider.mockImplementation(() => undefined);
-  });
-
-  test("falls back to getMostRecentAppByProvider when client_id is not provided", async () => {
-    // When neither client_id nor client_secret is provided, the vault should
-    // use getMostRecentAppByProvider (the fallback heuristic).
-    mockGetMostRecentAppByProvider.mockImplementation(() => ({
-      id: "recent-app-id",
-      providerKey: "google",
-      clientId: "recent-client-id",
-      clientSecretCredentialPath: "oauth_app/recent-app-id/client_secret",
-      createdAt: Date.now(),
-    }));
-    mockGetProvider.mockImplementation(() => ({
-      key: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
-      defaultScopes: JSON.stringify(["https://mail.google.com/"]),
-      scopePolicy: JSON.stringify({}),
-      callbackTransport: "loopback",
-      loopbackPort: 8756,
-    }));
-    await setSecureKeyAsync(
-      "oauth_app/recent-app-id/client_secret",
-      "recent-secret",
-    );
-
-    const result = await credentialStoreTool.execute(
-      {
-        action: "oauth2_connect",
-        service: "google",
-      },
-      { ..._ctx, isInteractive: false },
-    );
-
-    expect(result.isError).toBe(false);
-    expect(result.content).toContain("To connect google, open this link");
-    // getAppByProviderAndClientId should NOT have been called since client_id was unknown
-    expect(mockGetAppByProviderAndClientId).not.toHaveBeenCalled();
-
-    // Reset mocks
-    mockGetMostRecentAppByProvider.mockImplementation(() => undefined);
-    mockGetProvider.mockImplementation(() => undefined);
-  });
-
-  test("getAppByProviderAndClientId returning undefined leaves client_secret unresolved", async () => {
-    // When client_id is provided but getAppByProviderAndClientId returns no
-    // matching app, client_secret remains unresolved and the vault should
-    // report the missing secret error.
-    mockGetAppByProviderAndClientId.mockImplementation(() => undefined);
-    mockGetProvider.mockImplementation(() => ({
-      key: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
-      defaultScopes: JSON.stringify(["https://mail.google.com/"]),
-      requiresClientSecret: 1,
-    }));
-
-    const result = await credentialStoreTool.execute(
-      {
-        action: "oauth2_connect",
-        service: "google",
-        client_id: "unknown-client-id",
-      },
-      _ctx,
-    );
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("client_secret is required for google");
-    // getMostRecentAppByProvider should NOT have been called
-    expect(mockGetMostRecentAppByProvider).not.toHaveBeenCalled();
-
-    // Reset mocks
-    mockGetAppByProviderAndClientId.mockImplementation(() => undefined);
-    mockGetProvider.mockImplementation(() => undefined);
-  });
-
-  test("rejects when client_secret is missing for service that requires it", async () => {
-    // Mock getMostRecentAppByProvider to return an app with client_id but
-    // no client_secret in secure storage — validates the requiresClientSecret
-    // guardrail.
-    mockGetMostRecentAppByProvider.mockImplementation(() => ({
-      id: "test-app-id-no-secret",
-      providerKey: "google",
-      clientId: "stored-client-id-456",
-      createdAt: Date.now(),
-    }));
-    mockGetProvider.mockImplementation(() => ({
-      key: "google",
-      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
-      tokenUrl: "https://oauth2.googleapis.com/token",
-      defaultScopes: JSON.stringify(["https://mail.google.com/"]),
-      requiresClientSecret: 1,
-    }));
-
-    const result = await credentialStoreTool.execute(
-      {
-        action: "oauth2_connect",
-        service: "google",
-      },
-      _ctx,
-    );
-
-    expect(result.isError).toBe(true);
-    expect(result.content).toContain("client_secret is required for google");
-
-    // Reset mocks
-    mockGetMostRecentAppByProvider.mockImplementation(() => undefined);
-    mockGetProvider.mockImplementation(() => undefined);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// 5. Vault — store action validation edge cases
+// 4. Vault — store action validation edge cases
 // ---------------------------------------------------------------------------
 
 describe("credential_store tool — store validation edge cases", () => {
@@ -1282,7 +870,7 @@ describe("credential_store tool — store validation edge cases", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 6. Vault — tool definition schema
+// 5. Vault — tool definition schema
 // ---------------------------------------------------------------------------
 
 describe("credential_store tool — tool definition", () => {
@@ -1298,14 +886,7 @@ describe("credential_store tool — tool definition", () => {
     expect(schema.type).toBe("object");
     expect(schema.required).toContain("action");
     const props = schema.properties as Record<string, Record<string, unknown>>;
-    expect(props.action.enum).toEqual([
-      "store",
-      "list",
-      "delete",
-      "prompt",
-      "oauth2_connect",
-      "describe",
-    ]);
+    expect(props.action.enum).toEqual(["store", "list", "delete", "prompt"]);
   });
 
   test("getDefinition includes injection_templates schema", () => {
@@ -1326,7 +907,7 @@ describe("credential_store tool — tool definition", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 7. Broker — serverUseById with transient not supported
+// 6. Broker — serverUseById with transient not supported
 //    (transient is scoped to authorize+consume and browserFill/serverUse)
 // ---------------------------------------------------------------------------
 
@@ -1399,7 +980,7 @@ describe("CredentialBroker — serverUseById edge cases", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 8. Broker — revokeAll clears transient values indirectly via token cleanup
+// 7. Broker — revokeAll clears transient values indirectly via token cleanup
 // ---------------------------------------------------------------------------
 
 describe("CredentialBroker — revokeAll", () => {
