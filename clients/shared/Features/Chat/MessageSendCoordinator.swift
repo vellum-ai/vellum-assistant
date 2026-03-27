@@ -178,7 +178,7 @@ final class MessageSendCoordinator {
             )
         if shouldRefreshModelMetadata {
             Task { [weak self] in
-                guard let self, let delegate = self.delegate else { return }
+                guard let self, self.delegate != nil else { return }
                 let info = await self.settingsClient.fetchModelInfo()
                 if let model = info?.model {
                     self.messageManager.selectedModel = model
@@ -552,7 +552,7 @@ final class MessageSendCoordinator {
 
         let cancelConversationId = delegate.conversationId!
         Task { [weak self] in
-            guard let self, let delegate = self.delegate else { return }
+            guard let self, self.delegate != nil else { return }
             let success = await self.conversationListClient.cancelGeneration(conversationId: cancelConversationId)
             if !success {
                 log.error("Failed to send cancel")
