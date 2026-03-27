@@ -721,7 +721,7 @@ struct ConversationListView: View {
 
 /// Thin wrapper around ChatContentView for a conversation-owned ChatViewModel.
 struct ConversationChatView: View {
-    @ObservedObject var viewModel: ChatViewModel
+    var viewModel: ChatViewModel
     @ObservedObject var store: IOSConversationStore
     let conversation: IOSConversation
 

@@ -94,7 +94,7 @@ func nextPendingChatAnchorSearchStep(
 }
 
 struct ChatContentView: View {
-    @ObservedObject var viewModel: ChatViewModel
+    @Bindable var viewModel: ChatViewModel
     var pendingAnchorRequestId: UUID? = nil
     var pendingAnchorDaemonMessageId: String? = nil
     var onPendingAnchorHandled: ((UUID) -> Void)? = nil
