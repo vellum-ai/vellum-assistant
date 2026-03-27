@@ -198,24 +198,40 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     /// Conversations organized by group. Groups appear in sortPosition order;
     /// ungrouped conversations (including orphans with unknown groupId) appear last.
+    /// Buckets conversations in a single pass over `visibleConversations` (O(N))
+    /// instead of filtering per group (O(N*G)).
     var groupedConversations: [(group: ConversationGroup?, conversations: [ConversationModel])] {
         let visible = visibleConversations
-        var result: [(ConversationGroup?, [ConversationModel])] = []
-        var accountedIds = Set<UUID>()
+        let knownGroupIds = Set(groups.map(\.id))
 
+        // Single-pass bucketing: group conversations by groupId
+        var buckets: [String: [ConversationModel]] = [:]
+        var ungrouped: [ConversationModel] = []
+        var orphaned: [ConversationModel] = []
+
+        for conversation in visible {
+            if let gid = conversation.groupId {
+                if knownGroupIds.contains(gid) {
+                    buckets[gid, default: []].append(conversation)
+                } else {
+                    orphaned.append(conversation)  // unknown groupId
+                }
+            } else {
+                ungrouped.append(conversation)
+            }
+        }
+
+        // Always include all groups so the view layer can decide visibility.
+        // Non-system groups always appear (so "New Group" is visible immediately).
+        // System groups are emitted even when empty so the view can show ghost
+        // headers during drag; the view hides empty system groups when no drag is active.
+        var result: [(ConversationGroup?, [ConversationModel])] = []
         for group in sortedGroups {
-            let members = visible.filter { $0.groupId == group.id }
-            // Always include all groups so the view layer can decide visibility.
-            // Non-system groups always appear (so "New Group" is visible immediately).
-            // System groups are emitted even when empty so the view can show ghost
-            // headers during drag; the view hides empty system groups when no drag is active.
-            result.append((group, members))
-            accountedIds.formUnion(members.map(\.id))
+            result.append((group, buckets[group.id] ?? []))
         }
 
         // Ungrouped + orphaned (unknown groupId) -- always last
-        let remaining = visible.filter { !accountedIds.contains($0.id) }
-        result.append((nil, remaining))
+        result.append((nil, ungrouped + orphaned))
 
         return result
     }
@@ -244,9 +260,15 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         return a.displayOrder! < b.displayOrder!
     }
 
+    /// Precomputed lookup from groupId -> sortPosition. Rebuilt when `groups` changes (infrequent).
+    /// Avoids O(N) linear scan per sort comparison in `visibleConversationSortOrder`.
+    private var groupSortPositionMap: [String: Double] {
+        Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0.sortPosition) })
+    }
+
     private func groupSortPosition(for groupId: String?) -> Double {
         guard let groupId else { return Double.infinity }  // ungrouped sorts last (intentional)
-        return groups.first { $0.id == groupId }?.sortPosition ?? Double.infinity  // orphaned -> treat as ungrouped
+        return groupSortPositionMap[groupId] ?? Double.infinity  // orphaned -> treat as ungrouped
     }
 
     /// Count of visible (non-archived, non-private) conversations with unseen assistant messages.
