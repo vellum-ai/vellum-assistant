@@ -195,6 +195,7 @@ public struct InlineTableWidget: View {
                     .padding(.top, VSpacing.xs)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
             selectedIds = Set(data.rows.filter(\.selected).map(\.id))
             if hasSelection {
