@@ -28,6 +28,9 @@ interface FakeChunk {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
   } | null;
   model: string;
 }
@@ -149,6 +152,25 @@ function usageChunk(prompt: number, completion: number): FakeChunk {
       prompt_tokens: prompt,
       completion_tokens: completion,
       total_tokens: prompt + completion,
+    },
+    model: "gpt-5.2",
+  };
+}
+
+function reasoningUsageChunk(
+  prompt: number,
+  completion: number,
+  reasoning: number,
+): FakeChunk {
+  return {
+    choices: [{ delta: {}, finish_reason: "stop" }],
+    usage: {
+      prompt_tokens: prompt,
+      completion_tokens: completion,
+      total_tokens: prompt + completion,
+      completion_tokens_details: {
+        reasoning_tokens: reasoning,
+      },
     },
     model: "gpt-5.2",
   };
@@ -805,6 +827,47 @@ describe("OpenAIProvider", () => {
     // Only tool_use, no text block
     expect(result.content).toHaveLength(1);
     expect(result.content[0].type).toBe("tool_use");
+  });
+
+  // -----------------------------------------------------------------------
+  // Reasoning tokens
+  // -----------------------------------------------------------------------
+  test("includes reasoningTokens in usage when present in completion_tokens_details", async () => {
+    fakeChunks = [
+      textChunk("Reasoning result"),
+      reasoningUsageChunk(50, 120, 80),
+    ];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Think carefully" }] },
+    ]);
+
+    expect(result.usage).toEqual({
+      inputTokens: 50,
+      outputTokens: 120,
+      reasoningTokens: 80,
+    });
+
+    // Also check rawResponse diagnostics include reasoning tokens
+    const rawUsage = (result.rawResponse as any).usage;
+    expect(rawUsage.completion_tokens_details).toEqual({
+      reasoning_tokens: 80,
+    });
+  });
+
+  test("omits reasoningTokens from usage when not present", async () => {
+    fakeChunks = [textChunk("Simple reply"), usageChunk(10, 5)];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Hi" }] },
+    ]);
+
+    expect(result.usage).toEqual({ inputTokens: 10, outputTokens: 5 });
+    expect(result.usage).not.toHaveProperty("reasoningTokens");
+
+    // rawResponse should not include completion_tokens_details
+    const rawUsage = (result.rawResponse as any).usage;
+    expect(rawUsage).not.toHaveProperty("completion_tokens_details");
   });
 
   // -----------------------------------------------------------------------
