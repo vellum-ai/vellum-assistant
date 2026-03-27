@@ -11,6 +11,7 @@ export interface BootstrapConversationOptions {
   origin: TitleOrigin;
   systemHint: string;
   scheduleJobId?: string;
+  groupId?: string;
 }
 
 export function bootstrapConversation(opts: BootstrapConversationOptions) {
@@ -19,6 +20,7 @@ export function bootstrapConversation(opts: BootstrapConversationOptions) {
     ...(opts.conversationType && { conversationType: opts.conversationType }),
     ...(opts.source && { source: opts.source }),
     ...(opts.scheduleJobId && { scheduleJobId: opts.scheduleJobId }),
+    ...(opts.groupId && { groupId: opts.groupId }),
   });
   queueGenerateConversationTitle({
     conversationId: conversation.id,
