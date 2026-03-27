@@ -623,6 +623,35 @@ struct MessageListView: View {
         }
     }
 
+    /// Computes the combined text for each message's turn (all consecutive
+    /// same-role messages). Used by the copy button to copy the full response.
+    private static func computeTurnTexts(
+        displayMessageIds: [UUID],
+        displayMessageById: [UUID: ChatMessage]
+    ) -> [UUID: String] {
+        var result: [UUID: String] = [:]
+        var idx = 0
+        while idx < displayMessageIds.count {
+            let id = displayMessageIds[idx]
+            guard let msg = displayMessageById[id] else { idx += 1; continue }
+            let role = msg.role
+            let turnStart = idx
+            var texts: [String] = []
+            while idx < displayMessageIds.count {
+                let nextId = displayMessageIds[idx]
+                guard let m = displayMessageById[nextId], m.role == role else { break }
+                let t = m.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !t.isEmpty { texts.append(t) }
+                idx += 1
+            }
+            let combined = texts.joined(separator: "\n\n")
+            for j in turnStart..<idx {
+                result[displayMessageIds[j]] = combined
+            }
+        }
+        return result
+    }
+
     var body: some View {
         #if DEBUG
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "MessageListView.body")
@@ -646,6 +675,10 @@ struct MessageListView: View {
                     let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
                     let state = derivedState
                     let catalogHash = MessageCellView.hashCatalog(providerCatalog)
+                    let turnTexts = Self.computeTurnTexts(
+                        displayMessageIds: state.displayMessageIds,
+                        displayMessageById: state.displayMessageById
+                    )
                     ForEach(state.displayMessageIds, id: \.self) { messageId in
                         if let message = state.displayMessageById[messageId] {
                             let index = state.messageIndexById[messageId] ?? 0
@@ -689,7 +722,8 @@ struct MessageListView: View {
                                 selectedModel: selectedModel,
                                 configuredProviders: configuredProviders,
                                 providerCatalog: providerCatalog,
-                                providerCatalogHash: catalogHash
+                                providerCatalogHash: catalogHash,
+                                turnText: turnTexts[messageId]
                             )
                             .equatable()
                         }
@@ -744,7 +778,6 @@ struct MessageListView: View {
                             .accessibilityHidden(true)
                     }
                 }
-                .textSelection(.enabled)
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.md)
@@ -752,7 +785,6 @@ struct MessageListView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollContentBackground(.hidden)
-            .plainTextCopy()
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
             .defaultScrollAnchor(.bottom)
@@ -1057,6 +1089,7 @@ private struct MessageCellView: View, Equatable {
                 : lhs.providerCatalog.count == rhs.providerCatalog.count
                   && zip(lhs.providerCatalog, rhs.providerCatalog).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName && $0.models.count == $1.models.count && zip($0.models, $1.models).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName }) }))
             && lhs.isTTSEnabled == rhs.isTTSEnabled
+            && lhs.turnText == rhs.turnText
     }
 
     let message: ChatMessage
@@ -1099,6 +1132,9 @@ private struct MessageCellView: View, Equatable {
     let configuredProviders: Set<String>
     let providerCatalog: [ProviderCatalogEntry]
     let providerCatalogHash: Int
+    /// Combined text from all consecutive same-role messages in this turn.
+    /// Used by the copy button to copy the full assistant/user turn.
+    var turnText: String?
 
     static func hashCatalog(_ catalog: [ProviderCatalogEntry]) -> Int {
         var hasher = Hasher()
@@ -1156,7 +1192,8 @@ private struct MessageCellView: View, Equatable {
                 isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
                 processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
                 activeSurfaceId: activeSurfaceId,
-                hideInlineAvatar: shouldShowThinkingIndicator && anchoredThinkingIndex == nil
+                hideInlineAvatar: shouldShowThinkingIndicator && anchoredThinkingIndex == nil,
+                turnText: turnText
             )
         }
     }
@@ -1244,7 +1281,8 @@ private struct MessageCellView: View, Equatable {
                 isProcessingAfterTools: canInlineProcessing && message.id == latestAssistantId,
                 processingStatusText: canInlineProcessing && message.id == latestAssistantId ? assistantStatusText : nil,
                 activeSurfaceId: activeSurfaceId,
-                hideInlineAvatar: shouldShowThinkingIndicator && anchoredThinkingIndex == nil
+                hideInlineAvatar: shouldShowThinkingIndicator && anchoredThinkingIndex == nil,
+                turnText: turnText
             )
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)

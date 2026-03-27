@@ -43,6 +43,9 @@ struct ChatBubble: View {
     var isTTSEnabled: Bool = false
     /// When true, hide the inline avatar (e.g. thinking indicator is showing it instead).
     var hideInlineAvatar: Bool = false
+    /// Combined text from all consecutive same-role messages in this turn.
+    /// Used by the copy button to copy the full assistant/user turn.
+    var turnText: String?
     @State private var audioPlayer = MessageAudioPlayer()
     @State private var isHovered = false
     /// Stores async-parsed segments for large messages (>500 chars) that missed the
@@ -471,14 +474,14 @@ struct ChatBubble: View {
                 onRetryFailedMessage?(message.id)
             }
         }
-        .textSelection(.disabled)
     }
 
     // MARK: - Overflow Menu
 
     private func copyMessageText() {
+        let textToCopy = turnText ?? message.text
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(message.text, forType: .string)
+        NSPasteboard.general.setString(textToCopy, forType: .string)
         copyConfirmationTimer?.cancel()
         showCopyConfirmation = true
         let timer = DispatchWorkItem { showCopyConfirmation = false }
@@ -533,7 +536,6 @@ struct ChatBubble: View {
                 .vTooltip("Inspect", edge: .bottom)
             }
         }
-        .textSelection(.disabled)
     }
 
     // MARK: - TTS Button
@@ -704,6 +706,7 @@ struct ChatBubble: View {
                 }
             }
         }
+        .textSelection(message.isStreaming ? .disabled : .enabled)
         .task(id: "\(message.text)|\(message.isStreaming)") {
             // Async-parse large messages that missed the synchronous cache
             let text = message.text
