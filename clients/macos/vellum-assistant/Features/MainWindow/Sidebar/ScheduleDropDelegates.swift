@@ -52,57 +52,6 @@ struct ScheduleReorderDropDelegate: DropDelegate {
     }
 }
 
-/// Drop delegate for the collapsed schedule group header.
-/// Targets the first conversation in the group; only accepts drops from the same schedule group.
-struct ScheduleGroupHeaderDropDelegate: DropDelegate {
-    let group: (key: String, label: String, conversations: [ConversationModel])
-    let sidebar: SidebarInteractionState
-    let conversationManager: ConversationManager
-
-    private var firstConversation: ConversationModel? { group.conversations.first }
-
-    func validateDrop(info: DropInfo) -> Bool {
-        guard let firstConversation = firstConversation,
-              let dragId = sidebar.draggingConversationId,
-              dragId != firstConversation.id,
-              let sourceConversation = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
-              sourceConversation.isScheduleConversation,
-              sourceConversation.scheduleJobId == firstConversation.scheduleJobId
-        else { return false }
-        return true
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        return DropProposal(operation: .move)
-    }
-
-    func dropEntered(info: DropInfo) {
-        guard let firstConversation = firstConversation,
-              let dragId = sidebar.draggingConversationId,
-              dragId != firstConversation.id,
-              let sourceConversation = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
-              sourceConversation.isScheduleConversation,
-              sourceConversation.scheduleJobId == firstConversation.scheduleJobId
-        else { return }
-
-        sidebar.dropTargetConversationId = firstConversation.id
-        sidebar.dropIndicatorAtBottom = false
-    }
-
-    func dropExited(info: DropInfo) {
-        if let firstConversation = firstConversation, sidebar.dropTargetConversationId == firstConversation.id {
-            sidebar.dropTargetConversationId = nil
-        }
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        let sourceId = sidebar.draggingConversationId
-        sidebar.dropTargetConversationId = nil
-        sidebar.draggingConversationId = nil
-        guard let firstConversation = firstConversation,
-              let sourceId = sourceId,
-              sourceId != firstConversation.id
-        else { return false }
-        return conversationManager.moveConversation(sourceId: sourceId, targetId: firstConversation.id)
-    }
-}
+// ScheduleGroupHeaderDropDelegate has been replaced by ScheduleSubGroupHeaderDropDelegate
+// in SidebarSectionView.swift, which handles collapsed schedule sub-group drop targets
+// directly within the SidebarSectionView component.
