@@ -111,6 +111,7 @@ public struct GuardianDecisionBubble: View {
                         .stroke(config.accent.opacity(0.3), lineWidth: 1)
                 )
         )
+        .textSelection(.disabled)
     }
 
     private var hasSecondaryMetadata: Bool {
