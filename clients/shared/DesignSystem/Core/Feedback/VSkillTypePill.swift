@@ -1,20 +1,22 @@
 import SwiftUI
 
-/// A pill badge indicating the type/source of a skill (Core, Installed, Created).
+/// A pill badge indicating the source/provenance of a skill.
 public struct VSkillTypePill: View {
     public enum SkillType {
-        case core
-        case installed
-        case created
+        case vellum
+        case openclaw
+        case managed
+        case userMade
         case extra
         case available
         case custom(label: String, icon: String, foreground: Color, background: Color)
 
         var label: String {
             switch self {
-            case .core: return "Core"
-            case .installed: return "Installed"
-            case .created: return "Created"
+            case .vellum: return "Vellum"
+            case .openclaw: return "OpenClaw"
+            case .managed: return "Managed"
+            case .userMade: return "User Made"
             case .extra: return "Extra"
             case .available: return "Available"
             case .custom(let label, _, _, _): return label
@@ -23,9 +25,10 @@ public struct VSkillTypePill: View {
 
         var vIcon: VIcon {
             switch self {
-            case .core: return .package
-            case .installed: return .circleCheck
-            case .created: return .sparkles
+            case .vellum: return .package
+            case .openclaw: return .globe
+            case .managed: return .briefcase
+            case .userMade: return .sparkles
             case .extra: return .puzzle
             case .available: return .arrowDownToLine
             case .custom(_, let icon, _, _): return .resolve(icon)
@@ -34,9 +37,10 @@ public struct VSkillTypePill: View {
 
         var foregroundColor: Color {
             switch self {
-            case .core: return VColor.contentDefault
-            case .installed: return VColor.systemPositiveStrong
-            case .created: return VColor.contentSecondary
+            case .vellum: return VColor.primaryBase
+            case .openclaw: return VColor.funTeal
+            case .managed: return VColor.funPurple
+            case .userMade: return VColor.contentSecondary
             case .extra: return VColor.contentTertiary
             case .available: return VColor.funTeal
             case .custom(_, _, let fg, _): return fg
@@ -45,9 +49,10 @@ public struct VSkillTypePill: View {
 
         var backgroundColor: Color {
             switch self {
-            case .core: return VColor.surfaceBase
-            case .installed: return VColor.systemPositiveWeak
-            case .created: return VColor.surfaceBase
+            case .vellum: return VColor.primaryBase.opacity(0.12)
+            case .openclaw: return VColor.funTeal.opacity(0.12)
+            case .managed: return VColor.funPurple.opacity(0.12)
+            case .userMade: return VColor.surfaceOverlay
             case .extra: return VColor.surfaceOverlay
             case .available: return VColor.funTeal.opacity(0.12)
             case .custom(_, _, _, let bg): return bg
@@ -65,11 +70,13 @@ public struct VSkillTypePill: View {
     public init(source: String) {
         switch source {
         case "bundled":
-            self.type = .core
-        case "managed", "clawhub":
-            self.type = .installed
+            self.type = .vellum
+        case "clawhub":
+            self.type = .openclaw
+        case "managed":
+            self.type = .managed
         case "workspace":
-            self.type = .created
+            self.type = .userMade
         case "extra":
             self.type = .extra
         case "catalog":
