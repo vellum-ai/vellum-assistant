@@ -127,7 +127,7 @@ export function ensureGroupMigration(): void {
     // Mark backfill as complete so it won't re-run on future process restarts
     rawExec(`
       INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group)
-      VALUES ('_backfill_complete', '_backfill_complete', -1, FALSE)
+      VALUES ('_backfill_complete', '_backfill_complete', -1, TRUE)
     `);
   }
 
