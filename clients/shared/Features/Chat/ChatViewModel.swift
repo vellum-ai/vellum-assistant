@@ -117,7 +117,7 @@ public struct SurfaceClient: SurfaceClientProtocol {
 /// accesses to them via computed properties.  Existing call sites require no
 /// changes because the public API surface is identical to the previous monolith.
 @MainActor
-public final class ChatViewModel: ObservableObject {
+public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelegate {
 
     // MARK: - Sub-managers
 
@@ -129,6 +129,8 @@ public final class ChatViewModel: ObservableObject {
     public let errorManager = ChatErrorManager()
     /// Owns displayedMessages, pagination window, and load-more logic.
     public let paginationState: ChatPaginationState
+    /// Owns send/cancel/queue logic.
+    private(set) var sendCoordinator: MessageSendCoordinator!
     /// Owns empty-state greeting and conversation starter properties.
     public let greetingState = ChatGreetingState()
 
@@ -174,7 +176,7 @@ public final class ChatViewModel: ObservableObject {
     /// Used after clearing `inputText` in `sendMessage()` so the TextField
     /// binding updates without the 50ms delay — preventing the field editor
     /// from writing stale text back through the binding.
-    private func flushCoalescedPublish() {
+    func flushCoalescedPublish() {
         subManagerPublishTask?.cancel()
         subManagerPublishTask = nil
         os_signpost(.event, log: Self.stallLog, name: "ChatVM.flush")
@@ -354,7 +356,7 @@ public final class ChatViewModel: ObservableObject {
     /// haven't been marked complete yet. This catches the case where
     /// `messageComplete` fires (clearing `isSending` and `currentAssistantMessageId`)
     /// but tool call chips are still visually running in the UI.
-    private var hasIncompleteToolCalls: Bool {
+    var hasIncompleteToolCalls: Bool {
         guard let lastAssistant = messages.last(where: { $0.role == .assistant }) else {
             return false
         }
@@ -668,7 +670,7 @@ public final class ChatViewModel: ObservableObject {
     private var reconnectLatchTimeoutTask: Task<Void, Never>?
     /// Set to true when daemonDidReconnect fires before conversationId is populated.
     /// Cleared and actioned in the conversationId didSet observer.
-    private var needsOfflineFlush: Bool = false
+    var needsOfflineFlush: Bool = false
     /// Set to true when reconnecting after an SSE gap while a run was in progress.
     /// Causes `populateFromHistory` to do a full message replace instead of
     /// prepending, so the missed assistant response is displayed.
@@ -708,18 +710,18 @@ public final class ChatViewModel: ObservableObject {
     public var isVoiceModeActive: Bool = false
     var pendingUserAttachments: [UserMessageAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
-    private(set) var lastFailedMessageText: String? {
+    var lastFailedMessageText: String? {
         didSet { syncRetryStateToErrorManager() }
     }
-    private(set) var lastFailedMessageDisplayText: String?
-    private(set) var lastFailedMessageAttachments: [UserMessageAttachment]?
-    private(set) var lastFailedMessageAutomated: Bool = false
-    private(set) var lastFailedMessageBypassSecretCheck: Bool = false
+    var lastFailedMessageDisplayText: String?
+    var lastFailedMessageAttachments: [UserMessageAttachment]?
+    var lastFailedMessageAutomated: Bool = false
+    var lastFailedMessageBypassSecretCheck: Bool = false
     /// Set only when a send operation (bootstrapConversation or sendUserMessage) fails.
     /// Used by `isRetryableError` to ensure the retry button only appears for
     /// actual send failures, not for unrelated errors (attachment validation,
     /// confirmation response failures, regenerate errors, etc.).
-    private(set) var lastFailedSendError: String? {
+    var lastFailedSendError: String? {
         didSet { syncRetryStateToErrorManager() }
     }
     /// Stores the text of a message that was blocked by the secret-ingress check.
@@ -746,7 +748,7 @@ public final class ChatViewModel: ObservableObject {
     /// (conversation_create sent, awaiting conversation_info). Used by ConversationManager
     /// to decide whether it's safe to release the VM on archive.
     public var isBootstrapping: Bool { bootstrapCorrelationId != nil }
-    private var messageLoopTask: Task<Void, Never>?
+    var messageLoopTask: Task<Void, Never>?
     /// Monotonically increasing ID used to distinguish successive message-loop
     /// tasks so that a cancelled loop's cleanup doesn't clear a newer replacement.
     private var messageLoopGeneration: UInt64 = 0
@@ -859,9 +861,6 @@ public final class ChatViewModel: ObservableObject {
     /// Called when the exact `/fork` composer command should be handled locally
     /// by the client instead of being sent to the assistant.
     public var onFork: (() -> Void)?
-
-    private static let privateConversationForkErrorText =
-        "Forking is unavailable in private conversations."
 
     /// Whether this view model has had its history loaded from the daemon.
     public var isHistoryLoaded: Bool = false {
@@ -1139,6 +1138,17 @@ public final class ChatViewModel: ObservableObject {
         // is available.
         paginationState.conversationIdProvider = { [weak self] in self?.conversationId }
 
+        // Initialize the send coordinator with injected dependencies.
+        self.sendCoordinator = MessageSendCoordinator(
+            delegate: self,
+            messageManager: messageManager,
+            attachmentManager: attachmentManager,
+            errorManager: errorManager,
+            btwState: btwState,
+            settingsClient: settingsClient,
+            conversationListClient: conversationListClient
+        )
+
         // Coalesce sub-manager objectWillChange signals through a single
         // delayed publish. During streaming, sub-managers may fire dozens of
         // objectWillChange events per second (each @Published property
@@ -1333,213 +1343,11 @@ public final class ChatViewModel: ObservableObject {
         inputText = message
     }
 
-    // MARK: - Sending
-
-    private var sendPathPlatform: ChatSlashCommandPlatform {
-        #if os(macOS)
-        return .macos
-        #elseif os(iOS)
-        return .ios
-        #else
-        #error("Unsupported platform")
-        #endif
-    }
+    // MARK: - Sending (forwarded to MessageSendCoordinator)
 
     public func sendMessage(hidden: Bool = false) {
         os_signpost(.event, log: Self.stallLog, name: "sendMessage")
-        let rawText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let text = rawText
-        let hasAttachments = !pendingAttachments.isEmpty
-        let hasSkillInvocation = pendingSkillInvocation != nil
-        guard !text.isEmpty || hasAttachments || hasSkillInvocation else { return }
-
-        // Intercept the exact `/fork` command locally so it never falls
-        // through to the assistant as ordinary chat text.
-        if text == "/fork",
-           !hasAttachments,
-           !hasSkillInvocation
-        {
-            inputText = ""
-            suggestion = nil
-            pendingSuggestionRequestId = nil
-            flushCoalescedPublish()
-            if conversationType == "private" {
-                errorText = Self.privateConversationForkErrorText
-                conversationError = nil
-            } else if let onFork {
-                errorText = nil
-                conversationError = nil
-                onFork()
-            } else {
-                errorText = "Send a message before forking this conversation."
-            }
-            return
-        }
-
-        // Intercept /btw side-chain messages before the normal send path.
-        if text.hasPrefix("/btw ") {
-            let question = String(text.dropFirst(5)).trimmingCharacters(in: .whitespaces)
-            inputText = ""
-            pendingAttachments = []
-            pendingSkillInvocation = nil
-            flushCoalescedPublish()
-            sendBtwMessage(question: question)
-            return
-        }
-
-        // Confirmation state is now server-authoritative: the daemon emits
-        // `confirmation_state_changed` events for all resolution paths.
-        // No client-side pessimistic denial is needed.
-
-        // Refresh model state only for slash commands that explicitly opt in.
-        let shouldRefreshModelMetadata = !hasSkillInvocation
-            && ChatSlashCommandCatalog.shouldRefreshModelMetadata(
-                forRawInput: text,
-                platform: sendPathPlatform
-            )
-        if shouldRefreshModelMetadata {
-            Task {
-                let info = await self.settingsClient.fetchModelInfo()
-                if let model = info?.model {
-                    self.selectedModel = model
-                }
-                if let providers = info?.configuredProviders {
-                    self.configuredProviders = Set(providers)
-                }
-                if let allProviders = info?.allProviders, !allProviders.isEmpty {
-                    self.providerCatalog = allProviders
-                }
-            }
-        }
-
-        // Fire auto-title callback on the first user message (skip slash commands
-        // so the conversation title isn't set to a command token)
-        if !rawText.isEmpty, !rawText.hasPrefix("/"), let callback = onFirstUserMessage {
-            onFirstUserMessage = nil
-            callback(rawText)
-        }
-
-        // Notify ConversationManager so the conversation rises to the top of the list
-        onUserMessageSent?()
-
-        // Block rapid-fire only when bootstrapping with a queued message.
-        // When a message-less bootstrap is in flight (e.g. private conversation
-        // pre-allocation), adopt the user's message as the pending message
-        // so it gets sent when conversation_info arrives instead of being dropped.
-        if (isSending || isBootstrapping) && conversationId == nil {
-            if pendingUserMessage == nil {
-                isSending = true
-                let attachments = pendingAttachments
-                pendingAttachments = []
-                pendingUserMessage = text
-                pendingUserMessageDisplayText = rawText
-                pendingUserMessageAutomated = hidden
-                pendingUserAttachments = attachments.isEmpty ? nil : attachments.map {
-                    UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath)
-                }
-                isThinking = true
-                var userMsg = ChatMessage(role: .user, text: rawText, status: .sent, skillInvocation: pendingSkillInvocation, attachments: attachments)
-                userMsg.isHidden = hidden
-                messages.append(userMsg)
-                pendingSkillInvocation = nil
-                inputText = ""
-                suggestion = nil
-                pendingSuggestionRequestId = nil
-                errorText = nil
-                conversationError = nil
-                errorManager.isConversationErrorDisplayedInline = false
-                lastFailedMessageText = nil
-                lastFailedMessageDisplayText = nil
-                lastFailedMessageAttachments = nil
-                lastFailedMessageAutomated = false
-                lastFailedMessageBypassSecretCheck = false
-                lastFailedSendError = nil
-                connectionDiagnosticHint = nil
-                secretBlockedMessageText = nil
-                secretBlockedAttachments = nil
-                secretBlockedActiveSurfaceId = nil
-                secretBlockedCurrentPage = nil
-                currentTurnUserText = rawText
-                flushCoalescedPublish()
-                return
-            }
-            pendingSkillInvocation = nil
-            inputText = ""
-            pendingAttachments = []
-            flushCoalescedPublish()
-            return
-        }
-
-        // Snapshot and clear pending attachments
-        let attachments = pendingAttachments
-        pendingAttachments = []
-
-        let shouldBypassWorkspaceRefinement = ChatSlashCommandCatalog.shouldBypassWorkspaceRefinement(
-            forRawInput: text,
-            platform: sendPathPlatform
-        )
-        let isWorkspaceRefinement = activeSurfaceId != nil && !isChatDockedToSide && !shouldBypassWorkspaceRefinement
-
-        let willBeQueued = isSending && conversationId != nil
-        var queuedMessageId: UUID?
-        if !isWorkspaceRefinement {
-            let status: ChatMessageStatus = willBeQueued ? .queued(position: 0) : .sent
-            var userMessage = ChatMessage(role: .user, text: rawText, status: status, skillInvocation: pendingSkillInvocation, attachments: attachments)
-            userMessage.isHidden = hidden
-            messages.append(userMessage)
-            if willBeQueued {
-                pendingMessageIds.append(userMessage.id)
-                queuedMessageId = userMessage.id
-            }
-        } else {
-            isWorkspaceRefinementInFlight = true
-            refinementMessagePreview = text
-            refinementStreamingText = nil
-            refinementTextBuffer = ""
-            refinementReceivedSurfaceUpdate = false
-            refinementFailureText = nil
-            refinementFailureDismissTask?.cancel()
-        }
-        pendingSkillInvocation = nil
-        inputText = ""
-        suggestion = nil
-        pendingSuggestionRequestId = nil
-        errorText = nil
-        conversationError = nil
-        errorManager.isConversationErrorDisplayedInline = false
-        lastFailedMessageText = nil
-        lastFailedMessageDisplayText = nil
-        lastFailedMessageAttachments = nil
-        lastFailedMessageAutomated = false
-        lastFailedMessageBypassSecretCheck = false
-        lastFailedSendError = nil
-        connectionDiagnosticHint = nil
-        secretBlockedMessageText = nil
-        secretBlockedAttachments = nil
-        secretBlockedActiveSurfaceId = nil
-        secretBlockedCurrentPage = nil
-        flushCoalescedPublish()
-
-        let messageAttachments: [UserMessageAttachment]? = attachments.isEmpty ? nil : attachments.map {
-            UserMessageAttachment(filename: $0.filename, mimeType: $0.mimeType, data: $0.data, extractedText: nil, filePath: $0.filePath)
-        }
-
-        // Track the user text for this turn so assistantTextDelta can tag the
-        // response correctly (e.g. modelList for "/models") without scanning the
-        // whole transcript. For queued messages this is set in messageDequeued.
-        if !willBeQueued {
-            currentTurnUserText = rawText
-        }
-
-        if conversationId == nil {
-            // First message: need to bootstrap conversation
-            pendingUserMessageDisplayText = rawText
-            pendingUserMessageAutomated = hidden
-            bootstrapConversation(userMessage: text, attachments: messageAttachments)
-        } else {
-            // Subsequent messages: send directly (daemon queues if busy)
-            sendUserMessage(text, displayText: rawText, attachments: messageAttachments, queuedMessageId: queuedMessageId, automated: hidden)
-        }
+        sendCoordinator.sendMessage(hidden: hidden)
     }
 
     // MARK: - BTW Side-Chain (forwarded to ChatBtwState)
@@ -1568,202 +1376,18 @@ public final class ChatViewModel: ObservableObject {
         greetingState.fetchConversationStarters()
     }
 
-    private func bootstrapConversation(userMessage: String?, attachments: [UserMessageAttachment]?) {
-        // Only set sending/thinking indicators when there's an actual user
-        // message; message-less conversation creates (e.g. private conversation
-        // pre-allocation) are silent and shouldn't affect UI state.
-        if userMessage != nil {
-            isSending = true
-            isThinking = true
-        }
-        pendingUserMessage = userMessage
-        pendingUserAttachments = attachments
-
-        // Generate a unique correlation ID so this ChatViewModel only claims
-        // the conversation_info response that belongs to its own conversation_create request.
-        let correlationId = UUID().uuidString
-        self.bootstrapCorrelationId = correlationId
-
-        Task { @MainActor in
-            // Ensure daemon connection
-            if !connectionManager.isConnected {
-                do {
-                    try await connectionManager.connect()
-                } catch {
-                    log.error("Failed to connect to daemon: \(error.localizedDescription)")
-                    self.isThinking = false
-                    self.isSending = false
-                    self.bootstrapCorrelationId = nil
-                    self.lastFailedMessageText = self.pendingUserMessage
-                    self.lastFailedMessageDisplayText = self.pendingUserMessageDisplayText
-                    self.lastFailedMessageAttachments = self.pendingUserAttachments
-                    self.lastFailedMessageAutomated = self.pendingUserMessageAutomated
-                    self.lastFailedMessageBypassSecretCheck = false
-                    self.lastFailedSendError = "Failed to connect to the assistant."
-                    self.connectionDiagnosticHint = Self.connectionDiagnosticHint(for: error)
-                    self.pendingUserMessage = nil
-                    self.pendingUserMessageDisplayText = nil
-                    self.pendingUserAttachments = nil
-                    self.pendingUserMessageAutomated = false
-                    self.errorText = self.lastFailedSendError
-                    return
-                }
-            }
-
-            // Subscribe to daemon stream
-            self.startMessageLoop()
-
-            // Generate conversation ID locally — conversation creation is implicit
-            // for HTTP transport. The conversationKey acts as the conversation.
-            let newConversationId = correlationId
-            self.conversationId = newConversationId
-            self.bootstrapCorrelationId = nil
-            self.onConversationCreated?(newConversationId)
-            // Clear one-shot preactivated skills so they don't leak into a
-            // later conversation if this bootstrap is interrupted before completion.
-            self.preactivatedSkillIds = nil
-            log.info("Chat conversation created: \(newConversationId)")
-
-            // Fetch pending guardian prompts for this conversation
-            self.refreshGuardianPrompts()
-
-            // Send the queued user message, or finalize a message-less
-            // conversation create by clearing the bootstrap sending state.
-            if let pending = self.pendingUserMessage {
-                let attachments = self.pendingUserAttachments
-                let automated = self.pendingUserMessageAutomated
-                self.pendingUserMessage = nil
-                self.pendingUserMessageDisplayText = nil
-                self.pendingUserAttachments = nil
-                self.pendingUserMessageAutomated = false
-                self.sendUserMessage(pending, attachments: attachments, automated: automated)
-            } else {
-                self.isSending = false
-                self.isThinking = false
-            }
-        }
+    func bootstrapConversation(userMessage: String?, attachments: [UserMessageAttachment]?) {
+        sendCoordinator.bootstrapConversation(userMessage: userMessage, attachments: attachments)
     }
 
-    private func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil, automated: Bool = false, bypassSecretCheck: Bool = false) {
-        guard let conversationId else { return }
-
-        // Check connectivity before entering sending state so the UI
-        // doesn't get stuck with isSending/isThinking = true when the
-        // daemon has disconnected between turns.
-        guard connectionManager.isConnected else {
-            log.error("Cannot send user_message: daemon not connected")
-
-            // Buffer the primary (non-queued-retry) send in the offline queue
-            // instead of surfacing an error. The message stays visible with a
-            // "pending" indicator and is flushed automatically on reconnect.
-            if queuedMessageId == nil {
-                log.info("Buffering message in offline queue (conversation: \(conversationId))")
-                OfflineMessageQueue.shared.enqueue(conversationId: conversationId, text: text, displayText: displayText, attachments: attachments, automated: automated)
-                // Mark the corresponding chat message as offline-pending so the UI
-                // can show a visual indicator. Find the last user message with this
-                // text — it is the one just appended by sendMessage().
-                let matchText = displayText ?? text
-                if let idx = messages.indices.reversed().first(where: { messages[$0].role == .user && messages[$0].text == matchText }) {
-                    messages[idx].status = .pendingOffline
-                }
-                // Don't show the error banner — the pending indicator on the bubble
-                // communicates the offline state without interrupting the conversation.
-                return
-            }
-
-            // Always track the failed message for retry support.
-            lastFailedMessageText = text
-            lastFailedMessageDisplayText = displayText
-            lastFailedMessageAttachments = attachments
-            lastFailedMessageAutomated = automated
-            lastFailedMessageBypassSecretCheck = bypassSecretCheck
-            // Only update UI error state for the primary send (not a queued
-            // retry). A queued retry failing must not clobber the active turn's
-            // isSending/isThinking flags or show an error banner over it.
-            if queuedMessageId == nil {
-                lastFailedSendError = "Failed to connect to the assistant."
-                errorText = lastFailedSendError
-            }
-            // Remove the queued message ID to prevent stale FIFO entries
-            if let queuedMessageId {
-                pendingMessageIds.removeAll { $0 == queuedMessageId }
-                // Revert status so the message doesn't appear permanently queued
-                if let idx = messages.firstIndex(where: { $0.id == queuedMessageId }) {
-                    messages[idx].status = .sent
-                }
-            }
-            return
-        }
-
-        isSending = true
-        // Only show "Thinking" for the primary send. Queued messages will
-        // set isThinking = true when they are dequeued for processing.
-        if queuedMessageId == nil {
-            isThinking = true
-        }
-
-        // Make sure we're listening
-        if messageLoopTask == nil {
-            startMessageLoop()
-        }
-
-        eventStreamClient.sendUserMessage(
-            content: text,
-            conversationId: conversationId,
-            attachments: attachments,
-            conversationType: nil,
-            automated: automated ? true : nil,
-            bypassSecretCheck: bypassSecretCheck ? true : nil
-        )
+    func sendUserMessage(_ text: String, displayText: String? = nil, attachments: [UserMessageAttachment]? = nil, queuedMessageId: UUID? = nil, automated: Bool = false, bypassSecretCheck: Bool = false) {
+        sendCoordinator.sendUserMessage(text, displayText: displayText, attachments: attachments, queuedMessageId: queuedMessageId, automated: automated, bypassSecretCheck: bypassSecretCheck)
     }
 
-    // MARK: - Offline Queue Flush
+    // MARK: - Offline Queue Flush (forwarded to MessageSendCoordinator)
 
-    /// Drain the persistent offline queue and send all buffered messages in order.
-    ///
-    /// Called automatically when the daemon reconnects. Only flushes messages whose
-    /// conversationId matches this view model's current conversation, so concurrent view models
-    /// on different conversations don't interfere with each other's queued messages.
-    ///
-    /// Messages are removed from persistent storage one at a time, immediately before
-    /// each send, so a crash mid-flush leaves unprocessed messages intact rather than
-    /// silently dropping them.
     func flushOfflineQueue() {
-        let queue = OfflineMessageQueue.shared
-        guard !queue.isEmpty else { return }
-
-        guard let currentConversationId = conversationId else {
-            // No conversation yet — defer until conversationId is populated.
-            needsOfflineFlush = true
-            return
-        }
-
-        // Read the queue contents without clearing. Filter for this conversation only;
-        // other conversations' messages stay in the persistent store for their own VMs.
-        let mine = queue.allMessages.filter { $0.conversationId == currentConversationId }
-        guard !mine.isEmpty else { return }
-
-        log.info("Flushing \(mine.count) offline-queued message(s) for conversation \(currentConversationId)")
-
-        // Update message bubbles: clear pendingOffline status so they show as sent.
-        for queued in mine {
-            let matchText = queued.displayText ?? queued.text
-            if let idx = messages.indices.reversed().first(where: {
-                messages[$0].role == .user
-                    && messages[$0].text == matchText
-                    && messages[$0].status == .pendingOffline
-            }) {
-                messages[idx].status = .sent
-            }
-        }
-
-        // Remove each message from persistent storage and send it. Removal happens
-        // before the send attempt so a successful removal + failed send is recoverable
-        // via the normal error retry path, rather than duplicating on the next flush.
-        for queued in mine {
-            queue.remove(id: queued.id)
-            sendUserMessage(queued.text, displayText: queued.displayText, attachments: queued.messageAttachments, automated: queued.automated)
-        }
+        sendCoordinator.flushOfflineQueue()
     }
 
     public func startMessageLoop() {
@@ -1921,216 +1545,13 @@ public final class ChatViewModel: ObservableObject {
     }
 
     /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
-    /// Used when archiving a conversation before conversation_info arrives: we want to
-    /// discard the pending message (so it isn't sent once the conversation is claimed)
-    /// but preserve the correlation ID so the VM only claims its own conversation.
+    /// Used when archiving a conversation before conversation_info arrives.
     public func cancelPendingMessage() {
-        pendingUserMessage = nil
-        pendingUserMessageDisplayText = nil
-        pendingUserAttachments = nil
-        pendingUserMessageAutomated = false
-        isWorkspaceRefinementInFlight = false
-        refinementMessagePreview = nil
-        refinementStreamingText = nil
-        isThinking = false
-        isSending = false
+        sendCoordinator.cancelPendingMessage()
     }
 
     public func stopGenerating() {
-        guard isAssistantBusy else { return }
-
-        // If the only reason we're "busy" is orphaned incomplete tool calls
-        // (daemon already sent messageComplete, clearing isSending and
-        // currentAssistantMessageId), complete them locally and return —
-        // there is nothing to cancel on the daemon side.
-        if !isSending && !isThinking && currentAssistantMessageId == nil && hasIncompleteToolCalls {
-            if let lastAssistant = messages.last(where: { $0.role == .assistant }),
-               let index = messages.firstIndex(where: { $0.id == lastAssistant.id }) {
-                for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
-                    messages[index].toolCalls[j].isComplete = true
-                    messages[index].toolCalls[j].completedAt = Date()
-                }
-            }
-            return
-        }
-
-        pendingVoiceMessage = false
-
-        // If we're still bootstrapping (no conversation yet), cancel locally:
-        // discard the pending message so it won't be sent when conversation_info
-        // arrives, and reset UI state immediately since there's nothing to
-        // cancel on the daemon side.
-        if conversationId == nil {
-            pendingUserMessage = nil
-            pendingUserMessageDisplayText = nil
-            pendingUserAttachments = nil
-            pendingUserMessageAutomated = false
-            bootstrapCorrelationId = nil
-            isWorkspaceRefinementInFlight = false
-            refinementMessagePreview = nil
-            refinementStreamingText = nil
-            isThinking = false
-            isSending = false
-            dispatchPendingSendDirect()
-            return
-        }
-
-        // If the daemon is not connected, the cancel message cannot reach it
-        // and no acknowledgment (generation_cancelled / message_complete) will
-        // arrive.  Reset all transient state immediately to avoid a permanently
-        // stuck isCancelling flag that would suppress future assistant deltas.
-        guard connectionManager.isConnected else {
-            log.warning("Cannot send cancel: daemon not connected")
-            isWorkspaceRefinementInFlight = false
-            refinementMessagePreview = nil
-            refinementStreamingText = nil
-            cancelledDuringRefinement = false
-            isSending = false
-            isThinking = false
-            isCancelling = false
-            if let existingId = currentAssistantMessageId,
-               let index = messages.firstIndex(where: { $0.id == existingId }) {
-                messages[index].isStreaming = false
-                messages[index].streamingCodePreview = nil
-                messages[index].streamingCodeToolName = nil
-                for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
-                    messages[index].toolCalls[j].isComplete = true
-                    messages[index].toolCalls[j].completedAt = Date()
-                }
-            }
-            currentAssistantMessageId = nil
-            currentTurnUserText = nil
-            currentAssistantHasText = false
-            lastContentWasToolCall = false
-            discardStreamingBuffer()
-            discardPartialOutputBuffer()
-            pendingQueuedCount = 0
-            pendingMessageIds = []
-            requestIdToMessageId = [:]
-            activeRequestIdToMessageId = [:]
-            pendingLocalDeletions.removeAll()
-            for i in messages.indices {
-                if case .queued = messages[i].status, messages[i].role == .user {
-                    messages[i].status = .sent
-                } else if messages[i].role == .user && messages[i].status == .processing {
-                    messages[i].status = .sent
-                }
-            }
-            dispatchPendingSendDirect()
-            return
-        }
-
-        let cancelConversationId = conversationId!
-        Task {
-            let success = await conversationListClient.cancelGeneration(conversationId: cancelConversationId)
-            if !success {
-                log.error("Failed to send cancel")
-                // Cancel failed to send, so no generationCancelled or
-                // messageComplete event will arrive from the daemon. Reset
-                // all transient state now to avoid stuck UI.
-                isWorkspaceRefinementInFlight = false
-                refinementMessagePreview = nil
-                refinementStreamingText = nil
-                cancelledDuringRefinement = false
-                isSending = false
-                isThinking = false
-                isCancelling = false
-                // Mark current assistant message as stopped
-                if let existingId = currentAssistantMessageId,
-                   let index = messages.firstIndex(where: { $0.id == existingId }) {
-                    messages[index].isStreaming = false
-                    messages[index].streamingCodePreview = nil
-                    messages[index].streamingCodeToolName = nil
-                    for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
-                        messages[index].toolCalls[j].isComplete = true
-                        messages[index].toolCalls[j].completedAt = Date()
-                    }
-                }
-                currentAssistantMessageId = nil
-                currentTurnUserText = nil
-                currentAssistantHasText = false
-                lastContentWasToolCall = false
-                discardStreamingBuffer()
-                discardPartialOutputBuffer()
-                pendingQueuedCount = 0
-                pendingMessageIds = []
-                requestIdToMessageId = [:]
-                activeRequestIdToMessageId = [:]
-                pendingLocalDeletions.removeAll()
-                // Reset processing/queued messages to sent
-                for i in messages.indices {
-                    if case .queued = messages[i].status, messages[i].role == .user {
-                        messages[i].status = .sent
-                    } else if messages[i].role == .user && messages[i].status == .processing {
-                        messages[i].status = .sent
-                    }
-                }
-                dispatchPendingSendDirect()
-            }
-        }
-
-        // Flush any buffered streaming text so already-received tokens are
-        // visible before we set isCancelling (which suppresses future deltas).
-        flushStreamingBuffer()
-
-        // Set cancelling flag so late-arriving deltas are suppressed.
-        // isSending stays true until the daemon acknowledges the cancel
-        // (via generation_cancelled or message_complete) to prevent the
-        // user from sending a new message before the daemon has stopped.
-        isCancelling = true
-        cancelledDuringRefinement = isWorkspaceRefinementInFlight
-        isWorkspaceRefinementInFlight = false
-        isThinking = false
-
-        // Mark current assistant message as stopped and complete any in-progress tool calls
-        // so their chips don't show an endless spinner.
-        if let existingId = currentAssistantMessageId,
-           let index = messages.firstIndex(where: { $0.id == existingId }) {
-            messages[index].isStreaming = false
-            messages[index].streamingCodePreview = nil
-            messages[index].streamingCodeToolName = nil
-            for j in messages[index].toolCalls.indices where !messages[index].toolCalls[j].isComplete {
-                messages[index].toolCalls[j].isComplete = true
-                messages[index].toolCalls[j].completedAt = Date()
-            }
-        }
-
-        // Safety timeout: if the daemon never acknowledges the cancel (e.g. a
-        // tool is stuck and blocks the response), force-reset the UI so the
-        // user can start a new interaction.
-        cancelTimeoutTask?.cancel()
-        cancelTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
-            guard let self, !Task.isCancelled else { return }
-            guard self.isCancelling else { return }
-            log.warning("Cancel acknowledgment timed out after 5s — force-resetting UI state")
-            self.isWorkspaceRefinementInFlight = false
-            self.refinementMessagePreview = nil
-            self.refinementStreamingText = nil
-            self.cancelledDuringRefinement = false
-            self.isCancelling = false
-            self.isSending = false
-            self.currentAssistantMessageId = nil
-            self.currentTurnUserText = nil
-            self.currentAssistantHasText = false
-            self.lastContentWasToolCall = false
-            self.discardStreamingBuffer()
-            self.discardPartialOutputBuffer()
-            self.pendingQueuedCount = 0
-            self.pendingMessageIds = []
-            self.requestIdToMessageId = [:]
-            self.activeRequestIdToMessageId = [:]
-            self.pendingLocalDeletions.removeAll()
-            // Reset queued/processing messages to sent (matches other cancel-failure paths)
-            for i in self.messages.indices {
-                if case .queued = self.messages[i].status, self.messages[i].role == .user {
-                    self.messages[i].status = .sent
-                } else if self.messages[i].role == .user && self.messages[i].status == .processing {
-                    self.messages[i].status = .sent
-                }
-            }
-            self.dispatchPendingSendDirect()
-        }
+        sendCoordinator.stopGenerating()
     }
 
     /// Regenerate the last assistant response. Removes the old reply from
@@ -2243,61 +1664,13 @@ public final class ChatViewModel: ObservableObject {
 
     /// Skip the queue: stop the current generation and immediately send a specific queued message.
     public func sendDirectQueuedMessage(messageId: UUID) {
-        guard let index = messages.firstIndex(where: { $0.id == messageId }),
-              case .queued = messages[index].status else { return }
-
-        // Save content before stop clears everything
-        let text = messages[index].text
-        let attachments = messages[index].attachments
-        let skillInvocation = messages[index].skillInvocation
-
-        // Remove this message from local state (it will be re-added by sendMessage)
-        messages.remove(at: index)
-
-        // If the assistant is not busy (or only busy due to orphaned tool
-        // calls), complete any orphaned tool calls and dispatch immediately
-        // instead of going through the cancel flow.
-        if !isSending && !isThinking && currentAssistantMessageId == nil {
-            // Complete any orphaned incomplete tool calls first
-            if hasIncompleteToolCalls,
-               let lastAssistant = messages.last(where: { $0.role == .assistant }),
-               let idx = messages.firstIndex(where: { $0.id == lastAssistant.id }) {
-                for j in messages[idx].toolCalls.indices where !messages[idx].toolCalls[j].isComplete {
-                    messages[idx].toolCalls[j].isComplete = true
-                    messages[idx].toolCalls[j].completedAt = Date()
-                }
-            }
-            inputText = text
-            pendingAttachments = attachments
-            pendingSkillInvocation = skillInvocation
-            sendMessage()
-            return
-        }
-
-        // Store for dispatch after cancellation completes.
-        // Must be set BEFORE stopGenerating() because synchronous cancel paths
-        // (bootstrap, disconnected, send-failure) dispatch immediately.
-        pendingSendDirectText = text
-        pendingSendDirectAttachments = attachments
-        pendingSendDirectSkillInvocation = skillInvocation
-
-        // Stop current generation — this clears all queued messages on the daemon
-        stopGenerating()
+        sendCoordinator.sendDirectQueuedMessage(messageId: messageId)
     }
 
     /// If a send-direct is pending, populate the composer and fire sendMessage.
     /// Called from all cancel-completion paths (generationCancelled, timeout, disconnected, etc.).
     func dispatchPendingSendDirect() {
-        guard let directText = pendingSendDirectText else { return }
-        let directAttachments = pendingSendDirectAttachments ?? []
-        let directSkillInvocation = pendingSendDirectSkillInvocation
-        pendingSendDirectText = nil
-        pendingSendDirectAttachments = nil
-        pendingSendDirectSkillInvocation = nil
-        inputText = directText
-        pendingAttachments = directAttachments
-        pendingSkillInvocation = directSkillInvocation
-        sendMessage()
+        sendCoordinator.dispatchPendingSendDirect()
     }
 
     /// Stop the active watch session and notify the macOS layer.
@@ -2474,68 +1847,12 @@ public final class ChatViewModel: ObservableObject {
 
     /// Resend the secret-blocked message with the bypass flag so the backend skips the check.
     public func sendAnyway() {
-        guard let text = secretBlockedMessageText, let _ = conversationId else { return }
-
-        guard connectionManager.isConnected else {
-            errorText = "Cannot connect to assistant. Please ensure it's running."
-            return
-        }
-
-        // Snapshot and clear stashed context
-        let attachments = secretBlockedAttachments
-
-        secretBlockedMessageText = nil
-        secretBlockedAttachments = nil
-        secretBlockedActiveSurfaceId = nil
-        secretBlockedCurrentPage = nil
-        errorText = nil
-
-        sendUserMessage(text, attachments: attachments, bypassSecretCheck: true)
+        sendCoordinator.sendAnyway()
     }
 
     /// Retry sending the last user message that failed (e.g. due to daemon disconnection).
     public func retryLastMessage() {
-        guard let text = lastFailedMessageText else { return }
-        let displayText = lastFailedMessageDisplayText
-        let attachments = lastFailedMessageAttachments
-        let automated = lastFailedMessageAutomated
-        let bypassSecretCheck = lastFailedMessageBypassSecretCheck
-
-        // Clear failed message state and error
-        lastFailedMessageText = nil
-        lastFailedMessageDisplayText = nil
-        lastFailedMessageAttachments = nil
-        lastFailedMessageAutomated = false
-        lastFailedMessageBypassSecretCheck = false
-        lastFailedSendError = nil
-        errorText = nil
-        connectionDiagnosticHint = nil
-        errorManager.isConversationErrorDisplayedInline = false
-
-        if conversationId == nil {
-            pendingUserMessageDisplayText = displayText
-            pendingUserMessageAutomated = automated
-            bootstrapConversation(userMessage: text, attachments: attachments)
-        } else {
-            // When retrying while another turn is in progress, the retried
-            // message will be queued by the daemon. Track it in
-            // pendingMessageIds so subsequent messageQueued/messageDequeued
-            // events can update the user message's status correctly.
-            var queuedMessageId: UUID?
-            if isSending {
-                // Find the user message that corresponds to the failed text
-                // (it was already appended to messages[] during the original
-                // sendMessage() call). Use the last user message with matching
-                // text as the queue entry.
-                let matchText = displayText ?? text
-                if let idx = messages.lastIndex(where: { $0.role == .user && $0.text == matchText }) {
-                    pendingMessageIds.append(messages[idx].id)
-                    queuedMessageId = messages[idx].id
-                    messages[idx].status = .queued(position: 0)
-                }
-            }
-            sendUserMessage(text, displayText: displayText, attachments: attachments, queuedMessageId: queuedMessageId, automated: automated, bypassSecretCheck: bypassSecretCheck)
-        }
+        sendCoordinator.retryLastMessage()
     }
 
     /// Retry sending a specific failed message. Moves it to the end of the
