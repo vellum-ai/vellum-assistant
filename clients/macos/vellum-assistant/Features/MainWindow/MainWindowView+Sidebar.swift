@@ -124,7 +124,7 @@ extension MainWindowView {
             conversations: conversations,
             isExpanded: sidebar.expandedSections.contains(group.id),
             showAll: sidebar.showAllInSection.contains(group.id),
-            maxCollapsed: group.isSystemGroup ? 3 : 5,
+            maxCollapsed: 5,
             isDropTarget: sidebar.dropTargetSectionId == group.id,
             countMode: group.id == ConversationGroup.scheduled.id
                 ? .subGroups(grouper: { $0.scheduleJobId })
@@ -420,7 +420,7 @@ extension MainWindowView {
             ScrollView(.vertical) {
                 conversationGroupsList
             }
-            .scrollIndicators(.never)
+            .scrollIndicators(.automatic)
             .onChange(of: scheduledUnreadCount) { _, newCount in
                 // Auto-expand the Scheduled section when new unread arrives
                 // while collapsed. Other sections (Background, Custom, Pinned)

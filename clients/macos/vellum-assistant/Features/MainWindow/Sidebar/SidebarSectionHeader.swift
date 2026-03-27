@@ -21,18 +21,21 @@ struct SidebarSectionHeader: View {
     var onDelete: (() -> Void)?                 // M5: nil for system groups
 
     @FocusState private var isRenameFocused: Bool
+    @State private var isHovered: Bool = false
 
     var body: some View {
         HStack(spacing: VSpacing.xs) {
-            // VIconView(.chevronRight, size: SidebarLayoutMetrics.sectionChevronSize)
-            //     .foregroundStyle(VColor.contentTertiary)
-            //     .rotationEffect(.degrees(isExpanded ? 90 : 0))
-            //     .animation(VAnimation.fast, value: isExpanded)
-            //     .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
-            VIconView(isExpanded ? .folderOpen : .folderClosed)
-                .foregroundStyle(VColor.contentTertiary)
-                .animation(VAnimation.fast, value: isExpanded)
-                .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
+            Group {
+                if isHovered {
+                    VIconView(.chevronRight, size: SidebarLayoutMetrics.sectionChevronSize)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                } else {
+                    VIconView(isExpanded ? .folderOpen : .folderClosed)
+                }
+            }
+            .foregroundStyle(VColor.contentTertiary)
+            .animation(VAnimation.fast, value: isExpanded)
+            .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
 
             if isRenaming {
                 TextField("Group name", text: $renamingName, onCommit: {
@@ -73,6 +76,9 @@ struct SidebarSectionHeader: View {
         .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
         .contentShape(Rectangle())
         .onTapGesture { withAnimation(VAnimation.fast) { onToggleExpand() } }
+        .pointerCursor { hovering in
+            isHovered = hovering
+        }
         .background(isDropTarget ? Color.accentColor.opacity(0.15) : .clear)
         .cornerRadius(4)
         .modifier(ConditionalGroupContextMenu(
