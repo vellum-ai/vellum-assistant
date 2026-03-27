@@ -3,7 +3,7 @@ import SwiftUI
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThreadWindow")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ThreadWindow")
 
 /// Standalone NSWindow that hosts a single conversation thread.
 /// Used by `ThreadWindowManager` to pop a thread out of the main window

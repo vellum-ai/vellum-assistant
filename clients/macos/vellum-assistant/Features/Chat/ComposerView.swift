@@ -7,7 +7,7 @@ import os
 import AppKit
 #endif
 
-private let composerLog = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "Composer")
+private let composerLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "Composer")
 
 struct ComposerView: View {
     private let composerMaxHeight: CGFloat = 300
@@ -64,6 +64,9 @@ struct ComposerView: View {
     var isInteractionEnabled: Bool = true
 
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
+    #if os(macOS)
+    @Environment(\.dropActions) private var dropActions
+    #endif
     @FocusState private var composerFocus: Bool
     @State private var isComposerFocused = false
     /// Incremented when inputText is cleared externally (e.g. after send) to force
@@ -117,6 +120,11 @@ struct ComposerView: View {
                 textEntryComposer
             }
         }
+        #if os(macOS)
+        .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: dropActions.isDropTargeted) { providers in
+            ComposerDropHandler.handleDrop(providers: providers, actions: dropActions)
+        }
+        #endif
         .fixedSize(horizontal: false, vertical: true)
         .animation(VAnimation.fast, value: showSlashMenu)
         .padding(.horizontal, VSpacing.lg)
@@ -254,7 +262,7 @@ struct ComposerView: View {
     }
 
     private var composerTextField: some View {
-        let scaledBody = VFont.bodyMediumLighter
+        let scaledBody = VFont.chat
         let hasSlashHighlight = slashCommandRange != nil
 
         return ScrollView(.vertical, showsIndicators: false) {

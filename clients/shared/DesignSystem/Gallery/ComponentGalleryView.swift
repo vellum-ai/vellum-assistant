@@ -64,6 +64,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("stepIndicators", "CurrentStepIndicator", keywords: ["step indicators", "progress bar", "tool call progress"], description: "Progress bar showing the current step in a multi-step tool call."),
                 GalleryComponent("progressIndicators", "TypingIndicatorView", keywords: ["progress indicators", "typing", "running"], description: "Animated dots indicating the assistant is typing or processing."),
                 GalleryComponent("toolConfirmations", "ToolConfirmationBubble", keywords: ["tool confirmations", "permission", "approval"], description: "Approval bubble for tool calls that require user permission before execution."),
+                GalleryComponent("surfaceActions", "Surface Action Buttons", keywords: ["surface actions", "action pills", "inline buttons", "pick something"], description: "Inline action pills in assistant bubbles letting users pick from options. Supports secondary, primary, and destructive styles."),
             ]
         case .display:
             return [

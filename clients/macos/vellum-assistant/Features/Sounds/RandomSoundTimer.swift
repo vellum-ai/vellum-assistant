@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "RandomSoundTimer")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "RandomSoundTimer")
 
 /// Fires a random ambient sound at unpredictable intervals (5-30 minutes).
 /// SoundManager handles the global and per-event enabled checks internally,

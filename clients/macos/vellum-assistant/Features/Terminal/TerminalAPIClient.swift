@@ -2,7 +2,7 @@ import Foundation
 import os
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "TerminalAPI")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "TerminalAPI")
 
 /// HTTP client for the platform terminal API.
 ///

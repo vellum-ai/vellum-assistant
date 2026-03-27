@@ -186,7 +186,7 @@ enum PermissionManager {
 
     @discardableResult
     static func openNotificationSettings() -> Bool {
-        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+        let bundleIdentifier = Bundle.appBundleIdentifier
         let candidates = [
             "x-apple.systempreferences:com.apple.preference.notifications?id=\(bundleIdentifier)",
             "x-apple.systempreferences:com.apple.preference.notifications",

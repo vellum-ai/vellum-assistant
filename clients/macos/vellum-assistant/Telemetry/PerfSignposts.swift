@@ -14,7 +14,7 @@ import os
 enum PerfSignposts {
     /// Shared log handle targeting the Points of Interest instrument lane.
     static let log = OSLog(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+        subsystem: Bundle.appBundleIdentifier,
         category: .pointsOfInterest
     )
 

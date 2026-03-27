@@ -16,17 +16,24 @@ struct ConversationTitleActionsControl: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            VButton(
-                label: presentation.displayTitle,
-                rightIcon: presentation.showsActionsMenu ? VIcon.chevronDown.rawValue : nil,
-                style: .ghost
-            ) {
+            Button {
                 if presentation.showsActionsMenu {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                        showDrawer.toggle()
+                    showDrawer.toggle()
+                }
+            } label: {
+                HStack(spacing: VSpacing.xs) {
+                    Text(presentation.displayTitle)
+                        .font(VFont.bodyMediumEmphasised)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if presentation.showsActionsMenu {
+                        VIconView(.chevronDown, size: 10)
                     }
                 }
+                .foregroundStyle(VColor.contentDefault)
             }
+            .buttonStyle(.plain)
+            .pointerCursor()
 
             if let parentTitle = presentation.forkParentTitle, presentation.showsForkParentLink {
                 Button(action: onOpenForkParent) {
@@ -82,6 +89,6 @@ struct ConversationActionsDrawer: View {
 
             VMenuItem(icon: VIcon.archive.rawValue, label: "Archive", action: onArchive)
         }
-        .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
+        .transition(.identity)
     }
 }

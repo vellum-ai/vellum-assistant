@@ -3,7 +3,7 @@ import SwiftUI
 import os
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SecretPromptManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "SecretPromptManager")
 
 /// Manages floating panels for daemon secret input requests.
 ///

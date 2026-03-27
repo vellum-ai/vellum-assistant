@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatViewModel+MessageHandling")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatViewModel+MessageHandling")
 
 // MARK: - Message Handling (thin routing layer)
 

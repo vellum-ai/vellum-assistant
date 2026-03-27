@@ -3,7 +3,7 @@ import SwiftUI
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "InlineAudioAttachment")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "InlineAudioAttachment")
 
 // MARK: - Failure State Buckets
 

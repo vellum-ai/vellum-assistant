@@ -3,7 +3,7 @@ import Foundation
 import os
 
 private let log = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    subsystem: Bundle.appBundleIdentifier,
     category: "ChatDiagnostics"
 )
 

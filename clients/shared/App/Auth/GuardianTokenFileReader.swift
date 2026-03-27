@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "GuardianTokenFileReader")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "GuardianTokenFileReader")
 
 /// Reads guardian tokens persisted by the CLI at
 /// `$XDG_CONFIG_HOME/vellum/assistants/<assistantId>/guardian-token.json`.

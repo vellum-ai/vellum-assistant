@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "LayoutConfigStore")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "LayoutConfigStore")
 
 public enum LayoutConfigStore {
     private static var configURL: URL {

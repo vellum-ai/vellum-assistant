@@ -5,7 +5,7 @@ import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "MessageListView")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "MessageListView")
 #if DEBUG
 private let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
 #endif

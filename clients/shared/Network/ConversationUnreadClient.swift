@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationUnreadClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationUnreadClient")
 
 /// Error type for conversation unread operations.
 public enum ConversationUnreadError: LocalizedError {

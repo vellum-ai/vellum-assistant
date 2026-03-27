@@ -3,7 +3,7 @@ import AppKit
 import WebKit
 import os
 
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "OffscreenPreviewCapture")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "OffscreenPreviewCapture")
 
 /// Captures a preview screenshot of app HTML using an offscreen WKWebView.
 /// The window is positioned off-screen and never made visible to the user.

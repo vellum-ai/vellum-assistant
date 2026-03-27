@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DebugStateWriter")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "DebugStateWriter")
 
 /// Periodically writes a JSON snapshot of the app's live state to a well-known
 /// file path so external tools (e.g. Claude Code) can read it for instant

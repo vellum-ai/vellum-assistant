@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AuthService")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AuthService")
 
 // MARK: - Module-private constants and storage (nonisolated by default)
 // These live outside the @MainActor class so nonisolated static functions

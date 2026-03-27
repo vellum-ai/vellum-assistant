@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ComputerUseClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ComputerUseClient")
 
 /// Focused client for watch observation and recording lifecycle operations via the gateway.
 public protocol ComputerUseClientProtocol {

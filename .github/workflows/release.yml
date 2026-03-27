@@ -2169,6 +2169,7 @@ jobs:
       - name: Build Slack payload
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_TRIGGER_SECRET: ${{ secrets.RELEASE_TRIGGER_SECRET }}
         run: |
           VERSION="${{ needs.extract-version.outputs.version }}"
           VERSION_TAG="v${VERSION}"
@@ -2291,8 +2292,25 @@ jobs:
             style: "primary"
           }')
 
+          # Build "Go live!" button for staging releases that are ready
+          if [ "$IS_STAGING" = "true" ] && [ "$STAGING_READY" = "true" ] && [ -n "$RELEASE_TRIGGER_SECRET" ]; then
+            RELEASE_BRANCH="release/${VERSION_TAG}"
+            GO_LIVE_SIG=$(echo -n "$RELEASE_BRANCH" | openssl dgst -sha256 -hmac "$RELEASE_TRIGGER_SECRET" -hex | awk '{print $NF}')
+            GO_LIVE_URL="https://qa.vellum.ai/api/slack/go-live?branch=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${RELEASE_BRANCH}', safe=''))")&sig=${GO_LIVE_SIG}"
+            GO_LIVE=$(jq -n --arg url "$GO_LIVE_URL" '{
+              type: "button",
+              text: { type: "plain_text", text: "Go live!" },
+              url: $url,
+              style: "primary"
+            }')
+          fi
+
           if [ "$RELEASE_FAILED" = "true" ] || [ "$IS_STAGING" = "true" ]; then
-            BUTTONS=$(jq -n --argjson run "$VIEW_RUN" '[$run]')
+            if [ -n "${GO_LIVE:-}" ]; then
+              BUTTONS=$(jq -n --argjson run "$VIEW_RUN" --argjson golive "$GO_LIVE" '[$run, $golive]')
+            else
+              BUTTONS=$(jq -n --argjson run "$VIEW_RUN" '[$run]')
+            fi
           else
             BUTTONS=$(jq -n --argjson run "$VIEW_RUN" --argjson release "$VIEW_RELEASE" '[$run, $release]')
           fi

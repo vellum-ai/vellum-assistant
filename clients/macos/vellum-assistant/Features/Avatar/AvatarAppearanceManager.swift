@@ -3,7 +3,7 @@ import Foundation
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AvatarAppearanceManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AvatarAppearanceManager")
 
 /// Manages the assistant's avatar image. Provides a custom avatar when uploaded,
 /// or falls back to a colored circle with the assistant's initial letter.

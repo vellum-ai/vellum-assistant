@@ -13,7 +13,7 @@ import UIKit
 #error("Unsupported platform")
 #endif
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ChatViewModel")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatViewModel")
 
 // MARK: - Conversation Starter Types
 

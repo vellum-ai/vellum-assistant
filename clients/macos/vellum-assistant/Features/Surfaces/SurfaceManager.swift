@@ -3,7 +3,7 @@ import SwiftUI
 import os
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SurfaceManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "SurfaceManager")
 
 /// Observable view model that holds the current surface state.
 /// Kept alive across updates so that child SwiftUI views preserve their @State (e.g. form inputs).

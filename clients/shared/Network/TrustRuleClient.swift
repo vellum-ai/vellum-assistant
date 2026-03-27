@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "TrustRuleClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "TrustRuleClient")
 
 /// Focused client for trust rule management operations routed through the gateway.
 public protocol TrustRuleClientProtocol {

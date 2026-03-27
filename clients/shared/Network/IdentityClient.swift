@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "IdentityClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "IdentityClient")
 
 /// Identity fields fetched from a remote assistant's identity endpoint.
 public struct RemoteIdentityInfo: Decodable {

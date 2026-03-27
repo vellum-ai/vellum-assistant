@@ -3,7 +3,7 @@ import Combine
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate")
 
 /// Tracks the first-launch bootstrap sequence so the app can resume
 /// from the correct phase after a restart mid-bootstrap.

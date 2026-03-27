@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "PairingClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "PairingClient")
 
 /// Focused client for pairing approval and device management operations routed through the gateway.
 public protocol PairingClientProtocol {
