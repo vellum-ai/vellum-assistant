@@ -71,8 +71,8 @@ struct MainWindowView: View {
     @State private var showComingAlive: Bool
     /// Whether the daemon-loading skeleton overlay is currently showing.
     @State var showDaemonLoading: Bool
-    /// Whether the daemon loading has timed out (assistant unreachable).
-    @State var daemonLoadingTimedOut = false
+    /// Whether the assistant loading has timed out (assistant unreachable).
+    @State var assistantLoadingTimedOut = false
     /// Whether the main window is in native macOS fullscreen (traffic lights hidden).
     @State private var isInFullscreen: Bool = false
 
@@ -398,7 +398,7 @@ struct MainWindowView: View {
     private var assistantLoadingOverlayIfNeeded: some View {
         if showDaemonLoading && !isSettingsOpen {
             AssistantLoadingOverlayContent(
-                timedOut: $daemonLoadingTimedOut,
+                timedOut: $assistantLoadingTimedOut,
                 onRetry: { rewakeAssistant() },
                 onOpenSettings: {
                     settingsStore.pendingSettingsTab = .general
