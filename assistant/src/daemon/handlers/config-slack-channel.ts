@@ -17,6 +17,7 @@ import {
   getSecureKeyAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
+import { getInjectionRegistryEntry } from "../../tools/credentials/injection-registry.js";
 import {
   deleteCredentialMetadata,
   getCredentialMetadata,
@@ -41,21 +42,12 @@ export interface SlackChannelConfigResult {
 
 // -- Helpers --
 
-const SLACK_INJECTION_TEMPLATES = [
-  {
-    hostPattern: "slack.com" as const,
-    injectionType: "header" as const,
-    headerName: "Authorization",
-    valuePrefix: "Bearer ",
-  },
-];
-
 /** Ensure the bot token credential has injection templates for the proxy. */
 function ensureBotTokenInjectionTemplates(): void {
-  upsertCredentialMetadata("slack_channel", "bot_token", {
-    allowedDomains: ["slack.com"],
-    injectionTemplates: SLACK_INJECTION_TEMPLATES,
-  });
+  const entry = getInjectionRegistryEntry("slack_channel", "bot_token");
+  if (entry) {
+    upsertCredentialMetadata("slack_channel", "bot_token", entry);
+  }
 }
 
 /**
