@@ -132,6 +132,7 @@ export interface SendMessageConfig {
   model?: string;
   modelIntent?: ModelIntent;
   effort?: "low" | "medium" | "high" | "max";
+  speed?: "standard" | "fast";
   [key: string]: unknown;
 }
 

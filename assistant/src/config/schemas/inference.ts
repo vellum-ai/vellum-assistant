@@ -36,6 +36,17 @@ export const EffortSchema = z
 
 export type Effort = z.infer<typeof EffortSchema>;
 
+export const SpeedSchema = z
+  .enum(["standard", "fast"], {
+    error: 'speed must be "standard" or "fast"',
+  })
+  .default("standard")
+  .describe(
+    'Inference speed mode — "fast" enables higher output token throughput on supported models (Opus 4.6) at premium pricing',
+  );
+
+export type Speed = z.infer<typeof SpeedSchema>;
+
 export const ContextOverflowRecoveryConfigSchema = z
   .object({
     enabled: z

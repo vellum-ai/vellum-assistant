@@ -21,6 +21,7 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import { ContextWindowManager } from "../context/window-manager.js";
 import type { CesClient } from "../credential-execution/client.js";
@@ -383,6 +384,8 @@ export class Conversation {
       return resolved;
     };
 
+    const fastModeEnabled = isAssistantFeatureFlagEnabled("fast-mode", config);
+
     this.agentLoop = new AgentLoop(
       provider,
       systemPrompt,
@@ -391,6 +394,9 @@ export class Conversation {
         maxInputTokens: config.contextWindow.maxInputTokens,
         thinking: config.thinking,
         effort: config.effort,
+        ...(fastModeEnabled && config.speed === "fast"
+          ? { speed: config.speed }
+          : {}),
       },
       toolDefs.length > 0 ? toolDefs : undefined,
       toolDefs.length > 0 ? toolExecutor : undefined,

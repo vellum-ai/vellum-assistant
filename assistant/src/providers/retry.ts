@@ -68,12 +68,15 @@ function normalizeSendMessageOptions(
     providerName !== "anthropic" && config.thinking !== undefined;
   const needsEffortStrip =
     !EFFORT_SUPPORTED_PROVIDERS.has(providerName) && config.effort !== undefined;
+  const needsSpeedStrip =
+    providerName !== "anthropic" && config.speed !== undefined;
 
   if (
     !hasIntent &&
     explicitModel === config.model &&
     !needsThinkingStrip &&
-    !needsEffortStrip
+    !needsEffortStrip &&
+    !needsSpeedStrip
   ) {
     return options;
   }
@@ -92,6 +95,11 @@ function normalizeSendMessageOptions(
     nextConfig.effort !== undefined
   ) {
     delete nextConfig.effort;
+  }
+
+  // speed (fast mode) is Anthropic-specific; strip for other providers
+  if (providerName !== "anthropic" && nextConfig.speed !== undefined) {
+    delete nextConfig.speed;
   }
 
   if (explicitModel) {

@@ -802,11 +802,10 @@ export class AnthropicProvider implements Provider {
       const expanded = expandCollapsedAssistantTurns(formatted);
 
       sentMessages = ensureToolPairing(repairOrphanedServerToolUse(expanded));
-      const { effort, output_config, ...restConfig } = (config ?? {}) as Record<
-        string,
-        unknown
-      > & {
+      const { effort, speed, output_config, ...restConfig } = (config ??
+        {}) as Record<string, unknown> & {
         effort?: Anthropic.OutputConfig["effort"];
+        speed?: "standard" | "fast";
         output_config?: Record<string, unknown>;
       };
       // Haiku does not support the effort / output_config parameter.
@@ -939,11 +938,25 @@ export class AnthropicProvider implements Provider {
         finalMessage(): Promise<Anthropic.Message>;
       }
 
+      // Fast mode: use the beta endpoint with speed: "fast" for Opus 4.6
+      const useFastMode =
+        speed === "fast" && effectiveModel.includes("opus");
+
       let response: Anthropic.Message;
       try {
-        const stream: UnifiedStream = this.client.messages.stream(params, {
-          signal: timeoutSignal,
-        }) as unknown as UnifiedStream;
+        const stream: UnifiedStream = useFastMode
+          ? (this.client.beta.messages.stream(
+              {
+                ...(params as Record<string, unknown>),
+                speed: "fast" as const,
+                betas: ["fast-mode-2026-02-01" as const],
+              } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming &
+                Anthropic.Beta.Messages.MessageCreateParamsStreaming,
+              { signal: timeoutSignal },
+            ) as unknown as UnifiedStream)
+          : (this.client.messages.stream(params, {
+              signal: timeoutSignal,
+            }) as unknown as UnifiedStream);
 
         stream.on("text", (text) => {
           onEvent?.({ type: "text_delta", text });

@@ -24,6 +24,7 @@ export interface AgentLoopConfig {
   maxInputTokens?: number; // context window size for tool result truncation
   thinking?: { enabled: boolean };
   effort: "low" | "medium" | "high" | "max";
+  speed?: "standard" | "fast";
   toolChoice?:
     | { type: "auto" }
     | { type: "any" }
@@ -244,6 +245,10 @@ export class AgentLoop {
 
         if (this.config.effort) {
           providerConfig.effort = this.config.effort;
+        }
+
+        if (this.config.speed && this.config.speed !== "standard") {
+          providerConfig.speed = this.config.speed;
         }
 
         if (this.config.toolChoice) {
