@@ -29,8 +29,9 @@ struct ConversationModel: Identifiable, Hashable {
     var latestAssistantMessageAt: Date?
     var lastSeenAssistantMessageAt: Date?
     var forkParent: ConversationForkParent?
+    var originChannel: String?
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ConversationKind = .standard, source: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil, forkParent: ConversationForkParent? = nil) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ConversationKind = .standard, source: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil, forkParent: ConversationForkParent? = nil, originChannel: String? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -47,6 +48,7 @@ struct ConversationModel: Identifiable, Hashable {
         self.latestAssistantMessageAt = latestAssistantMessageAt
         self.lastSeenAssistantMessageAt = lastSeenAssistantMessageAt
         self.forkParent = forkParent
+        self.originChannel = originChannel
     }
 
     /// Whether this conversation was created by a background process (heartbeat, etc.).
@@ -63,6 +65,8 @@ struct ConversationModel: Identifiable, Hashable {
         }
         return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
     }
+
+    var isChannelConversation: Bool { originChannel != nil }
 
     static func == (lhs: ConversationModel, rhs: ConversationModel) -> Bool {
         lhs.id == rhs.id &&
@@ -82,7 +86,8 @@ struct ConversationModel: Identifiable, Hashable {
             lhs.lastSeenAssistantMessageAt == rhs.lastSeenAssistantMessageAt &&
             lhs.forkParent?.conversationId == rhs.forkParent?.conversationId &&
             lhs.forkParent?.messageId == rhs.forkParent?.messageId &&
-            lhs.forkParent?.title == rhs.forkParent?.title
+            lhs.forkParent?.title == rhs.forkParent?.title &&
+            lhs.originChannel == rhs.originChannel
     }
 
     func hash(into hasher: inout Hasher) {
@@ -104,5 +109,6 @@ struct ConversationModel: Identifiable, Hashable {
         hasher.combine(forkParent?.conversationId)
         hasher.combine(forkParent?.messageId)
         hasher.combine(forkParent?.title)
+        hasher.combine(originChannel)
     }
 }
