@@ -14,8 +14,17 @@ struct ConversationModel: Identifiable, Hashable {
     /// Mutable so it can be backfilled when the daemon assigns a session ID to a new conversation.
     var conversationId: String?
     var isArchived: Bool
-    var isPinned: Bool
-    var pinnedOrder: Int?
+    /// The conversation group this conversation belongs to.
+    /// nil means ungrouped. System groups: "system:pinned", "system:scheduled", "system:background".
+    var groupId: String?
+    /// Whether this conversation is pinned. Computed from `groupId`.
+    var isPinned: Bool {
+        get { groupId == ConversationGroup.pinned.id }
+        set {
+            if newValue { groupId = ConversationGroup.pinned.id }
+            else if groupId == ConversationGroup.pinned.id { groupId = nil }
+        }
+    }
     /// Explicit display order set by the user via drag-and-drop reordering.
     /// nil means no explicit order — conversation is sorted by recency.
     var displayOrder: Int?
@@ -30,14 +39,13 @@ struct ConversationModel: Identifiable, Hashable {
     var lastSeenAssistantMessageAt: Date?
     var forkParent: ConversationForkParent?
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, pinnedOrder: Int? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ConversationKind = .standard, source: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil, forkParent: ConversationForkParent? = nil) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, groupId: String? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ConversationKind = .standard, source: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil, forkParent: ConversationForkParent? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.conversationId = conversationId
         self.isArchived = isArchived
-        self.isPinned = isPinned
-        self.pinnedOrder = pinnedOrder
+        self.groupId = groupId ?? (isPinned ? ConversationGroup.pinned.id : nil)
         self.displayOrder = displayOrder
         self.lastInteractedAt = lastInteractedAt ?? createdAt
         self.kind = kind
@@ -52,6 +60,12 @@ struct ConversationModel: Identifiable, Hashable {
     /// Whether this conversation was created by a background process (heartbeat, etc.).
     var isBackgroundConversation: Bool {
         source == "heartbeat"
+    }
+
+    /// Whether this conversation should return to the background group on unpin.
+    /// Covers heartbeat AND task-run backgrounds for consistent pin->unpin behavior.
+    var shouldReturnToBackgroundOnUnpin: Bool {
+        source == "heartbeat" || source == "task"
     }
 
     /// Whether this conversation was created by a schedule trigger (including one-shot/reminders).
@@ -70,8 +84,7 @@ struct ConversationModel: Identifiable, Hashable {
             lhs.createdAt == rhs.createdAt &&
             lhs.conversationId == rhs.conversationId &&
             lhs.isArchived == rhs.isArchived &&
-            lhs.isPinned == rhs.isPinned &&
-            lhs.pinnedOrder == rhs.pinnedOrder &&
+            lhs.groupId == rhs.groupId &&
             lhs.displayOrder == rhs.displayOrder &&
             lhs.lastInteractedAt == rhs.lastInteractedAt &&
             lhs.kind == rhs.kind &&
@@ -91,8 +104,7 @@ struct ConversationModel: Identifiable, Hashable {
         hasher.combine(createdAt)
         hasher.combine(conversationId)
         hasher.combine(isArchived)
-        hasher.combine(isPinned)
-        hasher.combine(pinnedOrder)
+        hasher.combine(groupId)
         hasher.combine(displayOrder)
         hasher.combine(lastInteractedAt)
         hasher.combine(kind)
