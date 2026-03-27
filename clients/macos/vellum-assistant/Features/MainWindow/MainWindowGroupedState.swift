@@ -42,6 +42,8 @@ final class SidebarInteractionState {
     var showAllConversations: Bool = false
     var showAllScheduleConversations: Bool = false
     var showAllBackgroundConversations: Bool = false
+    var scheduleSectionCollapsed: Bool = false
+    var backgroundSectionCollapsed: Bool = false
     /// Set of schedule group keys (scheduleJobId values) that are currently expanded.
     var expandedScheduleGroups: Set<String> = []
     var showAllApps: Bool = false
