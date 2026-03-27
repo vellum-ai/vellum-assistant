@@ -4,6 +4,8 @@ import VellumAssistantShared
 struct IdentityPanel: View {
     let onClose: () -> Void
     let connectionManager: GatewayConnectionManager
+    var onNavigateToSkill: ((String) -> Void)?
+    var onNavigateToFile: ((String) -> Void)?
     var identityClient: IdentityClientProtocol = IdentityClient()
     private let btwClient: any BtwClientProtocol = BtwClient()
     var workspaceClient: WorkspaceClientProtocol = WorkspaceClient()
@@ -178,9 +180,8 @@ struct IdentityPanel: View {
                 identity: identity,
                 skills: skills,
                 workspaceFiles: workspaceFiles,
-                onFileSelected: { path in
-                    viewingFilePath = path
-                },
+                onNavigateToSkill: onNavigateToSkill,
+                onNavigateToFile: onNavigateToFile,
                 isFullscreen: $isFullscreen
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)

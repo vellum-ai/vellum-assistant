@@ -112,6 +112,7 @@ final class WorkspaceBrowserState {
 // MARK: - Workspace Panel
 
 struct WorkspacePanel: View {
+    @Binding var pendingFilePath: String?
     @State private var state = WorkspaceBrowserState()
     let workspaceClient = WorkspaceClient()
     @State private var sidebarWidth: CGFloat = 300
@@ -122,6 +123,10 @@ struct WorkspacePanel: View {
     private let maxSidebarWidth: CGFloat = 500
 
     private let dragCoordinateSpace = "WorkspacePanelDrag"
+
+    init(pendingFilePath: Binding<String?> = .constant(nil)) {
+        _pendingFilePath = pendingFilePath
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -169,6 +174,12 @@ struct WorkspacePanel: View {
         }
         .coordinateSpace(name: dragCoordinateSpace)
         .task { await loadRoot() }
+        .onChange(of: pendingFilePath) {
+            if let path = pendingFilePath {
+                pendingFilePath = nil
+                Task { await state.loadFile(path: path, using: workspaceClient) }
+            }
+        }
         .onDisappear {
             state.fileLoadTask?.cancel()
             state.fileLoadTask = nil

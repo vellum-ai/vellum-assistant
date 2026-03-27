@@ -19,10 +19,12 @@ struct IntelligencePanel: View {
     @State private var cachedAssistantName: String = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
     @State private var isContactsEnabled: Bool = false
     @State private var isEmailEnabled: Bool = false
+    @Binding var pendingSkillId: String?
+    @State private var pendingFilePath: String?
     private static let contactsFeatureFlagKey = "contacts"
     private static let emailFeatureFlagKey = "email-channel"
 
-    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil)) {
+    init(onClose: @escaping () -> Void, onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient? = nil, store: SettingsStore? = nil, conversationManager: ConversationManager? = nil, showToast: ((String, ToastInfo.Style) -> Void)? = nil, initialTab: String? = nil, pendingMemoryId: Binding<String?> = .constant(nil), pendingSkillId: Binding<String?> = .constant(nil)) {
         self.onClose = onClose
         self.onInvokeSkill = onInvokeSkill
         self.onCreateSkill = onCreateSkill
@@ -33,6 +35,7 @@ struct IntelligencePanel: View {
         self.showToast = showToast
         self.initialTab = initialTab
         _pendingMemoryId = pendingMemoryId
+        _pendingSkillId = pendingSkillId
         _selectedTab = State(initialValue: IntelligenceTab(rawValue: initialTab ?? "") ?? .identity)
     }
 
@@ -131,7 +134,15 @@ struct IntelligencePanel: View {
         case .identity:
             IdentityPanel(
                 onClose: onClose,
-                connectionManager: connectionManager
+                connectionManager: connectionManager,
+                onNavigateToSkill: { skillId in
+                    pendingSkillId = skillId
+                    withAnimation(VAnimation.fast) { selectedTab = .installedSkills }
+                },
+                onNavigateToFile: { path in
+                    pendingFilePath = path
+                    withAnimation(VAnimation.fast) { selectedTab = .workspace }
+                }
             )
             .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -141,13 +152,14 @@ struct IntelligencePanel: View {
             AgentPanelContent(
                 onInvokeSkill: onInvokeSkill,
                 onCreateSkill: onCreateSkill,
-                connectionManager: connectionManager
+                connectionManager: connectionManager,
+                focusedSkillId: $pendingSkillId
             )
             .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 
         case .workspace:
-            WorkspacePanel()
+            WorkspacePanel(pendingFilePath: $pendingFilePath)
                 .padding(.top, VSpacing.sm)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
 

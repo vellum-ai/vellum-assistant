@@ -24,6 +24,7 @@ struct AgentPanelContent: View {
     var onCreateSkill: (() -> Void)?
     var onSkillsChanged: (() -> Void)?
     let connectionManager: GatewayConnectionManager
+    @Binding var focusedSkillId: String?
 
     @State private var skillsManager: SkillsManager
     @State private var selectedInstalledSkillId: String?
@@ -34,11 +35,12 @@ struct AgentPanelContent: View {
     @State private var showSkillFilterPopover = false
     @AppStorage("skillsBannerDismissed") private var bannerDismissed = false
 
-    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, connectionManager: GatewayConnectionManager) {
+    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, connectionManager: GatewayConnectionManager, focusedSkillId: Binding<String?> = .constant(nil)) {
         self.onInvokeSkill = onInvokeSkill
         self.onCreateSkill = onCreateSkill
         self.onSkillsChanged = onSkillsChanged
         self.connectionManager = connectionManager
+        _focusedSkillId = focusedSkillId
         _skillsManager = State(wrappedValue: SkillsManager(connectionManager: connectionManager))
     }
 
@@ -104,6 +106,16 @@ struct AgentPanelContent: View {
         }
         .onAppear {
             skillsManager.fetchSkills()
+            if let skillId = focusedSkillId {
+                selectedInstalledSkillId = skillId
+                focusedSkillId = nil
+            }
+        }
+        .onChange(of: focusedSkillId) {
+            if let skillId = focusedSkillId {
+                selectedInstalledSkillId = skillId
+                focusedSkillId = nil
+            }
         }
         .onChange(of: skillsManager.skills.map(\.id)) {
             onSkillsChanged?()

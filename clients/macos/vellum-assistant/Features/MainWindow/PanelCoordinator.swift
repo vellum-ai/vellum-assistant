@@ -112,8 +112,9 @@ extension MainWindowView {
                 store: settingsStore,
                 conversationManager: conversationManager,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
-                initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
-                pendingMemoryId: $windowState.pendingMemoryId
+                initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
+                pendingMemoryId: $windowState.pendingMemoryId,
+                pendingSkillId: $windowState.pendingSkillId
             )
         case .usageDashboard:
             UsageDashboardPanel(
@@ -510,8 +511,9 @@ extension MainWindowView {
                 store: settingsStore,
                 conversationManager: conversationManager,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
-                initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
-                pendingMemoryId: $windowState.pendingMemoryId
+                initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
+                pendingMemoryId: $windowState.pendingMemoryId,
+                pendingSkillId: $windowState.pendingSkillId
             )
             .background(VColor.surfaceOverlay)
         case .usageDashboard:
