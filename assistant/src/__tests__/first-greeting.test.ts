@@ -50,6 +50,13 @@ describe("first-greeting", () => {
       expect(isWakeUpGreeting("Wake Up, My Friend.", 0)).toBe(true);
     });
 
+    it("returns true for punctuation variations", () => {
+      writeFileSync(join(tempDir, "BOOTSTRAP.md"), "bootstrap content");
+      expect(isWakeUpGreeting("Wake up, my friend!", 0)).toBe(true);
+      expect(isWakeUpGreeting("Wake up, my friend?", 0)).toBe(true);
+      expect(isWakeUpGreeting("Wake up, my friend", 0)).toBe(true);
+    });
+
     it("returns false when content doesn't match wake-up greeting", () => {
       writeFileSync(join(tempDir, "BOOTSTRAP.md"), "bootstrap content");
       expect(isWakeUpGreeting("Hello", 0)).toBe(false);
