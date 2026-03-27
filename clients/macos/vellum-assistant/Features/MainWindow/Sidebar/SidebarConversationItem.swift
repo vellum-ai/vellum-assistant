@@ -115,11 +115,11 @@ struct SidebarConversationItem: View, Equatable {
             if isHovered {
                 VButton(
                     label: conversation.isPinned ? "Unpin \(conversation.title)" : "Pin \(conversation.title)",
-                    iconOnly: VIcon.pin.rawValue,
+                    iconOnly: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue,
                     style: .ghost,
                     iconSize: 20,
                     tooltip: conversation.isPinned ? "Unpin" : "Pin",
-                    iconColor: conversation.isPinned ? VColor.contentTertiary : VColor.contentSecondary,
+                    iconColor: VColor.contentSecondary,
                     iconRotation: .degrees(-45)
                 ) {
                     onTogglePin()
@@ -153,7 +153,7 @@ struct SidebarConversationItem: View, Equatable {
                             .nativeTooltip("Unread")
                             .transition(.opacity)
                     } else if conversation.isPinned {
-                        VIconView(.pinOff, size: 13)
+                        VIconView(.pin, size: 13)
                             .foregroundStyle(VColor.contentSecondary)
                             .rotationEffect(.degrees(-45))
                             .frame(width: 20, height: 20)
