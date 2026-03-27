@@ -644,11 +644,19 @@ extension AppDelegate {
     func handleQuickInputSubmitToConversation(_ message: String, imageData: Data?) {
         guard let mainWindow else { return }
         if let viewModel = mainWindow.activeViewModel {
+            viewModel.inputText = message
             if let imageData {
                 viewModel.addAttachment(imageData: imageData, filename: "Screenshot.jpg")
+                quickInputAttachmentCancellable = viewModel.attachmentManager.isLoadingAttachmentPublisher
+                    .filter { !$0 }
+                    .first()
+                    .sink { [weak self] _ in
+                        viewModel.sendMessage()
+                        self?.quickInputAttachmentCancellable = nil
+                    }
+            } else {
+                viewModel.sendMessage()
             }
-            viewModel.inputText = message
-            viewModel.sendMessage()
         }
     }
 
