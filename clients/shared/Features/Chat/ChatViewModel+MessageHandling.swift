@@ -1,7 +1,4 @@
 import Foundation
-import os
-
-private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatViewModel+MessageHandling")
 
 // MARK: - Message Handling (thin routing layer)
 
