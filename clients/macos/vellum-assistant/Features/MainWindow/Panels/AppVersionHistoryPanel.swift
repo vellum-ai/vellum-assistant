@@ -43,8 +43,7 @@ struct AppVersionHistoryPanel: View {
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.md)
 
-            Divider()
-                .foregroundStyle(VColor.borderBase)
+            Divider().background(VColor.borderBase)
 
             if isLoading {
                 Spacer()
@@ -204,7 +203,7 @@ struct AppVersionHistoryPanel: View {
             .padding(.horizontal, VSpacing.lg)
             .padding(.vertical, VSpacing.md)
 
-            Divider()
+            Divider().background(VColor.borderBase)
 
             if isDiffLoading {
                 Spacer()

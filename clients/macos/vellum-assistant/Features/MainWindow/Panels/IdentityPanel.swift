@@ -119,7 +119,7 @@ struct IdentityPanel: View {
                             Spacer()
 
                             // Divider
-                            Divider().background(VColor.surfaceOverlay)
+                            Divider().background(VColor.borderBase)
 
                             // Role + Hatched date
                             VStack(alignment: .leading, spacing: VSpacing.lg) {
