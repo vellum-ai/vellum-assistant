@@ -255,10 +255,8 @@ public final class SettingsStore: ObservableObject {
     @Published var ingressEnabled: Bool = false
     @Published var ingressPublicBaseUrl: String = ""
     /// Read-only gateway target derived from daemon config.
-    /// Initial value reads env var > lockfile runtimeUrl > default 7830; updated by HTTP.
-    @Published var localGatewayTarget: String = LockfilePaths.resolveGatewayUrl(
-        connectedAssistantId: UserDefaults.standard.string(forKey: "connectedAssistantId")
-    )
+    /// Initial value set from a UserDefaults snapshot in init; updated by HTTP.
+    @Published var localGatewayTarget: String = ""
 
     /// Set to `true` once the first ingress config response arrives, so the
     /// view layer can defer diagnostics until the real config values are available.
@@ -284,14 +282,11 @@ public final class SettingsStore: ObservableObject {
 
     /// Whether the user has opted in to sending crash reports, error diagnostics, and
     /// performance metrics. Defaults to `true`. Controls Sentry independently from usage analytics.
-    @Published var sendDiagnostics: Bool = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
-        ?? UserDefaults.standard.object(forKey: "sendPerformanceReports") as? Bool
-        ?? true
+    @Published var sendDiagnostics: Bool = true
 
     /// Whether the user has opted in to sharing anonymized usage analytics (e.g. token counts,
     /// feature adoption). Defaults to `true`. Independent from diagnostics.
-    @Published var collectUsageData: Bool = UserDefaults.standard.object(forKey: "collectUsageData") as? Bool
-        ?? true
+    @Published var collectUsageData: Bool = true
 
     // MARK: - Private
 
@@ -305,20 +300,12 @@ public final class SettingsStore: ObservableObject {
     private let configPath: String?
 
     /// Whether the connected assistant is remote (not running locally).
-    /// When true, local workspace config writes are skipped to avoid creating
-    /// a `.vellum/` directory that doesn't belong to any local assistant.
-    private var isCurrentAssistantRemote: Bool {
-        UserDefaults.standard.string(forKey: "connectedAssistantId")
-            .flatMap { LockfileAssistant.loadByName($0) }?.isRemote ?? false
-    }
+    /// Cached at init and refreshed when the connected assistant changes.
+    private var isCurrentAssistantRemote: Bool = false
 
     /// Whether the connected assistant runs in Docker on the local machine.
-    /// Docker assistants are "remote" for filesystem purposes (workspace is on
-    /// a Docker volume) but support config changes via the HTTP API.
-    private var isCurrentAssistantDocker: Bool {
-        UserDefaults.standard.string(forKey: "connectedAssistantId")
-            .flatMap { LockfileAssistant.loadByName($0) }?.isDocker ?? false
-    }
+    /// Cached at init and refreshed when the connected assistant changes.
+    private var isCurrentAssistantDocker: Bool = false
 
     /// Guards against stale `get` responses overwriting an optimistic
     /// toggle. Set when `setIngressEnabled` fires; cleared once a matching
@@ -378,6 +365,11 @@ public final class SettingsStore: ObservableObject {
         self.verificationStatusPollInterval = max(0.05, verificationStatusPollInterval)
         self.verificationStatusPollWindow = max(self.verificationStatusPollInterval, verificationStatusPollWindow)
 
+        // Batch all UserDefaults reads into a single IPC call to cfprefsd.
+        // Each individual UserDefaults.standard read can trigger a separate
+        // cross-process round-trip; dictionaryRepresentation() collapses them.
+        let snapshot = UserDefaults.standard.dictionaryRepresentation()
+
         // Credential reads are deferred to a Task so that file-backed
         // CredentialStorage I/O does not block the main thread during init.
         // refreshAPIKeyState() updates the same @Published properties that
@@ -386,45 +378,61 @@ public final class SettingsStore: ObservableObject {
         // user's selection survives restarts even if the daemon is unreachable.
         // loadServiceModes() will override with the daemon's authoritative
         // value once it connects.
-        let storedImageGenModel = UserDefaults.standard.string(forKey: "selectedImageGenModel")
+        let storedImageGenModel = snapshot["selectedImageGenModel"] as? String
         if let storedImageGenModel, Self.availableImageGenModels.contains(storedImageGenModel) {
             self.selectedImageGenModel = storedImageGenModel
         }
 
-        self.cmdEnterToSend = UserDefaults.standard.object(forKey: "cmdEnterToSend") as? Bool ?? false
+        self.cmdEnterToSend = snapshot["cmdEnterToSend"] as? Bool ?? false
 
-        if UserDefaults.standard.object(forKey: "globalHotkeyShortcut") == nil {
+        self.sendDiagnostics = snapshot["sendDiagnostics"] as? Bool
+            ?? snapshot["sendPerformanceReports"] as? Bool
+            ?? true
+        self.collectUsageData = snapshot["collectUsageData"] as? Bool ?? true
+
+        self.localGatewayTarget = LockfilePaths.resolveGatewayUrl(
+            connectedAssistantId: snapshot["connectedAssistantId"] as? String
+        )
+
+        if snapshot["globalHotkeyShortcut"] == nil {
             self.globalHotkeyShortcut = "cmd+shift+g"
         } else {
-            self.globalHotkeyShortcut = UserDefaults.standard.string(forKey: "globalHotkeyShortcut") ?? ""
+            self.globalHotkeyShortcut = snapshot["globalHotkeyShortcut"] as? String ?? ""
         }
-        if UserDefaults.standard.object(forKey: "quickInputHotkeyShortcut") == nil {
+        if snapshot["quickInputHotkeyShortcut"] == nil {
             self.quickInputHotkeyShortcut = "cmd+shift+/"
         } else {
-            self.quickInputHotkeyShortcut = UserDefaults.standard.string(forKey: "quickInputHotkeyShortcut") ?? ""
+            self.quickInputHotkeyShortcut = snapshot["quickInputHotkeyShortcut"] as? String ?? ""
         }
-        let storedQIKeyCode = UserDefaults.standard.object(forKey: "quickInputHotkeyKeyCode") as? Int
+        let storedQIKeyCode = snapshot["quickInputHotkeyKeyCode"] as? Int
         self.quickInputHotkeyKeyCode = storedQIKeyCode ?? kVK_ANSI_Slash
-        if UserDefaults.standard.object(forKey: "sidebarToggleShortcut") == nil {
+        if snapshot["sidebarToggleShortcut"] == nil {
             self.sidebarToggleShortcut = "cmd+\\"
         } else {
-            self.sidebarToggleShortcut = UserDefaults.standard.string(forKey: "sidebarToggleShortcut") ?? ""
+            self.sidebarToggleShortcut = snapshot["sidebarToggleShortcut"] as? String ?? ""
         }
-        if UserDefaults.standard.object(forKey: "newChatShortcut") == nil {
+        if snapshot["newChatShortcut"] == nil {
             self.newChatShortcut = "cmd+n"
         } else {
-            self.newChatShortcut = UserDefaults.standard.string(forKey: "newChatShortcut") ?? ""
+            self.newChatShortcut = snapshot["newChatShortcut"] as? String ?? ""
         }
-        if UserDefaults.standard.object(forKey: "currentConversationShortcut") == nil {
+        if snapshot["currentConversationShortcut"] == nil {
             self.currentConversationShortcut = "cmd+shift+n"
         } else {
-            self.currentConversationShortcut = UserDefaults.standard.string(forKey: "currentConversationShortcut") ?? ""
+            self.currentConversationShortcut = snapshot["currentConversationShortcut"] as? String ?? ""
         }
-        if UserDefaults.standard.object(forKey: "popOutShortcut") == nil {
+        if snapshot["popOutShortcut"] == nil {
             self.popOutShortcut = "cmd+p"
         } else {
-            self.popOutShortcut = UserDefaults.standard.string(forKey: "popOutShortcut") ?? ""
+            self.popOutShortcut = snapshot["popOutShortcut"] as? String ?? ""
         }
+
+        // Cache assistant type flags from the same snapshot to avoid
+        // repeated UserDefaults + disk reads on every property access.
+        let assistantId = snapshot["connectedAssistantId"] as? String
+        let assistant = assistantId.flatMap { LockfileAssistant.loadByName($0) }
+        self.isCurrentAssistantRemote = assistant?.isRemote ?? false
+        self.isCurrentAssistantDocker = assistant?.isDocker ?? false
 
         // Use defaults for config-dependent properties; the daemon will
         // provide authoritative values once reachable via loadConfigFromDaemon().
@@ -475,6 +483,7 @@ public final class SettingsStore: ObservableObject {
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
             .sink {
                 UserDefaults.standard.set($0, forKey: "sendDiagnostics")
+                MainThreadStallDetector.updateSendDiagnostics($0)
                 if $0 {
                     MetricKitManager.startSentry()
                 } else {
@@ -558,6 +567,16 @@ public final class SettingsStore: ObservableObject {
 
         // Twilio config is now handled via HTTP — no callback wiring needed.
 
+    }
+
+    /// Re-reads the connected assistant's type flags from the lockfile.
+    /// Call after `connectedAssistantId` changes in UserDefaults (e.g.
+    /// assistant switch, sign-in, retire) so cached flags stay current.
+    func refreshAssistantTypeFlags() {
+        let assistant = UserDefaults.standard.string(forKey: "connectedAssistantId")
+            .flatMap { LockfileAssistant.loadByName($0) }
+        isCurrentAssistantRemote = assistant?.isRemote ?? false
+        isCurrentAssistantDocker = assistant?.isDocker ?? false
     }
 
     // MARK: - API Key Actions

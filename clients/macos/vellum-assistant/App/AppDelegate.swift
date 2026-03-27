@@ -389,6 +389,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 // crash events. The crash event envelope is built during
                 // start(), so these ride along with the fatal event itself.
                 options.initialScope = { scope in
+                    SentryDeviceInfo.loadCachedTags()
                     SentryDeviceInfo.applyTags(to: scope)
                     for url in crashLogURLs {
                         scope.addAttachment(

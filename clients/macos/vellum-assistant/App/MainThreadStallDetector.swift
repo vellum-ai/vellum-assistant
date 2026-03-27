@@ -37,10 +37,24 @@ final class MainThreadStallDetector {
         lastKnownProvider: BackgroundDiagnosticsProvider()
     )
 
-    /// Closure that returns whether `/usr/bin/sample` capture is allowed.
-    /// Defaults to reading the `sendDiagnostics` user preference.
+    /// Whether `/usr/bin/sample` capture is allowed.
+    /// Seeded from UserDefaults at init; kept current by SettingsStore's
+    /// `$sendDiagnostics` Combine pipeline so no per-stall IPC is needed.
     var isSamplingAllowed: () -> Bool = {
+        MainThreadStallDetector.cachedSendDiagnostics
+    }
+
+    /// Cached value of the `sendDiagnostics` preference, updated via
+    /// `updateSendDiagnostics(_:)`. Avoids a UserDefaults read on every
+    /// stall check. Defaults to `true` to match the preference default.
+    private static var cachedSendDiagnostics: Bool = {
         UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool ?? true
+    }()
+
+    /// Update the cached sendDiagnostics flag. Called from SettingsStore
+    /// when the user toggles the preference.
+    static func updateSendDiagnostics(_ value: Bool) {
+        cachedSendDiagnostics = value
     }
 
     /// Process runner for `/usr/bin/sample`. Tests inject a mock.

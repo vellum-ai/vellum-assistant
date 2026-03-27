@@ -1,5 +1,7 @@
 import AppKit
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 import VellumAssistantShared
 import os
 
@@ -391,11 +393,14 @@ final class AvatarAppearanceManager {
 
         let isCharacter = bodyShape != nil
 
-        guard let tiffData = image.tiffRepresentation,
-              let bitmap = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmap.representation(using: .png, properties: [:]) else { return }
-
-        try? pngData.write(to: url)
+        // Use CGImageDestination for thread-safe PNG encoding instead of
+        // NSImage.tiffRepresentation + NSBitmapImageRep.
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              let dest = CGImageDestinationCreateWithURL(
+                  url as CFURL, UTType.png.identifier as CFString, 1, nil
+              ) else { return }
+        CGImageDestinationAddImage(dest, cgImage, nil)
+        guard CGImageDestinationFinalize(dest) else { return }
         cachedChatAvatar = nil
         cachedFallbackAvatar = nil
         cachedFullFallbackAvatar = nil
@@ -644,28 +649,54 @@ final class AvatarAppearanceManager {
     /// so non-square images are centered rather than stretched.
     nonisolated static func resizedImage(_ source: NSImage, to size: CGFloat) -> NSImage {
         let targetSize = NSSize(width: size, height: size)
-        let srcW = source.size.width
-        let srcH = source.size.height
+        let intSize = Int(size)
 
-        // Determine crop rect: scale so the smaller dimension fills `size`,
-        // then center-crop the larger dimension.
-        let cropRect: NSRect
-        if srcW / srcH > 1 {
-            // Wider than tall -- crop horizontal excess
-            let cropW = srcH // square side in source coords
+        // Extract a CGImage from the source for thread-safe CoreGraphics resize.
+        guard let srcCG = source.cgImage(
+            forProposedRect: nil, context: nil, hints: nil
+        ) else {
+            // Fallback: return an empty image if CGImage extraction fails.
+            return NSImage(size: targetSize)
+        }
+
+        let srcW = srcCG.width
+        let srcH = srcCG.height
+
+        // Aspect-fill crop rect in pixel coordinates.
+        let cropRect: CGRect
+        if srcW > srcH {
+            let cropW = srcH
             let originX = (srcW - cropW) / 2
-            cropRect = NSRect(x: originX, y: 0, width: cropW, height: srcH)
+            cropRect = CGRect(x: originX, y: 0, width: cropW, height: srcH)
         } else {
-            // Taller than wide (or square) -- crop vertical excess
-            let cropH = srcW // square side in source coords
+            let cropH = srcW
             let originY = (srcH - cropH) / 2
-            cropRect = NSRect(x: 0, y: originY, width: srcW, height: cropH)
+            cropRect = CGRect(x: 0, y: originY, width: srcW, height: cropH)
         }
 
-        return NSImage(size: targetSize, flipped: false) { rect in
-            source.draw(in: rect, from: cropRect, operation: .copy, fraction: 1.0)
-            return true
+        guard let cropped = srcCG.cropping(to: cropRect) else {
+            return NSImage(size: targetSize)
         }
+
+        // Draw into a CGContext (thread-safe, no AppKit drawing required).
+        guard let ctx = CGContext(
+            data: nil,
+            width: intSize,
+            height: intSize,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return NSImage(size: targetSize)
+        }
+        ctx.interpolationQuality = .high
+        ctx.draw(cropped, in: CGRect(x: 0, y: 0, width: intSize, height: intSize))
+
+        guard let resizedCG = ctx.makeImage() else {
+            return NSImage(size: targetSize)
+        }
+        return NSImage(cgImage: resizedCG, size: targetSize)
     }
 
     // MARK: - Initial Letter Avatar

@@ -23,23 +23,41 @@ enum SentryDeviceInfo {
     /// available on the next cold launch for crash-event scope tags.
     private static let lastUserIdKey = "SentryDeviceInfo.lastUserId"
 
-    /// Applies standard telemetry tags to the given scope. Used by both
-    /// `initialScope` (so stored crash events carry tags) and
-    /// `configureSentryScope` (for the live scope after start).
+    /// Cached tag values populated once at startup from a single
+    /// `dictionaryRepresentation()` call, then kept current by the
+    /// per-tag `update*Tag` methods.
+    private static var cachedAssistantId: String?
+    private static var cachedOrganizationId: String?
+    private static var cachedUserId: String?
+
+    /// Seed the tag cache from UserDefaults in a single IPC call.
+    /// Call once early in app launch, before `configureSentryScope()`.
+    static func loadCachedTags() {
+        let snapshot = UserDefaults.standard.dictionaryRepresentation()
+        if let storedId = snapshot["connectedAssistantId"] as? String,
+           LockfileAssistant.loadAll().contains(where: { $0.assistantId == storedId }) {
+            cachedAssistantId = storedId
+        }
+        cachedOrganizationId = snapshot["connectedOrganizationId"] as? String
+        cachedUserId = snapshot[lastUserIdKey] as? String
+    }
+
+    /// Applies standard telemetry tags to the given scope. Uses the
+    /// in-memory cache populated by `loadCachedTags()` to avoid
+    /// per-call UserDefaults IPC.
     static func applyTags(to scope: Scope) {
         scope.setTag(value: deviceId, key: "device_id")
-        if let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
-           LockfileAssistant.loadAll().contains(where: { $0.assistantId == storedId }) {
-            scope.setTag(value: storedId, key: "assistant_id")
+        if let id = cachedAssistantId {
+            scope.setTag(value: id, key: "assistant_id")
         } else {
             scope.removeTag(key: "assistant_id")
         }
-        if let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId"), !orgId.isEmpty {
+        if let orgId = cachedOrganizationId, !orgId.isEmpty {
             scope.setTag(value: orgId, key: "organization_id")
         } else {
             scope.removeTag(key: "organization_id")
         }
-        if let userId = UserDefaults.standard.string(forKey: lastUserIdKey), !userId.isEmpty {
+        if let userId = cachedUserId, !userId.isEmpty {
             scope.setTag(value: userId, key: "user_id")
         }
         scope.setTag(value: ProcessInfo.processInfo.operatingSystemVersionString, key: "os_version")
@@ -63,6 +81,7 @@ enum SentryDeviceInfo {
     /// Updates the `assistant_id` Sentry tag when the connected assistant changes.
     /// Call from assistant switch, sign-in, and sign-out flows.
     static func updateAssistantTag(_ assistantId: String?) {
+        cachedAssistantId = assistantId
         SentrySDK.configureScope { scope in
             if let id = assistantId {
                 scope.setTag(value: id, key: "assistant_id")
@@ -74,6 +93,7 @@ enum SentryDeviceInfo {
 
     /// Updates the `organization_id` Sentry tag when the connected organization changes.
     static func updateOrganizationTag(_ organizationId: String?) {
+        cachedOrganizationId = organizationId
         SentrySDK.configureScope { scope in
             if let id = organizationId, !id.isEmpty {
                 scope.setTag(value: id, key: "organization_id")
@@ -87,6 +107,7 @@ enum SentryDeviceInfo {
     /// Also persists the value to UserDefaults so it is available via
     /// `applyTags(to:)` on the next cold launch for crash-event scope tags.
     static func updateUserTag(_ userId: String?) {
+        cachedUserId = userId
         if let id = userId, !id.isEmpty {
             UserDefaults.standard.set(id, forKey: lastUserIdKey)
         } else {
