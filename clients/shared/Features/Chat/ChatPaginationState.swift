@@ -63,7 +63,7 @@ public final class ChatPaginationState {
     /// stuck loading spinner.
     /// Accessed from ChatViewModel's nonisolated deinit for cancellation.
     /// The property is only mutated on MainActor.
-    @ObservationIgnored nonisolated var loadMoreTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) var loadMoreTimeoutTask: Task<Void, Never>?
 
     // MARK: - Dependencies
 
