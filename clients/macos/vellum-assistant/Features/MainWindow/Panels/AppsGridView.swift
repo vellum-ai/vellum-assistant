@@ -39,7 +39,7 @@ struct AppsGridView: View {
     /// In-flight preview fetch tasks, keyed by app ID, so they can be cancelled.
     @State private var previewTasks: [String: Task<Void, Never>] = [:]
 
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.xl), count: 5)
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: VSpacing.sm), count: 5)
 
     /// Maximum width of the centered content area.
     private let maxContentWidth: CGFloat = 1400
@@ -509,7 +509,7 @@ struct AppsGridView: View {
                 .font(VFont.bodySmallEmphasised)
                 .foregroundStyle(VColor.contentSecondary)
 
-            LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
+            LazyVGrid(columns: columns, spacing: VSpacing.sm) {
                 ForEach(apps) { app in
                     appCard(app)
                         .onAppear { fetchPreviewIfNeeded(app) }
@@ -524,7 +524,7 @@ struct AppsGridView: View {
                 .font(VFont.bodySmallEmphasised)
                 .foregroundStyle(VColor.contentSecondary)
 
-            LazyVGrid(columns: columns, spacing: VSpacing.xxl) {
+            LazyVGrid(columns: columns, spacing: VSpacing.sm) {
                 ForEach(apps) { app in
                     sharedAppCard(app)
                 }
