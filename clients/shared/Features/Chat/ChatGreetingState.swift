@@ -18,7 +18,7 @@ public final class ChatGreetingState {
     /// True while a greeting is being streamed from the daemon.
     public var isGeneratingGreeting: Bool = false
     /// The in-flight greeting streaming task, stored for cancellation.
-    @ObservationIgnored private var greetingTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) var greetingTask: Task<Void, Never>?
 
     // MARK: - Conversation Starters
 
@@ -26,7 +26,7 @@ public final class ChatGreetingState {
     public var conversationStarters: [ConversationStarter] = []
     public var conversationStartersLoading: Bool = false
 
-    @ObservationIgnored private var conversationStarterPollTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) var conversationStarterPollTask: Task<Void, Never>?
 
     // MARK: - Fallback Greetings
 
@@ -136,8 +136,8 @@ public final class ChatGreetingState {
         }
     }
 
-    /// Cancel all in-flight tasks. Called from ChatViewModel's deinit.
-    public func cancelAll() {
+    /// Cancel all in-flight tasks. Called from ChatViewModel's nonisolated deinit.
+    nonisolated public func cancelAll() {
         greetingTask?.cancel()
         conversationStarterPollTask?.cancel()
     }
