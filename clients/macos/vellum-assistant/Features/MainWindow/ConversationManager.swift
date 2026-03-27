@@ -2183,9 +2183,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         let mgr = viewModel.messageManager
         // Combine the three relevant publishers into a single derived boolean.
         Publishers.CombineLatest3(
-            mgr.$isSending,
-            mgr.$isThinking,
-            mgr.$pendingQueuedCount
+            mgr.isSendingPublisher,
+            mgr.isThinkingPublisher,
+            mgr.pendingQueuedCountPublisher
         )
         .map { isSending, isThinking, pendingQueuedCount in
             isSending || isThinking || pendingQueuedCount > 0
@@ -2226,7 +2226,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
         }
 
-        assistantActivityCancellables[conversationId] = viewModel.messageManager.$messages
+        assistantActivityCancellables[conversationId] = viewModel.messageManager.messagesPublisher
             .map { [weak self] messages in
                 self?.latestAssistantActivitySnapshot(in: messages)
             }
@@ -2347,10 +2347,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // WaitingForInput: hasPendingConfirmation (derived from messages).
         // Processing: isSending || isThinking || pendingQueuedCount > 0.
         Publishers.CombineLatest4(
-            msgMgr.$isSending,
-            msgMgr.$isThinking,
-            msgMgr.$pendingQueuedCount,
-            msgMgr.$messages
+            msgMgr.isSendingPublisher,
+            msgMgr.isThinkingPublisher,
+            msgMgr.pendingQueuedCountPublisher,
+            msgMgr.messagesPublisher
         )
         .combineLatest(
             errorSubject
@@ -2422,7 +2422,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // Subscribe to the new active view model if one exists
         guard let viewModel = activeViewModel else { return }
 
-        activeViewModelCancellable = viewModel.messageManager.$messages
+        activeViewModelCancellable = viewModel.messageManager.messagesPublisher
             .map { $0.count }
             .removeDuplicates()
             .sink { [weak self] count in

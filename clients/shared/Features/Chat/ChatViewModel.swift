@@ -185,6 +185,50 @@ public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelega
         objectWillChange.send()
     }
 
+    // MARK: - @Observable → ObservableObject bridge for ChatMessageManager
+
+    /// Recursively observe all tracked properties on the @Observable
+    /// ChatMessageManager and forward changes into ChatViewModel's
+    /// ObservableObject objectWillChange via the coalesced publish path.
+    private func observeMessageManager() {
+        withObservationTracking {
+            _ = messageManager.messages
+            _ = messageManager.inputText
+            _ = messageManager.isThinking
+            _ = messageManager.isSending
+            _ = messageManager.assistantActivityPhase
+            _ = messageManager.assistantActivityAnchor
+            _ = messageManager.assistantActivityReason
+            _ = messageManager.assistantStatusText
+            _ = messageManager.isCompacting
+            _ = messageManager.pendingQueuedCount
+            _ = messageManager.suggestion
+            _ = messageManager.isRecording
+            _ = messageManager.recordingAmplitude
+            _ = messageManager.isWorkspaceRefinementInFlight
+            _ = messageManager.refinementMessagePreview
+            _ = messageManager.refinementStreamingText
+            _ = messageManager.refinementFailureText
+            _ = messageManager.surfaceUndoCount
+            _ = messageManager.pendingSkillInvocation
+            _ = messageManager.isWatchSessionActive
+            _ = messageManager.activeSubagents
+            _ = messageManager.dismissedDocumentSurfaceIds
+            _ = messageManager.selectedModel
+            _ = messageManager.configuredProviders
+            _ = messageManager.providerCatalog
+            _ = messageManager.activePendingRequestId
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.scheduleCoalescedPublish()
+                #if DEBUG
+                self?.trackPublish(source: "messageManager")
+                #endif
+                self?.observeMessageManager() // re-arm
+            }
+        }
+    }
+
     // MARK: - @Observable → ObservableObject bridge for ChatErrorManager
 
     /// Recursively observe all tracked properties on the @Observable
@@ -1082,8 +1126,8 @@ public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelega
         }
         // Hard-delete the stripped messages so ChatMessage objects are freed entirely.
         messages.removeSubrange(0..<trimEnd)
-        // displayedMessages is updated automatically via the messageManager.$messages
-        // publisher subscription set up in init.
+        // displayedMessages is updated automatically via the messageManager.messagesPublisher
+        // Combine bridge subscription set up in ChatPaginationState init.
         // After deleting the oldest messages, advance the history cursor to the oldest
         // retained message and mark that older pages are available from the daemon so
         // the user can paginate back to re-fetch the trimmed messages.
@@ -1183,14 +1227,11 @@ public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelega
         // into a single objectWillChange per 50ms window. Views still
         // update promptly, but the SwiftUI diffing cost drops dramatically.
 
-        messageManager.objectWillChange
-            .sink { [weak self] _ in
-                self?.scheduleCoalescedPublish()
-                #if DEBUG
-                self?.trackPublish(source: "messageManager")
-                #endif
-            }
-            .store(in: &cancellables)
+        // ChatMessageManager is @Observable — bridge its changes into
+        // ChatViewModel's ObservableObject objectWillChange via
+        // withObservationTracking so views that read message state through
+        // ChatViewModel's computed forwarding properties still update.
+        observeMessageManager()
         // ChatAttachmentManager is @Observable — bridge its changes into
         // ChatViewModel's ObservableObject objectWillChange via
         // withObservationTracking so views that read attachment state through
