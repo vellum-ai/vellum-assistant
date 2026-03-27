@@ -300,12 +300,16 @@ public final class SettingsStore: ObservableObject {
     private let configPath: String?
 
     /// Whether the connected assistant is remote (not running locally).
-    /// Cached at init and refreshed when the connected assistant changes.
+    /// Cached at init and auto-refreshed when `connectedAssistantId` changes.
     private var isCurrentAssistantRemote: Bool = false
 
     /// Whether the connected assistant runs in Docker on the local machine.
-    /// Cached at init and refreshed when the connected assistant changes.
+    /// Cached at init and auto-refreshed when `connectedAssistantId` changes.
     private var isCurrentAssistantDocker: Bool = false
+
+    /// Tracks the last-seen `connectedAssistantId` so we only refresh
+    /// assistant type flags when the value actually changes.
+    private var lastKnownAssistantId: String?
 
     /// Guards against stale `get` responses overwriting an optimistic
     /// toggle. Set when `setIngressEnabled` fires; cleared once a matching
@@ -567,6 +571,21 @@ public final class SettingsStore: ObservableObject {
 
         // Twilio config is now handled via HTTP — no callback wiring needed.
 
+        // Auto-refresh assistant type flags when connectedAssistantId changes.
+        // This covers all write sites (assistant switch, sign-in, retire, managed
+        // bootstrap, transfer, logout) without scattering calls across files.
+        self.lastKnownAssistantId = snapshot["connectedAssistantId"] as? String
+        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let current = UserDefaults.standard.string(forKey: "connectedAssistantId")
+                if current != self.lastKnownAssistantId {
+                    self.lastKnownAssistantId = current
+                    self.refreshAssistantTypeFlags()
+                }
+            }
+            .store(in: &cancellables)
     }
 
     /// Re-reads the connected assistant's type flags from the lockfile.
