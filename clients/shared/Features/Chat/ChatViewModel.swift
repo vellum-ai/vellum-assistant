@@ -487,7 +487,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
     @ObservationIgnored private var pendingGuardianActions: [String: String] = [:]
-    @ObservationIgnored public var conversationId: String? {
+    public var conversationId: String? {
         didSet {
             // If the daemon reconnected before this VM had a conversation ID, a deferred
             // flush was requested. Now that we have a conversation, run it.
@@ -934,10 +934,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     /// Surface the user is currently viewing in workspace mode.
     /// Set by MainWindowView when the dynamic workspace is expanded.
-    /// Marked @ObservationIgnored to preserve didSet behavior (the @Observable
-    /// macro strips property observers). Views that need reactivity to surface
-    /// changes observe `surfaceUndoCount` or sub-manager properties instead.
-    @ObservationIgnored public var activeSurfaceId: String? {
+    public var activeSurfaceId: String? {
         didSet {
             if oldValue != activeSurfaceId {
                 surfaceUndoCount = 0
@@ -2079,7 +2076,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // Cancel all Combine subscriptions first so no new work can be scheduled
         // from incoming publisher events while the remaining cleanup runs.
         cancellables.removeAll()
-        subManagerPublishTask?.cancel()
         messageLoopTask?.cancel()
         streamingFlushTask?.cancel()
         partialOutputFlushTask?.cancel()
