@@ -205,12 +205,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
         for group in sortedGroups {
             let members = visible.filter { $0.groupId == group.id }
-            // Show non-system groups even when empty (so "New Group" is visible immediately in M5).
-            // System groups only shown when they have members (or during drag -- handled in M3/M4).
-            if !members.isEmpty || !group.isSystemGroup {
-                result.append((group, members))
-                accountedIds.formUnion(members.map(\.id))
-            }
+            // Always include all groups so the view layer can decide visibility.
+            // Non-system groups always appear (so "New Group" is visible immediately).
+            // System groups are emitted even when empty so the view can show ghost
+            // headers during drag; the view hides empty system groups when no drag is active.
+            result.append((group, members))
+            accountedIds.formUnion(members.map(\.id))
         }
 
         // Ungrouped + orphaned (unknown groupId) -- always last
@@ -1181,19 +1181,6 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             conversations[index].groupId = nil
         }
         conversations[index].displayOrder = nil
-        sendReorderConversations()
-    }
-
-    func reorderPinnedConversations(from source: IndexSet, to destination: Int) {
-        var pinned = visibleConversations.filter(\.isPinned)
-        pinned.move(fromOffsets: source, toOffset: destination)
-        var draft = conversations
-        for (order, item) in pinned.enumerated() {
-            if let idx = draft.firstIndex(where: { $0.id == item.id }) {
-                draft[idx].displayOrder = order
-            }
-        }
-        conversations = draft
         sendReorderConversations()
     }
 

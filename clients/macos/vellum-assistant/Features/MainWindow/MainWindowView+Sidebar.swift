@@ -51,6 +51,13 @@ extension MainWindowView {
         conversationManager.visibleConversations.filter { !$0.isScheduleConversation && !$0.isBackgroundConversation }
     }
 
+    /// Unread count in the Scheduled section, used to trigger auto-expand.
+    private var scheduledUnreadCount: Int {
+        conversationManager.visibleConversations
+            .filter { $0.groupId == ConversationGroup.scheduled.id && $0.hasUnseenLatestAssistantMessage }
+            .count
+    }
+
     var displayedApps: [AppListManager.AppItem] {
         let all = appListManager.displayApps
         return sidebar.showAllApps ? all : Array(all.prefix(5))
@@ -317,7 +324,15 @@ extension MainWindowView {
                         DaemonLoadingConversationsSkeleton()
                     }
 
+                    let isDragging = sidebar.draggingConversationId != nil
                     let groupEntries = conversationManager.groupedConversations
+                        .filter { entry in
+                            // Hide empty system groups unless a drag is in progress
+                            // (ghost headers serve as drop targets during drag).
+                            // Non-system groups and ungrouped always appear.
+                            guard let group = entry.group, group.isSystemGroup else { return true }
+                            return !entry.conversations.isEmpty || isDragging
+                        }
                         .map { entry in
                             SidebarGroupEntry(
                                 id: entry.group?.id ?? "ungrouped",
@@ -334,7 +349,6 @@ extension MainWindowView {
                                 showAll: sidebar.showAllInSection.contains(group.id),
                                 maxCollapsed: group.isSystemGroup ? 3 : 5,
                                 isDropTarget: sidebar.dropTargetSectionId == group.id,
-                                autoExpandOnUnread: group.id == ConversationGroup.scheduled.id,
                                 countMode: group.id == ConversationGroup.scheduled.id
                                     ? .subGroups(grouper: { $0.scheduleJobId })
                                     : .items,
@@ -397,6 +411,16 @@ extension MainWindowView {
                 }
             }
             .scrollIndicators(.never)
+            .onChange(of: scheduledUnreadCount) { _, newCount in
+                // Auto-expand the Scheduled section when new unread arrives
+                // while collapsed. Other sections (Background, Custom, Pinned)
+                // do NOT auto-expand.
+                if newCount > 0 && !sidebar.expandedSections.contains(ConversationGroup.scheduled.id) {
+                    withAnimation(VAnimation.fast) {
+                        sidebar.expandedSections.insert(ConversationGroup.scheduled.id)
+                    }
+                }
+            }
 
             Spacer(minLength: VSpacing.sm)
 

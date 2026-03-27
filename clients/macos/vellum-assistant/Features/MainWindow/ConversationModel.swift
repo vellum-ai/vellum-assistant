@@ -39,13 +39,13 @@ struct ConversationModel: Identifiable, Hashable {
     var lastSeenAssistantMessageAt: Date?
     var forkParent: ConversationForkParent?
 
-    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, groupId: String? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ConversationKind = .standard, source: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil, forkParent: ConversationForkParent? = nil) {
+    init(id: UUID = UUID(), title: String = "New Conversation", createdAt: Date = Date(), conversationId: String? = nil, isArchived: Bool = false, groupId: String? = nil, displayOrder: Int? = nil, lastInteractedAt: Date? = nil, kind: ConversationKind = .standard, source: String? = nil, scheduleJobId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil, forkParent: ConversationForkParent? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
         self.conversationId = conversationId
         self.isArchived = isArchived
-        self.groupId = groupId ?? (isPinned ? ConversationGroup.pinned.id : nil)
+        self.groupId = groupId
         self.displayOrder = displayOrder
         self.lastInteractedAt = lastInteractedAt ?? createdAt
         self.kind = kind
