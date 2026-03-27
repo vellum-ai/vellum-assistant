@@ -376,7 +376,7 @@ describe("applyCanonicalGuardianDecision", () => {
     expect(unchanged!.status).toBe("pending");
   });
 
-  // ── approve_always downgrade ───────────────────────────────────────
+  // ── approve_always downgrade / temporal mode preservation ──────────
 
   test("downgrades approve_always to approve_once", async () => {
     const req = createCanonicalGuardianRequest({
@@ -410,6 +410,80 @@ describe("applyCanonicalGuardianDecision", () => {
     // correctly skips grant minting when the resolver reports a failure.
     expect(result.grantMinted).toBe(false);
     expect(result.resolverFailed).toBe(true);
+  });
+
+  test("preserves approve_10m (not downgraded) and mints grant", async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "unknown_kind",
+      sourceType: "voice",
+      sourceChannel: "phone",
+      conversationId: "conv-10m-1",
+      callSessionId: "call-10m-1",
+      toolName: "host_bash",
+      inputDigest: "sha256:10m-digest",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: "approve_10m",
+      actorContext: guardianActor(),
+    });
+
+    expect(result.applied).toBe(true);
+    if (!result.applied) return;
+
+    // approve_10m is preserved — the request is approved (not downgraded)
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe("approved");
+
+    // Grant is minted because approve_10m is not downgraded and the request
+    // has tool metadata (unknown_kind has no resolver, so resolver doesn't fail)
+    expect(result.grantMinted).toBe(true);
+
+    const db = getDb();
+    const grants = db.select().from(scopedApprovalGrants).all();
+    expect(grants.length).toBe(1);
+    expect(grants[0].toolName).toBe("host_bash");
+    expect(grants[0].conversationId).toBe("conv-10m-1");
+  });
+
+  test("preserves approve_conversation (not downgraded) and mints grant", async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "unknown_kind",
+      sourceType: "voice",
+      sourceChannel: "phone",
+      conversationId: "conv-session-1",
+      callSessionId: "call-session-1",
+      toolName: "file_write",
+      inputDigest: "sha256:session-digest",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: "approve_conversation",
+      actorContext: guardianActor(),
+    });
+
+    expect(result.applied).toBe(true);
+    if (!result.applied) return;
+
+    // approve_conversation is preserved — the request is approved (not downgraded)
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe("approved");
+
+    // Grant is minted because approve_conversation is not downgraded and the
+    // request has tool metadata (unknown_kind has no resolver, so no failure)
+    expect(result.grantMinted).toBe(true);
+
+    const db = getDb();
+    const grants = db.select().from(scopedApprovalGrants).all();
+    expect(grants.length).toBe(1);
+    expect(grants[0].toolName).toBe("file_write");
+    expect(grants[0].conversationId).toBe("conv-session-1");
   });
 
   // ── Expired request ────────────────────────────────────────────────

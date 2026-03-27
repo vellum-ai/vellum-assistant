@@ -5,7 +5,8 @@
  * legacy parser, requester self-cancel) call through this module instead of
  * inlining the decision-application logic.  This centralizes:
  *
- *   1. `approve_always` downgrade for guardian-on-behalf requests
+ *   1. `approve_always` downgrade for guardian-on-behalf requests (time-bounded
+ *      modes like `approve_10m` and `approve_conversation` are preserved)
  *   2. Identity validation (actor must match assigned guardian)
  *   3. Approval-info capture before the pending interaction is consumed
  *   4. Atomic decision application via `handleChannelDecision`
@@ -21,7 +22,9 @@
  *   - Decision authorization is purely principal-based:
  *     actor.guardianPrincipalId === request.guardianPrincipalId (strict equality)
  *   - Decisions are first-response-wins (CAS-like stale protection)
- *   - `approve_always` is rejected/downgraded for guardian-on-behalf requests
+ *   - `approve_always` is downgraded to `approve_once` for guardian-on-behalf
+ *     requests; time-bounded modes (`approve_10m`, `approve_conversation`) are
+ *     preserved since grants are scoped via `scopeMode: "tool_signature"`
  *   - Scoped grant minting only on explicit approve for requests with tool metadata
  */
 
@@ -166,7 +169,8 @@ export interface ApplyGuardianDecisionParams {
  * self-cancel paths:
  *
  *   1. Downgrade `approve_always` to `approve_once` (guardians cannot
- *      permanently allowlist tools on behalf of requesters)
+ *      permanently allowlist tools on behalf of requesters). Time-bounded
+ *      modes (`approve_10m`, `approve_conversation`) are preserved.
  *   2. Capture pending approval info before resolution
  *   3. Apply the decision atomically via `handleChannelDecision`
  *   4. Update the guardian approval record
@@ -186,11 +190,11 @@ export function applyGuardianDecision(
     decisionContext,
   } = params;
 
-  // Guardians cannot grant broad allow modes on behalf of requesters -- downgrade.
+  // Guardians cannot grant permanent allow modes on behalf of requesters.
+  // Time-bounded modes (approve_10m, approve_conversation) are safe because
+  // grants are scoped to the tool+input signature via scopeMode: "tool_signature".
   const effectiveDecision: ApprovalDecisionResult =
-    decision.action === "approve_always" ||
-    decision.action === "approve_10m" ||
-    decision.action === "approve_conversation"
+    decision.action === "approve_always"
       ? { ...decision, action: "approve_once" }
       : decision;
 
@@ -371,7 +375,8 @@ export type CanonicalDecisionResult =
  * Steps:
  *   1. Look up the canonical request by ID
  *   2. Validate: exists, pending status, identity match, valid action
- *   3. Downgrade approve_always to approve_once (guardian-on-behalf invariant)
+ *   3. Downgrade `approve_always` to `approve_once` (guardian-on-behalf invariant;
+ *      time-bounded modes like `approve_10m`/`approve_conversation` are preserved)
  *   4. CAS resolve the canonical request atomically
  *   5. Dispatch to kind-specific resolver
  *   6. Mint grant if applicable
@@ -491,13 +496,10 @@ export async function applyCanonicalGuardianDecision(
     return { applied: false, reason: "expired" };
   }
 
-  // 3. Downgrade approve_always and temporary modes to approve_once for
-  // guardian-on-behalf requests. Guardians cannot grant broad allow modes
-  // (permanent, timed, or conversation-scoped) on behalf of requesters.
+  // 3. Downgrade approve_always to approve_once for guardian-on-behalf requests.
+  // Time-bounded modes (approve_10m, approve_conversation) are permitted.
   const effectiveAction: ApprovalAction =
-    action === "approve_always" ||
-    action === "approve_10m" ||
-    action === "approve_conversation"
+    action === "approve_always"
       ? "approve_once"
       : action;
 
