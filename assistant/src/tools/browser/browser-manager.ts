@@ -248,7 +248,7 @@ class BrowserManager {
               stderr: "pipe",
             },
           );
-          const timeoutMs = 120_000;
+          const timeoutMs = 300_000;
           let timer: ReturnType<typeof setTimeout>;
           const exitCode = await Promise.race([
             proc.exited.finally(() => clearTimeout(timer)),
