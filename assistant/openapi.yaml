@@ -3259,7 +3259,17 @@ paths:
               properties:
                 updates:
                   type: array
-                  items: {}
+                  items:
+                    type: object
+                    properties:
+                      groupId:
+                        type: string
+                      sortPosition:
+                        type: number
+                    required:
+                      - groupId
+                      - sortPosition
+                    additionalProperties: false
                   description: Array of { groupId, sortPosition } objects
               required:
                 - updates
