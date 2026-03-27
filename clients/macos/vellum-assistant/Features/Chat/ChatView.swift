@@ -177,6 +177,92 @@ struct ChatView: View {
         #if DEBUG
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "ChatView.body")
         #endif
+        chatContent
+            .environment(\.dropActions, currentDropActions)
+            .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
+                handleDrop(providers: providers)
+            }
+            .onKeyPress(.escape) {
+                guard isInteractionEnabled else { return .ignored }
+                if isSearchActive {
+                    dismissSearch()
+                    return .handled
+                }
+                if btwResponse != nil {
+                    onDismissBtw?()
+                    return .handled
+                }
+                return .ignored
+            }
+            .onKeyPress("f", phases: .down) { press in
+                guard isInteractionEnabled, press.modifiers == .command else { return .ignored }
+                activateSearch()
+                return .handled
+            }
+            .overlay(alignment: .topTrailing) {
+                if isSearchActive {
+                    ChatSearchBar(
+                        searchText: $searchText,
+                        matchCount: searchMatches.count,
+                        currentMatchIndex: currentMatchIndex,
+                        onPrevious: { navigateMatch(delta: -1) },
+                        onNext: { navigateMatch(delta: 1) },
+                        onDismiss: { dismissSearch() }
+                    )
+                    .padding(.trailing, VSpacing.xl)
+                    .padding(.top, VSpacing.sm)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+            .animation(VAnimation.fast, value: isSearchActive)
+            .onChange(of: searchText) {
+                // Reset to first match when query changes
+                currentMatchIndex = 0
+                scrollToCurrentMatch()
+            }
+            .onChange(of: searchMatches.count) {
+                // Clamp currentMatchIndex when matches change (e.g. streaming, deletion)
+                // to avoid "4 of 2" display or broken navigation.
+                let count = searchMatches.count
+                if currentMatchIndex >= count {
+                    currentMatchIndex = max(count - 1, 0)
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .activateChatSearch)) { notification in
+                // Scope to the active conversation so only the visible ChatView activates.
+                if let targetId = notification.object as? UUID, targetId != conversationId {
+                    return
+                }
+                activateSearch()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .internalImageDragStarted)) { _ in
+                isDraggingInternalImage = true
+                // Install one-shot monitors to detect when the drag ends.
+                // NSDraggingSession consumes the drag-ending mouse-up internally,
+                // so a single local monitor misses drops on external apps.
+                // Global monitor catches mouse-up in other apps (Finder, Desktop).
+                // Local monitor catches mouse-up within our app (cancel + release).
+                installDragEndMonitors()
+            }
+            .onChange(of: shouldShowSkeleton, initial: true) { _, shouldShow in
+                skeletonDebounceTask?.cancel()
+                if shouldShow {
+                    skeletonDebounceTask = Task {
+                        try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+                        guard !Task.isCancelled else { return }
+                        showSkeleton = true
+                    }
+                } else {
+                    showSkeleton = false
+                }
+            }
+            .onDisappear {
+                removeDragEndMonitors()
+            }
+    }
+
+    @ViewBuilder
+    private var chatContent: some View {
         ZStack {
             VStack(spacing: 0) {
                 if showSkeleton {
@@ -192,165 +278,9 @@ struct ChatView: View {
                         ChatBootstrapLoadingView()
                     }
                 } else if isEmptyState {
-                    if isTemporaryChat {
-                        ChatTemporaryChatEmptyStateView(
-                            inputText: $inputText,
-                            isSending: isSending,
-                            isAssistantBusy: isAssistantBusy,
-                            isRecording: isRecording,
-                            suggestion: suggestion,
-                            pendingAttachments: pendingAttachments,
-                            isLoadingAttachment: isLoadingAttachment,
-                            onSend: onSend,
-                            onStop: onStop,
-                            onAcceptSuggestion: onAcceptSuggestion,
-                            onAttach: onAttach,
-                            onRemoveAttachment: onRemoveAttachment,
-                            onPaste: onPaste,
-                            onMicrophoneToggle: onMicrophoneToggle,
-                            recordingAmplitude: recordingAmplitude,
-                            onDictateToggle: onDictateToggle,
-                            onVoiceModeToggle: onVoiceModeToggle,
-                            conversationId: conversationId
-                        )
-                    } else {
-                        ChatEmptyStateView(
-                            inputText: $inputText,
-                            isSending: isSending,
-                            isAssistantBusy: isAssistantBusy,
-                            isRecording: isRecording,
-                            suggestion: suggestion,
-                            pendingAttachments: pendingAttachments,
-                            isLoadingAttachment: isLoadingAttachment,
-                            onSend: onSend,
-                            onStop: onStop,
-                            onAcceptSuggestion: onAcceptSuggestion,
-                            onAttach: onAttach,
-                            onRemoveAttachment: onRemoveAttachment,
-                            onPaste: onPaste,
-                            onMicrophoneToggle: onMicrophoneToggle,
-                            recordingAmplitude: recordingAmplitude,
-                            onDictateToggle: onDictateToggle,
-                            onVoiceModeToggle: onVoiceModeToggle,
-                            conversationId: conversationId,
-                            daemonGreeting: daemonGreeting,
-                            onRequestGreeting: onRequestGreeting,
-                            conversationStarters: conversationStarters,
-                            conversationStartersLoading: conversationStartersLoading,
-                            onSelectStarter: onSelectStarter,
-                            onFetchConversationStarters: onFetchConversationStarters
-                        )
-                    }
+                    chatEmptyState
                 } else {
-                    VStack(spacing: 0) {
-                        MessageListView(
-                            messages: messages,
-                            isSending: isSending,
-                            isThinking: isThinking,
-                            isCompacting: isCompacting,
-                            assistantActivityPhase: assistantActivityPhase,
-                            assistantActivityAnchor: assistantActivityAnchor,
-                            assistantActivityReason: assistantActivityReason,
-                            assistantStatusText: assistantStatusText,
-                            selectedModel: selectedModel,
-                            configuredProviders: configuredProviders,
-                            providerCatalog: providerCatalog,
-                            activeSubagents: activeSubagents,
-                            dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
-                            onConfirmationAllow: onConfirmationAllow,
-                            onConfirmationDeny: onConfirmationDeny,
-                            onAlwaysAllow: onAlwaysAllow,
-                            onTemporaryAllow: onTemporaryAllow,
-                            onSurfaceAction: onSurfaceAction,
-                            onGuardianAction: onGuardianAction,
-                            onDismissDocumentWidget: onDismissDocumentWidget,
-                            onForkFromMessage: onForkFromMessage,
-                            showInspectButton: showInspectButton,
-                            isTTSEnabled: isTTSEnabled,
-                            onInspectMessage: onInspectMessage,
-                            mediaEmbedSettings: mediaEmbedSettings,
-                            onAbortSubagent: onAbortSubagent,
-                            onSubagentTap: onSubagentTap,
-                            onRehydrateMessage: onRehydrateMessage,
-                            onSurfaceRefetch: onSurfaceRefetch,
-                            onRetryFailedMessage: onRetryFailedMessage,
-                            onRetryConversationError: onRetryConversationError,
-                            subagentDetailStore: subagentDetailStore,
-                            activePendingRequestId: activePendingRequestId,
-                            displayedMessageCount: displayedMessageCount,
-                            hasMoreMessages: hasMoreMessages,
-                            isLoadingMoreMessages: isLoadingMoreMessages,
-                            loadPreviousMessagePage: loadPreviousMessagePage,
-                            conversationId: conversationId,
-                            anchorMessageId: $anchorMessageId,
-                            highlightedMessageId: $highlightedMessageId,
-                            isNearBottom: $isNearBottom,
-                            containerWidth: containerWidth
-                        )
-
-                        if let exhaustedError = creditsExhaustedError, exhaustedError.isCreditsExhausted {
-                            CreditsExhaustedBanner(
-                                onAddFunds: { onAddFunds?() }
-                            )
-                            .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
-                            .frame(maxWidth: .infinity)
-                            .padding(.bottom, -VSpacing.sm)
-                        }
-
-                        if let _ = providerNotConfiguredError {
-                            MissingApiKeyBanner(
-                                onOpenSettings: { onOpenModelsAndServices?() },
-                                onDismiss: { onDismissProviderNotConfigured?() }
-                            )
-                            .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
-                            .frame(maxWidth: .infinity)
-                            .padding(.bottom, -VSpacing.sm)
-                        }
-
-                        if isReadonly {
-                            HStack(spacing: VSpacing.xs) {
-                                VIconView(.eye, size: 14)
-                                Text("Read-only conversation")
-                                    .font(VFont.caption)
-                            }
-                            .foregroundStyle(VColor.contentTertiary)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, VSpacing.md)
-                        } else {
-                            ComposerSection(
-                                inputText: $inputText,
-                                isSending: isSending,
-                                isAssistantBusy: isAssistantBusy,
-                                hasPendingConfirmation: activePendingRequestId != nil,
-                                onAllowPendingConfirmation: {
-                                    if let requestId = activePendingRequestId {
-                                        onConfirmationAllow(requestId)
-                                    }
-                                },
-                                isRecording: isRecording,
-                                suggestion: suggestion,
-                                pendingAttachments: pendingAttachments,
-                                isLoadingAttachment: isLoadingAttachment,
-                                onSend: onSend,
-                                onStop: onStop,
-                                onAcceptSuggestion: onAcceptSuggestion,
-                                onAttach: onAttach,
-                                onRemoveAttachment: onRemoveAttachment,
-                                onPaste: onPaste,
-                                onMicrophoneToggle: onMicrophoneToggle,
-                                watchSession: watchSession,
-                                onStopWatch: onStopWatch,
-                                voiceModeManager: voiceModeManager,
-                                voiceService: voiceService,
-                                onEndVoiceMode: onEndVoiceMode,
-                                recordingAmplitude: recordingAmplitude,
-                                onDictateToggle: onDictateToggle,
-                                onVoiceModeToggle: onVoiceModeToggle,
-                                conversationId: conversationId,
-                                isInteractionEnabled: isInteractionEnabled
-                            )
-                        }
-                    }
+                    chatActiveState
                 }
             }
             .background(alignment: .bottom) {
@@ -391,86 +321,171 @@ struct ChatView: View {
                     .transition(.opacity)
             }
         }
-        .environment(\.dropActions, currentDropActions)
-        .onDrop(of: [.fileURL, .image, .png, .tiff], isTargeted: $isDropTargeted) { providers in
-            handleDrop(providers: providers)
+    }
+
+    @ViewBuilder
+    private var chatEmptyState: some View {
+        if isTemporaryChat {
+            ChatTemporaryChatEmptyStateView(
+                inputText: $inputText,
+                isSending: isSending,
+                isAssistantBusy: isAssistantBusy,
+                isRecording: isRecording,
+                suggestion: suggestion,
+                pendingAttachments: pendingAttachments,
+                isLoadingAttachment: isLoadingAttachment,
+                onSend: onSend,
+                onStop: onStop,
+                onAcceptSuggestion: onAcceptSuggestion,
+                onAttach: onAttach,
+                onRemoveAttachment: onRemoveAttachment,
+                onPaste: onPaste,
+                onMicrophoneToggle: onMicrophoneToggle,
+                recordingAmplitude: recordingAmplitude,
+                onDictateToggle: onDictateToggle,
+                onVoiceModeToggle: onVoiceModeToggle,
+                conversationId: conversationId
+            )
+        } else {
+            ChatEmptyStateView(
+                inputText: $inputText,
+                isSending: isSending,
+                isAssistantBusy: isAssistantBusy,
+                isRecording: isRecording,
+                suggestion: suggestion,
+                pendingAttachments: pendingAttachments,
+                isLoadingAttachment: isLoadingAttachment,
+                onSend: onSend,
+                onStop: onStop,
+                onAcceptSuggestion: onAcceptSuggestion,
+                onAttach: onAttach,
+                onRemoveAttachment: onRemoveAttachment,
+                onPaste: onPaste,
+                onMicrophoneToggle: onMicrophoneToggle,
+                recordingAmplitude: recordingAmplitude,
+                onDictateToggle: onDictateToggle,
+                onVoiceModeToggle: onVoiceModeToggle,
+                conversationId: conversationId,
+                daemonGreeting: daemonGreeting,
+                onRequestGreeting: onRequestGreeting,
+                conversationStarters: conversationStarters,
+                conversationStartersLoading: conversationStartersLoading,
+                onSelectStarter: onSelectStarter,
+                onFetchConversationStarters: onFetchConversationStarters
+            )
         }
-        .onKeyPress(.escape) {
-            guard isInteractionEnabled else { return .ignored }
-            if isSearchActive {
-                dismissSearch()
-                return .handled
-            }
-            if btwResponse != nil {
-                onDismissBtw?()
-                return .handled
-            }
-            return .ignored
-        }
-        .onKeyPress("f", phases: .down) { press in
-            guard isInteractionEnabled, press.modifiers == .command else { return .ignored }
-            activateSearch()
-            return .handled
-        }
-        .overlay(alignment: .topTrailing) {
-            if isSearchActive {
-                ChatSearchBar(
-                    searchText: $searchText,
-                    matchCount: searchMatches.count,
-                    currentMatchIndex: currentMatchIndex,
-                    onPrevious: { navigateMatch(delta: -1) },
-                    onNext: { navigateMatch(delta: 1) },
-                    onDismiss: { dismissSearch() }
+    }
+
+    @ViewBuilder
+    private var chatActiveState: some View {
+        VStack(spacing: 0) {
+            MessageListView(
+                messages: messages,
+                isSending: isSending,
+                isThinking: isThinking,
+                isCompacting: isCompacting,
+                assistantActivityPhase: assistantActivityPhase,
+                assistantActivityAnchor: assistantActivityAnchor,
+                assistantActivityReason: assistantActivityReason,
+                assistantStatusText: assistantStatusText,
+                selectedModel: selectedModel,
+                configuredProviders: configuredProviders,
+                providerCatalog: providerCatalog,
+                activeSubagents: activeSubagents,
+                dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
+                onConfirmationAllow: onConfirmationAllow,
+                onConfirmationDeny: onConfirmationDeny,
+                onAlwaysAllow: onAlwaysAllow,
+                onTemporaryAllow: onTemporaryAllow,
+                onSurfaceAction: onSurfaceAction,
+                onGuardianAction: onGuardianAction,
+                onDismissDocumentWidget: onDismissDocumentWidget,
+                onForkFromMessage: onForkFromMessage,
+                showInspectButton: showInspectButton,
+                isTTSEnabled: isTTSEnabled,
+                onInspectMessage: onInspectMessage,
+                mediaEmbedSettings: mediaEmbedSettings,
+                onAbortSubagent: onAbortSubagent,
+                onSubagentTap: onSubagentTap,
+                onRehydrateMessage: onRehydrateMessage,
+                onSurfaceRefetch: onSurfaceRefetch,
+                onRetryFailedMessage: onRetryFailedMessage,
+                onRetryConversationError: onRetryConversationError,
+                subagentDetailStore: subagentDetailStore,
+                activePendingRequestId: activePendingRequestId,
+                displayedMessageCount: displayedMessageCount,
+                hasMoreMessages: hasMoreMessages,
+                isLoadingMoreMessages: isLoadingMoreMessages,
+                loadPreviousMessagePage: loadPreviousMessagePage,
+                conversationId: conversationId,
+                anchorMessageId: $anchorMessageId,
+                highlightedMessageId: $highlightedMessageId,
+                isNearBottom: $isNearBottom,
+                containerWidth: containerWidth
+            )
+
+            if let exhaustedError = creditsExhaustedError, exhaustedError.isCreditsExhausted {
+                CreditsExhaustedBanner(
+                    onAddFunds: { onAddFunds?() }
                 )
-                .padding(.trailing, VSpacing.xl)
-                .padding(.top, VSpacing.sm)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, -VSpacing.sm)
             }
-        }
-        .animation(VAnimation.fast, value: isSearchActive)
-        .onChange(of: searchText) {
-            // Reset to first match when query changes
-            currentMatchIndex = 0
-            scrollToCurrentMatch()
-        }
-        .onChange(of: searchMatches.count) {
-            // Clamp currentMatchIndex when matches change (e.g. streaming, deletion)
-            // to avoid "4 of 2" display or broken navigation.
-            let count = searchMatches.count
-            if currentMatchIndex >= count {
-                currentMatchIndex = max(count - 1, 0)
+
+            if let _ = providerNotConfiguredError {
+                MissingApiKeyBanner(
+                    onOpenSettings: { onOpenModelsAndServices?() },
+                    onDismiss: { onDismissProviderNotConfigured?() }
+                )
+                .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, -VSpacing.sm)
             }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .activateChatSearch)) { notification in
-            // Scope to the active conversation so only the visible ChatView activates.
-            if let targetId = notification.object as? UUID, targetId != conversationId {
-                return
-            }
-            activateSearch()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .internalImageDragStarted)) { _ in
-            isDraggingInternalImage = true
-            // Install one-shot monitors to detect when the drag ends.
-            // NSDraggingSession consumes the drag-ending mouse-up internally,
-            // so a single local monitor misses drops on external apps.
-            // Global monitor catches mouse-up in other apps (Finder, Desktop).
-            // Local monitor catches mouse-up within our app (cancel + release).
-            installDragEndMonitors()
-        }
-        .onChange(of: shouldShowSkeleton, initial: true) { _, shouldShow in
-            skeletonDebounceTask?.cancel()
-            if shouldShow {
-                skeletonDebounceTask = Task {
-                    try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
-                    guard !Task.isCancelled else { return }
-                    showSkeleton = true
+
+            if isReadonly {
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.eye, size: 14)
+                    Text("Read-only conversation")
+                        .font(VFont.labelDefault)
                 }
+                .foregroundStyle(VColor.contentTertiary)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, VSpacing.md)
             } else {
-                showSkeleton = false
+                ComposerSection(
+                    inputText: $inputText,
+                    isSending: isSending,
+                    isAssistantBusy: isAssistantBusy,
+                    hasPendingConfirmation: activePendingRequestId != nil,
+                    onAllowPendingConfirmation: {
+                        if let requestId = activePendingRequestId {
+                            onConfirmationAllow(requestId)
+                        }
+                    },
+                    isRecording: isRecording,
+                    suggestion: suggestion,
+                    pendingAttachments: pendingAttachments,
+                    isLoadingAttachment: isLoadingAttachment,
+                    onSend: onSend,
+                    onStop: onStop,
+                    onAcceptSuggestion: onAcceptSuggestion,
+                    onAttach: onAttach,
+                    onRemoveAttachment: onRemoveAttachment,
+                    onPaste: onPaste,
+                    onMicrophoneToggle: onMicrophoneToggle,
+                    watchSession: watchSession,
+                    onStopWatch: onStopWatch,
+                    voiceModeManager: voiceModeManager,
+                    voiceService: voiceService,
+                    onEndVoiceMode: onEndVoiceMode,
+                    recordingAmplitude: recordingAmplitude,
+                    onDictateToggle: onDictateToggle,
+                    onVoiceModeToggle: onVoiceModeToggle,
+                    conversationId: conversationId,
+                    isInteractionEnabled: isInteractionEnabled
+                )
             }
-        }
-        .onDisappear {
-            removeDragEndMonitors()
         }
     }
 
