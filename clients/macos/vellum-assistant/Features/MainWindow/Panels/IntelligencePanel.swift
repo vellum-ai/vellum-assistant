@@ -141,6 +141,10 @@ struct IntelligencePanel: View {
                 onNavigateToFile: { path in
                     pendingFilePath = path
                     withAnimation(VAnimation.fast) { selectedTab = .workspace }
+                },
+                onNavigateToMemory: { memoryId in
+                    pendingMemoryId = memoryId
+                    withAnimation(VAnimation.fast) { selectedTab = .memories }
                 }
             )
             .padding(.top, VSpacing.sm)
