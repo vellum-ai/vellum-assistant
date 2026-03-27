@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import Network
+import Observation
 import os
 import UniformTypeIdentifiers
 #if os(macOS)
@@ -116,8 +117,9 @@ public struct SurfaceClient: SurfaceClientProtocol {
 /// Facade that owns the three focused sub-managers and forwards all property
 /// accesses to them via computed properties.  Existing call sites require no
 /// changes because the public API surface is identical to the previous monolith.
+@Observable
 @MainActor
-public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelegate {
+public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     // MARK: - Sub-managers
 
@@ -130,260 +132,35 @@ public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelega
     /// Owns displayedMessages, pagination window, and load-more logic.
     public let paginationState: ChatPaginationState
     /// Owns send/cancel/queue logic.
-    private(set) var sendCoordinator: MessageSendCoordinator!
+    @ObservationIgnored private(set) var sendCoordinator: MessageSendCoordinator!
     /// Owns empty-state greeting and conversation starter properties.
     public let greetingState = ChatGreetingState()
     /// Owns server message dispatch (handleServerMessage switch).
-    private(set) var actionHandler: ChatActionHandler!
+    @ObservationIgnored private(set) var actionHandler: ChatActionHandler!
 
-    private var cancellables: Set<AnyCancellable> = []
+    @ObservationIgnored private var cancellables: Set<AnyCancellable> = []
 
     /// DispatchSource for system memory pressure events. Triggers an aggressive
     /// message trim on .warning and .critical events to reclaim memory quickly.
-    private var memoryPressureSource: DispatchSourceMemoryPressure?
+    @ObservationIgnored private var memoryPressureSource: DispatchSourceMemoryPressure?
 
     /// Watchdog task that fires when `isSending` has been `true` for more than
     /// 60 seconds without being reset.  Helps diagnose app freezes where the
     /// send-in-progress indicator gets stuck.
-    private var sendingWatchdogTask: Task<Void, Never>?
+    @ObservationIgnored private var sendingWatchdogTask: Task<Void, Never>?
 
-    // MARK: - Coalesced objectWillChange forwarding
+    // MARK: - Observation compatibility
 
-    /// Coalescing window for sub-manager objectWillChange forwarding.
-    /// The first sub-manager change schedules a single objectWillChange after
-    /// this interval; subsequent changes within the window piggyback on the
-    /// same notification, dramatically reducing view-tree invalidation rate
-    /// during streaming bursts.
-    static let subManagerCoalesceInterval: TimeInterval = 0.05 // 50ms
-
-    /// Coalescing task: fires objectWillChange once per burst window, same
-    /// pattern as SubagentDetailStore.scheduleFlush().
-    private var subManagerPublishTask: Task<Void, Never>?
-
-    /// Schedule a single coalesced `objectWillChange` notification.
-    /// The first sub-manager mutation in a burst schedules the publish;
-    /// subsequent mutations within the 50ms window piggyback on the same
-    /// notification instead of firing individually.
-    private func scheduleCoalescedPublish() {
-        guard subManagerPublishTask == nil else { return }
-        subManagerPublishTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(Self.subManagerCoalesceInterval * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            self?.objectWillChange.send()
-            self?.subManagerPublishTask = nil
-        }
-    }
-
-    /// Flush any pending coalesced publish immediately.
-    /// Used after clearing `inputText` in `sendMessage()` so the TextField
-    /// binding updates without the 50ms delay — preventing the field editor
-    /// from writing stale text back through the binding.
+    /// No-op — retained for protocol conformance (MessageSendCoordinatorDelegate).
+    /// With @Observable, property-level tracking handles TextField binding
+    /// updates immediately without coalesced publish machinery.
     func flushCoalescedPublish() {
-        subManagerPublishTask?.cancel()
-        subManagerPublishTask = nil
-        os_signpost(.event, log: Self.stallLog, name: "ChatVM.flush")
-        objectWillChange.send()
+        // No-op: @Observable tracks property access directly at the view level,
+        // so TextField bindings update immediately when inputText changes.
     }
-
-    // MARK: - @Observable → ObservableObject bridge for ChatMessageManager
-
-    /// Recursively observe all tracked properties on the @Observable
-    /// ChatMessageManager and forward changes into ChatViewModel's
-    /// ObservableObject objectWillChange via the coalesced publish path.
-    private func observeMessageManager() {
-        withObservationTracking {
-            _ = messageManager.messages
-            _ = messageManager.inputText
-            _ = messageManager.isThinking
-            _ = messageManager.isSending
-            _ = messageManager.assistantActivityPhase
-            _ = messageManager.assistantActivityAnchor
-            _ = messageManager.assistantActivityReason
-            _ = messageManager.assistantStatusText
-            _ = messageManager.isCompacting
-            _ = messageManager.pendingQueuedCount
-            _ = messageManager.suggestion
-            _ = messageManager.isRecording
-            _ = messageManager.recordingAmplitude
-            _ = messageManager.isWorkspaceRefinementInFlight
-            _ = messageManager.refinementMessagePreview
-            _ = messageManager.refinementStreamingText
-            _ = messageManager.refinementFailureText
-            _ = messageManager.surfaceUndoCount
-            _ = messageManager.pendingSkillInvocation
-            _ = messageManager.isWatchSessionActive
-            _ = messageManager.activeSubagents
-            _ = messageManager.dismissedDocumentSurfaceIds
-            _ = messageManager.selectedModel
-            _ = messageManager.configuredProviders
-            _ = messageManager.providerCatalog
-            _ = messageManager.activePendingRequestId
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.scheduleCoalescedPublish()
-                #if DEBUG
-                self?.trackPublish(source: "messageManager")
-                #endif
-                self?.observeMessageManager() // re-arm
-            }
-        }
-    }
-
-    // MARK: - @Observable → ObservableObject bridge for ChatErrorManager
-
-    /// Recursively observe all tracked properties on the @Observable
-    /// ChatErrorManager and forward changes into ChatViewModel's
-    /// ObservableObject objectWillChange via the coalesced publish path.
-    private func observeErrorManager() {
-        withObservationTracking {
-            // Touch every tracked property so the observation system
-            // registers interest in all of them.
-            _ = errorManager.errorText
-            _ = errorManager.conversationError
-            _ = errorManager.isConversationErrorDisplayedInline
-            _ = errorManager.connectionDiagnosticHint
-            _ = errorManager.isConnectionError
-            _ = errorManager.isSecretBlockError
-            _ = errorManager.isRetryableError
-            _ = errorManager.hasRetryPayload
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.scheduleCoalescedPublish()
-                #if DEBUG
-                self?.trackPublish(source: "errorManager")
-                #endif
-                self?.observeErrorManager() // re-arm
-            }
-        }
-    }
-
-    // MARK: - @Observable → ObservableObject bridge for ChatPaginationState
-
-    /// Recursively observe all tracked properties on the @Observable
-    /// ChatPaginationState and forward changes into ChatViewModel's
-    /// ObservableObject objectWillChange via the coalesced publish path.
-    private func observePaginationState() {
-        withObservationTracking {
-            _ = paginationState.displayedMessages
-            _ = paginationState.displayedMessageCount
-            _ = paginationState.isLoadingMoreMessages
-            _ = paginationState.hasMoreHistory
-            _ = paginationState.hasMoreMessages
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.scheduleCoalescedPublish()
-                #if DEBUG
-                self?.trackPublish(source: "paginationState")
-                #endif
-                self?.observePaginationState() // re-arm
-            }
-        }
-    }
-
-    // MARK: - @Observable → ObservableObject bridge for ChatBtwState
-
-    /// Recursively observe all tracked properties on the @Observable
-    /// ChatBtwState and forward changes into ChatViewModel's
-    /// ObservableObject objectWillChange via the coalesced publish path.
-    private func observeBtwState() {
-        withObservationTracking {
-            _ = btwState.btwResponse
-            _ = btwState.btwLoading
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.scheduleCoalescedPublish()
-                #if DEBUG
-                self?.trackPublish(source: "btwState")
-                #endif
-                self?.observeBtwState() // re-arm
-            }
-        }
-    }
-
-    // MARK: - @Observable → ObservableObject bridge for ChatGreetingState
-
-    /// Recursively observe all tracked properties on the @Observable
-    /// ChatGreetingState and forward changes into ChatViewModel's
-    /// ObservableObject objectWillChange via the coalesced publish path.
-    private func observeGreetingState() {
-        withObservationTracking {
-            _ = greetingState.emptyStateGreeting
-            _ = greetingState.isGeneratingGreeting
-            _ = greetingState.conversationStarters
-            _ = greetingState.conversationStartersLoading
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.scheduleCoalescedPublish()
-                #if DEBUG
-                self?.trackPublish(source: "greetingState")
-                #endif
-                self?.observeGreetingState() // re-arm
-            }
-        }
-    }
-
-    // MARK: - @Observable → ObservableObject bridge for ChatAttachmentManager
-
-    /// Recursively observe all tracked properties on the @Observable
-    /// ChatAttachmentManager and forward changes into ChatViewModel's
-    /// ObservableObject objectWillChange via the coalesced publish path.
-    private func observeAttachmentManager() {
-        withObservationTracking {
-            _ = attachmentManager.pendingAttachments
-            _ = attachmentManager.isLoadingAttachment
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.scheduleCoalescedPublish()
-                #if DEBUG
-                self?.trackPublish(source: "attachmentManager")
-                #endif
-                self?.observeAttachmentManager() // re-arm
-            }
-        }
-    }
-
-    // MARK: - Debug publish-rate counters
 
     private static let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
     private static let poiLog = OSLog(subsystem: "com.vellum.assistant", category: .pointsOfInterest)
-
-    #if DEBUG
-    private static let perfLog = OSLog(subsystem: "com.vellum.assistant", category: "PerfCounters")
-    private var publishCount = 0
-    private var messageManagerPublishCount = 0
-    private var attachmentManagerPublishCount = 0
-    private var errorManagerPublishCount = 0
-    private var btwStatePublishCount = 0
-    private var greetingStatePublishCount = 0
-    private var lastRateLogTime = Date()
-
-    private func trackPublish(source: String) {
-        publishCount += 1
-        switch source {
-        case "messageManager": messageManagerPublishCount += 1
-        case "attachmentManager": attachmentManagerPublishCount += 1
-        case "errorManager": errorManagerPublishCount += 1
-        case "btwState": btwStatePublishCount += 1
-        case "greetingState": greetingStatePublishCount += 1
-        default: break
-        }
-        let now = Date()
-        if now.timeIntervalSince(lastRateLogTime) >= 5 {
-            os_log(
-                .debug, log: Self.perfLog,
-                "ChatViewModel publish rate: %d/5s (msg=%d, attach=%d, err=%d, btw=%d, greet=%d)",
-                publishCount, messageManagerPublishCount, attachmentManagerPublishCount, errorManagerPublishCount, btwStatePublishCount, greetingStatePublishCount
-            )
-            publishCount = 0
-            messageManagerPublishCount = 0
-            attachmentManagerPublishCount = 0
-            errorManagerPublishCount = 0
-            btwStatePublishCount = 0
-            greetingStatePublishCount = 0
-            lastRateLogTime = now
-        }
-    }
-    #endif
 
     // MARK: - Forwarding properties — ChatMessageManager
 
@@ -681,12 +458,12 @@ public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelega
     /// produce an inline ChatMessage in the message list. When this returns false,
     /// the error is still set on errorManager (for toasts, banners, sidebar state)
     /// but no ChatMessage is appended. Defaults to true for all errors.
-    public var shouldCreateInlineErrorMessage: ((ConversationError) -> Bool)?
+    @ObservationIgnored public var shouldCreateInlineErrorMessage: ((ConversationError) -> Bool)?
 
     /// Called when the daemon reports that the managed assistant API key is
     /// invalid (MANAGED_KEY_INVALID). The host should clear the cached key and
     /// call reprovision so the next retry uses a fresh key.
-    public var onManagedKeyInvalid: (() -> Void)?
+    @ObservationIgnored public var onManagedKeyInvalid: (() -> Void)?
 
     /// Maximum image size before compression (4 MB - leaves headroom for base64 encoding).
     /// Anthropic has a 5MB limit per image; base64 encoding adds ~33% overhead.
@@ -709,8 +486,8 @@ public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelega
     /// Tracks the action submitted for each guardian decision requestId so the
     /// response handler can display the correct resolved state (the server does
     /// not echo back the action in its acknowledgement).
-    private var pendingGuardianActions: [String: String] = [:]
-    public var conversationId: String? {
+    @ObservationIgnored private var pendingGuardianActions: [String: String] = [:]
+    @ObservationIgnored public var conversationId: String? {
         didSet {
             // If the daemon reconnected before this VM had a conversation ID, a deferred
             // flush was requested. Now that we have a conversation, run it.
@@ -720,86 +497,86 @@ public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelega
             }
         }
     }
-    private var reconnectObserver: NSObjectProtocol?
-    private var appPreviewCapturedObserver: NSObjectProtocol?
+    @ObservationIgnored private var reconnectObserver: NSObjectProtocol?
+    @ObservationIgnored private var appPreviewCapturedObserver: NSObjectProtocol?
     /// Debounces rapid-fire daemon reconnect notifications so only one history
     /// reload is triggered per reconnect burst (500ms settle window).
-    private var reconnectDebounceTask: Task<Void, Never>?
+    @ObservationIgnored private var reconnectDebounceTask: Task<Void, Never>?
     /// Guards against overlapping reconnect history loads. Set true before
     /// requesting history, cleared when `populateFromHistory` completes.
-    private var isReconnectHistoryLoading = false
+    @ObservationIgnored private var isReconnectHistoryLoading = false
     /// Safety task that resets `isReconnectHistoryLoading` if the history
     /// response never arrives (e.g. the request throws or is dropped).
-    private var reconnectLatchTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored private var reconnectLatchTimeoutTask: Task<Void, Never>?
     /// Set to true when daemonDidReconnect fires before conversationId is populated.
     /// Cleared and actioned in the conversationId didSet observer.
-    var needsOfflineFlush: Bool = false
+    @ObservationIgnored var needsOfflineFlush: Bool = false
     /// Set to true when reconnecting after an SSE gap while a run was in progress.
     /// Causes `populateFromHistory` to do a full message replace instead of
     /// prepending, so the missed assistant response is displayed.
-    private var needsReconnectCatchUp: Bool = false
+    @ObservationIgnored private var needsReconnectCatchUp: Bool = false
     /// Snapshot of `pendingMessageIds` captured before clearing on reconnect.
     /// Used by the reconnect catch-up path in `populateFromHistory` to dedup
     /// local messages that were pending when the connection dropped (the live
     /// `pendingMessageIds` is cleared immediately, but the debounced history
     /// reload fires 500ms later).
-    private var reconnectPendingSnapshot: [UUID] = []
+    @ObservationIgnored private var reconnectPendingSnapshot: [UUID] = []
     /// Called when the SSE stream reconnects while a run was in progress.
     /// The store/restorer registers the conversationId in pendingHistoryByConversationId
     /// and sends a history request so the response is routed back properly.
-    public var onReconnectHistoryNeeded: ((_ conversationId: String) -> Void)?
-    var pendingUserMessage: String?
+    @ObservationIgnored public var onReconnectHistoryNeeded: ((_ conversationId: String) -> Void)?
+    @ObservationIgnored var pendingUserMessage: String?
     /// The display text (rawText) corresponding to pendingUserMessage.
     /// In voice mode, pendingUserMessage contains the voice-prefixed text while
     /// this stores the original user text used for message-bubble matching.
-    var pendingUserMessageDisplayText: String?
+    @ObservationIgnored var pendingUserMessageDisplayText: String?
     /// Whether the pending message is automated (e.g. wake-up greeting).
-    var pendingUserMessageAutomated: Bool = false
+    @ObservationIgnored var pendingUserMessageAutomated: Bool = false
     /// Optional callback for sending notifications when tool-use messages complete
-    public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
+    @ObservationIgnored public var onToolCallsComplete: ((_ toolCalls: [ToolCallData]) -> Void)?
     /// Whether the current assistant response was triggered by a voice message.
     public var pendingVoiceMessage: Bool = false
     /// Called when a voice-triggered assistant response completes, with the response text.
-    public var onVoiceResponseComplete: ((String) -> Void)?
+    @ObservationIgnored public var onVoiceResponseComplete: ((String) -> Void)?
     /// Called when any assistant response completes, with a summary of the response text.
-    public var onResponseComplete: ((String) -> Void)?
+    @ObservationIgnored public var onResponseComplete: ((String) -> Void)?
     /// Called once when the first complete assistant message arrives during bootstrap.
     /// Passes the reply text so callers can inspect content (e.g. naming intent).
     /// Cleared after firing to ensure it only triggers once.
-    public var onFirstAssistantReply: ((String) -> Void)?
+    @ObservationIgnored public var onFirstAssistantReply: ((String) -> Void)?
     /// Called with each streaming text delta during a voice-triggered response, for real-time TTS.
-    public var onVoiceTextDelta: ((String) -> Void)?
+    @ObservationIgnored public var onVoiceTextDelta: ((String) -> Void)?
     /// When true, messages are prefixed with a concise-response instruction for voice conversations.
     public var isVoiceModeActive: Bool = false
-    var pendingUserAttachments: [UserMessageAttachment]?
+    @ObservationIgnored var pendingUserAttachments: [UserMessageAttachment]?
     /// Stores the last user message that failed to send, enabling retry.
-    var lastFailedMessageText: String? {
+    @ObservationIgnored var lastFailedMessageText: String? {
         didSet { syncRetryStateToErrorManager() }
     }
-    var lastFailedMessageDisplayText: String?
-    var lastFailedMessageAttachments: [UserMessageAttachment]?
-    var lastFailedMessageAutomated: Bool = false
-    var lastFailedMessageBypassSecretCheck: Bool = false
+    @ObservationIgnored var lastFailedMessageDisplayText: String?
+    @ObservationIgnored var lastFailedMessageAttachments: [UserMessageAttachment]?
+    @ObservationIgnored var lastFailedMessageAutomated: Bool = false
+    @ObservationIgnored var lastFailedMessageBypassSecretCheck: Bool = false
     /// Set only when a send operation (bootstrapConversation or sendUserMessage) fails.
     /// Used by `isRetryableError` to ensure the retry button only appears for
     /// actual send failures, not for unrelated errors (attachment validation,
     /// confirmation response failures, regenerate errors, etc.).
-    var lastFailedSendError: String? {
+    @ObservationIgnored var lastFailedSendError: String? {
         didSet { syncRetryStateToErrorManager() }
     }
     /// Stores the text of a message that was blocked by the secret-ingress check.
     /// Set when an error with category "secret_blocked" arrives.
-    var secretBlockedMessageText: String? {
+    @ObservationIgnored var secretBlockedMessageText: String? {
         didSet { syncRetryStateToErrorManager() }
     }
     /// Stashed context from the blocked send, so sendAnyway() can reconstruct
     /// the original UserMessageMessage with attachments and surface metadata.
-    var secretBlockedAttachments: [UserMessageAttachment]?
-    var secretBlockedActiveSurfaceId: String?
-    var secretBlockedCurrentPage: String?
+    @ObservationIgnored var secretBlockedAttachments: [UserMessageAttachment]?
+    @ObservationIgnored var secretBlockedActiveSurfaceId: String?
+    @ObservationIgnored var secretBlockedCurrentPage: String?
     /// Nonce sent with `conversation_create` and echoed back in `conversation_info`.
     /// Used to ensure this ChatViewModel only claims its own conversation.
-    var bootstrapCorrelationId: String?
+    @ObservationIgnored var bootstrapCorrelationId: String?
     /// Conversation type sent with `conversation_create` (e.g. "private").
     /// Set by `createConversationIfNeeded(conversationType:)` and included in the
     /// message so the daemon can persist the correct conversation kind.
@@ -811,127 +588,122 @@ public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelega
     /// (conversation_create sent, awaiting conversation_info). Used by ConversationManager
     /// to decide whether it's safe to release the VM on archive.
     public var isBootstrapping: Bool { bootstrapCorrelationId != nil }
-    var messageLoopTask: Task<Void, Never>?
+    @ObservationIgnored var messageLoopTask: Task<Void, Never>?
     /// Monotonically increasing ID used to distinguish successive message-loop
     /// tasks so that a cancelled loop's cleanup doesn't clear a newer replacement.
-    private var messageLoopGeneration: UInt64 = 0
-    var currentAssistantMessageId: UUID?
+    @ObservationIgnored private var messageLoopGeneration: UInt64 = 0
+    @ObservationIgnored var currentAssistantMessageId: UUID?
     /// The trimmed user text that initiated the current assistant turn.
     /// Used to tag the assistant message (e.g. modelList for "/models") without
     /// scanning the whole transcript, which would be fragile under queued messages.
-    var currentTurnUserText: String?
+    @ObservationIgnored var currentTurnUserText: String?
     /// Tracks whether the current assistant message has received any text content.
     /// Used to determine `arrivedBeforeText` for each tool call in the message.
-    var currentAssistantHasText: Bool = false
+    @ObservationIgnored var currentAssistantHasText: Bool = false
     /// Tracks whether the last content block was a tool call, so the next text
     /// delta starts a new segment instead of appending to the previous one.
-    var lastContentWasToolCall: Bool = false
+    @ObservationIgnored var lastContentWasToolCall: Bool = false
     /// When true, incoming deltas are suppressed until the daemon acknowledges
     /// the cancellation (via `generation_cancelled` or `message_complete`).
     // Public (rather than private) so tests can simulate the
     // daemon-acknowledged cancellation state directly.
     public var isCancelling: Bool = false
     /// Maps daemon requestId to the user message UUID in the messages array.
-    var requestIdToMessageId: [String: UUID] = [:]
+    @ObservationIgnored var requestIdToMessageId: [String: UUID] = [:]
     /// Maps requestId to the currently processing user message UUID after dequeue.
-    var activeRequestIdToMessageId: [String: UUID] = [:]
+    @ObservationIgnored var activeRequestIdToMessageId: [String: UUID] = [:]
     /// FIFO queue of user message UUIDs awaiting requestId assignment from the daemon.
-    var pendingMessageIds: [UUID] = []
+    @ObservationIgnored var pendingMessageIds: [UUID] = []
     /// Messages deleted locally before the daemon's `message_queued` ack arrived.
     /// Once the ack provides the requestId, the deletion is forwarded to the daemon.
-    var pendingLocalDeletions: Set<UUID> = []
+    @ObservationIgnored var pendingLocalDeletions: Set<UUID> = []
     /// Tracks the current in-flight suggestion request so stale responses are ignored.
-    var pendingSuggestionRequestId: String?
+    @ObservationIgnored var pendingSuggestionRequestId: String?
 
     // MARK: - Streaming Delta Throttle
 
     /// Interval between flushing buffered streaming text deltas to the
-    /// `@Published messages` array.  Coalescing multiple token deltas
-    /// into a single array mutation dramatically reduces SwiftUI
-    /// view-graph invalidation frequency during streaming.
+    /// messages array.  Coalescing multiple token deltas into a single
+    /// array mutation dramatically reduces SwiftUI view-graph
+    /// invalidation frequency during streaming.
     static let streamingFlushInterval: TimeInterval = 0.05 // 50 ms
 
     /// Buffered text that has not yet been flushed to `messages`.
-    var streamingDeltaBuffer: String = ""
+    @ObservationIgnored var streamingDeltaBuffer: String = ""
     /// Scheduled flush work item; cancelled and re-created on each delta.
-    var streamingFlushTask: Task<Void, Never>?
+    @ObservationIgnored var streamingFlushTask: Task<Void, Never>?
 
     // MARK: - Partial Output Coalescing
 
     /// Buffered partial-output chunks keyed by "messageUUID:tcIndex".
     /// Uses stable message UUID instead of positional index so the buffer
     /// survives message-list mutations (pagination prepend, memory trim).
-    var partialOutputBuffer: [String: (messageId: UUID, tcIndex: Int, content: String)] = [:]
+    @ObservationIgnored var partialOutputBuffer: [String: (messageId: UUID, tcIndex: Int, content: String)] = [:]
     /// Scheduled flush task for coalescing partial-output writes.
-    var partialOutputFlushTask: Task<Void, Never>?
+    @ObservationIgnored var partialOutputFlushTask: Task<Void, Never>?
 
     /// Safety timer that force-resets the UI if the daemon never acknowledges
     /// a cancel request (e.g. a stuck tool blocks the generation_cancelled event).
-    var cancelTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored var cancelTimeoutTask: Task<Void, Never>?
 
     /// Saved text from a queued message that should be auto-sent after cancellation completes.
-    var pendingSendDirectText: String?
+    @ObservationIgnored var pendingSendDirectText: String?
     /// Saved attachments from a queued message that should be auto-sent after cancellation completes.
-    var pendingSendDirectAttachments: [ChatAttachment]?
+    @ObservationIgnored var pendingSendDirectAttachments: [ChatAttachment]?
     /// Saved skill invocation from a queued message for send-direct dispatch.
-    var pendingSendDirectSkillInvocation: SkillInvocationData?
+    @ObservationIgnored var pendingSendDirectSkillInvocation: SkillInvocationData?
 
     /// Timestamp of the most recent `toolUseStart` event received by this view model.
     /// Used by ConversationManager to route `confirmationRequest` messages to the correct
     /// ChatViewModel when multiple conversations are active.
-    public var lastToolUseReceivedAt: Date?
+    @ObservationIgnored public var lastToolUseReceivedAt: Date?
 
     /// Monotonically increasing version counter for server-authoritative activity state.
     /// Used to ignore stale `assistant_activity_state` events.
-    var lastActivityVersion: Int = 0
+    @ObservationIgnored var lastActivityVersion: Int = 0
 
     /// Called when an inline confirmation is responded to, so the floating panel can be dismissed.
     /// Parameters: (requestId, decision)
-    public var onInlineConfirmationResponse: ((String, String) -> Void)?
+    @ObservationIgnored public var onInlineConfirmationResponse: ((String, String) -> Void)?
 
     /// Tracks requestIds for which onInlineConfirmationResponse has already been called locally
     /// (via respondToConfirmation / respondToAlwaysAllow). When the daemon's confirmationStateChanged
     /// event arrives for the same requestId, we skip the duplicate callback.
-    var inlineResponseHandledRequestIds = Set<String>()
+    @ObservationIgnored var inlineResponseHandledRequestIds = Set<String>()
 
     /// Called to determine whether this ChatViewModel should accept a `confirmationRequest`.
     /// Set by ConversationManager to coordinate routing when multiple ChatViewModels are active.
-    public var shouldAcceptConfirmation: (() -> Bool)?
+    @ObservationIgnored public var shouldAcceptConfirmation: (() -> Bool)?
 
     /// Called when the daemon sends a `watch_started` message to begin a watch session.
     /// The closure receives the WatchStartedMessage and the GatewayConnectionManager so the macOS
     /// layer can create and start a WatchSession.
-    public var onWatchStarted: ((WatchStartedMessage, GatewayConnectionManager) -> Void)?
+    @ObservationIgnored public var onWatchStarted: ((WatchStartedMessage, GatewayConnectionManager) -> Void)?
 
     /// Called when the daemon sends a `watch_complete_request` to stop the active watch session.
-    public var onWatchCompleteRequest: ((WatchCompleteRequestMessage) -> Void)?
+    @ObservationIgnored public var onWatchCompleteRequest: ((WatchCompleteRequestMessage) -> Void)?
 
     /// Called when the user taps the stop button on the watch progress UI.
     /// The macOS layer should cancel the WatchSession and send a cancel to the daemon.
-    public var onStopWatch: (() -> Void)?
+    @ObservationIgnored public var onStopWatch: (() -> Void)?
 
     /// Called when the daemon assigns a conversation ID to this chat (via conversation_info).
     /// Used by ConversationManager to backfill ConversationModel.conversationId for new conversations.
-    public var onConversationCreated: ((String) -> Void)?
+    @ObservationIgnored public var onConversationCreated: ((String) -> Void)?
 
     /// Called once when the first user message is sent, with the message text.
     /// Used by ConversationManager to auto-title the conversation.
-    public var onFirstUserMessage: ((String) -> Void)?
+    @ObservationIgnored public var onFirstUserMessage: ((String) -> Void)?
 
     /// Called every time a user message is sent. Used by ConversationManager to
     /// bump the conversation's lastInteractedAt so it rises to the top of the list.
-    public var onUserMessageSent: (() -> Void)?
+    @ObservationIgnored public var onUserMessageSent: (() -> Void)?
     /// Called when the exact `/fork` composer command should be handled locally
     /// by the client instead of being sent to the assistant.
-    public var onFork: (() -> Void)?
+    @ObservationIgnored public var onFork: (() -> Void)?
 
     /// Whether this view model has had its history loaded from the daemon.
-    public var isHistoryLoaded: Bool = false {
-        didSet {
-            guard oldValue != isHistoryLoaded else { return }
-            scheduleCoalescedPublish()
-        }
-    }
+    public var isHistoryLoaded: Bool = false
 
     /// True while `populateFromHistory` is actively inserting messages.
     /// Observers can check this to avoid treating the history hydration as new activity.
@@ -1162,7 +934,10 @@ public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelega
 
     /// Surface the user is currently viewing in workspace mode.
     /// Set by MainWindowView when the dynamic workspace is expanded.
-    public var activeSurfaceId: String? {
+    /// Marked @ObservationIgnored to preserve didSet behavior (the @Observable
+    /// macro strips property observers). Views that need reactivity to surface
+    /// changes observe `surfaceUndoCount` or sub-manager properties instead.
+    @ObservationIgnored public var activeSurfaceId: String? {
         didSet {
             if oldValue != activeSurfaceId {
                 surfaceUndoCount = 0
@@ -1218,39 +993,6 @@ public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelega
 
         // Initialize the action handler for server message dispatch.
         self.actionHandler = ChatActionHandler(viewModel: self)
-
-        // Coalesce sub-manager objectWillChange signals through a single
-        // delayed publish. During streaming, sub-managers may fire dozens of
-        // objectWillChange events per second (each @Published property
-        // mutation triggers one). Instead of forwarding each immediately —
-        // which invalidates the entire view tree every time — we batch them
-        // into a single objectWillChange per 50ms window. Views still
-        // update promptly, but the SwiftUI diffing cost drops dramatically.
-
-        // ChatMessageManager is @Observable — bridge its changes into
-        // ChatViewModel's ObservableObject objectWillChange via
-        // withObservationTracking so views that read message state through
-        // ChatViewModel's computed forwarding properties still update.
-        observeMessageManager()
-        // ChatAttachmentManager is @Observable — bridge its changes into
-        // ChatViewModel's ObservableObject objectWillChange via
-        // withObservationTracking so views that read attachment state through
-        // ChatViewModel's computed forwarding properties still update.
-        observeAttachmentManager()
-        // ChatErrorManager is @Observable — bridge its changes into
-        // ChatViewModel's ObservableObject objectWillChange via
-        // withObservationTracking so views that read error state through
-        // ChatViewModel's computed forwarding properties still update.
-        observeErrorManager()
-        // ChatPaginationState is @Observable — bridge its changes into
-        // ChatViewModel's ObservableObject objectWillChange via
-        // withObservationTracking so views that read pagination state through
-        // ChatViewModel's computed forwarding properties still update.
-        observePaginationState()
-        // ChatBtwState is @Observable — same bridge pattern.
-        observeBtwState()
-        // ChatGreetingState is @Observable — same bridge pattern.
-        observeGreetingState()
 
         // Surface attachment validation errors in the error manager so the UI
         // can show them without the attachment manager needing a direct reference.
@@ -1373,7 +1115,7 @@ public final class ChatViewModel: ObservableObject, MessageSendCoordinatorDelega
                     self.historyCursor = oldestRetained.timestamp.timeIntervalSince1970 * 1000
                 }
                 self.hasMoreHistory = true
-                // displayedMessages is updated automatically via $messages sink.
+                // displayedMessages is updated automatically via messagesPublisher.
                 self.displayedMessageCount = Self.messagePageSize
             }
         }
