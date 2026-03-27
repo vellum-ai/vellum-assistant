@@ -50,7 +50,6 @@ mock.module("../platform/client.js", () => ({
 }));
 
 const mockGetPlatformBaseUrl = mock(() => "https://platform.vellum.ai");
-const mockGetTelemetryAppToken = mock(() => "");
 
 const mockGetPlatformOrganizationId = mock(() => "");
 const mockGetPlatformUserId = mock(() => "");
@@ -59,7 +58,6 @@ mock.module("../config/env.js", () => ({
   getPlatformBaseUrl: mockGetPlatformBaseUrl,
   getPlatformOrganizationId: mockGetPlatformOrganizationId,
   getPlatformUserId: mockGetPlatformUserId,
-  getTelemetryAppToken: mockGetTelemetryAppToken,
   // Re-export anything else the module might import transitively
   str: () => undefined,
   num: () => undefined,
@@ -159,7 +157,6 @@ beforeEach(() => {
   mockQueryUnreportedLifecycleEvents.mockReturnValue([]);
   mockPlatformClient = null;
   mockGetPlatformBaseUrl.mockReset();
-  mockGetTelemetryAppToken.mockReset();
   mockGetDeviceId.mockReset();
   mockGetDeviceId.mockReturnValue("test-device-id");
   mockGetExternalAssistantId.mockReset();
@@ -172,7 +169,6 @@ beforeEach(() => {
   // Defaults
   mockGetMemoryCheckpoint.mockReturnValue(null);
   mockGetPlatformBaseUrl.mockReturnValue("https://platform.vellum.ai");
-  mockGetTelemetryAppToken.mockReturnValue("default-test-token");
 
   mockFetch = mock(() =>
     Promise.resolve(new Response('{"accepted":0}', { status: 200 })),
@@ -212,10 +208,9 @@ describe("UsageTelemetryReporter", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  test("anonymous flush uses X-Telemetry-Token and default URL", async () => {
+  test("anonymous flush sends request without auth headers", async () => {
     mockPlatformClient = null;
     mockGetPlatformBaseUrl.mockReturnValue("https://platform.test.ai");
-    mockGetTelemetryAppToken.mockReturnValue("anon-token");
 
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
@@ -230,9 +225,9 @@ describe("UsageTelemetryReporter", () => {
     const [url, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
     expect(url).toStartWith("https://platform.test.ai");
     expect(url).toEndWith("/telemetry/ingest/");
-    expect((opts.headers as Record<string, string>)["X-Telemetry-Token"]).toBe(
-      "anon-token",
-    );
+    const headers = opts.headers as Record<string, string>;
+    expect(headers["Content-Type"]).toBe("application/json");
+    expect(headers["X-Telemetry-Token"]).toBeUndefined();
   });
 
   test("watermark advances on successful upload", async () => {

@@ -216,12 +216,6 @@ export function getPlatformInternalApiKey(): string {
   return str("PLATFORM_INTERNAL_API_KEY") ?? "";
 }
 
-// ── Telemetry ──────────────────────────────────────────────────────────────────
-
-export function getTelemetryAppToken(): string {
-  return str("TELEMETRY_APP_TOKEN") ?? "";
-}
-
 // ── Startup validation ──────────────────────────────────────────────────────
 
 /**

@@ -6,14 +6,13 @@
  *
  * Two auth modes:
  * - Authenticated: Api-Key header via managed proxy context
- * - Anonymous: X-Telemetry-Token static token from env
+ * - Anonymous: unauthenticated POST (telemetry endpoints are public)
  */
 
 import {
   getPlatformBaseUrl,
   getPlatformOrganizationId,
   getPlatformUserId,
-  getTelemetryAppToken,
 } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
 import {
@@ -153,11 +152,9 @@ export class UsageTelemetryReporter {
       )
         return;
 
-      // Resolve auth context — skip flush when neither auth mode is viable
+      // Resolve auth context — authenticated path uses client, anonymous path
+      // sends unauthenticated (telemetry endpoints are public).
       const client = await VellumPlatformClient.create();
-      if (!client && !getTelemetryAppToken()) {
-        return;
-      }
 
       // Build payload
       const typedEvents: TelemetryEvent[] = [
@@ -219,13 +216,7 @@ export class UsageTelemetryReporter {
         resp = await client.fetch(TELEMETRY_PATH, fetchInit);
       } else {
         const url = `${getPlatformBaseUrl()}${TELEMETRY_PATH}`;
-        resp = await fetch(url, {
-          ...fetchInit,
-          headers: {
-            "Content-Type": "application/json",
-            "X-Telemetry-Token": getTelemetryAppToken(),
-          },
-        });
+        resp = await fetch(url, fetchInit);
       }
 
       if (!resp.ok) {
