@@ -29,7 +29,9 @@ function flag(name: string): boolean {
 
 /**
  * BASE_DATA_DIR — string, default: os.homedir()
- * Overrides the home directory used as the base for ~/.vellum and lockfiles.
+ * Overrides the home directory used as the base for ~/.vellum data.
+ * The lockfile is always resolved from the user's home directory
+ * (or VELLUM_LOCKFILE_DIR), never from BASE_DATA_DIR.
  * Primarily used in tests to isolate filesystem state.
  */
 export function getBaseDataDir(): string | undefined {
