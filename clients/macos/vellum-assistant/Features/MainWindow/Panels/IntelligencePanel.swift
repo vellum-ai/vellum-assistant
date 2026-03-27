@@ -146,7 +146,11 @@ struct IntelligencePanel: View {
                 onNavigateToContact: isContactsEnabled ? { contactId in
                     pendingContactId = contactId
                     withAnimation(VAnimation.fast) { selectedTab = .contacts }
-                } : nil
+                } : nil,
+                onNavigateToMemory: { memoryId in
+                    pendingMemoryId = memoryId
+                    withAnimation(VAnimation.fast) { selectedTab = .memories }
+                }
             )
             .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)

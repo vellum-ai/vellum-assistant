@@ -799,6 +799,71 @@ private struct SkillPopoverView: View {
     }
 }
 
+// MARK: - Memory Popover View
+
+private struct MemoryPopoverView: View {
+    let item: OrbitItem
+    var onViewDetails: (() -> Void)?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(spacing: VSpacing.sm) {
+                VIconView(item.icon, size: 14)
+                    .foregroundStyle(item.color)
+
+                Text(item.label)
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(2)
+            }
+
+            if let description = item.description, !description.isEmpty {
+                Text(description)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .lineLimit(4)
+            }
+
+            if let memoryKind = item.memoryKind {
+                Text(memoryKind.label)
+                    .font(VFont.labelSmall)
+                    .foregroundStyle(memoryKind.color)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xxs)
+                    .background(
+                        Capsule()
+                            .fill(memoryKind.color.opacity(0.15))
+                    )
+            }
+
+            if let onViewDetails {
+                Button(action: onViewDetails) {
+                    HStack(spacing: VSpacing.xxs) {
+                        Text("View Details")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.primaryBase)
+                        VIconView(.arrowRight, size: 10)
+                            .foregroundStyle(VColor.primaryBase)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("View memory details")
+            }
+        }
+        .padding(VSpacing.md)
+        .frame(maxWidth: 250, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.surfaceBase)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
+        .vShadow(VShadow.md)
+    }
+}
+
 // MARK: - File Popover View
 
 private struct FilePopoverView: View {
@@ -1357,6 +1422,7 @@ struct ConstellationView: View {
     var onNavigateToSkill: ((String) -> Void)?
     var onNavigateToFile: ((String) -> Void)?
     var onNavigateToContact: ((String) -> Void)?
+    var onNavigateToMemory: ((String) -> Void)?
     @Binding var isFullscreen: Bool
     @State private var appearance = AvatarAppearanceManager.shared
 
@@ -1371,6 +1437,8 @@ struct ConstellationView: View {
     @State private var selectedFileNodeId: String?
     @State private var selectedContactItem: OrbitItem?
     @State private var selectedContactNodeId: String?
+    @State private var selectedMemoryItem: OrbitItem?
+    @State private var selectedMemoryNodeId: String?
     @State private var zoomedNodeId: String?
 
     // Node sizes
@@ -1663,7 +1731,7 @@ struct ConstellationView: View {
                     .offset(totalOffset)
 
                 // Dismiss layer for popover
-                if selectedSkillItem != nil || selectedFileItem != nil || selectedContactItem != nil {
+                if selectedSkillItem != nil || selectedFileItem != nil || selectedContactItem != nil || selectedMemoryItem != nil {
                     Color.clear
                         .contentShape(Rectangle())
                         .onTapGesture {
@@ -1674,6 +1742,8 @@ struct ConstellationView: View {
                                 selectedFileNodeId = nil
                                 selectedContactItem = nil
                                 selectedContactNodeId = nil
+                                selectedMemoryItem = nil
+                                selectedMemoryNodeId = nil
                             }
                         }
                 }
@@ -1753,6 +1823,29 @@ struct ConstellationView: View {
                     .position(x: contactScaledX, y: contactScaledY)
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
+
+                // Memory popover overlay
+                if let memoryItem = selectedMemoryItem, let memoryNodeId = selectedMemoryNodeId {
+                    let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                    let memoryNodePos = effectivePosition(forId: memoryNodeId)
+                    let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                    let memoryScaledX = viewCenter.x + (memoryNodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
+                    let memoryScaledY = viewCenter.y + (memoryNodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
+
+                    MemoryPopoverView(
+                        item: memoryItem,
+                        onViewDetails: onNavigateToMemory != nil ? {
+                            let memoryId = memoryItem.id.replacingOccurrences(of: "memory-", with: "")
+                            withAnimation(VAnimation.fast) {
+                                selectedMemoryItem = nil
+                                selectedMemoryNodeId = nil
+                            }
+                            onNavigateToMemory?(memoryId)
+                        } : nil
+                    )
+                    .position(x: memoryScaledX, y: memoryScaledY)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                }
             }
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .clipped()
@@ -1804,7 +1897,7 @@ struct ConstellationView: View {
                 }
                 #if os(macOS)
                 .onKeyPress(.escape) {
-                    if selectedSkillItem != nil || selectedFileItem != nil || selectedContactItem != nil {
+                    if selectedSkillItem != nil || selectedFileItem != nil || selectedContactItem != nil || selectedMemoryItem != nil {
                         withAnimation(VAnimation.fast) {
                             selectedSkillItem = nil
                             selectedNodeId = nil
@@ -1812,6 +1905,8 @@ struct ConstellationView: View {
                             selectedFileNodeId = nil
                             selectedContactItem = nil
                             selectedContactNodeId = nil
+                            selectedMemoryItem = nil
+                            selectedMemoryNodeId = nil
                         }
                         return .handled
                     }
@@ -2070,19 +2165,22 @@ struct ConstellationView: View {
                     MemoryNodeView(
                         item: item,
                         size: skillNodeSize,
-                        onTap: item.description != nil
-                            ? {
-                                withAnimation(VAnimation.fast) {
-                                    if selectedSkillItem?.id == item.id {
-                                        selectedSkillItem = nil
-                                        selectedNodeId = nil
-                                    } else {
-                                        selectedSkillItem = item
-                                        selectedNodeId = node.id
-                                    }
+                        onTap: {
+                            withAnimation(VAnimation.fast) {
+                                // Dismiss any open skill/file popovers
+                                selectedSkillItem = nil
+                                selectedNodeId = nil
+                                selectedFileItem = nil
+                                selectedFileNodeId = nil
+                                if selectedMemoryItem?.id == item.id {
+                                    selectedMemoryItem = nil
+                                    selectedMemoryNodeId = nil
+                                } else {
+                                    selectedMemoryItem = item
+                                    selectedMemoryNodeId = node.id
                                 }
                             }
-                            : nil
+                        }
                     )
                     .position(effPos)
                     .gesture(nodeDragGesture(nodeId: nodeId))
