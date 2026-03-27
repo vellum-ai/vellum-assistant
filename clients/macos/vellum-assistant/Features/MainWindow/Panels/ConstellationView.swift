@@ -702,6 +702,7 @@ struct ConstellationView: View {
     @State private var baseZoomScale: CGFloat = 1.0
     @State private var selectedSkillItem: OrbitItem?
     @State private var selectedNodeId: String?
+    @State private var popoverSize: CGSize = CGSize(width: 250, height: 120)
     @State private var zoomedNodeId: String?
 
     // Node sizes
@@ -949,34 +950,47 @@ struct ConstellationView: View {
                     .scaleEffect(zoomScale)
                     .offset(totalOffset)
 
-                // Dismiss layer for popover
-                if selectedSkillItem != nil {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            withAnimation(VAnimation.fast) {
-                                selectedSkillItem = nil
-                                selectedNodeId = nil
-                            }
-                        }
-                }
-
-                // Skill popover overlay
-                if let selected = selectedSkillItem, let nodeId = selectedNodeId {
-                    let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let nodePos = effectivePosition(forId: nodeId)
-                    let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let scaledX = viewCenter.x + (nodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
-                    let scaledY = viewCenter.y + (nodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
-
-                    SkillPopoverView(item: selected)
-                        .position(x: scaledX, y: scaledY)
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                }
             }
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .clipped()
                 .contentShape(Rectangle())
+                .overlay {
+                    // Dismiss layer for popover
+                    if selectedSkillItem != nil {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                withAnimation(VAnimation.fast) {
+                                    selectedSkillItem = nil
+                                    selectedNodeId = nil
+                                }
+                            }
+                    }
+                }
+                .overlay {
+                    // Skill popover overlay (outside clipped area so it doesn't get cut off)
+                    if let selected = selectedSkillItem, let nodeId = selectedNodeId {
+                        let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                        let nodePos = effectivePosition(forId: nodeId)
+                        let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                        let rawX = viewCenter.x + (nodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
+                        let rawY = viewCenter.y + (nodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
+
+                        // Clamp so the popover stays within visible bounds using measured size
+                        let margin: CGFloat = VSpacing.sm
+                        let clampedX = min(max(rawX, popoverSize.width / 2 + margin), proxy.size.width - popoverSize.width / 2 - margin)
+                        let clampedY = min(max(rawY, popoverSize.height / 2 + margin), proxy.size.height - popoverSize.height / 2 - margin)
+
+                        SkillPopoverView(item: selected)
+                            .onGeometryChange(for: CGSize.self) { proxy in
+                                proxy.size
+                            } action: { size in
+                                popoverSize = size
+                            }
+                            .position(x: clampedX, y: clampedY)
+                            .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
+                }
                 .overlay(alignment: .topLeading) {
                     fullscreenToggle
                         .padding(VSpacing.lg)
