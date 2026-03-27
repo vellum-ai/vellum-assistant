@@ -112,15 +112,6 @@ public final class ChatPaginationState {
     // MARK: - Public API
 
     /// Recompute and cache the displayedMessages from the current messages array.
-    /// Call this after any mutation to messages.
-    ///
-    /// Uses the shared `ChatVisibleMessageFilter` so that `displayedMessages` and the
-    /// macOS message list apply identical visibility rules — this keeps scroll-anchor
-    /// math stable across pagination boundaries.
-    func updateDisplayedMessages() {
-        displayedMessages = ChatVisibleMessageFilter.visibleMessages(from: messageManager.messages)
-    }
-
     /// Load the previous page of messages by expanding the display window.
     /// When all locally loaded messages are already visible and the daemon has
     /// more history available, requests the next older page from the daemon.
