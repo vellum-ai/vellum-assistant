@@ -126,14 +126,14 @@ final class VoiceModeManager: ObservableObject {
         chatViewModel.isVoiceModeActive = true
 
         // Monitor for permission requests during voice mode
-        messageCancellable = chatViewModel.messageManager.$messages
+        messageCancellable = chatViewModel.messageManager.messagesPublisher
             .sink { [weak self] messages in
                 self?.checkForConfirmations(in: messages)
             }
 
         // Pause the conversation timeout while the agent is executing tools,
         // preventing auto-deactivation during multi-step tool sequences.
-        isThinkingCancellable = chatViewModel.messageManager.$isThinking
+        isThinkingCancellable = chatViewModel.messageManager.isThinkingPublisher
             .removeDuplicates()
             .sink { [weak self] thinking in
                 guard let self, self.state == .idle else { return }
