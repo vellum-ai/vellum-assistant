@@ -63,7 +63,7 @@ public final class ChatPaginationState {
     /// stuck loading spinner.
     /// Accessed from ChatViewModel's nonisolated deinit for cancellation.
     /// The property is only mutated on MainActor.
-    nonisolated var loadMoreTimeoutTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated var loadMoreTimeoutTask: Task<Void, Never>?
 
     // MARK: - Dependencies
 
@@ -187,9 +187,4 @@ public final class ChatPaginationState {
         isLoadingMoreMessages = false
     }
 
-    /// Cancel the load-more timeout task (used in deinit cleanup).
-    func cancelTimeoutTask() {
-        loadMoreTimeoutTask?.cancel()
-        loadMoreTimeoutTask = nil
-    }
 }

@@ -287,6 +287,7 @@ public final class ChatViewModel: ObservableObject {
     private var errorManagerPublishCount = 0
     private var btwStatePublishCount = 0
     private var greetingStatePublishCount = 0
+    private var paginationStatePublishCount = 0
     private var lastRateLogTime = Date()
 
     private func trackPublish(source: String) {
@@ -297,14 +298,15 @@ public final class ChatViewModel: ObservableObject {
         case "errorManager": errorManagerPublishCount += 1
         case "btwState": btwStatePublishCount += 1
         case "greetingState": greetingStatePublishCount += 1
+        case "paginationState": paginationStatePublishCount += 1
         default: break
         }
         let now = Date()
         if now.timeIntervalSince(lastRateLogTime) >= 5 {
             os_log(
                 .debug, log: Self.perfLog,
-                "ChatViewModel publish rate: %d/5s (msg=%d, attach=%d, err=%d, btw=%d, greet=%d)",
-                publishCount, messageManagerPublishCount, attachmentManagerPublishCount, errorManagerPublishCount, btwStatePublishCount, greetingStatePublishCount
+                "ChatViewModel publish rate: %d/5s (msg=%d, attach=%d, err=%d, btw=%d, greet=%d, page=%d)",
+                publishCount, messageManagerPublishCount, attachmentManagerPublishCount, errorManagerPublishCount, btwStatePublishCount, greetingStatePublishCount, paginationStatePublishCount
             )
             publishCount = 0
             messageManagerPublishCount = 0
@@ -312,6 +314,7 @@ public final class ChatViewModel: ObservableObject {
             errorManagerPublishCount = 0
             btwStatePublishCount = 0
             greetingStatePublishCount = 0
+            paginationStatePublishCount = 0
             lastRateLogTime = now
         }
     }
@@ -889,10 +892,6 @@ public final class ChatViewModel: ObservableObject {
 
     public var displayedMessages: [ChatMessage] {
         paginationState.displayedMessages
-    }
-
-    private func updateDisplayedMessages() {
-        paginationState.updateDisplayedMessages()
     }
 
     public var historyCursor: Double? {
