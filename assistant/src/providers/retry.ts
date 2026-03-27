@@ -19,7 +19,12 @@ import type {
 const log = getLogger("retry");
 
 /** Providers that support the `effort` config (extended thinking / reasoning). */
-const EFFORT_SUPPORTED_PROVIDERS = new Set(["anthropic", "openai"]);
+const EFFORT_SUPPORTED_PROVIDERS = new Set([
+  "anthropic",
+  "openai",
+  "openrouter",
+  "fireworks",
+]);
 
 /** Patterns that indicate a transient streaming corruption from the SDK. */
 const RETRYABLE_STREAM_PATTERNS = [
@@ -81,7 +86,7 @@ function normalizeSendMessageOptions(
     delete nextConfig.thinking;
   }
 
-  // effort is supported by Anthropic and OpenAI; strip it for other providers
+  // effort is supported by Anthropic, OpenAI, and OpenAI-compatible providers; strip for others
   if (
     !EFFORT_SUPPORTED_PROVIDERS.has(providerName) &&
     nextConfig.effort !== undefined
