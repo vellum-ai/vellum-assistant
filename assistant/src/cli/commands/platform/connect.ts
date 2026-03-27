@@ -87,14 +87,14 @@ Examples:
           return;
         }
 
-        // Write a signal file so the daemon's ConfigWatcher publishes a
-        // navigate_settings event to connected clients (e.g. macOS app),
-        // opening the General settings tab with the Vellum Platform login card.
+        // Write a signal file so the daemon's ConfigWatcher publishes the
+        // event to connected clients (e.g. macOS app), opening the General
+        // settings tab which contains the Vellum Platform login card.
         const signalsDir = getSignalsDir();
         mkdirSync(signalsDir, { recursive: true });
         writeFileSync(
-          join(signalsDir, "navigate-settings"),
-          JSON.stringify({ tab: "General" }),
+          join(signalsDir, "emit-event"),
+          JSON.stringify({ type: "navigate_settings", tab: "General" }),
         );
 
         writeOutput(cmd, { ok: true, navigatedToSettings: true });

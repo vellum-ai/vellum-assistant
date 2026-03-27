@@ -183,7 +183,7 @@ describe("assistant platform connect", () => {
     }
   });
 
-  test("writes navigate-settings signal file and reports success", async () => {
+  test("writes emit-event signal file and reports success", async () => {
     // GIVEN no existing platform credentials
     mockGetSecureKeyViaDaemon = async () => undefined;
 
@@ -202,11 +202,11 @@ describe("assistant platform connect", () => {
     expect(parsed.ok).toBe(true);
     expect(parsed.navigatedToSettings).toBe(true);
 
-    // AND a navigate-settings signal file was written for the daemon
-    const signalPath = join(testDir, "signals", "navigate-settings");
+    // AND a generic emit-event signal file was written for the daemon
+    const signalPath = join(testDir, "signals", "emit-event");
     expect(existsSync(signalPath)).toBe(true);
     const payload = JSON.parse(readFileSync(signalPath, "utf-8"));
-    expect(payload).toEqual({ tab: "General" });
+    expect(payload).toEqual({ type: "navigate_settings", tab: "General" });
   });
 
   test("already connected returns success with existing base URL", async () => {
@@ -235,8 +235,8 @@ describe("assistant platform connect", () => {
     expect(parsed.alreadyConnected).toBe(true);
     expect(parsed.baseUrl).toBe("https://platform.vellum.ai");
 
-    // AND no navigate-settings signal file was written
-    const signalPath = join(testDir, "signals", "navigate-settings");
+    // AND no emit-event signal file was written
+    const signalPath = join(testDir, "signals", "emit-event");
     expect(existsSync(signalPath)).toBe(false);
   });
 });
