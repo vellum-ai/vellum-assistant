@@ -83,7 +83,7 @@ class CredentialStoreTool implements Tool {
             type: "string",
             enum: ["store", "list", "delete", "prompt"],
             description:
-              'The operation to perform. Use "prompt" to ask the user for a secret via secure UI - the value never enters the conversation. For well-known services (google, slack), only the service name is required - endpoints, scopes, and stored client credentials are resolved automatically.',
+              'The operation to perform. Use "prompt" to ask the user for a secret via secure UI - the value never enters the conversation.',
           },
           service: {
             type: "string",
