@@ -17,6 +17,7 @@ struct IdentityPanel: View {
     @State private var lockfileAssistant: LockfileAssistant?
     @State private var workspaceFiles: [WorkspaceFileNode] = []
     @State private var skills: [SkillInfo] = []
+    @State private var skillCategoryLookup: [String: SkillCategory] = [:]
     @State private var viewingFilePath: String?
     @State private var isFullscreen: Bool = false
     @State private var showAvatarSheet: Bool = false
@@ -180,6 +181,7 @@ struct IdentityPanel: View {
                 identity: identity,
                 skills: skills,
                 workspaceFiles: workspaceFiles,
+                categoryLookup: skillCategoryLookup,
                 onNavigateToSkill: onNavigateToSkill,
                 onNavigateToFile: onNavigateToFile,
                 isFullscreen: $isFullscreen
@@ -362,7 +364,14 @@ struct IdentityPanel: View {
         Task {
             let response = await SkillsClient().fetchSkillsList(includeCatalog: false)
             if let response {
-                skills = response.skills.filter { $0.state == "enabled" }
+                let enabled = response.skills.filter { $0.state == "enabled" }
+                skills = enabled
+                var map: [String: SkillCategory] = [:]
+                map.reserveCapacity(enabled.count)
+                for skill in enabled {
+                    map[skill.id] = inferCategory(skill)
+                }
+                skillCategoryLookup = map
             }
         }
     }

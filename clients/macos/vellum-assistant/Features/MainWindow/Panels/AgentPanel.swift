@@ -253,7 +253,7 @@ struct AgentPanelContent: View {
     private func categoryCount(for category: SkillCategory?) -> Int {
         let base = searchFilteredSkills
         guard let category else { return base.count }
-        return base.filter { inferCategory($0) == category }.count
+        return base.filter { skillsManager.category(for: $0) == category }.count
     }
 
     // MARK: - Filtering
@@ -282,7 +282,7 @@ struct AgentPanelContent: View {
         let base = searchFilteredSkills
         let filtered: [SkillInfo]
         if let category = selectedCategory {
-            filtered = base.filter { inferCategory($0) == category }
+            filtered = base.filter { skillsManager.category(for: $0) == category }
         } else {
             filtered = base
         }
@@ -390,10 +390,6 @@ struct SkillItemRow: View {
 
     private var isRemovable: Bool {
         skill.source == "managed" || skill.source == "clawhub"
-    }
-
-    private var category: SkillCategory {
-        inferCategory(skill)
     }
 
     var body: some View {

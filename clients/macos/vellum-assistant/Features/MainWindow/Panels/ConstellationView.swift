@@ -764,6 +764,8 @@ struct ConstellationView: View {
     let identity: IdentityInfo?
     let skills: [SkillInfo]
     let workspaceFiles: [WorkspaceFileNode]
+    /// Pre-computed skill-id → category map for O(1) lookups during view body evaluation.
+    var categoryLookup: [String: SkillCategory] = [:]
     var onNavigateToSkill: ((String) -> Void)?
     var onNavigateToFile: ((String) -> Void)?
     @Binding var isFullscreen: Bool
@@ -815,9 +817,9 @@ struct ConstellationView: View {
             )
         }
 
-        var categoryMap: [SkillCategory: [OrbitItem]] = [.knowledge: fileItems]
+        var buckets: [SkillCategory: [OrbitItem]] = [.knowledge: fileItems]
         for skill in skills {
-            let cat = inferCategory(skill)
+            let cat = categoryLookup[skill.id] ?? .knowledge
             let item = OrbitItem(
                 id: skill.id,
                 label: skill.name,
@@ -828,12 +830,12 @@ struct ConstellationView: View {
                 description: skill.description,
                 category: cat
             )
-            categoryMap[cat, default: []].append(item)
+            buckets[cat, default: []].append(item)
         }
 
         var result: [CategoryGroup] = []
         for cat in SkillCategory.allCases {
-            if let items = categoryMap[cat], !items.isEmpty {
+            if let items = buckets[cat], !items.isEmpty {
                 result.append(CategoryGroup(category: cat, items: items))
             }
         }
