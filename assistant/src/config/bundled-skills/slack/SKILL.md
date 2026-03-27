@@ -86,6 +86,10 @@ When responding to messages from Slack channels, replies should be threaded. Pas
 
 Before making any Slack API calls, verify that Slack is connected. If not connected, load the **slack-app-setup** skill (`skill_load` with `skill: "slack-app-setup"`) and follow its guided flow. Do NOT improvise setup instructions — the `slack-app-setup` skill is the single source of truth. Slack uses Socket Mode and does not require redirect URLs or any OAuth flow.
 
+## Error Handling
+
+If a Slack API call fails due to missing or invalid credentials — for example, an error indicating that `slack_channel/bot_token` is not found, the credential is missing, or the token is invalid — do NOT attempt to fix the credentials manually. Instead, load the **slack-app-setup** skill (`skill_load` with `skill: "slack-app-setup"`) and follow its guided flow to set up or reconnect Slack. Tell the user something like "Slack needs to be reconnected" and start the setup skill.
+
 ## Communication Style
 
 - **Be action-oriented.** When the user asks to check Slack, start scanning immediately.
