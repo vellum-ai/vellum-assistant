@@ -175,10 +175,28 @@ export async function commitAppTurnChanges(
     ensureAppGitignoreRules(appsDir);
 
     const gitService = getWorkspaceGitService(appsDir);
-    await gitService.commitIfDirty(() => ({
-      message: `Turn ${turnNumber}: app changes`,
-      metadata: { conversationId, turnNumber },
-    }));
+    await gitService.commitIfDirty((status) => {
+      const allFiles = [
+        ...new Set([...status.staged, ...status.modified, ...status.untracked]),
+      ];
+
+      // Derive unique app names from file paths like "my-app.json" or "my-app/index.html"
+      const appNames = [
+        ...new Set(allFiles.map((f) => f.split("/")[0].replace(/\.json$/, ""))),
+      ];
+
+      const subject =
+        appNames.length === 1
+          ? `update ${appNames[0]}`
+          : appNames.length <= 3
+            ? `update ${appNames.join(", ")}`
+            : `update ${appNames.length} apps`;
+
+      return {
+        message: subject,
+        metadata: { conversationId, turnNumber },
+      };
+    });
   } catch (err) {
     log.error(
       { err, conversationId, turnNumber },

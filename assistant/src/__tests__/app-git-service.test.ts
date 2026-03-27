@@ -100,7 +100,9 @@ describe("App Git Service", () => {
     expect(commits.length).toBeLessThanOrEqual(2);
     // The turn commit message should appear (or files are in the initial commit)
     expect(
-      commits.some((c) => c.includes("Turn 1") || c.includes("Initial commit")),
+      commits.some(
+        (c) => c.includes("update ") || c.includes("Initial commit"),
+      ),
     ).toBe(true);
   });
 
@@ -141,6 +143,6 @@ describe("App Git Service", () => {
 
     const appsDir = getAppsDir();
     const commits = getGitLog(appsDir);
-    expect(commits[0]).toContain("Turn 2: app changes");
+    expect(commits[0]).toContain("update ");
   });
 });
