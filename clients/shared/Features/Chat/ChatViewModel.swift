@@ -2961,7 +2961,8 @@ public final class ChatViewModel: ObservableObject {
         streamingFlushTask?.cancel()
         partialOutputFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
-        paginationState.loadMoreTimeoutTask?.cancel()
+        // paginationState.loadMoreTimeoutTask uses [weak self] and exits
+        // naturally when ChatPaginationState is deallocated with this object.
         // surfaceRefetchCoordinator is released with self; its deinit cancels tasks.
         // refinementFailureDismissTask and refinementFlushTask are accessed via
         // @MainActor computed properties (forwarded from ChatMessageManager), which
