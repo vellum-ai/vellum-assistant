@@ -78,6 +78,8 @@
     "file-plus",
     "file-text",
     "folder",
+    "folder-closed",
+    "folder-open",
     "folder-search",
     "gamepad-2",
     "gift",

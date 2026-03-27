@@ -24,9 +24,13 @@ struct SidebarSectionHeader: View {
 
     var body: some View {
         HStack(spacing: VSpacing.xs) {
-            VIconView(.chevronRight, size: SidebarLayoutMetrics.sectionChevronSize)
+            // VIconView(.chevronRight, size: SidebarLayoutMetrics.sectionChevronSize)
+            //     .foregroundStyle(VColor.contentTertiary)
+            //     .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            //     .animation(VAnimation.fast, value: isExpanded)
+            //     .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
+            VIconView(isExpanded ? .folderOpen : .folderClosed)
                 .foregroundStyle(VColor.contentTertiary)
-                .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 .animation(VAnimation.fast, value: isExpanded)
                 .frame(width: SidebarLayoutMetrics.iconSlotSize, height: SidebarLayoutMetrics.iconSlotSize)
 
