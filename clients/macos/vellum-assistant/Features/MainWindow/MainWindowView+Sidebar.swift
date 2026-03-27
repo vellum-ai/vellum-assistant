@@ -30,7 +30,7 @@ extension MainWindowView {
     }
 
     var regularConversations: [ConversationModel] {
-        conversationManager.visibleConversations.filter { !$0.isScheduleConversation && !$0.isBackgroundConversation }
+        conversationManager.visibleConversations.filter { !$0.isScheduleConversation && !$0.isBackgroundConversation && !$0.isChannelConversation }
     }
 
     var backgroundConversations: [ConversationModel] {
@@ -61,6 +61,20 @@ extension MainWindowView {
             return all
         }
         return visible
+    }
+
+    /// All channel-bound conversations, grouped by originChannel.
+    /// Sorted alphabetically by channel name for stable sidebar ordering.
+    var channelConversationGroups: [(channel: String, conversations: [ConversationModel])] {
+        let channelConversations = conversationManager.visibleConversations.filter { $0.isChannelConversation }
+        var grouped: [String: [ConversationModel]] = [:]
+        for conversation in channelConversations {
+            let channel = conversation.originChannel ?? "unknown"
+            grouped[channel, default: []].append(conversation)
+        }
+        return grouped.keys.sorted().map { key in
+            (channel: key, conversations: grouped[key]!)
+        }
     }
 
     /// Groups schedule conversations by their scheduleJobId.
@@ -571,6 +585,76 @@ extension MainWindowView {
                             .padding(.bottom, VSpacing.xs)
                         }
                         } // end backgroundSectionCollapsed
+                    }
+
+                    // Channel conversation sections
+                    ForEach(channelConversationGroups, id: \.channel) { group in
+                        let isCollapsed = sidebar.collapsedChannelSections.contains(group.channel)
+                        let sectionHasUnread = isCollapsed &&
+                            group.conversations.contains(where: { $0.hasUnseenLatestAssistantMessage })
+
+                        Button {
+                            withAnimation(VAnimation.fast) {
+                                if isCollapsed {
+                                    sidebar.collapsedChannelSections.remove(group.channel)
+                                } else {
+                                    sidebar.collapsedChannelSections.insert(group.channel)
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: VSpacing.xs) {
+                                HStack(spacing: 2) {
+                                    VIconView(.chevronRight, size: 10)
+                                        .foregroundStyle(VColor.contentTertiary)
+                                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                                        .animation(VAnimation.fast, value: isCollapsed)
+                                    if sectionHasUnread {
+                                        Circle()
+                                            .fill(VColor.systemNegativeStrong)
+                                            .frame(width: 6, height: 6)
+                                            .transition(.opacity)
+                                    }
+                                }
+                                Text(group.channel.capitalized)
+                                    .font(VFont.labelDefault)
+                                    .foregroundStyle(VColor.contentTertiary)
+                                Spacer()
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .padding(.leading, VSpacing.xs)
+                        .padding(.trailing, VSpacing.md)
+                        .padding(.top, SidebarLayoutMetrics.scheduledHeaderTopGap)
+                        .padding(.bottom, SidebarLayoutMetrics.scheduledHeaderBottomGap)
+                        .pointerCursor()
+
+                        if !isCollapsed {
+                            let showAll = sidebar.showAllChannelConversations[group.channel] ?? false
+                            let displayed = showAll ? group.conversations : Array(group.conversations.prefix(3))
+
+                            ForEach(displayed) { conversation in
+                                makeSidebarRow(conversation: conversation)
+                                    .equatable()
+                                    .padding(.bottom, SidebarLayoutMetrics.listRowGap)
+                            }
+
+                            if group.conversations.count > 3 {
+                                HStack {
+                                    VButton(
+                                        label: showAll ? "Show less" : "Show more",
+                                        style: .ghost,
+                                        size: .compact
+                                    ) {
+                                        withAnimation(VAnimation.fast) {
+                                            sidebar.showAllChannelConversations[group.channel] = !showAll
+                                        }
+                                    }
+                                    Spacer()
+                                }
+                                .padding(.leading, VSpacing.xs + SidebarLayoutMetrics.iconSlotSize + VSpacing.xs - VSpacing.sm)
+                                .padding(.bottom, VSpacing.xs)
+                            }
+                        }
                     }
                 }
             }
