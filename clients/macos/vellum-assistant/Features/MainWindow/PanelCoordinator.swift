@@ -612,7 +612,7 @@ func openFilePicker(viewModel: ChatViewModel) {
 
 /// Observes the active ChatViewModel and renders the chat interface.
 struct ActiveChatViewWrapper: View {
-    @ObservedObject var viewModel: ChatViewModel
+    var viewModel: ChatViewModel
     @ObservedObject var windowState: MainWindowState
     let conversationStartersEnabled: Bool
     var showInspectButton: Bool = false
@@ -816,7 +816,7 @@ struct ActiveChatViewWrapper: View {
 
 /// Observes the active ChatViewModel and renders the dynamic workspace overlays.
 struct DynamicWorkspaceWrapper: View {
-    @ObservedObject var viewModel: ChatViewModel
+    var viewModel: ChatViewModel
     let surface: Surface
     let data: DynamicPageSurfaceData
     @ObservedObject var windowState: MainWindowState

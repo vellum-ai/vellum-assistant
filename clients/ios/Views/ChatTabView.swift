@@ -19,13 +19,13 @@ struct ActivityViewController: UIViewControllerRepresentable {
 // MARK: - ChatTabView
 
 struct ChatTabView: View {
-    @StateObject private var viewModel: ChatViewModel
+    @State private var viewModel: ChatViewModel
     @State private var showCopiedConfirmation = false
     @State private var showShareSheet = false
     @State private var shareMarkdown: String = ""
 
     init(connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient) {
-        _viewModel = StateObject(wrappedValue: ChatViewModel(connectionManager: connectionManager, eventStreamClient: eventStreamClient))
+        _viewModel = State(wrappedValue: ChatViewModel(connectionManager: connectionManager, eventStreamClient: eventStreamClient))
     }
 
     var body: some View {
