@@ -14,6 +14,7 @@ import {
   registerProvider,
   updateProvider,
 } from "../../../oauth/oauth-store.js";
+import { serializeProvider } from "../../../oauth/provider-serializer.js";
 import { SEEDED_PROVIDER_KEYS } from "../../../oauth/seed-providers.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
@@ -51,43 +52,12 @@ function resolveRedirectUri(
   }
 }
 
-/** Parse stored JSON string fields into their native types. */
+/** Serialize a provider row with the CLI-resolved redirect URI. */
 function parseProviderRow(row: ReturnType<typeof getProvider>) {
   if (!row) return row;
-  return {
-    ...row,
-    displayName: row.displayName ?? null,
-    description: row.description ?? null,
-    dashboardUrl: row.dashboardUrl ?? null,
-    clientIdPlaceholder: row.clientIdPlaceholder ?? null,
-    requiresClientSecret: !!(row.requiresClientSecret ?? 1),
-    supportsManagedMode: !!row.managedServiceConfigKey,
-    defaultScopes: row.defaultScopes ? JSON.parse(row.defaultScopes) : [],
-    scopePolicy: row.scopePolicy ? JSON.parse(row.scopePolicy) : {},
-    extraParams: row.extraParams ? JSON.parse(row.extraParams) : null,
-    pingHeaders: row.pingHeaders ? JSON.parse(row.pingHeaders) : null,
-    pingBody: row.pingBody ? JSON.parse(row.pingBody) : null,
-    loopbackPort: row.loopbackPort ?? null,
-    injectionTemplates: row.injectionTemplates
-      ? JSON.parse(row.injectionTemplates)
-      : null,
-    appType: row.appType ?? null,
-    setupNotes: row.setupNotes ? JSON.parse(row.setupNotes) : null,
-    identityUrl: row.identityUrl ?? null,
-    identityMethod: row.identityMethod ?? null,
-    identityHeaders: row.identityHeaders
-      ? JSON.parse(row.identityHeaders)
-      : null,
-    identityBody: row.identityBody ? JSON.parse(row.identityBody) : null,
-    identityResponsePaths: row.identityResponsePaths
-      ? JSON.parse(row.identityResponsePaths)
-      : null,
-    identityFormat: row.identityFormat ?? null,
-    identityOkField: row.identityOkField ?? null,
+  return serializeProvider(row, {
     redirectUri: resolveRedirectUri(row.callbackTransport, row.loopbackPort),
-    createdAt: new Date(row.createdAt).toISOString(),
-    updatedAt: new Date(row.updatedAt).toISOString(),
-  };
+  });
 }
 
 export function registerProviderCommands(oauth: Command): void {
