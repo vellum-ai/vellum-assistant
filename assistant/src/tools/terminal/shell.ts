@@ -52,7 +52,7 @@ function formatUnknownCredentialRefError(unresolvedRefs: string[]): string {
     );
   }
 
-  if (unresolvedRefs.some(isSlackChannelCredentialRef)) {
+  if (unresolvedRefs.every(isSlackChannelCredentialRef)) {
     return (
       "Error: Slack Web API access isn't available on cloud-hosted assistants yet. " +
       `This Slack workflow expects a locally connected Slack app, but ${joinedRefs} is not available on this assistant. ` +

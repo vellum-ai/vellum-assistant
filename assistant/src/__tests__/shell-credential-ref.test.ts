@@ -245,6 +245,37 @@ describe("shell tool credential ref resolution", () => {
     }
   });
 
+  test("managed mode falls back to the generic error for mixed Slack and non-Slack refs", async () => {
+    const originalManagedMode = process.env["CES_MANAGED_MODE"];
+    process.env["CES_MANAGED_MODE"] = "1";
+
+    try {
+      const result = await shellTool.execute(
+        {
+          command: "echo hello",
+          reason: "test",
+          network_mode: "proxied",
+          credential_ids: ["slack_channel/bot_token", "fal/api_key"],
+        },
+        ctx,
+      );
+
+      expect(result.isError).toBe(true);
+      expect(result.content).toContain("assistant credentials list");
+      expect(result.content).toContain("slack_channel/bot_token, fal/api_key");
+      expect(result.content).not.toContain(
+        "Slack Web API access isn't available on cloud-hosted assistants yet",
+      );
+      expect(mockGetOrStartSession).not.toHaveBeenCalled();
+    } finally {
+      if (originalManagedMode === undefined) {
+        delete process.env["CES_MANAGED_MODE"];
+      } else {
+        process.env["CES_MANAGED_MODE"] = originalManagedMode;
+      }
+    }
+  });
+
   test("duplicate refs are deduped", async () => {
     const meta = upsertCredentialMetadata("fal", "api_key");
 
