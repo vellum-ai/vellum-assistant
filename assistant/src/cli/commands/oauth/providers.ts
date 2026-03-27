@@ -90,6 +90,10 @@ Each provider is identified by a provider key (e.g. "google").`,
       "--provider-key <key>",
       'Filter by provider key substring (case-insensitive). Comma-separated values are OR\'d (e.g. "google,slack")',
     )
+    .option(
+      "--supports-managed",
+      "Only show providers that support managed mode",
+    )
     .addHelpText(
       "after",
       `
@@ -109,37 +113,48 @@ Examples:
   $ assistant oauth providers list
   $ assistant oauth providers list --provider-key google
   $ assistant oauth providers list --provider-key "google,slack"
-  $ assistant oauth providers list --provider-key notion --json`,
+  $ assistant oauth providers list --provider-key notion --json
+  $ assistant oauth providers list --supports-managed
+  $ assistant oauth providers list --supports-managed --json`,
     )
-    .action((opts: { providerKey?: string }, cmd: Command) => {
-      try {
-        let rows = listProviders().map(parseProviderRow);
+    .action(
+      (
+        opts: { providerKey?: string; supportsManaged?: boolean },
+        cmd: Command,
+      ) => {
+        try {
+          let rows = listProviders().map(parseProviderRow);
 
-        if (opts.providerKey) {
-          const needles = opts.providerKey
-            .split(",")
-            .map((n) => n.trim().toLowerCase())
-            .filter(Boolean);
-          rows = rows.filter(
-            (r) =>
-              r &&
-              needles.some((needle) =>
-                r.providerKey.toLowerCase().includes(needle),
-              ),
-          );
+          if (opts.providerKey) {
+            const needles = opts.providerKey
+              .split(",")
+              .map((n) => n.trim().toLowerCase())
+              .filter(Boolean);
+            rows = rows.filter(
+              (r) =>
+                r &&
+                needles.some((needle) =>
+                  r.providerKey.toLowerCase().includes(needle),
+                ),
+            );
+          }
+
+          if (opts.supportsManaged) {
+            rows = rows.filter((r) => r && r.supportsManagedMode);
+          }
+
+          if (!shouldOutputJson(cmd)) {
+            log.info(`Found ${rows.length} provider(s)`);
+          }
+
+          writeOutput(cmd, rows);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          writeOutput(cmd, { ok: false, error: message });
+          process.exitCode = 1;
         }
-
-        if (!shouldOutputJson(cmd)) {
-          log.info(`Found ${rows.length} provider(s)`);
-        }
-
-        writeOutput(cmd, rows);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        writeOutput(cmd, { ok: false, error: message });
-        process.exitCode = 1;
-      }
-    });
+      },
+    );
 
   // ---------------------------------------------------------------------------
   // providers get <provider-key>
