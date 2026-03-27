@@ -900,7 +900,7 @@ extension ChatViewModel {
                let userId = requestIdToMessageId[msg.requestId],
                let userIdx = messages.firstIndex(where: { $0.id == userId }),
                userIdx > assistantIdx {
-                flushStreamingBuffer(immediate: true)
+                flushStreamingBuffer()
                 flushPartialOutputBuffer()
                 messages[assistantIdx].isStreaming = false
                 messages[assistantIdx].streamingCodePreview = nil
