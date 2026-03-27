@@ -801,8 +801,6 @@ struct ConstellationView: View {
     /// Accumulated drag offset for the node currently being dragged.
     @State private var activeNodeDrag: (id: String, offset: CGSize)?
 
-    /// Event monitor for mouse-wheel scroll zoom.
-    @State private var scrollWheelMonitor: Any?
 
     private var existingFiles: [WorkspaceFileNode] {
         workspaceFiles.filter { $0.exists }
@@ -996,34 +994,6 @@ struct ConstellationView: View {
         }
     }
 
-    // MARK: - Mouse Wheel Zoom
-
-    private func installScrollWheelMonitor() {
-        scrollWheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-            // Only handle discrete mouse-wheel scrolling.
-            // Precise scrolling (trackpad two-finger) is handled by MagnifyGesture.
-            guard !event.hasPreciseScrollingDeltas else { return event }
-
-            let delta = event.scrollingDeltaY / 10
-            guard abs(delta) > 0.001 else { return event }
-
-            let newScale = max(0.4, min(3.0, zoomScale * (1 + delta)))
-            withAnimation(VAnimation.snappy) {
-                zoomScale = newScale
-                baseZoomScale = newScale
-                zoomedNodeId = nil
-            }
-            return nil
-        }
-    }
-
-    private func removeScrollWheelMonitor() {
-        if let monitor = scrollWheelMonitor {
-            NSEvent.removeMonitor(monitor)
-            scrollWheelMonitor = nil
-        }
-    }
-
     /// Shared drag gesture for any draggable node.
     private func nodeDragGesture(nodeId: String) -> some Gesture {
         DragGesture(minimumDistance: 4)
@@ -1178,12 +1148,18 @@ struct ConstellationView: View {
                             zoomedNodeId = nil
                         }
                 )
+                .background {
+                    ScrollWheelZoomHelper { delta in
+                        let newScale = max(0.4, min(3.0, zoomScale * (1 + delta)))
+                        withAnimation(VAnimation.snappy) {
+                            zoomScale = newScale
+                            baseZoomScale = newScale
+                            zoomedNodeId = nil
+                        }
+                    }
+                }
                 .onAppear {
                     layoutAndAnimate(viewSize: proxy.size)
-                    installScrollWheelMonitor()
-                }
-                .onDisappear {
-                    removeScrollWheelMonitor()
                 }
                 .onChange(of: skills.count) { _, _ in
                     layoutAndAnimate(viewSize: proxy.size)
@@ -1478,6 +1454,60 @@ private struct DottedGridBackground: View {
                     )
                 }
             }
+        }
+    }
+}
+
+// MARK: - Scroll Wheel Zoom Helper
+
+/// Transparent NSViewRepresentable that intercepts discrete mouse-wheel scroll
+/// events over this view's bounds and converts them into zoom deltas.
+/// Trackpad (precise) scrolling is left untouched for `MagnifyGesture`.
+private struct ScrollWheelZoomHelper: NSViewRepresentable {
+    var onZoomDelta: (CGFloat) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onZoomDelta: onZoomDelta) }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        let coordinator = context.coordinator
+        coordinator.view = view
+        coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            guard let v = coordinator.view,
+                  let window = v.window,
+                  event.window == window else { return event }
+            let location = v.convert(event.locationInWindow, from: nil)
+            guard v.bounds.width > 0, v.bounds.contains(location) else { return event }
+
+            // Only handle discrete mouse-wheel scrolling.
+            guard !event.hasPreciseScrollingDeltas else { return event }
+
+            let delta = event.scrollingDeltaY / 10
+            guard abs(delta) > 0.001 else { return event }
+
+            coordinator.onZoomDelta(delta)
+            return nil
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.onZoomDelta = onZoomDelta
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        if let monitor = coordinator.monitor {
+            NSEvent.removeMonitor(monitor)
+        }
+    }
+
+    class Coordinator {
+        weak var view: NSView?
+        var monitor: Any?
+        var onZoomDelta: (CGFloat) -> Void
+
+        init(onZoomDelta: @escaping (CGFloat) -> Void) {
+            self.onZoomDelta = onZoomDelta
         }
     }
 }
