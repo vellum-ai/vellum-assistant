@@ -22,11 +22,10 @@ struct ConversationTitleActionsControl: View {
                 style: .ghost
             ) {
                 if presentation.showsActionsMenu {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                        showDrawer.toggle()
-                    }
+                    showDrawer.toggle()
                 }
             }
+            .foregroundStyle(VColor.contentDefault)
 
             if let parentTitle = presentation.forkParentTitle, presentation.showsForkParentLink {
                 Button(action: onOpenForkParent) {
@@ -82,6 +81,6 @@ struct ConversationActionsDrawer: View {
 
             VMenuItem(icon: VIcon.archive.rawValue, label: "Archive", action: onArchive)
         }
-        .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
+        .transition(.identity)
     }
 }

@@ -40,7 +40,7 @@ struct InlineAppCreatedCard: View {
 
             if let description = preview.description, !description.isEmpty {
                 Text(description)
-                    .font(VFont.labelDefault)
+                    .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentSecondary)
                     .lineLimit(3)
             }
