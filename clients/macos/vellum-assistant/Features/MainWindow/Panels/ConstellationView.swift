@@ -376,7 +376,7 @@ private struct SkillNodeView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .nativeTooltip(item.label)
+        .nativeTooltip(item.kind == .workspaceFile ? "File: \(item.label)" : "Skill: \(item.label)")
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
@@ -530,7 +530,7 @@ private struct MemoryNodeView: View {
                 .rotationEffect(.degrees(45))
         )
         .contentShape(Rectangle())
-        .nativeTooltip(item.label)
+        .nativeTooltip("Memory: \(item.label)")
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
@@ -632,7 +632,7 @@ private struct ContactNodeView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .nativeTooltip(item.label)
+        .nativeTooltip("Contact: \(item.label)")
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
@@ -647,17 +647,66 @@ private struct ContactNodeView: View {
     }
 }
 
-// MARK: - Contact Popover View
+// MARK: - Node Popover View (Unified)
 
-private struct ContactPopoverView: View {
+private struct NodePopoverView: View {
     let item: OrbitItem
     var onViewDetails: (() -> Void)?
+    /// Legacy file open callback for workspace files.
+    var onOpenFile: (() -> Void)?
+
+    /// Type badge label based on the item's kind.
+    private var typeBadgeLabel: String {
+        switch item.kind {
+        case .skill: return "Skill"
+        case .memory: return "Memory"
+        case .contact: return "Contact"
+        case .workspaceFile: return "File"
+        }
+    }
+
+    /// Type badge color based on the item's kind.
+    private var typeBadgeColor: Color {
+        switch item.kind {
+        case .skill: return item.category?.color ?? item.color
+        case .memory: return VColor.funBlue
+        case .contact: return VColor.funCoral
+        case .workspaceFile: return VColor.funGreen
+        }
+    }
+
+    /// Icon for the header based on the item's kind.
+    private var headerIcon: VIcon {
+        switch item.kind {
+        case .skill: return item.icon
+        case .memory: return item.icon
+        case .contact: return .users
+        case .workspaceFile: return .file
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
+            // Type badge pill
+            Text(typeBadgeLabel)
+                .font(VFont.labelSmall)
+                .foregroundStyle(typeBadgeColor)
+                .padding(.horizontal, VSpacing.sm)
+                .padding(.vertical, VSpacing.xxs)
+                .background(
+                    Capsule()
+                        .fill(typeBadgeColor.opacity(0.15))
+                )
+
+            // Name/title with icon or emoji
             HStack(spacing: VSpacing.sm) {
-                VIconView(.users, size: 14)
-                    .foregroundStyle(item.color)
+                if item.kind == .skill, let emoji = item.emoji, !emoji.isEmpty {
+                    Text(emoji)
+                        .font(.system(size: 20))
+                } else {
+                    VIconView(headerIcon, size: 14)
+                        .foregroundStyle(item.color)
+                }
 
                 Text(item.label)
                     .font(VFont.bodyMediumDefault)
@@ -665,6 +714,7 @@ private struct ContactPopoverView: View {
                     .lineLimit(2)
             }
 
+            // Description/details
             if let description = item.description, !description.isEmpty {
                 Text(description)
                     .font(VFont.labelDefault)
@@ -672,16 +722,50 @@ private struct ContactPopoverView: View {
                     .lineLimit(4)
             }
 
-            Text("Contact")
-                .font(VFont.labelSmall)
-                .foregroundStyle(VColor.funCoral)
-                .padding(.horizontal, VSpacing.sm)
-                .padding(.vertical, VSpacing.xxs)
-                .background(
-                    Capsule()
-                        .fill(VColor.funCoral.opacity(0.15))
-                )
+            // File path for workspace files
+            if item.kind == .workspaceFile, let filePath = item.filePath {
+                Text(filePath)
+                    .font(VFont.labelSmall)
+                    .foregroundStyle(VColor.contentTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
 
+            // Category/kind badge
+            if item.kind == .skill, let category = item.category {
+                Text(category.displayName)
+                    .font(VFont.labelSmall)
+                    .foregroundStyle(category.color)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xxs)
+                    .background(
+                        Capsule()
+                            .fill(category.color.opacity(0.15))
+                    )
+            } else if item.kind == .memory, let memoryKind = item.memoryKind {
+                Text(memoryKind.label)
+                    .font(VFont.labelSmall)
+                    .foregroundStyle(memoryKind.color)
+                    .padding(.horizontal, VSpacing.sm)
+                    .padding(.vertical, VSpacing.xxs)
+                    .background(
+                        Capsule()
+                            .fill(memoryKind.color.opacity(0.15))
+                    )
+            }
+
+            // Open file button for workspace files
+            if item.kind == .workspaceFile, let onOpenFile {
+                Divider()
+                    .padding(.vertical, VSpacing.xxs)
+
+                VButton(label: "Open File", icon: VIcon.externalLink.rawValue, style: .ghost, size: .compact) {
+                    onOpenFile()
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // View Details link
             if let onViewDetails {
                 Button(action: onViewDetails) {
                     HStack(spacing: VSpacing.xxs) {
@@ -693,11 +777,11 @@ private struct ContactPopoverView: View {
                     }
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("View contact details")
+                .accessibilityLabel("View \(typeBadgeLabel.lowercased()) details")
             }
         }
         .padding(VSpacing.md)
-        .frame(maxWidth: 250, alignment: .leading)
+        .frame(maxWidth: 260, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .fill(VColor.surfaceBase)
@@ -729,196 +813,6 @@ private enum AnimationPhase: Equatable {
     var skillsVisible: Bool { self == .complete }
 }
 
-// MARK: - Skill Popover View
-
-private struct SkillPopoverView: View {
-    let item: OrbitItem
-    var onViewDetails: (() -> Void)?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.sm) {
-                if let emoji = item.emoji, !emoji.isEmpty {
-                    Text(emoji)
-                        .font(.system(size: 20))
-                } else {
-                    VIconView(item.icon, size: 14)
-                        .foregroundStyle(item.color)
-                }
-
-                Text(item.label)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentDefault)
-                    .lineLimit(2)
-            }
-
-            if let description = item.description, !description.isEmpty {
-                Text(description)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .lineLimit(4)
-            }
-
-            if let category = item.category {
-                Text(category.displayName)
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(category.color)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xxs)
-                    .background(
-                        Capsule()
-                            .fill(category.color.opacity(0.15))
-                    )
-            }
-
-            if let onViewDetails {
-                Button(action: onViewDetails) {
-                    HStack(spacing: VSpacing.xxs) {
-                        Text("View Details")
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.primaryBase)
-                        VIconView(.arrowRight, size: 10)
-                            .foregroundStyle(VColor.primaryBase)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("View skill details")
-            }
-        }
-        .padding(VSpacing.md)
-        .frame(maxWidth: 250, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surfaceBase)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
-        .vShadow(VShadow.md)
-    }
-}
-
-// MARK: - Memory Popover View
-
-private struct MemoryPopoverView: View {
-    let item: OrbitItem
-    var onViewDetails: (() -> Void)?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(item.icon, size: 14)
-                    .foregroundStyle(item.color)
-
-                Text(item.label)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentDefault)
-                    .lineLimit(2)
-            }
-
-            if let description = item.description, !description.isEmpty {
-                Text(description)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .lineLimit(4)
-            }
-
-            if let memoryKind = item.memoryKind {
-                Text(memoryKind.label)
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(memoryKind.color)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xxs)
-                    .background(
-                        Capsule()
-                            .fill(memoryKind.color.opacity(0.15))
-                    )
-            }
-
-            if let onViewDetails {
-                Button(action: onViewDetails) {
-                    HStack(spacing: VSpacing.xxs) {
-                        Text("View Details")
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.primaryBase)
-                        VIconView(.arrowRight, size: 10)
-                            .foregroundStyle(VColor.primaryBase)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("View memory details")
-            }
-        }
-        .padding(VSpacing.md)
-        .frame(maxWidth: 250, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surfaceBase)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
-        .vShadow(VShadow.md)
-    }
-}
-
-// MARK: - File Popover View
-
-private struct FilePopoverView: View {
-    let item: OrbitItem
-    var onOpenFile: () -> Void
-    var onViewInWorkspace: (() -> Void)?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(.file, size: 14)
-                    .foregroundStyle(item.color)
-
-                Text(item.label)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentDefault)
-                    .lineLimit(2)
-            }
-
-            if let filePath = item.filePath {
-                Text(filePath)
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-
-            Divider()
-                .padding(.vertical, VSpacing.xxs)
-
-            VButton(label: "Open File", icon: VIcon.externalLink.rawValue, style: .ghost, size: .compact) {
-                onOpenFile()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if let onViewInWorkspace {
-                VButton(label: "View in Workspace \u{2192}", icon: VIcon.folderSearch.rawValue, style: .ghost, size: .compact) {
-                    onViewInWorkspace()
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .padding(VSpacing.md)
-        .frame(maxWidth: 260, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surfaceBase)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
-        .vShadow(VShadow.md)
-    }
-}
 
 // MARK: - Overlap Resolution
 
@@ -1431,14 +1325,8 @@ struct ConstellationView: View {
     @State private var dragOffset: CGSize = .zero
     @State private var zoomScale: CGFloat = 1.0
     @State private var baseZoomScale: CGFloat = 1.0
-    @State private var selectedSkillItem: OrbitItem?
-    @State private var selectedNodeId: String?
-    @State private var selectedFileItem: OrbitItem?
-    @State private var selectedFileNodeId: String?
-    @State private var selectedContactItem: OrbitItem?
-    @State private var selectedContactNodeId: String?
-    @State private var selectedMemoryItem: OrbitItem?
-    @State private var selectedMemoryNodeId: String?
+    @State private var selectedPopoverItem: OrbitItem?
+    @State private var selectedPopoverNodeId: String?
     @State private var zoomedNodeId: String?
 
     // Node sizes
@@ -1473,7 +1361,7 @@ struct ConstellationView: View {
             return OrbitItem(
                 id: "workspace-\(idx)", label: node.label, icon: SkillCategory.knowledge.icon,
                 emoji: nil, color: SkillCategory.knowledge.color, filePath: path,
-                description: nil, category: .knowledge
+                description: nil, category: .knowledge, kind: .workspaceFile
             )
         }
 
@@ -1715,6 +1603,66 @@ struct ConstellationView: View {
             }
     }
 
+    /// Toggles the unified popover for a given item and node.
+    private func togglePopover(item: OrbitItem, nodeId: String) {
+        withAnimation(VAnimation.fast) {
+            if selectedPopoverItem?.id == item.id {
+                selectedPopoverItem = nil
+                selectedPopoverNodeId = nil
+            } else {
+                selectedPopoverItem = item
+                selectedPopoverNodeId = nodeId
+            }
+        }
+    }
+
+    /// Returns the appropriate "View Details" navigation action for a popover item,
+    /// or nil if no deep-link is available for that item type.
+    private func viewDetailsAction(for item: OrbitItem) -> (() -> Void)? {
+        switch item.kind {
+        case .skill:
+            // Workspace file items stored as skills have filePath set — they don't deep-link to skill detail
+            guard item.filePath == nil else { return nil }
+            return {
+                withAnimation(VAnimation.fast) {
+                    selectedPopoverItem = nil
+                    selectedPopoverNodeId = nil
+                }
+                onNavigateToSkill?(item.id)
+            }
+        case .memory:
+            guard onNavigateToMemory != nil else { return nil }
+            return {
+                let memoryId = item.id.replacingOccurrences(of: "memory-", with: "")
+                withAnimation(VAnimation.fast) {
+                    selectedPopoverItem = nil
+                    selectedPopoverNodeId = nil
+                }
+                onNavigateToMemory?(memoryId)
+            }
+        case .contact:
+            return {
+                withAnimation(VAnimation.fast) {
+                    selectedPopoverItem = nil
+                    selectedPopoverNodeId = nil
+                }
+                let contactId = String(item.id.dropFirst("contact-".count))
+                onNavigateToContact?(contactId)
+            }
+        case .workspaceFile:
+            guard onNavigateToFile != nil else { return nil }
+            return {
+                withAnimation(VAnimation.fast) {
+                    selectedPopoverItem = nil
+                    selectedPopoverNodeId = nil
+                }
+                if let path = item.filePath {
+                    onNavigateToFile?(path)
+                }
+            }
+        }
+    }
+
     var body: some View {
         GeometryReader { proxy in
             let totalOffset = CGSize(
@@ -1731,119 +1679,39 @@ struct ConstellationView: View {
                     .offset(totalOffset)
 
                 // Dismiss layer for popover
-                if selectedSkillItem != nil || selectedFileItem != nil || selectedContactItem != nil || selectedMemoryItem != nil {
+                if selectedPopoverItem != nil {
                     Color.clear
                         .contentShape(Rectangle())
                         .onTapGesture {
                             withAnimation(VAnimation.fast) {
-                                selectedSkillItem = nil
-                                selectedNodeId = nil
-                                selectedFileItem = nil
-                                selectedFileNodeId = nil
-                                selectedContactItem = nil
-                                selectedContactNodeId = nil
-                                selectedMemoryItem = nil
-                                selectedMemoryNodeId = nil
+                                selectedPopoverItem = nil
+                                selectedPopoverNodeId = nil
                             }
                         }
                 }
 
-                // Skill popover overlay
-                if let selected = selectedSkillItem, let nodeId = selectedNodeId {
+                // Unified popover overlay
+                if let popoverItem = selectedPopoverItem, let popoverNodeId = selectedPopoverNodeId {
                     let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let nodePos = effectivePosition(forId: nodeId)
+                    let nodePos = effectivePosition(forId: popoverNodeId)
                     let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
                     let scaledX = viewCenter.x + (nodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
                     let scaledY = viewCenter.y + (nodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
 
-                    SkillPopoverView(item: selected, onViewDetails: selected.filePath == nil ? {
-                        withAnimation(VAnimation.fast) {
-                            selectedSkillItem = nil
-                            selectedNodeId = nil
-                        }
-                        onNavigateToSkill?(selected.id)
-                    } : nil)
-                        .position(x: scaledX, y: scaledY)
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                }
-
-                // File popover overlay
-                if let fileItem = selectedFileItem, let fileNodeId = selectedFileNodeId {
-                    let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let fileNodePos = effectivePosition(forId: fileNodeId)
-                    let fileViewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let fileScaledX = fileViewCenter.x + (fileNodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
-                    let fileScaledY = fileViewCenter.y + (fileNodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 80
-
-                    FilePopoverView(
-                        item: fileItem,
-                        onOpenFile: {
+                    NodePopoverView(
+                        item: popoverItem,
+                        onViewDetails: viewDetailsAction(for: popoverItem),
+                        onOpenFile: popoverItem.kind == .workspaceFile ? {
                             withAnimation(VAnimation.fast) {
-                                selectedFileItem = nil
-                                selectedFileNodeId = nil
+                                selectedPopoverItem = nil
+                                selectedPopoverNodeId = nil
                             }
-                            if let path = fileItem.filePath {
+                            if let path = popoverItem.filePath {
                                 onFileSelected?(path)
                             }
-                        },
-                        onViewInWorkspace: onNavigateToFile != nil ? {
-                            withAnimation(VAnimation.fast) {
-                                selectedFileItem = nil
-                                selectedFileNodeId = nil
-                            }
-                            if let path = fileItem.filePath {
-                                onNavigateToFile?(path)
-                            }
                         } : nil
                     )
-                    .position(x: fileScaledX, y: fileScaledY)
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                }
-
-                // Contact popover overlay
-                if let contactItem = selectedContactItem, let contactNodeId = selectedContactNodeId {
-                    let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let contactNodePos = effectivePosition(forId: contactNodeId)
-                    let contactViewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let contactScaledX = contactViewCenter.x + (contactNodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
-                    let contactScaledY = contactViewCenter.y + (contactNodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
-
-                    ContactPopoverView(
-                        item: contactItem,
-                        onViewDetails: {
-                            withAnimation(VAnimation.fast) {
-                                selectedContactItem = nil
-                                selectedContactNodeId = nil
-                            }
-                            // Extract the original contact ID from the orbit item ID
-                            let contactId = String(contactItem.id.dropFirst("contact-".count))
-                            onNavigateToContact?(contactId)
-                        }
-                    )
-                    .position(x: contactScaledX, y: contactScaledY)
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                }
-
-                // Memory popover overlay
-                if let memoryItem = selectedMemoryItem, let memoryNodeId = selectedMemoryNodeId {
-                    let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let memoryNodePos = effectivePosition(forId: memoryNodeId)
-                    let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let memoryScaledX = viewCenter.x + (memoryNodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
-                    let memoryScaledY = viewCenter.y + (memoryNodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
-
-                    MemoryPopoverView(
-                        item: memoryItem,
-                        onViewDetails: onNavigateToMemory != nil ? {
-                            let memoryId = memoryItem.id.replacingOccurrences(of: "memory-", with: "")
-                            withAnimation(VAnimation.fast) {
-                                selectedMemoryItem = nil
-                                selectedMemoryNodeId = nil
-                            }
-                            onNavigateToMemory?(memoryId)
-                        } : nil
-                    )
-                    .position(x: memoryScaledX, y: memoryScaledY)
+                    .position(x: scaledX, y: scaledY)
                     .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
             }
@@ -1897,16 +1765,10 @@ struct ConstellationView: View {
                 }
                 #if os(macOS)
                 .onKeyPress(.escape) {
-                    if selectedSkillItem != nil || selectedFileItem != nil || selectedContactItem != nil || selectedMemoryItem != nil {
+                    if selectedPopoverItem != nil {
                         withAnimation(VAnimation.fast) {
-                            selectedSkillItem = nil
-                            selectedNodeId = nil
-                            selectedFileItem = nil
-                            selectedFileNodeId = nil
-                            selectedContactItem = nil
-                            selectedContactNodeId = nil
-                            selectedMemoryItem = nil
-                            selectedMemoryNodeId = nil
+                            selectedPopoverItem = nil
+                            selectedPopoverNodeId = nil
                         }
                         return .handled
                     }
@@ -2093,37 +1955,9 @@ struct ConstellationView: View {
                         item: item,
                         size: skillNodeSize,
                         onDoubleTap: { zoomToNode(nodeId, viewSize: size) },
-                        onTap: item.filePath != nil
-                            ? {
-                                withAnimation(VAnimation.fast) {
-                                    // Dismiss any open skill popover
-                                    selectedSkillItem = nil
-                                    selectedNodeId = nil
-                                    if selectedFileItem?.id == item.id {
-                                        selectedFileItem = nil
-                                        selectedFileNodeId = nil
-                                    } else {
-                                        selectedFileItem = item
-                                        selectedFileNodeId = node.id
-                                    }
-                                }
-                            }
-                            : item.description != nil
-                                ? {
-                                    withAnimation(VAnimation.fast) {
-                                        // Dismiss any open file popover
-                                        selectedFileItem = nil
-                                        selectedFileNodeId = nil
-                                        if selectedSkillItem?.id == item.id {
-                                            selectedSkillItem = nil
-                                            selectedNodeId = nil
-                                        } else {
-                                            selectedSkillItem = item
-                                            selectedNodeId = node.id
-                                        }
-                                    }
-                                }
-                                : nil
+                        onTap: (item.filePath != nil || item.description != nil)
+                            ? { togglePopover(item: item, nodeId: node.id) }
+                            : nil
                     )
                     .position(effPos)
                     .gesture(nodeDragGesture(nodeId: nodeId))
@@ -2165,22 +1999,7 @@ struct ConstellationView: View {
                     MemoryNodeView(
                         item: item,
                         size: skillNodeSize,
-                        onTap: {
-                            withAnimation(VAnimation.fast) {
-                                // Dismiss any open skill/file popovers
-                                selectedSkillItem = nil
-                                selectedNodeId = nil
-                                selectedFileItem = nil
-                                selectedFileNodeId = nil
-                                if selectedMemoryItem?.id == item.id {
-                                    selectedMemoryItem = nil
-                                    selectedMemoryNodeId = nil
-                                } else {
-                                    selectedMemoryItem = item
-                                    selectedMemoryNodeId = node.id
-                                }
-                            }
-                        }
+                        onTap: { togglePopover(item: item, nodeId: node.id) }
                     )
                     .position(effPos)
                     .gesture(nodeDragGesture(nodeId: nodeId))
@@ -2209,22 +2028,7 @@ struct ConstellationView: View {
                     ContactNodeView(
                         item: item,
                         size: skillNodeSize,
-                        onTap: {
-                            withAnimation(VAnimation.fast) {
-                                // Dismiss other popovers
-                                selectedSkillItem = nil
-                                selectedNodeId = nil
-                                selectedFileItem = nil
-                                selectedFileNodeId = nil
-                                if selectedContactItem?.id == item.id {
-                                    selectedContactItem = nil
-                                    selectedContactNodeId = nil
-                                } else {
-                                    selectedContactItem = item
-                                    selectedContactNodeId = node.id
-                                }
-                            }
-                        }
+                        onTap: { togglePopover(item: item, nodeId: node.id) }
                     )
                     .position(effPos)
                     .gesture(nodeDragGesture(nodeId: nodeId))
