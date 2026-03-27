@@ -152,15 +152,11 @@ struct SidebarConversationItem: View, Equatable {
                             .frame(width: 20, height: 20)
                             .nativeTooltip("Unread")
                             .transition(.opacity)
-                    } else if conversation.isPinned {
-                        VIconView(.pin, size: 13)
-                            .foregroundStyle(VColor.contentTertiary)
-                            .rotationEffect(.degrees(-45))
-                            .frame(width: 20, height: 20)
-                            .nativeTooltip("Pinned")
-                            .accessibilityLabel("Pinned")
-                            .transition(.opacity)
                     } else {
+                        // Pin icon removed for non-hovered state — the "Pinned" section
+                        // header already conveys pinned status. Keeps the leading slot
+                        // clean and avoids the light VColor.contentTertiary pin icon
+                        // that was hard to see on highlighted rows.
                         Color.clear
                             .frame(width: 20, height: 20)
                     }
