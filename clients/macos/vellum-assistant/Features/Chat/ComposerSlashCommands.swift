@@ -55,7 +55,7 @@ extension ComposerView {
 
     /// Range of a slash command token (e.g. `/model`) at the start of input.
     var slashCommandRange: Range<String.Index>? {
-        guard !inputText.isEmpty else { return nil }
+        guard !inputText.isEmpty, !inputText.contains(" ") else { return nil }
         return inputText.range(of: #"^/\w+"#, options: .regularExpression)
     }
 
