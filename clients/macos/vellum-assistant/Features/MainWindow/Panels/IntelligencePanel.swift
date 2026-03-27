@@ -19,6 +19,7 @@ struct IntelligencePanel: View {
     @State private var cachedAssistantName: String = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
     @State private var isContactsEnabled: Bool = false
     @State private var isEmailEnabled: Bool = false
+    @State private var pendingSkillId: String?
     private static let contactsFeatureFlagKey = "contacts"
     private static let emailFeatureFlagKey = "email-channel"
 
@@ -131,7 +132,11 @@ struct IntelligencePanel: View {
         case .identity:
             IdentityPanel(
                 onClose: onClose,
-                connectionManager: connectionManager
+                connectionManager: connectionManager,
+                onNavigateToSkill: { skillId in
+                    pendingSkillId = skillId
+                    withAnimation(VAnimation.fast) { selectedTab = .installedSkills }
+                }
             )
             .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -141,7 +146,8 @@ struct IntelligencePanel: View {
             AgentPanelContent(
                 onInvokeSkill: onInvokeSkill,
                 onCreateSkill: onCreateSkill,
-                connectionManager: connectionManager
+                connectionManager: connectionManager,
+                focusedSkillId: $pendingSkillId
             )
             .padding(.top, VSpacing.sm)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)

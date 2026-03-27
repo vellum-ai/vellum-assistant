@@ -378,6 +378,7 @@ private enum AnimationPhase: Equatable {
 
 private struct SkillPopoverView: View {
     let item: OrbitItem
+    var onViewDetails: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
@@ -413,6 +414,20 @@ private struct SkillPopoverView: View {
                         Capsule()
                             .fill(category.color.opacity(0.15))
                     )
+            }
+
+            if let onViewDetails {
+                Button(action: onViewDetails) {
+                    HStack(spacing: VSpacing.xxs) {
+                        Text("View Details")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.primaryBase)
+                        VIconView(.arrowRight, size: 10)
+                            .foregroundStyle(VColor.primaryBase)
+                    }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("View skill details")
             }
         }
         .padding(VSpacing.md)
@@ -692,6 +707,7 @@ struct ConstellationView: View {
     let skills: [SkillInfo]
     let workspaceFiles: [WorkspaceFileNode]
     var onFileSelected: ((String) -> Void)?
+    var onNavigateToSkill: ((String) -> Void)?
     @Binding var isFullscreen: Bool
     @State private var appearance = AvatarAppearanceManager.shared
 
@@ -969,7 +985,13 @@ struct ConstellationView: View {
                     let scaledX = viewCenter.x + (nodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
                     let scaledY = viewCenter.y + (nodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
 
-                    SkillPopoverView(item: selected)
+                    SkillPopoverView(item: selected, onViewDetails: selected.filePath == nil ? {
+                        withAnimation(VAnimation.fast) {
+                            selectedSkillItem = nil
+                            selectedNodeId = nil
+                        }
+                        onNavigateToSkill?(selected.id)
+                    } : nil)
                         .position(x: scaledX, y: scaledY)
                         .transition(.opacity.combined(with: .scale(scale: 0.9)))
                 }
