@@ -126,11 +126,13 @@ public struct InlineSurfaceRouter: View {
                 }
                 .buttonStyle(.plain)
                 .padding(VSpacing.sm)
+            #if os(macOS)
             } else if isTableSurface, case .table(let tableData) = surface.data {
                 VCopyButton(text: Self.tableAsMarkdown(tableData), size: .compact)
                     .opacity(isCardHovered ? 1 : 0)
                     .animation(VAnimation.fast, value: isCardHovered)
                     .padding(VSpacing.sm)
+            #endif
             } else if isDocumentPreview {
                 if case .documentPreview(let data) = surface.data {
                     Button {
@@ -401,12 +403,16 @@ public struct InlineSurfaceRouter: View {
 
     /// Builds a markdown table string from TableSurfaceData for clipboard copy.
     static func tableAsMarkdown(_ data: TableSurfaceData) -> String {
-        let headers = data.columns.map(\.label)
+        func escapeCell(_ text: String) -> String {
+            text.replacingOccurrences(of: "|", with: "\\|")
+                .replacingOccurrences(of: "\n", with: " ")
+        }
+        let headers = data.columns.map { escapeCell($0.label) }
         let headerLine = "| " + headers.joined(separator: " | ") + " |"
         let separatorLine = "| " + headers.map { _ in "---" }.joined(separator: " | ") + " |"
         let rowLines = data.rows.map { row in
             "| " + data.columns.map { col in
-                row.cells[col.id]?.text ?? ""
+                escapeCell(row.cells[col.id]?.text ?? "")
             }.joined(separator: " | ") + " |"
         }
         return ([headerLine, separatorLine] + rowLines).joined(separator: "\n")
