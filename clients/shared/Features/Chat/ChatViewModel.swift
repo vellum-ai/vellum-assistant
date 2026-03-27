@@ -1952,22 +1952,13 @@ public final class ChatViewModel: ObservableObject {
 
     // MARK: - Surface Refetch
 
-    /// Lazily created manager that serializes surface content fetches.
-    private lazy var surfaceRefetchManager = SurfaceRefetchManager { [weak self] surfaceId, conversationId in
-        guard let self else { return nil }
-        return await self.surfaceClient.fetchSurfaceData(surfaceId: surfaceId, conversationId: conversationId)
-    }
-
-    /// In-flight refetch tasks, keyed by surface ID for cancellation.
-    private var refetchTasks: [String: Task<Void, Never>] = [:]
-
-    /// Re-fetch the full payload for a stripped surface and replace it in the message list.
-    public func refetchStrippedSurface(surfaceId: String, conversationId: String) {
-        guard refetchTasks[surfaceId] == nil else { return }
-        refetchTasks[surfaceId] = Task { @MainActor [weak self] in
-            defer { self?.refetchTasks.removeValue(forKey: surfaceId) }
+    private lazy var surfaceRefetchCoordinator = SurfaceRefetchCoordinator(
+        surfaceRefetchManager: SurfaceRefetchManager { [weak self] surfaceId, conversationId in
+            guard let self else { return nil }
+            return await self.surfaceClient.fetchSurfaceData(surfaceId: surfaceId, conversationId: conversationId)
+        },
+        applyResult: { [weak self] surfaceId, result in
             guard let self else { return }
-            let result = await self.surfaceRefetchManager.enqueue(surfaceId: surfaceId, conversationId: conversationId)
             for msgIndex in self.messages.indices {
                 if let surfIndex = self.messages[msgIndex].inlineSurfaces.firstIndex(where: { $0.id == surfaceId }) {
                     if let data = result.data {
@@ -1982,14 +1973,10 @@ public final class ChatViewModel: ObservableObject {
                 }
             }
         }
-    }
+    )
 
-    /// Cancel all in-flight surface refetch tasks and reset the manager's
-    /// failure counts so surfaces can be retried in the new conversation.
-    private func cancelRefetchTasks() {
-        for task in refetchTasks.values { task.cancel() }
-        refetchTasks.removeAll()
-        Task { await surfaceRefetchManager.resetFailureCounts() }
+    public func refetchStrippedSurface(surfaceId: String, conversationId: String) {
+        surfaceRefetchCoordinator.refetchStrippedSurface(surfaceId: surfaceId, conversationId: conversationId)
     }
 
     /// Cancel the queued user message without clearing `bootstrapCorrelationId`.
@@ -2922,7 +2909,7 @@ public final class ChatViewModel: ObservableObject {
         // or appending text to a stale currentAssistantMessageId.
         discardStreamingBuffer()
         discardPartialOutputBuffer()
-        cancelRefetchTasks()
+        surfaceRefetchCoordinator.cancelRefetchTasks()
         currentAssistantMessageId = nil
         currentAssistantHasText = false
         lastContentWasToolCall = false
@@ -3287,8 +3274,7 @@ public final class ChatViewModel: ObservableObject {
         partialOutputFlushTask?.cancel()
         cancelTimeoutTask?.cancel()
         loadMoreTimeoutTask?.cancel()
-        for task in refetchTasks.values { task.cancel() }
-        refetchTasks.removeAll()
+        // surfaceRefetchCoordinator is released with self; its deinit cancels tasks.
         // refinementFailureDismissTask and refinementFlushTask are accessed via
         // @MainActor computed properties (forwarded from ChatMessageManager), which
         // cannot be referenced from nonisolated deinit. Both tasks use [weak self],
