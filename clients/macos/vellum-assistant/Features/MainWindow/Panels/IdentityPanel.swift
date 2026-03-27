@@ -28,6 +28,7 @@ struct IdentityPanel: View {
     @State private var isEditingRole: Bool = false
     @State private var editingRoleText: String = ""
     @State private var isSavingIdentityField: Bool = false
+    @State private var memoryStore = MemoryItemsStore(memoryItemClient: MemoryItemClient())
 
     private let sidebarMinWidth: CGFloat = 200
     private let sidebarMaxWidth: CGFloat = 280
@@ -179,6 +180,7 @@ struct IdentityPanel: View {
                 identity: identity,
                 skills: skills,
                 workspaceFiles: workspaceFiles,
+                memories: memoryStore.items,
                 onFileSelected: { path in
                     viewingFilePath = path
                 },
@@ -217,6 +219,7 @@ struct IdentityPanel: View {
                 lockfileAssistant = LockfileAssistant.loadLatest()
                 workspaceFiles = WorkspaceFileNode.scan()
                 fetchSkills()
+                Task { await memoryStore.loadItems() }
 
                 // For remote assistants without local IDENTITY.md, fetch from daemon
                 if identity == nil, lockfileAssistant?.isRemote == true {

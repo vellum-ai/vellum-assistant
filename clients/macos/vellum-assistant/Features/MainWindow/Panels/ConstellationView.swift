@@ -68,6 +68,13 @@ enum SkillCategory: String, CaseIterable {
 
 // MARK: - Data Models
 
+private enum OrbitItemKind {
+    case skill
+    case memory
+    case workspaceFile
+    case contact
+}
+
 private struct OrbitItem: Identifiable {
     let id: String
     let label: String
@@ -77,11 +84,38 @@ private struct OrbitItem: Identifiable {
     let filePath: String?
     let description: String?
     let category: SkillCategory?
+    let kind: OrbitItemKind
+    let memoryKind: MemoryKind?
+
+    init(
+        id: String, label: String, icon: VIcon, emoji: String? = nil,
+        color: Color, filePath: String? = nil, description: String? = nil,
+        category: SkillCategory? = nil, kind: OrbitItemKind = .skill,
+        memoryKind: MemoryKind? = nil
+    ) {
+        self.id = id
+        self.label = label
+        self.icon = icon
+        self.emoji = emoji
+        self.color = color
+        self.filePath = filePath
+        self.description = description
+        self.category = category
+        self.kind = kind
+        self.memoryKind = memoryKind
+    }
 }
 
 private struct CategoryGroup: Identifiable {
     var id: String { category.rawValue }
     let category: SkillCategory
+    var items: [OrbitItem]
+}
+
+/// A group of memory items under a single MemoryKind subcategory.
+private struct MemoryKindGroup: Identifiable {
+    var id: String { kind.rawValue }
+    let kind: MemoryKind
     var items: [OrbitItem]
 }
 
@@ -185,6 +219,9 @@ private enum TreeNodeKind {
     case category(SkillCategory)
     case subCategory(label: String, emoji: String, category: SkillCategory)
     case skill(OrbitItem)
+    case memoryCategory
+    case memoryKindSubCategory(MemoryKind)
+    case memoryItem(OrbitItem)
 }
 
 private struct TreeNode: Identifiable {
@@ -355,6 +392,157 @@ private struct SkillNodeView: View {
     }
 }
 
+// MARK: - Memory Category Node View
+
+private struct MemoryCategoryNodeView: View {
+    let size: CGFloat
+
+    @State private var isHovered = false
+
+    private let color = VColor.funBlue
+
+    var body: some View {
+        VStack(spacing: 4) {
+            VIconView(.brain, size: 24)
+                .foregroundStyle(color)
+
+            Text("Memories")
+                .font(VFont.bodyMediumDefault)
+                .foregroundStyle(VColor.contentDefault)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: size * 0.85)
+        }
+        .frame(width: size, height: size)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: VRadius.xl).fill(VColor.surfaceOverlay)
+                RoundedRectangle(cornerRadius: VRadius.xl).fill(color.opacity(isHovered ? 0.25 : 0.14))
+            }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .stroke(color.opacity(isHovered ? 0.85 : 0.55), lineWidth: isHovered ? 2.5 : 2)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .contentShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .nativeTooltip("Memories")
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
+    }
+}
+
+// MARK: - Memory Kind Sub-Category Node View
+
+private struct MemoryKindNodeView: View {
+    let memoryKind: MemoryKind
+    let size: CGFloat
+
+    @State private var isHovered = false
+
+    var body: some View {
+        VStack(spacing: 2) {
+            VIconView(VIcon(rawValue: memoryKind.icon) ?? .brain, size: 16)
+                .foregroundStyle(memoryKind.color)
+
+            Text(memoryKind.label)
+                .font(VFont.labelSmall)
+                .foregroundStyle(VColor.contentDefault)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: size * 0.85)
+        }
+        .frame(width: size, height: size)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.surfaceOverlay)
+                RoundedRectangle(cornerRadius: VRadius.lg).fill(memoryKind.color.opacity(isHovered ? 0.20 : 0.10))
+            }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(
+                    memoryKind.color.opacity(isHovered ? 0.70 : 0.40),
+                    style: StrokeStyle(lineWidth: isHovered ? 2 : 1.5, dash: [6, 4])
+                )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .nativeTooltip(memoryKind.label)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
+    }
+}
+
+// MARK: - Memory Node View (Diamond Shape)
+
+private struct MemoryNodeView: View {
+    let item: OrbitItem
+    let size: CGFloat
+    var onTap: (() -> Void)?
+
+    @State private var isHovered = false
+
+    private var isTappable: Bool { onTap != nil }
+
+    /// Diamond shape via 45-degree rotation of a rounded rectangle.
+    private var diamondSize: CGFloat { size * 0.72 }
+
+    var body: some View {
+        VStack(spacing: 3) {
+            VIconView(item.icon, size: 18)
+                .foregroundStyle(item.color)
+
+            Text(item.label)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentDefault)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: size * 0.82)
+        }
+        .frame(width: size, height: size)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(VColor.surfaceOverlay)
+                    .frame(width: diamondSize, height: diamondSize)
+                    .rotationEffect(.degrees(45))
+
+                RoundedRectangle(cornerRadius: VRadius.sm)
+                    .fill(item.color.opacity(isHovered ? 0.20 : 0.10))
+                    .frame(width: diamondSize, height: diamondSize)
+                    .rotationEffect(.degrees(45))
+            }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.sm)
+                .stroke(item.color.opacity(isHovered ? 0.70 : 0.40), lineWidth: isHovered ? 2 : 1.5)
+                .frame(width: diamondSize, height: diamondSize)
+                .rotationEffect(.degrees(45))
+        )
+        .contentShape(Rectangle())
+        .nativeTooltip(item.label)
+        .onHover { hovering in
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isHovered = hovering
+            }
+        }
+        .if(isTappable) { view in
+            view.pointerCursor()
+        }
+        .onTapGesture {
+            onTap?()
+        }
+    }
+}
+
 // MARK: - Animation Phase
 
 private enum AnimationPhase: Equatable {
@@ -495,7 +683,7 @@ private func resolveOverlap(
 /// Each category's subtree stays within its angular sector to prevent cross-category overlap.
 /// Skills are placed in compact grids extending outward from their parent.
 /// Every node is checked against all previously-placed nodes to prevent overlap.
-private func buildTree(center: CGPoint, groups: [CategoryGroup], centerSize: CGFloat = 90) -> (nodes: [TreeNode], edges: [EdgeLine]) {
+private func buildTree(center: CGPoint, groups: [CategoryGroup], memoryGroups: [MemoryKindGroup] = [], centerSize: CGFloat = 90) -> (nodes: [TreeNode], edges: [EdgeLine]) {
     var nodes: [TreeNode] = []
     var edges: [EdgeLine] = []
 
@@ -518,9 +706,12 @@ private func buildTree(center: CGPoint, groups: [CategoryGroup], centerSize: CGF
         radius: centerSize / 2
     ))
 
-    guard !groups.isEmpty else { return (nodes, edges) }
+    // Total top-level categories = skill categories + memories (if any)
+    let hasMemories = !memoryGroups.isEmpty
+    let totalTopLevel = groups.count + (hasMemories ? 1 : 0)
+    guard totalTopLevel > 0 else { return (nodes, edges) }
 
-    let catCount = groups.count
+    let catCount = totalTopLevel
     let sectorAngle = 2 * .pi / CGFloat(catCount)
 
     for (catIdx, group) in groups.enumerated() {
@@ -641,7 +832,143 @@ private func buildTree(center: CGPoint, groups: [CategoryGroup], centerSize: CGF
         }
     }
 
+    // MARK: Memory category tree
+    if hasMemories {
+        let memCatIdx = groups.count  // Place after all skill categories
+        let memCatAngle = -.pi / 2 + CGFloat(memCatIdx) * sectorAngle
+        let memCatId = "cat-memories"
+        let memColor = VColor.funBlue
+
+        let memCatPos = resolveOverlap(
+            proposed: CGPoint(
+                x: center.x + centerToCatRadius * cos(memCatAngle),
+                y: center.y + centerToCatRadius * sin(memCatAngle)
+            ),
+            nodeRadius: catSize / 2,
+            existingNodes: nodes,
+            gap: nodeGap
+        )
+
+        nodes.append(TreeNode(
+            id: memCatId,
+            kind: .memoryCategory,
+            parentId: "__center__",
+            depth: 1,
+            position: memCatPos,
+            radius: catSize / 2
+        ))
+
+        edges.append(EdgeLine(
+            id: "edge-center-memories",
+            fromId: "__center__",
+            toId: memCatId,
+            color: memColor
+        ))
+
+        // Subcategory spread for memory kinds
+        let memSubCount = memoryGroups.count
+        let memMaxSubSpread = sectorAngle * 0.55
+        let memSubSpread: CGFloat = memSubCount <= 1 ? 0 : min(memMaxSubSpread, CGFloat(memSubCount - 1) * 0.35)
+
+        for (subIdx, memGroup) in memoryGroups.enumerated() {
+            let subAngle: CGFloat
+            if memSubCount == 1 {
+                subAngle = memCatAngle
+            } else {
+                let t = CGFloat(subIdx) / CGFloat(memSubCount - 1) - 0.5
+                subAngle = memCatAngle + t * memSubSpread * 2
+            }
+
+            let subCatId = "memkind-\(memGroup.kind.rawValue)"
+            let subCatPos = resolveOverlap(
+                proposed: CGPoint(
+                    x: memCatPos.x + catToSubCatRadius * cos(subAngle),
+                    y: memCatPos.y + catToSubCatRadius * sin(subAngle)
+                ),
+                nodeRadius: subCatSize / 2,
+                existingNodes: nodes,
+                gap: nodeGap
+            )
+
+            nodes.append(TreeNode(
+                id: subCatId,
+                kind: .memoryKindSubCategory(memGroup.kind),
+                parentId: memCatId,
+                depth: 2,
+                position: subCatPos,
+                radius: subCatSize / 2
+            ))
+
+            edges.append(EdgeLine(
+                id: "edge-memories-kind-\(subIdx)",
+                fromId: memCatId,
+                toId: subCatId,
+                color: memGroup.kind.color
+            ))
+
+            // Place memory item nodes
+            placeMemoryCluster(
+                items: memGroup.items, parentId: subCatId, parentPos: subCatPos,
+                outwardAngle: subAngle, outwardDist: skillOutwardDist,
+                childSize: skillSize, gap: nodeGap, depth: 3,
+                kindColor: memGroup.kind.color, edgePrefix: subCatId,
+                nodes: &nodes, edges: &edges
+            )
+        }
+    }
+
     return (nodes, edges)
+}
+
+/// Place memory nodes in a compact cluster, similar to placeSkillCluster.
+private func placeMemoryCluster(
+    items: [OrbitItem], parentId: String, parentPos: CGPoint,
+    outwardAngle: CGFloat, outwardDist: CGFloat,
+    childSize: CGFloat, gap: CGFloat, depth: Int,
+    kindColor: Color, edgePrefix: String,
+    nodes: inout [TreeNode], edges: inout [EdgeLine]
+) {
+    guard !items.isEmpty else { return }
+
+    let spacing = childSize + gap
+    let outX = cos(outwardAngle)
+    let outY = sin(outwardAngle)
+    let perpX = -outY
+    let perpY = outX
+
+    let maxPerRow = 3
+    let rowDepthGap = spacing * 0.88
+
+    for (idx, item) in items.enumerated() {
+        let row = idx / maxPerRow
+        let col = idx % maxPerRow
+        let colsInRow = min(maxPerRow, items.count - row * maxPerRow)
+
+        let perpOffset = (CGFloat(col) - CGFloat(colsInRow - 1) / 2) * spacing
+        let stagger: CGFloat = (row % 2 == 1 && colsInRow < maxPerRow) ? spacing * 0.5 : 0
+        let outOffset = outwardDist + CGFloat(row) * rowDepthGap
+
+        let proposed = CGPoint(
+            x: parentPos.x + outOffset * outX + (perpOffset + stagger) * perpX,
+            y: parentPos.y + outOffset * outY + (perpOffset + stagger) * perpY
+        )
+
+        let pos = resolveOverlap(
+            proposed: proposed,
+            nodeRadius: childSize / 2,
+            existingNodes: nodes,
+            gap: gap
+        )
+
+        nodes.append(TreeNode(
+            id: item.id, kind: .memoryItem(item), parentId: parentId,
+            depth: depth, position: pos, radius: childSize / 2
+        ))
+        edges.append(EdgeLine(
+            id: "edge-\(edgePrefix)-mem-\(idx)",
+            fromId: parentId, toId: item.id, color: kindColor
+        ))
+    }
 }
 
 /// Place skill nodes in a compact cluster extending outward from their parent.
@@ -706,6 +1033,7 @@ struct ConstellationView: View {
     let identity: IdentityInfo?
     let skills: [SkillInfo]
     let workspaceFiles: [WorkspaceFileNode]
+    let memories: [MemoryItemPayload]
     var onFileSelected: ((String) -> Void)?
     var onNavigateToSkill: ((String) -> Void)?
     @Binding var isFullscreen: Bool
@@ -782,6 +1110,36 @@ struct ConstellationView: View {
         return result
     }
 
+    /// Active memories grouped by MemoryKind for the constellation layout.
+    private var memoryKindGroups: [MemoryKindGroup] {
+        let activeMemories = memories.filter { $0.status == "active" }
+        var kindMap: [MemoryKind: [OrbitItem]] = [:]
+
+        for memory in activeMemories {
+            guard let kind = MemoryKind(rawValue: memory.kind) else { continue }
+            let iconValue = kind.icon
+            let icon = VIcon(rawValue: iconValue) ?? .brain
+            let item = OrbitItem(
+                id: "memory-\(memory.id)",
+                label: memory.subject,
+                icon: icon,
+                color: kind.color,
+                description: memory.statement,
+                kind: .memory,
+                memoryKind: kind
+            )
+            kindMap[kind, default: []].append(item)
+        }
+
+        var result: [MemoryKindGroup] = []
+        for kind in MemoryKind.allCases {
+            if let items = kindMap[kind], !items.isEmpty {
+                result.append(MemoryKindGroup(kind: kind, items: items))
+            }
+        }
+        return result
+    }
+
     /// Whether the user has uploaded a custom avatar image (vs. the bundled native character).
     /// Native characters set characterBodyShape/eyeStyle/color when saved, so if any
     /// component is present the avatar is a built character, not a custom upload.
@@ -791,7 +1149,7 @@ struct ConstellationView: View {
 
     /// Computes tree layout synchronously and populates all state vars.
     private func computeLayout(center: CGPoint) {
-        let result = buildTree(center: center, groups: groups, centerSize: centerAvatarSize)
+        let result = buildTree(center: center, groups: groups, memoryGroups: memoryKindGroups, centerSize: centerAvatarSize)
         treeNodes = result.nodes
         treeEdges = result.edges
         var positions: [String: CGPoint] = [:]
@@ -1038,6 +1396,9 @@ struct ConstellationView: View {
                 .onChange(of: skills.count) { _, _ in
                     layoutAndAnimate(viewSize: proxy.size)
                 }
+                .onChange(of: memories.count) { _, _ in
+                    layoutAndAnimate(viewSize: proxy.size)
+                }
                 #if os(macOS)
                 .onKeyPress(.escape) {
                     if selectedSkillItem != nil {
@@ -1245,6 +1606,60 @@ struct ConstellationView: View {
                                     }
                                 }
                                 : nil
+                    )
+                    .position(effPos)
+                    .gesture(nodeDragGesture(nodeId: nodeId))
+                    .scaleEffect(phase.skillsVisible ? 1 : 0.4)
+                    .opacity(phase.skillsVisible ? 1 : 0)
+                    .animation(
+                        .spring(response: 0.5, dampingFraction: 0.7)
+                            .delay(0.08 + Double(idx) * 0.02),
+                        value: phase
+                    )
+
+                case .memoryCategory:
+                    MemoryCategoryNodeView(size: categoryNodeSize)
+                        .onTapGesture(count: 2) { zoomToNode(nodeId, viewSize: size) }
+                        .position(effPos)
+                        .gesture(nodeDragGesture(nodeId: nodeId))
+                        .scaleEffect(phase.categoriesVisible ? 1 : 0.3)
+                        .opacity(phase.categoriesVisible ? 1 : 0)
+                        .animation(
+                            .spring(response: 0.45, dampingFraction: 0.7)
+                                .delay(Double(idx) * 0.04),
+                            value: phase
+                        )
+
+                case .memoryKindSubCategory(let memoryKind):
+                    MemoryKindNodeView(memoryKind: memoryKind, size: subCatNodeSize)
+                        .onTapGesture(count: 2) { zoomToNode(nodeId, viewSize: size) }
+                        .position(effPos)
+                        .gesture(nodeDragGesture(nodeId: nodeId))
+                        .scaleEffect(phase.subCategoriesVisible ? 1 : 0.3)
+                        .opacity(phase.subCategoriesVisible ? 1 : 0)
+                        .animation(
+                            .spring(response: 0.45, dampingFraction: 0.7)
+                                .delay(Double(idx) * 0.03),
+                            value: phase
+                        )
+
+                case .memoryItem(let item):
+                    MemoryNodeView(
+                        item: item,
+                        size: skillNodeSize,
+                        onTap: item.description != nil
+                            ? {
+                                withAnimation(VAnimation.fast) {
+                                    if selectedSkillItem?.id == item.id {
+                                        selectedSkillItem = nil
+                                        selectedNodeId = nil
+                                    } else {
+                                        selectedSkillItem = item
+                                        selectedNodeId = node.id
+                                    }
+                                }
+                            }
+                            : nil
                     )
                     .position(effPos)
                     .gesture(nodeDragGesture(nodeId: nodeId))
