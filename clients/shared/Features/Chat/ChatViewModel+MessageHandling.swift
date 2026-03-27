@@ -413,10 +413,6 @@ extension ChatViewModel {
                 msg.commandList = CommandListData()
             }
             currentAssistantMessageId = msg.id
-            // [DIAG] Log where the new assistant message lands relative to the last user message
-            let lastUserIdx = messages.lastIndex(where: { $0.role == .user })
-            let insertIdx = messages.count
-            log.info("[DIAG] appendTextToCurrentMessage: CREATING new assistant msg id=\(msg.id.uuidString.prefix(8)) at index=\(insertIdx) lastUserIdx=\(lastUserIdx.map(String.init) ?? "none") text=\(text.prefix(30))")
             messages.append(msg)
             lastContentWasToolCall = false
         }
@@ -521,8 +517,6 @@ extension ChatViewModel {
 
         case .userMessageEcho(let echo):
             guard belongsToConversation(echo.conversationId) else { return }
-            // [DIAG] Log when the daemon echoes back the user message (wake-up message path)
-            log.info("[DIAG] userMessageEcho: text=\(echo.text.prefix(40)) currentAssistantMessageId=\(self.currentAssistantMessageId?.uuidString.prefix(8) ?? "nil") isSending=\(self.isSending) msgCount=\(self.messages.count)")
             let userMsg = ChatMessage(role: .user, text: echo.text, status: .sent)
             messages.append(userMsg)
             isSending = true
@@ -536,15 +530,6 @@ extension ChatViewModel {
             guard belongsToConversation(delta.conversationId) else { return }
             guard !isCancelling else { return }
             guard !isLoadingHistory else { return }
-            // [DIAG] Log state on every text delta when no assistant message exists yet
-            // (i.e. the delta that will create the new bubble). This tells us WHERE
-            // in the messages array the new bubble will land.
-            if currentAssistantMessageId == nil {
-                let msgSummary = messages.enumerated().map { (i, m) in
-                    "[\(i)] \(m.role == .user ? "U" : "A") id=\(m.id.uuidString.prefix(8)) status=\(m.status) text=\(m.text.prefix(30))"
-                }.joined(separator: ", ")
-                log.info("[DIAG] assistantTextDelta will CREATE new assistant msg. isSending=\(self.isSending) messages=[\(msgSummary)]")
-            }
             if isWorkspaceRefinementInFlight {
                 refinementTextBuffer += delta.text
                 // Throttle refinement streaming updates with 100ms coalescing
@@ -587,13 +572,6 @@ extension ChatViewModel {
 
         case .messageComplete(let complete):
             guard belongsToConversation(complete.conversationId) else { return }
-            // [DIAG] Log state at message_complete so we can see whether
-            // onFirstAssistantReply is set and whether isSending gets cleared.
-            let diagHasFirstReplyCallback = onFirstAssistantReply != nil
-            let diagAssistantId = currentAssistantMessageId?.uuidString.prefix(8) ?? "nil"
-            let diagMsgCount = messages.count
-            let diagFirstAssistantText = messages.first(where: { $0.role == .assistant && !$0.text.isEmpty })?.text.prefix(30) ?? "<none>"
-            log.info("[DIAG] messageComplete: isSending=\(self.isSending) pendingQueuedCount=\(self.pendingQueuedCount) currentAssistantMessageId=\(diagAssistantId) onFirstAssistantReply set=\(diagHasFirstReplyCallback) msgCount=\(diagMsgCount) firstAssistantText=\(diagFirstAssistantText)")
             // Flush any buffered streaming text before finalizing the message.
             flushStreamingBuffer()
             flushPartialOutputBuffer()
@@ -691,11 +669,8 @@ extension ChatViewModel {
             if let callback = onFirstAssistantReply {
                 if let firstAssistant = messages.first(where: { $0.role == .assistant && !$0.text.isEmpty }) {
                     let replyText = firstAssistant.text
-                    log.info("[DIAG] messageComplete: firing onFirstAssistantReply with text=\(replyText.prefix(40))")
                     onFirstAssistantReply = nil
                     callback(replyText)
-                } else {
-                    log.info("[DIAG] messageComplete: onFirstAssistantReply set but no assistant msg with text found — NOT firing")
                 }
             }
             var completedToolCalls: [ToolCallData]?
@@ -878,38 +853,7 @@ extension ChatViewModel {
 
         case .messageDequeued(let msg):
             guard belongsToConversation(msg.conversationId) else { return }
-            // [DIAG] Log when messageDequeued fires and what state we're in
-            let diagAssistantId = currentAssistantMessageId?.uuidString.prefix(8) ?? "nil"
-            let diagHasMapping = requestIdToMessageId[msg.requestId] != nil
-            log.info("[DIAG] messageDequeued: requestId=\(msg.requestId) currentAssistantMessageId=\(diagAssistantId) hasRequestMapping=\(diagHasMapping) pendingQueuedCount=\(self.pendingQueuedCount)")
             pendingQueuedCount = max(0, pendingQueuedCount - 1)
-            // If the previous assistant turn is still active (the daemon
-            // skipped generation_handoff / message_complete between turns),
-            // finalize it now so subsequent text deltas create a fresh
-            // bubble below the dequeued user message — not appended to
-            // the old one above it.  Mirrors the generationHandoff cleanup.
-            //
-            // Guard: only finalize when the dequeued message is a genuine
-            // user message that appears *after* the current assistant
-            // message.  Synthetic dequeues (inline approval consumption)
-            // have no entry in requestIdToMessageId, so the peek returns
-            // nil and finalization is skipped — preserving the mid-stream
-            // assistant response.
-            if let existingId = currentAssistantMessageId,
-               let assistantIdx = messages.firstIndex(where: { $0.id == existingId }),
-               let userId = requestIdToMessageId[msg.requestId],
-               let userIdx = messages.firstIndex(where: { $0.id == userId }),
-               userIdx > assistantIdx {
-                flushStreamingBuffer()
-                flushPartialOutputBuffer()
-                messages[assistantIdx].isStreaming = false
-                messages[assistantIdx].streamingCodePreview = nil
-                messages[assistantIdx].streamingCodeToolName = nil
-                currentAssistantMessageId = nil
-                currentTurnUserText = nil
-                currentAssistantHasText = false
-                lastContentWasToolCall = false
-            }
             // Mark the associated user message as processing and track its text
             // so assistantTextDelta tags the response correctly.
             if let messageId = requestIdToMessageId.removeValue(forKey: msg.requestId),
@@ -980,9 +924,6 @@ extension ChatViewModel {
 
         case .generationHandoff(let handoff):
             guard belongsToConversation(handoff.conversationId) else { return }
-            // [DIAG] Log when generationHandoff fires — this is the normal turn-boundary signal
-            let diagAssistantId = currentAssistantMessageId?.uuidString.prefix(8) ?? "nil"
-            log.info("[DIAG] generationHandoff: requestId=\(handoff.requestId ?? "nil") currentAssistantMessageId=\(diagAssistantId) isSending=\(self.isSending) pendingQueuedCount=\(self.pendingQueuedCount)")
             if let requestId = handoff.requestId {
                 activeRequestIdToMessageId.removeValue(forKey: requestId)
             }

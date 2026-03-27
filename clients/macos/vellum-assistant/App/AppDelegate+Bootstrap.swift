@@ -155,9 +155,7 @@ extension AppDelegate {
             transitionBootstrap(to: .complete)
             return
         }
-        log.info("[DIAG] wireBootstrapFirstReplyCallback: setting onFirstAssistantReply now")
-        viewModel.onFirstAssistantReply = { [weak self] replyText in
-            log.info("[DIAG] onFirstAssistantReply FIRED — replyText=\(replyText.prefix(40), privacy: .public)")
+        viewModel.onFirstAssistantReply = { [weak self] _ in
             self?.transitionBootstrap(to: .complete)
         }
     }
