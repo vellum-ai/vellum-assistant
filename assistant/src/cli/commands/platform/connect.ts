@@ -1,9 +1,10 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import type { Command } from "commander";
 
-import { buildAssistantEvent } from "../../../runtime/assistant-event.js";
-import { assistantEventHub } from "../../../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../../runtime/assistant-scope.js";
 import { credentialKey } from "../../../security/credential-key.js";
+import { getSignalsDir } from "../../../util/platform.js";
 import { getSecureKeyViaDaemon } from "../../lib/daemon-credential-client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
@@ -86,14 +87,14 @@ Examples:
           return;
         }
 
-        // Publish a navigate_settings event so connected clients
-        // (e.g. macOS app) open the General settings tab which
-        // contains the Vellum Platform login card.
-        await assistantEventHub.publish(
-          buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
-            type: "navigate_settings",
-            tab: "General",
-          }),
+        // Write a signal file so the daemon's ConfigWatcher publishes a
+        // navigate_settings event to connected clients (e.g. macOS app),
+        // opening the General settings tab with the Vellum Platform login card.
+        const signalsDir = getSignalsDir();
+        mkdirSync(signalsDir, { recursive: true });
+        writeFileSync(
+          join(signalsDir, "navigate-settings"),
+          JSON.stringify({ tab: "General" }),
         );
 
         writeOutput(cmd, { ok: true, navigatedToSettings: true });

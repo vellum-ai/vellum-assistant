@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -13,34 +13,9 @@ let mockGetSecureKeyViaDaemon: (
   account: string,
 ) => Promise<string | undefined> = async () => undefined;
 
-let mockPublishedEvents: Array<{ assistantId: string; message: unknown }> = [];
-
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
-
-mock.module("../../../../runtime/assistant-event.js", () => ({
-  buildAssistantEvent: (assistantId: string, message: unknown) => ({
-    id: "test-event-id",
-    assistantId,
-    emittedAt: new Date().toISOString(),
-    message,
-  }),
-  formatSseFrame: () => "",
-  formatSseHeartbeat: () => ": heartbeat\n\n",
-}));
-
-mock.module("../../../../runtime/assistant-event-hub.js", () => ({
-  assistantEventHub: {
-    publish: async (event: { assistantId: string; message: unknown }) => {
-      mockPublishedEvents.push(event);
-    },
-  },
-}));
-
-mock.module("../../../../runtime/assistant-scope.js", () => ({
-  DAEMON_INTERNAL_ASSISTANT_ID: "self",
-}));
 
 mock.module("../../../lib/daemon-credential-client.js", () => ({
   getSecureKeyViaDaemon: (account: string) =>
@@ -199,11 +174,16 @@ async function runCommand(
 describe("assistant platform connect", () => {
   beforeEach(() => {
     mockGetSecureKeyViaDaemon = async () => undefined;
-    mockPublishedEvents = [];
     process.exitCode = 0;
+    // Remove any signal file left by previous tests
+    try {
+      rmSync(join(testDir, "signals"), { recursive: true, force: true });
+    } catch {
+      // ignore
+    }
   });
 
-  test("publishes navigate_settings event and reports success", async () => {
+  test("writes navigate-settings signal file and reports success", async () => {
     // GIVEN no existing platform credentials
     mockGetSecureKeyViaDaemon = async () => undefined;
 
@@ -222,12 +202,11 @@ describe("assistant platform connect", () => {
     expect(parsed.ok).toBe(true);
     expect(parsed.navigatedToSettings).toBe(true);
 
-    // AND a navigate_settings event was published
-    expect(mockPublishedEvents).toHaveLength(1);
-    expect(mockPublishedEvents[0]!.message).toEqual({
-      type: "navigate_settings",
-      tab: "General",
-    });
+    // AND a navigate-settings signal file was written for the daemon
+    const signalPath = join(testDir, "signals", "navigate-settings");
+    expect(existsSync(signalPath)).toBe(true);
+    const payload = JSON.parse(readFileSync(signalPath, "utf-8"));
+    expect(payload).toEqual({ tab: "General" });
   });
 
   test("already connected returns success with existing base URL", async () => {
@@ -256,7 +235,8 @@ describe("assistant platform connect", () => {
     expect(parsed.alreadyConnected).toBe(true);
     expect(parsed.baseUrl).toBe("https://platform.vellum.ai");
 
-    // AND no navigate_settings event was published
-    expect(mockPublishedEvents).toHaveLength(0);
+    // AND no navigate-settings signal file was written
+    const signalPath = join(testDir, "signals", "navigate-settings");
+    expect(existsSync(signalPath)).toBe(false);
   });
 });
