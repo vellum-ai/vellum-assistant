@@ -4,9 +4,8 @@ import VellumAssistantShared
 
 /// A zoomable, pannable image view for the lightbox overlay.
 ///
-/// Supports scroll-to-zoom (1x–8x), double-click to toggle fit/actual size,
-/// and drag-to-pan when zoomed beyond fit. Uses a local NSEvent scroll-wheel
-/// monitor for smooth zoom tracking.
+/// Supports pinch-to-zoom (trackpad), scroll-to-zoom (mouse wheel),
+/// double-click to toggle fit/actual size, and drag-to-pan when zoomed.
 struct ZoomableImageView: View {
     let image: NSImage
     @Environment(\.displayScale) private var displayScale
@@ -15,25 +14,30 @@ struct ZoomableImageView: View {
     @State private var offset: CGSize = .zero
     @State private var isDragging = false
     @State private var scrollMonitor: Any?
+    @State private var magnifyMonitor: Any?
+
+    /// Tracks the scale at the start of a pinch gesture so incremental
+    /// magnification deltas compound correctly.
+    @State private var pinchBaseScale: CGFloat = 1.0
 
     /// The geometry size of the container, captured for offset clamping.
     @State private var containerSize: CGSize = .zero
 
-    private let minScale: CGFloat = 1.0
-    private let maxScale: CGFloat = 8.0
+    private let minScale: CGFloat = 0.5
+    private let maxScale: CGFloat = 10.0
 
     var body: some View {
         GeometryReader { geometry in
             let fittedSize = fittedImageSize(in: geometry.size)
 
             ZStack {
-                // Transparent hit target for the full container
                 Color.clear
 
                 imageLayer(fittedSize: fittedSize)
                     .scaleEffect(scale)
                     .offset(x: offset.width, y: offset.height)
                     .gesture(dragGesture(fittedSize: fittedSize, containerSize: geometry.size))
+                    .gesture(magnifyGesture(fittedSize: fittedSize, containerSize: geometry.size))
                     .onTapGesture(count: 2) {
                         handleDoubleClick(fittedSize: fittedSize, containerSize: geometry.size)
                     }
@@ -41,14 +45,13 @@ struct ZoomableImageView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onAppear {
                 containerSize = geometry.size
-                installScrollMonitor()
+                installEventMonitors()
             }
             .onDisappear {
-                removeScrollMonitor()
+                removeEventMonitors()
             }
             .onChange(of: geometry.size) { _, newSize in
                 containerSize = newSize
-                // Reset zoom when container resizes (e.g. window resize)
                 withAnimation(VAnimation.fast) {
                     scale = 1.0
                     offset = .zero
@@ -81,7 +84,6 @@ struct ZoomableImageView: View {
 
     // MARK: - Sizing
 
-    /// Computes the image size when fitted (aspect-fit) within the container with padding.
     private func fittedImageSize(in containerSize: CGSize) -> CGSize {
         let padding: CGFloat = VSpacing.xxxl * 2
         let availableWidth = max(containerSize.width - padding, 1)
@@ -96,7 +98,7 @@ struct ZoomableImageView: View {
 
         let widthRatio = availableWidth / imageWidth
         let heightRatio = availableHeight / imageHeight
-        let fitScale = min(widthRatio, heightRatio, 1.0) // Don't upscale
+        let fitScale = min(widthRatio, heightRatio, 1.0)
 
         return CGSize(
             width: imageWidth * fitScale,
@@ -109,17 +111,43 @@ struct ZoomableImageView: View {
     private func handleDoubleClick(fittedSize: CGSize, containerSize: CGSize) {
         withAnimation(VAnimation.panel) {
             if scale > 1.01 {
-                // Zoomed in — reset to fit
                 scale = 1.0
                 offset = .zero
             } else {
-                // At fit — zoom to actual pixel size (or 2x if already at actual)
                 guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
                 let nativeWidth = CGFloat(cgImage.width) / displayScale
                 let actualScale = nativeWidth / fittedSize.width
                 scale = min(max(actualScale, 2.0), maxScale)
             }
         }
+    }
+
+    // MARK: - Pinch-to-Zoom Gesture (Trackpad)
+
+    private func magnifyGesture(fittedSize: CGSize, containerSize: CGSize) -> some Gesture {
+        MagnifyGesture()
+            .onChanged { value in
+                let proposed = pinchBaseScale * value.magnification
+                withAnimation(VAnimation.snappy) {
+                    scale = max(minScale, min(maxScale, proposed))
+                    if scale <= 1.01 {
+                        offset = .zero
+                    } else {
+                        offset = clampedOffset(offset, fittedSize: fittedSize, containerSize: containerSize)
+                    }
+                }
+            }
+            .onEnded { value in
+                pinchBaseScale = scale
+                // Snap back to 1.0 if close
+                if scale < 1.0 && scale > 0.9 {
+                    withAnimation(VAnimation.panel) {
+                        scale = 1.0
+                        offset = .zero
+                    }
+                    pinchBaseScale = 1.0
+                }
+            }
     }
 
     // MARK: - Drag Gesture
@@ -139,39 +167,27 @@ struct ZoomableImageView: View {
                     containerSize: containerSize
                 )
             }
-            .onEnded { value in
+            .onEnded { _ in
                 if isDragging {
                     isDragging = false
                     NSCursor.pop()
                 }
-                offset = clampedOffset(
-                    CGSize(width: offset.width + value.translation.width,
-                           height: offset.height + value.translation.height),
-                    fittedSize: fittedSize,
-                    containerSize: containerSize
-                )
             }
     }
 
-    // MARK: - Scroll Wheel Zoom
+    // MARK: - Event Monitors
 
-    private func installScrollMonitor() {
+    private func installEventMonitors() {
+        // Scroll wheel zoom (mouse wheel)
         scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
-            // Only handle scroll-wheel zoom when the lightbox is showing
-            // Use pinch (trackpad) or scroll (mouse) delta for zoom
-            let delta: CGFloat
-            if event.hasPreciseScrollingDeltas {
-                // Trackpad pinch — use vertical delta
-                delta = event.scrollingDeltaY / 100
-            } else {
-                // Mouse scroll wheel
-                delta = event.scrollingDeltaY / 10
-            }
+            // Only zoom with non-precise (mouse wheel) scrolling.
+            // Precise scrolling (trackpad two-finger) is handled by MagnifyGesture.
+            guard !event.hasPreciseScrollingDeltas else { return event }
 
+            let delta = event.scrollingDeltaY / 10
             guard abs(delta) > 0.001 else { return event }
 
             let newScale = max(minScale, min(maxScale, scale * (1 + delta)))
-
             withAnimation(VAnimation.snappy) {
                 scale = newScale
                 if newScale <= 1.01 {
@@ -181,22 +197,44 @@ struct ZoomableImageView: View {
                     offset = clampedOffset(offset, fittedSize: fittedSize, containerSize: containerSize)
                 }
             }
+            pinchBaseScale = newScale
 
-            return event
+            // Consume the event so the chat behind doesn't scroll
+            return nil
+        }
+
+        // Trackpad pinch-to-zoom via NSEvent (supplements SwiftUI MagnifyGesture
+        // which can be unreliable when competing with other gestures)
+        magnifyMonitor = NSEvent.addLocalMonitorForEvents(matching: .magnify) { event in
+            let newScale = max(minScale, min(maxScale, scale * (1 + event.magnification)))
+            withAnimation(VAnimation.snappy) {
+                scale = newScale
+                if newScale <= 1.01 {
+                    offset = .zero
+                } else {
+                    let fittedSize = fittedImageSize(in: containerSize)
+                    offset = clampedOffset(offset, fittedSize: fittedSize, containerSize: containerSize)
+                }
+            }
+            pinchBaseScale = newScale
+
+            return nil
         }
     }
 
-    private func removeScrollMonitor() {
+    private func removeEventMonitors() {
         if let monitor = scrollMonitor {
             NSEvent.removeMonitor(monitor)
             scrollMonitor = nil
+        }
+        if let monitor = magnifyMonitor {
+            NSEvent.removeMonitor(monitor)
+            magnifyMonitor = nil
         }
     }
 
     // MARK: - Offset Clamping
 
-    /// Clamps the pan offset so the image can't be dragged entirely off-screen.
-    /// Allows up to half the scaled image to extend beyond the container edge.
     private func clampedOffset(_ proposed: CGSize, fittedSize: CGSize, containerSize: CGSize) -> CGSize {
         let scaledWidth = fittedSize.width * scale
         let scaledHeight = fittedSize.height * scale
