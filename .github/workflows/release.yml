@@ -2295,8 +2295,9 @@ jobs:
           # Build "Go live!" button for staging releases that are ready
           if [ "$IS_STAGING" = "true" ] && [ "$STAGING_READY" = "true" ] && [ -n "$RELEASE_TRIGGER_SECRET" ]; then
             RELEASE_BRANCH="release/${VERSION_TAG}"
-            GO_LIVE_SIG=$(echo -n "$RELEASE_BRANCH" | openssl dgst -sha256 -hmac "$RELEASE_TRIGGER_SECRET" -hex | awk '{print $NF}')
-            GO_LIVE_URL="https://qa.vellum.ai/api/slack/go-live?branch=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${RELEASE_BRANCH}', safe=''))")&sig=${GO_LIVE_SIG}"
+            GO_LIVE_TS=$(date +%s)
+            GO_LIVE_SIG=$(echo -n "${RELEASE_BRANCH}:${GO_LIVE_TS}" | openssl dgst -sha256 -hmac "$RELEASE_TRIGGER_SECRET" -hex | awk '{print $NF}')
+            GO_LIVE_URL="https://qa.vellum.ai/api/slack/go-live?branch=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${RELEASE_BRANCH}', safe=''))")&ts=${GO_LIVE_TS}&sig=${GO_LIVE_SIG}"
             GO_LIVE=$(jq -n --arg url "$GO_LIVE_URL" '{
               type: "button",
               text: { type: "plain_text", text: "Go live!" },
