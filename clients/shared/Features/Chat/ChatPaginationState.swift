@@ -69,17 +69,17 @@ public final class ChatPaginationState {
     // MARK: - Dependencies
 
     /// The message manager whose `messagesPublisher` drives `displayedMessages`.
-    private let messageManager: ChatMessageManager
+    @ObservationIgnored private let messageManager: ChatMessageManager
 
     /// Callback invoked when `loadPreviousMessagePage` needs to fetch an older
     /// page from the daemon. The conversation restorer sets this so the daemon
     /// client request is routed through the same pending-history tracking used
     /// for initial loads.
-    public var onLoadMoreHistory: ((_ conversationId: String, _ beforeTimestamp: Double) -> Void)?
+    @ObservationIgnored public var onLoadMoreHistory: ((_ conversationId: String, _ beforeTimestamp: Double) -> Void)?
 
     /// Closure that supplies the current conversationId from ChatViewModel.
     /// Set after init to avoid capturing `self` before ChatViewModel is fully initialized.
-    var conversationIdProvider: () -> String? = { nil }
+    @ObservationIgnored var conversationIdProvider: () -> String? = { nil }
 
     /// Combine subscription for the throttled messagesPublisher -> displayedMessages sync.
     @ObservationIgnored private var messagesSyncSub: AnyCancellable?
