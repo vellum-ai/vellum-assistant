@@ -801,6 +801,9 @@ struct ConstellationView: View {
     /// Accumulated drag offset for the node currently being dragged.
     @State private var activeNodeDrag: (id: String, offset: CGSize)?
 
+    /// Event monitor for mouse-wheel scroll zoom.
+    @State private var scrollWheelMonitor: Any?
+
     private var existingFiles: [WorkspaceFileNode] {
         workspaceFiles.filter { $0.exists }
     }
@@ -993,6 +996,34 @@ struct ConstellationView: View {
         }
     }
 
+    // MARK: - Mouse Wheel Zoom
+
+    private func installScrollWheelMonitor() {
+        scrollWheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+            // Only handle discrete mouse-wheel scrolling.
+            // Precise scrolling (trackpad two-finger) is handled by MagnifyGesture.
+            guard !event.hasPreciseScrollingDeltas else { return event }
+
+            let delta = event.scrollingDeltaY / 10
+            guard abs(delta) > 0.001 else { return event }
+
+            let newScale = max(0.4, min(3.0, zoomScale * (1 + delta)))
+            withAnimation(VAnimation.snappy) {
+                zoomScale = newScale
+                baseZoomScale = newScale
+                zoomedNodeId = nil
+            }
+            return nil
+        }
+    }
+
+    private func removeScrollWheelMonitor() {
+        if let monitor = scrollWheelMonitor {
+            NSEvent.removeMonitor(monitor)
+            scrollWheelMonitor = nil
+        }
+    }
+
     /// Shared drag gesture for any draggable node.
     private func nodeDragGesture(nodeId: String) -> some Gesture {
         DragGesture(minimumDistance: 4)
@@ -1149,6 +1180,10 @@ struct ConstellationView: View {
                 )
                 .onAppear {
                     layoutAndAnimate(viewSize: proxy.size)
+                    installScrollWheelMonitor()
+                }
+                .onDisappear {
+                    removeScrollWheelMonitor()
                 }
                 .onChange(of: skills.count) { _, _ in
                     layoutAndAnimate(viewSize: proxy.size)
