@@ -174,6 +174,97 @@ extension MainWindowView {
 
     // MARK: - Ungrouped Rows
 
+    /// The main conversation groups list content, extracted from the ScrollView body
+    /// to reduce type-checker pressure (avoids "ambiguous use of init" on ScrollView).
+    @ViewBuilder
+    private var conversationGroupsList: some View {
+        LazyVStack(spacing: 0) {
+            if showDaemonLoading && !assistantLoadingTimedOut && conversationManager.visibleConversations.isEmpty {
+                DaemonLoadingConversationsSkeleton()
+            }
+
+            let isDragging = sidebar.draggingConversationId != nil
+            let groupEntries = conversationManager.groupedConversations
+                .filter { entry in
+                    guard let group = entry.group, group.isSystemGroup else { return true }
+                    return !entry.conversations.isEmpty || isDragging
+                }
+                .map { entry in
+                    SidebarGroupEntry(
+                        id: entry.group?.id ?? "ungrouped",
+                        group: entry.group,
+                        conversations: entry.conversations
+                    )
+                }
+            ForEach(groupEntries) { entry in
+                if let group = entry.group {
+                    SidebarSectionView(
+                        group: group,
+                        conversations: entry.conversations,
+                        isExpanded: sidebar.expandedSections.contains(group.id),
+                        showAll: sidebar.showAllInSection.contains(group.id),
+                        maxCollapsed: group.isSystemGroup ? 3 : 5,
+                        isDropTarget: sidebar.dropTargetSectionId == group.id,
+                        countMode: group.id == ConversationGroup.scheduled.id
+                            ? .subGroups(grouper: { $0.scheduleJobId })
+                            : .items,
+                        isRenaming: sidebar.renamingGroupId == group.id,
+                        renamingName: Binding(
+                            get: { sidebar.renamingGroupName },
+                            set: { sidebar.renamingGroupName = $0 }
+                        ),
+                        onRename: group.isSystemGroup ? nil : { name in
+                            sidebar.renamingGroupId = group.id
+                            sidebar.renamingGroupName = name
+                        },
+                        onCommitRename: group.isSystemGroup ? nil : { newName in
+                            sidebar.renamingGroupId = nil
+                            Task { await conversationManager.renameGroup(group.id, name: newName) }
+                        },
+                        onCancelRename: group.isSystemGroup ? nil : {
+                            sidebar.renamingGroupId = nil
+                        },
+                        onDelete: group.isSystemGroup ? nil : {
+                            Task { await conversationManager.deleteGroup(group.id) }
+                        },
+                        onToggleExpand: { sidebar.toggleSection(group.id) },
+                        onToggleShowAll: { sidebar.toggleShowAll(group.id) },
+                        makeRow: { makeSidebarRow(conversation: $0) },
+                        expandedScheduleGroups: group.id == ConversationGroup.scheduled.id
+                            ? Binding(
+                                get: { sidebar.expandedScheduleGroups },
+                                set: { sidebar.expandedScheduleGroups = $0 }
+                            )
+                            : nil,
+                        sidebar: sidebar,
+                        conversationManager: conversationManager
+                    )
+                } else {
+                    ungroupedConversationRows(entry.conversations)
+                }
+            }
+
+            Button {
+                Task {
+                    if let group = await conversationManager.createGroup(name: "New Group") {
+                        sidebar.expandedSections.insert(group.id)
+                        sidebar.renamingGroupId = group.id
+                        sidebar.renamingGroupName = group.name
+                    }
+                }
+            } label: {
+                HStack {
+                    VIconView(.plus, size: 12)
+                    Text("New Group")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, VSpacing.xs)
+        }
+    }
+
     /// Renders ungrouped conversations with drag-reorder support.
     /// These appear without a collapsible header, matching the pre-groups layout.
     @ViewBuilder
@@ -319,96 +410,7 @@ extension MainWindowView {
             )
 
             ScrollView(.vertical) {
-                LazyVStack(spacing: 0) {
-                    if showDaemonLoading && !assistantLoadingTimedOut && conversationManager.visibleConversations.isEmpty {
-                        DaemonLoadingConversationsSkeleton()
-                    }
-
-                    let isDragging = sidebar.draggingConversationId != nil
-                    let groupEntries = conversationManager.groupedConversations
-                        .filter { entry in
-                            // Hide empty system groups unless a drag is in progress
-                            // (ghost headers serve as drop targets during drag).
-                            // Non-system groups and ungrouped always appear.
-                            guard let group = entry.group, group.isSystemGroup else { return true }
-                            return !entry.conversations.isEmpty || isDragging
-                        }
-                        .map { entry in
-                            SidebarGroupEntry(
-                                id: entry.group?.id ?? "ungrouped",
-                                group: entry.group,
-                                conversations: entry.conversations
-                            )
-                        }
-                    ForEach(groupEntries) { entry in
-                        if let group = entry.group {
-                            SidebarSectionView(
-                                group: group,
-                                conversations: entry.conversations,
-                                isExpanded: sidebar.expandedSections.contains(group.id),
-                                showAll: sidebar.showAllInSection.contains(group.id),
-                                maxCollapsed: group.isSystemGroup ? 3 : 5,
-                                isDropTarget: sidebar.dropTargetSectionId == group.id,
-                                countMode: group.id == ConversationGroup.scheduled.id
-                                    ? .subGroups(grouper: { $0.scheduleJobId })
-                                    : .items,
-                                isRenaming: sidebar.renamingGroupId == group.id,
-                                renamingName: Binding(
-                                    get: { sidebar.renamingGroupName },
-                                    set: { sidebar.renamingGroupName = $0 }
-                                ),
-                                onRename: group.isSystemGroup ? nil : { name in
-                                    sidebar.renamingGroupId = group.id
-                                    sidebar.renamingGroupName = name
-                                },
-                                onCommitRename: group.isSystemGroup ? nil : { newName in
-                                    sidebar.renamingGroupId = nil
-                                    Task { await conversationManager.renameGroup(group.id, name: newName) }
-                                },
-                                onCancelRename: group.isSystemGroup ? nil : {
-                                    sidebar.renamingGroupId = nil
-                                },
-                                onDelete: group.isSystemGroup ? nil : {
-                                    Task { await conversationManager.deleteGroup(group.id) }
-                                },
-                                onToggleExpand: { sidebar.toggleSection(group.id) },
-                                onToggleShowAll: { sidebar.toggleShowAll(group.id) },
-                                makeRow: { makeSidebarRow(conversation: $0) },
-                                expandedScheduleGroups: group.id == ConversationGroup.scheduled.id
-                                    ? Binding(
-                                        get: { sidebar.expandedScheduleGroups },
-                                        set: { sidebar.expandedScheduleGroups = $0 }
-                                    )
-                                    : nil,
-                                sidebar: sidebar,
-                                conversationManager: conversationManager
-                            )
-                        } else {
-                            // Ungrouped -- no collapsible header, flat list with drag-reorder
-                            ungroupedConversationRows(entry.conversations)
-                        }
-                    }
-
-                    // "New Group" button below last group section
-                    Button {
-                        Task {
-                            if let group = await conversationManager.createGroup(name: "New Group") {
-                                sidebar.expandedSections.insert(group.id)
-                                sidebar.renamingGroupId = group.id
-                                sidebar.renamingGroupName = group.name
-                            }
-                        }
-                    } label: {
-                        HStack {
-                            VIconView(.plus, size: 12)
-                            Text("New Group")
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, VSpacing.xs)
-                }
+                conversationGroupsList
             }
             .scrollIndicators(.never)
             .onChange(of: scheduledUnreadCount) { _, newCount in
