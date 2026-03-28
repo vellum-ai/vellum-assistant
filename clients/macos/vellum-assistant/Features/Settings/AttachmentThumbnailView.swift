@@ -47,7 +47,15 @@ struct AttachmentThumbnailView: View {
                 guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil) else {
                     return nil as CGImage?
                 }
-                return CGImageSourceCreateImageAtIndex(source, 0, nil)
+                // Decode at thumbnail size instead of full resolution to avoid
+                // large pixel buffer allocations for high-res screenshots/GIFs.
+                let maxPixels = Int(AttachmentThumbnailView.thumbnailSize) * 2 // 2x for Retina
+                let options: [CFString: Any] = [
+                    kCGImageSourceCreateThumbnailFromImageAlways: true,
+                    kCGImageSourceThumbnailMaxPixelSize: maxPixels,
+                    kCGImageSourceCreateThumbnailWithTransform: true,
+                ]
+                return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
             }.value
             // Create NSImage on the main thread from the thread-safe CGImage.
             if let cgImage {
