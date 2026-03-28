@@ -7,11 +7,72 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatV
 
 extension ChatViewModel {
 
+    // MARK: - Thinking Delta Throttle
+
+    /// Cancel any pending thinking flush and discard buffered thinking text.
+    func discardThinkingBuffer() {
+        thinkingFlushTask?.cancel()
+        thinkingFlushTask = nil
+        thinkingDeltaBuffer = ""
+    }
+
+    /// Flush any buffered thinking text into the messages array.
+    /// Called eagerly before text flushes to maintain correct interleaving order.
+    func flushThinkingBuffer() {
+        thinkingFlushTask?.cancel()
+        thinkingFlushTask = nil
+        guard !thinkingDeltaBuffer.isEmpty else { return }
+        let buffered = thinkingDeltaBuffer
+        thinkingDeltaBuffer = ""
+        appendThinkingToCurrentMessage(buffered)
+    }
+
+    /// Append a chunk of thinking text to the current assistant message.
+    func appendThinkingToCurrentMessage(_ text: String) {
+        guard !text.isEmpty else { return }
+        if let existingId = currentAssistantMessageId,
+           let index = messages.firstIndex(where: { $0.id == existingId }) {
+            if let lastRef = messages[index].contentOrder.last,
+               case .thinking(let segIdx) = lastRef {
+                // Append to the existing thinking segment
+                messages[index].thinkingSegments[segIdx] += text
+            } else {
+                // Create a new thinking segment
+                let segIdx = messages[index].thinkingSegments.count
+                messages[index].thinkingSegments.append(text)
+                messages[index].contentOrder.append(.thinking(segIdx))
+            }
+        } else if currentAssistantMessageId != nil {
+            log.warning("Stale currentAssistantMessageId \(self.currentAssistantMessageId!.uuidString) — discarding \(text.count) buffered thinking chars")
+            currentAssistantMessageId = nil
+            return
+        } else {
+            var msg = ChatMessage(role: .assistant, text: "", isStreaming: true)
+            msg.thinkingSegments = [text]
+            msg.contentOrder = [.thinking(0)]
+            currentAssistantMessageId = msg.id
+            messages.append(msg)
+        }
+    }
+
+    /// Schedule a thinking flush after the throttle interval if one isn't already pending.
+    func scheduleThinkingFlush() {
+        guard thinkingFlushTask == nil else { return }
+        thinkingFlushTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(Self.streamingFlushInterval * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            self?.flushThinkingBuffer()
+        }
+    }
+
+    // MARK: - Streaming Delta Throttle
+
     /// Cancel any pending flush and discard buffered text.
     /// Called on every path that clears `currentAssistantMessageId` without
     /// a normal `messageComplete` (cancel, error, handoff, reconnect, etc.)
     /// to prevent a stale flush from creating an orphan assistant message.
     func discardStreamingBuffer() {
+        discardThinkingBuffer()
         streamingFlushTask?.cancel()
         streamingFlushTask = nil
         streamingDeltaBuffer = ""
@@ -21,6 +82,7 @@ extension ChatViewModel {
     /// Called on a timer and also eagerly on `messageComplete`,
     /// `toolUseStart`, `uiSurfaceShow`, etc.
     func flushStreamingBuffer() {
+        flushThinkingBuffer()  // thinking before text in content order
         streamingFlushTask?.cancel()
         streamingFlushTask = nil
         guard !streamingDeltaBuffer.isEmpty else { return }

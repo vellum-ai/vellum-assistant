@@ -635,6 +635,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Scheduled flush work item; cancelled and re-created on each delta.
     @ObservationIgnored var streamingFlushTask: Task<Void, Never>?
 
+    /// Buffered thinking text that has not yet been flushed to `messages`.
+    @ObservationIgnored var thinkingDeltaBuffer: String = ""
+    /// Scheduled flush task for coalescing thinking delta writes.
+    @ObservationIgnored var thinkingFlushTask: Task<Void, Never>?
+
     // MARK: - Partial Output Coalescing
 
     /// Buffered partial-output chunks keyed by "messageUUID:tcIndex".

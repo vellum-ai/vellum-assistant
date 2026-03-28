@@ -106,9 +106,12 @@ final class ChatActionHandler {
             vm.isSending = true
             vm.isThinking = true
 
-        case .assistantThinkingDelta:
-            // Stay in thinking state
-            break
+        case .assistantThinkingDelta(let delta):
+            guard !vm.isCancelling else { break }
+            guard !vm.isLoadingHistory else { break }
+            guard MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks") else { break }
+            vm.thinkingDeltaBuffer += delta.thinking
+            vm.scheduleThinkingFlush()
 
         case .assistantTextDelta(let delta):
             handleAssistantTextDelta(delta, vm: vm)
