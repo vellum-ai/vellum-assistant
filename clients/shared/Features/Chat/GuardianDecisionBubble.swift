@@ -152,7 +152,7 @@ public struct GuardianDecisionBubble: View {
 
             // Scope hint for temporal approval options
             if decision.actions.contains(where: { $0.action == "approve_10m" || $0.action == "approve_conversation" }) {
-                Text("Temporal options apply to all tools in this conversation")
+                Text("Temporal options apply to all pending tool requests")
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
