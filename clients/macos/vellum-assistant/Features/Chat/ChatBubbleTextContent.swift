@@ -76,9 +76,24 @@ extension ChatBubble {
         if isStreaming, let last = lastStreamingSegments, last.text == text {
             return last.value
         }
+        // Streaming throttle: for large streaming text, reuse the previous
+        // parse result if we parsed recently. Prevents synchronous O(n)
+        // markdown re-parsing (with regex table checks per line and
+        // per-cell AttributedString builds) on every rendering pass,
+        // which otherwise pegs the CPU at 100% during streaming of
+        // large messages with tables.
+        if isStreaming,
+           text.count > streamingParseThrottleThreshold,
+           let last = lastStreamingSegments {
+            let now = ProcessInfo.processInfo.systemUptime
+            if now - lastStreamingParseTime < streamingParseThrottleInterval {
+                return last.value
+            }
+        }
         let result = parseMarkdownSegments(text)
         if isStreaming {
             lastStreamingSegments = (text, result)
+            lastStreamingParseTime = ProcessInfo.processInfo.systemUptime
             return result
         }
         // Skip caching for very long text to avoid a single huge entry

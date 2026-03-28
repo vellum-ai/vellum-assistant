@@ -787,6 +787,19 @@ struct ChatBubble: View {
     // redundant reevaluations return instantly without re-parsing.
 
     @MainActor static var lastStreamingSegments: (text: String, value: [MarkdownSegment])?
+
+    /// Timestamp of the last streaming markdown parse. Used with
+    /// `streamingParseThrottleInterval` to throttle O(n) re-parsing
+    /// during streaming of large messages with tables.
+    @MainActor static var lastStreamingParseTime: TimeInterval = 0
+
+    /// Streaming text length above which markdown parsing is throttled.
+    static let streamingParseThrottleThreshold = 2000
+
+    /// Minimum interval between streaming markdown parses for large text.
+    /// 150ms allows ~7 updates/sec — visually smooth while preventing
+    /// CPU saturation from synchronous O(n) table parsing on every chunk.
+    static let streamingParseThrottleInterval: TimeInterval = 0.15
 }
 
 /// NSObject wrapper for `[MarkdownSegment]` to satisfy NSCache's NSObject value requirement.

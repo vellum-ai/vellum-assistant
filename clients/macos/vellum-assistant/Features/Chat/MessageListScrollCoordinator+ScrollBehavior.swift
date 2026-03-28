@@ -449,7 +449,12 @@ extension MessageListScrollCoordinator {
         scrollRestoreTask?.cancel()
         scrollRestoreTask = nil
         clearAllSuppression()
-        if pushToTopMessageId != nil { pushToTopMessageId = nil }
+        // Do NOT clear pushToTopMessageId here. Removing the tail spacer
+        // while the user is actively scrolling causes a content-height
+        // discontinuity (viewport-height drop) that makes the scroll
+        // position jump. Let overflow detection (distanceFromBottom > 50)
+        // or the onScrollPhaseChange idle handler clear it naturally
+        // when the layout can absorb the change.
         detachFromBottom()
         hasReceivedScrollEvent = true
     }
