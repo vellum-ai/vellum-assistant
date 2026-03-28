@@ -8,6 +8,7 @@ import {
   pruneOldConversationsJob,
 } from "./job-handlers/cleanup.js";
 import { generateConversationStartersJob } from "./job-handlers/conversation-starters.js";
+import { journalCarryForwardJob } from "./job-handlers/journal-carry-forward.js";
 // ── Per-job-type handlers ──────────────────────────────────────────
 import {
   embedAttachmentJob,
@@ -330,6 +331,9 @@ async function processJob(
       return;
     case "embed_attachment":
       await embedAttachmentJob(job, config);
+      return;
+    case "journal_carry_forward":
+      await journalCarryForwardJob(job);
       return;
     case "generate_conversation_starters":
       await generateConversationStartersJob(job);

@@ -31,6 +31,7 @@ export type MemoryJobType =
   | "embed_media"
   | "embed_attachment"
   | "generate_conversation_starters"
+  | "journal_carry_forward"
   | "generate_capability_cards" // legacy compat — silently dropped by worker (capability cards removed)
   | "generate_thread_starters"; // legacy compat — silently dropped by worker (renamed to generate_conversation_starters)
 
