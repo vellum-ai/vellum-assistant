@@ -63,12 +63,12 @@ export const GUARDIAN_DECISION_ACTIONS = {
   },
   approve_10m: {
     action: "approve_10m",
-    label: "Allow 10 min",
+    label: "Allow all for 10 min",
     description: "All tools for 10 minutes",
   },
   approve_conversation: {
     action: "approve_conversation",
-    label: "Allow conversation",
+    label: "Allow all for conversation",
     description: "All tools for this conversation",
   },
   approve_always: {
