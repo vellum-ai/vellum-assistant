@@ -879,9 +879,16 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
         touchVMAccessOrder(id)
         activeConversationId = id
-        // Switching conversations is a natural point to shed cached render
-        // artefacts from the previous conversation.
-        Self.clearRenderCaches()
+        // Render caches are keyed by content + appearance (text hash +
+        // color descriptions), not by conversation — entries from one
+        // conversation are valid for any conversation with the same text.
+        // Clearing them here caused every visible message to re-parse and
+        // re-build AttributedStrings synchronously, and the height
+        // mismatch between placeholder and proper renders triggered a
+        // LazyVStack re-estimation cascade that froze the app.
+        // NSCache handles memory pressure automatically; explicit clears
+        // are kept on close/archive/delete where freeing memory for
+        // discarded conversations is appropriate.
 
         // Emit explicit seen signal for user-initiated conversation selection.
         // Skip if this conversation was already active to avoid duplicate signals
