@@ -12,8 +12,8 @@ import {
   enqueueMemoryJob,
   getMemoryJobCounts,
 } from "./jobs-store.js";
-import { getQdrantClient } from "./qdrant-client.js";
 import { withQdrantBreaker } from "./qdrant-circuit-breaker.js";
+import { getQdrantClient } from "./qdrant-client.js";
 import { queryMemoryForCli } from "./retriever.js";
 import { conversations, memorySegments, memorySummaries, messages } from "./schema.js";
 

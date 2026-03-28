@@ -117,7 +117,9 @@ struct DebugStateWriterTests {
         #expect(td["containerWidth"] as? Double == 600.0)
         #expect(td["lastScrollToReason"] as? String == "auto-scroll-bottom")
         #expect(td["capturedAt"] != nil)
-        #expect(td["lastLoopWarningTimestamp"] != nil)
+        // lastLoopWarningTimestamp is always nil now that the loop guard is removed.
+        let loopVal = td["lastLoopWarningTimestamp"]
+        #expect(loopVal == nil || loopVal is NSNull)
     }
 
     @Test @MainActor
@@ -374,7 +376,8 @@ struct DebugStateWriterTests {
         #expect(diagnostics.scrollViewportHeight == 745.0)
         #expect(diagnostics.containerWidth == 580.0)
         #expect(diagnostics.lastScrollToReason == "pagination-restore")
-        #expect(diagnostics.lastLoopWarningTimestamp == loopDate)
+        // lastLoopWarningTimestamp is always nil now that the loop guard is removed.
+        #expect(diagnostics.lastLoopWarningTimestamp == nil)
     }
 
     // MARK: - Valid JSON Output

@@ -203,11 +203,13 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
     let containerWidth: Double?
     /// Human-readable reason for the last `scrollTo` call.
     let lastScrollToReason: String?
-    /// Timestamp of the last scroll-loop warning from `ChatScrollLoopGuard`.
+    /// Formerly: timestamp of the last scroll-loop warning from the loop guard.
+    /// Always `nil` — the loop guard is being removed. Retained for backward
+    /// compatibility with serialized snapshots.
     let lastLoopWarningTimestamp: Date?
-    /// Rolling event counts from `ChatScrollLoopGuard` at snapshot time.
-    /// Keys are `EventKind.rawValue` strings; values are counts within the
-    /// rolling 2-second window. Only non-zero counts are included.
+    /// Formerly: rolling event counts from the scroll loop guard.
+    /// Always `nil` — the loop guard is being removed. Retained for backward
+    /// compatibility with serialized snapshots.
     let scrollLoopGuardCounts: [String: Int]?
 
     // MARK: Sanitization metadata

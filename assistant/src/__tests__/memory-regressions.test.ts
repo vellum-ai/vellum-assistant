@@ -220,7 +220,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "The user prefers dark mode for all editor and terminal windows.",
+            text: "The user strongly prefers dark mode for all editor themes and UIs.",
           },
         ]),
         createdAt: now,
@@ -236,7 +236,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "The user prefers dark mode for all editor and terminal windows.",
+            text: "The user strongly prefers dark mode for all editor themes and UIs.",
           },
         ]),
         createdAt: now,
@@ -1581,7 +1581,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "Remember my scope preference for using dark mode in all projects.",
+            text: "Remember my scope preference for organizing projects by team and priority level.",
           },
         ]),
         createdAt: now,
@@ -1596,7 +1596,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "Remember my scope preference for using dark mode in all projects.",
+            text: "Remember my scope preference for organizing projects by team and priority level.",
           },
         ]),
         createdAt: now,
@@ -3263,7 +3263,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "Untrusted user preference for dark mode across all editor windows and terminals.",
+            text: "Untrusted user preference for dark mode across all editor themes and interfaces.",
           },
         ]),
         createdAt: now,
@@ -3278,7 +3278,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "Untrusted user preference for dark mode across all editor windows and terminals.",
+            text: "Untrusted user preference for dark mode across all editor themes and interfaces.",
           },
         ]),
         createdAt: now,
@@ -3329,7 +3329,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "Trusted guardian preference for light mode in all editor windows and terminals.",
+            text: "Trusted guardian preference for light mode with high contrast accessibility settings.",
           },
         ]),
         createdAt: now,
@@ -3344,7 +3344,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "Trusted guardian preference for light mode in all editor windows and terminals.",
+            text: "Trusted guardian preference for light mode with high contrast accessibility settings.",
           },
         ]),
         createdAt: now,
@@ -3392,7 +3392,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "Legacy message with no provenance information attached to it at all.",
+            text: "Legacy message with no provenance info that still needs full extraction processing.",
           },
         ]),
         createdAt: now,
@@ -3407,7 +3407,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "Legacy message with no provenance information attached to it at all.",
+            text: "Legacy message with no provenance info that still needs full extraction processing.",
           },
         ]),
         createdAt: now,
@@ -3455,7 +3455,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "Unverified channel preference for compact layout in all application windows.",
+            text: "Unverified channel preference for compact layout with sidebar navigation always visible.",
           },
         ]),
         createdAt: now,
@@ -3470,7 +3470,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "Unverified channel preference for compact layout in all application windows.",
+            text: "Unverified channel preference for compact layout with sidebar navigation always visible.",
           },
         ]),
         createdAt: now,

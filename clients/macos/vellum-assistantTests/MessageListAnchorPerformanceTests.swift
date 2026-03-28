@@ -5,7 +5,7 @@ import XCTest
 // MARK: - MessageListView Anchor & Rendering Performance Baselines
 //
 // These tests establish XCTest performance baselines for:
-//   1. MessageListScrollCoordinator anchor hot-path stress (called on every scroll frame)
+//   1. MessageListScrollState bottom-detection hot-path stress (called on every scroll frame)
 //   2. Large conversation markdown pipeline throughput (cold cache)
 //   3. Attributed string cache hit performance (hot cache)
 //
@@ -78,13 +78,13 @@ final class MessageListAnchorPerformanceTests: XCTestCase {
     ```
     """
 
-    // MARK: - 1. Coordinator Anchor Rapid-Update Stress Test
+    // MARK: - 1. Scroll State Bottom-Detection Rapid-Update Stress Test
 
     /// Benchmarks setting `isAtBottom` 10,000 times in a tight loop. While
     /// individually trivial (O(1)), this mirrors the per-scroll-frame hot path.
     /// This test detects if any future refactoring adds overhead.
     func testBottomDetectionRapidUpdateStress() {
-        let coordinator = MessageListScrollCoordinator()
+        let scrollState = MessageListScrollState()
 
         measure(metrics: [XCTClockMetric(), XCTCPUMetric()]) {
             for i in 0..<10_000 {
@@ -92,7 +92,7 @@ final class MessageListAnchorPerformanceTests: XCTestCase {
                 // anchor and other views to stress isAtBottom updates.
                 // Simulate scroll geometry bottom detection: every 10th
                 // iteration is "at bottom", the rest are not.
-                coordinator.isAtBottom = (i % 10 == 0)
+                scrollState.isAtBottom = (i % 10 == 0)
             }
         }
     }

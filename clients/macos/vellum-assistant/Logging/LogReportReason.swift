@@ -81,4 +81,5 @@ struct LogReportFormData: Sendable {
     var scope: LogExportScope = .global
     var includeLogs: Bool = true
     var logTimeRange: LogTimeRange = .pastHour
+    var attachments: [URL] = []
 }
