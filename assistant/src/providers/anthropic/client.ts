@@ -791,14 +791,41 @@ export class AnthropicProvider implements Provider {
         }
       }
 
+      // Strip thinking/redacted_thinking blocks from all historical assistant
+      // messages. These blocks carry cryptographic signatures tied to their
+      // original API response. Consolidated messages (from multi-step tool use)
+      // combine thinking blocks from different responses, making signature
+      // validation fail with "thinking blocks cannot be modified". Stripping is
+      // safe: the API allows it for all historical messages, and new responses
+      // generate fresh thinking blocks.
+      for (const msg of formatted) {
+        if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+        const stripped = msg.content.filter(
+          (b) =>
+            (b as { type: string }).type !== "thinking" &&
+            (b as { type: string }).type !== "redacted_thinking",
+        );
+        if (stripped.length < msg.content.length) {
+          // Ensure the message isn't empty after stripping
+          msg.content =
+            stripped.length > 0
+              ? stripped
+              : [
+                  {
+                    type: "text" as const,
+                    text: PLACEHOLDER_BLOCKS_OMITTED,
+                  },
+                ];
+        }
+      }
+
       // Expand collapsed multi-turn assistant messages. When agentic tool use
       // produces multiple thinking→tool_use cycles in a single stored message,
       // the API rejects thinking blocks between tool_use blocks. Split such
       // messages at each "thinking after tool_use" boundary to recreate the
-      // original multi-turn structure. This also resolves the constraint that
-      // thinking blocks in the latest assistant message must remain unmodified —
-      // after expansion, each segment's thinking blocks are at the start (their
-      // natural position), and only the final segment is the "latest."
+      // original multi-turn structure. With thinking blocks stripped above, the
+      // expansion is typically a no-op, but is kept as a safety net for edge
+      // cases where stripping is incomplete.
       const expanded = expandCollapsedAssistantTurns(formatted);
 
       sentMessages = ensureToolPairing(repairOrphanedServerToolUse(expanded));
