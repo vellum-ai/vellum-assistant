@@ -94,4 +94,31 @@ describe("summarizeToolInput", () => {
     expect(summarizeToolInput("bash", { command: "   " })).toBe("");
     expect(summarizeToolInput("custom_tool", { data: "  \n\t  " })).toBe("");
   });
+
+  test("host_bash behaves like bash", () => {
+    expect(summarizeToolInput("host_bash", { command: "git status" })).toBe(
+      "git status",
+    );
+  });
+
+  test("host_file_read behaves like file_read", () => {
+    expect(
+      summarizeToolInput("host_file_read", { file_path: "/src/index.ts" }),
+    ).toBe("/src/index.ts");
+  });
+
+  test("host_file_write behaves like file_write", () => {
+    expect(
+      summarizeToolInput("host_file_write", { path: "/src/main.ts" }),
+    ).toBe("/src/main.ts");
+  });
+
+  test("host_file_edit behaves like file_edit", () => {
+    expect(
+      summarizeToolInput("host_file_edit", {
+        file_path: "/preferred.ts",
+        path: "/fallback.ts",
+      }),
+    ).toBe("/preferred.ts");
+  });
 });

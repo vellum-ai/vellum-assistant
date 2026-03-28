@@ -39,13 +39,17 @@ export function summarizeToolInput(
 ): string {
   switch (toolName) {
     case "bash":
-    case "terminal": {
+    case "terminal":
+    case "host_bash": {
       const cmd = extractString(input, "command");
       return cmd ? truncate(cmd, 120) : "";
     }
     case "file_read":
     case "file_write":
-    case "file_edit": {
+    case "file_edit":
+    case "host_file_read":
+    case "host_file_write":
+    case "host_file_edit": {
       const path = extractString(input, "file_path", "path");
       return path ? path.trim() : "";
     }
