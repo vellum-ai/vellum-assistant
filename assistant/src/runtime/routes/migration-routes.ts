@@ -146,7 +146,9 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
   try {
     const { archive, manifest } = buildExportVBundle({
       trustPath: join(getRootDir(), "protected", "trust.json"),
-      hooksDir: getWorkspaceHooksDir(),
+      // hooksDir is intentionally omitted — hooks now live under workspace/hooks/
+      // and are included in the workspace walk. Passing hooksDir separately would
+      // export them twice (once as workspace/hooks/... and again as hooks/...).
       workspaceDir: getWorkspaceDir(),
       source: "runtime-export",
       description,

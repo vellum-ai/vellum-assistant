@@ -13,10 +13,16 @@
  */
 
 import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { getRootDir } from "../../util/platform.js";
 import type { WorkspaceMigration } from "./types.js";
+
+/** Inlined from platform.ts to satisfy migration self-containment rule (AGENTS.md). */
+function getRootDir(): string {
+  const base = process.env.BASE_DATA_DIR?.trim() || homedir();
+  return join(base, ".vellum");
+}
 
 export const moveSignalsToWorkspaceMigration: WorkspaceMigration = {
   id: "021-move-signals-to-workspace",

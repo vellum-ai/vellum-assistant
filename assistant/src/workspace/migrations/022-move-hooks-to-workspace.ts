@@ -12,11 +12,23 @@
  * breaking any external references during the transition.
  */
 
-import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+} from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { getRootDir } from "../../util/platform.js";
 import type { WorkspaceMigration } from "./types.js";
+
+/** Inlined from platform.ts to satisfy migration self-containment rule (AGENTS.md). */
+function getRootDir(): string {
+  const base = process.env.BASE_DATA_DIR?.trim() || homedir();
+  return join(base, ".vellum");
+}
 
 export const moveHooksToWorkspaceMigration: WorkspaceMigration = {
   id: "022-move-hooks-to-workspace",
@@ -30,18 +42,22 @@ export const moveHooksToWorkspaceMigration: WorkspaceMigration = {
 
     if (!existsSync(oldHooksDir)) return;
 
-    // Move hook entries (subdirectories and files) to the new location
+    // Move hook entries from root to workspace. The old (user) entries take
+    // precedence over anything already at the destination (e.g. template
+    // files written by installTemplates(), which runs before migrations).
+    // We remove the destination first so renameSync succeeds atomically.
     try {
       const entries = readdirSync(oldHooksDir);
       for (const entry of entries) {
         const oldPath = join(oldHooksDir, entry);
         const newPath = join(newHooksDir, entry);
-        if (!existsSync(newPath)) {
-          try {
-            renameSync(oldPath, newPath);
-          } catch {
-            // Best-effort: entry may have been modified concurrently
+        try {
+          if (existsSync(newPath)) {
+            rmSync(newPath, { recursive: true, force: true });
           }
+          renameSync(oldPath, newPath);
+        } catch {
+          // Best-effort: entry may have been modified concurrently
         }
       }
     } catch {

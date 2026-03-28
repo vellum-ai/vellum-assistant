@@ -395,9 +395,12 @@ export interface BuildExportVBundleOptions {
   /** Absolute path to trust.json. If provided and the file exists, it is included in the archive. */
   trustPath?: string;
   /**
-   * Absolute path to the hooks directory (~/.vellum/hooks/).
-   * Hooks live outside the workspace, so they must be included explicitly.
-   * Included in the archive under the "hooks/" prefix for backward compat.
+   * Absolute path to the hooks directory. Previously hooks lived outside the
+   * workspace at ~/.vellum/hooks/ and needed explicit inclusion. Now hooks
+   * live under workspace (~/.vellum/workspace/hooks/) and are included in
+   * the workspace walk. Only pass this for backward-compat scenarios where
+   * hooks are still outside the workspace; otherwise omit to avoid double
+   * export. Included in the archive under the "hooks/" prefix.
    */
   hooksDir?: string;
   /**
