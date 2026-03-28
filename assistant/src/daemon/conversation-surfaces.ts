@@ -1,12 +1,16 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { v4 as uuid } from "uuid";
 
+import { compileApp } from "../bundler/app-compiler.js";
 import {
   getApp,
   getAppDirPath,
   getAppPreview,
-  inlineDistAssets,
   isMultifileApp,
   resolveAppDir,
+  resolveAppHtml,
   updateApp,
 } from "../memory/app-store.js";
 import type { ToolExecutionResult } from "../tools/types.js";
@@ -1082,10 +1086,15 @@ export function refreshSurfacesForApp(
     // Push current HTML onto the undo stack before overwriting
     pushUndoState(ctx.surfaceUndoStacks, surfaceId, data.html);
 
+    // Resolve the renderable HTML — for multifile TSX apps this reads
+    // from the compiled dist/index.html with inlined assets rather than
+    // the root index.html (which is empty for formatVersion 2).
+    const html = resolveAppHtml(app);
+
     // Update in-memory surface state so the next refinement gets fresh HTML
     const updatedData: DynamicPageSurfaceData = {
       ...data,
-      html: app.htmlDefinition,
+      html,
       ...(opts?.fileChange
         ? { reloadGeneration: (data.reloadGeneration ?? 0) + 1 }
         : {}),
@@ -1474,16 +1483,12 @@ export async function surfaceProxyResolver(
     const storedPreview = getAppPreview(app.id);
     const { dirName } = resolveAppDir(app.id);
 
-    // For multifile TSX apps, resolve HTML from compiled dist/index.html
-    // rather than the root index.html (which is empty for formatVersion 2).
-    let html = app.htmlDefinition;
+    // For multifile TSX apps, auto-compile if dist/ is missing then
+    // resolve HTML from compiled dist/index.html with inlined assets.
     if (isMultifileApp(app)) {
-      const { existsSync, readFileSync } = await import("node:fs");
-      const { join } = await import("node:path");
       const appDir = getAppDirPath(app.id);
       const distIndex = join(appDir, "dist", "index.html");
       if (!existsSync(distIndex)) {
-        const { compileApp } = await import("../bundler/app-compiler.js");
         const result = await compileApp(appDir);
         if (!result.ok) {
           log.warn(
@@ -1492,12 +1497,8 @@ export async function surfaceProxyResolver(
           );
         }
       }
-      if (existsSync(distIndex)) {
-        html = inlineDistAssets(appDir, readFileSync(distIndex, "utf-8"));
-      } else {
-        html = `<p>App compilation failed. Edit a source file to trigger a rebuild.</p>`;
-      }
     }
+    const html = resolveAppHtml(app);
 
     const surfaceData: DynamicPageSurfaceData = {
       html,

@@ -75,7 +75,10 @@ export function inlineDistAssets(appDir: string, html: string): string {
   // Inline main.js
   const jsPath = join(distDir, "main.js");
   if (existsSync(jsPath)) {
-    const js = readFileSync(jsPath, "utf-8").replace(/<\/script>/g, "<\\/script>");
+    const js = readFileSync(jsPath, "utf-8").replace(
+      /<\/script>/g,
+      "<\\/script>",
+    );
     html = html.replace(
       /<script\s+type="module"\s+src="main\.js"\s*><\/script>/,
       () => `<script type="module">${js}</script>`,
@@ -93,6 +96,24 @@ export function inlineDistAssets(appDir: string, html: string): string {
   }
 
   return html;
+}
+
+/**
+ * Resolve the renderable HTML for an app. For multifile TSX apps
+ * (formatVersion 2) this reads the compiled dist/index.html and inlines
+ * JS/CSS assets so the result is a self-contained HTML string. For
+ * single-file apps the htmlDefinition is returned directly.
+ */
+export function resolveAppHtml(app: AppDefinition): string {
+  if (!isMultifileApp(app)) {
+    return app.htmlDefinition;
+  }
+  const appDir = getAppDirPath(app.id);
+  const distIndex = join(appDir, "dist", "index.html");
+  if (existsSync(distIndex)) {
+    return inlineDistAssets(appDir, readFileSync(distIndex, "utf-8"));
+  }
+  return app.htmlDefinition;
 }
 
 export interface AppRecord {
