@@ -216,6 +216,23 @@ mock.module("../memory/conversation-crud.js", () => ({
   parseConversation: () => null,
   parseMessage: () => null,
   getAssistantMessageIdsInTurn: () => [],
+  getTurnTimeBounds: () => null,
+  PRIVATE_CONVERSATION_FORK_ERROR: "Cannot fork a private conversation",
+  countConversationsByScheduleJobId: () => 0,
+  forkConversation: () => null,
+  wipeConversation: () => ({
+    conversations: 0,
+    messages: 0,
+    memoryItemIds: [],
+    memoryEntityIds: [],
+  }),
+  purgePrivateConversations: () => ({
+    purged: 0,
+    memoryItemIds: [],
+    memoryEntityIds: [],
+  }),
+  getMessagesPaginated: () => ({ messages: [], hasMore: false }),
+  getLastAssistantTimestampBefore: () => null,
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
