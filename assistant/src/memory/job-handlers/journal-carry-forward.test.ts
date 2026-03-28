@@ -70,6 +70,7 @@ mock.module("../../providers/provider-send-message.js", () => ({
 }));
 
 import { eq } from "drizzle-orm";
+
 import { getDb, initializeDb, resetDb } from "../db.js";
 import type { MemoryJob } from "../jobs-store.js";
 import { memoryItems } from "../schema.js";

@@ -8,7 +8,6 @@ import {
   pruneOldConversationsJob,
 } from "./job-handlers/cleanup.js";
 import { generateConversationStartersJob } from "./job-handlers/conversation-starters.js";
-import { journalCarryForwardJob } from "./job-handlers/journal-carry-forward.js";
 // ── Per-job-type handlers ──────────────────────────────────────────
 import {
   embedAttachmentJob,
@@ -22,6 +21,7 @@ import {
   deleteQdrantVectorsJob,
   rebuildIndexJob,
 } from "./job-handlers/index-maintenance.js";
+import { journalCarryForwardJob } from "./job-handlers/journal-carry-forward.js";
 import { mediaProcessingJob } from "./job-handlers/media-processing.js";
 import { buildConversationSummaryJob } from "./job-handlers/summarization.js";
 import {
