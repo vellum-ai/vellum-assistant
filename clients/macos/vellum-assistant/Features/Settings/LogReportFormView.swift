@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import VellumAssistantShared
 
 /// A sheet displayed for sharing feedback, letting the user pick a reason
@@ -18,8 +19,20 @@ struct LogReportFormView: View {
     @State private var includeLogs: Bool = true
     @State private var hasManuallyToggledLogs: Bool = false
     @State private var logTimeRange: LogTimeRange = .pastHour
+    @State private var attachments: [URL] = []
     @State private var isSubmitting: Bool = false
     @FocusState private var focusedField: Field?
+
+    private let maxAttachments = 10
+    private let maxAttachmentBytes = 50 * 1024 * 1024
+
+    private var allowedFileTypes: [UTType] {
+        var types: [UTType] = [.png, .jpeg, .gif, .webP, .mpeg4Movie, .quickTimeMovie]
+        if let webm = UTType(filenameExtension: "webm") {
+            types.append(webm)
+        }
+        return types
+    }
 
     init(
         authManager: AuthManager,
@@ -47,6 +60,7 @@ struct LogReportFormView: View {
             }
             reasonCards
             messageField
+            attachmentSection
             logAttachmentRow
             Spacer(minLength: 0)
             actionRow
@@ -68,6 +82,26 @@ struct LogReportFormView: View {
         .onChange(of: selectedReason) { _, newReason in
             guard !hasManuallyToggledLogs, let reason = newReason else { return }
             includeLogs = reason.isErrorCategory
+        }
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
+            var added = false
+            for provider in providers {
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    guard let url else { return }
+                    let ext = url.pathExtension.lowercased()
+                    let allowedExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp", "mp4", "mov", "webm"]
+                    guard allowedExtensions.contains(ext) else { return }
+                    guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                          let size = attrs[.size] as? Int,
+                          size <= maxAttachmentBytes else { return }
+                    Task { @MainActor in
+                        guard attachments.count < maxAttachments else { return }
+                        attachments.append(url)
+                        added = true
+                    }
+                }
+            }
+            return true
         }
     }
 
@@ -116,6 +150,64 @@ struct LogReportFormView: View {
         )
         .focused($focusedField, equals: .email)
         .opacity(isSubmitting ? 0.5 : 1)
+    }
+
+    @ViewBuilder
+    private var attachmentSection: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            HStack {
+                Text("Attachments")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                Spacer()
+                VButton(
+                    label: "Add files",
+                    leftIcon: VIcon.paperclip.rawValue,
+                    style: .outlined,
+                    size: .compact
+                ) {
+                    openFilePicker()
+                }
+                .disabled(attachments.count >= maxAttachments)
+            }
+
+            if !attachments.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: VSpacing.sm) {
+                        ForEach(attachments, id: \.absoluteString) { url in
+                            AttachmentThumbnailView(url: url) {
+                                attachments.removeAll { $0 == url }
+                            }
+                        }
+                    }
+                }
+
+                Text("\(attachments.count)/\(maxAttachments) files")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+            }
+        }
+        .opacity(isSubmitting ? 0.5 : 1)
+    }
+
+    private func openFilePicker() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = allowedFileTypes
+        panel.begin { response in
+            guard response == .OK else { return }
+            let remaining = maxAttachments - attachments.count
+            guard remaining > 0 else { return }
+            let selected = Array(panel.urls.prefix(remaining))
+            for url in selected {
+                guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                      let size = attrs[.size] as? Int,
+                      size <= maxAttachmentBytes else { continue }
+                attachments.append(url)
+            }
+        }
     }
 
     @ViewBuilder
@@ -182,7 +274,8 @@ struct LogReportFormView: View {
                                 message: message,
                                 email: email,
                                 includeLogs: includeLogs,
-                                logTimeRange: logTimeRange
+                                logTimeRange: logTimeRange,
+                                attachments: attachments
                             ))
                         } catch {
                             isSubmitting = false
