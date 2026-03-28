@@ -11,7 +11,6 @@ struct AttachmentThumbnailView: View {
 
     private static let thumbnailSize: CGFloat = 56
     private static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp"]
-    private static let videoExtensions: Set<String> = ["mp4", "mov", "webm"]
 
     private var isImage: Bool {
         Self.imageExtensions.contains(url.pathExtension.lowercased())
