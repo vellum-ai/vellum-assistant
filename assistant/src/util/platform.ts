@@ -217,15 +217,9 @@ export function getHooksDir(): string {
   return join(getRootDir(), "hooks");
 }
 
-/**
- * Returns ~/.vellum/signals — the directory for IPC signal files.
- *
- * Placed under getRootDir() (not getWorkspaceDir()) so that sandboxed tools
- * — whose write access is limited to the workspace directory — cannot write
- * signal files to bypass guardian authorization.
- */
+/** Returns ~/.vellum/workspace/signals — the directory for IPC signal files. */
 export function getSignalsDir(): string {
-  return join(getRootDir(), "signals");
+  return join(getWorkspaceDir(), "signals");
 }
 // --- Workspace path primitives ---
 // These will become the canonical paths after workspace migration.
@@ -299,13 +293,12 @@ export function ensureDataDir(): void {
   const dirs = [
     // Root-level dirs (runtime)
     root,
-    // signals dir is needed everywhere (MCP reload, user-message signals)
-    join(root, "signals"),
     // protected, hooks are local-only — skip in containerized mode
     // (credentials via CES HTTP API, trust via gateway API)
     ...(containerized ? [] : [join(root, "protected"), join(root, "hooks")]),
     // Workspace dirs
     workspace,
+    join(workspace, "signals"),
     join(workspace, "skills"),
     join(workspace, "embedding-models"),
     join(workspace, "conversations"),
