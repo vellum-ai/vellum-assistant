@@ -454,6 +454,7 @@ export function handleListMessages(
         textSegments: filteredSegments,
         contentOrder: filteredContentOrder,
         surfaces: rendered.surfaces,
+        ...(rendered.thinkingSegments.length > 0 ? { thinkingSegments: rendered.thinkingSegments } : {}),
         id: msg.id,
       };
     }
@@ -467,6 +468,7 @@ export function handleListMessages(
       textSegments: rendered.textSegments,
       contentOrder: rendered.contentOrder,
       surfaces: rendered.surfaces,
+      ...(rendered.thinkingSegments.length > 0 ? { thinkingSegments: rendered.thinkingSegments } : {}),
       id: msg.id,
     };
   });
