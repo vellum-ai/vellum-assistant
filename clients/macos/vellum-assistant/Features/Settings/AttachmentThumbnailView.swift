@@ -1,3 +1,4 @@
+import ImageIO
 import SwiftUI
 import VellumAssistantShared
 
@@ -40,10 +41,18 @@ struct AttachmentThumbnailView: View {
         .task(id: url) {
             guard isImage else { return }
             let fileURL = url
-            let image = await Task.detached {
-                NSImage(contentsOf: fileURL)
+            // Load image data off the main thread using thread-safe CGImageSource APIs.
+            // NSImage is NOT thread-safe and must not be used off the main thread.
+            let cgImage = await Task.detached {
+                guard let source = CGImageSourceCreateWithURL(fileURL as CFURL, nil) else {
+                    return nil as CGImage?
+                }
+                return CGImageSourceCreateImageAtIndex(source, 0, nil)
             }.value
-            loadedImage = image
+            // Create NSImage on the main thread from the thread-safe CGImage.
+            if let cgImage {
+                loadedImage = NSImage(cgImage: cgImage, size: .zero)
+            }
         }
     }
 
