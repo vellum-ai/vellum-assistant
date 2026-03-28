@@ -1482,6 +1482,12 @@ describe("Memory Retriever Pipeline", () => {
       insertConversation(db, convId, now - 60_000);
       insertMessage(db, "msg-s-1", convId, "user", "hello", now - 50_000);
 
+      // Items sourced from a different conversation so in-context filtering
+      // doesn't remove them (serendipity is cross-conversation recall).
+      const otherConvId = "conv-serendipity-other";
+      insertConversation(db, otherConvId, now - 120_000);
+      insertMessage(db, "msg-s-other", otherConvId, "user", "other", now - 110_000);
+
       // Insert several active items that are NOT returned by Qdrant
       for (let i = 1; i <= 5; i++) {
         insertItem(db, {
@@ -1492,7 +1498,7 @@ describe("Memory Retriever Pipeline", () => {
           importance: i * 0.15, // 0.15..0.75
           firstSeenAt: now - i * 10_000,
         });
-        insertItemSource(db, `serendipity-item-${i}`, "msg-s-1", now - i * 10_000);
+        insertItemSource(db, `serendipity-item-${i}`, "msg-s-other", now - i * 10_000);
       }
 
       // Qdrant returns nothing — no recalled candidates

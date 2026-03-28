@@ -358,8 +358,9 @@ export async function buildMemoryRecall(
   // from messages that were removed by context compaction should be kept —
   // those messages are no longer in the conversation history and memory is
   // the only way they can influence the response.
+  let inContextMessageIds: Set<string> | null = null;
   if (conversationId) {
-    const inContextMessageIds = getEffectiveInContextMessageIds(conversationId);
+    inContextMessageIds = getEffectiveInContextMessageIds(conversationId);
     if (inContextMessageIds) {
       for (const [key, c] of candidateMap) {
         if (c.type === "segment") {
@@ -451,6 +452,13 @@ export async function buildMemoryRecall(
     SERENDIPITY_COUNT,
     scopeIds,
   );
+
+  // Filter serendipity items whose ALL sources are in-context (same logic
+  // as Step 4b) to prevent current-turn content leaking via random sampling.
+  if (inContextMessageIds && serendipityCandidates.length > 0) {
+    filterInContextItems(serendipityCandidates, inContextMessageIds);
+  }
+
   enrichSourceLabels(serendipityCandidates);
 
   // ── Step 6: Enrich with item metadata for staleness ─────────────
@@ -809,6 +817,53 @@ function enrichSourceLabels(candidates: TieredCandidate[]): void {
     // importing memorySegments and an additional query. The primary value is item source labels.
   } catch (err) {
     log.warn({ err }, "Failed to enrich candidates with source labels");
+  }
+}
+
+/**
+ * Remove items from the array (in-place) whose ALL source messages are
+ * in the given in-context set. This prevents current-turn content from
+ * leaking into the injection via serendipity or other DB-sourced paths.
+ */
+function filterInContextItems(
+  candidates: TieredCandidate[],
+  inContextMessageIds: Set<string>,
+): void {
+  const itemIds = candidates.filter((c) => c.type === "item").map((c) => c.id);
+  if (itemIds.length === 0) return;
+
+  try {
+    const db = getDb();
+    const allSources = db
+      .select({
+        memoryItemId: memoryItemSources.memoryItemId,
+        messageId: memoryItemSources.messageId,
+      })
+      .from(memoryItemSources)
+      .where(inArray(memoryItemSources.memoryItemId, itemIds))
+      .all();
+
+    const itemSourceMap = new Map<string, string[]>();
+    for (const s of allSources) {
+      const existing = itemSourceMap.get(s.memoryItemId);
+      if (existing) existing.push(s.messageId);
+      else itemSourceMap.set(s.memoryItemId, [s.messageId]);
+    }
+
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const c = candidates[i];
+      if (c.type !== "item") continue;
+      const sourceMessageIds = itemSourceMap.get(c.id);
+      if (!sourceMessageIds || sourceMessageIds.length === 0) continue;
+      if (sourceMessageIds.every((mid) => inContextMessageIds.has(mid))) {
+        candidates.splice(i, 1);
+      }
+    }
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to filter in-context serendipity items; skipping",
+    );
   }
 }
 

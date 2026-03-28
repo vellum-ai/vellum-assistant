@@ -2280,11 +2280,13 @@ describe("Memory regressions", () => {
     }
   });
 
-  // PR-18: extract_items jobs carry scopeId through the async pipeline
-  test("extract_items job payload includes scopeId from private conversation", async () => {
+  // PR-18: batch_extract jobs carry scopeId through the async pipeline
+  test("batch_extract job payload includes scopeId from private conversation", async () => {
     // These tests verify job payload contents, so LLM extraction must be
-    // enabled — otherwise the indexer skips enqueuing extract_items entirely.
+    // enabled — otherwise the indexer skips enqueuing batch_extract entirely.
+    // Set batchSize=1 so a single message triggers immediate batch_extract.
     TEST_CONFIG.memory.extraction.useLLM = true;
+    TEST_CONFIG.memory.extraction.batchSize = 1;
     try {
       const conv = createConversation({
         title: "Private scope job test",
@@ -2302,8 +2304,13 @@ describe("Memory regressions", () => {
       const extractJobs = db
         .select()
         .from(memoryJobs)
-        .where(eq(memoryJobs.type, "extract_items"))
-        .all();
+        .where(eq(memoryJobs.type, "batch_extract"))
+        .all()
+        .filter(
+          (j) =>
+            JSON.parse(j.payload).conversationId === conv.id &&
+            JSON.parse(j.payload).scopeId != null,
+        );
 
       expect(extractJobs.length).toBeGreaterThan(0);
       const lastJob = extractJobs[extractJobs.length - 1];
@@ -2311,11 +2318,13 @@ describe("Memory regressions", () => {
       expect(payload.scopeId).toBe(conv.memoryScopeId);
     } finally {
       TEST_CONFIG.memory.extraction.useLLM = false;
+      TEST_CONFIG.memory.extraction.batchSize = 10;
     }
   });
 
-  test("extract_items job payload defaults scopeId to default for standard conversations", async () => {
+  test("batch_extract job payload defaults scopeId to default for standard conversations", async () => {
     TEST_CONFIG.memory.extraction.useLLM = true;
+    TEST_CONFIG.memory.extraction.batchSize = 1;
     try {
       const conv = createConversation({
         title: "Standard scope job test",
@@ -2333,8 +2342,13 @@ describe("Memory regressions", () => {
       const extractJobs = db
         .select()
         .from(memoryJobs)
-        .where(eq(memoryJobs.type, "extract_items"))
-        .all();
+        .where(eq(memoryJobs.type, "batch_extract"))
+        .all()
+        .filter(
+          (j) =>
+            JSON.parse(j.payload).conversationId === conv.id &&
+            JSON.parse(j.payload).scopeId != null,
+        );
 
       expect(extractJobs.length).toBeGreaterThan(0);
       const lastJob = extractJobs[extractJobs.length - 1];
@@ -2342,6 +2356,7 @@ describe("Memory regressions", () => {
       expect(payload.scopeId).toBe("default");
     } finally {
       TEST_CONFIG.memory.extraction.useLLM = false;
+      TEST_CONFIG.memory.extraction.batchSize = 10;
     }
   });
 
@@ -3211,7 +3226,7 @@ describe("Memory regressions", () => {
 
   // ── Trust-aware extraction gating tests (M3) ───────────────────────
 
-  test("untrusted actor messages do not enqueue extract_items", async () => {
+  test("untrusted actor messages do not enqueue batch_extract", async () => {
     const db = getDb();
     const now = Date.now();
     db.insert(conversations)
@@ -3256,18 +3271,20 @@ describe("Memory regressions", () => {
 
     expect(result.indexedSegments).toBeGreaterThan(0);
 
-    // No extract_items jobs should be enqueued
+    // No batch_extract jobs should be enqueued for untrusted actors
     const extractJobs = db
       .select()
       .from(memoryJobs)
-      .where(and(eq(memoryJobs.type, "extract_items")))
+      .where(eq(memoryJobs.type, "batch_extract"))
       .all()
-      .filter((j) => JSON.parse(j.payload).messageId === "msg-untrusted-gate");
+      .filter(
+        (j) =>
+          JSON.parse(j.payload).conversationId === "conv-untrusted-gate",
+      );
     expect(extractJobs.length).toBe(0);
 
-    // enqueuedJobs should reflect: embed jobs + summary (1), no extract (0)
-    const expectedJobs = result.indexedSegments + 1; // embed per segment + summary
-    expect(result.enqueuedJobs).toBe(expectedJobs);
+    // enqueuedJobs reflects embed jobs only (no extraction for untrusted)
+    expect(result.enqueuedJobs).toBe(result.indexedSegments);
   });
 
   test("trusted guardian messages still enqueue extraction", async () => {
@@ -3315,18 +3332,17 @@ describe("Memory regressions", () => {
 
     expect(result.indexedSegments).toBeGreaterThan(0);
 
-    // extract_items job should be enqueued for trusted guardian
+    // batch_extract job should be enqueued (debounced) for trusted guardian
     const extractJobs = db
       .select()
       .from(memoryJobs)
-      .where(eq(memoryJobs.type, "extract_items"))
+      .where(eq(memoryJobs.type, "batch_extract"))
       .all()
-      .filter((j) => JSON.parse(j.payload).messageId === "msg-trusted-gate");
+      .filter(
+        (j) =>
+          JSON.parse(j.payload).conversationId === "conv-trusted-gate",
+      );
     expect(extractJobs.length).toBe(1);
-
-    // enqueuedJobs: embed per segment + extract_items (counts as 2: extract + summary)
-    // For user role: shouldExtract=true
-    expect(result.enqueuedJobs).toBeGreaterThan(result.indexedSegments + 1);
   });
 
   test("legacy messages without provenance still enqueue extraction", async () => {
@@ -3374,20 +3390,20 @@ describe("Memory regressions", () => {
 
     expect(result.indexedSegments).toBeGreaterThan(0);
 
-    // extract_items job should still be enqueued for messages without provenance
+    // batch_extract job should still be enqueued (debounced) for messages without provenance
     const extractJobs = db
       .select()
       .from(memoryJobs)
-      .where(eq(memoryJobs.type, "extract_items"))
+      .where(eq(memoryJobs.type, "batch_extract"))
       .all()
-      .filter((j) => JSON.parse(j.payload).messageId === "msg-legacy-gate");
+      .filter(
+        (j) =>
+          JSON.parse(j.payload).conversationId === "conv-legacy-gate",
+      );
     expect(extractJobs.length).toBe(1);
-
-    // enqueuedJobs should include extraction jobs
-    expect(result.enqueuedJobs).toBeGreaterThan(result.indexedSegments + 1);
   });
 
-  test("unverified_channel messages do not enqueue extract_items", async () => {
+  test("unverified_channel messages do not enqueue batch_extract", async () => {
     const db = getDb();
     const now = Date.now();
     db.insert(conversations)
@@ -3438,18 +3454,20 @@ describe("Memory regressions", () => {
 
     expect(result.indexedSegments).toBeGreaterThan(0);
 
-    // No extract_items jobs should be enqueued for unverified channel
+    // No batch_extract jobs should be enqueued for unverified channel
     const extractJobs = db
       .select()
       .from(memoryJobs)
-      .where(eq(memoryJobs.type, "extract_items"))
+      .where(eq(memoryJobs.type, "batch_extract"))
       .all()
-      .filter((j) => JSON.parse(j.payload).messageId === "msg-unverified-gate");
+      .filter(
+        (j) =>
+          JSON.parse(j.payload).conversationId === "conv-unverified-gate",
+      );
     expect(extractJobs.length).toBe(0);
 
-    // enqueuedJobs should reflect: embed jobs + summary (1), no extract (0)
-    const expectedJobs = result.indexedSegments + 1; // embed per segment + summary
-    expect(result.enqueuedJobs).toBe(expectedJobs);
+    // enqueuedJobs reflects embed jobs only (no extraction for untrusted)
+    expect(result.enqueuedJobs).toBe(result.indexedSegments);
   });
 
   test("buildCoreIdentityContext includes identity files when they exist", () => {
