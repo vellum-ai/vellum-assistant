@@ -2130,6 +2130,7 @@ public enum ServerMessage: Decodable, Sendable {
     case openUrl(OpenUrlMessage)
     case navigateSettings(NavigateSettings)
     case showPlatformLogin(ShowPlatformLogin)
+    case platformDisconnected(PlatformDisconnected)
     case integrationListResponse(IntegrationListResponse)
     case integrationConnectResult(IntegrationConnectResult)
     case oauthConnectResult(OAuthConnectResultResponse)
@@ -2452,6 +2453,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "show_platform_login":
             let message = try ShowPlatformLogin(from: decoder)
             self = .showPlatformLogin(message)
+        case "platform_disconnected":
+            let message = try PlatformDisconnected(from: decoder)
+            self = .platformDisconnected(message)
         case "get_signing_identity":
             let message = try GetSigningIdentityRequest(from: decoder)
             self = .getSigningIdentity(message)

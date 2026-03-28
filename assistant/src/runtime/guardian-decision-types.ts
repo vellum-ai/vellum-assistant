@@ -31,6 +31,14 @@ export interface GuardianDecisionPrompt {
    * store. Absent for legacy-only prompts.
    */
   kind?: string;
+  /** Human-readable preview of the command being approved (e.g. shell command). */
+  commandPreview?: string;
+  /** Risk level label for the request (e.g. 'low', 'medium', 'high'). */
+  riskLevel?: string;
+  /** Short activity description for richer prompt display. */
+  activityText?: string;
+  /** Where the tool will execute — sandbox or host. */
+  executionTarget?: "sandbox" | "host";
 }
 
 export interface GuardianDecisionAction {

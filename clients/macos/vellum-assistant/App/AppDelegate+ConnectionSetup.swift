@@ -204,6 +204,8 @@ extension AppDelegate {
                     self.showSettingsTab(msg.tab)
                 case .showPlatformLogin:
                     self.showPlatformLogin()
+                case .platformDisconnected:
+                    self.performLogout()
                 case .acpPermissionRequest(let msg):
                     if self.acpPermissionWindow == nil {
                         self.acpPermissionWindow = AcpPermissionWindow()

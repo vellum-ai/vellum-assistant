@@ -66,6 +66,7 @@ import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getLogger } from "../../util/logger.js";
 import { silentlyWithLog } from "../../util/silently.js";
+import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import type { AuthContext } from "../auth/types.js";
@@ -607,6 +608,14 @@ function makeHubPublisher(
       try {
         const trustContext = conversation.trustContext;
         const sourceChannel = trustContext?.sourceChannel ?? "vellum";
+        const inputRecord = msg.input as Record<string, unknown>;
+        const activityRaw =
+          (typeof inputRecord.activity === "string"
+            ? inputRecord.activity
+            : undefined) ??
+          (typeof inputRecord.reason === "string"
+            ? inputRecord.reason
+            : undefined);
         const canonicalRequest = createCanonicalGuardianRequest({
           id: msg.requestId,
           kind: "tool_approval",
@@ -618,6 +627,11 @@ function makeHubPublisher(
           guardianExternalUserId: trustContext?.guardianExternalUserId,
           guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
+          commandPreview:
+            summarizeToolInput(msg.toolName, inputRecord) || undefined,
+          riskLevel: msg.riskLevel,
+          activityText: activityRaw,
+          executionTarget: msg.executionTarget,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
           expiresAt: Date.now() + 5 * 60 * 1000,

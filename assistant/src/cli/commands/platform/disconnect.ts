@@ -1,6 +1,10 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import type { Command } from "commander";
 
 import { credentialKey } from "../../../security/credential-key.js";
+import { getSignalsDir } from "../../../util/platform.js";
 import {
   deleteSecureKeyViaDaemon,
   getSecureKeyViaDaemon,
@@ -97,7 +101,17 @@ Examples:
         }
 
         // ---------------------------------------------------------------
-        // 3. Output result
+        // 3. Notify connected clients
+        // ---------------------------------------------------------------
+        const signalsDir = getSignalsDir();
+        mkdirSync(signalsDir, { recursive: true });
+        writeFileSync(
+          join(signalsDir, "emit-event"),
+          JSON.stringify({ type: "platform_disconnected" }),
+        );
+
+        // ---------------------------------------------------------------
+        // 4. Output result
         // ---------------------------------------------------------------
         writeOutput(cmd, {
           ok: true,
