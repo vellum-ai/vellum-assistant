@@ -181,3 +181,52 @@ jobs:
           path: clients/macos/dist/${{ env.APP_DISPLAY_NAME }}.app
           retention-days: 7
           if-no-files-found: error
+
+      - name: Create DMG
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          hdiutil create \
+            -volname "Vellum ${PR_NUMBER}" \
+            -srcfolder "dist/${APP_DISPLAY_NAME}.app" \
+            -ov -format UDZO \
+            "vellum-assistant-pr-${PR_NUMBER}.dmg"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
+          path: clients/macos/vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg
+          retention-days: 7
+          if-no-files-found: error
+
+  artifact:
+    name: Comment Artifact Link
+    needs: [build]
+    if: contains(github.event.pull_request.labels.*.name, 'preview')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Generate GitHub App token
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Comment artifact link on PR
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          ARTIFACT_NAME="vellum-assistant-pr-${{ github.event.pull_request.number }}.dmg"
+          ARTIFACT_ID=$(gh api "/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+            --jq ".artifacts[] | select(.name == \"$ARTIFACT_NAME\") | .id")
+          ARTIFACT_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts/$ARTIFACT_ID"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          gh pr comment "$PR_NUMBER" --body "🖥️ **macOS app artifact** for this PR is ready for download: [Download $ARTIFACT_NAME]($ARTIFACT_URL)
+
+          To run this build locally:
+          \`\`\`
+          vel up macos --pr $PR_NUMBER
+          \`\`\`"
