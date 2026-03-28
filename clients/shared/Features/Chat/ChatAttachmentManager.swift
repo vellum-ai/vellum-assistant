@@ -92,8 +92,8 @@ public final class ChatAttachmentManager {
     nonisolated private static var memorySafetyLimit: Int { 100 * 1024 * 1024 }
 
     /// Maximum image size before compression (4 MB). Images above this threshold
-    /// are JPEG-compressed, not rejected. Anthropic has a 5 MB limit per image;
-    /// base64 encoding adds ~33% overhead, so 4 MB raw keeps us well within bounds.
+    /// are JPEG-compressed, not rejected. The Anthropic API has a 5 MB per-image
+    /// limit; 4 MB provides a comfortable safety margin.
     nonisolated static var maxImageSize: Int { 4 * 1024 * 1024 }
 
     // MARK: - Error callback
@@ -459,6 +459,9 @@ public final class ChatAttachmentManager {
 
     /// Compress image data if it exceeds the size limit.
     /// Returns (compressedData, wasCompressed) tuple.
+    ///
+    /// Strategy: try JPEG quality reduction first (preserves full resolution),
+    /// then fall back to pixel downscaling only if quality alone can't hit the target.
     /// Thread-safe — uses ImageIO for decoding/encoding and CGContext for resizing.
     nonisolated public static func compressImageIfNeeded(data: Data, maxSize: Int) -> (Data, Bool) {
         guard data.count > maxSize else {
@@ -470,19 +473,42 @@ public final class ChatAttachmentManager {
             return (data, false)
         }
 
-        let originalWidth = CGFloat(cgImage.width)
-        let originalHeight = CGFloat(cgImage.height)
+        let originalWidth = cgImage.width
+        let originalHeight = cgImage.height
         guard originalWidth > 0 && originalHeight > 0 else {
             return (data, false)
         }
 
-        // Step 2: Resize via CGContext (thread-safe).
-        let sizeReduction = Double(maxSize) / Double(data.count)
-        let pixelReduction = sqrt(sizeReduction * 0.85) // Target 85% of max for safety margin
-        let scale = min(CGFloat(pixelReduction), 1.0)
+        // Step 2: Try JPEG quality reduction at full resolution first.
+        // Many oversized images (especially JPEGs) can fit within the limit
+        // with quality reduction alone, preserving full pixel resolution.
+        let qualitySteps: [CGFloat] = [0.85, 0.75, 0.65, 0.5]
+        for quality in qualitySteps {
+            if let jpeg = encodeCGImage(cgImage, type: .jpeg, quality: quality),
+               jpeg.count <= maxSize {
+                log.info("Compressed image from \(data.count) to \(jpeg.count) bytes (JPEG q\(quality), \(originalWidth)×\(originalHeight))")
+                return (jpeg, true)
+            }
+        }
 
-        let newWidth = Int(originalWidth * scale)
-        let newHeight = Int(originalHeight * scale)
+        // Step 3: Quality reduction alone wasn't enough — downscale pixels.
+        // Use the file size from the best quality-only attempt (q=0.5) to
+        // estimate how much pixel reduction is still needed, rather than
+        // basing the estimate on the original file size which ignores the
+        // compression already provided by JPEG encoding.
+        let referenceSize: Int
+        if let jpeg50 = encodeCGImage(cgImage, type: .jpeg, quality: 0.5) {
+            referenceSize = jpeg50.count
+        } else {
+            referenceSize = data.count
+        }
+
+        let sizeReduction = Double(maxSize) / Double(referenceSize)
+        // sqrt because pixel reduction applies to both dimensions
+        let scale = min(CGFloat(sqrt(sizeReduction * 0.9)), 1.0)
+
+        let newWidth = max(Int(CGFloat(originalWidth) * scale), 1)
+        let newHeight = max(Int(CGFloat(originalHeight) * scale), 1)
 
         guard let colorSpace = cgImage.colorSpace,
               let context = CGContext(
@@ -504,13 +530,16 @@ public final class ChatAttachmentManager {
             return (data, false)
         }
 
-        // Step 3: Encode via CGImageDestination (thread-safe).
-        if let jpeg = encodeCGImage(scaledCGImage, type: .jpeg, quality: 0.75),
-           jpeg.count <= maxSize {
-            log.info("Compressed image from \(data.count) to \(jpeg.count) bytes (JPEG, \(newWidth)×\(newHeight))")
-            return (jpeg, true)
+        // Step 4: Encode the downscaled image, trying progressively lower quality.
+        for quality in qualitySteps {
+            if let jpeg = encodeCGImage(scaledCGImage, type: .jpeg, quality: quality),
+               jpeg.count <= maxSize {
+                log.info("Compressed image from \(data.count) to \(jpeg.count) bytes (JPEG q\(quality), \(newWidth)×\(newHeight))")
+                return (jpeg, true)
+            }
         }
 
+        // Last resort: PNG of the downscaled image.
         if let png = encodeCGImage(scaledCGImage, type: .png),
            png.count <= maxSize {
             log.info("Compressed image from \(data.count) to \(png.count) bytes (PNG, \(newWidth)×\(newHeight))")
