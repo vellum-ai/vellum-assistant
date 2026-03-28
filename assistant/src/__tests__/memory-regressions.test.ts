@@ -218,7 +218,7 @@ describe("Memory regressions", () => {
         conversationId: "conv-baseline-scope",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "The user likes dark mode." },
+          { type: "text", text: "The user strongly prefers dark mode for all editor themes and UIs." },
         ]),
         createdAt: now,
       })
@@ -231,7 +231,7 @@ describe("Memory regressions", () => {
         conversationId: "conv-baseline-scope",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "The user likes dark mode." },
+          { type: "text", text: "The user strongly prefers dark mode for all editor themes and UIs." },
         ]),
         createdAt: now,
       },
@@ -1573,7 +1573,7 @@ describe("Memory regressions", () => {
         conversationId: "conv-scope-test",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Remember my scope preference" },
+          { type: "text", text: "Remember my scope preference for organizing projects by team and priority level." },
         ]),
         createdAt: now,
       })
@@ -1585,7 +1585,7 @@ describe("Memory regressions", () => {
         conversationId: "conv-scope-test",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Remember my scope preference" },
+          { type: "text", text: "Remember my scope preference for organizing projects by team and priority level." },
         ]),
         createdAt: now,
         scopeId: "project-xyz",
@@ -3249,7 +3249,7 @@ describe("Memory regressions", () => {
         conversationId: "conv-untrusted-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Untrusted user preference for dark mode." },
+          { type: "text", text: "Untrusted user preference for dark mode across all editor themes and interfaces." },
         ]),
         createdAt: now,
       })
@@ -3261,7 +3261,7 @@ describe("Memory regressions", () => {
         conversationId: "conv-untrusted-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Untrusted user preference for dark mode." },
+          { type: "text", text: "Untrusted user preference for dark mode across all editor themes and interfaces." },
         ]),
         createdAt: now,
         provenanceTrustClass: "trusted_contact",
@@ -3310,7 +3310,7 @@ describe("Memory regressions", () => {
         conversationId: "conv-trusted-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Trusted guardian preference for light mode." },
+          { type: "text", text: "Trusted guardian preference for light mode with high contrast accessibility settings." },
         ]),
         createdAt: now,
       })
@@ -3322,7 +3322,7 @@ describe("Memory regressions", () => {
         conversationId: "conv-trusted-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Trusted guardian preference for light mode." },
+          { type: "text", text: "Trusted guardian preference for light mode with high contrast accessibility settings." },
         ]),
         createdAt: now,
         provenanceTrustClass: "guardian",
@@ -3368,7 +3368,7 @@ describe("Memory regressions", () => {
         conversationId: "conv-legacy-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Legacy message with no provenance info." },
+          { type: "text", text: "Legacy message with no provenance info that still needs full extraction processing." },
         ]),
         createdAt: now,
       })
@@ -3380,7 +3380,7 @@ describe("Memory regressions", () => {
         conversationId: "conv-legacy-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Legacy message with no provenance info." },
+          { type: "text", text: "Legacy message with no provenance info that still needs full extraction processing." },
         ]),
         createdAt: now,
         // provenanceTrustClass is intentionally omitted (undefined) to test default behavior
@@ -3428,7 +3428,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "Unverified channel preference for compact layout.",
+            text: "Unverified channel preference for compact layout with sidebar navigation always visible.",
           },
         ]),
         createdAt: now,
@@ -3443,7 +3443,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "Unverified channel preference for compact layout.",
+            text: "Unverified channel preference for compact layout with sidebar navigation always visible.",
           },
         ]),
         createdAt: now,
