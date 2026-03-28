@@ -267,14 +267,14 @@ describe("ConfigWatcher workspace file handlers", () => {
 });
 
 describe("ConfigWatcher watcher lifecycle", () => {
-  test("start registers watcher for workspace dir only (no protected dir)", () => {
+  test("start does not register a watcher for the protected dir", () => {
     watcher.start(onConversationEvict);
     const wsWatcher = findWatcher(WORKSPACE_DIR);
     expect(wsWatcher).toBeDefined();
     // Protected dir is no longer watched — the daemon accesses
     // trust/allowlist state through the gateway HTTP API.
     const dirs = capturedWatchers.map((w) => w.dir);
-    expect(dirs).toEqual([WORKSPACE_DIR]);
+    expect(dirs).not.toContain(join(TEST_DIR, "protected"));
   });
 
   test("stop cancels all debounce timers and clears watchers", () => {
