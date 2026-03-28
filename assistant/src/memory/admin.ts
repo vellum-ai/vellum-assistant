@@ -6,14 +6,16 @@ import { deleteMemoryCheckpoint } from "./checkpoints.js";
 import { getConversationMemoryScopeId } from "./conversation-crud.js";
 import { getDb, rawGet } from "./db.js";
 import { getMemoryBackendStatus } from "./embedding-backend.js";
-import { enqueueBackfillJob, enqueueRebuildIndexJob } from "./indexer.js";
+import { enqueueBackfillJob, enqueueRebuildIndexJob, MIN_SEGMENT_CHARS } from "./indexer.js";
 import {
   enqueueCleanupStaleSupersededItemsJob,
   enqueueMemoryJob,
   getMemoryJobCounts,
 } from "./jobs-store.js";
+import { getQdrantClient } from "./qdrant-client.js";
+import { withQdrantBreaker } from "./qdrant-circuit-breaker.js";
 import { queryMemoryForCli } from "./retriever.js";
-import { conversations, memorySummaries, messages } from "./schema.js";
+import { conversations, memorySegments, memorySummaries, messages } from "./schema.js";
 
 const log = getLogger("memory-admin");
 
@@ -111,6 +113,54 @@ export function requestMemoryCleanup(retentionMs?: number): {
 
 export async function queryMemory(query: string, conversationId: string) {
   return queryMemoryForCli(query, conversationId, getConfig());
+}
+
+// ── Short segment cleanup ─────────────────────────────────────────────
+
+export interface CleanupShortSegmentsResult {
+  removed: number;
+  dryRunCount?: number;
+}
+
+/**
+ * Remove segments shorter than MIN_SEGMENT_CHARS from SQLite and Qdrant.
+ * These short fragments waste embedding budget, retrieval slots, and
+ * injection tokens.
+ */
+export async function cleanupShortSegments(
+  opts?: { dryRun?: boolean },
+): Promise<CleanupShortSegmentsResult> {
+  const db = getDb();
+
+  const shortSegments = db
+    .select({ id: memorySegments.id })
+    .from(memorySegments)
+    .where(sql`length(${memorySegments.text}) < ${MIN_SEGMENT_CHARS}`)
+    .all();
+
+  if (opts?.dryRun) {
+    return { removed: 0, dryRunCount: shortSegments.length };
+  }
+
+  let removed = 0;
+  for (const row of shortSegments) {
+    // Delete the Qdrant embedding first (best-effort via circuit breaker)
+    try {
+      const qdrant = getQdrantClient();
+      await withQdrantBreaker(() => qdrant.deleteByTarget("segment", row.id));
+    } catch {
+      // Qdrant may not be running or the vector may not exist — continue
+      // with SQLite deletion regardless
+    }
+
+    db.delete(memorySegments)
+      .where(eq(memorySegments.id, row.id))
+      .run();
+    removed++;
+  }
+
+  log.info({ removed, threshold: MIN_SEGMENT_CHARS }, "Cleaned up short segments");
+  return { removed };
 }
 
 // ── Re-extraction ──────────────────────────────────────────────────────

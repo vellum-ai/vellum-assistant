@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 
 import {
+  cleanupShortSegments,
   findReextractTarget,
   findReextractTargets,
   getMemorySystemStatus,
@@ -145,6 +146,36 @@ Examples:
       log.info(
         `Queued cleanup_stale_superseded_items job: ${jobs.staleSupersededItemsJobId}`,
       );
+    });
+
+  memory
+    .command("cleanup-segments")
+    .description("Remove short segments that waste retrieval budget")
+    .option("--dry-run", "Show count of segments that would be removed")
+    .addHelpText(
+      "after",
+      `
+Removes segments shorter than the minimum character threshold from both
+SQLite and Qdrant. Short fragments (e.g. "Collar Touched") burn embedding
+budget, retrieval slots, and injection tokens without adding value.
+
+New segments are already filtered at creation time. This command cleans up
+existing short segments that were stored before the filter was added.
+
+Examples:
+  $ assistant memory cleanup-segments
+  $ assistant memory cleanup-segments --dry-run`,
+    )
+    .action(async (opts: { dryRun?: boolean }) => {
+      initializeDb();
+      const result = await cleanupShortSegments({ dryRun: opts.dryRun });
+      if (opts.dryRun) {
+        log.info(
+          `Dry run: ${result.dryRunCount} short segment(s) would be removed.`,
+        );
+      } else {
+        log.info(`Removed ${result.removed} short segment(s).`);
+      }
     });
 
   memory
