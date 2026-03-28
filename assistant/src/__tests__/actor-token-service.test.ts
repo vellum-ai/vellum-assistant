@@ -40,7 +40,6 @@ mock.module("../config/env.js", () => ({
   getRuntimeGatewayOriginSecret: () => undefined,
   isHttpAuthDisabledWithoutSafetyGate: () => false,
   checkUnrecognizedEnvVars: () => {},
-  getBaseDataDir: () => testDir,
 }));
 
 import { findGuardianForChannel } from "../contacts/contact-store.js";

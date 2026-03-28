@@ -28,17 +28,6 @@ function flag(name: string): boolean {
 // Each entry documents the env var name, type, default, and purpose.
 
 /**
- * BASE_DATA_DIR — string, default: os.homedir()
- * Overrides the home directory used as the base for ~/.vellum data.
- * The lockfile is always resolved from the user's home directory
- * (or VELLUM_LOCKFILE_DIR), never from BASE_DATA_DIR.
- * Primarily used in tests to isolate filesystem state.
- */
-export function getBaseDataDir(): string | undefined {
-  return str("BASE_DATA_DIR");
-}
-
-/**
  * DEBUG_STDOUT_LOGS — boolean, default: false
  * Enables additional log output to stdout (alongside file logging).
  */
@@ -49,8 +38,7 @@ export function getDebugStdoutLogs(): boolean {
 /**
  * IS_CONTAINERIZED — boolean, default: false
  * When true, indicates the assistant is running inside a container (e.g. Docker).
- * Any new data that needs to survive restarts must be written to BASE_DATA_DIR,
- * which is mapped to a persistent volume.
+ * Persistent data is stored in VELLUM_WORKSPACE_DIR (mapped to a dedicated volume).
  */
 export function getIsContainerized(): boolean {
   return flag("IS_CONTAINERIZED");

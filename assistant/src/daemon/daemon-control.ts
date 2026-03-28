@@ -67,7 +67,7 @@ function readDaemonTimeouts(): typeof DAEMON_TIMEOUT_DEFAULTS {
 /**
  * Kill the stale daemon recorded in this workspace's PID file, if any.
  * Only targets the exact PID from our PID file — never scans globally —
- * so isolated daemons (e.g., dev instances with a different BASE_DATA_DIR)
+ * so isolated daemons (e.g., dev instances with a different VELLUM_WORKSPACE_DIR)
  * are never affected.
  */
 function killStaleDaemon(): void {

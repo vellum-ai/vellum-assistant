@@ -3,7 +3,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import {
-  getBaseDataDir,
   getIsContainerized,
   getWorkspaceDirOverride,
 } from "../config/env-registry.js";
@@ -59,16 +58,14 @@ export function normalizeAssistantId(assistantId: string): string {
 }
 
 /**
- * Returns the root ~/.vellum directory. Runtime files (socket, PID, lock,
- * stderr log) and the protected/ subdirectory live here.
+ * Compute the root ~/.vellum directory path.
  *
- * Most code should use a more specific helper instead of calling this
- * directly — e.g. getProtectedDir(), getDaemonStderrLogPath(), etc.
- * This function is intentionally NOT exported; callers outside platform.ts
- * should use one of the dedicated path helpers below.
+ * This is a simple inline computation — not a shared function — so each
+ * helper is self-contained and the module has no hidden coupling to
+ * env-var indirection.
  */
-function getRootDir(): string {
-  return join(getBaseDataDir() || homedir(), ".vellum");
+function vellumRoot(): string {
+  return join(homedir(), ".vellum");
 }
 
 /**
@@ -135,7 +132,7 @@ export function getTCPPort(): number {
  * the shell: `touch ~/.vellum/tcp-enabled && kill -USR1 <daemon-pid>`.
  */
 export function isTCPEnabled(): boolean {
-  return existsSync(join(getRootDir(), "tcp-enabled"));
+  return existsSync(join(vellumRoot(), "tcp-enabled"));
 }
 
 /**
@@ -161,7 +158,7 @@ export function getTCPHost(): string {
  * access without exposing the daemon to the LAN.
  */
 export function isIOSPairingEnabled(): boolean {
-  return existsSync(join(getRootDir(), "ios-pairing-enabled"));
+  return existsSync(join(vellumRoot(), "ios-pairing-enabled"));
 }
 
 /**
@@ -181,7 +178,7 @@ function getXdgPlatformTokenPath(): string {
  * instances that may have the token written here by the desktop app.
  */
 export function getPlatformTokenPath(): string {
-  return join(getRootDir(), "platform-token");
+  return join(vellumRoot(), "platform-token");
 }
 
 /**
@@ -203,7 +200,7 @@ export function readPlatformToken(): string | null {
 }
 
 export function getPidPath(): string {
-  return join(getRootDir(), "vellum.pid");
+  return join(vellumRoot(), "vellum.pid");
 }
 
 export function getDbPath(): string {
@@ -229,7 +226,7 @@ export function getHistoryPath(): string {
  * - Skipped in containerized mode (credentials via CES, trust via gateway)
  */
 export function getProtectedDir(): string {
-  return join(getRootDir(), "protected");
+  return join(vellumRoot(), "protected");
 }
 
 /** Returns ~/.vellum/workspace/signals — the directory for IPC signal files. */
@@ -243,37 +240,37 @@ export function getSignalsDir(): string {
 
 /** Returns the path to the daemon stderr log (~/.vellum/daemon-stderr.log). */
 export function getDaemonStderrLogPath(): string {
-  return join(getRootDir(), "daemon-stderr.log");
+  return join(vellumRoot(), "daemon-stderr.log");
 }
 
 /** Returns the path to the daemon startup lock file (~/.vellum/daemon-startup.lock). */
 export function getDaemonStartupLockPath(): string {
-  return join(getRootDir(), "daemon-startup.lock");
+  return join(vellumRoot(), "daemon-startup.lock");
 }
 
 /** Returns the path to the feature-flag client token file (~/.vellum/feature-flag-token). */
 export function getFeatureFlagTokenPath(): string {
-  return join(getRootDir(), "feature-flag-token");
+  return join(vellumRoot(), "feature-flag-token");
 }
 
 /** Returns the directory for externally-installed packages (~/.vellum/external). */
 export function getExternalDir(): string {
-  return join(getRootDir(), "external");
+  return join(vellumRoot(), "external");
 }
 
 /** Returns the directory for installed binaries (~/.vellum/bin). */
 export function getBinDir(): string {
-  return join(getRootDir(), "bin");
+  return join(vellumRoot(), "bin");
 }
 
 /** Returns the path to the dot-env file (~/.vellum/.env). */
 export function getDotEnvPath(): string {
-  return join(getRootDir(), ".env");
+  return join(vellumRoot(), ".env");
 }
 
 /** Returns the path to the embed-worker PID file (~/.vellum/embed-worker.pid). */
 export function getEmbedWorkerPidPath(): string {
-  return join(getRootDir(), "embed-worker.pid");
+  return join(vellumRoot(), "embed-worker.pid");
 }
 
 /**
@@ -281,14 +278,14 @@ export function getEmbedWorkerPidPath(): string {
  * (e.g. VELLUM_ROOT_DIR passed to hook scripts).
  *
  * Unlike `dirname(getWorkspaceDir())`, this always returns the true root
- * (~/.vellum or $BASE_DATA_DIR/.vellum) even when VELLUM_WORKSPACE_DIR is
- * overridden to a custom path (Docker / containerized mode).
+ * (~/.vellum) even when VELLUM_WORKSPACE_DIR is overridden to a custom
+ * path (Docker / containerized mode).
  *
  * @deprecated Callers should migrate to workspace-based paths. This helper
  * exists only for backward compatibility with user-authored hook scripts.
  */
 export function getLegacyRootDir(): string {
-  return getRootDir();
+  return vellumRoot();
 }
 
 // --- Workspace path primitives ---
@@ -309,7 +306,7 @@ export function getLegacyRootDir(): string {
 export function getWorkspaceDir(): string {
   const override = getWorkspaceDirOverride();
   if (override) return override;
-  return join(getRootDir(), "workspace");
+  return join(vellumRoot(), "workspace");
 }
 
 /**
@@ -356,7 +353,7 @@ export function getWorkspacePromptPath(file: string): string {
 }
 
 export function ensureDataDir(): void {
-  const root = getRootDir();
+  const root = vellumRoot();
   const workspace = getWorkspaceDir();
   const wsData = join(workspace, "data");
   const containerized = getIsContainerized();

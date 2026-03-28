@@ -8,7 +8,7 @@
  * - Fail-fast validation via validateEnv() at startup
  * - Shared derived values (e.g. gateway base URL) instead of duplicated logic
  *
- * Bootstrap-level env vars (BASE_DATA_DIR, DEBUG_STDOUT_LOGS) are defined
+ * Bootstrap-level env vars (IS_CONTAINERIZED, DEBUG_STDOUT_LOGS) are defined
  * in config/env-registry.ts which has no internal dependencies and can be
  * imported from platform/logger without circular imports.
  */
