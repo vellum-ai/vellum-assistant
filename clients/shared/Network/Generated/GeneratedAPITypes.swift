@@ -2017,6 +2017,8 @@ public struct HistoryResponseMessage: Codable, Sendable {
     public let attachments: [UserMessageAttachment]?
     /// Text segments split by tool-call boundaries. Preserves interleaving order.
     public let textSegments: [String]?
+    /// Thinking segments from extended thinking / chain-of-thought blocks.
+    public let thinkingSegments: [String]?
     /// Content block ordering using "text:N", "tool:N", "surface:N" encoding.
     public let contentOrder: [String]?
     /// UI surfaces (widgets) embedded in the message.
@@ -2026,7 +2028,7 @@ public struct HistoryResponseMessage: Codable, Sendable {
     /// True when text or tool result content was truncated due to maxTextChars/maxToolResultChars.
     public let wasTruncated: Bool?
 
-    public init(id: String? = nil, role: String, text: String, timestamp: Double, toolCalls: [HistoryResponseToolCall]? = nil, toolCallsBeforeText: Bool? = nil, attachments: [UserMessageAttachment]? = nil, textSegments: [String]? = nil, contentOrder: [String]? = nil, surfaces: [HistoryResponseSurface]? = nil, subagentNotification: HistoryResponseMessageSubagentNotification? = nil, wasTruncated: Bool? = nil) {
+    public init(id: String? = nil, role: String, text: String, timestamp: Double, toolCalls: [HistoryResponseToolCall]? = nil, toolCallsBeforeText: Bool? = nil, attachments: [UserMessageAttachment]? = nil, textSegments: [String]? = nil, thinkingSegments: [String]? = nil, contentOrder: [String]? = nil, surfaces: [HistoryResponseSurface]? = nil, subagentNotification: HistoryResponseMessageSubagentNotification? = nil, wasTruncated: Bool? = nil) {
         self.id = id
         self.role = role
         self.text = text
@@ -2035,6 +2037,7 @@ public struct HistoryResponseMessage: Codable, Sendable {
         self.toolCallsBeforeText = toolCallsBeforeText
         self.attachments = attachments
         self.textSegments = textSegments
+        self.thinkingSegments = thinkingSegments
         self.contentOrder = contentOrder
         self.surfaces = surfaces
         self.subagentNotification = subagentNotification

@@ -1543,6 +1543,7 @@ public enum ContentBlockRef: Hashable {
     case text(Int)
     case toolCall(Int)
     case surface(Int)
+    case thinking(Int)
 }
 
 public struct ChatMessage: Identifiable, Equatable {
@@ -1553,6 +1554,7 @@ public struct ChatMessage: Identifiable, Equatable {
         lhs.id == rhs.id
         && lhs.role == rhs.role
         && lhs.textSegments == rhs.textSegments
+        && lhs.thinkingSegments == rhs.thinkingSegments
         && lhs.isStreaming == rhs.isStreaming
         && lhs.status == rhs.status
         && lhs.isError == rhs.isError
@@ -1571,6 +1573,7 @@ public struct ChatMessage: Identifiable, Equatable {
     public let id: UUID
     public let role: ChatRole
     public var textSegments: [String]
+    public var thinkingSegments: [String] = []
     public var contentOrder: [ContentBlockRef]
     public var timestamp: Date
     public var isStreaming: Bool
@@ -1614,6 +1617,7 @@ public struct ChatMessage: Identifiable, Equatable {
     /// like duplicate timestamp dividers.
     public var hasRenderableContent: Bool {
         !textSegments.isEmpty
+            || !thinkingSegments.isEmpty
             || !toolCalls.isEmpty
             || !attachments.isEmpty
             || !inlineSurfaces.isEmpty
