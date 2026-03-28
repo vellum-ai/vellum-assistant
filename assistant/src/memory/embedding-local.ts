@@ -3,7 +3,10 @@ import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
-import { getEmbeddingModelsDir, getRootDir } from "../util/platform.js";
+import {
+  getEmbeddingModelsDir,
+  getEmbedWorkerPidPath,
+} from "../util/platform.js";
 import { PromiseGuard } from "../util/promise-guard.js";
 import type {
   EmbeddingBackend,
@@ -404,7 +407,7 @@ export class LocalEmbeddingBackend implements EmbeddingBackend {
     if (getIsContainerized()) {
       return join("/tmp", LocalEmbeddingBackend.PID_FILENAME);
     }
-    return join(getRootDir(), LocalEmbeddingBackend.PID_FILENAME);
+    return getEmbedWorkerPidPath();
   }
 
   private writePidFile(pid: number): void {

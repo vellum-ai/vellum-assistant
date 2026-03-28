@@ -10,7 +10,7 @@ import { isHttpHealthy } from "../../daemon/daemon-control.js";
 import {
   getDbPath,
   getLogPath,
-  getRootDir,
+  getProtectedDir,
   getWorkspaceDir,
   getWorkspaceHooksDir,
   getWorkspaceSkillsDir,
@@ -129,18 +129,17 @@ Examples:
       }
 
       // 5. ~/.vellum/ directory structure (workspace layout)
-      const rootDir = getRootDir();
+      const protectedDir = getProtectedDir();
       const dataDir = process.env.VELLUM_DATA_DIR!;
       const workspaceDir = getWorkspaceDir();
       const requiredDirs = [
-        rootDir,
         workspaceDir,
         dataDir,
         `${dataDir}/db`,
         `${dataDir}/logs`,
         getWorkspaceSkillsDir(),
         getWorkspaceHooksDir(),
-        `${rootDir}/protected`,
+        protectedDir,
       ];
       const missing = requiredDirs.filter((d) => !existsSync(d));
       if (missing.length === 0) {
@@ -151,7 +150,7 @@ Examples:
 
       // 6. Disk space
       try {
-        const output = execSync(`df -k "${rootDir}"`, {
+        const output = execSync(`df -k "${workspaceDir}"`, {
           stdio: "pipe",
           encoding: "utf-8",
         });
@@ -222,7 +221,7 @@ Examples:
       }
 
       // 9. Trust rule syntax
-      const trustPath = `${rootDir}/protected/trust.json`;
+      const trustPath = `${protectedDir}/trust.json`;
       if (existsSync(trustPath)) {
         try {
           const rawTrust = readFileSync(trustPath, "utf-8");

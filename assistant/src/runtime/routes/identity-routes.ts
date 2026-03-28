@@ -11,7 +11,10 @@ import { z } from "zod";
 
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
-import { getRootDir, getWorkspacePromptPath } from "../../util/platform.js";
+import {
+  getWorkspaceDir,
+  getWorkspacePromptPath,
+} from "../../util/platform.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
 import { httpError } from "../http-errors.js";
@@ -27,8 +30,8 @@ interface DiskSpaceInfo {
 
 function getDiskSpaceInfo(): DiskSpaceInfo | null {
   try {
-    const rootDir = getRootDir();
-    const diskPath = existsSync(rootDir) ? rootDir : "/";
+    const wsDir = getWorkspaceDir();
+    const diskPath = existsSync(wsDir) ? wsDir : "/";
     const stats = statfsSync(diskPath);
     const totalBytes = stats.bsize * stats.blocks;
     const freeBytes = stats.bsize * stats.bavail;

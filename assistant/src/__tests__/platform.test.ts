@@ -12,7 +12,7 @@ import {
   getInterfacesDir,
   getLogPath,
   getPidPath,
-  getRootDir,
+  getProtectedDir,
   getSandboxRootDir,
   getSandboxWorkingDir,
   getWorkspaceConfigPath,
@@ -45,8 +45,8 @@ describe("baseline path characterization (pre-migration)", () => {
     const root = join(base, ".vellum");
     const data = join(root, "workspace", "data");
 
-    // Root dir — stays as anchor for all paths
-    expect(getRootDir()).toBe(root);
+    // Root dir — verify indirectly via workspace parent
+    expect(getWorkspaceDir()).toBe(join(root, "workspace"));
 
     // Now resolves under workspace/data
     expect(getDataDir()).toBe(join(root, "workspace", "data"));
@@ -83,7 +83,7 @@ describe("baseline path characterization (pre-migration)", () => {
       `platform-test-${randomBytes(4).toString("hex")}`,
     );
     process.env.BASE_DATA_DIR = base;
-    const rootDir = getRootDir();
+    const rootDir = join(base, ".vellum");
     const ws = getWorkspaceDir();
     const wsData = join(ws, "data");
 
@@ -94,8 +94,8 @@ describe("baseline path characterization (pre-migration)", () => {
     ensureDataDir();
 
     // Root-level dirs (runtime / protected)
-    expect(existsSync(getRootDir())).toBe(true);
-    expect(existsSync(join(getRootDir(), "protected"))).toBe(true);
+    expect(existsSync(rootDir)).toBe(true);
+    expect(existsSync(getProtectedDir())).toBe(true);
 
     // Workspace dirs
     expect(existsSync(ws)).toBe(true);
@@ -113,9 +113,9 @@ describe("baseline path characterization (pre-migration)", () => {
     expect(existsSync(join(wsData, "interfaces"))).toBe(true);
 
     // Legacy dirs should NOT be created
-    expect(existsSync(join(getRootDir(), "skills"))).toBe(false);
-    expect(existsSync(join(getRootDir(), "data", "sandbox"))).toBe(false);
-    expect(existsSync(join(getRootDir(), "data", "sandbox", "fs"))).toBe(false);
+    expect(existsSync(join(rootDir, "skills"))).toBe(false);
+    expect(existsSync(join(rootDir, "data", "sandbox"))).toBe(false);
+    expect(existsSync(join(rootDir, "data", "sandbox", "fs"))).toBe(false);
 
     rmSync(rootDir, { recursive: true, force: true });
   });

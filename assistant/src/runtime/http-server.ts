@@ -6,7 +6,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import type { ServerWebSocket } from "bun";
 
@@ -61,7 +61,7 @@ import {
 } from "../security/oauth-callback-registry.js";
 import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import { getRootDir } from "../util/platform.js";
+import { getFeatureFlagTokenPath } from "../util/platform.js";
 import { buildAssistantEvent } from "./assistant-event.js";
 import { assistantEventHub } from "./assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
@@ -297,7 +297,7 @@ export class RuntimeHttpServer {
   /** Read the feature-flag client token from disk so it can be included in pairing approval responses. */
   private readFeatureFlagToken(): string | undefined {
     try {
-      const tokenPath = join(getRootDir(), "feature-flag-token");
+      const tokenPath = getFeatureFlagTokenPath();
       const token = readFileSync(tokenPath, "utf-8").trim();
       return token || undefined;
     } catch {

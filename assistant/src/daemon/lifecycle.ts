@@ -1,5 +1,3 @@
-import { join } from "node:path";
-
 import { config as dotenvConfig } from "dotenv";
 
 import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
@@ -89,8 +87,8 @@ import { getDeviceId } from "../util/device-id.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
+  getDotEnvPath,
   getInterfacesDir,
-  getRootDir,
   getWorkspaceDir,
 } from "../util/platform.js";
 import {
@@ -149,7 +147,7 @@ export {
 const log = getLogger("lifecycle");
 
 function loadDotEnv(): void {
-  dotenvConfig({ path: join(getRootDir(), ".env"), quiet: true });
+  dotenvConfig({ path: getDotEnvPath(), quiet: true });
 }
 
 export interface CesStartupResult {

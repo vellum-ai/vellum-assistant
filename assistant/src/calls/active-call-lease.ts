@@ -10,7 +10,7 @@ import {
 import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
-import { getRootDir } from "../util/platform.js";
+import { getWorkspaceDir } from "../util/platform.js";
 import { isTerminalState } from "./call-state-machine.js";
 import type { CallSession } from "./types.js";
 
@@ -31,7 +31,7 @@ export interface ActiveCallLease {
 }
 
 function getStorePath(): string {
-  return join(getRootDir(), ACTIVE_CALL_LEASES_FILE);
+  return join(getWorkspaceDir(), ACTIVE_CALL_LEASES_FILE);
 }
 
 function loadLeaseFile(): ActiveCallLeaseFile {

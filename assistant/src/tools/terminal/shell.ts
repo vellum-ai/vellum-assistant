@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 import { getConfig } from "../../config/loader.js";
 import { isCesShellLockdownEnabled } from "../../credential-execution/feature-gates.js";
@@ -8,7 +8,11 @@ import type { ToolDefinition } from "../../providers/types.js";
 import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
-import { getDataDir, getRootDir } from "../../util/platform.js";
+import {
+  getDataDir,
+  getProtectedDir,
+  getWorkspaceDir,
+} from "../../util/platform.js";
 import { resolveCredentialRef } from "../credentials/resolve.js";
 import {
   getOrStartSession,
@@ -50,8 +54,7 @@ function buildCredentialRefTrace(
  *   entry)
  */
 function buildCesProtectedPaths(): string[] {
-  const root = getRootDir();
-  const paths = [`${root}/protected`, `${root}/workspace/data/db`];
+  const paths = [getProtectedDir(), join(getWorkspaceDir(), "data", "db")];
 
   // CES bootstrap socket directory - block access to the Unix socket that
   // accepts RPC commands from the assistant process.

@@ -30,7 +30,7 @@ import { dirname, join } from "node:path";
 import { getIsContainerized } from "../config/env-registry.js";
 import { ensureDir, pathExists } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
-import { getPlatformName, getRootDir } from "../util/platform.js";
+import { getPlatformName, getProtectedDir } from "../util/platform.js";
 
 const log = getLogger("encrypted-store");
 
@@ -80,7 +80,7 @@ interface EncryptedEntry {
 let storePathOverride: string | null = null;
 
 function getStorePath(): string {
-  return storePathOverride ?? join(getRootDir(), "protected", "keys.enc");
+  return storePathOverride ?? join(getProtectedDir(), "keys.enc");
 }
 
 /** @internal Test-only: override the store file path. Pass `null` to reset. */

@@ -21,7 +21,7 @@ import { join } from "node:path";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
-import { getRootDir } from "../util/platform.js";
+import { getBinDir } from "../util/platform.js";
 
 const log = getLogger("ces-discovery");
 
@@ -67,7 +67,7 @@ function getManagedBootstrapSocketPath(): string {
  * a malicious binary there. Removed to close the sandbox-escape vector.
  */
 function getLocalBinarySearchPaths(): string[] {
-  return [join(getRootDir(), "bin", "credential-executor")];
+  return [join(getBinDir(), "credential-executor")];
 }
 
 // ---------------------------------------------------------------------------

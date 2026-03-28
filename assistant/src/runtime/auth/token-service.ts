@@ -22,7 +22,7 @@ import {
 import { dirname, join } from "node:path";
 
 import { getLogger } from "../../util/logger.js";
-import { getRootDir } from "../../util/platform.js";
+import { getProtectedDir } from "../../util/platform.js";
 import { CURRENT_POLICY_EPOCH, isStaleEpoch } from "./policy.js";
 import type { ScopeProfile, TokenAudience, TokenClaims } from "./types.js";
 
@@ -39,7 +39,7 @@ let _authSigningKey: Buffer | undefined;
  * Stored in the protected directory alongside other sensitive material.
  */
 function getSigningKeyPath(): string {
-  return join(getRootDir(), "protected", "actor-token-signing-key");
+  return join(getProtectedDir(), "actor-token-signing-key");
 }
 
 /**
