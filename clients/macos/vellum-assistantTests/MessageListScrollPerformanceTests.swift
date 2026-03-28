@@ -177,7 +177,7 @@ final class MessageListScrollPerformanceTests: XCTestCase {
             isStreaming: true
         )
 
-        let tracking = ScrollTrackingState()
+        let tracking = MessageListScrollState()
 
         // Build initial cache.
         let key = PrecomputedCacheKey(

@@ -97,7 +97,7 @@ final class MessageListScrollState {
     /// auto-focus handoff. Used to detect nil->non-nil transitions.
     @ObservationIgnored var lastAutoFocusedRequestId: String?
 
-    // MARK: - Layout Cache Fields (from ScrollTrackingState)
+    // MARK: - Layout Cache Fields
 
     /// Cache key for the last computed `CachedMessageLayoutMetadata`.
     @ObservationIgnored var cachedLayoutKey: PrecomputedCacheKey?
