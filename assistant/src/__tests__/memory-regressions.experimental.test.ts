@@ -519,7 +519,10 @@ describe("Memory regressions (experimental)", () => {
         conversationId: "conv-index",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Please remember this implementation detail." },
+          {
+            type: "text",
+            text: "Please remember this important implementation detail about our project configuration.",
+          },
         ]),
         createdAt,
       })
@@ -531,7 +534,10 @@ describe("Memory regressions (experimental)", () => {
         conversationId: "conv-index",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Please remember this implementation detail." },
+          {
+            type: "text",
+            text: "Please remember this important implementation detail about our project configuration.",
+          },
         ]),
         createdAt,
       },
@@ -571,7 +577,10 @@ describe("Memory regressions (experimental)", () => {
         conversationId: "conv-assistant-index",
         role: "assistant",
         content: JSON.stringify([
-          { type: "text", text: "I think your timezone is PST." },
+          {
+            type: "text",
+            text: "I think your timezone is PST based on your previous messages and location data.",
+          },
         ]),
         createdAt,
       })
@@ -591,7 +600,10 @@ describe("Memory regressions (experimental)", () => {
         conversationId: "conv-assistant-index",
         role: "assistant",
         content: JSON.stringify([
-          { type: "text", text: "I think your timezone is PST." },
+          {
+            type: "text",
+            text: "I think your timezone is PST based on your previous messages and location data.",
+          },
         ]),
         createdAt,
       },

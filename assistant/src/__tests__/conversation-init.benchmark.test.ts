@@ -215,6 +215,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   },
   parseConversation: () => null,
   parseMessage: () => null,
+  getAssistantMessageIdsInTurn: () => [],
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
