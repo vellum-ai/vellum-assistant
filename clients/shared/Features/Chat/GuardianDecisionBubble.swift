@@ -74,6 +74,13 @@ public struct GuardianDecisionBubble: View {
                 onAction(decision.requestId, action)
             }
 
+            // Scope hint for temporal approval options
+            if decision.actions.contains(where: { $0.action == "approve_10m" || $0.action == "approve_conversation" }) {
+                Text("Temporal options apply to all tools in this conversation")
+                    .font(VFont.bodySmallDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+
             // Secondary metadata: tool name and request code reference
             if hasSecondaryMetadata {
                 Divider()
