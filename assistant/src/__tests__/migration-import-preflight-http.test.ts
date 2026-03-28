@@ -39,7 +39,7 @@ const testDbPath = join(testDbDir, "assistant.db");
 const testConfigPath = join(testDir, "config.json");
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   getDataDir: () => join(testDir, "data"),
   getWorkspaceDir: () => testDir,
   getWorkspaceConfigPath: () => testConfigPath,

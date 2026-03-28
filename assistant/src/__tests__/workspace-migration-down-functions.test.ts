@@ -35,7 +35,6 @@ mock.module("../security/credential-key.js", () => ({
 // Mock getRootDir for 016-extract-feature-flags-to-protected
 let mockRootDir: string = "/tmp/mock-root";
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => mockRootDir,
   getProtectedDir: () => join(mockRootDir, "protected"),
   getDataDir: () => join(mockRootDir, "workspace", "data"),
   getWorkspaceDir: () => join(mockRootDir, "workspace"),
@@ -773,7 +772,7 @@ describe("016-extract-feature-flags-to-protected down()", () => {
   let savedBaseDataDir: string | undefined;
 
   beforeEach(() => {
-    // The migration has an inlined getRootDir() that reads BASE_DATA_DIR,
+    // The migration has an inlined platform helpers that reads BASE_DATA_DIR,
     // so we set that env var so the inlined function resolves to mockRootDir.
     const baseDir = freshWorkspace();
     mockRootDir = join(baseDir, ".vellum");

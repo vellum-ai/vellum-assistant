@@ -21,7 +21,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 const testDir = mkdtempSync(join(tmpdir(), "trusted-contact-verify-test-"));
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   getDataDir: () => testDir,
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",

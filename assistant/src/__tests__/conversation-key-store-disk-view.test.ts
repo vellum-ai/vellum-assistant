@@ -21,7 +21,7 @@ const conversationsDir = join(workspaceDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   getDataDir: () => join(testDir, "data"),
   getWorkspaceDir: () => workspaceDir,
   getConversationsDir: () => conversationsDir,
@@ -122,7 +122,10 @@ describe("conversation-key-store disk view", () => {
       .select({ id: conversations.id })
       .from(conversations)
       .all();
-    const keyRows = db.select({ id: conversationKeys.id }).from(conversationKeys).all();
+    const keyRows = db
+      .select({ id: conversationKeys.id })
+      .from(conversationKeys)
+      .all();
     expect(conversationRows).toHaveLength(1);
     expect(keyRows).toHaveLength(1);
     expect(readdirSync(conversationsDir)).toEqual([expectedDirName]);

@@ -19,7 +19,7 @@ const testDir = realpathSync(
 );
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   getDataDir: () => testDir,
   getWorkspaceConfigPath: () => join(testDir, "config.json"),
   isMacOS: () => process.platform === "darwin",

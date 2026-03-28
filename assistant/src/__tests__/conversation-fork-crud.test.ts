@@ -18,7 +18,7 @@ const workspaceDir = join(testDir, ".vellum", "workspace");
 const conversationsDir = join(workspaceDir, "conversations");
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => join(testDir, ".vellum"),
+  getProtectedDir: () => join(join(testDir, ".vellum"), "protected"),
   getDataDir: () => join(workspaceDir, "data"),
   getWorkspaceDir: () => workspaceDir,
   getConversationsDir: () => conversationsDir,

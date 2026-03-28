@@ -39,7 +39,7 @@ const conversationsDir = join(workspaceDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   getDataDir: () => join(testDir, "data"),
   getWorkspaceDir: () => workspaceDir,
   getConversationsDir: () => conversationsDir,
@@ -129,18 +129,14 @@ function createFakeConversation(conversationId: string): Conversation {
     currentRequestId: undefined as string | undefined,
     abortController: null as AbortController | null,
     trustContext: undefined as unknown,
-    turnChannelContext: null as
-      | {
-          userMessageChannel: string;
-          assistantMessageChannel: string;
-        }
-      | null,
-    turnInterfaceContext: null as
-      | {
-          userMessageInterface: string;
-          assistantMessageInterface: string;
-        }
-      | null,
+    turnChannelContext: null as {
+      userMessageChannel: string;
+      assistantMessageChannel: string;
+    } | null,
+    turnInterfaceContext: null as {
+      userMessageInterface: string;
+      assistantMessageInterface: string;
+    } | null,
     messages: [] as Array<unknown>,
     hostBashProxy: undefined as unknown,
     hostFileProxy: undefined as unknown,

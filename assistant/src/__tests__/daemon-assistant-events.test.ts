@@ -6,12 +6,13 @@
  *   - send()      → one mirrored assistant event per message
  *   - broadcast() → one mirrored assistant event per message (not per socket)
  */
+import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
 // ── Platform mock (must happen before imports that read it) ─────────────────
 mock.module("../util/platform.js", () => ({
   getSessionTokenPath: () => "/tmp/test-token",
-  getRootDir: () => "/tmp/test",
+  getProtectedDir: () => join("/tmp/test", "protected"),
   getDataDir: () => "/tmp/test",
   getWorkspaceDir: () => "/tmp/test/workspace",
   getWorkspaceSkillsDir: () => "/tmp/test/skills",

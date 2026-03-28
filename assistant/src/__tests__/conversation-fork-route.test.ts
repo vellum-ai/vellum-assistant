@@ -8,7 +8,7 @@ const testDir = realpathSync(
 );
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => join(testDir, ".vellum"),
+  getProtectedDir: () => join(join(testDir, ".vellum"), "protected"),
   getDataDir: () => join(testDir, ".vellum", "workspace", "data"),
   getWorkspaceDir: () => join(testDir, ".vellum", "workspace"),
   getConversationsDir: () =>

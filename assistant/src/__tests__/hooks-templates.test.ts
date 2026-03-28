@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-// Set BASE_DATA_DIR before importing modules that use getRootDir()
+// Set BASE_DATA_DIR before importing modules that use platform helpers
 const testDir = join(tmpdir(), `hooks-templates-test-${Date.now()}`);
 process.env.BASE_DATA_DIR = testDir;
 

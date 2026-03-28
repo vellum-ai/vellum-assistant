@@ -19,7 +19,6 @@ import {
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), "signing-key-test-")));
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
   getProtectedDir: () => join(testDir, "protected"),
   getDataDir: () => testDir,
   getDbPath: () => join(testDir, "test.db"),

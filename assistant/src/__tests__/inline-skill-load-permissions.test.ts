@@ -25,7 +25,6 @@ import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 const testDir = mkdtempSync(join(tmpdir(), "inline-skill-perm-test-"));
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
   getProtectedDir: () => join(testDir, "protected"),
   getDataDir: () => join(testDir, "data"),
   getWorkspaceSkillsDir: () => join(testDir, "skills"),

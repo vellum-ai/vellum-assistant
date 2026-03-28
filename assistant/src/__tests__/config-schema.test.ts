@@ -51,7 +51,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => TEST_DIR,
+  getProtectedDir: () => join(TEST_DIR, "protected"),
   getWorkspaceDir: () => WORKSPACE_DIR,
   getWorkspaceConfigPath: () => CONFIG_PATH,
   getDataDir: () => join(TEST_DIR, "data"),

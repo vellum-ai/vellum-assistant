@@ -10,7 +10,7 @@ const TEST_DIR = join(tmpdir(), `vellum-routing-test-${crypto.randomUUID()}`);
 const realPlatform = require("../util/platform.js");
 mock.module("../util/platform.js", () => ({
   ...realPlatform,
-  getRootDir: () => TEST_DIR,
+  getProtectedDir: () => join(TEST_DIR, "protected"),
   getDataDir: () => TEST_DIR,
   getWorkspaceDir: () => TEST_DIR,
   getWorkspaceConfigPath: () => join(TEST_DIR, "config.json"),

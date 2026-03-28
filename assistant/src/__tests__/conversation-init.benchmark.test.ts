@@ -85,7 +85,7 @@ for (const skillId of testSkillIds) {
 
 mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   getWorkspaceDir: () => testDir,
   getWorkspaceConfigPath: () => join(testDir, "config.json"),
   getWorkspaceSkillsDir: () => join(testDir, "skills"),

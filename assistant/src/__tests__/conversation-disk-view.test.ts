@@ -30,7 +30,7 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -555,9 +555,7 @@ describe("syncMessageToDisk", () => {
 
     syncMessageToDisk(conv.id, msg.id, createdAt);
 
-    expect(
-      existsSync(join(legacyDirPath, "messages.jsonl")),
-    ).toBe(true);
+    expect(existsSync(join(legacyDirPath, "messages.jsonl"))).toBe(true);
     expect(existsSync(join(newDirPath, "messages.jsonl"))).toBe(false);
     expect(existsSync(join(legacyDirPath, "attachments", "legacy.png"))).toBe(
       true,
@@ -611,9 +609,9 @@ describe("syncMessageToDisk", () => {
     const record = JSON.parse(lines[0]);
     expect(record.content).toBe("Disk repair");
     expect(record.attachments).toHaveLength(1);
-    expect(existsSync(join(dirPath, "attachments", record.attachments[0]))).toBe(
-      true,
-    );
+    expect(
+      existsSync(join(dirPath, "attachments", record.attachments[0])),
+    ).toBe(true);
 
     rmSync(dirPath, { recursive: true, force: true });
   });

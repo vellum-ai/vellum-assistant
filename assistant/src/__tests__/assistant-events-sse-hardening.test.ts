@@ -16,7 +16,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), "sse-hardening-")));
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   getDataDir: () => testDir,
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
