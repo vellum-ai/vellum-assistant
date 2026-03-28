@@ -300,7 +300,7 @@ export async function buildMemoryRecall(
     options?.scopePolicyOverride,
   );
 
-  const HYBRID_LIMIT = 20;
+  const HYBRID_LIMIT = 40;
 
   let hybridCandidates: Candidate[] = [];
   let semanticSearchFailed = false;
@@ -436,9 +436,9 @@ export async function buildMemoryRecall(
   for (const c of allCandidates) {
     // Multiplicative scoring: importance, confidence, and recency amplify semantic
     // relevance but can't substitute for it. An irrelevant item (semantic ≈ 0)
-    // stays low regardless of metadata. Multiplier range: 0.4 (all zero) to 1.0.
+    // stays low regardless of metadata. Multiplier range: 0.35 (all zero) to 1.0.
     const metadataMultiplier =
-      0.4 + c.importance * 0.25 + c.confidence * 0.15 + c.recency * 0.2;
+      0.35 + c.importance * 0.30 + c.confidence * 0.10 + c.recency * 0.25;
     c.finalScore = c.semantic * metadataMultiplier;
   }
   allCandidates.sort((a, b) => b.finalScore - a.finalScore);

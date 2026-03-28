@@ -175,8 +175,8 @@ describe("AssistantConfigSchema", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.memory.retrieval.dynamicBudget).toEqual({
       enabled: true,
-      minInjectTokens: 1200,
-      maxInjectTokens: 10000,
+      minInjectTokens: 2400,
+      maxInjectTokens: 16000,
       targetHeadroomTokens: 10000,
     });
   });

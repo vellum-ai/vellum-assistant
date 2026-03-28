@@ -19,7 +19,7 @@ export const MemoryDynamicBudgetConfigSchema = z
       .positive(
         "memory.retrieval.dynamicBudget.minInjectTokens must be a positive integer",
       )
-      .default(1200)
+      .default(2400)
       .describe(
         "Minimum number of tokens to inject from memory, even when context space is limited",
       ),
@@ -32,7 +32,7 @@ export const MemoryDynamicBudgetConfigSchema = z
       .positive(
         "memory.retrieval.dynamicBudget.maxInjectTokens must be a positive integer",
       )
-      .default(10000)
+      .default(16000)
       .describe(
         "Maximum number of tokens to inject from memory, even when plenty of context space is available",
       ),
