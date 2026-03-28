@@ -1,9 +1,7 @@
 /**
  * File watchers and config reload logic extracted from DaemonServer.
  * Watches workspace files (config, prompts) and skills directories
- * for changes. The daemon no longer watches the protected directory
- * directly — trust rules and feature flags are fetched via the gateway
- * HTTP API, which handles its own file watching and cache invalidation.
+ * for changes.
  */
 import {
   existsSync,

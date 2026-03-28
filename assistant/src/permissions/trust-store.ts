@@ -135,11 +135,7 @@ function getTrustPath(): string {
  * Resolve the gateway security directory.
  *
  * Docker: `GATEWAY_SECURITY_DIR` env var.
- * Local:  `~/.vellum/protected/` (the gateway reads/writes here directly).
- *
- * Used only by the file-based backend, which the gateway process itself
- * uses to persist trust rules to disk. The daemon never calls this —
- * it always goes through the GatewayTrustStoreAdapter HTTP client.
+ * Local:  falls back to `~/.vellum/` + `protected/`.
  */
 function getGatewaySecurityDir(): string {
   const securityDir = process.env.GATEWAY_SECURITY_DIR;
@@ -1119,14 +1115,9 @@ function getGatewayTrustStore(): GatewayTrustStoreAdapter {
  * Returns the active trust store backend.
  *
  * When `IS_CONTAINERIZED=true`, returns a gateway-backed adapter that
- * proxies all trust operations through the gateway HTTP API. The daemon
- * never reads or writes `protected/trust.json` directly in Docker.
+ * proxies all trust operations through the gateway HTTP API.
  *
  * When `IS_CONTAINERIZED=false`, returns the file-based implementation.
- *
- * NOTE: The file-based path no longer imports `getProtectedDir()` — it
- * computes the path via `getGatewaySecurityDir()` (homedir-based) so
- * the daemon does not depend on the protected-dir helper.
  */
 export function getTrustStore(): TrustStoreBackend {
   if (getIsContainerized()) {

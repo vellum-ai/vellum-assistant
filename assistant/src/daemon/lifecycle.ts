@@ -87,7 +87,6 @@ import { getDeviceId } from "../util/device-id.js";
 import { getLogger, initLogger } from "../util/logger.js";
 import {
   ensureDataDir,
-  ensureProtectedDir,
   getDotEnvPath,
   getInterfacesDir,
   getWorkspaceDir,
@@ -263,15 +262,9 @@ export async function runDaemon(): Promise<void> {
     initSentry();
 
     ensureDataDir();
-    // Ensure the protected directory exists for callers that still read
-    // from it directly (token-service, pairing-store, etc.). Future PRs
-    // will migrate these to the gateway, after which this call can be
-    // removed from the daemon startup path.
-    ensureProtectedDir();
 
     // Load (or generate + persist) the auth signing key so tokens survive
-    // daemon restarts. Must happen after ensureProtectedDir() creates the
-    // protected directory.
+    // daemon restarts.
     const signingKey = resolveSigningKey();
     initAuthSigningKey(signingKey);
 

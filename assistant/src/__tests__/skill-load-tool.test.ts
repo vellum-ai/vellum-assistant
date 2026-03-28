@@ -53,7 +53,6 @@ const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   getWorkspaceDirDisplay: () => "~/.vellum/workspace",
   getConversationsDir: () => join(TEST_DIR, "conversations"),
   getProtectedDir: () => join(TEST_DIR, "protected"),
-  ensureProtectedDir: () => {},
   getSignalsDir: () => join(TEST_DIR, "workspace", "signals"),
   getDaemonStderrLogPath: () => join(TEST_DIR, "logs", "daemon-stderr.log"),
   getDaemonStartupLockPath: () => join(TEST_DIR, "daemon-startup.lock"),

@@ -24,6 +24,9 @@ import {
 // Use a temp directory so trust-store doesn't touch ~/.vellum
 const checkerTestDir = mkdtempSync(join(tmpdir(), "checker-test-"));
 
+// Point the file-based trust backend at the test temp dir.
+process.env.GATEWAY_SECURITY_DIR = join(checkerTestDir, "protected");
+
 mock.module("../util/platform.js", () => ({
   getProtectedDir: () => join(checkerTestDir, "protected"),
   getDataDir: () => join(checkerTestDir, "data"),

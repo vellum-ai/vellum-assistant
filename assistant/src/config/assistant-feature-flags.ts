@@ -5,8 +5,7 @@
  * `meta/feature-flags/feature-flag-registry.json` and resolves the effective
  * enabled/disabled state for each declared assistant-scope flag by consulting
  * (in priority order):
- *   1. Override values from `~/.vellum/protected/feature-flags.json` (local)
- *      or via the gateway HTTP API (Docker/containerized)
+ *   1. Override values from the gateway HTTP API (or local file fallback)
  *   2. Remote values from `feature-flags-remote.json` (platform-pushed,
  *      cached locally; only used in local mode — containerized mode gets
  *      remote values via the gateway)
@@ -112,7 +111,7 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
 }
 
 // ---------------------------------------------------------------------------
-// Override loading — reads from protected directory or gateway HTTP
+// Override loading — reads from gateway HTTP API or local file
 // ---------------------------------------------------------------------------
 
 /**
@@ -122,7 +121,7 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
 let cachedOverrides: Record<string, boolean> | null = null;
 
 /**
- * File format for `~/.vellum/protected/feature-flags.json`, matching the
+ * File format for the local feature-flags.json override file, matching the
  * gateway's feature-flag-store.ts schema.
  */
 interface FeatureFlagFileData {
@@ -133,12 +132,8 @@ interface FeatureFlagFileData {
 /**
  * Resolve the path to the feature flag overrides file.
  *
- * Used only by the remote-values loader to find `feature-flags-remote.json`
- * in the same directory. The daemon no longer reads overrides from this file
- * directly — it always goes through the gateway HTTP API.
- *
  * Docker: `GATEWAY_SECURITY_DIR/feature-flags.json`
- * Local:  `~/.vellum/protected/feature-flags.json`
+ * Local:  `~/.vellum/` + gateway security subdir + `feature-flags.json`
  */
 function getFeatureFlagOverridesPath(): string {
   const securityDir = process.env.GATEWAY_SECURITY_DIR;
@@ -149,7 +144,7 @@ function getFeatureFlagOverridesPath(): string {
 }
 
 /**
- * Load override values from the protected feature-flags.json file.
+ * Load override values from the local feature-flags.json file.
  * Returns an empty record if the file doesn't exist or is malformed.
  */
 function loadOverridesFromFile(): Record<string, boolean> {
@@ -250,15 +245,11 @@ function loadOverridesFromGateway(): Record<string, boolean> {
 }
 
 /**
- * Load overrides from the gateway HTTP API.
+ * Load overrides, preferring the gateway HTTP API.
  *
- * The daemon always fetches overrides from the gateway — even in local
- * mode — so that the daemon never reads `protected/feature-flags.json`
- * directly. In local mode the gateway runs on `127.0.0.1:7830`.
- *
- * Falls back to `loadOverridesFromFile()` only when the gateway call
- * fails AND we are NOT in containerized mode (graceful degradation for
- * startup races where the gateway hasn't finished booting yet).
+ * In containerized mode, always uses the gateway. In local mode, tries
+ * the gateway first and falls back to `loadOverridesFromFile()` when
+ * the gateway is not yet available (startup race).
  *
  * Results are cached at module level.
  */
@@ -364,8 +355,7 @@ export function _setOverridesForTesting(
  * Resolve whether an assistant feature flag is enabled.
  *
  * Resolution order:
- *   1. Override from `~/.vellum/protected/feature-flags.json` (local) or
- *      gateway HTTP (Docker/containerized)
+ *   1. Override from gateway HTTP API (or local file fallback)
  *   2. Remote value from `feature-flags-remote.json` (platform-pushed,
  *      cached locally)
  *   3. defaults registry `defaultEnabled`         (for declared assistant-scope keys)
@@ -379,7 +369,7 @@ export function isAssistantFeatureFlagEnabled(
   const declared = defaults[key];
   const overrides = loadOverrides();
 
-  // 1. Check overrides from protected feature-flags file / gateway
+  // 1. Check overrides from gateway / local file
   const explicit = overrides[key];
   if (typeof explicit === "boolean") return explicit;
 

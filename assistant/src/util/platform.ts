@@ -2,10 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import {
-  getIsContainerized,
-  getWorkspaceDirOverride,
-} from "../config/env-registry.js";
+import { getWorkspaceDirOverride } from "../config/env-registry.js";
 
 export function isMacOS(): boolean {
   return process.platform === "darwin";
@@ -350,22 +347,6 @@ export function getConversationsDir(): string {
 /** Returns the workspace path for a prompt file (e.g. IDENTITY.md, SOUL.md, USER.md). */
 export function getWorkspacePromptPath(file: string): string {
   return join(getWorkspaceDir(), file);
-}
-
-/**
- * Ensure the protected directory exists. Called by the gateway / CLI
- * startup — NOT by the daemon, which accesses protected state only
- * through the gateway HTTP API.
- *
- * Skipped automatically in containerized mode (credentials via CES
- * HTTP API, trust via gateway API with GATEWAY_SECURITY_DIR).
- */
-export function ensureProtectedDir(): void {
-  if (getIsContainerized()) return;
-  const dir = getProtectedDir();
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
 }
 
 export function ensureDataDir(): void {
