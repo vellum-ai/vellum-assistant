@@ -226,6 +226,9 @@ function renderCandidate(c: Candidate & { sourceLabel?: string; supersedes?: str
   const fromAttr = c.sourceLabel
     ? ` from="${escapeXmlAttr(c.sourceLabel)}"`
     : "";
+  const pathAttr = c.sourcePath
+    ? ` path="${escapeXmlAttr(c.sourcePath)}"`
+    : "";
 
   // Build inline supersession suffix for items
   let supersessionSuffix = "";
@@ -239,14 +242,14 @@ function renderCandidate(c: Candidate & { sourceLabel?: string; supersedes?: str
 
   switch (c.type) {
     case "item":
-      return `<item id="item:${escapeXmlAttr(c.id)}" kind="${escapeXmlAttr(c.kind)}" importance="${c.importance.toFixed(2)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}>${text}${supersessionSuffix}</item>`;
+      return `<item id="item:${escapeXmlAttr(c.id)}" kind="${escapeXmlAttr(c.kind)}" importance="${c.importance.toFixed(2)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}${pathAttr}>${text}${supersessionSuffix}</item>`;
     case "segment":
-      return `<segment id="seg:${escapeXmlAttr(c.id)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}>${text}</segment>`;
+      return `<segment id="seg:${escapeXmlAttr(c.id)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}${pathAttr}>${text}</segment>`;
     case "summary":
-      return `<summary id="sum:${escapeXmlAttr(c.id)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}>${text}</summary>`;
+      return `<summary id="sum:${escapeXmlAttr(c.id)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}${pathAttr}>${text}</summary>`;
     default:
       // media or unknown types — render as item
-      return `<item id="item:${escapeXmlAttr(c.id)}" kind="${escapeXmlAttr(c.kind)}" importance="${c.importance.toFixed(2)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}>${text}${supersessionSuffix}</item>`;
+      return `<item id="item:${escapeXmlAttr(c.id)}" kind="${escapeXmlAttr(c.kind)}" importance="${c.importance.toFixed(2)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}${pathAttr}>${text}${supersessionSuffix}</item>`;
   }
 }
 

@@ -17,6 +17,7 @@ import {
   logMemoryEmbeddingWarning,
 } from "./embedding-backend.js";
 import { isQdrantBreakerOpen } from "./qdrant-circuit-breaker.js";
+import { getConversationDirName } from "./conversation-directories.js";
 import {
   conversations,
   memoryItems,
@@ -764,17 +765,17 @@ function enrichSourceLabels(candidates: TieredCandidate[]): void {
   try {
     const db = getDb();
 
-    // Collect item IDs for items that need source label lookup
+    // ── Items: find conversation via memoryItemSources → messages → conversations ──
     const itemCandidates = candidates.filter((c) => c.type === "item");
     const itemIds = itemCandidates.map((c) => c.id);
 
     if (itemIds.length > 0) {
-      // For items: find conversation titles via memoryItemSources → messages → conversations.
-      // Pick the most recent conversation title per item.
       const rows = db
         .select({
           memoryItemId: memoryItemSources.memoryItemId,
+          conversationId: conversations.id,
           title: conversations.title,
+          conversationCreatedAt: conversations.createdAt,
           conversationUpdatedAt: conversations.updatedAt,
         })
         .from(memoryItemSources)
@@ -789,31 +790,58 @@ function enrichSourceLabels(candidates: TieredCandidate[]): void {
         .where(inArray(memoryItemSources.memoryItemId, itemIds))
         .all();
 
-      // Group by item ID and pick the most recently updated conversation title
-      const titleMap = new Map<string, string>();
-      const updatedAtMap = new Map<string, number>();
+      // Group by item ID and pick the most recently updated conversation
+      const bestConvMap = new Map<string, { title: string | null; conversationId: string; createdAt: number; updatedAt: number }>();
       for (const row of rows) {
-        if (!row.title) continue;
-        const existing = updatedAtMap.get(row.memoryItemId);
-        if (existing === undefined || row.conversationUpdatedAt > existing) {
-          titleMap.set(row.memoryItemId, row.title);
-          updatedAtMap.set(row.memoryItemId, row.conversationUpdatedAt);
+        const existing = bestConvMap.get(row.memoryItemId);
+        if (existing === undefined || row.conversationUpdatedAt > existing.updatedAt) {
+          bestConvMap.set(row.memoryItemId, {
+            title: row.title,
+            conversationId: row.conversationId,
+            createdAt: row.conversationCreatedAt,
+            updatedAt: row.conversationUpdatedAt,
+          });
         }
       }
 
       for (const c of itemCandidates) {
-        const title = titleMap.get(c.id);
-        if (title) {
-          c.sourceLabel = title;
+        const conv = bestConvMap.get(c.id);
+        if (conv) {
+          if (conv.title) c.sourceLabel = conv.title;
+          const dirName = getConversationDirName(conv.conversationId, conv.createdAt);
+          c.sourcePath = `conversations/${dirName}/messages.jsonl`;
         }
       }
     }
 
-    // For segment candidates: the key format is "seg:<segmentId>" and the id is the segment's id.
-    // We can look up the conversation title via the segment's conversationId in memory_segments.
-    // However, segments already reference a conversationId in the schema — but the Candidate type
-    // doesn't carry it. For now, skip segment source labels as the join path would require
-    // importing memorySegments and an additional query. The primary value is item source labels.
+    // ── Segments: look up conversation via conversationId on the candidate ──
+    const segmentCandidates = candidates.filter(
+      (c) => (c.type === "segment" || c.type === "summary") && c.conversationId,
+    );
+
+    if (segmentCandidates.length > 0) {
+      const convIds = [...new Set(segmentCandidates.map((c) => c.conversationId!))];
+      const convRows = db
+        .select({
+          id: conversations.id,
+          title: conversations.title,
+          createdAt: conversations.createdAt,
+        })
+        .from(conversations)
+        .where(inArray(conversations.id, convIds))
+        .all();
+
+      const convMap = new Map(convRows.map((r) => [r.id, r]));
+
+      for (const c of segmentCandidates) {
+        const conv = convMap.get(c.conversationId!);
+        if (conv) {
+          if (conv.title) c.sourceLabel = conv.title;
+          const dirName = getConversationDirName(conv.id, conv.createdAt);
+          c.sourcePath = `conversations/${dirName}/messages.jsonl`;
+        }
+      }
+    }
   } catch (err) {
     log.warn({ err }, "Failed to enrich candidates with source labels");
   }

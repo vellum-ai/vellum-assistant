@@ -17,6 +17,8 @@ export interface Candidate {
   messageId?: string;
   /** The ID of the memory item this candidate supersedes (items only). */
   supersedes?: string;
+  /** Relative workspace path to the source conversation's messages file. */
+  sourcePath?: string;
   confidence: number;
   importance: number;
   createdAt: number;
