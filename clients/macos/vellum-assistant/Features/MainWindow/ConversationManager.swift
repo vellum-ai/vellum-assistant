@@ -2450,7 +2450,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             return
         }
         guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
-        updateLastInteracted(conversationId: conversationId)
+        // Don't bump background conversations to the top — they receive frequent
+        // automated messages (heartbeats) that would constantly re-sort them,
+        // especially when an LRU-evicted ViewModel is recreated on click.
+        if !conversations[index].isBackgroundConversation {
+            updateLastInteracted(conversationId: conversationId)
+        }
         let isNewMessage = previousSnapshot?.messageId != currentSnapshot.messageId
         // Keep the local attention timestamp current for live assistant replies
         // so unread eligibility survives until the next conversation-list refresh.
