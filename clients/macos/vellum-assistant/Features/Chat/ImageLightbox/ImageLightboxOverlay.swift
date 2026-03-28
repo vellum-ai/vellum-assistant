@@ -74,7 +74,6 @@ struct ImageLightboxOverlay: View {
 
     // MARK: - Toolbar
 
-    @available(macOS, deprecated: 13.0)
     private func lightboxToolbar(_ lightbox: ImageLightboxState) -> some View {
         HStack(spacing: VSpacing.md) {
             // Filename
