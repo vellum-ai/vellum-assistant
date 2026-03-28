@@ -2815,6 +2815,10 @@ public struct GuardianDecisionPromptWire: Decodable, Sendable {
     /// Canonical request kind (e.g. "tool_approval", "pending_question").
     /// Present when the prompt originates from the canonical guardian request store.
     public let kind: String?
+    public let commandPreview: String?
+    public let riskLevel: String?
+    public let activityText: String?
+    public let executionTarget: String?
 }
 
 /// Server -> Client: list of pending guardian decision prompts.
