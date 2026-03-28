@@ -1,8 +1,9 @@
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getLogger } from "../util/logger.js";
-import { rawRun } from "./db.js";
+import { rawAll, rawRun } from "./db.js";
 import { backfillJob } from "./job-handlers/backfill.js";
+import { batchExtractJob } from "./job-handlers/batch-extraction.js";
 import {
   cleanupStaleSupersededItemsJob,
   pruneOldConversationsJob,
@@ -23,7 +24,6 @@ import {
 } from "./job-handlers/index-maintenance.js";
 import { journalCarryForwardJob } from "./job-handlers/journal-carry-forward.js";
 import { mediaProcessingJob } from "./job-handlers/media-processing.js";
-import { buildConversationSummaryJob } from "./job-handlers/summarization.js";
 import {
   BackendUnavailableError,
   classifyError,
@@ -35,6 +35,7 @@ import {
   completeMemoryJob,
   deferMemoryJob,
   enqueueCleanupStaleSupersededItemsJob,
+  enqueueMemoryJob,
   enqueuePruneOldConversationsJob,
   failMemoryJob,
   failStalledJobs,
@@ -57,6 +58,31 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
   const recovered = resetRunningJobsToPending();
   if (recovered > 0) {
     log.info({ recovered }, "Recovered stale running memory jobs");
+  }
+
+  // Startup recovery: enqueue batch_extract for conversations with pending
+  // unextracted messages (e.g. after a crash mid-conversation).
+  try {
+    const pendingRows = rawAll<{ key: string; value: string }>(
+      `SELECT key, value FROM memory_checkpoints WHERE key LIKE 'batch_extract:%:pending_count' AND CAST(value AS INTEGER) > 0`,
+    );
+    for (const row of pendingRows) {
+      // Extract conversationId from key: "batch_extract:<conversationId>:pending_count"
+      const parts = row.key.split(":");
+      if (parts.length >= 3) {
+        const conversationId = parts.slice(1, -1).join(":");
+        enqueueMemoryJob("batch_extract", { conversationId });
+        log.info(
+          { conversationId, pendingCount: row.value },
+          "Recovered pending batch extraction on startup",
+        );
+      }
+    }
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "Failed to recover pending batch extractions on startup",
+    );
   }
 
   let stopped = false;
@@ -295,6 +321,9 @@ async function processJob(
     case "extract_items":
       await extractItemsJob(job);
       return;
+    case "batch_extract":
+      await batchExtractJob(job);
+      return;
     case "extract_entities":
       // Entity extraction has been removed — silently drop legacy jobs
       return;
@@ -305,7 +334,12 @@ async function processJob(
       pruneOldConversationsJob(job, config);
       return;
     case "build_conversation_summary":
-      await buildConversationSummaryJob(job, config);
+      // Deprecated: conversation summaries are now produced as a side-effect
+      // of batch extraction. Silently skip legacy jobs.
+      log.debug(
+        { jobId: job.id },
+        "Skipping deprecated build_conversation_summary job — handled by batch extraction",
+      );
       return;
     case "backfill":
       await backfillJob(job, config);

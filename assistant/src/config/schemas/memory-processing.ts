@@ -8,14 +8,6 @@ export const MemoryExtractionConfigSchema = z
       .describe(
         "Whether to use an LLM for extracting structured memory items from conversations",
       ),
-    modelIntent: z
-      .enum(["latency-optimized", "quality-optimized", "vision-optimized"], {
-        error: "memory.extraction.modelIntent must be a valid model intent",
-      })
-      .default("quality-optimized")
-      .describe(
-        "Model selection strategy for extraction — trade off speed vs quality",
-      ),
     extractFromAssistant: z
       .boolean({
         error: "memory.extraction.extractFromAssistant must be a boolean",
@@ -23,6 +15,22 @@ export const MemoryExtractionConfigSchema = z
       .default(true)
       .describe(
         "Whether to extract memory items from the assistant's own messages (in addition to user messages)",
+      ),
+    batchSize: z
+      .number()
+      .int()
+      .positive()
+      .default(10)
+      .describe(
+        "Number of unextracted messages before triggering batch extraction",
+      ),
+    idleTimeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .default(300000)
+      .describe(
+        "Milliseconds of idle time before triggering extraction of pending messages",
       ),
   })
   .describe("Controls how memory items are extracted from conversations");

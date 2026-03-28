@@ -39,7 +39,7 @@ export type MemoryItemKind =
 
 export type OverrideConfidence = "explicit" | "tentative" | "inferred";
 
-interface ExtractedItem {
+export interface ExtractedItem {
   kind: MemoryItemKind;
   subject: string;
   statement: string;
@@ -52,7 +52,7 @@ interface ExtractedItem {
   supersedesRejected?: boolean;
 }
 
-const VALID_KINDS = new Set<string>([
+export const VALID_KINDS = new Set<string>([
   "identity",
   "preference",
   "project",
@@ -67,10 +67,10 @@ const VALID_KINDS = new Set<string>([
  * because journal memories are created directly from disk files — any
  * LLM-produced journal items would be silently dropped, wasting tokens.
  */
-const EXTRACTION_KINDS = [...VALID_KINDS].filter((k) => k !== "journal");
+export const EXTRACTION_KINDS = [...VALID_KINDS].filter((k) => k !== "journal");
 
 /** Maps old kind names to their new equivalents for graceful migration. */
-const KIND_MIGRATION_MAP: Record<string, MemoryItemKind> = {
+export const KIND_MIGRATION_MAP: Record<string, MemoryItemKind> = {
   profile: "identity",
   fact: "identity",
   relationship: "identity",
@@ -80,70 +80,13 @@ const KIND_MIGRATION_MAP: Record<string, MemoryItemKind> = {
   style: "preference",
 };
 
-const SUPERSEDE_KINDS = new Set<MemoryItemKind>([
+export const SUPERSEDE_KINDS = new Set<MemoryItemKind>([
   "identity",
   "preference",
   "project",
   "decision",
   "constraint",
 ]);
-
-// ── Semantic density gating ────────────────────────────────────────────
-// Skip messages that are too short or consist of low-value filler.
-
-const LOW_VALUE_PATTERNS = new Set([
-  "ok",
-  "okay",
-  "k",
-  "sure",
-  "yes",
-  "no",
-  "yep",
-  "nope",
-  "yeah",
-  "nah",
-  "thanks",
-  "thank you",
-  "ty",
-  "thx",
-  "thanks!",
-  "thank you!",
-  "got it",
-  "understood",
-  "makes sense",
-  "sounds good",
-  "sounds great",
-  "cool",
-  "nice",
-  "great",
-  "awesome",
-  "perfect",
-  "done",
-  "lgtm",
-  "agreed",
-  "right",
-  "correct",
-  "exactly",
-  "yup",
-  "ack",
-  "hm",
-  "hmm",
-  "hmmm",
-  "ah",
-  "oh",
-  "i see",
-]);
-
-function hasSemanticDensity(text: string): boolean {
-  const trimmed = text.trim();
-  if (trimmed.length < 15) return false;
-  const lower = trimmed.toLowerCase().replace(/[.!?,;:\s]+$/, "");
-  if (LOW_VALUE_PATTERNS.has(lower)) return false;
-  // Very short messages with only 1-2 words are typically not memorable
-  const wordCount = trimmed.split(/\s+/).length;
-  if (wordCount <= 2) return false;
-  return true;
-}
 
 // ── LLM-powered extraction ────────────────────────────────────────────
 
@@ -154,7 +97,7 @@ function hasSemanticDensity(text: string): boolean {
 // tokens. ~6000 tokens ≈ 24 000 chars is a safe ceiling.
 const EXTRACTION_SYSTEM_PROMPT_CHAR_BUDGET = 24_000;
 
-function buildExtractionSystemPrompt(
+export function buildExtractionSystemPrompt(
   existingItems: Array<{
     id: string;
     kind: string;
@@ -296,7 +239,7 @@ Low importance (still worth storing):
   return prompt;
 }
 
-const VALID_OVERRIDE_CONFIDENCES = new Set<string>([
+export const VALID_OVERRIDE_CONFIDENCES = new Set<string>([
   "explicit",
   "tentative",
   "inferred",
@@ -317,7 +260,7 @@ interface LLMExtractedItem {
  * extraction LLM awareness of existing items it might supersede.
  * This is a write-path-only heuristic — not used at read time.
  */
-function queryExistingItemsForContext(
+export function queryExistingItemsForContext(
   scopeId: string,
   text: string,
 ): Array<{ id: string; kind: string; subject: string; statement: string }> {
@@ -489,7 +432,7 @@ async function extractItemsWithLLM(
     systemPrompt,
     {
       config: {
-        modelIntent: extractionConfig.modelIntent,
+        modelIntent: "quality-optimized" as const,
         tool_choice: { type: "tool" as const, name: "store_memory_items" },
       },
     },
@@ -643,11 +586,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
   }
 
   const text = extractTextFromStoredMessageContent(message.content);
-  if (!hasSemanticDensity(text)) {
-    log.debug(
-      { messageId },
-      "Skipping extraction — message lacks semantic density",
-    );
+  if (text.length === 0) {
     triggerConversationStartersIfNeeded(journalUpserted, effectiveScopeId);
     return journalUpserted;
   }
@@ -900,7 +839,7 @@ export async function extractAndUpsertMemoryItemsForMessage(
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
-function deduplicateItems(items: ExtractedItem[]): ExtractedItem[] {
+export function deduplicateItems(items: ExtractedItem[]): ExtractedItem[] {
   const seen = new Set<string>();
   const unique: ExtractedItem[] = [];
   for (const item of items) {
@@ -912,7 +851,7 @@ function deduplicateItems(items: ExtractedItem[]): ExtractedItem[] {
 }
 
 /** Parse a score value, returning `fallback` for null, undefined, empty strings, and non-finite numbers. */
-function parseScore(value: unknown, fallback: number): number {
+export function parseScore(value: unknown, fallback: number): number {
   if (value == null || value === "") return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;

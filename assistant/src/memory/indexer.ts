@@ -5,6 +5,7 @@ import { getConfig } from "../config/loader.js";
 import type { MemoryConfig } from "../config/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
+import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import { getDb } from "./db.js";
 import { selectedBackendSupportsMultimodal } from "./embedding-backend.js";
 import { enqueueMemoryJob, upsertDebouncedJob } from "./jobs-store.js";
@@ -16,11 +17,6 @@ import { memorySegments } from "./schema.js";
 import { segmentText } from "./segmenter.js";
 
 const log = getLogger("memory-indexer");
-
-/** Delay before a conversation summary job becomes eligible to run.
- *  Each new message in the same conversation resets the timer, so the
- *  summary is only built once the conversation has been idle for this long. */
-const SUMMARY_DEBOUNCE_MS = 3 * 60 * 1000; // 3 minutes
 
 export interface IndexMessageInput {
   messageId: string;
@@ -59,12 +55,7 @@ export async function indexMessageNow(
 
   const text = extractTextFromStoredMessageContent(input.content);
   if (text.length === 0) {
-    upsertDebouncedJob(
-      "build_conversation_summary",
-      { conversationId: input.conversationId },
-      Date.now() + SUMMARY_DEBOUNCE_MS,
-    );
-    return { indexedSegments: 0, enqueuedJobs: 1 };
+    return { indexedSegments: 0, enqueuedJobs: 0 };
   }
 
   const db = getDb();
@@ -151,22 +142,36 @@ export async function indexMessageNow(
       );
     }
 
-    if (shouldExtract && isTrustedActor && !input.automated && config.extraction.useLLM) {
-      enqueueMemoryJob(
-        "extract_items",
-        { messageId: input.messageId, scopeId: input.scopeId ?? "default" },
-        Date.now(),
-        tx,
-      );
+  });
+
+  // ── Batch extraction tracking ──────────────────────────────────────
+  // Instead of per-message extraction, track pending unextracted messages
+  // and trigger batch extraction when the threshold is reached or after idle.
+  if (shouldExtract && isTrustedActor && !input.automated && config.extraction.useLLM) {
+    const pendingKey = `batch_extract:${input.conversationId}:pending_count`;
+    const currentVal = getMemoryCheckpoint(pendingKey);
+    const pendingCount = (currentVal ? parseInt(currentVal, 10) : 0) + 1;
+    setMemoryCheckpoint(pendingKey, String(pendingCount));
+
+    const batchSize = config.extraction.batchSize ?? 10;
+    const idleTimeoutMs = config.extraction.idleTimeoutMs ?? 300_000;
+
+    if (pendingCount >= batchSize) {
+      // Threshold reached — trigger immediate batch extraction
+      enqueueMemoryJob("batch_extract", {
+        conversationId: input.conversationId,
+        scopeId: input.scopeId ?? "default",
+      });
     }
 
+    // Also maintain idle debounce: enqueue a delayed batch_extract that fires
+    // if no new messages arrive within the idle timeout window.
     upsertDebouncedJob(
-      "build_conversation_summary",
+      "batch_extract",
       { conversationId: input.conversationId },
-      Date.now() + SUMMARY_DEBOUNCE_MS,
-      tx,
+      Date.now() + idleTimeoutMs,
     );
-  });
+  }
 
   if (skippedEmbedJobs > 0) {
     log.debug(
@@ -188,12 +193,10 @@ export async function indexMessageNow(
     log.info("Skipping extraction job: LLM extraction is disabled (useLLM=false)");
   }
 
-  const extractionGated = !isTrustedActor || !!input.automated || !config.extraction.useLLM;
   const enqueuedJobs =
     segments.length -
     skippedEmbedJobs +
-    mediaBlocks.length +
-    (shouldExtract && !extractionGated ? 2 : 1);
+    mediaBlocks.length;
   return {
     indexedSegments: segments.length,
     enqueuedJobs,

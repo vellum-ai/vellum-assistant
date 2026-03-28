@@ -18,6 +18,7 @@ export type MemoryJobType =
   | "embed_summary"
   | "extract_items"
   | "extract_entities"
+  | "batch_extract"
   | "cleanup_stale_superseded_items"
   | "prune_old_conversations"
   | "backfill_entity_relations"
