@@ -53,6 +53,7 @@ import { registerConversationUndoCallback } from "../signals/conversation-undo.j
 import { appendEventToStream } from "../signals/event-stream.js";
 import { registerUserMessageCallback } from "../signals/user-message.js";
 import { getSubagentManager } from "../subagent/index.js";
+import { summarizeToolInput } from "../tools/tool-input-summary.js";
 import { getLogger } from "../util/logger.js";
 import {
   getSandboxWorkingDir,
@@ -175,6 +176,14 @@ function makePendingInteractionRegistrar(
       try {
         const trustContext = conversation.trustContext;
         const sourceChannel = trustContext?.sourceChannel ?? "vellum";
+        const inputRecord = msg.input as Record<string, unknown>;
+        const activityRaw =
+          (typeof inputRecord.activity === "string"
+            ? inputRecord.activity
+            : undefined) ??
+          (typeof inputRecord.reason === "string"
+            ? inputRecord.reason
+            : undefined);
         const canonicalRequest = createCanonicalGuardianRequest({
           id: msg.requestId,
           kind: "tool_approval",
@@ -186,6 +195,11 @@ function makePendingInteractionRegistrar(
           guardianExternalUserId: trustContext?.guardianExternalUserId,
           guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
+          commandPreview:
+            summarizeToolInput(msg.toolName, inputRecord) || undefined,
+          riskLevel: msg.riskLevel,
+          activityText: activityRaw,
+          executionTarget: msg.executionTarget,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
           expiresAt: Date.now() + 5 * 60 * 1000,
