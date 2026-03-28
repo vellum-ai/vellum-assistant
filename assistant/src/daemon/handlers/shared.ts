@@ -95,27 +95,6 @@ export interface RenderedHistoryContent {
   thinkingSegments: string[];
 }
 
-export interface SubagentNotificationData {
-  subagentId: string;
-  label: string;
-  status: "completed" | "failed" | "aborted";
-  error?: string;
-  conversationId?: string;
-}
-
-export interface ParsedHistoryMessage {
-  id?: string;
-  role: string;
-  text: string;
-  timestamp: number;
-  toolCalls: HistoryToolCall[];
-  toolCallsBeforeText: boolean;
-  textSegments: string[];
-  contentOrder: string[];
-  surfaces: HistorySurface[];
-  subagentNotification?: SubagentNotificationData;
-}
-
 /**
  * Optional overrides for conversation creation (e.g. interview mode).
  */

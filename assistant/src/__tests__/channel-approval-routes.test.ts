@@ -42,6 +42,12 @@ mock.module("../util/logger.js", () => ({
 mock.module("../daemon/handlers/shared.js", () => ({
   renderHistoryContent: (content: unknown) => ({
     text: typeof content === "string" ? content : JSON.stringify(content),
+    toolCalls: [],
+    toolCallsBeforeText: false,
+    textSegments: [],
+    contentOrder: [],
+    surfaces: [],
+    thinkingSegments: [],
   }),
 }));
 
