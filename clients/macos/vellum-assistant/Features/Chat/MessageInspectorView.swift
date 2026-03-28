@@ -574,7 +574,7 @@ struct MessageInspectorViewState {
     private(set) var memoryRecall: MemoryRecallData?
     private(set) var selectedLogID: String?
     private(set) var selectedDetailTab: MessageInspectorDetailTab = .overview
-    private(set) var selectedRawPane: RawPayloadPane = .request
+    private(set) var selectedRawPane: RawPayloadPane = .response
     private(set) var activeLoadToken: UUID?
 
     var selectedLog: LLMRequestLogEntry? {
