@@ -199,12 +199,14 @@ struct LogReportFormView: View {
             guard response == .OK else { return }
             let remaining = maxAttachments - attachments.count
             guard remaining > 0 else { return }
-            let selected = Array(panel.urls.prefix(remaining))
-            for url in selected {
+            let eligible = panel.urls.filter { url in
+                guard !attachments.contains(url) else { return false }
                 guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                       let size = attrs[.size] as? Int,
-                      size <= maxAttachmentBytes else { continue }
-                guard !attachments.contains(url) else { continue }
+                      size <= maxAttachmentBytes else { return false }
+                return true
+            }
+            for url in eligible.prefix(remaining) {
                 attachments.append(url)
             }
         }
