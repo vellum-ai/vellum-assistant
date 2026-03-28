@@ -449,6 +449,7 @@ export async function buildMemoryRecall(
   const serendipityCandidates = sampleSerendipityItems(
     filtered,
     SERENDIPITY_COUNT,
+    scopeIds,
   );
   enrichSourceLabels(serendipityCandidates);
 
@@ -822,6 +823,7 @@ function enrichSourceLabels(candidates: TieredCandidate[]): void {
 function sampleSerendipityItems(
   existingCandidates: TieredCandidate[],
   count: number,
+  scopeIds?: string[],
 ): TieredCandidate[] {
   if (count <= 0) return [];
 
@@ -835,6 +837,13 @@ function sampleSerendipityItems(
 
     // Query random active items not already in the candidate pool
     const RANDOM_POOL_SIZE = 10;
+
+    // Build scope condition: match allowed scopes, or default to 'default'
+    // when no scope filter is set (prevents leaking private-scope items)
+    const scopeCondition = scopeIds
+      ? inArray(memoryItems.scopeId, scopeIds)
+      : eq(memoryItems.scopeId, "default");
+
     let rows;
     if (existingItemIds.length > 0) {
       rows = db
@@ -850,6 +859,7 @@ function sampleSerendipityItems(
         .where(
           and(
             eq(memoryItems.status, "active"),
+            scopeCondition,
             notInArray(memoryItems.id, existingItemIds),
           ),
         )
@@ -867,7 +877,12 @@ function sampleSerendipityItems(
           firstSeenAt: memoryItems.firstSeenAt,
         })
         .from(memoryItems)
-        .where(eq(memoryItems.status, "active"))
+        .where(
+          and(
+            eq(memoryItems.status, "active"),
+            scopeCondition,
+          ),
+        )
         .orderBy(sql`RANDOM()`)
         .limit(RANDOM_POOL_SIZE)
         .all();
