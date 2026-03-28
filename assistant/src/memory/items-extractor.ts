@@ -174,18 +174,19 @@ Extract items in these categories:
 - project: Project names, repos, tech stacks, architecture details, action items, follow-ups, things to do later
 - decision: Choices made, approaches selected, trade-offs resolved
 - constraint: Rules, requirements, things that must/must not be done, explicit directives on how the assistant should behave
-- event: Deadlines, milestones, meetings, releases, dates
+- event: Moments that mattered — turning points, breakthroughs, significant shared experiences, deadlines, milestones
 
 For each item, provide:
 - kind: One of the categories above
 - subject: A short label (2-8 words) identifying what this is about
-- statement: A relationship-rich factual statement to remember (1-2 sentences). Include relational context — who recommended it, why it matters, how it connects to other facts. For example, write "Data processing library that Sarah from Marketing recommended for the Q4 pipeline rewrite" instead of just "Uses pandas".
+- statement: A relationship-rich statement to remember (1-2 sentences). Include context about *why this mattered*, not just what happened. Write statements your future self would recognize as significant, not just accurate. Include relational context — who recommended it, why it matters, how it connects to other facts. For example, write "Data processing library that Sarah from Marketing recommended for the Q4 pipeline rewrite" instead of just "Uses pandas".
 - confidence: How confident you are this is accurate (0.0-1.0)
-- importance: How valuable this is to remember (0.0-1.0)
-  - 1.0: Explicit user instructions about assistant behavior
-  - 0.8-0.9: Personal facts, strong preferences, key decisions
-  - 0.6-0.7: Project details, constraints, opinions
-  - 0.3-0.5: Contextual details, minor preferences
+- importance: How valuable this is to remember (0.0-1.0). Not all facts are equally worth remembering — some moments are load-bearing.
+  - 1.0: Moments that changed the working relationship, breakthroughs, hard-won lessons, turning points
+  - 0.8-0.9: Significant decisions, strong preferences, personal facts that shape how you work together
+  - 0.6-0.7: Project details, constraints, opinions, recurring patterns
+  - 0.3-0.5: Contextual details, minor preferences, transient facts
+  - 0.1-0.2: Mundane facts (timezone, editor choice) — worth storing but shouldn't dominate retrieval
 - supersedes: If this item replaces an existing memory item, set this to the ID of the item it replaces. Use null if it does not replace anything. Determine supersession by understanding the semantic meaning — do not rely on keyword matching.
 - overrideConfidence: How confident you are that this overrides an existing item:
   - "explicit": Clear override signal (e.g., "Actually I now prefer X", "I changed my mind about Y", "We switched from A to B")
@@ -198,7 +199,8 @@ Rules:
 - Do NOT extract raw code snippets, JSON fragments, YAML, configuration values, log output, or data structures. Only extract the human-readable meaning or intent behind such content, not the literal syntax.
 - Prefer fewer high-quality items over many low-quality ones.
 - If the message contains no memorable information, return an empty array.
-- The preceding conversation context (if provided) is for disambiguation only. Extract items ONLY from the final message after the --- separator, not from the context messages.`;
+- The preceding conversation context (if provided) is for disambiguation only. Extract items ONLY from the final message after the --- separator, not from the context messages.
+- When superseding an existing memory, capture what shifted — the old state, the new state, and what prompted the change. The evolution is as valuable as the current state.`;
 
   // Try to extract user name from persona text
   let userName = "the user";
@@ -229,6 +231,12 @@ Good extractions from user messages:
 - "We decided to go with Redis for the cache layer because DynamoDB was too expensive at our read volume"
   → kind: decision, subject: "Cache layer choice", statement: "${userName} chose Redis over DynamoDB for caching due to cost at high read volumes"
 
+- "We pair-debugged a 4-hour outage and found the bug was a missing semicolon — user said it was the most frustrating and satisfying debug session"
+  → kind: event, importance: 0.95, subject: "4-hour outage debug session", statement: "${userName} and assistant pair-debugged a 4-hour outage caused by a missing semicolon — ${userName} described it as the most frustrating and satisfying debug session"
+
+- "User scrapped the entire approach mid-project and the rewrite turned out way better"
+  → kind: decision, importance: 0.9, subject: "Architecture rewrite decision", statement: "${userName} scrapped the entire approach mid-project and rewrote it — the rewrite turned out significantly better, validating the decision to start over"
+
 Good extractions from assistant messages:
 - "Based on your earlier mention, I see you're using Next.js 14 with the app router for the dashboard project."
   → kind: project, subject: "Dashboard tech stack", statement: "${userName}'s dashboard project uses Next.js 14 with the app router"
@@ -244,7 +252,10 @@ Do NOT extract:
 - "I think the best approach would be to refactor this" → speculative, no action taken yet
 - "The tests passed" → transient status
 - "Sure, sounds good" → filler
-- "\`\`\`json {"key": "val"} \`\`\`" → raw code/data, extract meaning not syntax`;
+- "\`\`\`json {"key": "val"} \`\`\`" → raw code/data, extract meaning not syntax
+
+Low importance (still worth storing):
+- "User uses VS Code" → kind: preference, importance: 0.15, subject: "Editor choice", statement: "${userName} uses VS Code as their editor"`;
 
   if (existingItems.length > 0) {
     instructions += `\n\nExisting memory items (use these to identify supersession targets — set \`supersedes\` to the item ID if the new information replaces one of these):\n`;
