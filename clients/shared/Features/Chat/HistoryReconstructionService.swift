@@ -139,6 +139,9 @@ enum HistoryReconstructionService {
             if let segments = item.textSegments {
                 chatMsg.textSegments = segments
             }
+            if let thinkingSegs = item.thinkingSegments {
+                chatMsg.thinkingSegments = thinkingSegs
+            }
             if let orderStrings = item.contentOrder {
                 chatMsg.contentOrder = parseContentOrder(orderStrings)
             }
@@ -185,6 +188,7 @@ enum HistoryReconstructionService {
             case "text": return .text(idx)
             case "tool": return .toolCall(idx)
             case "surface": return .surface(idx)
+            case "thinking": return .thinking(idx)
             default: return nil
             }
         }
