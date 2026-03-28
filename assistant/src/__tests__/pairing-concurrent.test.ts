@@ -39,21 +39,21 @@ function buildRegisterParams() {
 describe("PairingStore.register — concurrent pairing guard", () => {
   let store: PairingStore;
   let tmpBase: string;
-  let origBaseDataDir: string | undefined;
+  let origWorkspaceDir: string | undefined;
 
   beforeAll(() => {
     // Isolate disk writes to a temp directory so this test does not
     // pollute ~/.vellum or interfere with other test files.
     tmpBase = mkdtempSync(join(tmpdir(), "pairing-test-"));
-    origBaseDataDir = process.env.BASE_DATA_DIR;
-    process.env.BASE_DATA_DIR = tmpBase;
+    origWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = join(tmpBase, ".vellum", "workspace");
   });
 
   afterAll(() => {
-    if (origBaseDataDir === undefined) {
-      delete process.env.BASE_DATA_DIR;
+    if (origWorkspaceDir === undefined) {
+      delete process.env.VELLUM_WORKSPACE_DIR;
     } else {
-      process.env.BASE_DATA_DIR = origBaseDataDir;
+      process.env.VELLUM_WORKSPACE_DIR = origWorkspaceDir;
     }
     rmSync(tmpBase, { recursive: true, force: true });
   });

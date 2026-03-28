@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { uninstallSkillLocally } from "../skills/catalog-install.js";
 
 let tempDir: string;
-let originalBaseDataDir: string | undefined;
+let originalWorkspaceDir: string | undefined;
 
 function getSkillsDir(): string {
   return join(tempDir, ".vellum", "workspace", "skills");
@@ -41,12 +41,16 @@ beforeEach(() => {
   mkdirSync(join(tempDir, ".vellum", "workspace", "skills"), {
     recursive: true,
   });
-  originalBaseDataDir = process.env.BASE_DATA_DIR;
-  process.env.BASE_DATA_DIR = tempDir;
+  originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+  process.env.VELLUM_WORKSPACE_DIR = join(tempDir, ".vellum", "workspace");
 });
 
 afterEach(() => {
-  process.env.BASE_DATA_DIR = originalBaseDataDir;
+  if (originalWorkspaceDir === undefined) {
+    delete process.env.VELLUM_WORKSPACE_DIR;
+  } else {
+    process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
+  }
   rmSync(tempDir, { recursive: true, force: true });
 });
 

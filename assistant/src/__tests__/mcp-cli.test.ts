@@ -93,7 +93,7 @@ async function runMcp(
   }) as typeof process.exit;
 
   // Point config loader at the test data dir
-  process.env.BASE_DATA_DIR = testDataDir;
+  process.env.VELLUM_WORKSPACE_DIR = join(testDataDir, ".vellum", "workspace");
 
   try {
     const program = new Command();

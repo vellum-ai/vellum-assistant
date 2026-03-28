@@ -9,9 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-// Set BASE_DATA_DIR before importing modules that use platform helpers
+// Set VELLUM_WORKSPACE_DIR before importing modules that use platform helpers
 const testDir = join(tmpdir(), `hooks-settings-test-${Date.now()}`);
-process.env.BASE_DATA_DIR = testDir;
+process.env.VELLUM_WORKSPACE_DIR = join(testDir, ".vellum", "workspace");
 
 import { getHookSettings } from "../hooks/config.js";
 import { saveHooksConfig } from "../hooks/config.js";

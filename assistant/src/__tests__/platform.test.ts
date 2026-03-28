@@ -1,7 +1,6 @@
-import { randomBytes } from "node:crypto";
 import { existsSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
@@ -12,7 +11,6 @@ import {
   getInterfacesDir,
   getLogPath,
   getPidPath,
-  getProtectedDir,
   getSandboxRootDir,
   getSandboxWorkingDir,
   getWorkspaceConfigPath,
@@ -22,28 +20,26 @@ import {
   getWorkspaceSkillsDir,
 } from "../util/platform.js";
 
-const originalBaseDataDir = process.env.BASE_DATA_DIR;
+const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 
 afterEach(() => {
-  if (originalBaseDataDir == null) {
-    delete process.env.BASE_DATA_DIR;
+  if (originalWorkspaceDir == null) {
+    delete process.env.VELLUM_WORKSPACE_DIR;
   } else {
-    process.env.BASE_DATA_DIR = originalBaseDataDir;
+    process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
   }
 });
 
-// Baseline path characterization: documents current pre-migration path layout.
-// After workspace migration, paths marked "WILL MOVE" below will resolve under
-// ~/.vellum/workspace/ instead. Paths marked "STAYS ROOT" remain at ~/.vellum/.
-describe("baseline path characterization (pre-migration)", () => {
-  test("all path helpers resolve to expected pre-migration locations", () => {
-    const base = join(
-      tmpdir(),
-      `platform-test-${randomBytes(4).toString("hex")}`,
-    );
-    process.env.BASE_DATA_DIR = base;
+// Path characterization: documents the current path layout.
+// Root-level helpers always resolve under ~/.vellum (from homedir()).
+// Workspace helpers resolve under VELLUM_WORKSPACE_DIR when set,
+// otherwise under ~/.vellum/workspace.
+describe("path characterization", () => {
+  test("all path helpers resolve to expected locations", () => {
+    // Without VELLUM_WORKSPACE_DIR override, workspace is under ~/.vellum
+    delete process.env.VELLUM_WORKSPACE_DIR;
+    const root = join(homedir(), ".vellum");
     const ws = getWorkspaceDir();
-    const root = dirname(ws);
     const data = getDataDir();
 
     // Workspace is under root
@@ -58,50 +54,48 @@ describe("baseline path characterization (pre-migration)", () => {
     expect(getHistoryPath()).toBe(join(data, "history"));
     expect(getInterfacesDir()).toBe(join(data, "interfaces"));
     expect(getSandboxRootDir()).toBe(join(data, "sandbox"));
-    expect(getSandboxWorkingDir()).toBe(join(root, "workspace"));
+    expect(getSandboxWorkingDir()).toBe(ws);
 
-    // Hooks now live under workspace
-    expect(getWorkspaceHooksDir()).toBe(join(root, "workspace", "hooks"));
+    // Hooks live under workspace
+    expect(getWorkspaceHooksDir()).toBe(join(ws, "hooks"));
 
-    // STAYS ROOT — runtime files remain at ~/.vellum/
+    // Root-level runtime files remain at ~/.vellum/
     expect(getPidPath()).toBe(join(root, "vellum.pid"));
   });
 
+  test("VELLUM_WORKSPACE_DIR overrides workspace location", () => {
+    process.env.VELLUM_WORKSPACE_DIR = "/tmp/custom-workspace";
+    expect(getWorkspaceDir()).toBe("/tmp/custom-workspace");
+    expect(getDataDir()).toBe("/tmp/custom-workspace/data");
+    // Root-level paths are NOT affected by VELLUM_WORKSPACE_DIR
+    expect(getPidPath()).toBe(join(homedir(), ".vellum", "vellum.pid"));
+  });
+
   test("hooks directory is inside the workspace boundary", () => {
-    const base = join(
-      tmpdir(),
-      `platform-test-${randomBytes(4).toString("hex")}`,
-    );
-    process.env.BASE_DATA_DIR = base;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     expect(getWorkspaceHooksDir().startsWith(getWorkspaceDir())).toBe(true);
   });
 
   test("ensureDataDir creates all expected directories", () => {
-    const base = join(
-      tmpdir(),
-      `platform-test-${randomBytes(4).toString("hex")}`,
-    );
-    process.env.BASE_DATA_DIR = base;
-    const ws = getWorkspaceDir();
-    const root = dirname(ws);
-    const data = getDataDir();
-
-    if (existsSync(root)) {
-      rmSync(root, { recursive: true, force: true });
-    }
+    // Use a temp VELLUM_WORKSPACE_DIR so ensureDataDir writes to a temp dir
+    // rather than the real ~/.vellum. Root-level dirs still go to ~/.vellum
+    // but we only verify workspace dirs here to avoid side effects.
+    const wsDir = join(tmpdir(), `platform-test-ws-${Date.now()}`);
+    process.env.VELLUM_WORKSPACE_DIR = wsDir;
 
     ensureDataDir();
 
-    // Root-level dirs (runtime / protected)
+    // Root-level dirs (ensureDataDir always creates these)
+    const root = join(homedir(), ".vellum");
     expect(existsSync(root)).toBe(true);
-    expect(existsSync(getProtectedDir())).toBe(true);
 
-    // Workspace dirs
-    expect(existsSync(ws)).toBe(true);
-    expect(existsSync(getWorkspaceHooksDir())).toBe(true);
-    expect(existsSync(getWorkspaceSkillsDir())).toBe(true);
+    // Workspace dirs (in our temp location)
+    expect(existsSync(wsDir)).toBe(true);
+    expect(existsSync(join(wsDir, "hooks"))).toBe(true);
+    expect(existsSync(join(wsDir, "skills"))).toBe(true);
 
     // Data sub-dirs under workspace
+    const data = join(wsDir, "data");
     expect(existsSync(data)).toBe(true);
     expect(existsSync(join(data, "db"))).toBe(true);
     expect(existsSync(join(data, "qdrant"))).toBe(true);
@@ -111,22 +105,13 @@ describe("baseline path characterization (pre-migration)", () => {
     expect(existsSync(join(data, "apps"))).toBe(true);
     expect(existsSync(join(data, "interfaces"))).toBe(true);
 
-    // Legacy dirs should NOT be created
-    expect(existsSync(join(root, "skills"))).toBe(false);
-    expect(existsSync(join(root, "data", "sandbox"))).toBe(false);
-    expect(existsSync(join(root, "data", "sandbox", "fs"))).toBe(false);
-
-    rmSync(root, { recursive: true, force: true });
+    rmSync(wsDir, { recursive: true, force: true });
   });
 });
 
 describe("workspace path primitives", () => {
   test("workspace helpers resolve under workspace dir", () => {
-    const base = join(
-      tmpdir(),
-      `platform-test-${randomBytes(4).toString("hex")}`,
-    );
-    process.env.BASE_DATA_DIR = base;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     const ws = getWorkspaceDir();
 
     expect(getWorkspaceConfigPath()).toBe(join(ws, "config.json"));
