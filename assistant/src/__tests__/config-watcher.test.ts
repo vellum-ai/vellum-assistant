@@ -121,16 +121,8 @@ mock.module("../providers/registry.js", () => ({
   initializeProviders: () => {},
 }));
 
-mock.module("../signals/mcp-reload.js", () => ({
-  handleMcpReloadSignal: () => {},
-}));
-
-mock.module("../signals/trust-rule.js", () => ({
-  handleTrustRuleSignal: () => {},
-}));
-
-mock.module("../signals/conversation-undo.js", () => ({
-  handleConversationUndoSignal: () => {},
+mock.module("../daemon/mcp-reload-service.js", () => ({
+  reloadMcpServers: async () => {},
 }));
 
 let resetAllowlistCallCount = 0;

@@ -37,7 +37,6 @@ import {
   setConversationOriginInterfaceIfUnset,
 } from "../memory/conversation-crud.js";
 import { updateMetaFile } from "../memory/conversation-disk-view.js";
-import { getOrCreateConversation } from "../memory/conversation-key-store.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { RateLimitProvider } from "../providers/ratelimit.js";
 import { getProvider, initializeProviders } from "../providers/registry.js";
@@ -47,11 +46,7 @@ import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-import { checkIngressForSecrets } from "../security/secret-ingress.js";
-import { registerCancelCallback } from "../signals/cancel.js";
-import { registerConversationUndoCallback } from "../signals/conversation-undo.js";
 import { appendEventToStream } from "../signals/event-stream.js";
-import { registerUserMessageCallback } from "../signals/user-message.js";
 import { getSubagentManager } from "../subagent/index.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -68,7 +63,6 @@ import {
 import { ConversationEvictor } from "./conversation-evictor.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
-import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
 import type {
   ConversationCreateOptions,
@@ -513,67 +507,6 @@ export class DaemonServer {
       getOrCreateConversation: (conversationId) =>
         this.getOrCreateConversation(conversationId),
       broadcast: (msg) => this.broadcast(msg),
-    });
-
-    registerCancelCallback((conversationId) => {
-      const conversation = this.conversations.get(conversationId);
-      if (!conversation) return false;
-      this.evictor.touch(conversationId);
-      conversation.abort();
-      getSubagentManager().abortAllForParent(conversationId);
-      return true;
-    });
-
-    registerConversationUndoCallback((conversationId) =>
-      undoLastMessage(conversationId, this.handlerContext()),
-    );
-
-    registerUserMessageCallback(async (params) => {
-      // Block messages containing known-format secrets before persistence
-      if (!params.bypassSecretCheck) {
-        const ingressResult = checkIngressForSecrets(params.content);
-        if (ingressResult.blocked) {
-          return {
-            accepted: false,
-            error: "secret_blocked" as const,
-            message: ingressResult.userNotice,
-          };
-        }
-      }
-
-      const { conversationId } = getOrCreateConversation(
-        params.conversationKey,
-      );
-      const conversation = await this.getOrCreateConversation(conversationId);
-      if (conversation.isProcessing()) {
-        const requestId = crypto.randomUUID();
-        const resolvedChannel = resolveTurnChannel(params.sourceChannel);
-        const resolvedInterface = resolveTurnInterface(params.sourceInterface);
-        const result = conversation.enqueueMessage(
-          params.content,
-          [],
-          () => {},
-          requestId,
-          undefined,
-          undefined,
-          {
-            userMessageChannel: resolvedChannel,
-            assistantMessageChannel: resolvedChannel,
-            userMessageInterface: resolvedInterface,
-            assistantMessageInterface: resolvedInterface,
-          },
-        );
-        return { accepted: !result.rejected };
-      }
-      await this.persistAndProcessMessage(
-        conversationId,
-        params.content,
-        undefined,
-        undefined,
-        params.sourceChannel,
-        params.sourceInterface,
-      );
-      return { accepted: true };
     });
 
     this.configWatcher.start(

@@ -8,7 +8,6 @@ import { registerAuditCommand } from "./commands/audit.js";
 import { registerAuthCommand } from "./commands/auth.js";
 import { registerAutonomyCommand } from "./commands/autonomy.js";
 import { registerAvatarCommand } from "./commands/avatar.js";
-import { registerBashCommand } from "./commands/bash.js";
 import { registerBrowserRelayCommand } from "./commands/browser-relay.js";
 import { registerChannelVerificationSessionsCommand } from "./commands/channel-verification-sessions.js";
 import { registerCompletionsCommand } from "./commands/completions.js";
@@ -27,7 +26,6 @@ import { registerNotificationsCommand } from "./commands/notifications.js";
 import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPlatformCommand } from "./commands/platform/index.js";
 import { registerSequenceCommand } from "./commands/sequence.js";
-import { registerShotgunCommand } from "./commands/shotgun.js";
 import { registerSkillsCommand } from "./commands/skills.js";
 import { registerTrustCommand } from "./commands/trust.js";
 import { registerUsageCommand } from "./commands/usage.js";
@@ -51,7 +49,6 @@ Examples:
   );
 
   registerDefaultAction(program);
-  registerBashCommand(program);
   registerConversationsCommand(program);
   registerConfigCommand(program);
   registerKeysCommand(program);
@@ -79,7 +76,6 @@ Examples:
   registerBrowserRelayCommand(program);
   registerUsageCommand(program);
 
-  registerShotgunCommand(program);
   registerSequenceCommand(program);
 
   return program;
