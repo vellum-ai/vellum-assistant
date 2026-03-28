@@ -84,6 +84,24 @@ export function backfillMessageIdOnLogs(
 }
 
 /**
+ * Re-link LLM request logs from a set of source message IDs to a target
+ * message. Used during message consolidation so logs from deleted
+ * intermediate messages survive and remain queryable via the consolidated
+ * message.
+ */
+export function relinkLlmRequestLogs(
+  fromMessageIds: string[],
+  toMessageId: string,
+): void {
+  if (fromMessageIds.length === 0) return;
+  const db = getDb();
+  db.update(llmRequestLogs)
+    .set({ messageId: toMessageId })
+    .where(inArray(llmRequestLogs.messageId, fromMessageIds))
+    .run();
+}
+
+/**
  * Internal helper: query `llm_request_logs` for rows matching any of the
  * given message IDs, ordered by `createdAt ASC`. Uses the existing
  * `idx_llm_request_logs_message_id` index via `inArray`.
