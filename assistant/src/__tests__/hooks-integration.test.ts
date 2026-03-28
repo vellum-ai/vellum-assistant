@@ -89,7 +89,7 @@ describe("Hooks Integration", () => {
       hooksDir,
       "env-capture",
       ["daemon-start"],
-      `#!/bin/bash\necho "$VELLUM_HOOK_EVENT|$VELLUM_HOOK_NAME|$VELLUM_ROOT_DIR" > "${outputFile}"`,
+      `#!/bin/bash\necho "$VELLUM_HOOK_EVENT|$VELLUM_HOOK_NAME|$VELLUM_WORKSPACE_DIR" > "${outputFile}"`,
     );
     saveHooksConfig({
       version: 1,
@@ -106,7 +106,7 @@ describe("Hooks Integration", () => {
     const parts = output.split("|");
     expect(parts[0]).toBe("daemon-start");
     expect(parts[1]).toBe("env-capture");
-    expect(parts[2]).toContain(".vellum");
+    expect(parts[2]).toBe(testDir);
   });
 
   test("multiple hooks for same event run in order", async () => {
