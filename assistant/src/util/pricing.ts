@@ -12,6 +12,9 @@ const ANTHROPIC_PROMPT_CACHE_MULTIPLIERS = {
   write1h: 2,
 } as const;
 
+/** Fast mode pricing is 6x standard rates for all token types. */
+const ANTHROPIC_FAST_MODE_MULTIPLIER = 6;
+
 /**
  * Multi-provider pricing catalog keyed by provider then model pattern.
  * Model patterns are matched by exact match first, then by prefix.
@@ -147,12 +150,22 @@ function calculateUsageCost(
   pricing: ModelPricing,
   usage: PricingUsage,
 ): number {
+  // Anthropic fast mode: 6x multiplier on base rates (cache multipliers stack on top)
+  const speedMultiplier =
+    provider === "anthropic" && usage.speed === "fast"
+      ? ANTHROPIC_FAST_MODE_MULTIPLIER
+      : 1;
+  const effectivePricing: ModelPricing = {
+    inputPer1M: pricing.inputPer1M * speedMultiplier,
+    outputPer1M: pricing.outputPer1M * speedMultiplier,
+  };
+
   const directInputCost = calculateTokenCost(
-    pricing.inputPer1M,
+    effectivePricing.inputPer1M,
     usage.directInputTokens,
   );
   const outputCost = calculateTokenCost(
-    pricing.outputPer1M,
+    effectivePricing.outputPer1M,
     usage.outputTokens,
   );
 
@@ -161,7 +174,7 @@ function calculateUsageCost(
       directInputCost +
       outputCost +
       calculateTokenCost(
-        pricing.inputPer1M,
+        effectivePricing.inputPer1M,
         usage.cacheCreationInputTokens + usage.cacheReadInputTokens,
       )
     );
@@ -174,15 +187,15 @@ function calculateUsageCost(
     directInputCost +
     outputCost +
     calculateTokenCost(
-      pricing.inputPer1M * ANTHROPIC_PROMPT_CACHE_MULTIPLIERS.read,
+      effectivePricing.inputPer1M * ANTHROPIC_PROMPT_CACHE_MULTIPLIERS.read,
       usage.cacheReadInputTokens,
     ) +
     calculateTokenCost(
-      pricing.inputPer1M * ANTHROPIC_PROMPT_CACHE_MULTIPLIERS.write5m,
+      effectivePricing.inputPer1M * ANTHROPIC_PROMPT_CACHE_MULTIPLIERS.write5m,
       ephemeral5mInputTokens,
     ) +
     calculateTokenCost(
-      pricing.inputPer1M * ANTHROPIC_PROMPT_CACHE_MULTIPLIERS.write1h,
+      effectivePricing.inputPer1M * ANTHROPIC_PROMPT_CACHE_MULTIPLIERS.write1h,
       ephemeral1hInputTokens,
     )
   );

@@ -19,6 +19,8 @@ export interface PricingUsage {
   cacheCreationInputTokens: number;
   cacheReadInputTokens: number;
   anthropicCacheCreation: AnthropicCacheCreationTokenDetails | null;
+  /** Anthropic fast mode speed indicator from the API response. */
+  speed?: "fast" | "standard" | null;
 }
 
 /**
