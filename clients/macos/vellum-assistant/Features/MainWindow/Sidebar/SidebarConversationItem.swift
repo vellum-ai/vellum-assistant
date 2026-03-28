@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import VellumAssistantShared
 
 /// A single conversation row in the sidebar, handling hover, pin, archive, rename,
@@ -259,7 +260,16 @@ struct SidebarConversationItem: View, Equatable {
         }
         .onDrag {
             onDragStart()
-            return NSItemProvider(object: conversation.id.uuidString as NSString)
+            let provider = NSItemProvider()
+            let payload = conversation.id.uuidString
+            provider.registerDataRepresentation(
+                forTypeIdentifier: UTType.sidebarConversation.identifier,
+                visibility: .ownProcess
+            ) { completion in
+                completion(payload.data(using: .utf8), nil)
+                return nil
+            }
+            return provider
         } preview: {
             HStack(spacing: VSpacing.xs) {
                 if conversation.isPinned {

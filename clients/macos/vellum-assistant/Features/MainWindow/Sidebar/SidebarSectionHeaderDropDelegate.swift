@@ -3,7 +3,11 @@ import UniformTypeIdentifiers
 import VellumAssistantShared
 
 /// Drop delegate for sidebar section headers.
-/// Handles conversation drops (M4) and group reorder drops (M5).
+/// Handles conversation drops (move into group) and group reorder drops.
+///
+/// Uses custom UTTypes (`sidebarConversation` / `sidebarGroup`) to distinguish
+/// drag types in `validateDrop` via `info.hasItemsConforming(to:)`, rather than
+/// relying on side-effect state (`draggingConversationId`).
 struct SidebarSectionHeaderDropDelegate: DropDelegate {
     let groupId: String?
     let group: ConversationGroup?
@@ -11,24 +15,24 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
     let conversationManager: ConversationManager
 
     func validateDrop(info: DropInfo) -> Bool {
-        // Check if this is a group reorder drop first (M5).
-        // Group drops come through as NSItemProvider with "group:" prefix.
-        // We detect them by checking if there's NO draggingConversationId set
-        // (group drags don't set draggingConversationId) AND the info contains items.
-        if sidebar.draggingConversationId == nil {
-            // Potential group drag — validate group reorder conditions
+        let isConversationDrag = info.hasItemsConforming(to: [.sidebarConversation])
+        let isGroupDrag = info.hasItemsConforming(to: [.sidebarGroup])
+
+        if isGroupDrag && !isConversationDrag {
+            // Group reorder — only non-system group headers are valid targets
             guard let targetGroup = group, !targetGroup.isSystemGroup else { return false }
-            // We can't parse the payload in validateDrop, but we know:
-            // - Target must be a non-system group header
-            // - The actual source validation happens in performDrop
             return true
         }
 
-        // M4: conversation drop path
-        guard let sourceId = sidebar.draggingConversationId,
-              let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
-              source.groupId != groupId else { return false }
-        return true
+        if isConversationDrag {
+            // Conversation drop — all groups (including system groups like Pinned) accept.
+            // Payload isn't available here, so accept optimistically;
+            // performDrop validates fully (e.g., already-in-group check).
+            guard group != nil else { return false }
+            return true
+        }
+
+        return false
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
@@ -50,63 +54,79 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
     func performDrop(info: DropInfo) -> Bool {
         sidebar.dropTargetSectionId = nil
 
-        // Try to load dropped items to detect group vs conversation payload
-        let providers = info.itemProviders(for: [.plainText])
-        guard let provider = providers.first else {
-            // Fallback to conversation drag path (M4)
-            return performConversationDrop()
-        }
-
-        // Check for draggingConversationId first — if set, this is a conversation drag
+        // Fast path: draggingConversationId is set (common case)
         if sidebar.draggingConversationId != nil {
             return performConversationDrop()
         }
 
-        // Async load the payload string for group reorder
-        provider.loadObject(ofClass: NSString.self) { item, _ in
-            guard let string = item as? String else { return }
-            Task { @MainActor in
-                guard let payload = SidebarDropPayload.parse(from: string) else { return }
-                switch payload {
-                case .conversation(let uuid):
-                    // Late-arriving conversation drop
-                    if let source = self.conversationManager.conversations.first(where: { $0.id == uuid }),
-                       source.groupId != self.groupId {
-                        self.conversationManager.moveConversationToGroup(uuid, groupId: self.groupId)
-                    }
-                case .group(let sourceId):
-                    self.performGroupReorder(sourceId: sourceId)
+        // Async path: load payload from the custom UTType
+        let providers = info.itemProviders(for: [.sidebarConversation, .sidebarGroup])
+        guard let provider = providers.first else { return false }
+
+        if provider.hasItemConformingToTypeIdentifier(UTType.sidebarConversation.identifier) {
+            provider.loadDataRepresentation(forTypeIdentifier: UTType.sidebarConversation.identifier) { data, _ in
+                guard let data, let string = String(data: data, encoding: .utf8),
+                      let uuid = UUID(uuidString: string) else { return }
+                Task { @MainActor in
+                    self.performAsyncConversationDrop(sourceId: uuid)
                 }
             }
+            return true
         }
-        return true
+
+        if provider.hasItemConformingToTypeIdentifier(UTType.sidebarGroup.identifier) {
+            provider.loadDataRepresentation(forTypeIdentifier: UTType.sidebarGroup.identifier) { data, _ in
+                guard let data, let string = String(data: data, encoding: .utf8),
+                      let payload = SidebarDropPayload.parse(from: string) else { return }
+                Task { @MainActor in
+                    if case .group(let sourceId) = payload {
+                        self.performGroupReorder(sourceId: sourceId)
+                    }
+                }
+            }
+            return true
+        }
+
+        return false
     }
 
-    // MARK: - Conversation Drop (M4)
+    // MARK: - Conversation Drop
 
     private func performConversationDrop() -> Bool {
         let sourceId = sidebar.draggingConversationId
         sidebar.draggingConversationId = nil
         guard let sourceId else { return false }
-        // No-op if the conversation is already in this group (prevents clearing displayOrder)
         if let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
            source.groupId == groupId { return false }
-        conversationManager.moveConversationToGroup(sourceId, groupId: groupId)
+
+        if groupId == ConversationGroup.pinned.id {
+            conversationManager.pinConversation(id: sourceId)
+        } else {
+            conversationManager.moveConversationToGroup(sourceId, groupId: groupId)
+        }
         return true
     }
 
-    // MARK: - Group Reorder (M5)
+    /// Async fallback when `draggingConversationId` wasn't set at drop time.
+    private func performAsyncConversationDrop(sourceId: UUID) {
+        if let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
+           source.groupId == groupId { return }
+
+        if groupId == ConversationGroup.pinned.id {
+            conversationManager.pinConversation(id: sourceId)
+        } else {
+            conversationManager.moveConversationToGroup(sourceId, groupId: groupId)
+        }
+    }
+
+    // MARK: - Group Reorder
 
     private func performGroupReorder(sourceId: String) {
-        // Source must be a custom group (system groups can't be dragged)
         guard let source = conversationManager.groups.first(where: { $0.id == sourceId }),
               !source.isSystemGroup else { return }
-        // Target must also be a custom group header
         guard let targetGroup = group, !targetGroup.isSystemGroup else { return }
-        // No-op if dropping onto self
         guard sourceId != targetGroup.id else { return }
 
-        // Reindex all custom groups to clean integer positions starting at 3.
         var customGroups = conversationManager.groups
             .filter { !$0.isSystemGroup }
             .sorted { $0.sortPosition < $1.sortPosition }

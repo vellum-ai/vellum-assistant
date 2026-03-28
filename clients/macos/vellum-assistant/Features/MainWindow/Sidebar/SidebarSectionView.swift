@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import VellumAssistantShared
 
 /// A schedule sub-group: conversations sharing the same scheduleJobId.
@@ -157,7 +158,7 @@ struct SidebarSectionView: View {
                                 .transition(.opacity)
                         }
                     }
-                    .onDrop(of: [.plainText], delegate: GroupedReorderDropDelegate(
+                    .onDrop(of: [.sidebarConversation], delegate: GroupedReorderDropDelegate(
                         targetConversation: conversation,
                         groupId: group?.id,
                         sidebar: sidebar,
@@ -211,7 +212,7 @@ struct SidebarSectionView: View {
                             .transition(.opacity)
                     }
                 }
-                .onDrop(of: [.plainText], delegate: ScheduleReorderDropDelegate(
+                .onDrop(of: [.sidebarConversation], delegate: ScheduleReorderDropDelegate(
                     targetConversation: conversation,
                     sidebar: sidebar,
                     conversationManager: conversationManager
@@ -289,7 +290,7 @@ struct SidebarSectionView: View {
         if !isSubGroupExpanded, let sidebar, let conversationManager {
             Color.clear
                 .frame(height: 0)
-                .onDrop(of: [.plainText], delegate: ScheduleSubGroupHeaderDropDelegate(
+                .onDrop(of: [.sidebarConversation], delegate: ScheduleSubGroupHeaderDropDelegate(
                     subGroup: subGroup,
                     sidebar: sidebar,
                     conversationManager: conversationManager
@@ -377,14 +378,11 @@ struct ScheduleSubGroupHeaderDropDelegate: DropDelegate {
     private var firstConversation: ConversationModel? { subGroup.conversations.first }
 
     func validateDrop(info: DropInfo) -> Bool {
+        guard info.hasItemsConforming(to: [.sidebarConversation]) else { return false }
         guard let firstConversation = firstConversation,
-              let dragId = sidebar.draggingConversationId,
-              dragId != firstConversation.id,
-              let sourceConversation = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
-              sourceConversation.isScheduleConversation,
-              sourceConversation.groupId == firstConversation.groupId,
-              sourceConversation.scheduleJobId == firstConversation.scheduleJobId
+              sidebar.draggingConversationId != firstConversation.id
         else { return false }
+        // Full source validation (schedule group membership) deferred to performDrop
         return true
     }
 
@@ -433,9 +431,8 @@ struct GroupedReorderDropDelegate: DropDelegate {
     let conversationManager: ConversationManager
 
     func validateDrop(info: DropInfo) -> Bool {
-        guard let dragId = sidebar.draggingConversationId,
-              dragId != targetConversation.id
-        else { return false }
+        guard info.hasItemsConforming(to: [.sidebarConversation]) else { return false }
+        guard sidebar.draggingConversationId != targetConversation.id else { return false }
         return true
     }
 
@@ -449,18 +446,14 @@ struct GroupedReorderDropDelegate: DropDelegate {
         else { return }
 
         sidebar.dropTargetConversationId = targetConversation.id
-        // Use section-local index for direction detection (not global visibleConversations)
         let groupConversations = conversationManager.groupedConversations
             .first { $0.group?.id == groupId }?.conversations ?? []
         let sIdx = groupConversations.firstIndex(where: { $0.id == dragId })
         let tIdx = groupConversations.firstIndex(where: { $0.id == targetConversation.id }) ?? 0
         if let sIdx {
-            // Same-group drag: compare indices to determine direction
             sidebar.dropIndicatorAtBottom = sIdx < tIdx
         } else {
-            // Cross-group drag: source isn't in this section, default to top
-            // indicator (insert before the target) so the visual position matches
-            // the actual insertion point.
+            // Cross-group drag: default to top indicator
             sidebar.dropIndicatorAtBottom = false
         }
     }
@@ -490,7 +483,7 @@ struct SectionHeaderDropModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         if let sidebar, let conversationManager {
-            content.onDrop(of: [.plainText], delegate: SidebarSectionHeaderDropDelegate(
+            content.onDrop(of: [.sidebarConversation, .sidebarGroup], delegate: SidebarSectionHeaderDropDelegate(
                 groupId: group.id,
                 group: group,
                 sidebar: sidebar,

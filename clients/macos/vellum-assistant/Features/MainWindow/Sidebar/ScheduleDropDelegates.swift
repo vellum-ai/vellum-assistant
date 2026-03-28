@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import VellumAssistantShared
 
 /// Drop delegate for reordering scheduled conversations within the same schedule group.
@@ -9,13 +10,9 @@ struct ScheduleReorderDropDelegate: DropDelegate {
     let conversationManager: ConversationManager
 
     func validateDrop(info: DropInfo) -> Bool {
-        guard let dragId = sidebar.draggingConversationId,
-              dragId != targetConversation.id,
-              let sourceConversation = conversationManager.visibleConversations.first(where: { $0.id == dragId }),
-              sourceConversation.isScheduleConversation,
-              sourceConversation.groupId == targetConversation.groupId,
-              sourceConversation.scheduleJobId == targetConversation.scheduleJobId
-        else { return false }
+        guard info.hasItemsConforming(to: [.sidebarConversation]) else { return false }
+        guard sidebar.draggingConversationId != targetConversation.id else { return false }
+        // Full source validation (schedule group membership) deferred to performDrop
         return true
     }
 

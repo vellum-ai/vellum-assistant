@@ -914,6 +914,26 @@ cat > "$CONTENTS/Info.plist" <<PLIST
                 <string>application/x-vellum</string>
             </dict>
         </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>ai.vellum.sidebar.conversation</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.plain-text</string>
+            </array>
+            <key>UTTypeDescription</key>
+            <string>Sidebar Conversation Drag</string>
+        </dict>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>ai.vellum.sidebar.group</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.plain-text</string>
+            </array>
+            <key>UTTypeDescription</key>
+            <string>Sidebar Group Drag</string>
+        </dict>
     </array>
     <key>CFBundleDocumentTypes</key>
     <array>

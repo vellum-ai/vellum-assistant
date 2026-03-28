@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import VellumAssistantShared
 
 /// Collapsible header for a sidebar conversation group.
@@ -79,14 +80,23 @@ struct SidebarSectionHeader: View {
         .pointerCursor { hovering in
             isHovered = hovering
         }
-        .background(isDropTarget ? Color.accentColor.opacity(0.15) : .clear)
+        .background(isDropTarget ? VColor.primaryBase.opacity(0.15) : .clear)
         .cornerRadius(4)
         .modifier(ConditionalGroupContextMenu(
             onRename: onRename.map { rename in { rename(group.name) } },
             onDelete: onDelete
         ))
         .conditionalOnDrag(enabled: !group.isSystemGroup) {
-            NSItemProvider(object: "group:\(group.id)" as NSString)
+            let provider = NSItemProvider()
+            let payload = "group:\(group.id)"
+            provider.registerDataRepresentation(
+                forTypeIdentifier: UTType.sidebarGroup.identifier,
+                visibility: .ownProcess
+            ) { completion in
+                completion(payload.data(using: .utf8), nil)
+                return nil
+            }
+            return provider
         }
     }
 }
