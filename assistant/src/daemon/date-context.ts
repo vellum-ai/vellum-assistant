@@ -183,35 +183,41 @@ const TIMEZONE_TOKEN_RE = new RegExp(
 );
 
 /**
- * Extract the user's timezone from V2 memory recall injected text.
+ * Extract the user's timezone from memory recall injected text.
  *
- * Scans the `<user_identity>` section (if present) for lines containing
- * "timezone" and tries to resolve an IANA identifier. Falls back to
- * scanning the full text body.
+ * Prefers identity items (`<item kind="identity" ...>`) rendered inside the
+ * `<recalled>` section of `<memory_context>`. Falls back to scanning the
+ * full injected text for lines mentioning "timezone".
  */
 export function extractUserTimeZoneFromRecall(
   injectedText: string,
 ): string | null {
   if (!injectedText || injectedText.trim().length === 0) return null;
 
-  // Prefer lines inside <user_identity> that mention "timezone"
-  const identityMatch = injectedText.match(
-    /<user_identity>([\s\S]*?)<\/user_identity>/,
-  );
-  if (identityMatch) {
-    const identityBlock = identityMatch[1];
-    for (const line of identityBlock.split("\n")) {
-      if (/time\s*zone/i.test(line)) {
-        for (const token of extractTimeZoneCandidates(line)) {
+  // Prefer identity items: <item ... kind="identity" ...>content</item>
+  const identityItemRe = /<item\s[^>]*kind="identity"[^>]*>([\s\S]*?)<\/item>/g;
+  let match: RegExpExecArray | null;
+  const identityTexts: string[] = [];
+  while ((match = identityItemRe.exec(injectedText)) !== null) {
+    identityTexts.push(match[1]);
+  }
+
+  if (identityTexts.length > 0) {
+    // First pass: identity items whose text mentions "timezone"
+    for (const text of identityTexts) {
+      if (/time\s*zone/i.test(text)) {
+        for (const token of extractTimeZoneCandidates(text)) {
           const canonical = canonicalizeTimeZone(token);
           if (canonical) return canonical;
         }
       }
     }
-    // Scan full identity block for any timezone token
-    for (const token of extractTimeZoneCandidates(identityBlock)) {
-      const canonical = canonicalizeTimeZone(token);
-      if (canonical) return canonical;
+    // Second pass: any timezone token in any identity item
+    for (const text of identityTexts) {
+      for (const token of extractTimeZoneCandidates(text)) {
+        const canonical = canonicalizeTimeZone(token);
+        if (canonical) return canonical;
+      }
     }
   }
 
