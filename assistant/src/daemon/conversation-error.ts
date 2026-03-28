@@ -464,7 +464,7 @@ function classifyByMessage(
   return {
     code: "CONVERSATION_PROCESSING_FAILED",
     userMessage,
-    retryable: false,
+    retryable: true,
     errorCategory: "processing_failed",
   };
 }
