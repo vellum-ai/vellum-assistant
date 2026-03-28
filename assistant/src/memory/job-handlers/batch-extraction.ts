@@ -18,7 +18,6 @@ import {
 import { getConversationMemoryScopeId } from "../conversation-crud.js";
 import { getDb } from "../db.js";
 import { computeMemoryFingerprint } from "../fingerprint.js";
-import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import {
   buildExtractionSystemPrompt,
   deduplicateItems,
@@ -33,6 +32,7 @@ import {
   VALID_OVERRIDE_CONFIDENCES,
 } from "../items-extractor.js";
 import { asString } from "../job-utils.js";
+import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { extractTextFromStoredMessageContent } from "../message-content.js";
 import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../qdrant-client.js";
@@ -410,7 +410,6 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
   let upserted = 0;
 
   for (const item of dedupedItems) {
-    const now = Date.now();
     const seenAt = lastMessage.createdAt;
     const existing = db
       .select()

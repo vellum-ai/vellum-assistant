@@ -4,8 +4,8 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import type { Candidate } from "./types.js";
 import { buildMemoryInjection } from "./formatting.js";
+import type { Candidate } from "./types.js";
 
 type CandidateWithLabel = Candidate & { sourceLabel?: string };
 

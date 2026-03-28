@@ -131,7 +131,6 @@ import {
   injectMemoryRecallAsUserBlock,
   lookupSupersessionChain,
 } from "../memory/retriever.js";
-import { buildMemoryInjection } from "../memory/search/formatting.js";
 import {
   conversations,
   memoryEmbeddings,
@@ -142,6 +141,7 @@ import {
   memorySummaries,
   messages,
 } from "../memory/schema.js";
+import { buildMemoryInjection } from "../memory/search/formatting.js";
 import { buildCoreIdentityContext } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 
