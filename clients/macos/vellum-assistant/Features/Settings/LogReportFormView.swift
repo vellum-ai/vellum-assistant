@@ -84,7 +84,6 @@ struct LogReportFormView: View {
             includeLogs = reason.isErrorCategory
         }
         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
-            var added = false
             for provider in providers {
                 _ = provider.loadObject(ofClass: URL.self) { url, _ in
                     guard let url else { return }
@@ -95,9 +94,9 @@ struct LogReportFormView: View {
                           let size = attrs[.size] as? Int,
                           size <= maxAttachmentBytes else { return }
                     Task { @MainActor in
-                        guard attachments.count < maxAttachments else { return }
+                        guard attachments.count < maxAttachments,
+                              !attachments.contains(url) else { return }
                         attachments.append(url)
-                        added = true
                     }
                 }
             }
@@ -205,6 +204,7 @@ struct LogReportFormView: View {
                 guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
                       let size = attrs[.size] as? Int,
                       size <= maxAttachmentBytes else { continue }
+                guard !attachments.contains(url) else { continue }
                 attachments.append(url)
             }
         }
