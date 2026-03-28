@@ -26,6 +26,7 @@ const checkerTestDir = mkdtempSync(join(tmpdir(), "checker-test-"));
 
 mock.module("../util/platform.js", () => ({
   getRootDir: () => checkerTestDir,
+  getProtectedDir: () => join(checkerTestDir, "protected"),
   getDataDir: () => join(checkerTestDir, "data"),
   getWorkspaceSkillsDir: () => join(checkerTestDir, "skills"),
   isMacOS: () => process.platform === "darwin",

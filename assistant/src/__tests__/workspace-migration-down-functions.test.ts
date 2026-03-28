@@ -36,6 +36,7 @@ mock.module("../security/credential-key.js", () => ({
 let mockRootDir: string = "/tmp/mock-root";
 mock.module("../util/platform.js", () => ({
   getRootDir: () => mockRootDir,
+  getProtectedDir: () => join(mockRootDir, "protected"),
   getDataDir: () => join(mockRootDir, "workspace", "data"),
   getWorkspaceDir: () => join(mockRootDir, "workspace"),
 }));

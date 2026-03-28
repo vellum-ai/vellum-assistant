@@ -77,6 +77,7 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
 
 mock.module("../util/platform.js", () => ({
   getRootDir: () => "/tmp",
+  getProtectedDir: () => "/tmp/protected",
   getDataDir: () => "/tmp",
   getWorkspaceDir: () => "/tmp/workspace",
   getConversationsDir: () => "/tmp/workspace/conversations",

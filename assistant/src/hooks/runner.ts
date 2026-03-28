@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
-import { basename, extname, join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 
 import { pathExists } from "../util/fs.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -69,6 +69,7 @@ export async function runHookScript(
         ...process.env,
         VELLUM_HOOK_EVENT: eventData.event,
         VELLUM_HOOK_NAME: hook.name,
+        VELLUM_ROOT_DIR: dirname(getWorkspaceDir()),
         VELLUM_WORKSPACE_DIR: getWorkspaceDir(),
         VELLUM_HOOK_SETTINGS: JSON.stringify(
           getHookSettings(hook.name, hook.manifest),
