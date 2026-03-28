@@ -9,6 +9,7 @@ import {
   computeRetryDelay,
   isRetryableNetworkError,
 } from "../util/retry.js";
+import { getConversationDirName } from "./conversation-directories.js";
 import { getDb } from "./db.js";
 import {
   embedWithBackend,
@@ -17,7 +18,6 @@ import {
   logMemoryEmbeddingWarning,
 } from "./embedding-backend.js";
 import { isQdrantBreakerOpen } from "./qdrant-circuit-breaker.js";
-import { getConversationDirName } from "./conversation-directories.js";
 import {
   conversations,
   memoryItems,
