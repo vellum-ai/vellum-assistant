@@ -56,6 +56,10 @@ mock.module("../memory/conversation-queries.js", () => ({
   isLastUserMessageToolResult: () => false,
 }));
 
+mock.module("../memory/llm-request-log-store.js", () => ({
+  relinkLlmRequestLogs: () => {},
+}));
+
 mock.module("../memory/jobs-store.js", () => ({
   enqueueMemoryJob: () => {},
 }));
