@@ -91,6 +91,8 @@ export interface RenderedHistoryContent {
   contentOrder: string[];
   /** UI surfaces (widgets) embedded in the message. */
   surfaces: HistorySurface[];
+  /** Thinking segments extracted from thinking blocks. */
+  thinkingSegments: string[];
 }
 
 export interface SubagentNotificationData {
@@ -220,6 +222,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       textSegments: text ? [text] : [],
       contentOrder: text ? ["text:0"] : [],
       surfaces: [],
+      thinkingSegments: [],
     };
   }
 
@@ -227,6 +230,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
   const attachmentParts: string[] = [];
   const toolCalls: HistoryToolCall[] = [];
   const surfaces: HistorySurface[] = [];
+  const thinkingSegments: string[] = [];
   const pendingToolUses = new Map<string, HistoryToolCall>();
   let seenText = false;
   let seenToolUse = false;
@@ -297,6 +301,13 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
       };
       surfaces.push(surface);
       contentOrder.push(`surface:${surfaces.length - 1}`);
+      continue;
+    }
+
+    if (block.type === "thinking" && typeof block.thinking === "string") {
+      finalizeSegment();
+      thinkingSegments.push(block.thinking);
+      contentOrder.push(`thinking:${thinkingSegments.length - 1}`);
       continue;
     }
 
@@ -410,6 +421,7 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
     textSegments,
     contentOrder,
     surfaces,
+    thinkingSegments,
   };
 }
 
