@@ -23,16 +23,11 @@ import {
   memoryItemSources,
   messages,
 } from "./schema.js";
-import {
-  buildTwoLayerInjection,
-  CAPABILITY_KINDS,
-  IDENTITY_KINDS,
-  PREFERENCE_KINDS,
-} from "./search/formatting.js";
+import { buildMemoryInjection } from "./search/formatting.js";
 import { isQdrantConnectionError, semanticSearch } from "./search/semantic.js";
-import { applyStaleDemotion, computeStaleness } from "./search/staleness.js";
+import { computeStaleness } from "./search/staleness.js";
 import {
-  classifyTiers,
+  filterByMinScore,
   type TieredCandidate,
 } from "./search/tier-classifier.js";
 import type {
@@ -235,19 +230,18 @@ async function generateQueryEmbedding(
 }
 
 /**
- * Memory recall pipeline: hybrid search → tier classification →
- * staleness annotation → two-layer XML injection.
+ * Memory recall pipeline: hybrid search → score filtering →
+ * staleness annotation → unified XML injection.
  *
  * Pipeline steps:
  *   1. Build query text (caller provides via buildMemoryQuery)
  *   2. Generate dense + sparse embeddings
  *   3. Hybrid search on Qdrant (dense + sparse RRF fusion)
  *   4. Deduplicate results
- *   5. Classify tiers (score > 0.6 → tier 1, > 0.4 → tier 2)
- *   6. Enrich item candidates with metadata for staleness
- *   7. Compute staleness per item
- *   8. Demote very_stale tier 1 → tier 2
- *   9. Build two-layer XML injection with budget allocation
+ *   5. Filter by minimum score threshold
+ *   6. Enrich candidates with source labels and item metadata
+ *   7. Compute staleness per item (for debugging/logging)
+ *   8. Build unified XML injection with budget allocation
  */
 export async function buildMemoryRecall(
   query: string,
@@ -443,19 +437,19 @@ export async function buildMemoryRecall(
   }
   allCandidates.sort((a, b) => b.finalScore - a.finalScore);
 
-  // ── Step 5: Tier classification ─────────────────────────────────
-  const tiered = classifyTiers(allCandidates);
+  // ── Step 5: Filter by minimum score threshold ───────────────────
+  const filtered = filterByMinScore(allCandidates);
 
   // ── Step 5b: Enrich candidates with source labels ──────────────
-  enrichSourceLabels(tiered);
+  enrichSourceLabels(filtered);
 
   // ── Step 6: Enrich with item metadata for staleness ─────────────
-  const itemIds = tiered.filter((c) => c.type === "item").map((c) => c.id);
+  const itemIds = filtered.filter((c) => c.type === "item").map((c) => c.id);
   const itemMetadataMap = enrichItemMetadata(itemIds);
 
-  // ── Step 7: Compute staleness per item ──────────────────────────
+  // ── Step 7: Compute staleness per item (for debugging/logging) ─
   const now = Date.now();
-  for (const c of tiered) {
+  for (const c of filtered) {
     if (c.type !== "item") continue;
     const meta = itemMetadataMap.get(c.id);
     if (!meta) continue;
@@ -470,10 +464,7 @@ export async function buildMemoryRecall(
     c.staleness = level;
   }
 
-  // ── Step 8: Demote very_stale tier 1 → tier 2 ──────────────────
-  const afterDemotion = applyStaleDemotion(tiered);
-
-  // ── Step 9: Budget allocation and two-layer injection ──────────
+  // ── Step 8: Budget allocation and unified injection ────────────
   const maxInjectTokens = Math.max(
     1,
     Math.floor(
@@ -482,53 +473,22 @@ export async function buildMemoryRecall(
     ),
   );
 
-  // Split into sections for two-layer injection
-  const identityItems = afterDemotion.filter(
-    (c) => c.tier === 1 && IDENTITY_KINDS.has(c.kind),
-  );
-  const preferences = afterDemotion.filter(
-    (c) => c.tier === 1 && PREFERENCE_KINDS.has(c.kind),
-  );
-  const capabilities = afterDemotion.filter(
-    (c) => c.tier === 1 && CAPABILITY_KINDS.has(c.kind),
-  );
-  const tier1Candidates = afterDemotion.filter(
-    (c) =>
-      c.tier === 1 &&
-      !IDENTITY_KINDS.has(c.kind) &&
-      !PREFERENCE_KINDS.has(c.kind) &&
-      !CAPABILITY_KINDS.has(c.kind),
-  );
-  const tier2Candidates = afterDemotion.filter((c) => c.tier === 2);
-
-  const injectedText = buildTwoLayerInjection({
-    identityItems,
-    tier1Candidates,
-    tier2Candidates,
-    preferences,
-    capabilities,
+  const injectedText = buildMemoryInjection({
+    candidates: filtered,
     totalBudgetTokens: maxInjectTokens,
   });
 
   // ── Assemble result ─────────────────────────────────────────────
-  const selectedCount =
-    identityItems.length +
-    tier1Candidates.length +
-    tier2Candidates.length +
-    preferences.length +
-    capabilities.length;
+  const selectedCount = filtered.length;
 
-  const tier1Count = afterDemotion.filter((c) => c.tier === 1).length;
-  const tier2Count = afterDemotion.filter((c) => c.tier === 2).length;
   const stalenessStats = {
-    fresh: afterDemotion.filter((c) => c.staleness === "fresh").length,
-    aging: afterDemotion.filter((c) => c.staleness === "aging").length,
-    stale: afterDemotion.filter((c) => c.staleness === "stale").length,
-    very_stale: afterDemotion.filter((c) => c.staleness === "very_stale")
-      .length,
+    fresh: filtered.filter((c) => c.staleness === "fresh").length,
+    aging: filtered.filter((c) => c.staleness === "aging").length,
+    stale: filtered.filter((c) => c.staleness === "stale").length,
+    very_stale: filtered.filter((c) => c.staleness === "very_stale").length,
   };
 
-  const topCandidates: MemoryRecallCandiateDebug[] = afterDemotion
+  const topCandidates: MemoryRecallCandiateDebug[] = filtered
     .slice(0, 10)
     .map((c) => ({
       key: c.key,
@@ -561,8 +521,6 @@ export async function buildMemoryRecall(
       query: truncate(query, 120),
       hybridHits: hybridCandidates.length,
       mergedCount: allCandidates.length,
-      tier1Count,
-      tier2Count,
       stalenessStats,
       selectedCount,
       maxInjectTokens,
@@ -586,8 +544,8 @@ export async function buildMemoryRecall(
     injectedText,
     latencyMs,
     topCandidates,
-    tier1Count,
-    tier2Count,
+    tier1Count: 0,
+    tier2Count: 0,
     hybridSearchMs,
     sparseVectorUsed,
   };

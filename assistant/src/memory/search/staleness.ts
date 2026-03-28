@@ -1,4 +1,3 @@
-import type { TieredCandidate } from "./tier-classifier.js";
 import type { StalenessLevel } from "./types.js";
 
 const BASE_LIFETIME_MS: Record<string, number> = {
@@ -38,18 +37,4 @@ export function computeStaleness(
   if (ratio <= 1) return { level: "aging", ratio };
   if (ratio <= 2) return { level: "stale", ratio };
   return { level: "very_stale", ratio };
-}
-
-/**
- * Demote very_stale tier-1 candidates to tier 2.
- */
-export function applyStaleDemotion(
-  candidates: TieredCandidate[],
-): TieredCandidate[] {
-  return candidates.map((c) => {
-    if (c.tier === 1 && c.staleness === "very_stale") {
-      return { ...c, tier: 2 as const };
-    }
-    return c;
-  });
 }
