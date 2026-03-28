@@ -190,7 +190,7 @@ export const MemoryRetrievalConfigSchema = z
       .number({ error: "memory.retrieval.maxInjectTokens must be a number" })
       .int("memory.retrieval.maxInjectTokens must be an integer")
       .positive("memory.retrieval.maxInjectTokens must be a positive integer")
-      .default(10000)
+      .default(16000)
       .describe(
         "Maximum number of tokens to inject from long-term memory into the conversation context",
       ),

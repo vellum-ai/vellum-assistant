@@ -260,10 +260,10 @@ The key distinction: normal compaction is a cost-optimized background process th
 | Config key                                            |                   Default | Purpose                                                              |
 | ----------------------------------------------------- | ------------------------: | -------------------------------------------------------------------- |
 | `memory.retrieval.dynamicBudget.enabled`              |                    `true` | Toggle per-turn recall budget calculation from live prompt headroom. |
-| `memory.retrieval.dynamicBudget.minInjectTokens`      |                    `1200` | Lower clamp for computed recall injection budget.                    |
-| `memory.retrieval.dynamicBudget.maxInjectTokens`      |                   `10000` | Upper clamp for computed recall injection budget.                    |
+| `memory.retrieval.dynamicBudget.minInjectTokens`      |                    `2400` | Lower clamp for computed recall injection budget.                    |
+| `memory.retrieval.dynamicBudget.maxInjectTokens`      |                   `16000` | Upper clamp for computed recall injection budget.                    |
 | `memory.retrieval.dynamicBudget.targetHeadroomTokens` |                   `10000` | Reserved headroom to keep free for response generation/tool traces.  |
-| `memory.retrieval.maxInjectTokens`                    |                   `10000` | Static fallback when dynamic budget is disabled.                     |
+| `memory.retrieval.maxInjectTokens`                    |                   `16000` | Static fallback when dynamic budget is disabled.                     |
 | `memory.retrieval.scopePolicy`                        | `'allow_global_fallback'` | Scope filtering strategy: `'strict'` or `'allow_global_fallback'`.   |
 
 ### Memory Recall Debugging Playbook
