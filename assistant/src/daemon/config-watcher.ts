@@ -2,14 +2,14 @@
  * File watchers and config reload logic extracted from DaemonServer.
  * Watches workspace files (config, prompts), protected directory
  * (trust rules, secret allowlist), and skills directories for changes.
- *
- * Signal-file-based IPC handlers (cancel, trust-rule, bash, user-message,
- * etc.) were removed in Phase 5a because signals live under workspace/
- * which is sandbox-writable, making them a privilege-escalation vector.
- * All functionality previously exposed via signal handlers is available
- * through the HTTP API.
  */
-import { existsSync, type FSWatcher, readdirSync, watch } from "node:fs";
+import {
+  existsSync,
+  type FSWatcher,
+  mkdirSync,
+  readdirSync,
+  watch,
+} from "node:fs";
 import { join } from "node:path";
 
 import { clearFeatureFlagOverridesCache } from "../config/assistant-feature-flags.js";
@@ -21,14 +21,21 @@ import {
   resetAllowlist,
   validateAllowlistFile,
 } from "../security/secret-allowlist.js";
+import { handleBashSignal } from "../signals/bash.js";
+import { handleCancelSignal } from "../signals/cancel.js";
+import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
+import { handleEmitEventSignal } from "../signals/emit-event.js";
+import { handleMcpReloadSignal } from "../signals/mcp-reload.js";
+import { handleShotgunSignal } from "../signals/shotgun.js";
+import { handleUserMessageSignal } from "../signals/user-message.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import {
   getProtectedDir,
+  getSignalsDir,
   getWorkspaceDir,
   getWorkspaceSkillsDir,
 } from "../util/platform.js";
-import { reloadMcpServers } from "./mcp-reload-service.js";
 
 const log = getLogger("config-watcher");
 
@@ -123,9 +130,7 @@ export class ConfigWatcher {
             const newConfig = getConfig();
             const newMcpFingerprint = JSON.stringify(newConfig.mcp ?? {});
             if (newMcpFingerprint !== prevMcpFingerprint) {
-              reloadMcpServers().catch((err: unknown) => {
-                log.error({ err }, "MCP reload after config change failed");
-              });
+              handleMcpReloadSignal();
             }
           }
         } catch (err) {
@@ -212,6 +217,7 @@ export class ConfigWatcher {
       );
     }
 
+    this.startSignalsWatcher();
     this.startSkillsWatchers(onConversationEvict);
   }
 
@@ -221,6 +227,65 @@ export class ConfigWatcher {
       watcher.close();
     }
     this.watchers = [];
+  }
+
+  private startSignalsWatcher(): void {
+    const signalsDir = getSignalsDir();
+    try {
+      if (!existsSync(signalsDir)) {
+        mkdirSync(signalsDir, { recursive: true });
+      }
+    } catch {
+      // If we can't create it, watching will also fail — handled below.
+    }
+
+    const exactSignalHandlers: Record<string, () => void | Promise<void>> = {
+      cancel: handleCancelSignal,
+      "mcp-reload": handleMcpReloadSignal,
+      "conversation-undo": handleConversationUndoSignal,
+      "emit-event": handleEmitEventSignal,
+    };
+
+    const prefixSignalHandlers: Record<
+      string,
+      (filename: string) => void | Promise<void>
+    > = {
+      "bash.": handleBashSignal,
+      "shotgun.": handleShotgunSignal,
+      "user-message.": handleUserMessageSignal,
+    };
+
+    try {
+      const watcher = watch(signalsDir, (_eventType, filename) => {
+        if (!filename) return;
+        const file = String(filename);
+
+        if (exactSignalHandlers[file]) {
+          this.debounceTimers.schedule(`signal:${file}`, () => {
+            log.info({ file }, "Signal file detected");
+            exactSignalHandlers[file]();
+          });
+          return;
+        }
+
+        for (const [prefix, handler] of Object.entries(prefixSignalHandlers)) {
+          if (file.startsWith(prefix) && !file.endsWith(".result")) {
+            this.debounceTimers.schedule(`signal:${file}`, () => {
+              log.info({ file }, "Signal file detected");
+              handler(file);
+            });
+            return;
+          }
+        }
+      });
+      this.watchers.push(watcher);
+      log.info({ dir: signalsDir }, "Watching signals directory");
+    } catch (err) {
+      log.warn(
+        { err, dir: signalsDir },
+        "Failed to watch signals directory. Signal-based reload will be unavailable.",
+      );
+    }
   }
 
   private startSkillsWatchers(onConversationEvict: () => void): void {

@@ -29,19 +29,23 @@ mock.module("../util/platform.js", () => ({
   getProtectedDir: () =>
     join("/tmp/vellum-test-secret-ingress-cli", "protected"),
   getWorkspaceDir: () => "/tmp/vellum-test-secret-ingress-cli/workspace",
+  getSignalsDir: () => "/tmp/vellum-test-secret-ingress-cli/signals",
 }));
 
 // ---------------------------------------------------------------------------
-// Test: The user-message ingress path calls checkIngressForSecrets before
-// calling persistAndProcessMessage. We test the callback behavior directly.
+// Test: CLI signal path uses registerUserMessageCallback which calls
+// checkIngressForSecrets before calling persistAndProcessMessage.
+//
+// We test the callback behavior directly rather than the full signal file
+// flow, since the signal handler is just file I/O around the callback.
 // ---------------------------------------------------------------------------
 
 import { resetAllowlist } from "../security/secret-allowlist.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 
 /**
- * Simulates the user-message ingress path. When a message arrives (via HTTP
- * or any other channel), checkIngressForSecrets runs before persistence.
+ * Simulates the user-message callback registered in DaemonServer.start().
+ * This mirrors the logic in assistant/src/daemon/server.ts lines 512-556.
  */
 function makeUserMessageCallback() {
   const persistAndProcessMessageMock = mock(
