@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { getConfig } from "../../config/loader.js";
@@ -8,11 +9,7 @@ import type { ToolDefinition } from "../../providers/types.js";
 import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
 import { getLogger } from "../../util/logger.js";
-import {
-  getDataDir,
-  getProtectedDir,
-  getWorkspaceDir,
-} from "../../util/platform.js";
+import { getDataDir, getWorkspaceDir } from "../../util/platform.js";
 import { resolveCredentialRef } from "../credentials/resolve.js";
 import {
   getOrStartSession,
@@ -54,7 +51,11 @@ function buildCredentialRefTrace(
  *   entry)
  */
 function buildCesProtectedPaths(): string[] {
-  const paths = [getProtectedDir(), join(getWorkspaceDir(), "data", "db")];
+  // Compute the protected dir path inline to avoid importing
+  // getProtectedDir() — the daemon should not depend on the protected
+  // directory helper. The path is stable: ~/.vellum/protected.
+  const protectedDir = join(homedir(), ".vellum", "protected");
+  const paths = [protectedDir, join(getWorkspaceDir(), "data", "db")];
 
   // CES bootstrap socket directory - block access to the Unix socket that
   // accepts RPC commands from the assistant process.

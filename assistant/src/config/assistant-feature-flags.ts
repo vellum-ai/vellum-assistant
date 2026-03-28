@@ -18,9 +18,9 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-import { getProtectedDir } from "../util/platform.js";
 import { getIsContainerized } from "./env-registry.js";
 import type { AssistantConfig } from "./schema.js";
 
@@ -133,6 +133,10 @@ interface FeatureFlagFileData {
 /**
  * Resolve the path to the feature flag overrides file.
  *
+ * Used only by the remote-values loader to find `feature-flags-remote.json`
+ * in the same directory. The daemon no longer reads overrides from this file
+ * directly — it always goes through the gateway HTTP API.
+ *
  * Docker: `GATEWAY_SECURITY_DIR/feature-flags.json`
  * Local:  `~/.vellum/protected/feature-flags.json`
  */
@@ -141,7 +145,7 @@ function getFeatureFlagOverridesPath(): string {
   if (securityDir) {
     return join(securityDir, "feature-flags.json");
   }
-  return join(getProtectedDir(), "feature-flags.json");
+  return join(homedir(), ".vellum", "protected", "feature-flags.json");
 }
 
 /**
@@ -246,16 +250,30 @@ function loadOverridesFromGateway(): Record<string, boolean> {
 }
 
 /**
- * Load overrides from the appropriate source based on runtime mode.
+ * Load overrides from the gateway HTTP API.
+ *
+ * The daemon always fetches overrides from the gateway — even in local
+ * mode — so that the daemon never reads `protected/feature-flags.json`
+ * directly. In local mode the gateway runs on `127.0.0.1:7830`.
+ *
+ * Falls back to `loadOverridesFromFile()` only when the gateway call
+ * fails AND we are NOT in containerized mode (graceful degradation for
+ * startup races where the gateway hasn't finished booting yet).
+ *
  * Results are cached at module level.
  */
 function loadOverrides(): Record<string, boolean> {
   if (cachedOverrides != null) return cachedOverrides;
 
-  cachedOverrides = getIsContainerized()
-    ? loadOverridesFromGateway()
-    : loadOverridesFromFile();
+  const gatewayOverrides = loadOverridesFromGateway();
+  if (Object.keys(gatewayOverrides).length > 0 || getIsContainerized()) {
+    cachedOverrides = gatewayOverrides;
+    return cachedOverrides;
+  }
 
+  // Graceful fallback: in local mode, if the gateway hasn't started yet
+  // (empty response), read overrides from file as a temporary measure.
+  cachedOverrides = loadOverridesFromFile();
   return cachedOverrides;
 }
 

@@ -6,6 +6,7 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { Minimatch } from "minimatch";
@@ -13,7 +14,6 @@ import { v4 as uuid } from "uuid";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
-import { getProtectedDir } from "../util/platform.js";
 import { getDefaultRuleTemplates } from "./defaults.js";
 import * as trustClient from "./trust-client.js";
 import type {
@@ -128,7 +128,23 @@ function rebuildPatternCache(rules: TrustRule[]): void {
 }
 
 function getTrustPath(): string {
-  return join(getProtectedDir(), "trust.json");
+  return join(getGatewaySecurityDir(), "trust.json");
+}
+
+/**
+ * Resolve the gateway security directory.
+ *
+ * Docker: `GATEWAY_SECURITY_DIR` env var.
+ * Local:  `~/.vellum/protected/` (the gateway reads/writes here directly).
+ *
+ * Used only by the file-based backend, which the gateway process itself
+ * uses to persist trust rules to disk. The daemon never calls this —
+ * it always goes through the GatewayTrustStoreAdapter HTTP client.
+ */
+function getGatewaySecurityDir(): string {
+  const securityDir = process.env.GATEWAY_SECURITY_DIR;
+  if (securityDir) return securityDir;
+  return join(homedir(), ".vellum", "protected");
 }
 
 /**
@@ -1106,8 +1122,11 @@ function getGatewayTrustStore(): GatewayTrustStoreAdapter {
  * proxies all trust operations through the gateway HTTP API. The daemon
  * never reads or writes `protected/trust.json` directly in Docker.
  *
- * When `IS_CONTAINERIZED=false`, returns the file-based implementation
- * (no change from previous behavior).
+ * When `IS_CONTAINERIZED=false`, returns the file-based implementation.
+ *
+ * NOTE: The file-based path no longer imports `getProtectedDir()` — it
+ * computes the path via `getGatewaySecurityDir()` (homedir-based) so
+ * the daemon does not depend on the protected-dir helper.
  */
 export function getTrustStore(): TrustStoreBackend {
   if (getIsContainerized()) {

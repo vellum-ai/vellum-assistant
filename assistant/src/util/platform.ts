@@ -352,17 +352,29 @@ export function getWorkspacePromptPath(file: string): string {
   return join(getWorkspaceDir(), file);
 }
 
+/**
+ * Ensure the protected directory exists. Called by the gateway / CLI
+ * startup — NOT by the daemon, which accesses protected state only
+ * through the gateway HTTP API.
+ *
+ * Skipped automatically in containerized mode (credentials via CES
+ * HTTP API, trust via gateway API with GATEWAY_SECURITY_DIR).
+ */
+export function ensureProtectedDir(): void {
+  if (getIsContainerized()) return;
+  const dir = getProtectedDir();
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+}
+
 export function ensureDataDir(): void {
   const root = vellumRoot();
   const workspace = getWorkspaceDir();
   const wsData = join(workspace, "data");
-  const containerized = getIsContainerized();
   const dirs = [
     // Root-level dirs (runtime)
     root,
-    // protected is local-only — skip in containerized mode
-    // (credentials via CES HTTP API, trust via gateway API)
-    ...(containerized ? [] : [getProtectedDir()]),
     // Workspace dirs
     workspace,
     join(workspace, "signals"),

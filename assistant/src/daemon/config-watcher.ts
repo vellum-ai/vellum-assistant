@@ -1,7 +1,9 @@
 /**
  * File watchers and config reload logic extracted from DaemonServer.
- * Watches workspace files (config, prompts), protected directory
- * (trust rules, secret allowlist), and skills directories for changes.
+ * Watches workspace files (config, prompts) and skills directories
+ * for changes. The daemon no longer watches the protected directory
+ * directly — trust rules and feature flags are fetched via the gateway
+ * HTTP API, which handles its own file watching and cache invalidation.
  */
 import {
   existsSync,
@@ -12,15 +14,10 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { clearFeatureFlagOverridesCache } from "../config/assistant-feature-flags.js";
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import { clearEmbeddingBackendCache } from "../memory/embedding-backend.js";
 import { clearCache as clearTrustCache } from "../permissions/trust-store.js";
 import { initializeProviders } from "../providers/registry.js";
-import {
-  resetAllowlist,
-  validateAllowlistFile,
-} from "../security/secret-allowlist.js";
 import { handleBashSignal } from "../signals/bash.js";
 import { handleCancelSignal } from "../signals/cancel.js";
 import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
@@ -31,7 +28,6 @@ import { handleUserMessageSignal } from "../signals/user-message.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import {
-  getProtectedDir,
   getSignalsDir,
   getWorkspaceDir,
   getWorkspaceSkillsDir,
@@ -116,7 +112,6 @@ export class ConfigWatcher {
    */
   start(onConversationEvict: () => void, onIdentityChanged?: () => void): void {
     const workspaceDir = getWorkspaceDir();
-    const protectedDir = getProtectedDir();
 
     const workspaceHandlers: Record<string, () => void> = {
       "config.json": async () => {
@@ -149,36 +144,6 @@ export class ConfigWatcher {
       "UPDATES.md": () => onConversationEvict(),
     };
 
-    const protectedHandlers: Record<string, () => void> = {
-      "trust.json": () => {
-        clearTrustCache();
-      },
-      "feature-flags.json": () => {
-        clearFeatureFlagOverridesCache();
-        onConversationEvict();
-      },
-      "feature-flags-remote.json": () => {
-        clearFeatureFlagOverridesCache();
-        onConversationEvict();
-      },
-      "secret-allowlist.json": () => {
-        resetAllowlist();
-        try {
-          const errors = validateAllowlistFile();
-          if (errors && errors.length > 0) {
-            for (const e of errors) {
-              log.warn(
-                { index: e.index, pattern: e.pattern },
-                `Invalid regex in secret-allowlist.json: ${e.message}`,
-              );
-            }
-          }
-        } catch (err) {
-          log.warn({ err }, "Failed to validate secret-allowlist.json");
-        }
-      },
-    };
-
     const watchDir = (
       dir: string,
       handlers: Record<string, () => void>,
@@ -209,13 +174,6 @@ export class ConfigWatcher {
       workspaceHandlers,
       "workspace directory for config/prompt changes",
     );
-    if (existsSync(protectedDir)) {
-      watchDir(
-        protectedDir,
-        protectedHandlers,
-        "protected directory for trust/allowlist changes",
-      );
-    }
 
     this.startSignalsWatcher();
     this.startSkillsWatchers(onConversationEvict);
