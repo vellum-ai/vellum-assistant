@@ -368,7 +368,7 @@ describe("classifyConversationError", () => {
         baseCtx,
       );
       expect(result.code).toBe("CONVERSATION_PROCESSING_FAILED");
-      expect(result.retryable).toBe(false);
+      expect(result.retryable).toBe(true);
       expect(result.userMessage).toContain("something completely unexpected");
       expect(result.errorCategory).toBe("processing_failed");
     });
