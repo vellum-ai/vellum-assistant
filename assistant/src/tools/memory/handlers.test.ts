@@ -523,6 +523,40 @@ describe("handleMemoryRecall", () => {
     expect(parsed.sources.recency).toBe(0);
   });
 
+  // ── Source conversation info ───────────────────────────────────────
+  // These tests must come after normal tests and before the error test,
+  // because mock.module replaces the retriever for all subsequent imports.
+
+  test("items include sourceConversationTitle when sourceLabel is present", async () => {
+    mock.module("../../memory/retriever.js", () => ({
+      buildMemoryRecall: async () => ({
+        injectedText: "<memory>test memory</memory>",
+        selectedCount: 2,
+        semanticHits: 2,
+        degraded: false,
+        topCandidates: [
+          { key: "item:abc-1", type: "item", kind: "preference", id: "abc-1", sourceLabel: "API Design Discussion" },
+          { key: "item:abc-2", type: "item", kind: "identity", id: "abc-2" },
+        ],
+      }),
+    }));
+
+    const { handleMemoryRecall: recallWithLabels } =
+      await import("./handlers.js");
+
+    const result = await recallWithLabels({ query: "test" }, TEST_CONFIG);
+    expect(result.isError).toBe(false);
+
+    const parsed = parseResult(result.content);
+    expect(parsed.items).toHaveLength(2);
+
+    // First item has a sourceLabel -> should have sourceConversationTitle
+    expect(parsed.items[0].sourceConversationTitle).toBe("API Design Discussion");
+
+    // Second item has no sourceLabel -> should not have sourceConversationTitle
+    expect(parsed.items[1].sourceConversationTitle).toBeUndefined();
+  });
+
   // ── Error handling ────────────────────────────────────────────────
   // This test must be last: mock.module replaces the retriever for all
   // subsequent imports and cannot be cleanly reverted within the same

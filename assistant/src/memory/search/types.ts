@@ -32,6 +32,7 @@ export interface MemoryRecallCandiateDebug {
   finalScore: number;
   semantic: number;
   recency: number;
+  sourceLabel?: string;
 }
 
 export type DegradationReason =
