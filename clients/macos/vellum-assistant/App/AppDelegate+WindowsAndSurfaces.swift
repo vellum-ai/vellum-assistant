@@ -676,4 +676,14 @@ extension AppDelegate {
         }
         showSettingsWindow(nil)
     }
+
+    /// Triggers the platform login flow (WorkOS) in response to a
+    /// `show_platform_login` event from the daemon.
+    public func showPlatformLogin() {
+        Task {
+            await authManager.loginWithToast(showToast: { [weak self] msg, style in
+                self?.mainWindow?.windowState.showToast(message: msg, style: style)
+            })
+        }
+    }
 }

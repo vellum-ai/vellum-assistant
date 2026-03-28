@@ -202,6 +202,8 @@ extension AppDelegate {
                     }
                 case .navigateSettings(let msg):
                     self.showSettingsTab(msg.tab)
+                case .showPlatformLogin:
+                    self.showPlatformLogin()
                 case .acpPermissionRequest(let msg):
                     if self.acpPermissionWindow == nil {
                         self.acpPermissionWindow = AcpPermissionWindow()

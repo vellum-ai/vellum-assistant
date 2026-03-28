@@ -2703,6 +2703,14 @@ public struct NavigateSettings: Codable, Sendable {
     }
 }
 
+public struct ShowPlatformLogin: Codable, Sendable {
+    public let type: String
+
+    public init(type: String) {
+        self.type = type
+    }
+}
+
 /// Broadcast to connected macOS clients when a notification should be displayed.
 public struct NotificationIntent: Codable, Sendable {
     public let type: String
