@@ -88,7 +88,7 @@ public struct GuardianDecisionBubble: View {
                     if let risk = decision.riskLevel {
                         Text(risk.uppercased())
                             .font(VFont.labelDefault)
-                            .foregroundStyle(.white)
+                            .foregroundStyle(VColor.auxWhite)
                             .padding(.horizontal, VSpacing.sm)
                             .padding(.vertical, VSpacing.xxs)
                             .background(
