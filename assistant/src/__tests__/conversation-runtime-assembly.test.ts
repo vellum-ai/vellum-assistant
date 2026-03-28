@@ -1435,26 +1435,51 @@ describe("injectNowScratchpad", () => {
     content: [{ type: "text", text: "What should I work on?" }],
   };
 
-  test("appends now_scratchpad block to user message", () => {
+  test("inserts now_scratchpad before user content", () => {
     const result = injectNowScratchpad(
       baseUserMessage,
       "Current focus: shipping PR 3",
     );
     expect(result.content.length).toBe(2);
-    // Original content comes first
-    expect((result.content[0] as { type: "text"; text: string }).text).toBe(
-      "What should I work on?",
-    );
-    // Scratchpad is appended (not prepended)
-    const injected = result.content[1];
+    // Scratchpad comes first (before user content)
+    const injected = result.content[0];
     expect(injected.type).toBe("text");
     const text = (injected as { type: "text"; text: string }).text;
     expect(text).toBe(
       "<now_scratchpad>\nCurrent focus: shipping PR 3\n</now_scratchpad>",
     );
+    // Original content comes last
+    expect((result.content[1] as { type: "text"; text: string }).text).toBe(
+      "What should I work on?",
+    );
   });
 
-  test("preserves existing multi-block content and appends at end", () => {
+  test("inserts after memory_context but before user content", () => {
+    const messageWithMemory: Message = {
+      role: "user",
+      content: [
+        { type: "text", text: "<memory_context __injected>\nrecalled notes\n</memory_context>" },
+        { type: "text", text: "What should I work on?" },
+      ],
+    };
+
+    const result = injectNowScratchpad(messageWithMemory, "scratchpad notes");
+    expect(result.content.length).toBe(3);
+    // Memory context stays first
+    expect(
+      (result.content[0] as { type: "text"; text: string }).text,
+    ).toContain("<memory_context");
+    // Scratchpad inserted after memory
+    expect(
+      (result.content[1] as { type: "text"; text: string }).text,
+    ).toContain("<now_scratchpad>");
+    // User content is last
+    expect((result.content[2] as { type: "text"; text: string }).text).toBe(
+      "What should I work on?",
+    );
+  });
+
+  test("preserves existing multi-block content with scratchpad before it", () => {
     const multiBlockMessage: Message = {
       role: "user",
       content: [
@@ -1465,15 +1490,16 @@ describe("injectNowScratchpad", () => {
 
     const result = injectNowScratchpad(multiBlockMessage, "scratchpad notes");
     expect(result.content.length).toBe(3);
-    expect((result.content[0] as { type: "text"; text: string }).text).toBe(
+    // Scratchpad is first (no memory_context to skip)
+    expect(
+      (result.content[0] as { type: "text"; text: string }).text,
+    ).toContain("<now_scratchpad>");
+    expect((result.content[1] as { type: "text"; text: string }).text).toBe(
       "First block",
     );
-    expect((result.content[1] as { type: "text"; text: string }).text).toBe(
+    expect((result.content[2] as { type: "text"; text: string }).text).toBe(
       "Second block",
     );
-    expect(
-      (result.content[2] as { type: "text"; text: string }).text,
-    ).toContain("<now_scratchpad>");
   });
 });
 
@@ -1593,25 +1619,25 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
 
     expect(result.length).toBe(1);
     expect(result[0].content.length).toBe(2);
-    const injected = result[0].content[1];
+    const injected = result[0].content[0];
     const text = (injected as { type: "text"; text: string }).text;
     expect(text).toContain("<now_scratchpad>");
     expect(text).toContain("Current focus: fix the bug");
   });
 
-  test("appended block appears after user's original text content", () => {
+  test("scratchpad appears before user's original text content", () => {
     const result = applyRuntimeInjections(baseMessages, {
       nowScratchpad: "scratchpad notes",
     });
 
-    // Original text is first
+    // Scratchpad comes first (before user content)
     expect(
       (result[0].content[0] as { type: "text"; text: string }).text,
-    ).toBe("What should I do?");
-    // Scratchpad is appended after
+    ).toContain("<now_scratchpad>");
+    // Original text is last
     expect(
       (result[0].content[1] as { type: "text"; text: string }).text,
-    ).toContain("<now_scratchpad>");
+    ).toBe("What should I do?");
   });
 
   test("does not inject when nowScratchpad is null", () => {

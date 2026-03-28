@@ -487,21 +487,42 @@ export function readNowScratchpad(): string | null {
 }
 
 /**
- * Append NOW.md scratchpad content to the last user message so the model
- * has access to the user's ephemeral scratchpad notes at the end of context.
+ * Insert NOW.md scratchpad content into the user message, after any
+ * injected context blocks (e.g. memory_context) but before the user's
+ * original content.  This keeps the user's actual message as the last
+ * thing the model reads.
  */
 export function injectNowScratchpad(
   message: Message,
   content: string,
 ): Message {
+  const scratchpadBlock = {
+    type: "text" as const,
+    text: `<now_scratchpad>\n${content}\n</now_scratchpad>`,
+  };
+
+  // Find insertion point: skip any leading injected-context text blocks
+  // (e.g. memory_context) so the scratchpad lands between injected context
+  // and the user's original content.
+  let insertIdx = 0;
+  for (let i = 0; i < message.content.length; i++) {
+    const block = message.content[i];
+    if (
+      block.type === "text" &&
+      block.text.startsWith("<memory_context")
+    ) {
+      insertIdx = i + 1;
+    } else {
+      break;
+    }
+  }
+
   return {
     ...message,
     content: [
-      ...message.content,
-      {
-        type: "text",
-        text: `<now_scratchpad>\n${content}\n</now_scratchpad>`,
-      },
+      ...message.content.slice(0, insertIdx),
+      scratchpadBlock,
+      ...message.content.slice(insertIdx),
     ],
   };
 }
