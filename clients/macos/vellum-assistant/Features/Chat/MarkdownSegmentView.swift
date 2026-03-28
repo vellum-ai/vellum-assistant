@@ -51,13 +51,12 @@ struct MarkdownSegmentView: View, Equatable {
                         .foregroundStyle(textColor)
                         .tint(tintColor)
                         .optionalMaxWidth(maxContentWidth)
-                        // lineLimit(nil) wraps text in a single measurement pass, avoiding
-                        // the double-measurement that fixedSize causes (measure at ideal
-                        // size, then constrain to proposed width).
+                        // lineLimit(nil) removes the line count limit.
+                        // fixedSize(vertical) forces the Text to use its ideal height,
+                        // preventing LazyVStack from proposing insufficient height for
+                        // very long messages (which causes tail truncation with "...").
                         .lineLimit(nil)
-                        // Text streams at 50ms chunk intervals which is visually smooth;
-                        // the former StreamingFadeRenderer was a no-op that never used its
-                        // animatable data for per-glyph effects, so it was removed.
+                        .fixedSize(horizontal: false, vertical: true)
 
                 case .heading(let level, let headingText):
                     let headingFont: Font = switch level {
@@ -70,8 +69,8 @@ struct MarkdownSegmentView: View, Equatable {
                         .font(headingFont)
                         .foregroundStyle(textColor)
                         .optionalMaxWidth(maxContentWidth)
-                        // lineLimit(nil) avoids the double-measurement from fixedSize.
                         .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, level == 1 ? 4 : 2)
 
                 case .codeBlock(let language, let code):
