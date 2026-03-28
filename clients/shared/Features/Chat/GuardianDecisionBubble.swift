@@ -35,6 +35,18 @@ public struct GuardianDecisionBubble: View {
         }
     }
 
+    /// Maps `decision.riskLevel` to a semantic color for badges and accents.
+    private var riskColor: Color {
+        switch decision.riskLevel?.lowercased() {
+        case "high":
+            return VColor.systemNegativeStrong
+        case "medium":
+            return VColor.systemMidStrong
+        default:
+            return VColor.systemPositiveStrong
+        }
+    }
+
     public var body: some View {
         if isPending {
             pendingContent
@@ -45,6 +57,16 @@ public struct GuardianDecisionBubble: View {
 
     // MARK: - Pending (actionable)
 
+    /// The accent color for the card border and header icon. Uses `riskColor`
+    /// when a risk level is present on a tool_approval; otherwise falls back to
+    /// the kind-derived accent from `headerConfig`.
+    private var cardAccent: Color {
+        if decision.kind == "tool_approval", decision.riskLevel != nil {
+            return riskColor
+        }
+        return headerConfig.accent
+    }
+
     @ViewBuilder
     private var pendingContent: some View {
         let config = headerConfig
@@ -53,18 +75,72 @@ public struct GuardianDecisionBubble: View {
             // Kind-aware header
             HStack(spacing: VSpacing.sm) {
                 VIconView(config.icon, size: 14)
-                    .foregroundStyle(config.accent)
+                    .foregroundStyle(cardAccent)
 
                 Text(config.title)
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentSecondary)
             }
 
-            // Question text (primary interaction prompt)
-            Text(decision.questionText)
-                .font(VFont.bodyMediumEmphasised)
-                .foregroundStyle(VColor.contentDefault)
-                .fixedSize(horizontal: false, vertical: true)
+            // Badge row: risk level + execution target
+            if decision.riskLevel != nil || decision.executionTarget != nil {
+                HStack(spacing: VSpacing.xs) {
+                    if let risk = decision.riskLevel {
+                        Text(risk.uppercased())
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xxs)
+                            .background(
+                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                    .fill(riskColor)
+                            )
+                    }
+
+                    if let target = decision.executionTarget {
+                        Text(target.lowercased() == "host" ? "Host" : "Sandbox")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentSecondary)
+                            .padding(.horizontal, VSpacing.sm)
+                            .padding(.vertical, VSpacing.xxs)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: VRadius.sm)
+                                    .stroke(VColor.contentTertiary.opacity(0.5), lineWidth: 1)
+                            )
+                    }
+                }
+            }
+
+            // Activity text (primary description) — falls back to questionText
+            if let activityText = decision.activityText, !activityText.isEmpty {
+                Text(activityText)
+                    .font(VFont.bodyMediumEmphasised)
+                    .foregroundStyle(VColor.contentDefault)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(decision.questionText)
+                    .font(VFont.bodyMediumEmphasised)
+                    .foregroundStyle(VColor.contentDefault)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // Command preview code block
+            if let preview = decision.commandPreview, !preview.isEmpty {
+                ScrollView {
+                    Text(preview)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(VColor.contentSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: 120)
+                .padding(VSpacing.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .fill(VColor.surfaceOverlay)
+                )
+            }
 
             // Action buttons (primary interaction)
             GuardianApprovalActionRow(
@@ -74,32 +150,9 @@ public struct GuardianDecisionBubble: View {
                 onAction(decision.requestId, action)
             }
 
-            // Secondary metadata: tool name and request code reference
+            // Compact metadata footer: "bash · 8EE295"
             if hasSecondaryMetadata {
-                Divider()
-
-                VStack(alignment: .leading, spacing: VSpacing.xxs) {
-                    if let toolName = decision.toolName, !toolName.isEmpty {
-                        HStack(spacing: VSpacing.xs) {
-                            VIconView(.wrench, size: 10)
-                                .foregroundStyle(VColor.contentTertiary)
-                            Text(toolName)
-                                .font(VFont.bodySmallDefault)
-                                .foregroundStyle(VColor.contentSecondary)
-                        }
-                    }
-
-                    if !decision.requestCode.isEmpty {
-                        HStack(spacing: VSpacing.xs) {
-                            Text("Ref:")
-                                .font(VFont.labelDefault)
-                                .foregroundStyle(VColor.contentTertiary)
-                            Text(decision.requestCode)
-                                .font(VFont.bodySmallDefault)
-                                .foregroundStyle(VColor.contentTertiary)
-                        }
-                    }
-                }
+                metadataFooter
             }
         }
         .padding(VSpacing.md)
@@ -108,10 +161,31 @@ public struct GuardianDecisionBubble: View {
                 .fill(VColor.surfaceOverlay)
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .stroke(config.accent.opacity(0.3), lineWidth: 1)
+                        .stroke(cardAccent.opacity(0.3), lineWidth: 1)
                 )
         )
         .textSelection(.disabled)
+    }
+
+    /// Compact metadata footer showing tool name and request code on a single line.
+    @ViewBuilder
+    private var metadataFooter: some View {
+        let parts: [String] = {
+            var result: [String] = []
+            if let toolName = decision.toolName, !toolName.isEmpty {
+                result.append(toolName)
+            }
+            if !decision.requestCode.isEmpty {
+                result.append(decision.requestCode)
+            }
+            return result
+        }()
+
+        if !parts.isEmpty {
+            Text(parts.joined(separator: " \u{00B7} "))
+                .font(VFont.bodySmallDefault)
+                .foregroundStyle(VColor.contentTertiary)
+        }
     }
 
     private var hasSecondaryMetadata: Bool {
