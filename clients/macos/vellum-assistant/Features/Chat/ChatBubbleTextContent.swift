@@ -56,6 +56,23 @@ extension ChatBubble {
             if let async = asyncSegments[text] {
                 return async
             }
+            // When a message transitions from streaming to non-streaming,
+            // the segment cache won't have the entry (streaming results
+            // go to lastStreamingSegments, not the main cache). Use the
+            // streaming result directly to avoid flashing unformatted
+            // plain text and the expensive synchronous
+            // AttributedString(markdown:) call on the full text while
+            // the async parse runs.
+            if let last = Self.lastStreamingSegments, last.text == text {
+                if text.count <= Self.maxCacheableTextLength {
+                    Self.segmentCache.setObject(
+                        SegmentCacheEntry(last.value),
+                        forKey: text as NSString,
+                        cost: text.utf8.count * 10
+                    )
+                }
+                return last.value
+            }
             // Fast placeholder: single plain-text segment avoids expensive parsing
             return [.text(text)]
         }

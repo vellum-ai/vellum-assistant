@@ -843,13 +843,22 @@ struct MessageListView: View {
                 }
 
                 // --- Push-to-top overflow detection ---
+                // Only clear push-to-top if the pin request succeeds.
+                // When the scroll loop guard is tripped or the user has
+                // detached from bottom, requestBottomPin returns false.
+                // Clearing pushToTopMessageId without a successful pin
+                // removes the tail spacer without the accompanying scroll
+                // adjustment, causing a content-height discontinuity that
+                // makes the scroll position jump.
                 if scrollCoordinator.pushToTopMessageId != nil && distanceFromBottom > 50 {
-                    scrollCoordinator.pushToTopMessageId = nil
-                    scrollCoordinator.requestBottomPin(
+                    let pinned = scrollCoordinator.requestBottomPin(
                         reason: .messageCount,
                         conversationId: conversationId,
                         animated: true
                     )
+                    if pinned {
+                        scrollCoordinator.pushToTopMessageId = nil
+                    }
                 }
 
                 // --- Pagination trigger ---
