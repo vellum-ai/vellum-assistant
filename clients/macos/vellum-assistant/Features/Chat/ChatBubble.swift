@@ -704,28 +704,13 @@ struct ChatBubble: View {
                 }
             }
         }
-        .task(id: "\(message.text)|\(message.isStreaming)") {
-            // Async-parse large messages that missed the synchronous cache
-            let text = message.text
-            guard !message.isStreaming,
-                  text.count > Self.asyncParseThreshold,
-                  Self.segmentCache.object(forKey: text as NSString) == nil,
-                  asyncSegments[text] == nil else { return }
-            let result = await MarkdownParseActor.shared.parse(text)
-            guard !Task.isCancelled else { return }
-            asyncSegments[text] = result
-            // Backfill synchronous cache with cost tracking.
-            // Re-check cache after await to avoid double-inserting when
-            // multiple bubbles parse the same text concurrently.
-            if text.count <= Self.maxCacheableTextLength,
-               Self.segmentCache.object(forKey: text as NSString) == nil {
-                Self.segmentCache.setObject(
-                    SegmentCacheEntry(result),
-                    forKey: text as NSString,
-                    cost: text.utf8.count * 10
-                )
-            }
-        }
+        // NOTE: The per-segment .task(id:) in ChatBubbleTextContent handles
+        // async parsing for each individual text segment. A prior whole-message
+        // .task(id:) here parsed message.text (all segments joined), but
+        // resolveSegments looks up individual segment text — so the whole-message
+        // result was cached under a key never queried, producing only a wasted
+        // @State update and re-render per message. Removed to eliminate the
+        // redundant re-render cycle.
     }
 
     // MARK: - Document Widget

@@ -199,8 +199,8 @@ struct MarkdownSegmentView: View, Equatable {
     /// evaluation. NSCache handles eviction automatically under memory pressure.
     @MainActor private static var attributedStringCache: NSCache<NSNumber, AttributedStringCacheEntry> = {
         let cache = NSCache<NSNumber, AttributedStringCacheEntry>()
-        cache.countLimit = 500
-        cache.totalCostLimit = 5_000_000
+        cache.countLimit = 1_000
+        cache.totalCostLimit = 10_000_000
         return cache
     }()
 
