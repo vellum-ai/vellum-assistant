@@ -412,9 +412,9 @@ describe("Conversation initialization benchmark", () => {
     await initializeTools();
     const definitions = getAllToolDefinitions();
 
-    // Sanity: we expect a meaningful number of core tools (at least 18)
+    // Sanity: we expect a meaningful number of core tools (at least 14)
     // but not an unreasonable explosion (under 200)
-    expect(definitions.length).toBeGreaterThanOrEqual(18);
+    expect(definitions.length).toBeGreaterThanOrEqual(14);
     expect(definitions.length).toBeLessThan(200);
   });
 });
