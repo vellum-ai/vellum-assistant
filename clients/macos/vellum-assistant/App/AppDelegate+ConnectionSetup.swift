@@ -20,15 +20,26 @@ extension AppDelegate {
     /// to the correct assistant.
     ///
     /// Returns the loaded assistant for transport selection, or nil if none found.
+    /// Rejects managed assistants from a different platform environment (e.g.
+    /// dev-platform assistants in a production build) and falls back to the
+    /// first valid current-environment assistant.
     @discardableResult
     func loadAssistantFromLockfile() -> LockfileAssistant? {
         let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let assistant: LockfileAssistant?
+        var assistant: LockfileAssistant?
 
         if let storedId, let found = LockfileAssistant.loadByName(storedId) {
             assistant = found
         } else {
             assistant = LockfileAssistant.loadLatest()
+        }
+
+        // If the resolved assistant is from a different platform environment,
+        // clear the stale stored ID and fall back to any valid assistant.
+        if let resolved = assistant, !resolved.isCurrentEnvironment {
+            log.info("Stored assistant \(resolved.assistantId, privacy: .public) is cross-environment — searching for fallback")
+            UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+            assistant = LockfileAssistant.loadAll().first { $0.isCurrentEnvironment }
         }
 
         guard let assistant else { return nil }

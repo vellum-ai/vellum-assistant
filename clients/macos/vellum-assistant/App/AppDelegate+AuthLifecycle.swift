@@ -25,10 +25,11 @@ extension AppDelegate {
                 // without authentication. Local/remote assistants run independently
                 // of the platform auth session, so the app can open in a logged-out
                 // state and the user can sign in from Settings > General.
+                // Skip managed assistants from a different platform environment.
                 let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
                 let assistant = storedId.flatMap { LockfileAssistant.loadByName($0) }
                     ?? LockfileAssistant.loadLatest()
-                if let assistant, !assistant.isManaged {
+                if let assistant, !assistant.isManaged, assistant.isCurrentEnvironment {
                     log.info("[authFlow] Lockfile has non-managed assistant \(assistant.assistantId) — proceeding to app without auth")
                     proceedToApp()
                 } else {
@@ -46,7 +47,7 @@ extension AppDelegate {
             return
         }
 
-        let hasManagedAssistants = LockfileAssistant.loadAll().contains { $0.isManaged }
+        let hasManagedAssistants = LockfileAssistant.loadAll().contains { $0.isManaged && $0.isCurrentEnvironment }
         let authView: AnyView
 
         if hasManagedAssistants {
@@ -565,7 +566,7 @@ extension AppDelegate {
 
         // Check if other assistants remain in the lockfile.
         // Prefer remote assistants (always reachable), then try waking local ones.
-        let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName }
+        let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName && $0.isCurrentEnvironment }
         if !remaining.isEmpty {
             // Try remote assistants first — they're always reachable
             if let remote = remaining.first(where: { $0.isRemote }) {

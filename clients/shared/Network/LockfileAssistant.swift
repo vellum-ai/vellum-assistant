@@ -95,6 +95,22 @@ public struct LockfileAssistant {
         return normalizedCloud == "vellum" || normalizedCloud == "platform"
     }
 
+    /// Whether this managed assistant belongs to the current build's platform environment.
+    /// Local, remote, and Docker assistants always return true — they are not scoped to a
+    /// specific platform. Managed assistants are compared against the build-time platform URL.
+    public var isCurrentEnvironment: Bool {
+        guard isManaged else { return true }
+        guard let runtimeUrl = runtimeUrl, !runtimeUrl.isEmpty else { return true }
+        let expected = AuthService.resolveBaseURL(
+            environment: ProcessInfo.processInfo.environment,
+            userDefaults: .standard
+        ).lowercased().replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+        let actual = runtimeUrl.lowercased()
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
+        return actual == expected
+    }
+
     /// Whether this assistant is running in Docker.
     public var isDocker: Bool {
         cloud.lowercased() == "docker"
