@@ -97,6 +97,15 @@ mock.module("../../../../util/platform.js", () => ({
   getLogPath: () => join(testDir, "test.log"),
   getWorkspaceDirDisplay: () => testDir,
   getWorkspacePromptPath: (file: string) => join(testDir, file),
+  getProtectedDir: () => join(testDir, "protected"),
+  getExternalDir: () => join(testDir, "external"),
+  getBinDir: () => join(testDir, "bin"),
+  getDotEnvPath: () => join(testDir, ".env"),
+  getDaemonStderrLogPath: () => join(testDir, "daemon-stderr.log"),
+  getDaemonStartupLockPath: () => join(testDir, "daemon-startup.lock"),
+  getFeatureFlagTokenPath: () => join(testDir, "feature-flag-token"),
+  getEmbedWorkerPidPath: () => join(testDir, "embed-worker.pid"),
+  getLegacyRootDir: () => testDir,
   ensureDataDir: () => {},
 }));
 
