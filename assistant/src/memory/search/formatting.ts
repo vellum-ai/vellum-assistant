@@ -1,5 +1,12 @@
+import { eq } from "drizzle-orm";
+
 import { estimateTextTokens } from "../../context/token-estimator.js";
+import { getLogger } from "../../util/logger.js";
+import { getDb } from "../db.js";
+import { memoryItems } from "../schema.js";
 import type { Candidate } from "./types.js";
+
+const log = getLogger("memory-formatting");
 
 /**
  * Escape XML-like tag sequences in recalled text to prevent delimiter injection.
@@ -150,25 +157,91 @@ export function buildMemoryInjection(params: {
 }
 
 /**
+ * Look up the supersession chain for a given superseded item ID.
+ *
+ * Returns the immediate predecessor's statement and timestamp, plus the
+ * total chain depth (how many items were superseded in sequence).
+ * Chain traversal is capped at 10 iterations to prevent infinite loops.
+ */
+export function lookupSupersessionChain(supersededId: string): {
+  previousStatement: string;
+  previousTimestamp: number;
+  chainDepth: number;
+} | null {
+  try {
+    const db = getDb();
+
+    // Look up the immediate predecessor
+    const predecessor = db
+      .select({
+        statement: memoryItems.statement,
+        firstSeenAt: memoryItems.firstSeenAt,
+        supersedes: memoryItems.supersedes,
+      })
+      .from(memoryItems)
+      .where(eq(memoryItems.id, supersededId))
+      .get();
+
+    if (!predecessor) return null;
+
+    // Count chain depth by following supersedes links (cap at 10)
+    let chainDepth = 1;
+    let currentSupersedes = predecessor.supersedes;
+    const MAX_CHAIN_DEPTH = 10;
+
+    while (currentSupersedes && chainDepth < MAX_CHAIN_DEPTH) {
+      const ancestor = db
+        .select({ supersedes: memoryItems.supersedes })
+        .from(memoryItems)
+        .where(eq(memoryItems.id, currentSupersedes))
+        .get();
+
+      if (!ancestor) break;
+      chainDepth++;
+      currentSupersedes = ancestor.supersedes;
+    }
+
+    return {
+      previousStatement: predecessor.statement,
+      previousTimestamp: predecessor.firstSeenAt,
+      chainDepth,
+    };
+  } catch (err) {
+    log.warn({ err }, "Failed to look up supersession chain");
+    return null;
+  }
+}
+
+/**
  * Render a single candidate as an XML element based on its type.
  */
-function renderCandidate(c: Candidate & { sourceLabel?: string }): string {
+function renderCandidate(c: Candidate & { sourceLabel?: string; supersedes?: string }): string {
   const text = escapeXmlTags(c.text);
   const timestamp = formatAbsoluteTime(c.createdAt);
   const fromAttr = c.sourceLabel
     ? ` from="${escapeXmlAttr(c.sourceLabel)}"`
     : "";
 
+  // Build inline supersession suffix for items
+  let supersessionSuffix = "";
+  if (c.type === "item" && c.supersedes) {
+    const chain = lookupSupersessionChain(c.supersedes);
+    if (chain) {
+      const prevTimestamp = formatAbsoluteTime(chain.previousTimestamp);
+      supersessionSuffix = `<supersedes count="${chain.chainDepth}">${escapeXmlTags(chain.previousStatement)} (${prevTimestamp})</supersedes>`;
+    }
+  }
+
   switch (c.type) {
     case "item":
-      return `<item id="item:${escapeXmlAttr(c.id)}" kind="${escapeXmlAttr(c.kind)}" importance="${c.importance.toFixed(2)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}>${text}</item>`;
+      return `<item id="item:${escapeXmlAttr(c.id)}" kind="${escapeXmlAttr(c.kind)}" importance="${c.importance.toFixed(2)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}>${text}${supersessionSuffix}</item>`;
     case "segment":
       return `<segment id="seg:${escapeXmlAttr(c.id)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}>${text}</segment>`;
     case "summary":
       return `<summary id="sum:${escapeXmlAttr(c.id)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}>${text}</summary>`;
     default:
       // media or unknown types — render as item
-      return `<item id="item:${escapeXmlAttr(c.id)}" kind="${escapeXmlAttr(c.kind)}" importance="${c.importance.toFixed(2)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}>${text}</item>`;
+      return `<item id="item:${escapeXmlAttr(c.id)}" kind="${escapeXmlAttr(c.kind)}" importance="${c.importance.toFixed(2)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}>${text}${supersessionSuffix}</item>`;
   }
 }
 

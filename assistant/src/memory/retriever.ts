@@ -45,6 +45,7 @@ export {
   escapeXmlTags,
   formatAbsoluteTime,
   formatRelativeTime,
+  lookupSupersessionChain,
 } from "./search/formatting.js";
 export type {
   DegradationReason,
@@ -446,6 +447,35 @@ export async function buildMemoryRecall(
   // ── Step 6: Enrich with item metadata for staleness ─────────────
   const itemIds = filtered.filter((c) => c.type === "item").map((c) => c.id);
   const itemMetadataMap = enrichItemMetadata(itemIds);
+
+  // ── Step 6b: Enrich item candidates with supersedes data ────────
+  const itemCandidatesForSupersedes = filtered.filter(
+    (c) => c.type === "item",
+  );
+  if (itemCandidatesForSupersedes.length > 0) {
+    try {
+      const db = getDb();
+      const supersedesRows = db
+        .select({ id: memoryItems.id, supersedes: memoryItems.supersedes })
+        .from(memoryItems)
+        .where(
+          inArray(
+            memoryItems.id,
+            itemCandidatesForSupersedes.map((c) => c.id),
+          ),
+        )
+        .all();
+      const supersedesMap = new Map(
+        supersedesRows.map((r) => [r.id, r.supersedes]),
+      );
+      for (const c of itemCandidatesForSupersedes) {
+        const sup = supersedesMap.get(c.id);
+        if (sup) c.supersedes = sup;
+      }
+    } catch (err) {
+      log.warn({ err }, "Failed to enrich candidates with supersedes data");
+    }
+  }
 
   // ── Step 7: Compute staleness per item (for debugging/logging) ─
   const now = Date.now();

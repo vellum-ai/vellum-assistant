@@ -129,7 +129,9 @@ import {
   formatAbsoluteTime,
   formatRelativeTime,
   injectMemoryRecallAsUserBlock,
+  lookupSupersessionChain,
 } from "../memory/retriever.js";
+import { buildMemoryInjection } from "../memory/search/formatting.js";
 import {
   conversations,
   memoryEmbeddings,
@@ -3480,5 +3482,194 @@ describe("Memory regressions", () => {
 
     const context = buildCoreIdentityContext();
     expect(context).toBeNull();
+  });
+
+  // ── Inline supersession rendering tests ──────────────────────────
+
+  test("buildMemoryInjection renders inline supersedes tag for items with supersession chain", () => {
+    const db = getDb();
+    const now = Date.now();
+
+    // Create the superseded (predecessor) item in the DB
+    db.insert(memoryItems)
+      .values({
+        id: "item-predecessor-render",
+        kind: "preference",
+        subject: "color",
+        statement: "Favorite color is blue",
+        status: "active",
+        confidence: 0.9,
+        importance: 0.7,
+        fingerprint: "fp-pred-render",
+        firstSeenAt: now - 86_400_000,
+        lastSeenAt: now - 86_400_000,
+        accessCount: 1,
+        verificationState: "assistant_inferred",
+      })
+      .run();
+
+    const candidate = {
+      key: "item:item-superseding-render",
+      type: "item" as const,
+      id: "item-superseding-render",
+      source: "semantic" as const,
+      text: "Favorite color is green",
+      kind: "preference",
+      confidence: 0.9,
+      importance: 0.8,
+      createdAt: now,
+      semantic: 0.9,
+      recency: 0.8,
+      finalScore: 0.85,
+      supersedes: "item-predecessor-render",
+    };
+
+    const injection = buildMemoryInjection({
+      candidates: [candidate],
+      totalBudgetTokens: 5000,
+    });
+
+    expect(injection).toContain("<supersedes count=");
+    expect(injection).toContain('count="1"');
+    expect(injection).toContain("Favorite color is blue");
+    expect(injection).toContain("</supersedes>");
+    // The supersedes tag should be inside the item tag
+    expect(injection).toMatch(/<item[^>]*>.*<supersedes.*<\/supersedes><\/item>/);
+
+    // Clean up
+    db.delete(memoryItems)
+      .where(eq(memoryItems.id, "item-predecessor-render"))
+      .run();
+  });
+
+  test("lookupSupersessionChain counts chain depth correctly", () => {
+    const db = getDb();
+    const now = Date.now();
+    const MS_PER_DAY = 86_400_000;
+
+    // Create a chain of 3 items: grandparent → parent → child
+    db.insert(memoryItems)
+      .values({
+        id: "item-chain-grandparent",
+        kind: "fact",
+        subject: "address",
+        statement: "Lives at 123 Main St",
+        status: "active",
+        confidence: 0.8,
+        importance: 0.6,
+        fingerprint: "fp-chain-gp",
+        firstSeenAt: now - 3 * MS_PER_DAY,
+        lastSeenAt: now - 3 * MS_PER_DAY,
+        accessCount: 1,
+        verificationState: "assistant_inferred",
+      })
+      .run();
+
+    db.insert(memoryItems)
+      .values({
+        id: "item-chain-parent",
+        kind: "fact",
+        subject: "address",
+        statement: "Lives at 456 Oak Ave",
+        status: "active",
+        confidence: 0.8,
+        importance: 0.6,
+        fingerprint: "fp-chain-p",
+        supersedes: "item-chain-grandparent",
+        firstSeenAt: now - 2 * MS_PER_DAY,
+        lastSeenAt: now - 2 * MS_PER_DAY,
+        accessCount: 1,
+        verificationState: "assistant_inferred",
+      })
+      .run();
+
+    db.insert(memoryItems)
+      .values({
+        id: "item-chain-child",
+        kind: "fact",
+        subject: "address",
+        statement: "Lives at 789 Pine Blvd",
+        status: "active",
+        confidence: 0.9,
+        importance: 0.7,
+        fingerprint: "fp-chain-c",
+        supersedes: "item-chain-parent",
+        firstSeenAt: now - 1 * MS_PER_DAY,
+        lastSeenAt: now - 1 * MS_PER_DAY,
+        accessCount: 1,
+        verificationState: "assistant_inferred",
+      })
+      .run();
+
+    // Look up from the child's perspective (supersedes parent)
+    const result = lookupSupersessionChain("item-chain-parent");
+    expect(result).not.toBeNull();
+    expect(result!.previousStatement).toBe("Lives at 456 Oak Ave");
+    expect(result!.previousTimestamp).toBe(now - 2 * MS_PER_DAY);
+    // Chain: parent → grandparent = depth 2
+    expect(result!.chainDepth).toBe(2);
+
+    // Look up direct predecessor (grandparent has no supersedes)
+    const gpResult = lookupSupersessionChain("item-chain-grandparent");
+    expect(gpResult).not.toBeNull();
+    expect(gpResult!.previousStatement).toBe("Lives at 123 Main St");
+    expect(gpResult!.chainDepth).toBe(1);
+
+    // Non-existent ID returns null
+    const nullResult = lookupSupersessionChain("item-nonexistent");
+    expect(nullResult).toBeNull();
+
+    // Clean up
+    db.delete(memoryItems)
+      .where(eq(memoryItems.id, "item-chain-child"))
+      .run();
+    db.delete(memoryItems)
+      .where(eq(memoryItems.id, "item-chain-parent"))
+      .run();
+    db.delete(memoryItems)
+      .where(eq(memoryItems.id, "item-chain-grandparent"))
+      .run();
+  });
+
+  test("escapeXmlTags escapes memory_context, recalled, and item delimiter tags", () => {
+    // Verify new tag vocabulary is escaped by the existing generic escaper
+    expect(escapeXmlTags("</memory_context>")).toBe("\uFF1C/memory_context>");
+    expect(escapeXmlTags("</recalled>")).toBe("\uFF1C/recalled>");
+    expect(escapeXmlTags("</item>")).toBe("\uFF1C/item>");
+    expect(escapeXmlTags("</segment>")).toBe("\uFF1C/segment>");
+    expect(escapeXmlTags("</supersedes>")).toBe("\uFF1C/supersedes>");
+    expect(escapeXmlTags("</echoes>")).toBe("\uFF1C/echoes>");
+
+    // Opening tags too
+    expect(escapeXmlTags("<memory_context>")).toBe("\uFF1Cmemory_context>");
+    expect(escapeXmlTags("<recalled>")).toBe("\uFF1Crecalled>");
+    expect(escapeXmlTags("<item>")).toBe("\uFF1Citem>");
+  });
+
+  test("buildMemoryInjection renders items without supersedes normally", () => {
+    const now = Date.now();
+    const candidate = {
+      key: "item:item-no-supersedes",
+      type: "item" as const,
+      id: "item-no-supersedes",
+      source: "semantic" as const,
+      text: "User prefers dark mode",
+      kind: "preference",
+      confidence: 0.9,
+      importance: 0.8,
+      createdAt: now,
+      semantic: 0.9,
+      recency: 0.8,
+      finalScore: 0.85,
+    };
+
+    const injection = buildMemoryInjection({
+      candidates: [candidate],
+      totalBudgetTokens: 5000,
+    });
+
+    expect(injection).toContain("User prefers dark mode");
+    expect(injection).not.toContain("<supersedes");
+    expect(injection).not.toContain("</supersedes>");
   });
 });
