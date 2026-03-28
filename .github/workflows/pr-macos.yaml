@@ -206,6 +206,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
       - name: Generate GitHub App token
         if: github.event.pull_request.head.repo.full_name == github.repository
         id: app-token
