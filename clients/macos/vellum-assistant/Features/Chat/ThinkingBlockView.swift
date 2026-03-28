@@ -25,6 +25,7 @@ struct ThinkingBlockView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(VSpacing.sm)
                 }
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxHeight: 300)
             }
         }
