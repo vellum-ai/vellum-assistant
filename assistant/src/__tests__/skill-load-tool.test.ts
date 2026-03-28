@@ -50,6 +50,20 @@ const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
   getPlatformName: () => process.platform,
+  getWorkspaceDirDisplay: () => "~/.vellum/workspace",
+  getConversationsDir: () => join(TEST_DIR, "conversations"),
+  getProtectedDir: () => join(TEST_DIR, "protected"),
+  ensureProtectedDir: () => {},
+  getSignalsDir: () => join(TEST_DIR, "workspace", "signals"),
+  getDaemonStderrLogPath: () => join(TEST_DIR, "logs", "daemon-stderr.log"),
+  getDaemonStartupLockPath: () => join(TEST_DIR, "daemon-startup.lock"),
+  getFeatureFlagTokenPath: () => join(TEST_DIR, "feature-flag-token"),
+  getExternalDir: () => join(TEST_DIR, "external"),
+  getBinDir: () => join(TEST_DIR, "bin"),
+  getDotEnvPath: () => join(TEST_DIR, ".env"),
+  getEmbedWorkerPidPath: () => join(TEST_DIR, "embed-worker.pid"),
+  getLegacyRootDir: () => TEST_DIR,
+  getSoundsDir: () => join(TEST_DIR, "sounds"),
 };
 mock.module("../util/platform.js", () => platformOverrides);
 
