@@ -395,12 +395,6 @@ export interface BuildExportVBundleOptions {
   /** Absolute path to trust.json. If provided and the file exists, it is included in the archive. */
   trustPath?: string;
   /**
-   * Pre-serialized trust.json content. When provided, this is used instead
-   * of reading from `trustPath`. Allows callers (e.g. the daemon) to fetch
-   * trust rules via the gateway API without direct protected-dir access.
-   */
-  trustData?: Uint8Array;
-  /**
    * Absolute path to the hooks directory. Previously hooks lived outside the
    * workspace at ~/.vellum/hooks/ and needed explicit inclusion. Now hooks
    * live under workspace (~/.vellum/workspace/hooks/) and are included in
@@ -442,15 +436,8 @@ export interface BuildExportVBundleOptions {
 export function buildExportVBundle(
   options: BuildExportVBundleOptions,
 ): BuildVBundleResult {
-  const {
-    source,
-    description,
-    checkpoint,
-    trustPath,
-    trustData,
-    workspaceDir,
-    hooksDir,
-  } = options;
+  const { source, description, checkpoint, trustPath, workspaceDir, hooksDir } =
+    options;
 
   // Flush WAL to the main database file before reading so the export
   // captures all committed rows (SQLite WAL mode keeps recent writes
@@ -481,13 +468,10 @@ export function buildExportVBundle(
     files.push(...walkDirectory(hooksDir, "hooks"));
   }
 
-  // Include trust rules — prefer pre-serialized trustData (gateway-sourced)
-  // over reading from disk (trustPath). Only one should be provided.
-  if (trustData) {
+  // Include trust rules if the file exists (lives in protected/, outside workspace).
+  if (trustPath && existsSync(trustPath)) {
+    const trustData = new Uint8Array(readFileSync(trustPath));
     files.push({ path: "trust/trust.json", data: trustData });
-  } else if (trustPath && existsSync(trustPath)) {
-    const fileData = new Uint8Array(readFileSync(trustPath));
-    files.push({ path: "trust/trust.json", data: fileData });
   }
 
   return buildVBundle({

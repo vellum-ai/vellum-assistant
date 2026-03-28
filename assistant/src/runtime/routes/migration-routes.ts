@@ -18,11 +18,7 @@ import { z } from "zod";
 import { invalidateConfigCache } from "../../config/loader.js";
 import { getDb, resetDb } from "../../memory/db-connection.js";
 import { validateMigrationState } from "../../memory/migrations/validate-migration-state.js";
-import {
-  clearCache as clearTrustCache,
-  getAllRules,
-  isStarterBundleAccepted,
-} from "../../permissions/trust-store.js";
+import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getDbPath,
@@ -146,31 +142,13 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
   }
 
   try {
-    // Fetch trust rules via the trust store (gateway HTTP API in containerized
-    // mode, file-based in local mode) rather than reading trust.json directly.
-    // This keeps the daemon decoupled from the protected directory.
-    let trustData: Uint8Array | undefined;
-    try {
-      const rules = getAllRules();
-      if (rules.length > 0 || isStarterBundleAccepted()) {
-        const trustFile = {
-          version: 3,
-          rules,
-          ...(isStarterBundleAccepted() ? { starterBundleAccepted: true } : {}),
-        };
-        trustData = new TextEncoder().encode(
-          JSON.stringify(trustFile, null, 2),
-        );
-      }
-    } catch (err) {
-      log.warn(
-        { err },
-        "Failed to fetch trust rules for export — trust.json will be omitted from bundle",
-      );
-    }
+    // Trust rules are NOT included in daemon-produced exports. The daemon no
+    // longer has access to the protected directory, and the import handler
+    // passes protectedDir=undefined so trust/trust.json entries would be
+    // silently dropped (creating a false UNKNOWN_ARCHIVE_PATH conflict in
+    // preflight). Trust rules are managed by the CES/gateway layer.
 
     const { archive, manifest } = buildExportVBundle({
-      trustData,
       // hooksDir is intentionally omitted — hooks now live under workspace/hooks/
       // and are included in the workspace walk. Passing hooksDir separately would
       // export them twice (once as workspace/hooks/... and again as hooks/...).
