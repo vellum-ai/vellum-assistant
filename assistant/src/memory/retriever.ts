@@ -409,11 +409,12 @@ export async function buildMemoryRecall(
           }
 
           // Filter items whose ALL sources are in-context
+          const contextIds = inContextMessageIds;
           for (const [key, c] of candidateMap) {
             if (c.type !== "item") continue;
             const sourceMessageIds = itemSourceMap.get(c.id);
             if (!sourceMessageIds || sourceMessageIds.length === 0) continue;
-            if (sourceMessageIds.every((mid) => inContextMessageIds.has(mid))) {
+            if (sourceMessageIds.every((mid) => contextIds.has(mid))) {
               candidateMap.delete(key);
             }
           }
@@ -434,7 +435,7 @@ export async function buildMemoryRecall(
     // relevance but can't substitute for it. An irrelevant item (semantic ≈ 0)
     // stays low regardless of metadata. Multiplier range: 0.35 (all zero) to 1.0.
     const metadataMultiplier =
-      0.35 + c.importance * 0.30 + c.confidence * 0.10 + c.recency * 0.25;
+      0.35 + c.importance * 0.3 + c.confidence * 0.1 + c.recency * 0.25;
     c.finalScore = c.semantic * metadataMultiplier;
   }
   allCandidates.sort((a, b) => b.finalScore - a.finalScore);
@@ -466,9 +467,7 @@ export async function buildMemoryRecall(
   const itemMetadataMap = enrichItemMetadata(itemIds);
 
   // ── Step 6b: Enrich item candidates with supersedes data ────────
-  const itemCandidatesForSupersedes = filtered.filter(
-    (c) => c.type === "item",
-  );
+  const itemCandidatesForSupersedes = filtered.filter((c) => c.type === "item");
   if (itemCandidatesForSupersedes.length > 0) {
     try {
       const db = getDb();
@@ -932,12 +931,7 @@ function sampleSerendipityItems(
           firstSeenAt: memoryItems.firstSeenAt,
         })
         .from(memoryItems)
-        .where(
-          and(
-            eq(memoryItems.status, "active"),
-            scopeCondition,
-          ),
-        )
+        .where(and(eq(memoryItems.status, "active"), scopeCondition))
         .orderBy(sql`RANDOM()`)
         .limit(RANDOM_POOL_SIZE)
         .all();
@@ -956,20 +950,22 @@ function sampleSerendipityItems(
       .slice(0, count);
 
     // Convert to Candidate-compatible objects
-    return weighted.map(({ row }): TieredCandidate => ({
-      type: "item",
-      id: row.id,
-      key: `item:${row.id}`,
-      kind: row.kind,
-      text: row.statement,
-      source: "semantic",
-      importance: row.importance ?? 0.5,
-      confidence: 1,
-      semantic: 0,
-      recency: 0,
-      finalScore: 0,
-      createdAt: row.firstSeenAt,
-    }));
+    return weighted.map(
+      ({ row }): TieredCandidate => ({
+        type: "item",
+        id: row.id,
+        key: `item:${row.id}`,
+        kind: row.kind,
+        text: row.statement,
+        source: "semantic",
+        importance: row.importance ?? 0.5,
+        confidence: 1,
+        semantic: 0,
+        recency: 0,
+        finalScore: 0,
+        createdAt: row.firstSeenAt,
+      }),
+    );
   } catch (err) {
     log.warn({ err }, "Failed to sample serendipity items");
     return [];
