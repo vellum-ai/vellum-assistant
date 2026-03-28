@@ -9,7 +9,6 @@ import {
   getDataDir,
   getDbPath,
   getHistoryPath,
-  getHooksDir,
   getInterfacesDir,
   getLogPath,
   getPidPath,
@@ -60,22 +59,22 @@ describe("baseline path characterization (pre-migration)", () => {
     expect(getSandboxRootDir()).toBe(join(data, "sandbox"));
     expect(getSandboxWorkingDir()).toBe(join(root, "workspace"));
 
-    // Hooks remain outside the workspace sandbox boundary
-    expect(getHooksDir()).toBe(join(root, "hooks"));
+    // Hooks now live under workspace
+    expect(getWorkspaceHooksDir()).toBe(join(root, "workspace", "hooks"));
 
     // STAYS ROOT — runtime files remain at ~/.vellum/
     expect(getPidPath()).toBe(join(root, "vellum.pid"));
   });
 
-  test("hooks directory is outside the sandbox boundary", () => {
+  test("hooks directory is inside the workspace boundary", () => {
     const base = join(
       tmpdir(),
       `platform-test-${randomBytes(4).toString("hex")}`,
     );
     process.env.BASE_DATA_DIR = base;
-    const hooksDir = getHooksDir();
-    const sandboxDir = getSandboxWorkingDir();
-    expect(hooksDir.startsWith(sandboxDir)).toBe(false);
+    const hooksDir = getWorkspaceHooksDir();
+    const workspaceDir = getWorkspaceDir();
+    expect(hooksDir.startsWith(workspaceDir)).toBe(true);
   });
 
   test("ensureDataDir creates all expected directories", () => {
@@ -100,7 +99,7 @@ describe("baseline path characterization (pre-migration)", () => {
 
     // Workspace dirs
     expect(existsSync(ws)).toBe(true);
-    expect(existsSync(join(getRootDir(), "hooks"))).toBe(true);
+    expect(existsSync(join(ws, "hooks"))).toBe(true);
     expect(existsSync(join(ws, "skills"))).toBe(true);
 
     // Data sub-dirs under workspace

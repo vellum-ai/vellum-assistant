@@ -213,10 +213,6 @@ export function getHistoryPath(): string {
   return join(getDataDir(), "history");
 }
 
-export function getHooksDir(): string {
-  return join(getRootDir(), "hooks");
-}
-
 /** Returns ~/.vellum/workspace/signals — the directory for IPC signal files. */
 export function getSignalsDir(): string {
   return join(getWorkspaceDir(), "signals");
@@ -293,12 +289,13 @@ export function ensureDataDir(): void {
   const dirs = [
     // Root-level dirs (runtime)
     root,
-    // protected, hooks are local-only — skip in containerized mode
+    // protected is local-only — skip in containerized mode
     // (credentials via CES HTTP API, trust via gateway API)
-    ...(containerized ? [] : [join(root, "protected"), join(root, "hooks")]),
+    ...(containerized ? [] : [join(root, "protected")]),
     // Workspace dirs
     workspace,
     join(workspace, "signals"),
+    join(workspace, "hooks"),
     join(workspace, "skills"),
     join(workspace, "embedding-models"),
     join(workspace, "conversations"),

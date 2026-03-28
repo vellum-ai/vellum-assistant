@@ -11,7 +11,7 @@ import { join } from "node:path";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { pathExists } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
-import { getHooksDir } from "../util/platform.js";
+import { getWorkspaceHooksDir } from "../util/platform.js";
 import { ensureHookInConfig } from "./config.js";
 
 const log = getLogger("hooks-templates");
@@ -30,7 +30,7 @@ export function installTemplates(): void {
   );
   if (!pathExists(templatesDir)) return;
 
-  const hooksDir = getHooksDir();
+  const hooksDir = getWorkspaceHooksDir();
   const entries = readdirSync(templatesDir, {
     withFileTypes: true,
   }) as Dirent[];

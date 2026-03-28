@@ -9,10 +9,10 @@ import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
 import { isHttpHealthy } from "../../daemon/daemon-control.js";
 import {
   getDbPath,
-  getHooksDir,
   getLogPath,
   getRootDir,
   getWorkspaceDir,
+  getWorkspaceHooksDir,
   getWorkspaceSkillsDir,
 } from "../../util/platform.js";
 import { getProviderKeyViaDaemon } from "../lib/daemon-credential-client.js";
@@ -139,7 +139,7 @@ Examples:
         `${dataDir}/db`,
         `${dataDir}/logs`,
         getWorkspaceSkillsDir(),
-        getHooksDir(),
+        getWorkspaceHooksDir(),
         `${rootDir}/protected`,
       ];
       const missing = requiredDirs.filter((d) => !existsSync(d));

@@ -5,7 +5,7 @@ import { Command } from "commander";
 
 import { pathExists } from "../util/fs.js";
 import { getCliLogger } from "../util/logger.js";
-import { getHooksDir } from "../util/platform.js";
+import { getWorkspaceHooksDir } from "../util/platform.js";
 import { ensureHookInConfig, removeHook, setHookEnabled } from "./config.js";
 import { discoverHooks, isValidInstallManifest } from "./discovery.js";
 
@@ -171,7 +171,7 @@ Examples:
         process.exit(1);
       }
 
-      const hooksDir = getHooksDir();
+      const hooksDir = getWorkspaceHooksDir();
       const resolvedHooksDir = resolve(hooksDir);
       const targetDir = resolve(join(hooksDir, manifest.name));
       if (!targetDir.startsWith(resolvedHooksDir + sep)) {

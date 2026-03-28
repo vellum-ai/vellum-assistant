@@ -18,6 +18,7 @@ import { rekeyCompoundCredentialKeysMigration } from "./018-rekey-compound-crede
 import { scopeJournalToGuardianMigration } from "./019-scope-journal-to-guardian.js";
 import { renameOauthSkillDirsMigration } from "./020-rename-oauth-skill-dirs.js";
 import { moveSignalsToWorkspaceMigration } from "./021-move-signals-to-workspace.js";
+import { moveHooksToWorkspaceMigration } from "./022-move-hooks-to-workspace.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -47,4 +48,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   scopeJournalToGuardianMigration,
   renameOauthSkillDirsMigration,
   moveSignalsToWorkspaceMigration,
+  moveHooksToWorkspaceMigration,
 ];
