@@ -215,6 +215,10 @@ export interface ShowPlatformLogin {
   type: "show_platform_login";
 }
 
+export interface PlatformDisconnected {
+  type: "platform_disconnected";
+}
+
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _IntegrationsClientMessages =
@@ -242,4 +246,5 @@ export type _IntegrationsServerMessages =
   | OAuthConnectResultResponse
   | OpenUrl
   | NavigateSettings
-  | ShowPlatformLogin;
+  | ShowPlatformLogin
+  | PlatformDisconnected;

@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -82,7 +82,16 @@ mock.module("../../../../util/platform.js", () => ({
   getWorkspaceHooksDir: () => join(testDir, "workspace", "hooks"),
   getWorkspaceConfigPath: () => join(testDir, "workspace", "config.json"),
   getHooksDir: () => join(testDir, "hooks"),
+  getProtectedDir: () => join(testDir, "protected"),
   getSignalsDir: () => join(testDir, "signals"),
+  getDaemonStderrLogPath: () => join(testDir, "daemon-stderr.log"),
+  getDaemonStartupLockPath: () => join(testDir, "daemon-startup.lock"),
+  getFeatureFlagTokenPath: () => join(testDir, "ff-token"),
+  getExternalDir: () => join(testDir, "external"),
+  getBinDir: () => join(testDir, "bin"),
+  getDotEnvPath: () => join(testDir, ".env"),
+  getEmbedWorkerPidPath: () => join(testDir, "embed-worker.pid"),
+  getLegacyRootDir: () => join(testDir, "legacy"),
   getConversationsDir: () => join(testDir, "conversations"),
   getEmbeddingModelsDir: () => join(testDir, "models"),
   getSandboxRootDir: () => join(testDir, "sandbox"),
@@ -233,5 +242,11 @@ describe("assistant platform disconnect", () => {
     expect(deletedNames).toContain("vellum:platform_assistant_id");
     expect(deletedNames).toContain("vellum:platform_organization_id");
     expect(deletedNames).toContain("vellum:platform_user_id");
+
+    // AND a platform_disconnected signal was emitted for connected clients
+    const signalPath = join(testDir, "signals", "emit-event");
+    expect(existsSync(signalPath)).toBe(true);
+    const signal = JSON.parse(readFileSync(signalPath, "utf-8"));
+    expect(signal).toEqual({ type: "platform_disconnected" });
   });
 });
