@@ -498,7 +498,7 @@ export function injectNowScratchpad(
 ): Message {
   const scratchpadBlock = {
     type: "text" as const,
-    text: `<now_scratchpad>\n${content}\n</now_scratchpad>`,
+    text: `<NOW.md Always keep this up to date>\n${content}\n</NOW.md>`,
   };
 
   // Find insertion point: skip any leading injected-context text blocks
@@ -527,9 +527,12 @@ export function injectNowScratchpad(
   };
 }
 
-/** Strip `<now_scratchpad>` blocks injected by `injectNowScratchpad`. */
+/** Strip `<NOW.md>` blocks injected by `injectNowScratchpad`. */
 export function stripNowScratchpad(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, ["<now_scratchpad>"]);
+  return stripUserTextBlocksByPrefix(messages, [
+    "<NOW.md",
+    "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
+  ]);
 }
 
 /**
@@ -1055,7 +1058,8 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<active_workspace>",
   "<active_dynamic_page>",
   "<non_interactive_context>",
-  "<now_scratchpad>",
+  "<NOW.md",
+  "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
   "<transport_hints>",
 ];
 
