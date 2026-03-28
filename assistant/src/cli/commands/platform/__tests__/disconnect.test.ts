@@ -21,11 +21,19 @@ let mockDeleteSecureKeyViaDaemonCalls: Array<{
 let mockDeleteSecureKeyViaDaemonResult: "deleted" | "not-found" | "error" =
   "deleted";
 
-let mockShouldUsePlatformCallbacks = false;
+let mockIsPlatformRemote = false;
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
+
+mock.module("../../../../config/env-registry.js", () => ({
+  getIsContainerized: () => false,
+  isPlatformRemote: () => mockIsPlatformRemote,
+  getDebugStdoutLogs: () => false,
+  getWorkspaceDirOverride: () => undefined,
+  checkUnrecognizedEnvVars: () => [],
+}));
 
 mock.module("../../../../inbound/platform-callback-registration.js", () => ({
   resolvePlatformCallbackRegistrationContext: async () => ({
@@ -38,7 +46,7 @@ mock.module("../../../../inbound/platform-callback-registration.js", () => ({
     enabled: false,
   }),
   registerCallbackRoute: async () => "",
-  shouldUsePlatformCallbacks: () => mockShouldUsePlatformCallbacks,
+  shouldUsePlatformCallbacks: () => false,
   resolveCallbackUrl: async () => "",
 }));
 
@@ -198,7 +206,7 @@ describe("assistant platform disconnect", () => {
     mockGetSecureKeyViaDaemon = async () => undefined;
     mockDeleteSecureKeyViaDaemonCalls = [];
     mockDeleteSecureKeyViaDaemonResult = "deleted";
-    mockShouldUsePlatformCallbacks = false;
+    mockIsPlatformRemote = false;
     process.exitCode = 0;
   });
 
@@ -260,7 +268,7 @@ describe("assistant platform disconnect", () => {
      */
 
     // GIVEN the assistant is running inside a platform host
-    mockShouldUsePlatformCallbacks = true;
+    mockIsPlatformRemote = true;
 
     // WHEN the disconnect command is run with --json
     const { exitCode, stdout } = await runCommand([

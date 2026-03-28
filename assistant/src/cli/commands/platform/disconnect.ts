@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import type { Command } from "commander";
 
-import { shouldUsePlatformCallbacks } from "../../../inbound/platform-callback-registration.js";
+import { isPlatformRemote } from "../../../config/env-registry.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSignalsDir } from "../../../util/platform.js";
 import {
@@ -53,7 +53,7 @@ Examples:
         // ---------------------------------------------------------------
         // 1. Reject if running inside a platform host
         // ---------------------------------------------------------------
-        if (shouldUsePlatformCallbacks()) {
+        if (isPlatformRemote()) {
           writeError(
             "Cannot disconnect from the platform on a platform-hosted assistant.",
           );
