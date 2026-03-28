@@ -19,10 +19,10 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { getLogger } from "../../util/logger.js";
-import { getProtectedDir } from "../../util/platform.js";
 import { CURRENT_POLICY_EPOCH, isStaleEpoch } from "./policy.js";
 import type { ScopeProfile, TokenAudience, TokenClaims } from "./types.js";
 
@@ -35,11 +35,27 @@ const log = getLogger("token-service");
 let _authSigningKey: Buffer | undefined;
 
 /**
+ * Resolve the gateway security directory (same logic as trust-store.ts).
+ *
+ * Docker: `GATEWAY_SECURITY_DIR` env var.
+ * Local:  falls back to `~/.vellum/protected/`.
+ */
+function getSecurityDir(): string {
+  return (
+    process.env.GATEWAY_SECURITY_DIR || join(homedir(), ".vellum", "protected")
+  );
+}
+
+/**
  * Path to the persisted signing key file.
- * Stored in the protected directory alongside other sensitive material.
+ * Stored in the security directory alongside other sensitive material.
+ *
+ * Used by CLI commands that need to read/create the signing key directly
+ * (e.g. daemon-credential-client, conversations, browser-relay).
+ * The daemon itself receives the key via the ACTOR_TOKEN_SIGNING_KEY env var.
  */
 function getSigningKeyPath(): string {
-  return join(getProtectedDir(), "actor-token-signing-key");
+  return join(getSecurityDir(), "actor-token-signing-key");
 }
 
 /**
@@ -95,11 +111,15 @@ export function loadOrCreateSigningKey(): Buffer {
 }
 
 /**
- * Resolve the signing key for the current environment.
+ * Resolve the signing key for the daemon.
  *
- * Resolution order:
- *   1. ACTOR_TOKEN_SIGNING_KEY env var (hex-encoded, set by CLI for Docker)
- *   2. File-based load/create (~/.vellum/protected/actor-token-signing-key)
+ * The daemon always reads the key from the `ACTOR_TOKEN_SIGNING_KEY` env
+ * var (hex-encoded, 64 chars). The CLI launcher sets this env var by
+ * calling `loadOrCreateSigningKey()` before spawning the daemon process.
+ * In Docker, the gateway bootstraps the key and injects the env var.
+ *
+ * Falls back to `loadOrCreateSigningKey()` only as a transitional measure
+ * for callers that have not yet been updated to set the env var.
  */
 export function resolveSigningKey(): Buffer {
   const envKey = process.env.ACTOR_TOKEN_SIGNING_KEY;
@@ -113,6 +133,12 @@ export function resolveSigningKey(): Buffer {
     return Buffer.from(envKey, "hex");
   }
 
+  // Transitional fallback: read from disk if env var is not set.
+  // Once all launchers set ACTOR_TOKEN_SIGNING_KEY, this path can be removed.
+  log.warn(
+    "ACTOR_TOKEN_SIGNING_KEY env var not set — falling back to file-based key. " +
+      "This is a transitional path; future versions will require the env var.",
+  );
   return loadOrCreateSigningKey();
 }
 

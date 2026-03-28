@@ -11,7 +11,6 @@
  * results with is_valid flag and detailed error descriptions.
  */
 
-import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
 import { z } from "zod";
@@ -19,11 +18,14 @@ import { z } from "zod";
 import { invalidateConfigCache } from "../../config/loader.js";
 import { getDb, resetDb } from "../../memory/db-connection.js";
 import { validateMigrationState } from "../../memory/migrations/validate-migration-state.js";
-import { clearCache as clearTrustCache } from "../../permissions/trust-store.js";
+import {
+  clearCache as clearTrustCache,
+  getAllRules,
+  isStarterBundleAccepted,
+} from "../../permissions/trust-store.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getDbPath,
-  getProtectedDir,
   getWorkspaceDir,
   getWorkspaceHooksDir,
 } from "../../util/platform.js";
@@ -144,8 +146,27 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
   }
 
   try {
+    // Fetch trust rules via the trust store (gateway HTTP API in containerized
+    // mode, file-based in local mode) rather than reading trust.json directly.
+    // This keeps the daemon decoupled from the protected directory.
+    let trustData: Uint8Array | undefined;
+    try {
+      const rules = getAllRules();
+      const trustFile = {
+        version: 3,
+        rules,
+        ...(isStarterBundleAccepted() ? { starterBundleAccepted: true } : {}),
+      };
+      trustData = new TextEncoder().encode(JSON.stringify(trustFile, null, 2));
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to fetch trust rules for export — trust.json will be omitted from bundle",
+      );
+    }
+
     const { archive, manifest } = buildExportVBundle({
-      trustPath: join(getProtectedDir(), "trust.json"),
+      trustData,
       // hooksDir is intentionally omitted — hooks now live under workspace/hooks/
       // and are included in the workspace walk. Passing hooksDir separately would
       // export them twice (once as workspace/hooks/... and again as hooks/...).
@@ -303,9 +324,12 @@ export async function handleMigrationImportPreflight(
       });
     }
 
-    // Step 2: Analyze what would change on import
+    // Step 2: Analyze what would change on import.
+    // protectedDir is undefined — the daemon does not write to the protected
+    // directory. Trust.json entries from old-format bundles will be reported
+    // as "skip". New-format bundles use workspace/ prefix exclusively.
     const pathResolver = new DefaultPathResolver(
-      getProtectedDir(),
+      undefined,
       getWorkspaceDir(),
       getWorkspaceHooksDir(),
     );
@@ -387,8 +411,10 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
       });
     }
 
+    // protectedDir is undefined — the daemon does not write to the protected
+    // directory. Trust.json entries from old-format bundles will be skipped.
     const pathResolver = new DefaultPathResolver(
-      getProtectedDir(),
+      undefined,
       getWorkspaceDir(),
       getWorkspaceHooksDir(),
     );

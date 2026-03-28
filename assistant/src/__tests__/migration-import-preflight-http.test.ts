@@ -59,6 +59,12 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+mock.module("../permissions/trust-store.js", () => ({
+  getAllRules: () => [],
+  isStarterBundleAccepted: () => false,
+  clearCache: () => {},
+}));
+
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     ui: {},

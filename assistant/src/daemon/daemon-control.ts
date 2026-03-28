@@ -11,6 +11,7 @@ import { resolve } from "node:path";
 
 import { getRuntimeHttpHost, getRuntimeHttpPort } from "../config/env.js";
 import { getIsContainerized } from "../config/env-registry.js";
+import { loadOrCreateSigningKey } from "../runtime/auth/token-service.js";
 import { DaemonError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -359,10 +360,25 @@ async function startDaemonLocked(): Promise<{
   const stderrPath = getDaemonStderrLogPath();
   const stderrFd = openSync(stderrPath, "w");
 
+  // Pre-load the signing key so the daemon receives it via env var and
+  // never needs to access the protected directory for key material.
+  const spawnEnv = { ...process.env };
+  if (!spawnEnv.ACTOR_TOKEN_SIGNING_KEY) {
+    try {
+      const key = loadOrCreateSigningKey();
+      spawnEnv.ACTOR_TOKEN_SIGNING_KEY = key.toString("hex");
+    } catch (err) {
+      log.warn(
+        { err },
+        "Failed to pre-load signing key for daemon — daemon will fall back to file-based key",
+      );
+    }
+  }
+
   const child = spawn("bun", ["run", mainPath], {
     detached: true,
     stdio: ["ignore", "ignore", stderrFd],
-    env: { ...process.env },
+    env: spawnEnv,
   });
 
   // The child inherited the fd; close the parent's copy.
