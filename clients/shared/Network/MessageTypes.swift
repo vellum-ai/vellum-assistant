@@ -2794,10 +2794,12 @@ public struct ApprovedDevicesClearMessage: Encodable, Sendable {
 public struct GuardianActionOption: Decodable, Sendable, Equatable {
     public let action: String
     public let label: String
+    public let description: String?
 
-    public init(action: String, label: String) {
+    public init(action: String, label: String, description: String? = nil) {
         self.action = action
         self.label = label
+        self.description = description
     }
 }
 
