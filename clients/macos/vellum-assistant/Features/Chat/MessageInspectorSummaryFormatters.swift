@@ -158,7 +158,7 @@ enum MessageInspectorSummaryFormatters {
 
     static func formattedCreatedAt(_ epochMs: Int) -> String {
         Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
-            .formatted(date: .abbreviated, time: .shortened)
+            .formatted(date: .abbreviated, time: .standard)
     }
 
     static func isProviderOnlySummary(_ summary: LLMCallSummary) -> Bool {
