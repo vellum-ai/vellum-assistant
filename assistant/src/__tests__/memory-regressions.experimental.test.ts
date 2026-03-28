@@ -15,6 +15,8 @@ const testDir = mkdtempSync(join(tmpdir(), "memory-regressions-exp-"));
 
 mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
+  getWorkspaceDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",
@@ -22,6 +24,17 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
+}));
+
+mock.module("../security/secure-keys.js", () => ({
+  getProviderKeyAsync: async () => undefined,
+  getSecureKeyAsync: async () => undefined,
+  getSecureKeyResultAsync: async () => ({ status: "missing" }),
+  listSecureKeysAsync: async () => [],
+  setSecureKeyAsync: async () => ({ status: "ok" }),
+  deleteSecureKeyAsync: async () => ({ status: "ok" }),
+  getActiveBackendName: () => "mock",
+  _resetBackend: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -169,7 +182,7 @@ describe("Memory regressions (experimental)", () => {
         totalOutputTokens: 0,
         totalEstimatedCost: 0,
         contextSummary: null,
-        contextCompactedMessageCount: 0,
+        contextCompactedMessageCount: 1,
         contextCompactedAt: null,
       })
       .run();
@@ -293,7 +306,7 @@ describe("Memory regressions (experimental)", () => {
         totalOutputTokens: 0,
         totalEstimatedCost: 0,
         contextSummary: null,
-        contextCompactedMessageCount: 0,
+        contextCompactedMessageCount: 1,
         contextCompactedAt: null,
       })
       .run();
