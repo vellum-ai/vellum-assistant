@@ -23,7 +23,7 @@ import {
 
 describe("Hooks Config", () => {
   beforeEach(() => {
-    const hooksDir = join(testDir, ".vellum", "hooks");
+    const hooksDir = join(testDir, ".vellum", "workspace", "hooks");
     mkdirSync(hooksDir, { recursive: true });
   });
 
@@ -38,7 +38,13 @@ describe("Hooks Config", () => {
   });
 
   test("loadHooksConfig reads existing config", () => {
-    const configPath = join(testDir, ".vellum", "hooks", "config.json");
+    const configPath = join(
+      testDir,
+      ".vellum",
+      "workspace",
+      "hooks",
+      "config.json",
+    );
     writeFileSync(
       configPath,
       JSON.stringify({
@@ -52,7 +58,13 @@ describe("Hooks Config", () => {
   });
 
   test("loadHooksConfig returns defaults for invalid JSON", () => {
-    const configPath = join(testDir, ".vellum", "hooks", "config.json");
+    const configPath = join(
+      testDir,
+      ".vellum",
+      "workspace",
+      "hooks",
+      "config.json",
+    );
     writeFileSync(configPath, "NOT VALID JSON {{{");
 
     const config = loadHooksConfig();
@@ -61,7 +73,13 @@ describe("Hooks Config", () => {
   });
 
   test("loadHooksConfig returns defaults for invalid structure", () => {
-    const configPath = join(testDir, ".vellum", "hooks", "config.json");
+    const configPath = join(
+      testDir,
+      ".vellum",
+      "workspace",
+      "hooks",
+      "config.json",
+    );
     writeFileSync(configPath, JSON.stringify({ foo: "bar" }));
 
     const config = loadHooksConfig();
@@ -73,7 +91,13 @@ describe("Hooks Config", () => {
     const config = { version: 1, hooks: { "test-hook": { enabled: true } } };
     saveHooksConfig(config);
 
-    const configPath = join(testDir, ".vellum", "hooks", "config.json");
+    const configPath = join(
+      testDir,
+      ".vellum",
+      "workspace",
+      "hooks",
+      "config.json",
+    );
     expect(existsSync(configPath)).toBe(true);
     const read = JSON.parse(readFileSync(configPath, "utf-8"));
     expect(read.hooks["test-hook"].enabled).toBe(true);
