@@ -7,7 +7,7 @@ import { withCrashRecovery } from "./validate-migration-state.js";
  * Add enrichment columns to canonical_guardian_requests for guardian
  * approval UX:
  *
- * - command_preview: truncated command/input preview (first ~500 chars)
+ * - command_preview: truncated command/input preview
  * - risk_level: "low", "medium", "high"
  * - activity_text: LLM's explanation of why it's calling the tool
  * - execution_target: "sandbox" or "host"
