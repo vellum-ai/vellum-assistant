@@ -903,10 +903,10 @@ function filterInContextItems(
  * importance value (importance-weighted sampling).
  *
  * Only items with importance >= MIN_SERENDIPITY_IMPORTANCE are eligible,
- * filtering out mundane facts (infrastructure details, tooling, etc.)
- * so echoes stay meaningful.
+ * so only genuinely significant memories (decisions, personal moments,
+ * turning points) surface as echoes.
  */
-const MIN_SERENDIPITY_IMPORTANCE = 0.5;
+const MIN_SERENDIPITY_IMPORTANCE = 0.7;
 
 function sampleSerendipityItems(
   existingCandidates: TieredCandidate[],

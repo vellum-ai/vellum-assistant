@@ -452,7 +452,9 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
             Math.max(existing.confidence, item.confidence),
           ),
           importance: clampUnitInterval(
-            Math.max(existing.importance ?? 0, item.importance),
+            fullReextract
+              ? item.importance
+              : Math.max(existing.importance ?? 0, item.importance),
           ),
           lastSeenAt: Math.max(existing.lastSeenAt, seenAt),
           sourceType: effectiveSourceType,
