@@ -46,7 +46,8 @@ function buildCredentialRefTrace(
  * - CES managed-mode data root (CES_DATA_DIR, or /ces-data when CES_MANAGED_MODE is set)
  */
 function buildCesProtectedPaths(): string[] {
-  const securityDir = join(homedir(), ".vellum", "protected");
+  const securityDir =
+    process.env.GATEWAY_SECURITY_DIR || join(homedir(), ".vellum", "protected");
   const paths = [securityDir, join(getWorkspaceDir(), "data", "db")];
 
   // CES bootstrap socket directory - block access to the Unix socket that
