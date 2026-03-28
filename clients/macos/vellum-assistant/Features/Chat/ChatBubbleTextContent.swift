@@ -22,25 +22,17 @@ extension ChatBubble {
                 .equatable()
         }
         .task(id: "\(segmentText)|\(streaming)") {
-            // Only run async parsing for large, non-streaming text with a cache miss
+            // Fallback async parsing for text exceeding maxCacheableTextLength
+            // (10K+ chars) that can't be stored in segmentCache. Most text is
+            // parsed synchronously in resolveSegments and cached — this only
+            // fires for unusually large segments on a cache miss.
             guard !streaming,
-                  segmentText.count > Self.asyncParseThreshold,
+                  segmentText.count > Self.maxCacheableTextLength,
                   Self.segmentCache.object(forKey: segmentText as NSString) == nil,
                   asyncSegments[segmentText] == nil else { return }
             let result = await MarkdownParseActor.shared.parse(segmentText)
             guard !Task.isCancelled else { return }
             asyncSegments[segmentText] = result
-            // Backfill the synchronous cache with cost tracking.
-            // Re-check cache after await to avoid double-inserting when
-            // multiple bubbles parse the same text concurrently.
-            if segmentText.count <= Self.maxCacheableTextLength,
-               Self.segmentCache.object(forKey: segmentText as NSString) == nil {
-                Self.segmentCache.setObject(
-                    SegmentCacheEntry(result),
-                    forKey: segmentText as NSString,
-                    cost: segmentText.utf8.count * 10
-                )
-            }
         }
     }
 
@@ -51,18 +43,19 @@ extension ChatBubble {
         if let cached = Self.segmentCache.object(forKey: text as NSString) {
             return cached.segments
         }
-        // For large text with a cache miss, return async result or plain placeholder
+        // For large text with a cache miss, parse synchronously and cache.
+        // parseMarkdownSegments is 1-5ms even for large text — well within
+        // frame budget. The expensive operation (buildAttributedStringUncached)
+        // runs regardless of sync/async path. The former async deferral only
+        // saved 1-5ms of parsing but introduced a placeholder→re-render cycle
+        // where placeholder height (single plain-text paragraph) differed
+        // dramatically from proper height (tables, code blocks), triggering a
+        // LazyVStack re-estimation cascade that froze the app.
         if !isStreaming, text.count > Self.asyncParseThreshold {
             if let async = asyncSegments[text] {
                 return async
             }
-            // When a message transitions from streaming to non-streaming,
-            // the segment cache won't have the entry (streaming results
-            // go to lastStreamingSegments, not the main cache). Use the
-            // streaming result directly to avoid flashing unformatted
-            // plain text and the expensive synchronous
-            // AttributedString(markdown:) call on the full text while
-            // the async parse runs.
+            // Use streaming result if available (streaming→non-streaming transition)
             if let last = Self.lastStreamingSegments, last.text == text {
                 if text.count <= Self.maxCacheableTextLength {
                     Self.segmentCache.setObject(
@@ -73,8 +66,16 @@ extension ChatBubble {
                 }
                 return last.value
             }
-            // Fast placeholder: single plain-text segment avoids expensive parsing
-            return [.text(text)]
+            // Parse synchronously — one render at the correct height, no cascade.
+            let result = parseMarkdownSegments(text)
+            if text.count <= Self.maxCacheableTextLength {
+                Self.segmentCache.setObject(
+                    SegmentCacheEntry(result),
+                    forKey: text as NSString,
+                    cost: text.utf8.count * 10
+                )
+            }
+            return result
         }
         // Small text or streaming: parse synchronously (cheap enough)
         return Self.cachedSegments(for: text, isStreaming: isStreaming)
