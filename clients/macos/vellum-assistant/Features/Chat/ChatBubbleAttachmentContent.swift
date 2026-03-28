@@ -230,29 +230,21 @@ private struct AttachmentImageGrid<Fallback: View>: View {
         }
     }
 
-    /// Full-width rendering for a single image attachment, matching tool-generated image sizing.
-    @ViewBuilder
+    /// Full-width rendering for a single image attachment.
+    ///
+    /// Unlike grid cells, single images expand to fill the chat bubble width
+    /// rather than capping at the loaded image's native pixel dimensions.
+    /// This is important because the loaded NSImage often comes from a small
+    /// thumbnail (120px max) — capping to native dimensions would render it
+    /// at only ~60pt on Retina displays.
     private func singleImageContent(_ nsImage: NSImage) -> some View {
-        if let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) {
-            let nativeWidth = CGFloat(cgImage.width) / displayScale
-            let nativeHeight = CGFloat(cgImage.height) / displayScale
-            let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
-            Image(decorative: cgImage, scale: displayScale)
-                .resizable()
-                .interpolation(.high)
-                .aspectRatio(contentMode: .fit)
-                .frame(
-                    maxWidth: min(nativeWidth, maxDim),
-                    maxHeight: min(nativeHeight, maxDim)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        } else {
-            Image(nsImage: nsImage)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-        }
+        let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
+        return Image(nsImage: nsImage)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fit)
+            .frame(maxWidth: maxDim, maxHeight: maxDim)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
     }
 
     /// Compact grid cell for multiple image attachments.
