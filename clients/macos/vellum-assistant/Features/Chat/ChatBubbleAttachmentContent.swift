@@ -189,36 +189,61 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                 // Wrapping in Task(priority:){}.value creates an unstructured task that is NOT
                 // cancelled by the .task modifier, causing off-screen decodes to run to completion.
                 .task(id: attachment.id) {
-                    // Step 1: thumbnailImage is already decoded — zero cost.
-                    if let img = attachment.thumbnailImage {
-                        loadedImages[attachment.id] = img
-                        return
-                    }
+                    if isSingleImage {
+                        // Single images: prefer full-resolution data so the frame
+                        // sizing (which uses native pixel dimensions) is accurate.
+                        // Thumbnails are 120px max — using them caps the display
+                        // at ~60pt on Retina, far too small.
+                        if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty,
+                           let img = NSImage(data: fullData) {
+                            guard !Task.isCancelled else { return }
+                            loadedImages[attachment.id] = img
+                            return
+                        }
 
-                    guard !Task.isCancelled else { return }
-
-                    // Step 2: thumbnailData (small) — synchronous NSImage decode, called directly.
-                    // Fallback chain: thumbnailData → full attachment.data.
-                    // thumbnailData is preferred (smaller), but if it is corrupt or
-                    // missing we still want to show the image from the full payload.
-                    if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty,
-                       let img = NSImage(data: thumbnailData) {
                         guard !Task.isCancelled else { return }
-                        loadedImages[attachment.id] = img
-                        return
-                    }
 
-                    guard !Task.isCancelled else { return }
+                        // Full data unavailable (lazy-load or cleared) — fall back to thumbnail.
+                        if let img = attachment.thumbnailImage {
+                            loadedImages[attachment.id] = img
+                            return
+                        }
 
-                    // Step 3: fallback to full base64 data.
-                    if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty,
-                       let img = NSImage(data: fullData) {
                         guard !Task.isCancelled else { return }
-                        loadedImages[attachment.id] = img
-                        return
+
+                        if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty,
+                           let img = NSImage(data: thumbnailData) {
+                            guard !Task.isCancelled else { return }
+                            loadedImages[attachment.id] = img
+                            return
+                        }
+                    } else {
+                        // Grid mode: prefer thumbnails for fast loading of many images.
+                        if let img = attachment.thumbnailImage {
+                            loadedImages[attachment.id] = img
+                            return
+                        }
+
+                        guard !Task.isCancelled else { return }
+
+                        if let thumbnailData = attachment.thumbnailData, !thumbnailData.isEmpty,
+                           let img = NSImage(data: thumbnailData) {
+                            guard !Task.isCancelled else { return }
+                            loadedImages[attachment.id] = img
+                            return
+                        }
+
+                        guard !Task.isCancelled else { return }
+
+                        if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty,
+                           let img = NSImage(data: fullData) {
+                            guard !Task.isCancelled else { return }
+                            loadedImages[attachment.id] = img
+                            return
+                        }
                     }
 
-                    // All three decode paths exhausted with no image.
+                    // All decode paths exhausted with no image.
                     // Do NOT guard on Task.isCancelled here — once every decode path has
                     // failed we must always transition to the file-chip fallback regardless
                     // of cancellation. Without this, a cancellation that races with decode
@@ -230,21 +255,29 @@ private struct AttachmentImageGrid<Fallback: View>: View {
         }
     }
 
-    /// Full-width rendering for a single image attachment.
-    ///
-    /// Unlike grid cells, single images expand to fill the chat bubble width
-    /// rather than capping at the loaded image's native pixel dimensions.
-    /// This is important because the loaded NSImage often comes from a small
-    /// thumbnail (120px max) — capping to native dimensions would render it
-    /// at only ~60pt on Retina displays.
+    /// Full-width rendering for a single image attachment, matching tool-generated image sizing.
+    @ViewBuilder
     private func singleImageContent(_ nsImage: NSImage) -> some View {
-        let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
-        return Image(nsImage: nsImage)
-            .resizable()
-            .interpolation(.high)
-            .aspectRatio(contentMode: .fit)
-            .frame(maxWidth: maxDim, maxHeight: maxDim)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        if let cgImage = nsImage.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            let nativeWidth = CGFloat(cgImage.width) / displayScale
+            let nativeHeight = CGFloat(cgImage.height) / displayScale
+            let maxDim: CGFloat = VSpacing.chatBubbleMaxWidth
+            Image(decorative: cgImage, scale: displayScale)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+                .frame(
+                    maxWidth: min(nativeWidth, maxDim),
+                    maxHeight: min(nativeHeight, maxDim)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        } else {
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: VSpacing.chatBubbleMaxWidth)
+                .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        }
     }
 
     /// Compact grid cell for multiple image attachments.
