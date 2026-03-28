@@ -15,7 +15,7 @@ import {
 const testDir = mkdtempSync(join(tmpdir(), "ephemeral-perm-test-"));
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   getDataDir: () => join(testDir, "data"),
   getWorkspaceSkillsDir: () => join(testDir, "skills"),
   isMacOS: () => process.platform === "darwin",

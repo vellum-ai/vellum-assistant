@@ -10,10 +10,11 @@
  * - CLI commands deny raw secret/token reveal when VELLUM_UNTRUSTED_SHELL=1.
  */
 
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
-import { getRootDir } from "../util/platform.js";
+import { getProtectedDir, getWorkspaceDir } from "../util/platform.js";
 
 // ---------------------------------------------------------------------------
 // Trust class categorization (foundational for lockdown decisions)
@@ -120,10 +121,12 @@ describe("CES shell lockdown activation", () => {
 
 describe("CES protected paths for sandbox deny-read", () => {
   test("protected paths include the protected dir and db dir", () => {
-    // The buildCesProtectedPaths function constructs paths from getRootDir().
-    // We verify the pattern: paths should end with /protected and /workspace/data/db.
-    const root = getRootDir();
-    const expectedPaths = [`${root}/protected`, `${root}/workspace/data/db`];
+    // The buildCesProtectedPaths function constructs paths from getProtectedDir()
+    // and getWorkspaceDir(). We verify the pattern: paths should be absolute and clean.
+    const expectedPaths = [
+      getProtectedDir(),
+      join(getWorkspaceDir(), "data", "db"),
+    ];
 
     // Each expected path should be a valid absolute path pattern
     for (const p of expectedPaths) {

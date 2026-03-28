@@ -6,12 +6,20 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), "signing-key-test-")));
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   getDataDir: () => testDir,
   getDbPath: () => join(testDir, "test.db"),
   normalizeAssistantId: (id: string) => (id === "self" ? "self" : id),
@@ -69,7 +77,9 @@ describe("resolveSigningKey", () => {
   test("rejects invalid ACTOR_TOKEN_SIGNING_KEY", () => {
     process.env.ACTOR_TOKEN_SIGNING_KEY = "tooshort";
 
-    expect(() => resolveSigningKey()).toThrow("Invalid ACTOR_TOKEN_SIGNING_KEY");
+    expect(() => resolveSigningKey()).toThrow(
+      "Invalid ACTOR_TOKEN_SIGNING_KEY",
+    );
   });
 
   test("falls back to file-based load/create when env var is not set", () => {

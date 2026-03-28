@@ -20,7 +20,7 @@ mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 const testDir = mkdtempSync(join(tmpdir(), "channel-approvals-test-"));
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   getDataDir: () => testDir,
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",

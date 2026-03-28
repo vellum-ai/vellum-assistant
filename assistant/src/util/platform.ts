@@ -59,10 +59,15 @@ export function normalizeAssistantId(assistantId: string): string {
 }
 
 /**
- * Returns the root ~/.vellum directory. User-facing files (config, prompt
- * files, skills) and runtime files (socket, PID) live here.
+ * Returns the root ~/.vellum directory. Runtime files (socket, PID, lock,
+ * stderr log) and the protected/ subdirectory live here.
+ *
+ * Most code should use a more specific helper instead of calling this
+ * directly — e.g. getProtectedDir(), getDaemonStderrLogPath(), etc.
+ * This function is intentionally NOT exported; callers outside platform.ts
+ * should use one of the dedicated path helpers below.
  */
-export function getRootDir(): string {
+function getRootDir(): string {
   return join(getBaseDataDir() || homedir(), ".vellum");
 }
 
@@ -213,10 +218,79 @@ export function getHistoryPath(): string {
   return join(getDataDir(), "history");
 }
 
+/**
+ * Returns the protected directory (~/.vellum/protected). Security-sensitive
+ * files — trust rules, encrypted credential store, signing keys, feature-flag
+ * overrides, device approval lists — live here.
+ *
+ * This directory is:
+ * - Outside the workspace (not included in diagnostic exports)
+ * - Outside the sandbox write boundary (tools cannot modify it)
+ * - Skipped in containerized mode (credentials via CES, trust via gateway)
+ */
+export function getProtectedDir(): string {
+  return join(getRootDir(), "protected");
+}
+
 /** Returns ~/.vellum/workspace/signals — the directory for IPC signal files. */
 export function getSignalsDir(): string {
   return join(getWorkspaceDir(), "signals");
 }
+
+// --- Root-level runtime path helpers ---
+// These expose specific root-level file paths so callers don't need to
+// import getRootDir() directly. getRootDir() is intentionally unexported.
+
+/** Returns the path to the daemon stderr log (~/.vellum/daemon-stderr.log). */
+export function getDaemonStderrLogPath(): string {
+  return join(getRootDir(), "daemon-stderr.log");
+}
+
+/** Returns the path to the daemon startup lock file (~/.vellum/daemon-startup.lock). */
+export function getDaemonStartupLockPath(): string {
+  return join(getRootDir(), "daemon-startup.lock");
+}
+
+/** Returns the path to the feature-flag client token file (~/.vellum/feature-flag-token). */
+export function getFeatureFlagTokenPath(): string {
+  return join(getRootDir(), "feature-flag-token");
+}
+
+/** Returns the directory for externally-installed packages (~/.vellum/external). */
+export function getExternalDir(): string {
+  return join(getRootDir(), "external");
+}
+
+/** Returns the directory for installed binaries (~/.vellum/bin). */
+export function getBinDir(): string {
+  return join(getRootDir(), "bin");
+}
+
+/** Returns the path to the dot-env file (~/.vellum/.env). */
+export function getDotEnvPath(): string {
+  return join(getRootDir(), ".env");
+}
+
+/** Returns the path to the embed-worker PID file (~/.vellum/embed-worker.pid). */
+export function getEmbedWorkerPidPath(): string {
+  return join(getRootDir(), "embed-worker.pid");
+}
+
+/**
+ * Returns the root dir path for use in backward-compatible env vars
+ * (e.g. VELLUM_ROOT_DIR passed to hook scripts).
+ *
+ * Unlike `dirname(getWorkspaceDir())`, this always returns the true root
+ * (~/.vellum or $BASE_DATA_DIR/.vellum) even when VELLUM_WORKSPACE_DIR is
+ * overridden to a custom path (Docker / containerized mode).
+ *
+ * @deprecated Callers should migrate to workspace-based paths. This helper
+ * exists only for backward compatibility with user-authored hook scripts.
+ */
+export function getLegacyRootDir(): string {
+  return getRootDir();
+}
+
 // --- Workspace path primitives ---
 // These will become the canonical paths after workspace migration.
 // Currently not used by call-sites; wired in later PRs.
@@ -291,7 +365,7 @@ export function ensureDataDir(): void {
     root,
     // protected is local-only — skip in containerized mode
     // (credentials via CES HTTP API, trust via gateway API)
-    ...(containerized ? [] : [join(root, "protected")]),
+    ...(containerized ? [] : [getProtectedDir()]),
     // Workspace dirs
     workspace,
     join(workspace, "signals"),

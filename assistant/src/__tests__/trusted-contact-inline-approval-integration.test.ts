@@ -30,7 +30,7 @@ const testDir = mkdtempSync(join(tmpdir(), "tc-inline-approval-integration-"));
 
 mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
   isWindows: () => process.platform === "win32",

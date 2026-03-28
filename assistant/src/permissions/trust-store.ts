@@ -13,7 +13,7 @@ import { v4 as uuid } from "uuid";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
-import { getRootDir } from "../util/platform.js";
+import { getProtectedDir } from "../util/platform.js";
 import { getDefaultRuleTemplates } from "./defaults.js";
 import * as trustClient from "./trust-client.js";
 import type {
@@ -128,7 +128,7 @@ function rebuildPatternCache(rules: TrustRule[]): void {
 }
 
 function getTrustPath(): string {
-  return join(getRootDir(), "protected", "trust.json");
+  return join(getProtectedDir(), "trust.json");
 }
 
 /**
@@ -1133,7 +1133,14 @@ export function addRule(
     executionTarget?: string;
   },
 ): TrustRule {
-  return getTrustStore().addRule(tool, pattern, scope, decision, priority, options);
+  return getTrustStore().addRule(
+    tool,
+    pattern,
+    scope,
+    decision,
+    priority,
+    options,
+  );
 }
 
 export function updateRule(

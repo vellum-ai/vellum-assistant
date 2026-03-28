@@ -20,7 +20,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { getRootDir } from "../util/platform.js";
+import { getProtectedDir } from "../util/platform.js";
 import { getIsContainerized } from "./env-registry.js";
 import type { AssistantConfig } from "./schema.js";
 
@@ -141,7 +141,7 @@ function getFeatureFlagOverridesPath(): string {
   if (securityDir) {
     return join(securityDir, "feature-flags.json");
   }
-  return join(getRootDir(), "protected", "feature-flags.json");
+  return join(getProtectedDir(), "feature-flags.json");
 }
 
 /**

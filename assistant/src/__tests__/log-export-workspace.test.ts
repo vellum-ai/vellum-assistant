@@ -36,7 +36,7 @@ mkdirSync(testWorkspaceDir, { recursive: true });
 mkdirSync(testDbDir, { recursive: true });
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   getDataDir: () => testDir,
   getWorkspaceDir: () => testWorkspaceDir,
   getWorkspaceConfigPath: () => join(testWorkspaceDir, "config.json"),

@@ -32,7 +32,7 @@ import { handleUserMessageSignal } from "../signals/user-message.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
 import {
-  getRootDir,
+  getProtectedDir,
   getSignalsDir,
   getWorkspaceDir,
   getWorkspaceSkillsDir,
@@ -117,7 +117,7 @@ export class ConfigWatcher {
    */
   start(onConversationEvict: () => void, onIdentityChanged?: () => void): void {
     const workspaceDir = getWorkspaceDir();
-    const protectedDir = join(getRootDir(), "protected");
+    const protectedDir = getProtectedDir();
 
     const workspaceHandlers: Record<string, () => void> = {
       "config.json": async () => {

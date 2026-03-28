@@ -19,7 +19,7 @@ mock.module("../util/logger.js", () => ({
 const testTmpDir = mkdtempSync(join(tmpdir(), "terminal-test-"));
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testTmpDir,
+  getProtectedDir: () => join(testTmpDir, "protected"),
   getDataDir: () => join(testTmpDir, "data"),
   getSandboxWorkingDir: () => join(testTmpDir, "sandbox"),
   isMacOS: () => process.platform === "darwin",

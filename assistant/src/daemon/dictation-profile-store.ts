@@ -16,7 +16,7 @@ import {
 import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
-import { getRootDir } from "../util/platform.js";
+import { getWorkspaceDir } from "../util/platform.js";
 
 const log = getLogger("dictation-profile-store");
 
@@ -97,7 +97,7 @@ let storePathOverride: string | null = null;
 
 function getStorePath(): string {
   if (storePathOverride) return storePathOverride;
-  return join(getRootDir(), "dictation-profiles.json");
+  return join(getWorkspaceDir(), "dictation-profiles.json");
 }
 
 let cachedConfig: DictationProfilesConfig | null = null;

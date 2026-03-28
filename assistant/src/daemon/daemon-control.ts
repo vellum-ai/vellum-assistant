@@ -2,21 +2,22 @@ import { execSync, spawn } from "node:child_process";
 import {
   closeSync,
   existsSync,
-  mkdirSync,
   openSync,
   readFileSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import { getRuntimeHttpHost, getRuntimeHttpPort } from "../config/env.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { DaemonError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
+  ensureDataDir,
+  getDaemonStartupLockPath,
+  getDaemonStderrLogPath,
   getPidPath,
-  getRootDir,
   getWorkspaceConfigPath,
 } from "../util/platform.js";
 
@@ -240,7 +241,7 @@ export async function getDaemonStatus(): Promise<{
 }
 
 function getStartupLockPath(): string {
-  return join(getRootDir(), "daemon-startup.lock");
+  return getDaemonStartupLockPath();
 }
 
 /** Attempt to acquire a startup lock. Returns true on success. Stale locks
@@ -253,7 +254,7 @@ function acquireStartupLock(): boolean {
     // On a first-time run, getRootDir() may not exist yet, and writeFileSync
     // with 'wx' would throw ENOENT — which the catch block misinterprets as
     // "lock already held."
-    mkdirSync(getRootDir(), { recursive: true });
+    ensureDataDir();
     // O_CREAT | O_EXCL — fails atomically if the file already exists.
     writeFileSync(lockPath, String(Date.now()), { flag: "wx" });
     return true;
@@ -343,14 +344,10 @@ async function startDaemonLocked(): Promise<{
   // a crash where the process is alive but non-responsive).
   killStaleDaemon();
 
-  // Only create the root dir for PID files — the daemon process itself
-  // handles migration + full ensureDataDir() in runDaemon(). Calling
-  // ensureDataDir() here would pre-create workspace destination dirs
-  // and cause migration moves to no-op.
-  const rootDir = getRootDir();
-  if (!existsSync(rootDir)) {
-    mkdirSync(rootDir, { recursive: true });
-  }
+  // Ensure root + workspace dirs exist before spawning. The daemon itself
+  // handles full ensureDataDir() during runDaemon(), but we need at least
+  // the root dir for the PID file and stderr log.
+  ensureDataDir();
 
   // Spawn the daemon as a detached child process
   const mainPath = resolve(import.meta.dirname ?? __dirname, "main.ts");
@@ -359,7 +356,7 @@ async function startDaemonLocked(): Promise<{
   // parent. A pipe's read end is destroyed when the parent exits, leaving
   // fd 2 broken in the child. Bun (unlike Node.js) does not ignore SIGPIPE,
   // so any later stderr write would silently kill the daemon.
-  const stderrPath = join(rootDir, "daemon-stderr.log");
+  const stderrPath = getDaemonStderrLogPath();
   const stderrFd = openSync(stderrPath, "w");
 
   const child = spawn("bun", ["run", mainPath], {

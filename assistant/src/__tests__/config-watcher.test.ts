@@ -26,7 +26,7 @@ const SKILLS_DIR = join(WORKSPACE_DIR, "skills");
 // ---------------------------------------------------------------------------
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => TEST_DIR,
+  getProtectedDir: () => PROTECTED_DIR,
   getWorkspaceDir: () => WORKSPACE_DIR,
   getWorkspaceSkillsDir: () => SKILLS_DIR,
   getWorkspaceConfigPath: () => join(WORKSPACE_DIR, "config.json"),

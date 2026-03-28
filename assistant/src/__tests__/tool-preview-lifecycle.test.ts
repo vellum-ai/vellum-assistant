@@ -8,12 +8,13 @@
  * - handleToolResult includes toolUseId in emitted tool_result
  * - Event ordering: tool_use_preview_start → input_json_delta → tool_use
  */
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mock platform (must precede imports that read it) ─────────────────────────
 mock.module("../util/platform.js", () => ({
   getSessionTokenPath: () => "/tmp/test-token",
-  getRootDir: () => "/tmp/test",
+  getProtectedDir: () => join("/tmp/test", "protected"),
   getDataDir: () => "/tmp/test",
   getWorkspaceDir: () => "/tmp/test/workspace",
   getWorkspaceSkillsDir: () => "/tmp/test/skills",

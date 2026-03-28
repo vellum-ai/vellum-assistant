@@ -13,7 +13,7 @@ import { eq } from "drizzle-orm";
 const testDir = mkdtempSync(join(tmpdir(), "guardian-routing-state-test-"));
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   getDataDir: () => testDir,
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",

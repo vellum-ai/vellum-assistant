@@ -14,7 +14,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), "actor-token-test-")));
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   getDataDir: () => testDir,
   getDbPath: () => join(testDir, "test.db"),
   normalizeAssistantId: (id: string) => (id === "self" ? "self" : id),
@@ -727,4 +727,3 @@ describe("bootstrap private-network guard", () => {
     expect(res.status).toBe(200);
   });
 });
-

@@ -25,7 +25,7 @@ import { parse as parseYaml } from "yaml";
 let TEST_DIR = "";
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => TEST_DIR,
+  getProtectedDir: () => join(TEST_DIR, "protected"),
   getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
 }));
 

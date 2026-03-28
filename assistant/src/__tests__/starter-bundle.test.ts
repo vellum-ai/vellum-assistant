@@ -16,7 +16,7 @@ import { mock } from "bun:test";
 
 // Mock the platform module to use our test root
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => TEST_ROOT,
+  getProtectedDir: () => join(TEST_ROOT, "protected"),
 }));
 
 // Mock the skills config module used by defaults.ts

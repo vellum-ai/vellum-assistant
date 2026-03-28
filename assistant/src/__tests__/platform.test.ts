@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
 
 import {
@@ -12,7 +12,7 @@ import {
   getInterfacesDir,
   getLogPath,
   getPidPath,
-  getRootDir,
+  getProtectedDir,
   getSandboxRootDir,
   getSandboxWorkingDir,
   getWorkspaceConfigPath,
@@ -42,14 +42,15 @@ describe("baseline path characterization (pre-migration)", () => {
       `platform-test-${randomBytes(4).toString("hex")}`,
     );
     process.env.BASE_DATA_DIR = base;
-    const root = join(base, ".vellum");
-    const data = join(root, "workspace", "data");
+    const ws = getWorkspaceDir();
+    const root = dirname(ws);
+    const data = getDataDir();
 
-    // Root dir — stays as anchor for all paths
-    expect(getRootDir()).toBe(root);
+    // Workspace is under root
+    expect(ws).toBe(join(root, "workspace"));
 
-    // Now resolves under workspace/data
-    expect(getDataDir()).toBe(join(root, "workspace", "data"));
+    // Data dir is under workspace
+    expect(data).toBe(join(ws, "data"));
 
     // Sub-paths under workspace/data
     expect(getDbPath()).toBe(join(data, "db", "assistant.db"));
@@ -72,9 +73,7 @@ describe("baseline path characterization (pre-migration)", () => {
       `platform-test-${randomBytes(4).toString("hex")}`,
     );
     process.env.BASE_DATA_DIR = base;
-    const hooksDir = getWorkspaceHooksDir();
-    const workspaceDir = getWorkspaceDir();
-    expect(hooksDir.startsWith(workspaceDir)).toBe(true);
+    expect(getWorkspaceHooksDir().startsWith(getWorkspaceDir())).toBe(true);
   });
 
   test("ensureDataDir creates all expected directories", () => {
@@ -83,65 +82,58 @@ describe("baseline path characterization (pre-migration)", () => {
       `platform-test-${randomBytes(4).toString("hex")}`,
     );
     process.env.BASE_DATA_DIR = base;
-    const rootDir = getRootDir();
     const ws = getWorkspaceDir();
-    const wsData = join(ws, "data");
+    const root = dirname(ws);
+    const data = getDataDir();
 
-    if (existsSync(rootDir)) {
-      rmSync(rootDir, { recursive: true, force: true });
+    if (existsSync(root)) {
+      rmSync(root, { recursive: true, force: true });
     }
 
     ensureDataDir();
 
     // Root-level dirs (runtime / protected)
-    expect(existsSync(getRootDir())).toBe(true);
-    expect(existsSync(join(getRootDir(), "protected"))).toBe(true);
+    expect(existsSync(root)).toBe(true);
+    expect(existsSync(getProtectedDir())).toBe(true);
 
     // Workspace dirs
     expect(existsSync(ws)).toBe(true);
-    expect(existsSync(join(ws, "hooks"))).toBe(true);
-    expect(existsSync(join(ws, "skills"))).toBe(true);
+    expect(existsSync(getWorkspaceHooksDir())).toBe(true);
+    expect(existsSync(getWorkspaceSkillsDir())).toBe(true);
 
     // Data sub-dirs under workspace
-    expect(existsSync(wsData)).toBe(true);
-    expect(existsSync(join(wsData, "db"))).toBe(true);
-    expect(existsSync(join(wsData, "qdrant"))).toBe(true);
-    expect(existsSync(join(wsData, "logs"))).toBe(true);
-    expect(existsSync(join(wsData, "memory"))).toBe(true);
-    expect(existsSync(join(wsData, "memory", "knowledge"))).toBe(true);
-    expect(existsSync(join(wsData, "apps"))).toBe(true);
-    expect(existsSync(join(wsData, "interfaces"))).toBe(true);
+    expect(existsSync(data)).toBe(true);
+    expect(existsSync(join(data, "db"))).toBe(true);
+    expect(existsSync(join(data, "qdrant"))).toBe(true);
+    expect(existsSync(join(data, "logs"))).toBe(true);
+    expect(existsSync(join(data, "memory"))).toBe(true);
+    expect(existsSync(join(data, "memory", "knowledge"))).toBe(true);
+    expect(existsSync(join(data, "apps"))).toBe(true);
+    expect(existsSync(join(data, "interfaces"))).toBe(true);
 
     // Legacy dirs should NOT be created
-    expect(existsSync(join(getRootDir(), "skills"))).toBe(false);
-    expect(existsSync(join(getRootDir(), "data", "sandbox"))).toBe(false);
-    expect(existsSync(join(getRootDir(), "data", "sandbox", "fs"))).toBe(false);
+    expect(existsSync(join(root, "skills"))).toBe(false);
+    expect(existsSync(join(root, "data", "sandbox"))).toBe(false);
+    expect(existsSync(join(root, "data", "sandbox", "fs"))).toBe(false);
 
-    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   });
 });
 
 describe("workspace path primitives", () => {
-  test("workspace helpers resolve under getRootDir()/workspace", () => {
+  test("workspace helpers resolve under workspace dir", () => {
     const base = join(
       tmpdir(),
       `platform-test-${randomBytes(4).toString("hex")}`,
     );
     process.env.BASE_DATA_DIR = base;
-    const root = join(base, ".vellum");
-    const ws = join(root, "workspace");
+    const ws = getWorkspaceDir();
 
-    expect(getWorkspaceDir()).toBe(ws);
     expect(getWorkspaceConfigPath()).toBe(join(ws, "config.json"));
     expect(getWorkspaceSkillsDir()).toBe(join(ws, "skills"));
     expect(getWorkspaceHooksDir()).toBe(join(ws, "hooks"));
     expect(getWorkspacePromptPath("IDENTITY.md")).toBe(join(ws, "IDENTITY.md"));
     expect(getWorkspacePromptPath("SOUL.md")).toBe(join(ws, "SOUL.md"));
     expect(getWorkspacePromptPath("USER.md")).toBe(join(ws, "USER.md"));
-  });
-
-  test("workspace helpers honor BASE_DATA_DIR", () => {
-    process.env.BASE_DATA_DIR = "/tmp/custom-base";
-    expect(getWorkspaceDir()).toBe("/tmp/custom-base/.vellum/workspace");
   });
 });

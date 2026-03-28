@@ -18,7 +18,7 @@ import { join } from "node:path";
 
 import { pathExists } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
-import { getRootDir } from "../util/platform.js";
+import { getProtectedDir } from "../util/platform.js";
 
 const log = getLogger("secret-allowlist");
 
@@ -45,7 +45,7 @@ let allowedRegexes: RegExp[] = [];
 export function loadAllowlist(): void {
   if (loaded || fileChecked) return;
 
-  const filePath = join(getRootDir(), "protected", "secret-allowlist.json");
+  const filePath = join(getProtectedDir(), "secret-allowlist.json");
   if (!pathExists(filePath)) {
     fileChecked = true;
     return;
@@ -169,7 +169,7 @@ function validateAllowlist(
  * Returns validation errors, or null if the file doesn't exist.
  */
 export function validateAllowlistFile(): AllowlistValidationError[] | null {
-  const filePath = join(getRootDir(), "protected", "secret-allowlist.json");
+  const filePath = join(getProtectedDir(), "secret-allowlist.json");
   if (!pathExists(filePath)) return null;
 
   const raw = readFileSync(filePath, "utf-8");

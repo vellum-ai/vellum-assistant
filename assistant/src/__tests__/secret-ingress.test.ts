@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
@@ -33,7 +34,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => "/tmp/vellum-test-ingress",
+  getProtectedDir: () => join("/tmp/vellum-test-ingress", "protected"),
   getWorkspaceDir: () => "/tmp/vellum-test-ingress/workspace",
 }));
 
