@@ -98,6 +98,7 @@ mock.module("../util/platform.js", () => ({
   getHistoryPath: () => join(testDir, "history"),
   getHooksDir: () => join(testDir, "hooks"),
   getConversationsDir: () => join(testDir, "conversations"),
+  getWorkspaceDirDisplay: () => testDir,
 
   getSandboxRootDir: () => join(testDir, "sandbox"),
   getSandboxWorkingDir: () => testDir,
