@@ -21,9 +21,18 @@ let mockDeleteSecureKeyViaDaemonCalls: Array<{
 let mockDeleteSecureKeyViaDaemonResult: "deleted" | "not-found" | "error" =
   "deleted";
 
+let mockIsContainerized = false;
+
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
+
+mock.module("../../../../config/env-registry.js", () => ({
+  getIsContainerized: () => mockIsContainerized,
+  getDebugStdoutLogs: () => false,
+  getWorkspaceDirOverride: () => undefined,
+  checkUnrecognizedEnvVars: () => [],
+}));
 
 mock.module("../../../../inbound/platform-callback-registration.js", () => ({
   resolvePlatformCallbackRegistrationContext: async () => ({
@@ -196,6 +205,7 @@ describe("assistant platform disconnect", () => {
     mockGetSecureKeyViaDaemon = async () => undefined;
     mockDeleteSecureKeyViaDaemonCalls = [];
     mockDeleteSecureKeyViaDaemonResult = "deleted";
+    mockIsContainerized = false;
     process.exitCode = 0;
   });
 
@@ -248,5 +258,33 @@ describe("assistant platform disconnect", () => {
     expect(existsSync(signalPath)).toBe(true);
     const signal = JSON.parse(readFileSync(signalPath, "utf-8"));
     expect(signal).toEqual({ type: "platform_disconnected" });
+  });
+
+  test("rejects with error when running on a platform-hosted assistant", async () => {
+    /**
+     * Platform-hosted (containerized) assistants are managed by the platform
+     * and should not allow manual disconnect via the CLI.
+     */
+
+    // GIVEN the assistant is running inside a platform host
+    mockIsContainerized = true;
+
+    // WHEN the disconnect command is run with --json
+    const { exitCode, stdout } = await runCommand([
+      "platform",
+      "disconnect",
+      "--json",
+    ]);
+
+    // THEN the command fails
+    expect(exitCode).toBe(1);
+
+    // AND the error message explains why
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("platform-hosted");
+
+    // AND no credentials were deleted
+    expect(mockDeleteSecureKeyViaDaemonCalls).toHaveLength(0);
   });
 });
