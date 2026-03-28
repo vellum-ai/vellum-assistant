@@ -60,8 +60,8 @@ struct LogReportFormView: View {
             }
             reasonCards
             messageField
-            attachmentSection
             logAttachmentRow
+            attachmentSection
             Spacer(minLength: 0)
             actionRow
         }
@@ -153,11 +153,18 @@ struct LogReportFormView: View {
 
     @ViewBuilder
     private var attachmentSection: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            HStack {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            HStack(alignment: .center) {
                 Text("Attachments")
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentSecondary)
+                if !attachments.isEmpty {
+                    Text("·")
+                        .foregroundStyle(VColor.contentTertiary)
+                    Text("\(attachments.count)/\(maxAttachments)")
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
                 Spacer()
                 VButton(
                     label: "Add files",
@@ -180,10 +187,6 @@ struct LogReportFormView: View {
                         }
                     }
                 }
-
-                Text("\(attachments.count)/\(maxAttachments) files")
-                    .font(VFont.bodySmallDefault)
-                    .foregroundStyle(VColor.contentSecondary)
             }
         }
         .opacity(isSubmitting ? 0.5 : 1)
