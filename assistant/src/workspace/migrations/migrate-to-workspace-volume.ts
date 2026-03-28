@@ -23,7 +23,6 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { getWorkspaceDirOverride } from "../../config/env-registry.js";
 import type { WorkspaceMigration } from "./types.js";
 
 const SENTINEL_FILENAME = ".workspace-volume-migrated";
@@ -50,7 +49,8 @@ export const migrateToWorkspaceVolumeMigration: WorkspaceMigration = {
   },
 
   run(workspaceDir: string): void {
-    const workspaceDirOverride = getWorkspaceDirOverride();
+    const workspaceDirOverride =
+      process.env.VELLUM_WORKSPACE_DIR?.trim() || undefined;
 
     // Only relevant when VELLUM_WORKSPACE_DIR is explicitly set (Docker with separate volume)
     if (!workspaceDirOverride) return;
