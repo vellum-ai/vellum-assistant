@@ -537,6 +537,7 @@ export async function buildMemoryRecall(
       finalScore: c.finalScore,
       semantic: c.semantic,
       recency: c.recency,
+      ...(c.sourceLabel ? { sourceLabel: c.sourceLabel } : {}),
     }));
 
   const latencyMs = Date.now() - start;
