@@ -153,7 +153,6 @@ export async function startCli(): Promise<void> {
     model: string;
   } | null = null;
   let pendingSessionPick = false;
-  let pendingConfirmation = false;
   let pendingCopySession = false;
   let toolStreaming = false;
   let lastDisplayedError: string | null = null;
@@ -230,91 +229,6 @@ export async function startCli(): Promise<void> {
   function prompt(): void {
     rl.setPrompt("you> ");
     rl.prompt();
-  }
-
-  /** Send a confirmation decision via signal file (read by the daemon). */
-  function sendConfirmation(requestId: string, decision: string): void {
-    try {
-      const signalsDir = getSignalsDir();
-      mkdirSync(signalsDir, { recursive: true });
-      writeFileSync(
-        join(signalsDir, "confirm"),
-        JSON.stringify({ requestId, decision }),
-      );
-    } catch {
-      process.stdout.write("[Failed to send confirmation]\n");
-    }
-  }
-
-  /** Add a trust rule via signal file, then confirm once the daemon acknowledges. */
-  function sendTrustRuleAndConfirm(
-    requestId: string,
-    pattern: string,
-    scope: string,
-    decision: "allow" | "deny",
-    confirmDecision: string,
-    options?: { allowHighRisk?: boolean },
-  ): void {
-    try {
-      const signalsDir = getSignalsDir();
-      mkdirSync(signalsDir, { recursive: true });
-      const resultPath = join(signalsDir, "trust-rule.result");
-      writeFileSync(
-        join(signalsDir, "trust-rule"),
-        JSON.stringify({
-          requestId,
-          pattern,
-          scope,
-          decision,
-          ...(options?.allowHighRisk ? { allowHighRisk: true } : {}),
-        }),
-      );
-
-      let settled = false;
-
-      const onResult = (): void => {
-        try {
-          const raw = readFileSync(resultPath, "utf-8");
-          const result = JSON.parse(raw) as {
-            ok?: boolean;
-            requestId?: string;
-            error?: string;
-          };
-          if (result.requestId !== requestId) return;
-          settled = true;
-          watcher.close();
-          clearTimeout(timeoutId);
-          if (result.ok) {
-            sendConfirmation(requestId, confirmDecision);
-          } else {
-            process.stdout.write(
-              `[Failed to add trust rule: ${result.error ?? "unknown error"}]\n`,
-            );
-          }
-        } catch {
-          // Result file not yet readable; ignore.
-        }
-      };
-
-      const watcher = watch(signalsDir, (_event, filename) => {
-        if (filename === "trust-rule.result") {
-          onResult();
-        }
-      });
-
-      const timeoutId = setTimeout(() => {
-        if (!settled) {
-          watcher.close();
-          process.stdout.write("[Trust rule timed out]\n");
-        }
-      }, 5_000);
-
-      if (existsSync(resultPath)) {
-        onResult();
-      }
-    } catch {
-      process.stdout.write("[Failed to send trust rule]\n");
-    }
   }
 
   /** Send a user message via signal file to the daemon. */
@@ -397,211 +311,6 @@ export async function startCli(): Promise<void> {
     } catch {
       return { ok: false };
     }
-  }
-
-  function renderConfirmationPrompt(req: ConfirmationRequest): void {
-    const preview = formatConfirmationCommandPreview(req);
-    const inputLines = formatConfirmationInputLines(req.input);
-    process.stdout.write("\n");
-    process.stdout.write(`\u250C ${req.toolName}: ${preview}\n`);
-    process.stdout.write(
-      `\u2502 Risk: ${req.riskLevel}${req.sandboxed ? "  [sandboxed]" : ""}\n`,
-    );
-    if (req.executionTarget) {
-      process.stdout.write(`\u2502 Target: ${req.executionTarget}\n`);
-    }
-    if (inputLines.length > 0) {
-      process.stdout.write(`\u2502\n`);
-      for (const line of inputLines) {
-        process.stdout.write(`\u2502 ${line}\n`);
-      }
-    }
-    if (req.diff) {
-      const diffOutput = req.diff.isNewFile
-        ? formatNewFileDiff(req.diff.newContent, req.diff.filePath, null)
-        : formatDiff(
-            req.diff.oldContent,
-            req.diff.newContent,
-            req.diff.filePath,
-          );
-      if (diffOutput) {
-        process.stdout.write(`\u2502\n`);
-        for (const line of diffOutput.split("\n")) {
-          if (line) process.stdout.write(`\u2502 ${line}\n`);
-        }
-      }
-    }
-    process.stdout.write(`\u2502\n`);
-    process.stdout.write(`\u2502 [a] Allow once\n`);
-    if (req.temporaryOptionsAvailable?.includes("allow_10m")) {
-      process.stdout.write(`\u2502 [t] Allow 10m\n`);
-    }
-    if (req.temporaryOptionsAvailable?.includes("allow_conversation")) {
-      process.stdout.write(`\u2502 [T] Allow Conversation\n`);
-    }
-    process.stdout.write(`\u2502 [d] Deny once\n`);
-    if (req.allowlistOptions.length > 0 && req.scopeOptions.length > 0) {
-      process.stdout.write(`\u2502 [A] Allowlist...\n`);
-      process.stdout.write(`\u2502 [H] Allowlist (high-risk)...\n`);
-      process.stdout.write(`\u2502 [D] Denylist...\n`);
-    }
-    process.stdout.write(`\u2514 > `);
-
-    pendingConfirmation = true;
-    rl.once("line", (answer) => {
-      const trimmed = answer.trim();
-      const choice = trimmed.toLowerCase();
-
-      // Uppercase 'A' → allowlist pattern selection (check before lowercase 'a')
-      // Only process when scope options exist, matching the display guard above
-      if (
-        (trimmed === "A" || choice === "allowlist") &&
-        req.allowlistOptions.length > 0 &&
-        req.scopeOptions.length > 0
-      ) {
-        // pendingConfirmation stays true through sub-prompts
-        renderPatternSelection(req, "always_allow");
-        return;
-      }
-
-      // Uppercase 'H' → high-risk allowlist pattern selection
-      if (
-        trimmed === "H" &&
-        req.allowlistOptions.length > 0 &&
-        req.scopeOptions.length > 0
-      ) {
-        // pendingConfirmation stays true through sub-prompts
-        renderPatternSelection(req, "always_allow_high_risk");
-        return;
-      }
-
-      // Uppercase 'D' → denylist pattern selection (check before lowercase 'd')
-      if (
-        (trimmed === "D" || choice === "denylist") &&
-        req.allowlistOptions.length > 0 &&
-        req.scopeOptions.length > 0
-      ) {
-        // pendingConfirmation stays true through sub-prompts
-        renderPatternSelection(req, "always_deny");
-        return;
-      }
-
-      pendingConfirmation = false;
-      if (choice === "a") {
-        sendConfirmation(req.requestId, "allow");
-        return;
-      }
-
-      if (
-        choice === "t" &&
-        trimmed === "t" &&
-        req.temporaryOptionsAvailable?.includes("allow_10m")
-      ) {
-        sendConfirmation(req.requestId, "allow_10m");
-        return;
-      }
-
-      if (
-        trimmed === "T" &&
-        req.temporaryOptionsAvailable?.includes("allow_conversation")
-      ) {
-        sendConfirmation(req.requestId, "allow_conversation");
-        return;
-      }
-
-      if (choice === "d") {
-        sendConfirmation(req.requestId, "deny");
-        return;
-      }
-
-      // Default to deny for unrecognized input
-      sendConfirmation(req.requestId, "deny");
-    });
-  }
-
-  function renderPatternSelection(
-    req: ConfirmationRequest,
-    decision: "always_allow" | "always_allow_high_risk" | "always_deny",
-  ): void {
-    const label =
-      decision === "always_deny"
-        ? "Denylist"
-        : decision === "always_allow_high_risk"
-          ? "Allowlist (high-risk)"
-          : "Allowlist";
-    process.stdout.write("\n");
-    process.stdout.write(`\u250C ${label}: choose command pattern\n`);
-    for (let i = 0; i < req.allowlistOptions.length; i++) {
-      process.stdout.write(
-        `\u2502 [${i + 1}] ${req.allowlistOptions[i].label}\n`,
-      );
-    }
-    process.stdout.write(`\u2514 > `);
-
-    rl.once("line", (answer) => {
-      const parsed = parseInt(answer.trim(), 10);
-      if (Number.isNaN(parsed)) {
-        process.stdout.write("  Invalid input — enter a number.\n");
-        renderPatternSelection(req, decision);
-        return;
-      }
-      const idx = parsed - 1;
-      if (idx >= 0 && idx < req.allowlistOptions.length) {
-        const selectedPattern = req.allowlistOptions[idx].pattern;
-        // pendingConfirmation stays true through scope selection
-        renderScopeSelection(req, selectedPattern, decision);
-      } else {
-        // Invalid selection → deny
-        pendingConfirmation = false;
-        sendConfirmation(req.requestId, "deny");
-      }
-    });
-  }
-
-  function renderScopeSelection(
-    req: ConfirmationRequest,
-    selectedPattern: string,
-    decision: "always_allow" | "always_allow_high_risk" | "always_deny",
-  ): void {
-    const label =
-      decision === "always_deny"
-        ? "Denylist"
-        : decision === "always_allow_high_risk"
-          ? "Allowlist (high-risk)"
-          : "Allowlist";
-    process.stdout.write("\n");
-    process.stdout.write(`\u250C ${label}: choose scope\n`);
-    for (let i = 0; i < req.scopeOptions.length; i++) {
-      process.stdout.write(`\u2502 [${i + 1}] ${req.scopeOptions[i].label}\n`);
-    }
-    process.stdout.write(`\u2514 > `);
-
-    rl.once("line", (answer) => {
-      const parsed = parseInt(answer.trim(), 10);
-      if (Number.isNaN(parsed)) {
-        process.stdout.write("  Invalid input — enter a number.\n");
-        renderScopeSelection(req, selectedPattern, decision);
-        return;
-      }
-      pendingConfirmation = false;
-      const idx = parsed - 1;
-      if (idx >= 0 && idx < req.scopeOptions.length) {
-        const trustDecision = decision === "always_deny" ? "deny" : "allow";
-        sendTrustRuleAndConfirm(
-          req.requestId,
-          selectedPattern,
-          req.scopeOptions[idx].scope,
-          trustDecision,
-          trustDecision,
-          decision === "always_allow_high_risk"
-            ? { allowHighRisk: true }
-            : undefined,
-        );
-      } else {
-        // Invalid selection → deny
-        sendConfirmation(req.requestId, "deny");
-      }
-    });
   }
 
   function renderConversationPicker(
@@ -875,11 +584,6 @@ export async function startCli(): Promise<void> {
         spinner.start("Thinking...");
         break;
 
-      case "confirmation_request":
-        spinner.stop();
-        renderConfirmationPrompt(msg);
-        break;
-
       case "conversation_error":
         spinner.stop();
         if (lastDisplayedError !== msg.userMessage) {
@@ -891,8 +595,7 @@ export async function startCli(): Promise<void> {
       case "error":
         spinner.stop();
         generating = false;
-        if (pendingConfirmation || pendingSessionPick || pendingCopySession) {
-          pendingConfirmation = false;
+        if (pendingSessionPick || pendingCopySession) {
           pendingSessionPick = false;
           pendingCopySession = false;
           rl.removeAllListeners("line");
@@ -1042,7 +745,6 @@ export async function startCli(): Promise<void> {
     const content = line.trim();
     if (!content) return;
     if (pendingSessionPick) return;
-    if (pendingConfirmation) return;
 
     // Persist to history file (ensure parent directory exists)
     try {

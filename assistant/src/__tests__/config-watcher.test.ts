@@ -125,10 +125,6 @@ mock.module("../signals/mcp-reload.js", () => ({
   handleMcpReloadSignal: () => {},
 }));
 
-mock.module("../signals/confirm.js", () => ({
-  handleConfirmationSignal: () => {},
-}));
-
 mock.module("../signals/trust-rule.js", () => ({
   handleTrustRuleSignal: () => {},
 }));

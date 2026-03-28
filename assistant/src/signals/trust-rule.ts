@@ -1,12 +1,11 @@
 /**
  * Handle trust-rule signals from the CLI.
  *
- * When the user chooses to allowlist/denylist a tool pattern from a
- * confirmation prompt, the CLI writes JSON to `signals/trust-rule`.
- * The daemon's ConfigWatcher detects the file change and invokes
- * {@link handleTrustRuleSignal}, which adds the trust rule and writes
- * `signals/trust-rule.result` so the CLI knows the rule was persisted
- * before it sends the follow-up `signals/confirm`.
+ * When the user chooses to allowlist/denylist a tool pattern, the CLI
+ * writes JSON to `signals/trust-rule`. The daemon's ConfigWatcher
+ * detects the file change and invokes {@link handleTrustRuleSignal},
+ * which adds the trust rule and writes `signals/trust-rule.result`
+ * so the caller knows the rule was persisted.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";

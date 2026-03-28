@@ -23,7 +23,6 @@ import {
 } from "../security/secret-allowlist.js";
 import { handleBashSignal } from "../signals/bash.js";
 import { handleCancelSignal } from "../signals/cancel.js";
-import { handleConfirmationSignal } from "../signals/confirm.js";
 import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
 import { handleEmitEventSignal } from "../signals/emit-event.js";
 import { handleMcpReloadSignal } from "../signals/mcp-reload.js";
@@ -243,7 +242,6 @@ export class ConfigWatcher {
 
     const exactSignalHandlers: Record<string, () => void | Promise<void>> = {
       cancel: handleCancelSignal,
-      confirm: handleConfirmationSignal,
       "mcp-reload": handleMcpReloadSignal,
       "trust-rule": handleTrustRuleSignal,
       "conversation-undo": handleConversationUndoSignal,
