@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import os
 import OSLog
+import UniformTypeIdentifiers
 import VellumAssistantShared
 
 private let log = Logger(
@@ -44,6 +45,18 @@ enum LogExporter {
     /// On each retry, the largest file or directory in the staging directory is removed
     /// and logged before re-creating the archive.
     private static let maxUploadRetries = 10
+
+    /// MIME types the platform backend accepts for feedback attachments.
+    private static let allowedAttachmentMIMETypes: Set<String> = [
+        "image/png", "image/jpeg", "image/gif", "image/webp",
+        "video/mp4", "video/quicktime", "video/webm",
+    ]
+
+    /// Derives a MIME type string from a file URL's extension using `UTType`.
+    private static func mimeType(for url: URL) -> String? {
+        guard let utType = UTType(filenameExtension: url.pathExtension) else { return nil }
+        return utType.preferredMIMEType
+    }
 
     /// Collects logs, archives them, and uploads the archive to the platform API
     /// (`POST /v1/upload/feedback/`) for storage.
@@ -193,6 +206,22 @@ enum LogExporter {
             body.append("\r\n".data(using: .utf8)!)
         } else {
             log.warning("Failed to read archive at \(archiveURL.path) — submitting feedback without logs")
+        }
+
+        // Attachment file parts
+        for attachmentURL in formData.attachments {
+            guard let mime = mimeType(for: attachmentURL),
+                  allowedAttachmentMIMETypes.contains(mime),
+                  let fileData = try? Data(contentsOf: attachmentURL) else {
+                log.warning("Skipping invalid attachment at \(attachmentURL.lastPathComponent)")
+                continue
+            }
+            let filename = attachmentURL.lastPathComponent
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"attachments\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: \(mime)\r\n\r\n".data(using: .utf8)!)
+            body.append(fileData)
+            body.append("\r\n".data(using: .utf8)!)
         }
 
         // Final boundary
