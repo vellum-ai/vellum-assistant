@@ -3,7 +3,7 @@ import { join } from "node:path";
 
 import type { Command } from "commander";
 
-import { getIsContainerized } from "../../../config/env-registry.js";
+import { shouldUsePlatformCallbacks } from "../../../inbound/platform-callback-registration.js";
 import { credentialKey } from "../../../security/credential-key.js";
 import { getSignalsDir } from "../../../util/platform.js";
 import {
@@ -53,11 +53,9 @@ Examples:
         // ---------------------------------------------------------------
         // 1. Reject if running inside a platform host
         // ---------------------------------------------------------------
-        if (getIsContainerized()) {
+        if (shouldUsePlatformCallbacks()) {
           writeError(
-            "Cannot disconnect from the platform on a platform-hosted assistant.\n\n" +
-              "Platform-hosted assistants are managed by the platform and cannot " +
-              "be manually disconnected. Use the platform UI to manage this assistant.",
+            "Cannot disconnect from the platform on a platform-hosted assistant.",
           );
           return;
         }
