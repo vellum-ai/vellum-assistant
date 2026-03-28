@@ -502,12 +502,12 @@ struct MessageInspectorView: View {
 
     private func formattedTimestamp(_ epochMs: Int) -> String {
         Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
-            .formatted(date: .omitted, time: .shortened)
+            .formatted(date: .omitted, time: .standard)
     }
 
     private func formattedDateTime(_ epochMs: Int) -> String {
         Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
-            .formatted(date: .abbreviated, time: .shortened)
+            .formatted(date: .abbreviated, time: .standard)
     }
 }
 
