@@ -43,7 +43,7 @@ extension MainWindowView {
 
     var displayedConversations: [ConversationModel] {
         let all = regularConversations
-        return sidebar.showAllConversations ? all : Array(all.prefix(5))
+        return sidebar.showAllConversations ? all : Array(all.prefix(10))
     }
 
     var displayedScheduleConversations: [ConversationModel] {
@@ -351,7 +351,7 @@ extension MainWindowView {
                             }
                     }
 
-                    if regularConversations.count > 5 {
+                    if regularConversations.count > 10 {
                         HStack {
                             VButton(
                                 label: sidebar.showAllConversations ? "Show less" : "Show more",
