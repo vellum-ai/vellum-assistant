@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // Set VELLUM_WORKSPACE_DIR before importing modules that use platform helpers
 const testDir = join(tmpdir(), `hooks-runner-test-${Date.now()}`);
-process.env.VELLUM_WORKSPACE_DIR = join(testDir, ".vellum", "workspace");
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 import { runHookScript } from "../hooks/runner.js";
 import type { DiscoveredHook, HookEventData } from "../hooks/types.js";
@@ -40,7 +40,7 @@ describe("Hook Runner", () => {
   let hooksDir: string;
 
   beforeEach(() => {
-    hooksDir = join(testDir, ".vellum", "hooks");
+    hooksDir = join(testDir, "hooks");
     mkdirSync(hooksDir, { recursive: true });
   });
 
@@ -136,8 +136,8 @@ describe("Hook Runner", () => {
     const result = await runHookScript(hook, eventData);
     expect(result.exitCode).toBe(0);
     const wsDir = result.stdout.trim();
-    expect(wsDir).toContain(".vellum");
-    expect(wsDir).toEndWith("workspace");
+    expect(wsDir.length).toBeGreaterThan(0);
+    expect(wsDir).toBe(testDir);
   });
 
   test("sets both VELLUM_ROOT_DIR and VELLUM_WORKSPACE_DIR", async () => {
@@ -151,12 +151,11 @@ describe("Hook Runner", () => {
     const result = await runHookScript(hook, eventData);
     expect(result.exitCode).toBe(0);
     const [rootDir, wsDir] = result.stdout.trim().split("|");
-    expect(rootDir).toContain(".vellum");
-    expect(wsDir).toContain(".vellum");
-    expect(wsDir).toEndWith("workspace");
     // Both env vars are set and non-empty
+    expect(rootDir).toContain(".vellum");
     expect(rootDir.length).toBeGreaterThan(0);
     expect(wsDir.length).toBeGreaterThan(0);
+    expect(wsDir).toBe(testDir);
   });
 
   test("handles non-existent script gracefully", async () => {

@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // Set VELLUM_WORKSPACE_DIR before importing modules that use platform helpers
 const testDir = join(tmpdir(), `hooks-settings-test-${Date.now()}`);
-process.env.VELLUM_WORKSPACE_DIR = join(testDir, ".vellum", "workspace");
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 import { getHookSettings } from "../hooks/config.js";
 import { saveHooksConfig } from "../hooks/config.js";
@@ -22,7 +22,7 @@ describe("Hook Settings", () => {
   let hooksDir: string;
 
   beforeEach(() => {
-    hooksDir = join(testDir, ".vellum", "hooks");
+    hooksDir = join(testDir, "hooks");
     mkdirSync(hooksDir, { recursive: true });
   });
 

@@ -132,7 +132,7 @@ CES tools are the only approved exception — see `assistant/src/tools/AGENTS.md
 
 ## Multi-Instance Path Invariant
 
-The assistant daemon resolves its root directory as `join(homedir(), ".vellum")` via the internal `vellumRoot()` helper. Root-level paths (PID file, platform token, daemon stderr log, protected directory) always resolve under `~/.vellum/`.
+The assistant daemon resolves its root directory as `join(homedir(), ".vellum")` via the internal `vellumRoot()` helper. Root-level paths (PID file, platform token, daemon stderr log, protected directory) always resolve under `~/.vellum/`. Remaining root-level files are being migrated to the workspace directory or removed entirely — see the phase plan in the repo for details.
 
 The CLI (`cli/src/lib/local.ts`) still sets `BASE_DATA_DIR` when spawning named local instances. This is a legacy mechanism slated for removal — the CLI should be migrated to pass `VELLUM_WORKSPACE_DIR` (and any future per-instance env vars) instead of `BASE_DATA_DIR`. Until that migration is complete, the CLI constructs instance-scoped paths directly (e.g. `join(instanceDir, ".vellum", ...)`) rather than relying on the daemon's path helpers.
 

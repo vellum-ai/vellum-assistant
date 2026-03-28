@@ -11,7 +11,7 @@ const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 
 beforeEach(() => {
   mkdirSync(testDir, { recursive: true });
-  process.env.VELLUM_WORKSPACE_DIR = join(testDir, ".vellum", "workspace");
+  process.env.VELLUM_WORKSPACE_DIR = testDir;
 });
 
 afterEach(() => {

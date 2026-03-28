@@ -46,7 +46,7 @@ describe("PairingStore.register — concurrent pairing guard", () => {
     // pollute ~/.vellum or interfere with other test files.
     tmpBase = mkdtempSync(join(tmpdir(), "pairing-test-"));
     origWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
-    process.env.VELLUM_WORKSPACE_DIR = join(tmpBase, ".vellum", "workspace");
+    process.env.VELLUM_WORKSPACE_DIR = tmpBase;
   });
 
   afterAll(() => {

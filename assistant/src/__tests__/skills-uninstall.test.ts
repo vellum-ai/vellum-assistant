@@ -15,7 +15,7 @@ let tempDir: string;
 let originalWorkspaceDir: string | undefined;
 
 function getSkillsDir(): string {
-  return join(tempDir, ".vellum", "workspace", "skills");
+  return join(tempDir, "skills");
 }
 
 function getSkillsIndexPath(): string {
@@ -38,11 +38,9 @@ beforeEach(() => {
     tmpdir(),
     `skills-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
-  mkdirSync(join(tempDir, ".vellum", "workspace", "skills"), {
-    recursive: true,
-  });
+  mkdirSync(join(tempDir, "skills"), { recursive: true });
   originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
-  process.env.VELLUM_WORKSPACE_DIR = join(tempDir, ".vellum", "workspace");
+  process.env.VELLUM_WORKSPACE_DIR = tempDir;
 });
 
 afterEach(() => {

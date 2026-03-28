@@ -8,7 +8,7 @@ import { discoverHooks } from "../hooks/discovery.js";
 
 // Set VELLUM_WORKSPACE_DIR before importing modules that use platform helpers
 const testDir = join(tmpdir(), `hooks-discovery-test-${Date.now()}`);
-process.env.VELLUM_WORKSPACE_DIR = join(testDir, ".vellum", "workspace");
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 function createHook(
   hooksDir: string,
@@ -29,7 +29,7 @@ describe("Hooks Discovery", () => {
   let hooksDir: string;
 
   beforeEach(() => {
-    hooksDir = join(testDir, ".vellum", "hooks");
+    hooksDir = join(testDir, "hooks");
     mkdirSync(hooksDir, { recursive: true });
   });
 
