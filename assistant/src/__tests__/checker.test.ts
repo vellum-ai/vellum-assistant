@@ -28,6 +28,7 @@ mock.module("../util/platform.js", () => ({
   getRootDir: () => checkerTestDir,
   getProtectedDir: () => join(checkerTestDir, "protected"),
   getDataDir: () => join(checkerTestDir, "data"),
+  getWorkspaceDir: () => join(checkerTestDir, "workspace"),
   getWorkspaceSkillsDir: () => join(checkerTestDir, "skills"),
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",

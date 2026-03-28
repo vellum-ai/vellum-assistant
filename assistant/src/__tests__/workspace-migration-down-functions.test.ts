@@ -770,9 +770,21 @@ describe("014-migrate-to-workspace-volume down()", () => {
 // ---------------------------------------------------------------------------
 
 describe("016-extract-feature-flags-to-protected down()", () => {
+  let savedBaseDataDir: string | undefined;
+
   beforeEach(() => {
-    // Set up mock root dir for getRootDir() to point to our temp dir
-    mockRootDir = freshWorkspace();
+    // The migration has an inlined getRootDir() that reads BASE_DATA_DIR,
+    // so we set that env var so the inlined function resolves to mockRootDir.
+    const baseDir = freshWorkspace();
+    mockRootDir = join(baseDir, ".vellum");
+    mkdirSync(mockRootDir, { recursive: true });
+    savedBaseDataDir = process.env.BASE_DATA_DIR;
+    process.env.BASE_DATA_DIR = baseDir;
+  });
+
+  afterEach(() => {
+    if (savedBaseDataDir === undefined) delete process.env.BASE_DATA_DIR;
+    else process.env.BASE_DATA_DIR = savedBaseDataDir;
   });
 
   test("moves feature flags from protected dir back to config.json", () => {
