@@ -452,6 +452,7 @@ const WORKSPACE_SKIP_DIRS = new Set([
   "data/attachments",
   "data/sounds",
   "conversations",
+  "signals",
 ]);
 
 /** Files at the workspace root to skip (already covered by sanitized fields). */
