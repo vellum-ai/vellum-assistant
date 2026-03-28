@@ -1,7 +1,15 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
+import {
+  getMemoryCheckpoint,
+  setMemoryCheckpoint,
+} from "../memory/checkpoints.js";
+import { enqueueMemoryJob } from "../memory/jobs-store.js";
+import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
+
+const log = getLogger("journal-context");
 
 /**
  * Format a Unix-epoch millisecond value as "MM/DD/YY HH:MM".
@@ -85,7 +93,7 @@ export function buildJournalContext(
   );
 
   // Collect file info with birthtime (creation time), skipping unreadable entries
-  const entries = mdFiles
+  const allEntries = mdFiles
     .flatMap((f) => {
       try {
         const filepath = join(journalDir, f);
@@ -98,8 +106,46 @@ export function buildJournalContext(
         return [];
       }
     })
-    .sort((a, b) => b.birthtimeMs - a.birthtimeMs)
-    .slice(0, maxEntries);
+    .sort((a, b) => b.birthtimeMs - a.birthtimeMs);
+
+  const entries = allEntries.slice(0, maxEntries);
+  const rotatingOut = allEntries.slice(maxEntries);
+
+  // Enqueue carry-forward jobs for entries rotating out of the context window.
+  // Wrapped in try-catch so DB errors never break journal context rendering.
+  if (rotatingOut.length > 0 && userSlug != null) {
+    try {
+      const safeSlug = basename(userSlug);
+      for (const entry of rotatingOut) {
+        const checkpointKey = `journal_carry_forward:${entry.filename}`;
+        if (getMemoryCheckpoint(checkpointKey) != null) continue;
+
+        let content: string;
+        try {
+          content = readFileSync(entry.filepath, "utf-8");
+        } catch {
+          continue;
+        }
+
+        enqueueMemoryJob("journal_carry_forward", {
+          journalContent: content,
+          userSlug: safeSlug,
+          filename: entry.filename,
+          scopeId: "default",
+        });
+        setMemoryCheckpoint(checkpointKey, String(Date.now()));
+        log.info(
+          { filename: entry.filename, userSlug: safeSlug },
+          "Enqueued journal carry-forward job for rotating-out entry",
+        );
+      }
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "Failed to enqueue journal carry-forward jobs",
+      );
+    }
+  }
 
   if (entries.length === 0) return null;
 
