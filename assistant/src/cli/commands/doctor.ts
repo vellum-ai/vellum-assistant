@@ -8,6 +8,7 @@ import { loadRawConfig } from "../../config/loader.js";
 import { shouldAutoStartDaemon } from "../../daemon/connection-policy.js";
 import { isHttpHealthy } from "../../daemon/daemon-control.js";
 import {
+  getDataDir,
   getDbPath,
   getLogPath,
   getProtectedDir,
@@ -130,7 +131,7 @@ Examples:
 
       // 5. ~/.vellum/ directory structure (workspace layout)
       const protectedDir = getProtectedDir();
-      const dataDir = process.env.VELLUM_DATA_DIR!;
+      const dataDir = getDataDir();
       const workspaceDir = getWorkspaceDir();
       const requiredDirs = [
         workspaceDir,
