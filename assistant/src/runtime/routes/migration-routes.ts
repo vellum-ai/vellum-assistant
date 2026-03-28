@@ -142,8 +142,8 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
   }
 
   try {
-    // Trust rules are NOT included in daemon-produced exports. The daemon no
-    // longer has access to the protected directory, and the import handler
+    // Trust rules are NOT included in daemon-produced exports. The daemon
+    // does not have access to the protected directory, and the import handler
     // passes protectedDir=undefined so trust/trust.json entries would be
     // silently dropped (creating a false UNKNOWN_ARCHIVE_PATH conflict in
     // preflight). Trust rules are managed by the CES/gateway layer.
