@@ -524,8 +524,8 @@ describe("Memory regressions (experimental)", () => {
       },
       DEFAULT_CONFIG.memory,
     );
-    // embed_segment (1 segment) + extract_items + build_conversation_summary = 3
-    expect(result.enqueuedJobs).toBe(3);
+    // embed_segment (1 segment) — extraction and conversation summary are batched, not per-message
+    expect(result.enqueuedJobs).toBe(1);
 
     const embedSegmentJobs = db
       .select()
@@ -584,9 +584,8 @@ describe("Memory regressions (experimental)", () => {
       },
       memoryConfig,
     );
-    // embed_segment (1 segment) + build_conversation_summary = 2
-    // (extract_items is skipped for assistant messages when extractFromAssistant=false)
-    expect(result.enqueuedJobs).toBe(2);
+    // embed_segment (1 segment) — extraction and conversation summary are batched, not per-message
+    expect(result.enqueuedJobs).toBe(1);
 
     const extractionJobs = db
       .select()
