@@ -25,6 +25,7 @@ import {
 } from "../../memory/conversation-title-service.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
+import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { truncate } from "../../util/truncate.js";
 import type { Conversation } from "../conversation.js";
 import { HostBashProxy } from "../host-bash-proxy.js";
@@ -84,6 +85,14 @@ export function makeEventSender(params: {
 
         try {
           const trustContext = conversation.trustContext;
+          const inputRecord = event.input as Record<string, unknown>;
+          const activityRaw =
+            (typeof inputRecord.activity === "string"
+              ? inputRecord.activity
+              : undefined) ??
+            (typeof inputRecord.reason === "string"
+              ? inputRecord.reason
+              : undefined);
           createCanonicalGuardianRequest({
             id: event.requestId,
             kind: "tool_approval",
@@ -92,6 +101,11 @@ export function makeEventSender(params: {
             conversationId,
             guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
             toolName: event.toolName,
+            commandPreview:
+              summarizeToolInput(event.toolName, inputRecord) || undefined,
+            riskLevel: event.riskLevel,
+            activityText: activityRaw,
+            executionTarget: event.executionTarget,
             status: "pending",
             requestCode: generateCanonicalRequestCode(),
             expiresAt: Date.now() + 5 * 60 * 1000,

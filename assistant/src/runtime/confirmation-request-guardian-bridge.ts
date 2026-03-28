@@ -140,7 +140,9 @@ export function bridgeConfirmationRequestToGuardian(
     trustContext.requesterExternalUserId ||
     "unknown";
 
-  const questionText = `Tool approval request: ${toolName}`;
+  const questionText = canonicalRequest.activityText
+    ? `Tool approval: ${toolName} — ${canonicalRequest.activityText}`
+    : `Tool approval request: ${toolName}`;
 
   // Emit guardian.question notification so the guardian is alerted.
   const signalPromise = emitNotificationSignal({
