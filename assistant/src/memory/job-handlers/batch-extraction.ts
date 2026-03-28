@@ -429,7 +429,11 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
       memoryItemId = existing.id;
       effectiveStatus = "active";
       const effectiveSourceType =
-        existing.sourceType === "tool" ? "tool" : "extraction";
+        existing.sourceType === "tool"
+          ? "tool"
+          : existing.sourceType === "journal_carry_forward"
+            ? "journal_carry_forward"
+            : "extraction";
       const effectiveVerificationState =
         existing.verificationState === "user_reported"
           ? "user_reported"
