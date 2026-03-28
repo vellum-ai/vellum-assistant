@@ -164,20 +164,29 @@ export async function runMemoryJobsOnce(
     return 0;
   }
 
-  // Group jobs by type so same-type jobs run sequentially (preventing
-  // checkpoint races for backfill, etc.), while different types run concurrently.
-  const jobsByType = new Map<string, MemoryJob[]>();
+  // Group jobs so they can run concurrently across independent work units.
+  // Jobs targeting different conversations (via payload.conversationId) are
+  // placed in separate groups and can run in parallel. Jobs targeting the
+  // same conversation, or global jobs without a conversationId (backfill,
+  // cleanup, rebuild_index), are grouped together and run sequentially to
+  // prevent checkpoint races.
+  const jobGroups = new Map<string, MemoryJob[]>();
   for (const job of jobs) {
-    let group = jobsByType.get(job.type);
+    const convId =
+      typeof job.payload.conversationId === "string"
+        ? job.payload.conversationId
+        : null;
+    const groupKey = convId ? `${job.type}:${convId}` : job.type;
+    let group = jobGroups.get(groupKey);
     if (!group) {
       group = [];
-      jobsByType.set(job.type, group);
+      jobGroups.set(groupKey, group);
     }
     group.push(job);
   }
 
   let processed = 0;
-  const typeGroups = [...jobsByType.values()];
+  const typeGroups = [...jobGroups.values()];
 
   // Run type groups concurrently using a task pool (up to workerConcurrency
   // active at a time). Unlike the old wave approach, a new group starts as
