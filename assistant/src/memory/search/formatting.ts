@@ -80,7 +80,8 @@ export function formatRelativeTime(epochMs: number): string {
  * - segments: `<segment id="seg:ID" timestamp="..." from="...">`
  * - summaries: `<summary id="sum:ID" timestamp="..." from="...">`
  *
- * An optional `<echoes>` section is reserved for serendipity items (future PR 6).
+ * An optional `<echoes>` section renders serendipity items — random
+ * importance-weighted memories for unexpected connections.
  *
  * Respects token budget: iterates candidates in score order, accumulates
  * token estimates, and stops when the budget is exhausted.
@@ -128,15 +129,19 @@ export function buildMemoryInjection(params: {
     sections.push(`<recalled>\n${lines.join("\n")}\n</recalled>`);
   }
 
-  // Echoes section for serendipity items (future PR 6)
+  // Echoes section for serendipity items — capped at ~400 tokens of
+  // the remaining budget after <recalled> items are rendered.
   if (serendipityItems && serendipityItems.length > 0) {
+    const ECHOES_MAX_TOKENS = 400;
+    let echoesBudget = Math.min(remainingTokens, ECHOES_MAX_TOKENS);
     const echoLines: string[] = [];
     for (const c of serendipityItems) {
-      if (remainingTokens <= 0) break;
+      if (echoesBudget <= 0) break;
       const line = renderCandidate(c);
       const tokens = estimateTextTokens(line);
-      if (tokens > remainingTokens) break;
+      if (tokens > echoesBudget) break;
       echoLines.push(line);
+      echoesBudget -= tokens;
       remainingTokens -= tokens;
     }
     if (echoLines.length > 0) {

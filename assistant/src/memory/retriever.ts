@@ -1,4 +1,4 @@
-import { asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 
 import type { AssistantConfig } from "../config/types.js";
 import { estimateTextTokens } from "../context/token-estimator.js";
@@ -443,6 +443,14 @@ export async function buildMemoryRecall(
   // ── Step 5b: Enrich candidates with source labels ──────────────
   enrichSourceLabels(filtered);
 
+  // ── Serendipity: sample random memories for unexpected connections ──
+  const SERENDIPITY_COUNT = 3;
+  const serendipityCandidates = sampleSerendipityItems(
+    filtered,
+    SERENDIPITY_COUNT,
+  );
+  enrichSourceLabels(serendipityCandidates);
+
   // ── Step 6: Enrich with item metadata for staleness ─────────────
   const itemIds = filtered.filter((c) => c.type === "item").map((c) => c.id);
   const itemMetadataMap = enrichItemMetadata(itemIds);
@@ -475,11 +483,12 @@ export async function buildMemoryRecall(
 
   const injectedText = buildMemoryInjection({
     candidates: filtered,
+    serendipityItems: serendipityCandidates,
     totalBudgetTokens: maxInjectTokens,
   });
 
   // ── Assemble result ─────────────────────────────────────────────
-  const selectedCount = filtered.length;
+  const selectedCount = filtered.length + serendipityCandidates.length;
 
   const stalenessStats = {
     fresh: filtered.filter((c) => c.staleness === "fresh").length,
@@ -769,6 +778,101 @@ function enrichSourceLabels(candidates: TieredCandidate[]): void {
     // importing memorySegments and an additional query. The primary value is item source labels.
   } catch (err) {
     log.warn({ err }, "Failed to enrich candidates with source labels");
+  }
+}
+
+/**
+ * Sample random active memory items for serendipitous recall — items
+ * the user didn't ask about but might spark unexpected connections.
+ *
+ * Queries SQLite for random active items not already in the candidate pool,
+ * then selects up to `count` items with probability proportional to their
+ * importance value (importance-weighted sampling).
+ */
+function sampleSerendipityItems(
+  existingCandidates: TieredCandidate[],
+  count: number,
+): TieredCandidate[] {
+  if (count <= 0) return [];
+
+  try {
+    const db = getDb();
+
+    // Collect IDs of item candidates already in the filtered set to exclude them
+    const existingItemIds = existingCandidates
+      .filter((c) => c.type === "item")
+      .map((c) => c.id);
+
+    // Query random active items not already in the candidate pool
+    const RANDOM_POOL_SIZE = 10;
+    let rows;
+    if (existingItemIds.length > 0) {
+      rows = db
+        .select({
+          id: memoryItems.id,
+          kind: memoryItems.kind,
+          subject: memoryItems.subject,
+          statement: memoryItems.statement,
+          importance: memoryItems.importance,
+          firstSeenAt: memoryItems.firstSeenAt,
+        })
+        .from(memoryItems)
+        .where(
+          and(
+            eq(memoryItems.status, "active"),
+            notInArray(memoryItems.id, existingItemIds),
+          ),
+        )
+        .orderBy(sql`RANDOM()`)
+        .limit(RANDOM_POOL_SIZE)
+        .all();
+    } else {
+      rows = db
+        .select({
+          id: memoryItems.id,
+          kind: memoryItems.kind,
+          subject: memoryItems.subject,
+          statement: memoryItems.statement,
+          importance: memoryItems.importance,
+          firstSeenAt: memoryItems.firstSeenAt,
+        })
+        .from(memoryItems)
+        .where(eq(memoryItems.status, "active"))
+        .orderBy(sql`RANDOM()`)
+        .limit(RANDOM_POOL_SIZE)
+        .all();
+    }
+
+    if (rows.length === 0) return [];
+
+    // Importance-weighted sampling: sort by importance * random() descending
+    // and take the top `count` items
+    const weighted = rows
+      .map((row) => ({
+        row,
+        score: (row.importance ?? 0.5) * Math.random(),
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, count);
+
+    // Convert to Candidate-compatible objects
+    return weighted.map(({ row }): TieredCandidate => ({
+      type: "item",
+      id: row.id,
+      key: `item:${row.id}`,
+      kind: row.kind,
+      text: row.statement,
+      source: "semantic",
+      importance: row.importance ?? 0.5,
+      confidence: 1,
+      semantic: 0,
+      recency: 0,
+      finalScore: 0,
+      createdAt: row.firstSeenAt,
+    }));
+  } catch (err) {
+    log.warn({ err }, "Failed to sample serendipity items");
+    return [];
   }
 }
 
