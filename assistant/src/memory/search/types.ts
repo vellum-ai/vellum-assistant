@@ -15,6 +15,8 @@ export interface Candidate {
   conversationId?: string;
   /** The source message ID this candidate was extracted from (segments only). */
   messageId?: string;
+  /** The ID of the memory item this candidate supersedes (items only). */
+  supersedes?: string;
   confidence: number;
   importance: number;
   createdAt: number;
