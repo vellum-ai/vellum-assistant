@@ -152,12 +152,16 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
     let trustData: Uint8Array | undefined;
     try {
       const rules = getAllRules();
-      const trustFile = {
-        version: 3,
-        rules,
-        ...(isStarterBundleAccepted() ? { starterBundleAccepted: true } : {}),
-      };
-      trustData = new TextEncoder().encode(JSON.stringify(trustFile, null, 2));
+      if (rules.length > 0 || isStarterBundleAccepted()) {
+        const trustFile = {
+          version: 3,
+          rules,
+          ...(isStarterBundleAccepted() ? { starterBundleAccepted: true } : {}),
+        };
+        trustData = new TextEncoder().encode(
+          JSON.stringify(trustFile, null, 2),
+        );
+      }
     } catch (err) {
       log.warn(
         { err },
