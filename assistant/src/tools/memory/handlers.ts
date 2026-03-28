@@ -252,7 +252,7 @@ export interface MemoryRecallToolResult {
   text: string;
   resultCount: number;
   degraded: boolean;
-  items: Array<{ id: string; type: string; kind: string; sourceConversationId?: string; sourceConversationTitle?: string }>;
+  items: Array<{ id: string; type: string; kind: string; sourceConversationTitle?: string }>;
   sources: {
     semantic: number;
     recency: number;
