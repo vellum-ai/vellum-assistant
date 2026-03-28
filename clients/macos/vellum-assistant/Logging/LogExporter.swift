@@ -217,6 +217,9 @@ enum LogExporter {
                 continue
             }
             let filename = attachmentURL.lastPathComponent
+                .replacingOccurrences(of: "\"", with: "_")
+                .replacingOccurrences(of: "\r", with: "_")
+                .replacingOccurrences(of: "\n", with: "_")
             body.append("--\(boundary)\r\n".data(using: .utf8)!)
             body.append("Content-Disposition: form-data; name=\"attachments\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
             body.append("Content-Type: \(mime)\r\n\r\n".data(using: .utf8)!)
