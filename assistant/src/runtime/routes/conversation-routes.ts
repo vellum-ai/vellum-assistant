@@ -547,6 +547,7 @@ export function handleListMessages(
       ...(interfaces ? { interfaces } : {}),
       ...(m.surfaces.length > 0 ? { surfaces: m.surfaces } : {}),
       ...(m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
+      ...(m.thinkingSegments?.length ? { thinkingSegments: m.thinkingSegments } : {}),
       ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
     };
   });
