@@ -235,39 +235,39 @@ export function getSignalsDir(): string {
 // These expose specific root-level file paths so callers don't need to
 // import getRootDir() directly. getRootDir() is intentionally unexported.
 
-/** Returns the path to the daemon stderr log (~/.vellum/daemon-stderr.log). */
+/** Returns the path to the daemon stderr log (~/.vellum/workspace/logs/daemon-stderr.log). */
 export function getDaemonStderrLogPath(): string {
-  return join(vellumRoot(), "daemon-stderr.log");
+  return join(getWorkspaceDir(), "logs", "daemon-stderr.log");
 }
 
-/** Returns the path to the daemon startup lock file (~/.vellum/daemon-startup.lock). */
+/** Returns the path to the daemon startup lock file (~/.vellum/workspace/daemon-startup.lock). */
 export function getDaemonStartupLockPath(): string {
-  return join(vellumRoot(), "daemon-startup.lock");
+  return join(getWorkspaceDir(), "daemon-startup.lock");
 }
 
-/** Returns the path to the feature-flag client token file (~/.vellum/feature-flag-token). */
+/** Returns the path to the feature-flag client token file (~/.vellum/workspace/feature-flag-token). */
 export function getFeatureFlagTokenPath(): string {
-  return join(vellumRoot(), "feature-flag-token");
+  return join(getWorkspaceDir(), "feature-flag-token");
 }
 
-/** Returns the directory for externally-installed packages (~/.vellum/external). */
+/** Returns the directory for externally-installed packages (~/.vellum/workspace/external). */
 export function getExternalDir(): string {
-  return join(vellumRoot(), "external");
+  return join(getWorkspaceDir(), "external");
 }
 
-/** Returns the directory for installed binaries (~/.vellum/bin). */
+/** Returns the directory for installed binaries (~/.vellum/workspace/bin). */
 export function getBinDir(): string {
-  return join(vellumRoot(), "bin");
+  return join(getWorkspaceDir(), "bin");
 }
 
-/** Returns the path to the dot-env file (~/.vellum/.env). */
+/** Returns the path to the dot-env file (~/.vellum/workspace/.env). */
 export function getDotEnvPath(): string {
-  return join(vellumRoot(), ".env");
+  return join(getWorkspaceDir(), ".env");
 }
 
-/** Returns the path to the embed-worker PID file (~/.vellum/embed-worker.pid). */
+/** Returns the path to the embed-worker PID file (~/.vellum/workspace/embed-worker.pid). */
 export function getEmbedWorkerPidPath(): string {
-  return join(vellumRoot(), "embed-worker.pid");
+  return join(getWorkspaceDir(), "embed-worker.pid");
 }
 
 /**
@@ -368,6 +368,9 @@ export function ensureDataDir(): void {
     join(workspace, "skills"),
     join(workspace, "embedding-models"),
     join(workspace, "conversations"),
+    join(workspace, "logs"),
+    join(workspace, "external"),
+    join(workspace, "bin"),
     // Data sub-dirs under workspace
     wsData,
     join(wsData, "db"),

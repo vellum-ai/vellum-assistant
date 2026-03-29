@@ -20,6 +20,7 @@ import { renameOauthSkillDirsMigration } from "./020-rename-oauth-skill-dirs.js"
 import { moveSignalsToWorkspaceMigration } from "./021-move-signals-to-workspace.js";
 import { moveHooksToWorkspaceMigration } from "./022-move-hooks-to-workspace.js";
 import { moveConfigFilesToWorkspaceMigration } from "./023-move-config-files-to-workspace.js";
+import { moveRuntimeFilesToWorkspaceMigration } from "./024-move-runtime-files-to-workspace.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -51,4 +52,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   moveSignalsToWorkspaceMigration,
   moveHooksToWorkspaceMigration,
   moveConfigFilesToWorkspaceMigration,
+  moveRuntimeFilesToWorkspaceMigration,
 ];
