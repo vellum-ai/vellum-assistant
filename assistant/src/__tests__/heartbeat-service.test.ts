@@ -156,7 +156,7 @@ describe("HeartbeatService", () => {
 
     expect(processMessageCalls).toHaveLength(1);
     expect(processMessageCalls[0].content).toContain(
-      "Check the current weather",
+      "Check in with yourself",
     );
   });
 
