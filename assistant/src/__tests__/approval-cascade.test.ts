@@ -5,10 +5,7 @@
  * allow_conversation, always_allow, always_deny), other pending confirmations in
  * the same conversation that match are auto-resolved.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Minimatch } from "minimatch";
 
@@ -21,9 +18,6 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { ConfirmationStateChanged } from "../daemon/message-types/messages.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import type { ConfirmationDetails } from "../runtime/pending-interactions.js";
-
-const testDir = mkdtempSync(join(tmpdir(), "approval-cascade-test-"));
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede Conversation import
@@ -262,7 +256,7 @@ function makeConversation(
     "system prompt",
     4096,
     sendToClient ?? (() => {}),
-    testDir,
+    process.env.VELLUM_WORKSPACE_DIR!,
   );
 }
 
@@ -322,17 +316,7 @@ function makeConfirmationDetails(patterns: string[]): ConfirmationDetails {
   };
 }
 
-afterAll(() => {
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
-});
-
 beforeEach(() => {
-  process.env.VELLUM_WORKSPACE_DIR = testDir;
   pendingInteractions.clear();
 });
 

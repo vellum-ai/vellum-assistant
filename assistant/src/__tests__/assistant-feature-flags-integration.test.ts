@@ -15,7 +15,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -23,11 +22,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Test-scoped temp directory and config state
 // ---------------------------------------------------------------------------
 
-const TEST_DIR = join(
-  tmpdir(),
-  `vellum-asst-flags-test-${crypto.randomUUID()}`,
-);
-process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 let currentConfig: Record<string, unknown> = {
   services: {
@@ -100,7 +95,6 @@ const { skillFlagKey } = await import("../config/skill-state.js");
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
   mkdirSync(TEST_DIR, { recursive: true });
   _setOverridesForTesting({});
   currentConfig = {
@@ -121,10 +115,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete process.env.VELLUM_WORKSPACE_DIR;
   _setOverridesForTesting({});
+  // Clean contents but keep the dir for the preload's afterAll
   if (existsSync(TEST_DIR)) {
     rmSync(TEST_DIR, { recursive: true, force: true });
+    mkdirSync(TEST_DIR, { recursive: true });
   }
 });
 

@@ -4,18 +4,10 @@
  * Tests POST /v1/confirm, POST /v1/secret, and POST /v1/trust-rules
  * through RuntimeHttpServer with pending-interactions tracking.
  */
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "approval-routes-http-test-")),
-);
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -75,7 +67,7 @@ mock.module("../permissions/trust-store.js", () => ({
   getRules: () => [],
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
@@ -229,23 +221,12 @@ describe("standalone approval endpoints — HTTP layer", () => {
   let eventHub: AssistantEventHub;
 
   beforeEach(() => {
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
     db.run("DELETE FROM conversation_keys");
     pendingInteractions.clear();
     eventHub = new AssistantEventHub();
-  });
-
-  afterAll(() => {
-    delete process.env.VELLUM_WORKSPACE_DIR;
-    resetDb();
-    try {
-      rmSync(testDir, { recursive: true, force: true });
-    } catch {
-      /* best effort */
-    }
   });
 
   async function startServer(

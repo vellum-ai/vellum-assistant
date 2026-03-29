@@ -54,7 +54,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete process.env.VELLUM_WORKSPACE_DIR;
   if (existsSync(testDataDir)) {
     rmSync(testDataDir, { recursive: true, force: true });
   }

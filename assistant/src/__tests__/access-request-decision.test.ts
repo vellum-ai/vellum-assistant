@@ -8,17 +8,7 @@
  * - Stale: handles already-resolved requests gracefully.
  * - Idempotent: approving same request twice does not create duplicate sessions.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Test isolation: in-memory SQLite via temp directory
-// ---------------------------------------------------------------------------
-
-const testDir = mkdtempSync(join(tmpdir(), "access-request-decision-test-"));
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -45,7 +35,7 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   createApprovalRequest,
   getApprovalRequestById,
@@ -60,20 +50,6 @@ import {
 } from "../runtime/routes/access-request-decision.js";
 
 initializeDb();
-
-beforeEach(() => {
-  process.env.VELLUM_WORKSPACE_DIR = testDir;
-});
-
-afterAll(() => {
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Helpers

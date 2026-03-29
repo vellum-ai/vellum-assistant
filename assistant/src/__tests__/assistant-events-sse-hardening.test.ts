@@ -8,13 +8,7 @@
  *   - Subscription cleanup on request abort.
  *   - Subscription cleanup on reader cancel.
  */
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(mkdtempSync(join(tmpdir(), "sse-hardening-")));
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -35,21 +29,11 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import { handleSubscribeAssistantEvents } from "../runtime/routes/events-routes.js";
 
 initializeDb();
-
-afterAll(() => {
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

@@ -30,7 +30,6 @@ describe("App Git History", () => {
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_WORKSPACE_DIR;
     if (existsSync(testDataDir)) {
       rmSync(testDataDir, { recursive: true, force: true });
     }
