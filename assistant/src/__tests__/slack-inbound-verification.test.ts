@@ -136,6 +136,8 @@ function buildSlackInboundRequest(
 
 describe("Slack inbound trusted contact verification", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetState();
   });
 

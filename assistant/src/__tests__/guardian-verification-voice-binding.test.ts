@@ -117,6 +117,8 @@ afterAll(() => {
 
 describe("startVerificationCall — voice binding", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     mockPreflightResult = {
       ok: true as const,
       ingressConfig: {

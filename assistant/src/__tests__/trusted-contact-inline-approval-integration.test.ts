@@ -258,6 +258,8 @@ describe("(a) target flow: trusted-contact inline guardian approval end-to-end",
   });
 
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     events.length = 0;
     emittedSignals.length = 0;
@@ -387,6 +389,8 @@ describe("(a) target flow: trusted-contact inline guardian approval end-to-end",
 
 describe("(b) prompt-path flow: confirmation_request bridges to guardian", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     emittedSignals.length = 0;
     mockGuardianBinding = {
@@ -481,6 +485,8 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
   });
 
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     events.length = 0;
     emittedSignals.length = 0;
@@ -580,6 +586,8 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
   });
 
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     events.length = 0;
     emittedSignals.length = 0;
@@ -707,6 +715,8 @@ function checkIsBoundGuardianActor(params: {
 
 describe("(e) guardian-only prompt delivery invariant", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     deliveredReplies.length = 0;
     mockPendingApprovals = [
       {
@@ -776,6 +786,8 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
   });
 
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     events.length = 0;
     emittedSignals.length = 0;
@@ -1021,6 +1033,8 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
 
 describe("cross-milestone integration checks", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     events.length = 0;
     emittedSignals.length = 0;

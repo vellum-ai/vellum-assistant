@@ -59,6 +59,8 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  process.env.VELLUM_HOME = testDataDir;
+  process.env.VELLUM_WORKSPACE_DIR = testDataDir;
   // Clear content files but preserve the directory structure
   for (const entry of readdirSync(qdrantDir)) {
     if (entry === "bin") {

@@ -167,6 +167,8 @@ describe("resolveRoutingStateFromRuntime", () => {
 
 describe("inbound-message-handler trusted-contact interactivity", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     // Insert a test contact so the contacts-based ACL lookup passes
     upsertContact({
@@ -381,6 +383,8 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
 
 describe("channel-retry-sweep routing state", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 

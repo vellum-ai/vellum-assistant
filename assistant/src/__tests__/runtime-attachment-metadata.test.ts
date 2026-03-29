@@ -70,6 +70,8 @@ describe("Runtime attachment metadata", () => {
   let port: number;
 
   beforeEach(async () => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM message_attachments");
     db.run("DELETE FROM attachments");
@@ -290,6 +292,8 @@ describe("WhatsApp channel ingress attachment resolution", () => {
   );
 
   beforeEach(async () => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetIngressTables();
     ensureWhatsAppContact();
     noopProcessMessage.mockClear();

@@ -39,6 +39,8 @@ const TEST_KEY = Buffer.from("test-signing-key-32-bytes-long!!");
 initializeDb();
 
 beforeEach(() => {
+  process.env.VELLUM_HOME = testDir;
+  process.env.VELLUM_WORKSPACE_DIR = testDir;
   process.env.VELLUM_ASSISTANT_NAME = "vellum-test-eel";
   initAuthSigningKey(TEST_KEY);
   resetExternalAssistantIdCache();

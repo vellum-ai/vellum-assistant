@@ -138,6 +138,8 @@ function resetTables(): void {
 
 describe("ASK_GUARDIAN canonical notification path", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 

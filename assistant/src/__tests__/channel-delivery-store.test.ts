@@ -82,6 +82,8 @@ function insertMessage(id: string, conversationId: string): void {
 
 describe("channel-delivery-store", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 

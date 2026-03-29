@@ -85,6 +85,8 @@ const nonLoopbackServer = mockServer("203.0.113.50");
 initializeDb();
 
 beforeEach(() => {
+  process.env.VELLUM_HOME = testDir;
+  process.env.VELLUM_WORKSPACE_DIR = testDir;
   // Initialize signing key for JWT verification
   initAuthSigningKey(TEST_KEY);
   // Reset the external assistant ID cache so tests don't leak state

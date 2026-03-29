@@ -74,6 +74,8 @@ describe("handlePairingRequest — device binding", () => {
   let ctx: PairingHandlerContext;
 
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     store = new PairingStore();
     store.start();
     ctx = makeContext(store);

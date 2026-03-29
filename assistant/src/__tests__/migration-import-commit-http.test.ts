@@ -120,6 +120,8 @@ afterAll(() => {
 // Restore test files before each test so mutations from previous tests
 // do not leak across test cases.
 beforeEach(() => {
+  process.env.VELLUM_HOME = testDir;
+  process.env.VELLUM_WORKSPACE_DIR = testDir;
   mkdirSync(testDbDir, { recursive: true });
   writeFileSync(testDbPath, EXISTING_DB_DATA);
   writeFileSync(testConfigPath, JSON.stringify(EXISTING_CONFIG, null, 2));

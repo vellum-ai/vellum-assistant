@@ -235,6 +235,8 @@ async function simulateNotifierPoll(params: {
 
 describe("trusted-contact pending-approval notifier", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     deliveredReplies.length = 0;
     deliverShouldFail = false;
     mockPendingApprovals = [];

@@ -90,6 +90,8 @@ describe("buildJournalContext", () => {
   const journalDir = join(TEST_DIR, "journal");
 
   beforeEach(() => {
+    process.env.VELLUM_HOME = TEST_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(journalDir, { recursive: true });
   });
 

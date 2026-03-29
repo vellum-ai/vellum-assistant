@@ -78,6 +78,8 @@ afterAll(() => {
 
 describe("getRequestLogsByMessageId — turn-aware query", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 

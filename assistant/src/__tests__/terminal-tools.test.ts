@@ -527,6 +527,8 @@ describe("Native sandbox backend", () => {
   let NativeBackend: new () => SandboxBackend;
 
   beforeEach(async () => {
+    process.env.VELLUM_HOME = testTmpDir;
+    process.env.VELLUM_WORKSPACE_DIR = testTmpDir;
     const mod = await import("../tools/terminal/backends/native.js");
     NativeBackend = mod.NativeBackend;
   });
@@ -571,6 +573,8 @@ describe("Shell tool input validation", () => {
   let shellTool: Tool;
 
   beforeEach(async () => {
+    process.env.VELLUM_HOME = testTmpDir;
+    process.env.VELLUM_WORKSPACE_DIR = testTmpDir;
     const mod = await import("../tools/terminal/shell.js");
     shellTool = mod.shellTool;
   });
@@ -675,6 +679,8 @@ describe("formatShellOutput", () => {
   ) => ShellOutputResult;
 
   beforeEach(async () => {
+    process.env.VELLUM_HOME = testTmpDir;
+    process.env.VELLUM_WORKSPACE_DIR = testTmpDir;
     const mod = await import("../tools/shared/shell-output.js");
     formatShellOutput = mod.formatShellOutput;
   });

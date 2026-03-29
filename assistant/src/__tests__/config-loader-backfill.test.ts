@@ -160,6 +160,8 @@ describe("deepMergeMissing", () => {
 
 describe("config loader backfill", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = TEST_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     ensureTestDir();
     const resetPaths = [
       CONFIG_PATH,

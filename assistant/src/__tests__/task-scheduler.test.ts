@@ -55,6 +55,8 @@ afterAll(() => {
 
 describe("scheduleTask", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -121,6 +123,8 @@ describe("scheduleTask", () => {
 
 describe("scheduler run_task detection", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");

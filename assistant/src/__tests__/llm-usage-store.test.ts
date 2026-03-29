@@ -80,6 +80,8 @@ function insertEventAt(
 
 describe("recordUsageEvent", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run(`DELETE FROM llm_usage_events`);
   });
@@ -168,6 +170,8 @@ describe("recordUsageEvent", () => {
 
 describe("listUsageEvents", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run(`DELETE FROM llm_usage_events`);
   });
@@ -261,6 +265,8 @@ describe("listUsageEvents", () => {
 
 describe("getUsageTotals", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run(`DELETE FROM llm_usage_events`);
   });
@@ -366,6 +372,8 @@ describe("getUsageTotals", () => {
 
 describe("getUsageDayBuckets", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run(`DELETE FROM llm_usage_events`);
   });
@@ -469,6 +477,8 @@ describe("getUsageDayBuckets", () => {
 
 describe("getUsageGroupBreakdown", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run(`DELETE FROM llm_usage_events`);
   });
@@ -625,6 +635,8 @@ describe("getUsageGroupBreakdown", () => {
 
 describe("queryUnreportedUsageEvents", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run(`DELETE FROM llm_usage_events`);
   });

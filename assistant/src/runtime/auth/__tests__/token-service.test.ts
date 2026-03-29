@@ -25,6 +25,8 @@ import {
 const TEST_KEY = Buffer.from("test-signing-key-32-bytes-long!!");
 
 beforeEach(() => {
+  process.env.VELLUM_HOME = testDir;
+  process.env.VELLUM_WORKSPACE_DIR = testDir;
   initAuthSigningKey(TEST_KEY);
 });
 

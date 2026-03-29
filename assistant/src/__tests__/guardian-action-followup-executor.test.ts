@@ -166,6 +166,8 @@ function createDispatchingRequest(convId: string, action: "call_back") {
 
 describe("guardian-action-followup-executor", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 

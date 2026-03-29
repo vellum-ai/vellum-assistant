@@ -170,6 +170,8 @@ function resetTables(): void {
 
 describe("verification challenge lifecycle", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -279,6 +281,8 @@ describe("verification challenge lifecycle", () => {
 
 describe("guardian service challenge validation", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -493,6 +497,8 @@ describe("guardian service challenge validation", () => {
 
 describe("guardian identity check", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -587,6 +593,8 @@ describe("guardian identity check", () => {
 
 describe("guardian approval request CRUD", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -836,6 +844,8 @@ describe("guardian approval request CRUD", () => {
 
 describe("verification rate limiting store", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -972,6 +982,8 @@ describe("verification rate limiting store", () => {
 
 describe("guardian service rate limiting", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -1110,6 +1122,8 @@ describe("guardian service rate limiting", () => {
 
 describe("channel-scoped guardian resolution", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -1227,6 +1241,8 @@ describe("channel-scoped guardian resolution", () => {
 
 describe("assistant-scoped approval request lookups", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -1318,6 +1334,8 @@ function createMockCtx(): {
 
 describe("HTTP handler channel-aware guardian status", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -1524,6 +1542,8 @@ describe("HTTP handler channel-aware guardian status", () => {
 
 describe("voice guardian challenge generation", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -1579,6 +1599,8 @@ describe("voice guardian challenge generation", () => {
 
 describe("voice guardian challenge validation", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -1718,6 +1740,8 @@ describe("voice guardian challenge validation", () => {
 
 describe("voice guardian identity and revocation", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -1789,6 +1813,8 @@ describe("voice guardian identity and revocation", () => {
 
 describe("voice guardian rate limiting", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -1877,6 +1903,8 @@ describe("voice guardian rate limiting", () => {
 
 describe("pending challenge lookup", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -1947,6 +1975,8 @@ describe("pending challenge lookup", () => {
 
 describe("HTTP handler voice guardian verification", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -2074,6 +2104,8 @@ describe("HTTP handler voice guardian verification", () => {
 
 describe("outbound verification sessions", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -2533,6 +2565,8 @@ describe("outbound verification sessions", () => {
 
 describe("outbound voice verification", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -2927,6 +2961,8 @@ describe("outbound voice verification", () => {
 
 describe("outbound Telegram verification", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -3442,6 +3478,8 @@ describe("outbound Telegram verification", () => {
 
 describe("outbound voice verification", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -3691,6 +3729,8 @@ describe("outbound voice verification", () => {
 
 describe("M1–M4 hardening coverage", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 

@@ -351,6 +351,8 @@ function setupControllerWithOrigin(task?: string) {
 
 describe("call-controller", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     // Reset the bridge mock to default behaviour
     mockStartVoiceTurn.mockImplementation(

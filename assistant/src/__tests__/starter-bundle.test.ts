@@ -36,6 +36,8 @@ import {
 
 describe("Starter approval bundle", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = TEST_ROOT;
+    process.env.VELLUM_WORKSPACE_DIR = TEST_ROOT;
     // Create the test directory structure
     const protectedDir = dirname(TRUST_PATH);
     if (!existsSync(protectedDir)) {

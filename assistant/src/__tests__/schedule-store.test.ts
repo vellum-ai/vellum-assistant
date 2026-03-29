@@ -52,6 +52,8 @@ afterAll(() => {
 
 describe("createSchedule (cron)", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -118,6 +120,8 @@ describe("createSchedule (cron)", () => {
 
 describe("createSchedule (RRULE)", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -179,6 +183,8 @@ describe("createSchedule (RRULE)", () => {
 
 describe("createSchedule (RRULE set)", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -274,6 +280,8 @@ describe("createSchedule (RRULE set)", () => {
 
 describe("claimDueSchedules (RRULE set)", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -329,6 +337,8 @@ describe("claimDueSchedules (RRULE set)", () => {
 
 describe("updateSchedule", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -425,6 +435,8 @@ describe("updateSchedule", () => {
 
 describe("claimDueSchedules", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -570,6 +582,8 @@ describe("claimDueSchedules", () => {
 
 describe("createSchedule (one-shot)", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -649,6 +663,8 @@ describe("createSchedule (one-shot)", () => {
 
 describe("claimDueSchedules (one-shot)", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -724,6 +740,8 @@ describe("claimDueSchedules (one-shot)", () => {
 
 describe("completeOneShot", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -763,6 +781,8 @@ describe("completeOneShot", () => {
 
 describe("failOneShot", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -804,6 +824,8 @@ describe("failOneShot", () => {
 
 describe("cancelSchedule", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -857,6 +879,8 @@ describe("cancelSchedule", () => {
 
 describe("routing and mode fields", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");
@@ -946,6 +970,8 @@ describe("routing and mode fields", () => {
 
 describe("listSchedules filters", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");

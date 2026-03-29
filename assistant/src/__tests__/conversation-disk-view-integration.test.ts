@@ -98,6 +98,8 @@ function resetConversationsDir() {
 
 describe("createConversation → disk view", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     resetConversationsDir();
   });
@@ -136,6 +138,8 @@ describe("createConversation → disk view", () => {
 
 describe("addMessage + syncMessageToDisk → disk view", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     resetConversationsDir();
   });
@@ -195,6 +199,8 @@ describe("addMessage + syncMessageToDisk → disk view", () => {
 
 describe("updateConversationTitle → disk view", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     resetConversationsDir();
   });
@@ -222,6 +228,8 @@ describe("updateConversationTitle → disk view", () => {
 
 describe("deleteConversation → disk view", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     resetConversationsDir();
   });
@@ -243,6 +251,8 @@ describe("deleteConversation → disk view", () => {
 
 describe("clearAll → disk view", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     resetConversationsDir();
   });

@@ -140,6 +140,8 @@ function seedConversationAndMessage(
 
 describe("segment UPSERT atomicity under repeated indexer invocations", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -429,6 +431,8 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
 
 describe("memory segment job atomicity under repeated indexer invocations", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -579,6 +583,8 @@ describe("memory segment job atomicity under repeated indexer invocations", () =
 
 describe("memory_items fingerprint uniqueness under race conditions", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 

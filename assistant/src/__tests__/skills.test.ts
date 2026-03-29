@@ -59,6 +59,8 @@ function writeSkill(
 
 describe("skills catalog loading", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = TEST_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });
 
@@ -190,6 +192,8 @@ describe("workspace skills", () => {
   }
 
   beforeEach(() => {
+    process.env.VELLUM_HOME = TEST_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
     mkdirSync(workspaceSkillsDir, { recursive: true });
   });
@@ -252,6 +256,8 @@ describe("workspace skills", () => {
 
 describe("tool manifest detection", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = TEST_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });
 
@@ -425,6 +431,8 @@ describe("tool manifest detection", () => {
 
 describe("includes frontmatter parsing", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = TEST_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });
 
@@ -523,6 +531,8 @@ describe("includes frontmatter parsing", () => {
 
 describe("bundled browser skill", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = TEST_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });
 
@@ -649,6 +659,8 @@ describe("ingress-dependent setup skills declare public-ingress intentionally", 
 
 describe("bundled computer-use skill", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = TEST_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });
 

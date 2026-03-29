@@ -612,6 +612,8 @@ describe("voice invite HTTP routes", () => {
 
 describe("POST /v1/contacts/invites/:id/call", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     mockStartInviteCallResult = { ok: true, callSid: "CA_test_sid_123" };
   });

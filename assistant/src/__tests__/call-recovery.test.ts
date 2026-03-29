@@ -117,6 +117,8 @@ const silentLog = new Proxy({} as Record<string, unknown>, {
 
 describe("listRecoverableCalls", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -209,6 +211,8 @@ describe("listRecoverableCalls", () => {
 
 describe("reconcileCallsOnStartup", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     clearActiveCallLeases();
   });

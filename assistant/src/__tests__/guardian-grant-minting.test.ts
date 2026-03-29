@@ -179,6 +179,8 @@ describe("guardian grant minting on tool-approval decisions", () => {
   let composeSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     deliverSpy = spyOn(gatewayClient, "deliverChannelReply").mockResolvedValue({
       ok: true,
@@ -578,6 +580,8 @@ describe("approval interception trust-class regression coverage", () => {
   let composeSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     deliverSpy = spyOn(gatewayClient, "deliverChannelReply").mockResolvedValue({
       ok: true,

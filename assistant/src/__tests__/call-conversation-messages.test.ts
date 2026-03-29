@@ -69,6 +69,8 @@ function getLatestAssistantText(conversationId: string): string {
 
 describe("call-conversation-messages", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 

@@ -112,6 +112,8 @@ function basePrompt(result: string): string {
 
 describe("buildSystemPrompt", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = TEST_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(TEST_DIR, { recursive: true });
   });
 
@@ -462,6 +464,8 @@ describe("stripCommentLines", () => {
 
 describe("ensurePromptFiles", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = TEST_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(TEST_DIR, { recursive: true });
   });
 

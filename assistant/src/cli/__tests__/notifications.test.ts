@@ -131,6 +131,8 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  process.env.VELLUM_HOME = testDir;
+  process.env.VELLUM_WORKSPACE_DIR = testDir;
   emitSignalCalls.length = 0;
   process.exitCode = 0;
 });
@@ -313,6 +315,8 @@ describe("notifications send", () => {
 
 describe("notifications list", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getDb().run("DELETE FROM notification_events");
   });
 

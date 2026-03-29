@@ -61,6 +61,8 @@ import { conversationKeys, conversations } from "../memory/schema.js";
 initializeDb();
 
 beforeEach(() => {
+  process.env.VELLUM_HOME = testDir;
+  process.env.VELLUM_WORKSPACE_DIR = testDir;
   const db = getDb();
   db.delete(conversationKeys).run();
   db.delete(conversations).run();

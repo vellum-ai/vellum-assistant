@@ -148,6 +148,8 @@ function buildInboundRequest(overrides: Record<string, unknown> = {}): Request {
 
 describe("trusted contact lifecycle notification signals", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetState();
   });
 
@@ -366,6 +368,8 @@ describe("trusted contact lifecycle notification signals", () => {
 
 describe("trusted contact activated notification signal", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetState();
   });
 

@@ -110,6 +110,8 @@ function registerPendingConfirmation(
 
 describe("getChannelApprovalPrompt", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     pendingInteractions.clear();
   });
 
@@ -270,6 +272,8 @@ describe("buildApprovalUIMetadata", () => {
 
 describe("handleChannelDecision", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     pendingInteractions.clear();
   });
 

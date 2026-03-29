@@ -156,6 +156,8 @@ function toConversationTimestamp(createdAtMs: number): string {
 
 describe("013-repair-conversation-disk-view migration", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     resetConversationsDir();
   });

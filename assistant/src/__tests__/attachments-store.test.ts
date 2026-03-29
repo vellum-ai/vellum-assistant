@@ -75,7 +75,6 @@ function getLegacyConversationDirPath(
 ): string {
   return join(
     testDir,
-    "workspace",
     "conversations",
     `${conversationId}_${getConversationTimestamp(createdAt)}`,
   );

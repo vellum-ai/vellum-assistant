@@ -75,6 +75,8 @@ async function createTestApp(providerKey = "github", clientId = "client-1") {
 }
 
 beforeEach(() => {
+  process.env.VELLUM_HOME = testDir;
+  process.env.VELLUM_WORKSPACE_DIR = testDir;
   // Clear OAuth tables between tests instead of full DB reset + migration.
   // Delete in FK-dependency order: connections → apps → providers.
   resetTestTables("oauth_connections", "oauth_apps", "oauth_providers");

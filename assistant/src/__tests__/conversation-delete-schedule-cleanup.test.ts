@@ -86,6 +86,8 @@ function getWipeHandler() {
 
 describe("DELETE /conversations/:id — schedule cleanup", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
     getRawDb().run("DELETE FROM memory_item_sources");
@@ -311,6 +313,8 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
 
 describe("POST /conversations/:id/wipe — schedule cleanup", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
     getRawDb().run("DELETE FROM memory_item_sources");

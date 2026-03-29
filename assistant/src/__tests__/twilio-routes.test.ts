@@ -392,6 +392,8 @@ function makeInboundVoiceRequest(params: Record<string, string>): Request {
 
 describe("twilio webhook routes", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     clearActiveCallLeases();
     mockIngressPublicBaseUrl = "https://ingress.example.com";

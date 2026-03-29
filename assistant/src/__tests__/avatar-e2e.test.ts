@@ -150,6 +150,8 @@ describe("avatar E2E integration", () => {
   const originalGeminiKey = process.env.GEMINI_API_KEY;
 
   beforeEach(() => {
+    process.env.VELLUM_HOME = mockWorkspaceDir;
+    process.env.VELLUM_WORKSPACE_DIR = mockWorkspaceDir;
     mockGeminiKey = "test-gemini-key";
     mockWorkspaceDir = "/tmp/test-workspace-e2e";
 

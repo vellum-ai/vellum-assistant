@@ -55,6 +55,8 @@ const { _setOverridesForTesting } =
 
 describe("Dynamic Skill Authoring Workflow moved to tool descriptions", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = TEST_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(TEST_DIR, { recursive: true });
     _setOverridesForTesting({
       browser: true,

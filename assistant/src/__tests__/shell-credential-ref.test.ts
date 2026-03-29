@@ -88,6 +88,8 @@ const ctx: ToolContext = {
 };
 
 beforeEach(() => {
+  process.env.VELLUM_HOME = TEST_DIR;
+  process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
   if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
   mkdirSync(TEST_DIR, { recursive: true });
   _setMetadataPath(META_PATH);

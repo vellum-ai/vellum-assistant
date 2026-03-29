@@ -162,6 +162,8 @@ function buildInboundRequest(overrides: Record<string, unknown> = {}): Request {
 describe("non-member access request notification", () => {
   let anchorPrincipalId: string;
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     anchorPrincipalId = resetState();
   });
 
@@ -359,6 +361,8 @@ describe("non-member access request notification", () => {
 describe("access-request-helper unit tests", () => {
   let anchorPrincipalId: string;
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     anchorPrincipalId = resetState();
   });
 

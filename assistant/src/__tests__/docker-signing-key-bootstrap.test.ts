@@ -47,6 +47,8 @@ const VALID_HEX_KEY = "ab".repeat(32); // 64 hex chars = 32 bytes
 const savedEnv: Record<string, string | undefined> = {};
 
 beforeEach(() => {
+  process.env.VELLUM_HOME = testDir;
+  process.env.VELLUM_WORKSPACE_DIR = testDir;
   savedEnv.ACTOR_TOKEN_SIGNING_KEY = process.env.ACTOR_TOKEN_SIGNING_KEY;
   // Clean up key files from previous tests so they don't leak between cases.
   rmSync(join(testDir, ".vellum"), { recursive: true, force: true });

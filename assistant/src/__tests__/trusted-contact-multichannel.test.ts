@@ -190,6 +190,8 @@ function buildInboundRequest(
 for (const config of CHANNEL_CONFIGS) {
   describe(`trusted contact flow on ${config.channel} channel`, () => {
     beforeEach(() => {
+      process.env.VELLUM_HOME = testDir;
+      process.env.VELLUM_WORKSPACE_DIR = testDir;
       resetState();
     });
 
@@ -329,6 +331,8 @@ for (const config of CHANNEL_CONFIGS) {
 
 describe("voice identity binding with E.164 phone numbers", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetState();
   });
 
@@ -387,6 +391,8 @@ describe("voice identity binding with E.164 phone numbers", () => {
 
 describe("cross-channel isolation", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetState();
   });
 

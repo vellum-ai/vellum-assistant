@@ -111,6 +111,8 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  process.env.VELLUM_HOME = testDir;
+  process.env.VELLUM_WORKSPACE_DIR = testDir;
   resetDb();
   initializeDb();
   // Clear memory items table between tests

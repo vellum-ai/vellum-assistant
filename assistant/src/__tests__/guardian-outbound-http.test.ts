@@ -152,6 +152,8 @@ function jsonRequest(body: Record<string, unknown>): Request {
 
 // Reset mutable state between tests
 beforeEach(() => {
+  process.env.VELLUM_HOME = testDir;
+  process.env.VELLUM_WORKSPACE_DIR = testDir;
   resetTables();
   telegramDeliverCalls.length = 0;
   voiceCallInitCalls.length = 0;

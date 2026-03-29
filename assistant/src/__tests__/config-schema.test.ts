@@ -965,6 +965,8 @@ describe("buildElevenLabsVoiceSpec", () => {
 
 describe("loadConfig with schema validation", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = TEST_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     // Keep TEST_DIR and logs in place to avoid racing async logger stream init.
     ensureTestDir();
     const resetPaths = [
@@ -1198,6 +1200,8 @@ describe("loadConfig with schema validation", () => {
 
 describe("Call entrypoint gating", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = TEST_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     ensureTestDir();
     const resetPaths = [
       CONFIG_PATH,

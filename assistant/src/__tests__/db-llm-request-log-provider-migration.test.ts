@@ -69,6 +69,8 @@ function removeTestDbFiles(): void {
 
 describe("llm_request_logs provider migration", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     process.env.BUN_TEST = "0";
     resetDb();
     removeTestDbFiles();

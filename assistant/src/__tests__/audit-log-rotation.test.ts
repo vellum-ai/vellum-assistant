@@ -1,5 +1,4 @@
 import { randomBytes } from "node:crypto";
-import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -15,7 +14,6 @@ const TEST_DIR = join(
 );
 process.env.VELLUM_HOME = TEST_DIR;
 process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
-const DB_PATH = join(TEST_DIR, "assistant.db");
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -29,6 +27,9 @@ import {
   getRecentInvocations,
   rotateToolInvocations,
 } from "../memory/tool-usage-store.js";
+import { ensureDataDir, getDbPath } from "../util/platform.js";
+
+const DB_PATH = getDbPath();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -70,7 +71,7 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 describe("audit log rotation", () => {
   beforeAll(() => {
-    mkdirSync(join(TEST_DIR, "logs"), { recursive: true });
+    ensureDataDir();
     resetDb();
     initializeDb();
     // Insert a conversations row so FK-enforced ORM inserts succeed

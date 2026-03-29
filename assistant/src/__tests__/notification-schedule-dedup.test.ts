@@ -54,6 +54,8 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  process.env.VELLUM_HOME = testDir;
+  process.env.VELLUM_WORKSPACE_DIR = testDir;
   // Clear notification events between tests for isolation
   getDb().delete(notificationEvents).run();
 });

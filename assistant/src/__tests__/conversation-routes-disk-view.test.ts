@@ -334,6 +334,8 @@ async function waitFor<T>(
 }
 
 beforeEach(() => {
+  process.env.VELLUM_HOME = testDir;
+  process.env.VELLUM_WORKSPACE_DIR = testDir;
   resetTables();
   resetConversationsDir();
   conversationInstances.clear();

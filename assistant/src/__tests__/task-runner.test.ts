@@ -80,6 +80,8 @@ describe("renderTemplate", () => {
 
 describe("runTask", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM task_runs");
     db.run("DELETE FROM tasks");

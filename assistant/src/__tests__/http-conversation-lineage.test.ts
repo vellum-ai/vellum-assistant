@@ -65,6 +65,8 @@ describe("conversation lineage in HTTP reads", () => {
   let server: RuntimeHttpServer | null = null;
 
   beforeEach(async () => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     await server?.stop();
     server = null;
     clearTables();

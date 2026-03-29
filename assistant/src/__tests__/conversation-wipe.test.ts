@@ -41,6 +41,8 @@ afterAll(() => {
 
 describe("wipeConversation", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run(`DELETE FROM memory_item_sources`);
     db.run(`DELETE FROM memory_segments`);
@@ -433,6 +435,8 @@ describe("wipeConversation", () => {
 
 describe("deleteConversation — private scope cleanup", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run(`DELETE FROM conversation_starters`);
     db.run(`DELETE FROM memory_item_sources`);

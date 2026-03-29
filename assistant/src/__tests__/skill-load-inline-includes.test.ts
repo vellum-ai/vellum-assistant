@@ -161,6 +161,8 @@ async function executeSkillLoad(
 
 describe("skill_load inline command expansion for included skills", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = TEST_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
     runInlineCommandCalls.length = 0;
     mockAutoInstall.mockReset();

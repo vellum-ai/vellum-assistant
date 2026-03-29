@@ -94,6 +94,8 @@ const sendNotificationDef = notifToolsJson.tools.find(
 
 describe("Task/Schedule routing NOT in system prompt (moved to tool descriptions)", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = TEST_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(TEST_DIR, { recursive: true });
   });
 
@@ -203,6 +205,8 @@ describe("cross-tool routing consistency", () => {
 
 describe("Activation hints in skills catalog", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = TEST_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(TEST_DIR, { recursive: true });
   });
 

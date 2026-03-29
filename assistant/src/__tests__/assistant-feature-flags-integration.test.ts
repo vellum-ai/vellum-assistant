@@ -101,6 +101,8 @@ const { skillFlagKey } = await import("../config/skill-state.js");
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
+  process.env.VELLUM_HOME = TEST_DIR;
+  process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
   mkdirSync(TEST_DIR, { recursive: true });
   _setOverridesForTesting({});
   currentConfig = {

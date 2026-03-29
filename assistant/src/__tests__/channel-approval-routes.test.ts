@@ -221,6 +221,8 @@ function ensureTestContact(): void {
 }
 
 beforeEach(() => {
+  process.env.VELLUM_HOME = testDir;
+  process.env.VELLUM_WORKSPACE_DIR = testDir;
   resetTables();
   ensureTestContact();
   noopProcessMessage.mockClear();
@@ -259,6 +261,8 @@ describe("stale callback handling without matching pending approval", () => {
 
 describe("inbound callback metadata triggers decision handling", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -352,6 +356,8 @@ describe("inbound callback metadata triggers decision handling", () => {
 
 describe("inbound text matching approval phrases triggers decision handling", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -400,6 +406,8 @@ describe("inbound text matching approval phrases triggers decision handling", ()
 
 describe("non-decision messages during pending approval (no conversational engine)", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -481,6 +489,8 @@ describe("messages without pending approval proceed normally", () => {
 
 describe("empty content with callbackData bypasses validation", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -593,6 +603,8 @@ describe("empty content with callbackData bypasses validation", () => {
 
 describe("callback requestId validation", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -720,6 +732,8 @@ describe("callback requestId validation", () => {
 
 describe("no immediate reply after approval decision", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -852,6 +866,8 @@ describe("stale callback handling", () => {
 
 describe("plain-text channel approval decisions", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -1612,6 +1628,8 @@ describe("assistant-scoped guardian verification via handleChannelInbound", () =
 
 describe("conversational approval engine — standard path", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -2146,6 +2164,8 @@ describe("guardian conversational approval via conversation engine", () => {
 
 describe("keep_pending remains conversational — standard path", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -2279,6 +2299,8 @@ describe("keep_pending remains conversational — guardian path", () => {
 
 describe("requester cancel of guardian-gated pending request", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "guardian-cancel",
@@ -2588,6 +2610,8 @@ describe("requester cancel of guardian-gated pending request", () => {
 
 describe("engine decision race condition — standard path", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -2737,6 +2761,8 @@ describe("engine decision race condition — guardian path", () => {
 
 describe("non-decision status reply for different channels", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     createGuardianBinding({
       channel: "telegram",
       guardianExternalUserId: "telegram-user-default",
@@ -3088,6 +3114,8 @@ describe("background channel processing approval prompts", () => {
 
 describe("NL approval routing via destination-scoped canonical requests", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     noopProcessMessage.mockClear();
   });
@@ -3213,6 +3241,8 @@ describe("NL approval routing via destination-scoped canonical requests", () => 
 
 describe("trusted-contact self-approval blocked before guardian approval row exists", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     // Create a guardian binding so the requester resolves as trusted_contact
     createGuardianBinding({
       channel: "telegram",

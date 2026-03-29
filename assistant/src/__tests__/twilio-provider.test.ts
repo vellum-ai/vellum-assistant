@@ -60,6 +60,8 @@ function computeValidSignature(
 
 describe("TwilioConversationRelayProvider", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     mockAuthToken = "test-auth-token-secret";
     mockAccountSid = "AC_test_account";
   });
@@ -190,6 +192,8 @@ describe("TwilioConversationRelayProvider", () => {
     let originalFetch: typeof globalThis.fetch;
 
     beforeEach(() => {
+      process.env.VELLUM_HOME = testDir;
+      process.env.VELLUM_WORKSPACE_DIR = testDir;
       originalFetch = globalThis.fetch;
     });
 

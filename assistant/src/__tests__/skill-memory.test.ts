@@ -75,7 +75,9 @@ import {
   seedCatalogSkillMemories,
   upsertSkillCapabilityMemory,
 } from "../skills/skill-memory.js";
+import { ensureDataDir, getDbPath } from "../util/platform.js";
 
+ensureDataDir();
 initializeDb();
 
 afterAll(() => {
@@ -271,8 +273,9 @@ describe("upsertSkillCapabilityMemory", () => {
     // resetting the connection leaves stale migration checkpoints that skip
     // checkpoint-guarded ALTER TABLE migrations (e.g. source_type column).
     resetDb();
+    const dbPath = getDbPath();
     for (const ext of ["", "-wal", "-shm"]) {
-      rmSync(join(testDir, `test.db${ext}`), { force: true });
+      rmSync(`${dbPath}${ext}`, { force: true });
     }
     initializeDb();
   });
@@ -323,8 +326,9 @@ describe("deleteSkillCapabilityMemory", () => {
     // Restore DB state for subsequent tests (see upsert "does not throw" test
     // for rationale on why we delete the DB file).
     resetDb();
+    const dbPath = getDbPath();
     for (const ext of ["", "-wal", "-shm"]) {
-      rmSync(join(testDir, `test.db${ext}`), { force: true });
+      rmSync(`${dbPath}${ext}`, { force: true });
     }
     initializeDb();
   });
@@ -334,6 +338,8 @@ describe("deleteSkillCapabilityMemory", () => {
 
 describe("seedCatalogSkillMemories", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     // Reset mocks to defaults
     mockResolveCatalog = async () => [];
@@ -543,8 +549,9 @@ describe("seedCatalogSkillMemories", () => {
     // Restore DB state for subsequent tests (see upsert "does not throw" test
     // for rationale on why we delete the DB file).
     resetDb();
+    const dbPath = getDbPath();
     for (const ext of ["", "-wal", "-shm"]) {
-      rmSync(join(testDir, `test.db${ext}`), { force: true });
+      rmSync(`${dbPath}${ext}`, { force: true });
     }
     initializeDb();
   });

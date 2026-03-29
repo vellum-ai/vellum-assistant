@@ -182,6 +182,8 @@ afterAll(() => {
 
 describe("Slack channel config handler", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     oauthConnectionStore = {};
     configStore = {};
     globalThis.fetch = originalFetch;

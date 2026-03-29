@@ -164,6 +164,8 @@ afterAll(() => {
 
 describe("migrateBackfillUsageCacheAccounting", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getSqlite().run(`DELETE FROM llm_request_logs`);
     getSqlite().run(`DELETE FROM llm_usage_events`);
     rawRun(`DELETE FROM memory_checkpoints WHERE key = ?`, CHECKPOINT_KEY);

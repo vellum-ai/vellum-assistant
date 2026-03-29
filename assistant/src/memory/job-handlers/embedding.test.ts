@@ -75,6 +75,8 @@ describe("embedMediaJob", () => {
   });
 
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     embedAndUpsertCalls.length = 0;
     resetDb();
     initializeDb();

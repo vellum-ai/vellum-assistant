@@ -104,6 +104,8 @@ describe("ephemeral-permissions", () => {
 
   describe("setTaskRunRules / getTaskRunRules / clearTaskRunRules", () => {
     beforeEach(() => {
+      process.env.VELLUM_HOME = testDir;
+      process.env.VELLUM_WORKSPACE_DIR = testDir;
       // Clean up any leftover state
       clearTaskRunRules("test-run-1");
       clearTaskRunRules("test-run-2");
@@ -153,6 +155,8 @@ describe("ephemeral-permissions", () => {
 
   describe("findHighestPriorityRule with ephemeral rules", () => {
     beforeEach(() => {
+      process.env.VELLUM_HOME = testDir;
+      process.env.VELLUM_WORKSPACE_DIR = testDir;
       clearCache();
     });
 
@@ -252,6 +256,8 @@ describe("ephemeral-permissions", () => {
 
   describe("check() with ephemeral rules", () => {
     beforeEach(() => {
+      process.env.VELLUM_HOME = testDir;
+      process.env.VELLUM_WORKSPACE_DIR = testDir;
       clearCache();
       testConfig.permissions.mode = "workspace";
     });
@@ -312,6 +318,8 @@ describe("ephemeral-permissions", () => {
 
   describe("workspace mode interactions", () => {
     beforeEach(() => {
+      process.env.VELLUM_HOME = testDir;
+      process.env.VELLUM_WORKSPACE_DIR = testDir;
       clearCache();
       testConfig.permissions.mode = "workspace";
     });

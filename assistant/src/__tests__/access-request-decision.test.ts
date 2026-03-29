@@ -109,6 +109,8 @@ function createTestApproval(overrides: Record<string, unknown> = {}) {
 
 describe("access request decision handler", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetState();
   });
 
@@ -229,6 +231,8 @@ describe("access request decision handler", () => {
 
 describe("access request notification delivery", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     deliverReplyCalls.length = 0;
     deliverReplyError = null;
   });

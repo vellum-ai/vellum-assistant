@@ -169,6 +169,8 @@ const keepPendingGenerator: ApprovalConversationGenerator = async () => ({
 
 describe("guardian-action grant mint -> voice consume integration", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     clearTables();
     ensureFkParents();
   });
@@ -405,6 +407,8 @@ describe("guardian-action grant mint -> voice consume integration", () => {
 
 describe("guardian-action grant minter: conversational engine classification", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     clearTables();
     ensureFkParents();
   });
