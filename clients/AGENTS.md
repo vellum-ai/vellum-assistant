@@ -95,7 +95,6 @@ These classes stay `ObservableObject` because they have deep Combine integration
 | `RecordingSourcePickerViewModel` | ScreenCaptureKit async sequences + Combine |
 | `HostCuSessionProxy` | Conforms to `SessionOverlayProviding` protocol requiring `ObservableObject` |
 | `ToolPermissionTesterModel` | Combine-based test execution pipeline |
-| `MessageListScrollCoordinator` | Legacy coordinator retained alongside `MessageListScrollState` (`@Observable`); still used by `ScrollDiagnosticsRecorder` integration — will be fully removed once diagnostic forwarding is migrated |
 
 </details>
 
@@ -226,11 +225,9 @@ For current best practices on Swift concurrency, actor isolation, and executor s
 
 ### Architecture: MessageListScrollState
 
-All scroll state for the message list lives in `MessageListScrollState` (`Features/Chat/MessageListScrollState.swift`), an `@Observable @MainActor` class owned by `MessageListView` via `@State`. Scroll behavior methods live in `MessageListScrollCoordinator+ScrollBehavior.swift`. Diagnostic recording is handled by a supporting type:
+All scroll state for the message list lives in `MessageListScrollState` (`Features/Chat/MessageListScrollState.swift`), an `@Observable @MainActor` class owned by `MessageListView` via `@State`. Scroll behavior methods (state reactions, scroll restore, pagination trigger/execution) are implemented inline in `MessageListView.swift` as private methods on the view body.
 
 - **`MessageListScrollState.swift`** — Core state: observed properties that drive view updates (`isFollowingBottom`, `pushToTopMessageId`, `isPaginationInFlight`, `hideScrollIndicators`), `@ObservationIgnored` bookkeeping (scroll geometry, layout cache, task references), `SuppressionReasons` OptionSet with `beginSuppression`/`endSuppression`/`clearSuppression`, follow/detach via `pinToBottom()`/`detach()`/`reattach()`, and lifecycle methods (`reset(for:)`, `cancelAll()`).
-- **`MessageListScrollCoordinator+ScrollBehavior.swift`** — All scroll behavior: state reactions (`sendingStateChanged`, `messagesChanged`, `containerResized`, `conversationSwitched`, `anchorMessageIdChanged`), scroll restore, user scroll actions, suppress-auto-scroll, resize task, pagination trigger/execution.
-- **`ScrollDiagnosticsRecorder.swift`** — Owns all diagnostic recording: `ChatScrollLoopGuard` (loop detection), transcript snapshot capture, and non-finite geometry logging. Extracted to keep scroll state focused on mechanics.
 
 **Why `@Observable`:** Only 4 properties trigger SwiftUI re-evaluations (`isFollowingBottom`, `pushToTopMessageId`, `isPaginationInFlight`, `hideScrollIndicators`). All scroll-frequency state (geometry, phases, layout cache, suppression flags) is `@ObservationIgnored`, preventing the cascading re-render feedback loops that caused the old `ObservableObject` coordinator to freeze the app. This eliminates the need for the former reactive/non-reactive split with `@Published` vs plain stored properties.
 
@@ -256,7 +253,7 @@ A `SuppressionReasons` OptionSet (`.resize`, `.pagination`, `.expansion`) manage
 - **Guard scroll `onChange` handlers with the suppression flag.** Any `onChange(of: messages.count)` that triggers a scroll-to-bottom must check `scrollState.isSuppressed`. Suppression reasons (resize, pagination, expansion) are managed via `beginSuppression`/`endSuppression` on `MessageListScrollState`. Only expansion has an auto-timeout; resize and pagination are managed manually within their task bodies. This prevents auto-scroll from racing pagination scroll or other competing operations.
 - **Use an in-flight guard to prevent stacking concurrent pagination loads.** The `isPaginationInFlight` flag on `MessageListScrollState` gates the pagination sentinel. Without it, rapid scroll-to-top can enqueue multiple concurrent loads before `isLoadingMoreMessages` is set by the async response, duplicating content and corrupting the history cursor.
 - **Route all scroll reactions through dedicated methods.** Do not add inline `onChange` handlers that call `scrollTo` directly in `MessageListView`. Instead, add a new method on the scroll state or behavior extension and call it from the view. This keeps scroll logic centralized and testable.
-- **`ChatScrollLoopGuard` is diagnostic-only.** The guard monitors `scrollToRequested` (15 per 2s window) and `bodyEvaluation` (40 per 2s window) events. When thresholds are exceeded, it emits aggregate warnings via `os.Logger` and records events to `ChatDiagnosticsStore` — but it does not circuit-break or suppress scroll operations. The `scrollLoopGuardCounts` field is preserved in `ChatTranscriptSnapshot` for diagnostics.
+- **Loop guard monitoring was removed.** The former `ChatScrollLoopGuard` diagnostic type was removed as unnecessary under the `@Observable` architecture — property-level tracking eliminates the cascading re-render feedback loops that the guard was designed to detect.
 <details>
 <summary><strong>Layout timing, scroll forwarding, and .scrollPosition caveats</strong></summary>
 
