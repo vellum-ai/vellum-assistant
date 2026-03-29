@@ -60,7 +60,7 @@ The assistant feature flags API uses scope-based JWT auth. The gateway issues JW
 | `GET /v1/feature-flags`        | `feature_flags.read`  |
 | `PATCH /v1/feature-flags/:key` | `feature_flags.write` |
 
-> **Legacy note:** The gateway still supports a file-based feature-flag token (`readOrGenerateFeatureFlagToken()` in `config.ts`) for backward compatibility. The assistant daemon no longer reads or distributes this token — it was removed in Phase 8 of the `getRootDir()` cleanup.
+The assistant daemon does not read or distribute a feature-flag token. All feature-flag auth flows go through the gateway's scoped JWT mechanism.
 
 **Protected feature flag store:** The canonical storage for assistant feature flag overrides is `~/.vellum/protected/feature-flags.json` (local) or `GATEWAY_SECURITY_DIR/feature-flags.json` (Docker). The store is managed by `gateway/src/feature-flag-store.ts` and uses a versioned JSON format with `Record<string, boolean>` values keyed by canonical flag keys (simple kebab-case, e.g., `browser`). The gateway's PATCH handler writes exclusively to this store. The daemon's resolver reads it with highest priority, falling back to the defaults registry. Undeclared keys are ignored by the resolver.
 
