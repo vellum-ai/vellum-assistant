@@ -345,6 +345,8 @@ const ALLOWED_MIME_TYPES = new Set([
   "image/bmp",
   "image/tiff",
   "image/x-icon",
+  "image/heic",
+  "image/heif",
   // Audio
   "audio/mpeg",
   "audio/ogg",
