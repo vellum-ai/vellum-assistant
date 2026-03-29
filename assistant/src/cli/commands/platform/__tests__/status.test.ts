@@ -103,6 +103,7 @@ mock.module("../../../../util/platform.js", () => ({
   getWorkspaceDirDisplay: () => testDir,
   getWorkspacePromptPath: (file: string) => join(testDir, file),
   getProtectedDir: () => join(testDir, "protected"),
+  getDeprecatedDir: () => join(testDir, "workspace", "deprecated"),
   getExternalDir: () => join(testDir, "external"),
   getBinDir: () => join(testDir, "bin"),
   getDotEnvPath: () => join(testDir, ".env"),
