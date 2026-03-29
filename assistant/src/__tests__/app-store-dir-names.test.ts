@@ -50,7 +50,6 @@ function makeAppParams(name: string) {
 beforeEach(() => {
   testDataDir = freshTempDir();
   process.env.VELLUM_WORKSPACE_DIR = testDataDir;
-  mkdirSync(join(testDataDir, "data", "apps"), { recursive: true });
 });
 
 afterEach(() => {

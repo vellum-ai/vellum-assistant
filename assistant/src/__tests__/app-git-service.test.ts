@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
@@ -24,7 +24,6 @@ describe("App Git Service", () => {
       `vellum-app-git-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     process.env.VELLUM_WORKSPACE_DIR = testDataDir;
-    mkdirSync(join(testDataDir, "data", "apps"), { recursive: true });
     _resetGitServiceRegistry();
   });
 

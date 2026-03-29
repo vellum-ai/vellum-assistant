@@ -6,20 +6,7 @@
  * that middleware is replaced by the JWT auth middleware in
  * runtime/auth/middleware.ts (tested in auth/middleware.test.ts).
  */
-import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-// PairingStore.start() reads from getProtectedDir() which derives from
-// vellumRoot(), not workspace. Redirect it to a temp path under the preload's
-// VELLUM_WORKSPACE_DIR so tests don't touch real ~/.vellum/protected.
-mock.module("../util/platform.js", () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const real = require("../util/platform.js");
-  return {
-    ...real,
-    getProtectedDir: () => join(process.env.VELLUM_WORKSPACE_DIR!, "protected"),
-  };
-});
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>

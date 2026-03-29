@@ -8,13 +8,7 @@
  *   - Protected feature-flags.json is the sole override mechanism
  *   - Undeclared keys default to enabled
  */
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -95,7 +89,6 @@ const { skillFlagKey } = await import("../config/skill-state.js");
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  mkdirSync(TEST_DIR, { recursive: true });
   _setOverridesForTesting({});
   currentConfig = {
     services: {
@@ -116,11 +109,6 @@ beforeEach(() => {
 
 afterEach(() => {
   _setOverridesForTesting({});
-  // Clean contents but keep the dir for the preload's afterAll
-  if (existsSync(TEST_DIR)) {
-    rmSync(TEST_DIR, { recursive: true, force: true });
-    mkdirSync(TEST_DIR, { recursive: true });
-  }
 });
 
 // ---------------------------------------------------------------------------
