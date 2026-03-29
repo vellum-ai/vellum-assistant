@@ -18,13 +18,16 @@ struct ThinkingBlockView: View {
                 Divider()
                     .padding(.horizontal, VSpacing.sm)
 
-                Text(content)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(VSpacing.sm)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                ScrollView {
+                    Text(content)
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(VSpacing.sm)
+                }
+                .frame(maxHeight: 300)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .background(VColor.surfaceOverlay)

@@ -9,10 +9,7 @@
  * - sendToClient receives state signals (confirmation_state_changed, assistant_activity_state)
  * - "deny" decisions produce 'denied' state, "allow" produces 'approved'
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import type {
   AgentEvent,
@@ -21,12 +18,6 @@ import type {
 } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
-
-const testDir = mkdtempSync(
-  join(tmpdir(), "session-confirmation-signals-test-"),
-);
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede Conversation import
@@ -251,7 +242,7 @@ function makeConversation(
     "system prompt",
     4096,
     sendToClient ?? (() => {}),
-    testDir,
+    process.env.VELLUM_WORKSPACE_DIR!,
   );
 }
 
@@ -280,16 +271,6 @@ function seedPendingConfirmation(
     timer: setTimeout(() => {}, 60_000),
   });
 }
-
-afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Tests

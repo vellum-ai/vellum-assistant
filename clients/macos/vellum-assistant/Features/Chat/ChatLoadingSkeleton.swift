@@ -5,6 +5,7 @@ import VellumAssistantShared
 /// Mimics the real `ChatBubble` layout — a short user message followed by a
 /// multi-line assistant response — so the transition to real content feels seamless.
 struct ChatLoadingSkeleton: View {
+    @Environment(\.chatColumnWidth) private var chatColumnWidth
     /// Line widths for the multi-line assistant text block.
     /// Varying lengths look more natural than uniform bones.
     private let assistantLineWidths: [CGFloat] = [0.92, 0.85, 0.78, 0.95, 0.70, 0.45]
@@ -23,7 +24,7 @@ struct ChatLoadingSkeleton: View {
             assistantMessage
             Spacer(minLength: 0)
         }
-        .frame(maxWidth: VSpacing.chatColumnMaxWidth, alignment: .leading)
+        .frame(maxWidth: chatColumnWidth, alignment: .leading)
     }
 
     // MARK: - User Message

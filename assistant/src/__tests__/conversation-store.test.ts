@@ -1,11 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "conv-store-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -37,20 +30,11 @@ import { getDb, initializeDb, resetDb } from "../memory/db.js";
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 describe("deleteLastExchange", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     // Reset database between tests by dropping and recreating tables
     const db = getDb();
     db.run(`DELETE FROM messages`);
@@ -121,8 +105,6 @@ describe("deleteLastExchange", () => {
 
 describe("isLastUserMessageToolResult", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run(`DELETE FROM messages`);
     db.run(`DELETE FROM conversations`);
@@ -178,8 +160,6 @@ describe("isLastUserMessageToolResult", () => {
 
 describe("deleteLastExchange with tool_result messages", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run(`DELETE FROM messages`);
     db.run(`DELETE FROM conversations`);
@@ -292,8 +272,6 @@ describe("deleteLastExchange with tool_result messages", () => {
 
 describe("attachment orphan cleanup", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM message_attachments");
     db.run("DELETE FROM attachments");
@@ -411,8 +389,6 @@ describe("attachment orphan cleanup", () => {
 
 describe("conversation metadata defaults", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run(`DELETE FROM messages`);
     db.run(`DELETE FROM conversations`);
@@ -455,8 +431,6 @@ describe("conversation metadata defaults", () => {
 
 describe("createConversation with conversation type option", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run(`DELETE FROM messages`);
     db.run(`DELETE FROM conversations`);
@@ -504,8 +478,6 @@ describe("createConversation with conversation type option", () => {
 
 describe("conversation metadata read helpers", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run(`DELETE FROM messages`);
     db.run(`DELETE FROM conversations`);
@@ -546,8 +518,6 @@ describe("conversation metadata read helpers", () => {
 
 describe("attachment reuse across conversation lifecycles", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM message_attachments");
     db.run("DELETE FROM attachments");
@@ -649,8 +619,6 @@ describe("attachment reuse across conversation lifecycles", () => {
 
 describe("no private-conversation attachment visibility boundary", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM message_attachments");
     db.run("DELETE FROM attachments");
