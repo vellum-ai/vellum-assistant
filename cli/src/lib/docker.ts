@@ -306,6 +306,7 @@ export function dockerResourceNames(instanceName: string) {
     assistantContainer: `${instanceName}-assistant`,
     cesContainer: `${instanceName}-credential-executor`,
     cesSecurityVolume: `${instanceName}-ces-sec`,
+    /** @deprecated Legacy — no longer created for new instances. Retained for migration of existing instances. */
     dataVolume: `${instanceName}-data`,
     gatewayContainer: `${instanceName}-gateway`,
     gatewaySecurityVolume: `${instanceName}-gateway-sec`,
@@ -513,8 +514,6 @@ export function serviceDockerRunArgs(opts: {
         "--name",
         res.assistantContainer,
         `--network=${res.network}`,
-        "-v",
-        `${res.dataVolume}:/data`,
         "-v",
         `${res.workspaceVolume}:/workspace`,
         "-v",
@@ -1146,7 +1145,6 @@ export async function hatchDocker(
     emitProgress(3, 6, "Creating volumes...");
     log("📁 Creating network and volumes...");
     await exec("docker", ["network", "create", res.network]);
-    await exec("docker", ["volume", "create", res.dataVolume]);
     await exec("docker", ["volume", "create", res.socketVolume]);
     await exec("docker", ["volume", "create", res.workspaceVolume]);
     await exec("docker", ["volume", "create", res.cesSecurityVolume]);
