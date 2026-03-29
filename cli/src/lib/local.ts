@@ -1,8 +1,11 @@
 import { execFileSync, execSync, spawn } from "child_process";
+import { randomBytes } from "crypto";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   unlinkSync,
   writeFileSync,
 } from "fs";
@@ -192,6 +195,45 @@ function resolveDaemonMainPath(assistantIndex: string): string {
   return join(dirname(assistantIndex), "daemon", "main.ts");
 }
 
+/**
+ * Load or generate the shared signing key for a local hatch instance.
+ *
+ * Both the daemon and gateway must use the same HMAC signing key so JWT
+ * tokens minted by one can be verified by the other. When `instanceDir`
+ * is provided (named instances, e2e tests), the key lives under
+ * `<instanceDir>/.vellum/protected/actor-token-signing-key`; otherwise
+ * it falls back to `~/.vellum/protected/actor-token-signing-key`.
+ *
+ * The returned hex string is suitable for passing as the
+ * `ACTOR_TOKEN_SIGNING_KEY` env var to both spawned processes.
+ */
+function loadOrCreateLocalSigningKey(instanceDir?: string): string {
+  const base = instanceDir ?? homedir();
+  const keyPath = join(base, ".vellum", "protected", "actor-token-signing-key");
+
+  if (existsSync(keyPath)) {
+    try {
+      const raw = readFileSync(keyPath);
+      if (raw.length === 32) {
+        return raw.toString("hex");
+      }
+    } catch {
+      // Fall through to generate a new key
+    }
+  }
+
+  const newKey = randomBytes(32);
+  const dir = dirname(keyPath);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  const tmpPath = keyPath + ".tmp." + process.pid;
+  writeFileSync(tmpPath, newKey, { mode: 0o600 });
+  renameSync(tmpPath, keyPath);
+  chmodSync(keyPath, 0o600);
+  return newKey.toString("hex");
+}
+
 type DaemonStartOptions = {
   foreground?: boolean;
   defaultWorkspaceConfigPath?: string;
@@ -267,6 +309,9 @@ async function startDaemonFromSource(
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
     VELLUM_CLOUD: "local",
     VELLUM_DEV: "1",
+    ACTOR_TOKEN_SIGNING_KEY: loadOrCreateLocalSigningKey(
+      resources?.instanceDir,
+    ),
   };
   if (resources) {
     env.BASE_DATA_DIR = resources.instanceDir;
@@ -385,6 +430,9 @@ async function startDaemonWatchFromSource(
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
     VELLUM_DEV: "1",
+    ACTOR_TOKEN_SIGNING_KEY: loadOrCreateLocalSigningKey(
+      resources?.instanceDir,
+    ),
   };
   if (resources) {
     env.BASE_DATA_DIR = resources.instanceDir;
@@ -970,6 +1018,13 @@ export async function startLocalDaemon(
         delete daemonEnv.QDRANT_URL;
       }
 
+      // Pre-load the signing key so daemon and gateway share the same key.
+      // Without this, the daemon falls back to ~/.vellum/ while the gateway
+      // reads from <BASE_DATA_DIR>/.vellum/, causing JWT auth mismatches.
+      daemonEnv.ACTOR_TOKEN_SIGNING_KEY = loadOrCreateLocalSigningKey(
+        resources?.instanceDir,
+      );
+
       // Write a sentinel PID file before spawning so concurrent hatch() calls
       // see the file and fall through to the isDaemonResponsive() port check
       // instead of racing to spawn a duplicate daemon.
@@ -1113,13 +1168,17 @@ export async function startGateway(
     defaultAssistantId: "self",
   });
 
+  // Pre-load the signing key so daemon and gateway share the same key.
+  const signingKeyHex = loadOrCreateLocalSigningKey(resources?.instanceDir);
+
   const gatewayEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),
     RUNTIME_HTTP_PORT: String(effectiveDaemonPort),
     GATEWAY_PORT: String(effectiveGatewayPort),
+    ACTOR_TOKEN_SIGNING_KEY: signingKeyHex,
     ...(watch ? { VELLUM_DEV: "1" } : {}),
-    // Set BASE_DATA_DIR so the gateway loads the correct signing key and
-    // credentials for this instance (mirrors the daemon env setup).
+    // Set BASE_DATA_DIR so the gateway loads the correct credentials and
+    // workspace config for this instance (mirrors the daemon env setup).
     ...(resources ? { BASE_DATA_DIR: resources.instanceDir } : {}),
   };
   // The gateway reads the ingress URL from the workspace config file via
