@@ -29,7 +29,7 @@ export interface DoorDashSession {
 }
 
 function getSessionDir(): string {
-  return join(process.env.VELLUM_DATA_DIR!, "doordash");
+  return join(process.env.VELLUM_WORKSPACE_DIR!, "data", "doordash");
 }
 
 function getSessionPath(): string {
