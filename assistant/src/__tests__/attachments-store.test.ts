@@ -42,6 +42,7 @@ import {
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
 import { getDb, initializeDb, rawGet, rawRun, resetDb } from "../memory/db.js";
+import { getConversationsDir } from "../util/platform.js";
 
 initializeDb();
 
@@ -72,9 +73,7 @@ function getLegacyConversationDirPath(
   createdAt: number,
 ): string {
   return join(
-    testDir,
-    "workspace",
-    "conversations",
+    getConversationsDir(),
     `${conversationId}_${getConversationTimestamp(createdAt)}`,
   );
 }
