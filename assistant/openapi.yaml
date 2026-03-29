@@ -3144,7 +3144,7 @@ paths:
     post:
       operationId: export_post
       summary: Export logs and audit data
-      description: Export audit records, daemon logs, workspace contents, and config as a tar.gz archive.
+      description: Export audit records, assistant logs, workspace contents, and config as a tar.gz archive.
       tags:
         - export
       responses:
@@ -3158,24 +3158,19 @@ paths:
               type: object
               properties:
                 auditLimit:
+                  description: Max audit records (default 1000)
                   type: integer
                   minimum: -9007199254740991
                   maximum: 9007199254740991
-                  description: Max audit records (default 1000)
                 conversationId:
-                  type: string
                   description: Scope to a single conversation
+                  type: string
                 startTime:
-                  type: number
                   description: Lower bound epoch ms
-                endTime:
                   type: number
+                endTime:
                   description: Upper bound epoch ms
-              required:
-                - auditLimit
-                - conversationId
-                - startTime
-                - endTime
+                  type: number
               additionalProperties: false
   /v1/guardian-actions/decision:
     post:
@@ -4014,6 +4009,38 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/logs/export:
+    post:
+      operationId: logs_export_post
+      summary: Export logs and audit data (alias)
+      description: Alias for /v1/export. Export audit records, assistant logs, workspace contents, and config as a tar.gz archive.
+      tags:
+        - export
+      responses:
+        "200":
+          description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                auditLimit:
+                  description: Max audit records (default 1000)
+                  type: integer
+                  minimum: -9007199254740991
+                  maximum: 9007199254740991
+                conversationId:
+                  description: Scope to a single conversation
+                  type: string
+                startTime:
+                  description: Lower bound epoch ms
+                  type: number
+                endTime:
+                  description: Upper bound epoch ms
+                  type: number
+              additionalProperties: false
   /v1/memory-items:
     get:
       operationId: memoryitems_get
