@@ -216,7 +216,7 @@ enum LogExporter {
                 log.warning("Skipping invalid attachment at \(attachmentURL.lastPathComponent)")
                 continue
             }
-            guard let fileData = await Task.detached { try? Data(contentsOf: attachmentURL) }.value else {
+            guard let fileData = await Task.detached(operation: { try? Data(contentsOf: attachmentURL) }).value else {
                 log.warning("Skipping unreadable attachment at \(attachmentURL.lastPathComponent)")
                 continue
             }
