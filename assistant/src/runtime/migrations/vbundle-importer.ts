@@ -164,7 +164,7 @@ export function commitImport(options: ImportCommitOptions): ImportCommitResult {
   }
 
   // Directories to preserve when clearing the workspace (large/regenerable).
-  const WORKSPACE_SKIP_DIRS = new Set(["embedding-models"]);
+  const WORKSPACE_SKIP_DIRS = new Set(["embedding-models", "deprecated"]);
   // data/qdrant is nested — we skip "qdrant" inside "data/"
   const DATA_SKIP_DIRS = new Set(["qdrant"]);
 
