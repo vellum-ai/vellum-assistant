@@ -461,7 +461,6 @@ describe("pairing credential flow", () => {
     const ctx = {
       pairingStore: store,
       bearerToken,
-      featureFlagToken: undefined,
       pairingBroadcast: () => {},
     };
 
@@ -519,7 +518,6 @@ describe("pairing credential flow", () => {
     const ctx = {
       pairingStore: store,
       bearerToken,
-      featureFlagToken: undefined,
       pairingBroadcast: () => {},
     };
 
@@ -576,7 +574,6 @@ describe("pairing credential flow", () => {
     const ctx = {
       pairingStore: store,
       bearerToken,
-      featureFlagToken: undefined,
       pairingBroadcast: () => {},
     };
 
@@ -636,7 +633,6 @@ describe("pairing credential flow", () => {
     const ctx = {
       pairingStore: store,
       bearerToken,
-      featureFlagToken: undefined,
       pairingBroadcast: () => {},
     };
 

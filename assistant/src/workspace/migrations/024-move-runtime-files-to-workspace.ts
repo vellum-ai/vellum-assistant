@@ -9,10 +9,10 @@
  *   - daemon-stderr.log      -> workspace/logs/daemon-stderr.log
  *   - daemon-startup.lock    -> workspace/daemon-startup.lock
  *   - embed-worker.pid       -> workspace/embed-worker.pid
- *   - feature-flag-token     -> workspace/feature-flag-token
  *
- * NOT moved (stays at root because it contains secrets):
- *   - .env
+ * NOT moved:
+ *   - .env (stays at root because it contains secrets)
+ *   - feature-flag-token (removed entirely in Phase 8)
  *
  * Directories moved:
  *   - external/              -> workspace/external/
@@ -44,7 +44,7 @@ const FILE_MOVES: Array<{ name: string; subdir?: string }> = [
   // .env stays at root — it contains secrets (API keys) and the entire
   // workspace directory is included in diagnostic log exports.
   { name: "embed-worker.pid" },
-  { name: "feature-flag-token" },
+  // feature-flag-token removed entirely in Phase 8
 ];
 
 /** Directories to move from root → workspace. */
@@ -92,7 +92,7 @@ function moveDirContents(oldDir: string, newDir: string): void {
 export const moveRuntimeFilesToWorkspaceMigration: WorkspaceMigration = {
   id: "024-move-runtime-files-to-workspace",
   description:
-    "Move daemon-stderr.log, daemon-startup.lock, embed-worker.pid, feature-flag-token, external/, and bin/ from root to workspace",
+    "Move daemon-stderr.log, daemon-startup.lock, embed-worker.pid, external/, and bin/ from root to workspace",
 
   run(workspaceDir: string): void {
     const rootDir = getRootDir();

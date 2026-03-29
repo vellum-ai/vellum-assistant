@@ -42,7 +42,6 @@ function makeContext(store: PairingStore): PairingHandlerContext {
   return {
     pairingStore: store,
     bearerToken: "test-bearer-token",
-    featureFlagToken: undefined,
     pairingBroadcast: mock(() => {}),
   };
 }
