@@ -19,6 +19,7 @@ import {
   getDaemonStartupLockPath,
   getDaemonStderrLogPath,
   getPidPath,
+  getProtectedDir,
   getWorkspaceConfigPath,
 } from "../util/platform.js";
 
@@ -365,7 +366,8 @@ async function startDaemonLocked(): Promise<{
   const spawnEnv = { ...process.env };
   if (!spawnEnv.ACTOR_TOKEN_SIGNING_KEY) {
     try {
-      const key = loadOrCreateSigningKey();
+      const keyPath = resolve(getProtectedDir(), "actor-token-signing-key");
+      const key = loadOrCreateSigningKey(keyPath);
       spawnEnv.ACTOR_TOKEN_SIGNING_KEY = key.toString("hex");
     } catch (err) {
       log.warn(

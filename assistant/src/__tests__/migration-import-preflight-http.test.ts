@@ -531,7 +531,6 @@ describe("handleMigrationImportPreflight — validation failures", () => {
 describe("analyzeImport", () => {
   test("detects create when file does not exist on disk", () => {
     const resolver = new DefaultPathResolver(
-      undefined,
       join(testDir, "nonexistent-workspace"),
     );
 
@@ -559,7 +558,7 @@ describe("analyzeImport", () => {
   });
 
   test("detects unchanged when file on disk matches bundle", () => {
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
 
     const report = analyzeImport({
       manifest: {
@@ -583,7 +582,7 @@ describe("analyzeImport", () => {
   });
 
   test("detects overwrite when file on disk differs from bundle", () => {
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
 
     const report = analyzeImport({
       manifest: {
@@ -608,7 +607,7 @@ describe("analyzeImport", () => {
   });
 
   test("flags unknown archive paths as conflicts with skip action", () => {
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
 
     const report = analyzeImport({
       manifest: {
@@ -646,7 +645,7 @@ describe("analyzeImport", () => {
   });
 
   test("includes manifest in report", () => {
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const manifest = {
       schema_version: "1.0",
       created_at: "2024-01-01T00:00:00.000Z",
@@ -675,48 +674,33 @@ describe("analyzeImport", () => {
 
 describe("DefaultPathResolver", () => {
   test("resolves data/db/assistant.db to workspace db path (backward compat)", () => {
-    const resolver = new DefaultPathResolver(
-      undefined,
-      "/home/user/.vellum/workspace",
-    );
+    const resolver = new DefaultPathResolver("/home/user/.vellum/workspace");
     expect(resolver.resolve("data/db/assistant.db")).toBe(
       "/home/user/.vellum/workspace/data/db/assistant.db",
     );
   });
 
   test("resolves config/settings.json to workspace config path (backward compat)", () => {
-    const resolver = new DefaultPathResolver(
-      undefined,
-      "/home/user/.vellum/workspace",
-    );
+    const resolver = new DefaultPathResolver("/home/user/.vellum/workspace");
     expect(resolver.resolve("config/settings.json")).toBe(
       "/home/user/.vellum/workspace/config.json",
     );
   });
 
   test("returns null for unknown paths", () => {
-    const resolver = new DefaultPathResolver(
-      undefined,
-      "/home/user/.vellum/workspace",
-    );
+    const resolver = new DefaultPathResolver("/home/user/.vellum/workspace");
     expect(resolver.resolve("unknown/path.txt")).toBeNull();
   });
 
   test("resolves valid skills path via backward compat", () => {
-    const resolver = new DefaultPathResolver(
-      undefined,
-      "/home/user/.vellum/workspace",
-    );
+    const resolver = new DefaultPathResolver("/home/user/.vellum/workspace");
     expect(resolver.resolve("skills/my-skill/SKILL.md")).toBe(
       "/home/user/.vellum/workspace/skills/my-skill/SKILL.md",
     );
   });
 
   test("resolves workspace/ prefix paths", () => {
-    const resolver = new DefaultPathResolver(
-      undefined,
-      "/home/user/.vellum/workspace",
-    );
+    const resolver = new DefaultPathResolver("/home/user/.vellum/workspace");
     expect(resolver.resolve("workspace/data/db/assistant.db")).toBe(
       "/home/user/.vellum/workspace/data/db/assistant.db",
     );
@@ -729,26 +713,17 @@ describe("DefaultPathResolver", () => {
   });
 
   test("returns null for workspace/ path traversal attempt", () => {
-    const resolver = new DefaultPathResolver(
-      undefined,
-      "/home/user/.vellum/workspace",
-    );
+    const resolver = new DefaultPathResolver("/home/user/.vellum/workspace");
     expect(resolver.resolve("workspace/../../etc/passwd")).toBeNull();
   });
 
   test("returns null for skills path traversal attempt (../../etc/passwd)", () => {
-    const resolver = new DefaultPathResolver(
-      undefined,
-      "/home/user/.vellum/workspace",
-    );
+    const resolver = new DefaultPathResolver("/home/user/.vellum/workspace");
     expect(resolver.resolve("skills/../../etc/passwd")).toBeNull();
   });
 
   test("returns null for skills path traversal attempt (../../../.ssh/authorized_keys)", () => {
-    const resolver = new DefaultPathResolver(
-      undefined,
-      "/home/user/.vellum/workspace",
-    );
+    const resolver = new DefaultPathResolver("/home/user/.vellum/workspace");
     expect(resolver.resolve("skills/../../../.ssh/authorized_keys")).toBeNull();
   });
 

@@ -645,7 +645,7 @@ describe("commitImport", () => {
       { path: "data/db/assistant.db", data: newDbData },
     ]);
 
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -659,7 +659,7 @@ describe("commitImport", () => {
   });
 
   test("returns validation_failed for invalid bundles", () => {
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const result = commitImport({
       archiveData: new Uint8Array([0xba, 0xad]),
       pathResolver: resolver,
@@ -689,7 +689,7 @@ describe("commitImport", () => {
       { path: "data/db/assistant.db", data: dbData },
     ]);
 
-    const resolver = new DefaultPathResolver(undefined, nonexistentWorkspace);
+    const resolver = new DefaultPathResolver(nonexistentWorkspace);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -713,7 +713,7 @@ describe("commitImport", () => {
       { path: "data/db/assistant.db", data: newDbData },
     ]);
 
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -743,7 +743,7 @@ describe("commitImport", () => {
       { path: "config/settings.json", data: newConfigData },
     ]);
 
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -791,7 +791,7 @@ describe("commitImport — workspace clearing", () => {
       { path: "workspace/skills/new-skill/SKILL.md", data: skillData },
     ]);
 
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -820,7 +820,7 @@ describe("commitImport — workspace clearing", () => {
       { path: "skills/new-skill/SKILL.md", data: skillData },
     ]);
 
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -847,11 +847,7 @@ describe("commitImport — workspace clearing", () => {
       { path: "hooks/new-hook/hook.sh", data: hookData },
     ]);
 
-    const resolver = new DefaultPathResolver(
-      undefined,
-      testDir,
-      externalHooksDir,
-    );
+    const resolver = new DefaultPathResolver(testDir, externalHooksDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -887,7 +883,7 @@ describe("commitImport — workspace clearing", () => {
       },
     ]);
 
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     // No workspaceDir — no clearing
     const result = commitImport({
       archiveData: vbundle,

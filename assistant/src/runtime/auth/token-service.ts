@@ -19,8 +19,7 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 
 import { getLogger } from "../../util/logger.js";
 import { CURRENT_POLICY_EPOCH, isStaleEpoch } from "./policy.js";
@@ -35,38 +34,12 @@ const log = getLogger("token-service");
 let _authSigningKey: Buffer | undefined;
 
 /**
- * Resolve the gateway security directory (same logic as trust-store.ts).
+ * Load a signing key from a file on disk. Returns the key buffer if found
+ * and valid, or undefined if the file does not exist or is invalid.
  *
- * Docker: `GATEWAY_SECURITY_DIR` env var.
- * Local:  falls back to `~/.vellum/protected/`.
+ * @param keyPath Absolute path to the signing key file.
  */
-function getSecurityDir(): string {
-  return (
-    process.env.GATEWAY_SECURITY_DIR || join(homedir(), ".vellum", "protected")
-  );
-}
-
-/**
- * Path to the persisted signing key file.
- * Stored in the security directory alongside other sensitive material.
- *
- * Used by CLI commands that need to read/create the signing key directly
- * (e.g. daemon-credential-client, conversations, browser-relay).
- * The daemon itself receives the key via the ACTOR_TOKEN_SIGNING_KEY env var.
- */
-function getSigningKeyPath(): string {
-  return join(getSecurityDir(), "actor-token-signing-key");
-}
-
-/**
- * Load a signing key from disk. Returns the key buffer if found and valid,
- * or undefined if the file does not exist or is invalid.
- *
- * Used in the Docker 403-fallback path where generating a new key would
- * create a mismatch with the gateway's already-bootstrapped key.
- */
-export function loadSigningKey(): Buffer | undefined {
-  const keyPath = getSigningKeyPath();
+export function loadSigningKey(keyPath: string): Buffer | undefined {
   if (!existsSync(keyPath)) {
     return undefined;
   }
@@ -87,15 +60,16 @@ export function loadSigningKey(): Buffer | undefined {
 /**
  * Load a signing key from disk or generate and persist a new one.
  * Uses atomic-write + chmod 0o600 for safe persistence.
+ *
+ * @param keyPath Absolute path to the signing key file.
  */
-export function loadOrCreateSigningKey(): Buffer {
-  const existing = loadSigningKey();
+export function loadOrCreateSigningKey(keyPath: string): Buffer {
+  const existing = loadSigningKey(keyPath);
   if (existing) {
     return existing;
   }
 
   // Generate and persist a new key
-  const keyPath = getSigningKeyPath();
   const newKey = randomBytes(32);
   const dir = dirname(keyPath);
   if (!existsSync(dir)) {
@@ -111,35 +85,24 @@ export function loadOrCreateSigningKey(): Buffer {
 }
 
 /**
- * Resolve the signing key for the daemon.
- *
- * The daemon always reads the key from the `ACTOR_TOKEN_SIGNING_KEY` env
- * var (hex-encoded, 64 chars). The CLI launcher sets this env var by
- * calling `loadOrCreateSigningKey()` before spawning the daemon process.
- * In Docker, the gateway bootstraps the key and injects the env var.
- *
- * Falls back to `loadOrCreateSigningKey()` only as a transitional measure
- * for callers that have not yet been updated to set the env var.
+ * Resolve the signing key for the daemon from the `ACTOR_TOKEN_SIGNING_KEY`
+ * env var (hex-encoded, 64 chars). The CLI launcher sets this before
+ * spawning the daemon; in Docker the gateway injects it.
  */
 export function resolveSigningKey(): Buffer {
   const envKey = process.env.ACTOR_TOKEN_SIGNING_KEY;
-  if (envKey) {
-    if (!/^[0-9a-f]{64}$/i.test(envKey)) {
-      throw new Error(
-        `Invalid ACTOR_TOKEN_SIGNING_KEY: expected 64 hex characters, got ${envKey.length} chars`,
-      );
-    }
-    log.info("Signing key loaded from ACTOR_TOKEN_SIGNING_KEY env var");
-    return Buffer.from(envKey, "hex");
+  if (!envKey) {
+    throw new Error(
+      "ACTOR_TOKEN_SIGNING_KEY env var is not set — the daemon requires it",
+    );
   }
-
-  // Transitional fallback: read from disk if env var is not set.
-  // Once all launchers set ACTOR_TOKEN_SIGNING_KEY, this path can be removed.
-  log.warn(
-    "ACTOR_TOKEN_SIGNING_KEY env var not set — falling back to file-based key. " +
-      "This is a transitional path; future versions will require the env var.",
-  );
-  return loadOrCreateSigningKey();
+  if (!/^[0-9a-f]{64}$/i.test(envKey)) {
+    throw new Error(
+      `Invalid ACTOR_TOKEN_SIGNING_KEY: expected 64 hex characters, got ${envKey.length} chars`,
+    );
+  }
+  log.info("Signing key loaded from ACTOR_TOKEN_SIGNING_KEY env var");
+  return Buffer.from(envKey, "hex");
 }
 
 function getSigningKey(): Buffer {

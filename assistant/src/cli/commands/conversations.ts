@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import type { Command } from "commander";
 
 import {
@@ -31,6 +33,7 @@ import {
   mintDaemonDeliveryToken,
 } from "../../runtime/auth/token-service.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
+import { getProtectedDir } from "../../util/platform.js";
 import { timeAgo } from "../../util/time.js";
 import { initializeDb } from "../db.js";
 import { log } from "../logger.js";
@@ -328,7 +331,8 @@ Examples:
       if (await isHttpHealthy()) {
         const port = getRuntimeHttpPort();
         const host = healthCheckHost(getRuntimeHttpHost());
-        initAuthSigningKey(loadOrCreateSigningKey());
+        const keyPath = join(getProtectedDir(), "actor-token-signing-key");
+        initAuthSigningKey(loadOrCreateSigningKey(keyPath));
         const token = mintDaemonDeliveryToken();
         const res = await fetch(
           `http://${host}:${port}/v1/conversations/${conversation.id}/wipe`,

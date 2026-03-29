@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import type { Command } from "commander";
 
 import type { ExtensionCommand } from "../../browser-extension-relay/protocol.js";
@@ -16,6 +18,7 @@ import {
   minimizeChromeWindow,
   restoreChromeWindow,
 } from "../../tools/browser/chrome-cdp.js";
+import { getProtectedDir } from "../../util/platform.js";
 
 // ---------------------------------------------------------------------------
 // Shared relay helper — in-process when connected, gateway HTTP otherwise
@@ -43,7 +46,8 @@ async function relayCommand(command: Record<string, unknown>): Promise<void> {
     } else {
       // In-process relay not connected — fall back to gateway HTTP
       if (!isSigningKeyInitialized()) {
-        initAuthSigningKey(loadOrCreateSigningKey());
+        const keyPath = join(getProtectedDir(), "actor-token-signing-key");
+        initAuthSigningKey(loadOrCreateSigningKey(keyPath));
       }
       ({ data } = await gatewayPost<typeof data>(
         "/v1/browser-relay/command",
@@ -387,7 +391,8 @@ Examples:
         } else {
           // In-process relay not connected — fall back to gateway HTTP
           if (!isSigningKeyInitialized()) {
-            initAuthSigningKey(loadOrCreateSigningKey());
+            const keyPath = join(getProtectedDir(), "actor-token-signing-key");
+            initAuthSigningKey(loadOrCreateSigningKey(keyPath));
           }
           data = await gatewayGet<typeof data>("/v1/browser-relay/status");
         }

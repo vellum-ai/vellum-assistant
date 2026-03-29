@@ -142,12 +142,6 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
   }
 
   try {
-    // Trust rules are NOT included in daemon-produced exports. The daemon
-    // does not have access to the protected directory, and the import handler
-    // passes protectedDir=undefined so trust/trust.json entries would be
-    // silently dropped (creating a false UNKNOWN_ARCHIVE_PATH conflict in
-    // preflight). Trust rules are managed by the CES/gateway layer.
-
     const { archive, manifest } = buildExportVBundle({
       // hooksDir is intentionally omitted — hooks now live under workspace/hooks/
       // and are included in the workspace walk. Passing hooksDir separately would
@@ -306,12 +300,7 @@ export async function handleMigrationImportPreflight(
       });
     }
 
-    // Step 2: Analyze what would change on import.
-    // protectedDir is undefined — the daemon does not write to the protected
-    // directory. Trust.json entries from old-format bundles will be reported
-    // as "skip". New-format bundles use workspace/ prefix exclusively.
     const pathResolver = new DefaultPathResolver(
-      undefined,
       getWorkspaceDir(),
       getWorkspaceHooksDir(),
     );
@@ -393,10 +382,7 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
       });
     }
 
-    // protectedDir is undefined — the daemon does not write to the protected
-    // directory. Trust.json entries from old-format bundles will be skipped.
     const pathResolver = new DefaultPathResolver(
-      undefined,
       getWorkspaceDir(),
       getWorkspaceHooksDir(),
     );
