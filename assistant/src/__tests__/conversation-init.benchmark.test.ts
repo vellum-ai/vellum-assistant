@@ -108,6 +108,7 @@ mock.module("../util/platform.js", () => ({
   getDaemonStderrLogPath: () => join(testDir, "daemon-stderr.log"),
   getDaemonStartupLockPath: () => join(testDir, "daemon-startup.lock"),
   getEmbedWorkerPidPath: () => join(testDir, "embed-worker.pid"),
+  getDeprecatedDir: () => join(testDir, "deprecated"),
 
   getSandboxRootDir: () => join(testDir, "sandbox"),
   getSandboxWorkingDir: () => testDir,
