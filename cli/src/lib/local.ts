@@ -1,4 +1,5 @@
 import { execFileSync, execSync, spawn } from "child_process";
+import { randomBytes } from "crypto";
 import {
   existsSync,
   mkdirSync,
@@ -192,9 +193,24 @@ function resolveDaemonMainPath(assistantIndex: string): string {
   return join(dirname(assistantIndex), "daemon", "main.ts");
 }
 
+/**
+ * Generate a fresh signing key for a local hatch session.
+ *
+ * Both the daemon and gateway must use the same HMAC signing key so JWT
+ * tokens minted by one can be verified by the other. The CLI generates
+ * an ephemeral key each time and passes it as `ACTOR_TOKEN_SIGNING_KEY`
+ * to both processes — the daemon and gateway each persist it on their
+ * own terms (the `.vellum/` directory layout is their concern, not the
+ * CLI's).
+ */
+export function generateLocalSigningKey(): string {
+  return randomBytes(32).toString("hex");
+}
+
 type DaemonStartOptions = {
   foreground?: boolean;
   defaultWorkspaceConfigPath?: string;
+  signingKey?: string;
 };
 
 async function startDaemonFromSource(
@@ -267,6 +283,9 @@ async function startDaemonFromSource(
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
     VELLUM_CLOUD: "local",
     VELLUM_DEV: "1",
+    ...(options?.signingKey
+      ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
+      : {}),
   };
   if (resources) {
     env.BASE_DATA_DIR = resources.instanceDir;
@@ -385,6 +404,9 @@ async function startDaemonWatchFromSource(
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
     VELLUM_DEV: "1",
+    ...(options?.signingKey
+      ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
+      : {}),
   };
   if (resources) {
     env.BASE_DATA_DIR = resources.instanceDir;
@@ -970,6 +992,10 @@ export async function startLocalDaemon(
         delete daemonEnv.QDRANT_URL;
       }
 
+      if (options?.signingKey) {
+        daemonEnv.ACTOR_TOKEN_SIGNING_KEY = options.signingKey;
+      }
+
       // Write a sentinel PID file before spawning so concurrent hatch() calls
       // see the file and fall through to the isDaemonResponsive() port check
       // instead of racing to spawn a duplicate daemon.
@@ -1081,6 +1107,7 @@ export async function startLocalDaemon(
 export async function startGateway(
   watch: boolean = false,
   resources?: LocalInstanceResources,
+  options?: { signingKey?: string },
 ): Promise<string> {
   const effectiveGatewayPort = resources?.gatewayPort ?? GATEWAY_PORT;
 
@@ -1117,9 +1144,12 @@ export async function startGateway(
     ...(process.env as Record<string, string>),
     RUNTIME_HTTP_PORT: String(effectiveDaemonPort),
     GATEWAY_PORT: String(effectiveGatewayPort),
+    ...(options?.signingKey
+      ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
+      : {}),
     ...(watch ? { VELLUM_DEV: "1" } : {}),
-    // Set BASE_DATA_DIR so the gateway loads the correct signing key and
-    // credentials for this instance (mirrors the daemon env setup).
+    // Set BASE_DATA_DIR so the gateway loads the correct credentials and
+    // workspace config for this instance (mirrors the daemon env setup).
     ...(resources ? { BASE_DATA_DIR: resources.instanceDir } : {}),
   };
   // The gateway reads the ingress URL from the workspace config file via
