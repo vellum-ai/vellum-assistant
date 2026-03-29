@@ -7,8 +7,6 @@
  * (health check, JWT minting, HTTP call).
  */
 
-import { join } from "node:path";
-
 import providerEnvVarsRegistry from "../../../../meta/provider-env-vars.json" with { type: "json" };
 import { getRuntimeHttpHost, getRuntimeHttpPort } from "../../config/env.js";
 import { API_KEY_PROVIDERS } from "../../config/loader.js";
@@ -28,7 +26,6 @@ import {
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
-import { getProtectedDir } from "../../util/platform.js";
 
 const log = getLogger("daemon-credential-client");
 const CREDENTIAL_KEY_PREFIX = "credential/";
@@ -58,8 +55,7 @@ async function daemonFetch(
 
     const port = getRuntimeHttpPort();
     const host = healthCheckHost(getRuntimeHttpHost());
-    const keyPath = join(getProtectedDir(), "actor-token-signing-key");
-    initAuthSigningKey(loadOrCreateSigningKey(keyPath));
+    initAuthSigningKey(loadOrCreateSigningKey());
     const token = mintDaemonDeliveryToken();
 
     const res = await fetch(`http://${host}:${port}${path}`, {

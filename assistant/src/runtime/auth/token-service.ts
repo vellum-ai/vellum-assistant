@@ -19,9 +19,10 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 import { getLogger } from "../../util/logger.js";
+import { getWorkspaceDir } from "../../util/platform.js";
 import { CURRENT_POLICY_EPOCH, isStaleEpoch } from "./policy.js";
 import type { ScopeProfile, TokenAudience, TokenClaims } from "./types.js";
 
@@ -34,12 +35,21 @@ const log = getLogger("token-service");
 let _authSigningKey: Buffer | undefined;
 
 /**
+ * Returns the path to the signing key file under workspace/deprecated/.
+ *
+ * This file can be fully deleted once the assistant stops making direct
+ * calls to the gateway (i.e. all auth flows go through the env var).
+ */
+function getSigningKeyPath(): string {
+  return join(getWorkspaceDir(), "deprecated", "actor-token-signing-key");
+}
+
+/**
  * Load a signing key from a file on disk. Returns the key buffer if found
  * and valid, or undefined if the file does not exist or is invalid.
- *
- * @param keyPath Absolute path to the signing key file.
  */
-export function loadSigningKey(keyPath: string): Buffer | undefined {
+export function loadSigningKey(): Buffer | undefined {
+  const keyPath = getSigningKeyPath();
   if (!existsSync(keyPath)) {
     return undefined;
   }
@@ -61,10 +71,13 @@ export function loadSigningKey(keyPath: string): Buffer | undefined {
  * Load a signing key from disk or generate and persist a new one.
  * Uses atomic-write + chmod 0o600 for safe persistence.
  *
- * @param keyPath Absolute path to the signing key file.
+ * The key is stored at workspace/deprecated/actor-token-signing-key.
+ * This file can be fully deleted once the assistant stops making direct
+ * calls to the gateway (i.e. all auth flows go through the env var).
  */
-export function loadOrCreateSigningKey(keyPath: string): Buffer {
-  const existing = loadSigningKey(keyPath);
+export function loadOrCreateSigningKey(): Buffer {
+  const existing = loadSigningKey();
+  const keyPath = getSigningKeyPath();
   if (existing) {
     return existing;
   }

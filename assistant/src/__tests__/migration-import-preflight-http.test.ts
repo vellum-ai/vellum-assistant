@@ -672,58 +672,60 @@ describe("analyzeImport", () => {
 // DefaultPathResolver unit tests
 // ---------------------------------------------------------------------------
 
+const WORKSPACE_DIR = "/home/user/.vellum/workspace";
+
 describe("DefaultPathResolver", () => {
   test("resolves data/db/assistant.db to workspace db path (backward compat)", () => {
-    const resolver = new DefaultPathResolver("/home/user/.vellum/workspace");
+    const resolver = new DefaultPathResolver(WORKSPACE_DIR);
     expect(resolver.resolve("data/db/assistant.db")).toBe(
-      "/home/user/.vellum/workspace/data/db/assistant.db",
+      `${WORKSPACE_DIR}/data/db/assistant.db`,
     );
   });
 
   test("resolves config/settings.json to workspace config path (backward compat)", () => {
-    const resolver = new DefaultPathResolver("/home/user/.vellum/workspace");
+    const resolver = new DefaultPathResolver(WORKSPACE_DIR);
     expect(resolver.resolve("config/settings.json")).toBe(
-      "/home/user/.vellum/workspace/config.json",
+      `${WORKSPACE_DIR}/config.json`,
     );
   });
 
   test("returns null for unknown paths", () => {
-    const resolver = new DefaultPathResolver("/home/user/.vellum/workspace");
+    const resolver = new DefaultPathResolver(WORKSPACE_DIR);
     expect(resolver.resolve("unknown/path.txt")).toBeNull();
   });
 
   test("resolves valid skills path via backward compat", () => {
-    const resolver = new DefaultPathResolver("/home/user/.vellum/workspace");
+    const resolver = new DefaultPathResolver(WORKSPACE_DIR);
     expect(resolver.resolve("skills/my-skill/SKILL.md")).toBe(
-      "/home/user/.vellum/workspace/skills/my-skill/SKILL.md",
+      `${WORKSPACE_DIR}/skills/my-skill/SKILL.md`,
     );
   });
 
   test("resolves workspace/ prefix paths", () => {
-    const resolver = new DefaultPathResolver("/home/user/.vellum/workspace");
+    const resolver = new DefaultPathResolver(WORKSPACE_DIR);
     expect(resolver.resolve("workspace/data/db/assistant.db")).toBe(
-      "/home/user/.vellum/workspace/data/db/assistant.db",
+      `${WORKSPACE_DIR}/data/db/assistant.db`,
     );
     expect(resolver.resolve("workspace/config.json")).toBe(
-      "/home/user/.vellum/workspace/config.json",
+      `${WORKSPACE_DIR}/config.json`,
     );
     expect(resolver.resolve("workspace/skills/my-skill/SKILL.md")).toBe(
-      "/home/user/.vellum/workspace/skills/my-skill/SKILL.md",
+      `${WORKSPACE_DIR}/skills/my-skill/SKILL.md`,
     );
   });
 
   test("returns null for workspace/ path traversal attempt", () => {
-    const resolver = new DefaultPathResolver("/home/user/.vellum/workspace");
+    const resolver = new DefaultPathResolver(WORKSPACE_DIR);
     expect(resolver.resolve("workspace/../../etc/passwd")).toBeNull();
   });
 
   test("returns null for skills path traversal attempt (../../etc/passwd)", () => {
-    const resolver = new DefaultPathResolver("/home/user/.vellum/workspace");
+    const resolver = new DefaultPathResolver(WORKSPACE_DIR);
     expect(resolver.resolve("skills/../../etc/passwd")).toBeNull();
   });
 
   test("returns null for skills path traversal attempt (../../../.ssh/authorized_keys)", () => {
-    const resolver = new DefaultPathResolver("/home/user/.vellum/workspace");
+    const resolver = new DefaultPathResolver(WORKSPACE_DIR);
     expect(resolver.resolve("skills/../../../.ssh/authorized_keys")).toBeNull();
   });
 
