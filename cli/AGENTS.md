@@ -41,6 +41,12 @@ Every command must have high-quality `--help` output. Follow the same standards 
    AI agents parse help text to decide which command to run and how. Avoid vague
    language — say exactly what the command does and where state is stored.
 
+## Boundary: No `.vellum/` directory access
+
+The CLI must **never** read from or write to the `.vellum/` directory (e.g. `~/.vellum/protected/`, `<instanceDir>/.vellum/`). That directory structure is an **assistant daemon / gateway implementation detail**. The CLI's job is to spawn those processes and pass configuration via environment variables — not to reach into their internal storage.
+
+For example, the signing key used for JWT auth between the daemon and gateway is passed as the `ACTOR_TOKEN_SIGNING_KEY` env var. The CLI generates an ephemeral key (`generateLocalSigningKey()` in `lib/local.ts`) and passes it to both `startLocalDaemon` and `startGateway`. It does **not** read or write key files on disk — each process manages its own persistence.
+
 ## Docker Volume Management
 
 The CLI creates and manages Docker volumes for containerized instances. See the root `AGENTS.md` § Docker Volume Architecture for the full volume layout.

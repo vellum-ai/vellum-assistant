@@ -14,8 +14,11 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "pairing-routes-test-")),
 );
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+
+mock.module("../util/platform.js", () => ({
+  getWorkspaceDir: () => join(testDir, "workspace"),
+  getDataDir: () => testDir,
+}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -58,8 +61,6 @@ function makePairingRequest(overrides: Record<string, unknown> = {}): Request {
 }
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   try {
     rmSync(testDir, { recursive: true });
   } catch {
@@ -74,8 +75,6 @@ describe("handlePairingRequest — device binding", () => {
   let ctx: PairingHandlerContext;
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     store = new PairingStore();
     store.start();
     ctx = makeContext(store);

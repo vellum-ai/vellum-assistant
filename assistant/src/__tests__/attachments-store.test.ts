@@ -1,11 +1,6 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "attach-store-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -42,20 +37,10 @@ import {
 } from "../memory/attachments-store.js";
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { getDb, initializeDb, rawGet, rawRun, resetDb } from "../memory/db.js";
+import { getDb, initializeDb, rawGet, rawRun } from "../memory/db.js";
+import { getConversationsDir } from "../util/platform.js";
 
 initializeDb();
-
-afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 function resetTables() {
   const db = getDb();
@@ -74,8 +59,7 @@ function getLegacyConversationDirPath(
   createdAt: number,
 ): string {
   return join(
-    testDir,
-    "conversations",
+    getConversationsDir(),
     `${conversationId}_${getConversationTimestamp(createdAt)}`,
   );
 }

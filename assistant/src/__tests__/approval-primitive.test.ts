@@ -1,11 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "approval-primitive-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -20,7 +13,7 @@ import {
   mintGrantFromDecision,
   type MintGrantParams,
 } from "../approvals/approval-primitive.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { scopedApprovalGrants } from "../memory/schema.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 
@@ -30,17 +23,6 @@ function clearTables(): void {
   const db = getDb();
   db.delete(scopedApprovalGrants).run();
 }
-
-afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Helper to build mint params with sensible defaults

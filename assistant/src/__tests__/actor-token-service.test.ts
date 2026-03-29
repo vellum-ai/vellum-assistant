@@ -6,14 +6,7 @@
  * that middleware is replaced by the JWT auth middleware in
  * runtime/auth/middleware.ts (tested in auth/middleware.test.ts).
  */
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(mkdtempSync(join(tmpdir(), "actor-token-test-")));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -85,8 +78,6 @@ const nonLoopbackServer = mockServer("203.0.113.50");
 initializeDb();
 
 beforeEach(() => {
-  process.env.VELLUM_HOME = testDir;
-  process.env.VELLUM_WORKSPACE_DIR = testDir;
   // Initialize signing key for JWT verification
   initAuthSigningKey(TEST_KEY);
   // Reset the external assistant ID cache so tests don't leak state
@@ -98,14 +89,6 @@ beforeEach(() => {
   db.run("DELETE FROM actor_token_records");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
-});
-
-afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {}
 });
 
 // ---------------------------------------------------------------------------
