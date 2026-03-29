@@ -188,7 +188,6 @@ struct ChatView: View {
                     }
                 )
                 .onPreferenceChange(ChatContainerWidthKey.self) { containerWidth = $0 }
-                .disabled(!isInteractionEnabled)
                 .overlay(alignment: .bottom) {
                     btwOverlay
                 }
