@@ -252,10 +252,12 @@ private struct ThreadWindowContentView: View {
                     showTitleActions = false
                 }
             )
-            SidebarPrimaryRow(icon: VIcon.archive.rawValue, label: "Archive", action: {
-                conversationManager.archiveConversation(id: conversationLocalId)
-                showTitleActions = false
-            })
+            if !(conversation?.isChannelConversation ?? false) {
+                SidebarPrimaryRow(icon: VIcon.archive.rawValue, label: "Archive", action: {
+                    conversationManager.archiveConversation(id: conversationLocalId)
+                    showTitleActions = false
+                })
+            }
         }
         .padding(VSpacing.sm)
         .background(VColor.surfaceLift)
