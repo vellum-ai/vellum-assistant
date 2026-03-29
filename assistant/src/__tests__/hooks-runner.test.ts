@@ -112,6 +112,19 @@ describe("Hook Runner", () => {
     expect(result.stdout.trim()).toBe("post-message|env-hook");
   });
 
+  test("sets VELLUM_ROOT_DIR environment variable", async () => {
+    const hook = createTestHook(
+      hooksDir,
+      "rootdir-hook",
+      '#!/bin/bash\necho "$VELLUM_ROOT_DIR"',
+    );
+    const eventData: HookEventData = { event: "daemon-start" };
+
+    const result = await runHookScript(hook, eventData);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toContain(".vellum");
+  });
+
   test("sets VELLUM_WORKSPACE_DIR environment variable", async () => {
     const hook = createTestHook(
       hooksDir,

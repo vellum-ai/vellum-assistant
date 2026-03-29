@@ -69,6 +69,10 @@ export async function runHookScript(
         ...process.env,
         VELLUM_HOOK_EVENT: eventData.event,
         VELLUM_HOOK_NAME: hook.name,
+        // @deprecated — usage of VELLUM_ROOT_DIR by hook scripts is deprecated.
+        // Removing this requires an LLM-based migration or declarative migration
+        // file to update existing user-authored hooks to use VELLUM_WORKSPACE_DIR.
+        VELLUM_ROOT_DIR: join(homedir(), ".vellum"),
         VELLUM_WORKSPACE_DIR: getWorkspaceDir(),
         VELLUM_HOOK_SETTINGS: JSON.stringify(
           getHookSettings(hook.name, hook.manifest),
