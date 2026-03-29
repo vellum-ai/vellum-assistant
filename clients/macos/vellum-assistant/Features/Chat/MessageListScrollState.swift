@@ -298,6 +298,7 @@ final class MessageListScrollState {
         if pushToTopMessageId != nil { pushToTopMessageId = nil }
         isAtBottom = true
         hasReceivedScrollEvent = false
+        lastContentOffsetY = 0
         // Hide scroll indicators during the conversation switch grace period
         // to mask LazyVStack content size estimation changes.
         scrollIndicatorRestoreTask?.cancel()
