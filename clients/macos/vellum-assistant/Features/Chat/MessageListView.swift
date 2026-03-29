@@ -110,7 +110,6 @@ struct MessageListView: View {
     /// Measured width of the chat container, used to detect sidebar/split resizes
     /// and stabilize scroll position during layout width changes.
     var containerWidth: CGFloat = 0
-    @Environment(\.chatColumnWidth) private var chatColumnWidth
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
     @State private var identity: IdentityInfo? = IdentityInfo.load()
@@ -747,7 +746,7 @@ struct MessageListView: View {
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.md)
-                .frame(maxWidth: chatColumnWidth)
+                .frame(maxWidth: VSpacing.chatColumnMaxWidth)
                 .frame(maxWidth: .infinity)
             }
             .scrollContentBackground(.hidden)
