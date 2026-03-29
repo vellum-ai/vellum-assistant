@@ -82,27 +82,22 @@ describe("resolveSigningKey", () => {
     );
   });
 
-  test("falls back to file-based load/create when env var is not set", () => {
+  test("throws when env var is not set", () => {
     delete process.env.ACTOR_TOKEN_SIGNING_KEY;
 
-    const key = resolveSigningKey();
-
-    expect(key).toBeInstanceOf(Buffer);
-    expect(key.length).toBe(32);
+    expect(() => resolveSigningKey()).toThrow(
+      "ACTOR_TOKEN_SIGNING_KEY env var is not set",
+    );
   });
 
-  test("env var takes priority over file on disk", () => {
+  test("different env var values produce different keys", () => {
     process.env.ACTOR_TOKEN_SIGNING_KEY = VALID_HEX_KEY;
+    const key1 = resolveSigningKey();
 
-    // First call creates a file-based key
-    delete process.env.ACTOR_TOKEN_SIGNING_KEY;
-    const fileKey = resolveSigningKey();
-
-    // Second call with env var should use the env var, not the file
     process.env.ACTOR_TOKEN_SIGNING_KEY = "cd".repeat(32);
-    const envKey = resolveSigningKey();
+    const key2 = resolveSigningKey();
 
-    expect(envKey.toString("hex")).toBe("cd".repeat(32));
-    expect(envKey.toString("hex")).not.toBe(fileKey.toString("hex"));
+    expect(key2.toString("hex")).toBe("cd".repeat(32));
+    expect(key2.toString("hex")).not.toBe(key1.toString("hex"));
   });
 });

@@ -36,6 +36,11 @@ const ALLOWED_FILES = new Set([
   // CLI commands that run outside Docker (doctor diagnostics, trust management)
   "assistant/src/cli/commands/doctor.ts",
   "assistant/src/cli/commands/trust.ts",
+  // CLI-side callers that read/create the signing key before spawning the daemon
+  "assistant/src/cli/commands/browser-relay.ts",
+  "assistant/src/cli/commands/conversations.ts",
+  "assistant/src/cli/lib/daemon-credential-client.ts",
+  "assistant/src/daemon/daemon-control.ts",
   // Auth middleware documentation comment (not a file access)
   "assistant/src/runtime/auth/middleware.ts",
 ]);
