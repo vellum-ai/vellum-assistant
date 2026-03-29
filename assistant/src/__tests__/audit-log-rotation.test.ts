@@ -1,19 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Test setup — temp directory and mock modules
+// Test setup — mock modules
 // ---------------------------------------------------------------------------
-
-const TEST_DIR = join(
-  tmpdir(),
-  `vellum-rotation-test-${randomBytes(4).toString("hex")}`,
-);
-const DB_PATH = join(TEST_DIR, "assistant.db");
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -22,23 +13,14 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => TEST_DIR,
-  getDbPath: () => DB_PATH,
-  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
-  ensureDataDir: () => {
-    if (!existsSync(TEST_DIR)) mkdirSync(TEST_DIR, { recursive: true });
-  },
-  isMacOS: () => false,
-  isLinux: () => false,
-  isWindows: () => false,
-}));
-
 import { initializeDb, resetDb } from "../memory/db.js";
 import {
   getRecentInvocations,
   rotateToolInvocations,
 } from "../memory/tool-usage-store.js";
+import { ensureDataDir, getDbPath } from "../util/platform.js";
+
+const DB_PATH = getDbPath();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -80,7 +62,7 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 describe("audit log rotation", () => {
   beforeAll(() => {
-    mkdirSync(join(TEST_DIR, "logs"), { recursive: true });
+    ensureDataDir();
     resetDb();
     initializeDb();
     // Insert a conversations row so FK-enforced ORM inserts succeed
@@ -94,10 +76,6 @@ describe("audit log rotation", () => {
   beforeEach(() => {
     clearTable();
   });
-
-  // TEST_DIR is in os.tmpdir() — let the OS handle cleanup.
-  // Deleting it here would trigger ENOENT in other test files because
-  // the platform.js mock leaks getDataDir() → TEST_DIR globally.
 
   test("returns 0 when retentionDays is 0 (retain forever)", () => {
     addInvocation(100 * ONE_DAY_MS); // 100 days old

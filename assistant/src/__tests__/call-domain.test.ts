@@ -7,25 +7,7 @@
  * - Voice-ingress preflight blocks doomed outbound calls before Twilio dialing.
  * - Pointer messages are written on successful call start and on failure.
  */
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(mkdtempSync(join(tmpdir(), "call-domain-test-")));
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getWorkspaceDir: () => join(testDir, "workspace"),
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -205,11 +187,6 @@ function getLatestAssistantText(conversationId: string): string | null {
 
 afterAll(() => {
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 function makeConfig(

@@ -1,6 +1,3 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   afterEach,
@@ -10,19 +7,6 @@ import {
   mock,
   test,
 } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "call-pointer-messages-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -128,11 +112,6 @@ describe("addPointerMessage", () => {
 
   afterAll(() => {
     resetDb();
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      /* best effort */
-    }
   });
 
   test("adds a started pointer message", () => {
