@@ -2,6 +2,7 @@ import { getConfig } from "../config/loader.js";
 import type { HeartbeatAlert } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { readTextFileSync } from "../util/fs.js";
+import { stripCommentLines } from "../prompts/system-prompt.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 
@@ -199,10 +200,10 @@ export class HeartbeatService {
   }
 
   private readChecklist(): string {
-    return (
+    const raw =
       readTextFileSync(getWorkspacePromptPath("HEARTBEAT.md")) ??
-      DEFAULT_CHECKLIST
-    );
+      DEFAULT_CHECKLIST;
+    return stripCommentLines(raw);
   }
 
   /** @internal Exposed for testing. */
