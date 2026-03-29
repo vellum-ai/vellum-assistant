@@ -110,6 +110,28 @@ export function ensurePromptFiles(): void {
     }
   }
 
+  // Seed HEARTBEAT.md — always created if missing so the heartbeat service
+  // has a meaningful checklist from the start.  Kept out of PROMPT_FILES
+  // because it's operational, not identity context.
+  const heartbeatDest = getWorkspacePromptPath("HEARTBEAT.md");
+  if (!existsSync(heartbeatDest)) {
+    const heartbeatSrc = join(templatesDir, "HEARTBEAT.md");
+    try {
+      if (existsSync(heartbeatSrc)) {
+        copyFileSync(heartbeatSrc, heartbeatDest);
+        log.info(
+          { file: "HEARTBEAT.md", dest: heartbeatDest },
+          "Created HEARTBEAT.md from template",
+        );
+      }
+    } catch (err) {
+      log.warn(
+        { err, file: "HEARTBEAT.md" },
+        "Failed to create HEARTBEAT.md from template",
+      );
+    }
+  }
+
   // Seed NOW.md scratchpad — always created if missing, regardless of whether
   // this is a fresh install or not.  Kept out of PROMPT_FILES because NOW.md is
   // ephemeral state, not identity context.
