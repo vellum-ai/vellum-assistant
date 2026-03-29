@@ -13,9 +13,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-// Set BASE_DATA_DIR before importing modules that use getRootDir()
+// Set VELLUM_WORKSPACE_DIR before importing modules that use platform helpers
 const testDir = join(tmpdir(), `hooks-templates-test-${Date.now()}`);
-process.env.BASE_DATA_DIR = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 import {
   ensureHookInConfig,
@@ -45,7 +45,7 @@ describe("Hook Templates", () => {
   let hooksDir: string;
 
   beforeEach(() => {
-    hooksDir = join(testDir, ".vellum", "hooks");
+    hooksDir = join(testDir, "hooks");
     mkdirSync(hooksDir, { recursive: true });
   });
 

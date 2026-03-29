@@ -226,6 +226,10 @@ function mapCanonicalRequestToPrompt(
     conversationId,
     callSessionId: req.callSessionId ?? null,
     kind: req.kind,
+    commandPreview: req.commandPreview ?? undefined,
+    riskLevel: req.riskLevel ?? undefined,
+    activityText: req.activityText ?? undefined,
+    executionTarget: (req.executionTarget as "sandbox" | "host") ?? undefined,
   };
 }
 
@@ -240,7 +244,9 @@ function buildKindAwareQuestionText(req: CanonicalGuardianRequest): string {
   const baseText =
     req.questionText ??
     (req.toolName
-      ? `Approve tool: ${req.toolName}`
+      ? req.activityText
+        ? `Approve tool: ${req.toolName} — ${req.activityText}`
+        : `Approve tool: ${req.toolName}`
       : `Guardian request: ${req.kind}`);
 
   if (req.kind === "access_request") {

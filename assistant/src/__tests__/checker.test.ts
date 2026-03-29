@@ -24,9 +24,13 @@ import {
 // Use a temp directory so trust-store doesn't touch ~/.vellum
 const checkerTestDir = mkdtempSync(join(tmpdir(), "checker-test-"));
 
+// Point the file-based trust backend at the test temp dir.
+process.env.GATEWAY_SECURITY_DIR = join(checkerTestDir, "protected");
+
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => checkerTestDir,
+  getProtectedDir: () => join(checkerTestDir, "protected"),
   getDataDir: () => join(checkerTestDir, "data"),
+  getWorkspaceDir: () => join(checkerTestDir, "workspace"),
   getWorkspaceSkillsDir: () => join(checkerTestDir, "skills"),
   isMacOS: () => process.platform === "darwin",
   isLinux: () => process.platform === "linux",
@@ -2792,9 +2796,9 @@ describe("Permission Checker", () => {
   // Regression tests: user-created allow rules (priority 100) must override
   // the default ask rules for skill-source mutations (priority 50).
   //
-  // Paths use getRootDir()/workspace/skills/ (not getWorkspaceSkillsDir())
+  // Paths use platform helpers/workspace/skills/ (not getWorkspaceSkillsDir())
   // because getDefaultRuleTemplates builds the managed-skill ask rule from
-  // getRootDir(), so using a different prefix would avoid contention with
+  // platform helpers, so using a different prefix would avoid contention with
   // the default rule and silently pass even if the priority regressed.
   //
   // extraDirs is set to the parent "workspace" directory (not "workspace/skills")

@@ -68,6 +68,15 @@ const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   getPlatformName: () => process.platform,
   getWorkspaceDirDisplay: () => "~/.vellum/workspace",
   getConversationsDir: () => join(TEST_DIR, "conversations"),
+  getProtectedDir: () => join(TEST_DIR, "protected"),
+  getSignalsDir: () => join(TEST_DIR, "workspace", "signals"),
+  getDaemonStderrLogPath: () => join(TEST_DIR, "logs", "daemon-stderr.log"),
+  getDaemonStartupLockPath: () => join(TEST_DIR, "daemon-startup.lock"),
+  getExternalDir: () => join(TEST_DIR, "external"),
+  getBinDir: () => join(TEST_DIR, "bin"),
+  getDotEnvPath: () => join(TEST_DIR, ".env"),
+  getEmbedWorkerPidPath: () => join(TEST_DIR, "embed-worker.pid"),
+  getSoundsDir: () => join(TEST_DIR, "sounds"),
 };
 mock.module("../util/platform.js", () => platformOverrides);
 

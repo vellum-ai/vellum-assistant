@@ -2130,6 +2130,7 @@ public enum ServerMessage: Decodable, Sendable {
     case openUrl(OpenUrlMessage)
     case navigateSettings(NavigateSettings)
     case showPlatformLogin(ShowPlatformLogin)
+    case platformDisconnected(PlatformDisconnected)
     case integrationListResponse(IntegrationListResponse)
     case integrationConnectResult(IntegrationConnectResult)
     case oauthConnectResult(OAuthConnectResultResponse)
@@ -2452,6 +2453,9 @@ public enum ServerMessage: Decodable, Sendable {
         case "show_platform_login":
             let message = try ShowPlatformLogin(from: decoder)
             self = .showPlatformLogin(message)
+        case "platform_disconnected":
+            let message = try PlatformDisconnected(from: decoder)
+            self = .platformDisconnected(message)
         case "get_signing_identity":
             let message = try GetSigningIdentityRequest(from: decoder)
             self = .getSigningIdentity(message)
@@ -2790,10 +2794,12 @@ public struct ApprovedDevicesClearMessage: Encodable, Sendable {
 public struct GuardianActionOption: Decodable, Sendable, Equatable {
     public let action: String
     public let label: String
+    public let description: String?
 
-    public init(action: String, label: String) {
+    public init(action: String, label: String, description: String? = nil) {
         self.action = action
         self.label = label
+        self.description = description
     }
 }
 
@@ -2811,6 +2817,10 @@ public struct GuardianDecisionPromptWire: Decodable, Sendable {
     /// Canonical request kind (e.g. "tool_approval", "pending_question").
     /// Present when the prompt originates from the canonical guardian request store.
     public let kind: String?
+    public let commandPreview: String?
+    public let riskLevel: String?
+    public let activityText: String?
+    public let executionTarget: String?
 }
 
 /// Server -> Client: list of pending guardian decision prompts.

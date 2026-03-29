@@ -3,15 +3,38 @@
  * and file-based load/create (local mode).
  */
 
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), "signing-key-test-")));
 
+// Mock homedir() so the hardcoded LEGACY_SIGNING_KEY_PATH resolves inside
+// the temp test directory instead of the real ~/.vellum/protected/.
+mock.module("node:os", () => ({
+  homedir: () => testDir,
+  tmpdir,
+}));
+
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, ".vellum", "protected"),
+  getWorkspaceDir: () => join(testDir, ".vellum", "workspace"),
+  getDeprecatedDir: () => join(testDir, ".vellum", "workspace", "deprecated"),
   getDataDir: () => testDir,
   getDbPath: () => join(testDir, "test.db"),
   normalizeAssistantId: (id: string) => (id === "self" ? "self" : id),
@@ -38,7 +61,9 @@ const savedEnv: Record<string, string | undefined> = {};
 
 beforeEach(() => {
   savedEnv.ACTOR_TOKEN_SIGNING_KEY = process.env.ACTOR_TOKEN_SIGNING_KEY;
-  mkdirSync(join(testDir, "protected"), { recursive: true });
+  // Clean up key files from previous tests so they don't leak between cases.
+  rmSync(join(testDir, ".vellum"), { recursive: true, force: true });
+  mkdirSync(join(testDir, ".vellum", "protected"), { recursive: true });
 });
 
 afterEach(() => {
@@ -69,30 +94,51 @@ describe("resolveSigningKey", () => {
   test("rejects invalid ACTOR_TOKEN_SIGNING_KEY", () => {
     process.env.ACTOR_TOKEN_SIGNING_KEY = "tooshort";
 
-    expect(() => resolveSigningKey()).toThrow("Invalid ACTOR_TOKEN_SIGNING_KEY");
+    expect(() => resolveSigningKey()).toThrow(
+      "Invalid ACTOR_TOKEN_SIGNING_KEY",
+    );
   });
 
-  test("falls back to file-based load/create when env var is not set", () => {
+  test("falls back to disk when env var is not set", () => {
     delete process.env.ACTOR_TOKEN_SIGNING_KEY;
 
+    // resolveSigningKey now falls back to loadOrCreateSigningKey()
+    // which will generate a new key on disk.
     const key = resolveSigningKey();
-
     expect(key).toBeInstanceOf(Buffer);
     expect(key.length).toBe(32);
   });
 
-  test("env var takes priority over file on disk", () => {
-    process.env.ACTOR_TOKEN_SIGNING_KEY = VALID_HEX_KEY;
-
-    // First call creates a file-based key
+  test("reads existing key from legacy protected/ path when env var is not set", () => {
     delete process.env.ACTOR_TOKEN_SIGNING_KEY;
-    const fileKey = resolveSigningKey();
 
-    // Second call with env var should use the env var, not the file
+    // Write a known key to the legacy protected/ location
+    const legacyKey = Buffer.alloc(32, 0xaa);
+    // LEGACY_SIGNING_KEY_PATH = join(homedir(), ".vellum", "protected", "actor-token-signing-key")
+    // homedir() is mocked to testDir
+    const legacyPath = join(
+      testDir,
+      ".vellum",
+      "protected",
+      "actor-token-signing-key",
+    );
+    mkdirSync(join(testDir, ".vellum", "protected"), { recursive: true });
+    writeFileSync(legacyPath, legacyKey, { mode: 0o600 });
+
+    const key = resolveSigningKey();
+    expect(key).toBeInstanceOf(Buffer);
+    expect(key.length).toBe(32);
+    expect(key.toString("hex")).toBe(legacyKey.toString("hex"));
+  });
+
+  test("different env var values produce different keys", () => {
+    process.env.ACTOR_TOKEN_SIGNING_KEY = VALID_HEX_KEY;
+    const key1 = resolveSigningKey();
+
     process.env.ACTOR_TOKEN_SIGNING_KEY = "cd".repeat(32);
-    const envKey = resolveSigningKey();
+    const key2 = resolveSigningKey();
 
-    expect(envKey.toString("hex")).toBe("cd".repeat(32));
-    expect(envKey.toString("hex")).not.toBe(fileKey.toString("hex"));
+    expect(key2.toString("hex")).toBe("cd".repeat(32));
+    expect(key2.toString("hex")).not.toBe(key1.toString("hex"));
   });
 });

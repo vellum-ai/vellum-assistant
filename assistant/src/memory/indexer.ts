@@ -18,6 +18,9 @@ import { segmentText } from "./segmenter.js";
 
 const log = getLogger("memory-indexer");
 
+/** Minimum character length for a segment to be worth storing and embedding (~12-15 tokens). */
+export const MIN_SEGMENT_CHARS = 50;
+
 export interface IndexMessageInput {
   messageId: string;
   conversationId: string;
@@ -86,8 +89,13 @@ export async function indexMessageNow(
   // Wrap all segment inserts and job enqueues in a single transaction so they
   // either all succeed or all roll back, preventing partial/orphaned state.
   let skippedEmbedJobs = 0;
+  let skippedShortSegments = 0;
   db.transaction((tx) => {
     for (const segment of segments) {
+      if (segment.text.length < MIN_SEGMENT_CHARS) {
+        skippedShortSegments++;
+        continue;
+      }
       const segmentId = buildSegmentId(input.messageId, segment.segmentIndex);
       const hash = createHash("sha256").update(segment.text).digest("hex");
 
@@ -173,6 +181,12 @@ export async function indexMessageNow(
     );
   }
 
+  if (skippedShortSegments > 0) {
+    log.debug(
+      `Skipped ${skippedShortSegments}/${segments.length} segments shorter than ${MIN_SEGMENT_CHARS} chars`,
+    );
+  }
+
   if (skippedEmbedJobs > 0) {
     log.debug(
       `Skipped ${skippedEmbedJobs}/${segments.length} embed_segment jobs (content unchanged)`,
@@ -193,12 +207,13 @@ export async function indexMessageNow(
     log.info("Skipping extraction job: LLM extraction is disabled (useLLM=false)");
   }
 
+  const storedSegments = segments.length - skippedShortSegments;
   const enqueuedJobs =
-    segments.length -
+    storedSegments -
     skippedEmbedJobs +
     mediaBlocks.length;
   return {
-    indexedSegments: segments.length,
+    indexedSegments: storedSegments,
     enqueuedJobs,
   };
 }

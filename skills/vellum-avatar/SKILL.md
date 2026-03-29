@@ -10,7 +10,7 @@ metadata:
 
 You are helping the user customize their assistant's avatar. There are three ways to set an avatar: building a native character from traits, uploading a custom image, or generating one with AI. When the user says they want to change their avatar, present all three options and ask which they prefer.
 
-**All commands in this skill use the `bash` tool.** `$VELLUM_DATA_DIR` and `$INTERNAL_GATEWAY_BASE_URL` are available in the sandbox environment — do not use `host_bash`.
+**All commands in this skill use the `bash` tool.** `$VELLUM_WORKSPACE_DIR` and `$INTERNAL_GATEWAY_BASE_URL` are available in the sandbox environment — do not use `host_bash`.
 
 ## Avatar Modes
 
@@ -82,15 +82,15 @@ The user provides a file path to an image they want to use as their avatar.
 Copy the image to the avatar location:
 
 ```bash
-mkdir -p "$VELLUM_DATA_DIR/avatar"
-cp "<user-provided-path>" "$VELLUM_DATA_DIR/avatar/avatar-image.png"
+mkdir -p "$VELLUM_WORKSPACE_DIR/data/avatar"
+cp "<user-provided-path>" "$VELLUM_WORKSPACE_DIR/data/avatar/avatar-image.png"
 ```
 
 Then remove the native character files, since a custom image overrides the native character:
 
 ```bash
-rm -f "$VELLUM_DATA_DIR/avatar/character-traits.json"
-rm -f "$VELLUM_DATA_DIR/avatar/character-ascii.txt"
+rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-traits.json"
+rm -f "$VELLUM_WORKSPACE_DIR/data/avatar/character-ascii.txt"
 ```
 
 Tell the user their avatar has been updated. The client will pick up the new image automatically.

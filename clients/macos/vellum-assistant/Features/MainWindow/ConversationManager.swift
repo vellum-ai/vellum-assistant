@@ -879,9 +879,16 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
         touchVMAccessOrder(id)
         activeConversationId = id
-        // Switching conversations is a natural point to shed cached render
-        // artefacts from the previous conversation.
-        Self.clearRenderCaches()
+        // Render caches are keyed by content + appearance (text hash +
+        // color descriptions), not by conversation — entries from one
+        // conversation are valid for any conversation with the same text.
+        // Clearing them here caused every visible message to re-parse and
+        // re-build AttributedStrings synchronously, and the height
+        // mismatch between placeholder and proper renders triggered a
+        // LazyVStack re-estimation cascade that froze the app.
+        // NSCache handles memory pressure automatically; explicit clears
+        // are kept on close/archive/delete where freeing memory for
+        // discarded conversations is appropriate.
 
         // Emit explicit seen signal for user-initiated conversation selection.
         // Skip if this conversation was already active to avoid duplicate signals
@@ -2450,7 +2457,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             return
         }
         guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
-        updateLastInteracted(conversationId: conversationId)
+        // Don't bump background conversations to the top — they receive frequent
+        // automated messages (heartbeats) that would constantly re-sort them,
+        // especially when an LRU-evicted ViewModel is recreated on click.
+        if !conversations[index].isBackgroundConversation {
+            updateLastInteracted(conversationId: conversationId)
+        }
         let isNewMessage = previousSnapshot?.messageId != currentSnapshot.messageId
         // Keep the local attention timestamp current for live assistant replies
         // so unread eligibility survives until the next conversation-list refresh.

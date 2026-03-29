@@ -58,7 +58,7 @@ const testDbPath = join(testDbDir, "assistant.db");
 const testConfigPath = join(testDir, "config.json");
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   getDataDir: () => join(testDir, "data"),
   getWorkspaceDir: () => testDir,
   getWorkspaceConfigPath: () => testConfigPath,
@@ -76,6 +76,12 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
+}));
+
+mock.module("../permissions/trust-store.js", () => ({
+  getAllRules: () => [],
+  isStarterBundleAccepted: () => false,
+  clearCache: () => {},
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -445,7 +451,7 @@ describe("schema version compatibility", () => {
       { schema_version: "3.0" },
     );
 
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -463,7 +469,7 @@ describe("schema version compatibility", () => {
       schema_version: "5.0-beta",
     });
 
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const validationResult = validateVBundle(vbundle);
     expect(validationResult.manifest).toBeDefined();
 
@@ -830,7 +836,7 @@ describe("round-trip: export -> validate -> preflight -> import", () => {
     );
 
     // Step 3: Analyze (preflight)
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const report = analyzeImport({
       manifest: validationResult.manifest!,
       pathResolver: resolver,
@@ -899,7 +905,7 @@ describe("partial failure scenarios", () => {
       "I am a file, not a directory",
     );
 
-    const resolver = new DefaultPathResolver(undefined, blockerWorkspace);
+    const resolver = new DefaultPathResolver(blockerWorkspace);
     const result = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -917,7 +923,7 @@ describe("partial failure scenarios", () => {
   });
 
   test("commitImport with invalid archive returns validation_failed", () => {
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const result = commitImport({
       archiveData: new Uint8Array([0xba, 0xad, 0xf0, 0x0d]),
       pathResolver: resolver,
@@ -1005,7 +1011,7 @@ describe("partial failure scenarios", () => {
     ]);
     const corruptVBundle = gzipSync(tar);
 
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const result = commitImport({
       archiveData: corruptVBundle,
       pathResolver: resolver,
@@ -1037,7 +1043,7 @@ describe("edge cases", () => {
     expect(result.manifest?.files[0].size).toBe(0);
 
     // Import should also succeed
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const importResult = commitImport({
       archiveData: vbundle,
       pathResolver: resolver,
@@ -1427,7 +1433,7 @@ describe("diagnostic quality", () => {
   });
 
   test("import commit validation_failed response includes error codes and messages", () => {
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const result = commitImport({
       archiveData: new Uint8Array([0x00]),
       pathResolver: resolver,
@@ -1636,7 +1642,7 @@ describe("builder -> validator consistency", () => {
 
 describe("import analyzer edge cases", () => {
   test("all-unchanged files produce correct summary", () => {
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
     const existingConfig = new Uint8Array(readFileSync(testConfigPath));
 
     const report = analyzeImport({
@@ -1669,7 +1675,6 @@ describe("import analyzer edge cases", () => {
 
   test("all-create scenario (fresh install) produces correct summary", () => {
     const resolver = new DefaultPathResolver(
-      undefined,
       join(testDir, "nonexistent-workspace"),
     );
 
@@ -1701,7 +1706,7 @@ describe("import analyzer edge cases", () => {
   });
 
   test("mixed create/overwrite/unchanged produces accurate counts", () => {
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
 
     // db: different from disk -> overwrite
     // config: same as disk -> unchanged
@@ -1734,7 +1739,7 @@ describe("import analyzer edge cases", () => {
   });
 
   test("unknown archive path produces UNKNOWN_ARCHIVE_PATH conflict", () => {
-    const resolver = new DefaultPathResolver(undefined, testDir);
+    const resolver = new DefaultPathResolver(testDir);
 
     const report = analyzeImport({
       manifest: {

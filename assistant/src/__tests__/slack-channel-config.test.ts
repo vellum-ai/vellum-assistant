@@ -60,7 +60,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   getDataDir: () => testDir,
 
   isMacOS: () => process.platform === "darwin",

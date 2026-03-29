@@ -13,7 +13,7 @@ import { describe, expect, mock, test } from "bun:test";
 const guardTestDir = mkdtempSync(join(tmpdir(), "cli-risk-guard-test-"));
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => guardTestDir,
+  getProtectedDir: () => join(guardTestDir, "protected"),
   getDataDir: () => join(guardTestDir, "data"),
   getWorkspaceSkillsDir: () => join(guardTestDir, "skills"),
   isMacOS: () => process.platform === "darwin",

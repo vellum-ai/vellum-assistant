@@ -8,7 +8,7 @@ let tempDir: string;
 mock.module("../util/platform.js", () => ({
   getWorkspacePromptPath: mock((file: string) => join(tempDir, file)),
   getWorkspaceDir: () => tempDir,
-  getRootDir: () => tempDir,
+  getProtectedDir: () => join(tempDir, "protected"),
   getDataDir: () => join(tempDir, "data"),
   getPlatformName: () => "darwin",
   isMacOS: () => false,

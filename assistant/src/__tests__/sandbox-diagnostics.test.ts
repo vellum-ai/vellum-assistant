@@ -1,4 +1,5 @@
 import * as realChildProcess from "node:child_process";
+import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const execSyncMock = mock(
@@ -17,7 +18,7 @@ let mockIsLinux = false;
 mock.module("../util/platform.js", () => ({
   isMacOS: () => mockIsMacOS,
   isLinux: () => mockIsLinux,
-  getRootDir: () => "/tmp/vellum-test",
+  getProtectedDir: () => join("/tmp/vellum-test", "protected"),
   getDataDir: () => "/tmp/vellum-test/data",
   getDbPath: () => "/tmp/vellum-test/data/db/assistant.db",
   getLogPath: () => "/tmp/vellum-test/data/logs/daemon.log",

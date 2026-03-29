@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { minimatch } from "minimatch";
 
-import { getRootDir } from "../util/platform.js";
+import { getWorkspaceDir } from "../util/platform.js";
 
 export interface AddressRule {
   id: string;
@@ -36,7 +36,7 @@ const DEFAULT_STATE: GuardrailsState = {
 };
 
 function getGuardrailsPath(): string {
-  return join(getRootDir(), "email-guardrails.json");
+  return join(getWorkspaceDir(), "email-guardrails.json");
 }
 
 function loadState(): GuardrailsState {
@@ -59,7 +59,7 @@ function loadState(): GuardrailsState {
 
 function saveState(state: GuardrailsState): void {
   const path = getGuardrailsPath();
-  const dir = join(getRootDir());
+  const dir = getWorkspaceDir();
   if (!existsSync(dir)) {
     mkdirSync(dir, { recursive: true });
   }

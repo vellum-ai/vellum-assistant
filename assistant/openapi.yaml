@@ -3316,6 +3316,52 @@ paths:
                   - cpu
                   - migrations
                 additionalProperties: false
+  /v1/healthz:
+    get:
+      operationId: healthz_get
+      summary: Detailed health check (alias)
+      description: Alias for /v1/health. Returns runtime health including version, disk, memory, CPU, and migration status.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  timestamp:
+                    type: string
+                  version:
+                    type: string
+                  disk:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  memory:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  cpu:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                  migrations:
+                    type: object
+                    properties: {}
+                    additionalProperties: {}
+                required:
+                  - status
+                  - timestamp
+                  - version
+                  - disk
+                  - memory
+                  - cpu
+                  - migrations
+                additionalProperties: false
   /v1/heartbeat/checklist:
     get:
       operationId: heartbeat_checklist_get

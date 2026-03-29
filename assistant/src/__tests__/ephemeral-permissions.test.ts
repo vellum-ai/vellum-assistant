@@ -14,8 +14,11 @@ import {
 // Use a temp directory so trust-store doesn't touch ~/.vellum
 const testDir = mkdtempSync(join(tmpdir(), "ephemeral-perm-test-"));
 
+// Point the file-based trust backend at the test temp dir.
+process.env.GATEWAY_SECURITY_DIR = join(testDir, "protected");
+
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
   getDataDir: () => join(testDir, "data"),
   getWorkspaceSkillsDir: () => join(testDir, "skills"),
   isMacOS: () => process.platform === "darwin",

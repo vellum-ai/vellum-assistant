@@ -144,7 +144,6 @@ struct ChatView: View {
     /// timeout view.
     var onBootstrapSendLogs: (() -> Void)?
 
-    @State private var isNearBottom = true
     @State private var isDropTargeted = false
     @State private var isDraggingInternalImage = false
     @State private var dragEndLocalMonitor: Any?
@@ -189,7 +188,6 @@ struct ChatView: View {
                     }
                 )
                 .onPreferenceChange(ChatContainerWidthKey.self) { containerWidth = $0 }
-                .disabled(!isInteractionEnabled)
                 .overlay(alignment: .bottom) {
                     btwOverlay
                 }
@@ -388,7 +386,6 @@ struct ChatView: View {
                 conversationId: conversationId,
                 anchorMessageId: $anchorMessageId,
                 highlightedMessageId: $highlightedMessageId,
-                isNearBottom: $isNearBottom,
                 containerWidth: containerWidth
             )
 

@@ -64,6 +64,7 @@ import { searchConversations } from "../../memory/conversation-queries.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
+import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { getLogger } from "../../util/logger.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
@@ -454,7 +455,9 @@ export function handleListMessages(
         textSegments: filteredSegments,
         contentOrder: filteredContentOrder,
         surfaces: rendered.surfaces,
-        ...(rendered.thinkingSegments.length > 0 ? { thinkingSegments: rendered.thinkingSegments } : {}),
+        ...(rendered.thinkingSegments.length > 0
+          ? { thinkingSegments: rendered.thinkingSegments }
+          : {}),
         id: msg.id,
       };
     }
@@ -468,7 +471,9 @@ export function handleListMessages(
       textSegments: rendered.textSegments,
       contentOrder: rendered.contentOrder,
       surfaces: rendered.surfaces,
-      ...(rendered.thinkingSegments.length > 0 ? { thinkingSegments: rendered.thinkingSegments } : {}),
+      ...(rendered.thinkingSegments.length > 0
+        ? { thinkingSegments: rendered.thinkingSegments }
+        : {}),
       id: msg.id,
     };
   });
@@ -547,7 +552,9 @@ export function handleListMessages(
       ...(interfaces ? { interfaces } : {}),
       ...(m.surfaces.length > 0 ? { surfaces: m.surfaces } : {}),
       ...(m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
-      ...(m.thinkingSegments?.length ? { thinkingSegments: m.thinkingSegments } : {}),
+      ...(m.thinkingSegments?.length
+        ? { thinkingSegments: m.thinkingSegments }
+        : {}),
       ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
     };
   });
@@ -607,6 +614,14 @@ function makeHubPublisher(
       try {
         const trustContext = conversation.trustContext;
         const sourceChannel = trustContext?.sourceChannel ?? "vellum";
+        const inputRecord = msg.input as Record<string, unknown>;
+        const activityRaw =
+          (typeof inputRecord.activity === "string"
+            ? inputRecord.activity
+            : undefined) ??
+          (typeof inputRecord.reason === "string"
+            ? inputRecord.reason
+            : undefined);
         const canonicalRequest = createCanonicalGuardianRequest({
           id: msg.requestId,
           kind: "tool_approval",
@@ -618,6 +633,11 @@ function makeHubPublisher(
           guardianExternalUserId: trustContext?.guardianExternalUserId,
           guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
+          commandPreview:
+            summarizeToolInput(msg.toolName, inputRecord) || undefined,
+          riskLevel: msg.riskLevel,
+          activityText: activityRaw,
+          executionTarget: msg.executionTarget,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
           expiresAt: Date.now() + 5 * 60 * 1000,

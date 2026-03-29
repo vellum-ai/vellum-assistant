@@ -1087,32 +1087,32 @@ describe("assistant credentials CLI", () => {
   });
 
   // =========================================================================
-  // instance-scoped BASE_DATA_DIR
+  // instance-scoped workspace
   // =========================================================================
 
-  describe("instance-scoped BASE_DATA_DIR", () => {
-    let savedBaseDataDir: string | undefined;
+  describe("instance-scoped workspace", () => {
+    let savedWorkspaceDir: string | undefined;
 
     beforeEach(() => {
-      savedBaseDataDir = process.env.BASE_DATA_DIR;
+      savedWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
     });
 
     afterEach(() => {
-      if (savedBaseDataDir === undefined) {
-        delete process.env.BASE_DATA_DIR;
+      if (savedWorkspaceDir === undefined) {
+        delete process.env.VELLUM_WORKSPACE_DIR;
       } else {
-        process.env.BASE_DATA_DIR = savedBaseDataDir;
+        process.env.VELLUM_WORKSPACE_DIR = savedWorkspaceDir;
       }
     });
 
-    test("credential reveal reads from instance-scoped store when BASE_DATA_DIR is set", async () => {
-      // Point BASE_DATA_DIR to a temp directory (simulating instance-scoped dir)
+    test("credential reveal reads from instance-scoped store when VELLUM_WORKSPACE_DIR is set", async () => {
+      // Point VELLUM_WORKSPACE_DIR to a temp directory (simulating instance-scoped dir)
       const tmpDir = (await import("node:os")).tmpdir();
       const instanceDir = (await import("node:path")).join(
         tmpDir,
         `vellum-test-instance-${Date.now()}`,
       );
-      process.env.BASE_DATA_DIR = instanceDir;
+      process.env.VELLUM_WORKSPACE_DIR = instanceDir;
 
       // Seed a credential in the mock store
       seedCredential("twilio", "auth_token", "instance_secret_abc123");

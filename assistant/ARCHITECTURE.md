@@ -707,7 +707,6 @@ graph LR
 
     subgraph "~/.vellum/ (Root Files)"
         TRUST["protected/trust.json<br/>Tool permission rules"]
-        FF_TOKEN["feature-flag-token<br/>Client token for feature-flag API"]
     end
 
     subgraph "~/.vellum/workspace/ (Workspace Files)"

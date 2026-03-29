@@ -218,7 +218,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-baseline-scope",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "The user likes dark mode." },
+          {
+            type: "text",
+            text: "The user strongly prefers dark mode for all editor themes and UIs.",
+          },
         ]),
         createdAt: now,
       })
@@ -231,7 +234,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-baseline-scope",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "The user likes dark mode." },
+          {
+            type: "text",
+            text: "The user strongly prefers dark mode for all editor themes and UIs.",
+          },
         ]),
         createdAt: now,
       },
@@ -1573,7 +1579,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-scope-test",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Remember my scope preference" },
+          {
+            type: "text",
+            text: "Remember my scope preference for organizing projects by team and priority level.",
+          },
         ]),
         createdAt: now,
       })
@@ -1585,7 +1594,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-scope-test",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Remember my scope preference" },
+          {
+            type: "text",
+            text: "Remember my scope preference for organizing projects by team and priority level.",
+          },
         ]),
         createdAt: now,
         scopeId: "project-xyz",
@@ -3249,7 +3261,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-untrusted-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Untrusted user preference for dark mode." },
+          {
+            type: "text",
+            text: "Untrusted user preference for dark mode across all editor themes and interfaces.",
+          },
         ]),
         createdAt: now,
       })
@@ -3261,7 +3276,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-untrusted-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Untrusted user preference for dark mode." },
+          {
+            type: "text",
+            text: "Untrusted user preference for dark mode across all editor themes and interfaces.",
+          },
         ]),
         createdAt: now,
         provenanceTrustClass: "trusted_contact",
@@ -3278,8 +3296,7 @@ describe("Memory regressions", () => {
       .where(eq(memoryJobs.type, "batch_extract"))
       .all()
       .filter(
-        (j) =>
-          JSON.parse(j.payload).conversationId === "conv-untrusted-gate",
+        (j) => JSON.parse(j.payload).conversationId === "conv-untrusted-gate",
       );
     expect(extractJobs.length).toBe(0);
 
@@ -3310,7 +3327,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-trusted-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Trusted guardian preference for light mode." },
+          {
+            type: "text",
+            text: "Trusted guardian preference for light mode with high contrast accessibility settings.",
+          },
         ]),
         createdAt: now,
       })
@@ -3322,7 +3342,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-trusted-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Trusted guardian preference for light mode." },
+          {
+            type: "text",
+            text: "Trusted guardian preference for light mode with high contrast accessibility settings.",
+          },
         ]),
         createdAt: now,
         provenanceTrustClass: "guardian",
@@ -3339,8 +3362,7 @@ describe("Memory regressions", () => {
       .where(eq(memoryJobs.type, "batch_extract"))
       .all()
       .filter(
-        (j) =>
-          JSON.parse(j.payload).conversationId === "conv-trusted-gate",
+        (j) => JSON.parse(j.payload).conversationId === "conv-trusted-gate",
       );
     expect(extractJobs.length).toBe(1);
   });
@@ -3368,7 +3390,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-legacy-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Legacy message with no provenance info." },
+          {
+            type: "text",
+            text: "Legacy message with no provenance info that still needs full extraction processing.",
+          },
         ]),
         createdAt: now,
       })
@@ -3380,7 +3405,10 @@ describe("Memory regressions", () => {
         conversationId: "conv-legacy-gate",
         role: "user",
         content: JSON.stringify([
-          { type: "text", text: "Legacy message with no provenance info." },
+          {
+            type: "text",
+            text: "Legacy message with no provenance info that still needs full extraction processing.",
+          },
         ]),
         createdAt: now,
         // provenanceTrustClass is intentionally omitted (undefined) to test default behavior
@@ -3397,8 +3425,7 @@ describe("Memory regressions", () => {
       .where(eq(memoryJobs.type, "batch_extract"))
       .all()
       .filter(
-        (j) =>
-          JSON.parse(j.payload).conversationId === "conv-legacy-gate",
+        (j) => JSON.parse(j.payload).conversationId === "conv-legacy-gate",
       );
     expect(extractJobs.length).toBe(1);
   });
@@ -3428,7 +3455,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "Unverified channel preference for compact layout.",
+            text: "Unverified channel preference for compact layout with sidebar navigation always visible.",
           },
         ]),
         createdAt: now,
@@ -3443,7 +3470,7 @@ describe("Memory regressions", () => {
         content: JSON.stringify([
           {
             type: "text",
-            text: "Unverified channel preference for compact layout.",
+            text: "Unverified channel preference for compact layout with sidebar navigation always visible.",
           },
         ]),
         createdAt: now,
@@ -3461,8 +3488,7 @@ describe("Memory regressions", () => {
       .where(eq(memoryJobs.type, "batch_extract"))
       .all()
       .filter(
-        (j) =>
-          JSON.parse(j.payload).conversationId === "conv-unverified-gate",
+        (j) => JSON.parse(j.payload).conversationId === "conv-unverified-gate",
       );
     expect(extractJobs.length).toBe(0);
 
@@ -3552,7 +3578,9 @@ describe("Memory regressions", () => {
     expect(injection).toContain("Favorite color is blue");
     expect(injection).toContain("</supersedes>");
     // The supersedes tag should be inside the item tag
-    expect(injection).toMatch(/<item[^>]*>.*<supersedes.*<\/supersedes><\/item>/);
+    expect(injection).toMatch(
+      /<item[^>]*>.*<supersedes.*<\/supersedes><\/item>/,
+    );
 
     // Clean up
     db.delete(memoryItems)
@@ -3638,12 +3666,8 @@ describe("Memory regressions", () => {
     expect(nullResult).toBeNull();
 
     // Clean up
-    db.delete(memoryItems)
-      .where(eq(memoryItems.id, "item-chain-child"))
-      .run();
-    db.delete(memoryItems)
-      .where(eq(memoryItems.id, "item-chain-parent"))
-      .run();
+    db.delete(memoryItems).where(eq(memoryItems.id, "item-chain-child")).run();
+    db.delete(memoryItems).where(eq(memoryItems.id, "item-chain-parent")).run();
     db.delete(memoryItems)
       .where(eq(memoryItems.id, "item-chain-grandparent"))
       .run();

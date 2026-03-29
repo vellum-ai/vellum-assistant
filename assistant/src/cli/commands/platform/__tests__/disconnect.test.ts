@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -21,9 +21,19 @@ let mockDeleteSecureKeyViaDaemonCalls: Array<{
 let mockDeleteSecureKeyViaDaemonResult: "deleted" | "not-found" | "error" =
   "deleted";
 
+let mockIsPlatformRemote = false;
+
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
+
+mock.module("../../../../config/env-registry.js", () => ({
+  getIsContainerized: () => false,
+  isPlatformRemote: () => mockIsPlatformRemote,
+  getDebugStdoutLogs: () => false,
+  getWorkspaceDirOverride: () => undefined,
+  checkUnrecognizedEnvVars: () => [],
+}));
 
 mock.module("../../../../inbound/platform-callback-registration.js", () => ({
   resolvePlatformCallbackRegistrationContext: async () => ({
@@ -82,7 +92,15 @@ mock.module("../../../../util/platform.js", () => ({
   getWorkspaceHooksDir: () => join(testDir, "workspace", "hooks"),
   getWorkspaceConfigPath: () => join(testDir, "workspace", "config.json"),
   getHooksDir: () => join(testDir, "hooks"),
+  getProtectedDir: () => join(testDir, "protected"),
+  getDeprecatedDir: () => join(testDir, "workspace", "deprecated"),
   getSignalsDir: () => join(testDir, "signals"),
+  getDaemonStderrLogPath: () => join(testDir, "daemon-stderr.log"),
+  getDaemonStartupLockPath: () => join(testDir, "daemon-startup.lock"),
+  getExternalDir: () => join(testDir, "external"),
+  getBinDir: () => join(testDir, "bin"),
+  getDotEnvPath: () => join(testDir, ".env"),
+  getEmbedWorkerPidPath: () => join(testDir, "embed-worker.pid"),
   getConversationsDir: () => join(testDir, "conversations"),
   getEmbeddingModelsDir: () => join(testDir, "models"),
   getSandboxRootDir: () => join(testDir, "sandbox"),
@@ -187,6 +205,7 @@ describe("assistant platform disconnect", () => {
     mockGetSecureKeyViaDaemon = async () => undefined;
     mockDeleteSecureKeyViaDaemonCalls = [];
     mockDeleteSecureKeyViaDaemonResult = "deleted";
+    mockIsPlatformRemote = false;
     process.exitCode = 0;
   });
 
@@ -233,5 +252,39 @@ describe("assistant platform disconnect", () => {
     expect(deletedNames).toContain("vellum:platform_assistant_id");
     expect(deletedNames).toContain("vellum:platform_organization_id");
     expect(deletedNames).toContain("vellum:platform_user_id");
+
+    // AND a platform_disconnected signal was emitted for connected clients
+    const signalPath = join(testDir, "signals", "emit-event");
+    expect(existsSync(signalPath)).toBe(true);
+    const signal = JSON.parse(readFileSync(signalPath, "utf-8"));
+    expect(signal).toEqual({ type: "platform_disconnected" });
+  });
+
+  test("rejects with error when running on a platform-hosted assistant", async () => {
+    /**
+     * Platform-hosted (containerized) assistants are managed by the platform
+     * and should not allow manual disconnect via the CLI.
+     */
+
+    // GIVEN the assistant is running inside a platform host
+    mockIsPlatformRemote = true;
+
+    // WHEN the disconnect command is run with --json
+    const { exitCode, stdout } = await runCommand([
+      "platform",
+      "disconnect",
+      "--json",
+    ]);
+
+    // THEN the command fails
+    expect(exitCode).toBe(1);
+
+    // AND the error message explains why
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("platform-hosted");
+
+    // AND no credentials were deleted
+    expect(mockDeleteSecureKeyViaDaemonCalls).toHaveLength(0);
   });
 });

@@ -31,6 +31,14 @@ export interface GuardianDecisionPrompt {
    * store. Absent for legacy-only prompts.
    */
   kind?: string;
+  /** Human-readable preview of the command being approved (e.g. shell command). */
+  commandPreview?: string;
+  /** Risk level label for the request (e.g. 'low', 'medium', 'high'). */
+  riskLevel?: string;
+  /** Short activity description for richer prompt display. */
+  activityText?: string;
+  /** Where the tool will execute — sandbox or host. */
+  executionTarget?: "sandbox" | "host";
 }
 
 export interface GuardianDecisionAction {
@@ -55,12 +63,12 @@ export const GUARDIAN_DECISION_ACTIONS = {
   },
   approve_10m: {
     action: "approve_10m",
-    label: "Allow 10 min",
+    label: "Allow all, 10 min",
     description: "All tools for 10 minutes",
   },
   approve_conversation: {
     action: "approve_conversation",
-    label: "Allow conversation",
+    label: "Allow all, convo",
     description: "All tools for this conversation",
   },
   approve_always: {

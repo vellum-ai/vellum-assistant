@@ -22,7 +22,7 @@ import {
 import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
-import { getRootDir } from "../util/platform.js";
+import { getProtectedDir } from "../util/platform.js";
 
 const log = getLogger("pairing-store");
 
@@ -65,7 +65,7 @@ interface PairingStoreFile {
 }
 
 function getStorePath(): string {
-  return join(getRootDir(), "protected", "pairing-requests.json");
+  return join(getProtectedDir(), "pairing-requests.json");
 }
 
 function loadFromDisk(): Map<string, PairingRequest> {

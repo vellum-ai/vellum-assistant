@@ -291,7 +291,7 @@ describe("UsageTelemetryReporter", () => {
     const body1 = JSON.parse(
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
-    expect(body1.installation_id).toBe("test-device-id");
+    expect(body1.device_id).toBe("test-device-id");
 
     // Second flush — should use the same value
     mockQueryUnreportedUsageEvents.mockReturnValue([makeUsageEvent()]);
@@ -300,7 +300,7 @@ describe("UsageTelemetryReporter", () => {
     const body2 = JSON.parse(
       (mockFetch.mock.calls[1] as [string, RequestInit])[1].body as string,
     );
-    expect(body2.installation_id).toBe("test-device-id");
+    expect(body2.device_id).toBe("test-device-id");
   });
 
   test("empty batch makes no HTTP call", async () => {
@@ -374,8 +374,8 @@ describe("UsageTelemetryReporter", () => {
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
 
-    // Top-level: installation_id, assistant_version, and events array (no turn_events key)
-    expect(body.installation_id).toBe("test-device-id");
+    // Top-level: device_id, assistant_version, and events array (no turn_events key)
+    expect(body.device_id).toBe("test-device-id");
     expect(body.assistant_version).toBe("1.2.3-test");
     expect(Array.isArray(body.events)).toBe(true);
     expect(body.events.length).toBe(1);
@@ -449,7 +449,7 @@ describe("UsageTelemetryReporter", () => {
     const body = JSON.parse(
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
-    expect(body.installation_id).toBe("test-device-id");
+    expect(body.device_id).toBe("test-device-id");
     expect(body.assistant_id).toBe(DAEMON_INTERNAL_ASSISTANT_ID);
   });
 

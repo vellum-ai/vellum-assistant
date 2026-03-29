@@ -1447,11 +1447,15 @@ public struct GuardianDecisionData: Equatable {
     /// Canonical request kind (e.g. "tool_approval", "pending_question").
     /// Determines UI treatment: header text, available actions, and styling.
     public let kind: String?
+    public let commandPreview: String?
+    public let riskLevel: String?
+    public let activityText: String?
+    public let executionTarget: String?
     public var state: GuardianDecisionState = .pending
     /// True while waiting for the server to acknowledge a button click.
     public var isSubmitting: Bool = false
 
-    public init(requestId: String, requestCode: String, questionText: String, toolName: String?, actions: [GuardianActionOption], conversationId: String, kind: String? = nil, state: GuardianDecisionState = .pending) {
+    public init(requestId: String, requestCode: String, questionText: String, toolName: String?, actions: [GuardianActionOption], conversationId: String, kind: String? = nil, commandPreview: String? = nil, riskLevel: String? = nil, activityText: String? = nil, executionTarget: String? = nil, state: GuardianDecisionState = .pending) {
         self.requestId = requestId
         self.requestCode = requestCode
         self.questionText = questionText
@@ -1459,6 +1463,10 @@ public struct GuardianDecisionData: Equatable {
         self.actions = actions
         self.conversationId = conversationId
         self.kind = kind
+        self.commandPreview = commandPreview
+        self.riskLevel = riskLevel
+        self.activityText = activityText
+        self.executionTarget = executionTarget
         self.state = state
     }
 
@@ -1471,6 +1479,10 @@ public struct GuardianDecisionData: Equatable {
         self.actions = wire.actions
         self.conversationId = wire.conversationId
         self.kind = wire.kind
+        self.commandPreview = wire.commandPreview
+        self.riskLevel = wire.riskLevel
+        self.activityText = wire.activityText
+        self.executionTarget = wire.executionTarget
         self.state = wire.state == "resolved" ? .stale() : .pending
     }
 }

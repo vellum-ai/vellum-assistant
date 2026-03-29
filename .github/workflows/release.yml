@@ -5,6 +5,12 @@ on:
     branches:
       - 'release/v*'
   workflow_dispatch:
+    inputs:
+      slack_user_id:
+        description: 'Slack user ID of the person who triggered the release (e.g. U01ABCDEF)'
+        required: false
+        type: string
+        default: ''
 
 concurrency:
   group: release
@@ -2221,6 +2227,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           RELEASE_TRIGGER_SECRET: ${{ secrets.RELEASE_TRIGGER_SECRET }}
+          SLACK_USER_ID: ${{ inputs.slack_user_id }}
         run: |
           VERSION="${{ needs.extract-version.outputs.version }}"
           VERSION_TAG="v${VERSION}"
@@ -2287,10 +2294,16 @@ jobs:
 
           CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$DH" "$RR")
 
-          if [ "$IS_STAGING" = "true" ]; then
-            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped._' "$VERSION" "${{ github.actor }}")
+          if [ -n "$SLACK_USER_ID" ]; then
+            TRIGGERED_BY="<@${SLACK_USER_ID}>"
           else
-            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "${{ github.actor }}")
+            TRIGGERED_BY="${{ github.actor }}"
+          fi
+
+          if [ "$IS_STAGING" = "true" ]; then
+            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped._' "$VERSION" "$TRIGGERED_BY")
+          else
+            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "$TRIGGERED_BY")
           fi
 
           # Fetch release notes from GitHub release (only for production releases)
@@ -2343,8 +2356,13 @@ jobs:
             style: "primary"
           }')
 
-          # Build "Go live!" button for staging releases that are ready
-          if [ "$IS_STAGING" = "true" ] && [ "$STAGING_READY" = "true" ] && [ -n "$RELEASE_TRIGGER_SECRET" ]; then
+          # Build "Go live!" button only for release branch staging deploys (not main dispatches)
+          IS_RELEASE_BRANCH="false"
+          if [[ "${GITHUB_REF_NAME}" == release/v* ]]; then
+            IS_RELEASE_BRANCH="true"
+          fi
+
+          if [ "$IS_STAGING" = "true" ] && [ "$STAGING_READY" = "true" ] && [ "$IS_RELEASE_BRANCH" = "true" ] && [ -n "$RELEASE_TRIGGER_SECRET" ]; then
             RELEASE_BRANCH="release/${VERSION_TAG}"
             GO_LIVE_TS=$(date +%s)
             GO_LIVE_SIG=$(echo -n "${RELEASE_BRANCH}:${GO_LIVE_TS}" | openssl dgst -sha256 -hmac "$RELEASE_TRIGGER_SECRET" -hex | awk '{print $NF}')

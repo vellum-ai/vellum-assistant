@@ -64,6 +64,10 @@ mock.module("../memory/jobs-store.js", () => ({
   enqueueMemoryJob: () => {},
 }));
 
+mock.module("../memory/llm-request-log-store.js", () => ({
+  relinkLlmRequestLogs: () => {},
+}));
+
 mock.module("../memory/qdrant-circuit-breaker.js", () => ({
   withQdrantBreaker: async (fn: () => Promise<unknown>) => fn(),
 }));

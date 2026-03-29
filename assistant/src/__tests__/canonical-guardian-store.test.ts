@@ -111,6 +111,54 @@ describe("canonical-guardian-store", () => {
     expect(req.status).toBe("pending");
   });
 
+  // ── Enrichment columns ──────────────────────────────────────────────
+
+  test("enrichment columns round-trip through create and read", () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "desktop",
+      guardianPrincipalId: TEST_PRINCIPAL,
+      commandPreview: "rm -rf /tmp/test",
+      riskLevel: "high",
+      activityText: "Deleting temporary test files",
+      executionTarget: "host",
+    });
+
+    expect(req.commandPreview).toBe("rm -rf /tmp/test");
+    expect(req.riskLevel).toBe("high");
+    expect(req.activityText).toBe("Deleting temporary test files");
+    expect(req.executionTarget).toBe("host");
+
+    // Verify round-trip via read
+    const fetched = getCanonicalGuardianRequest(req.id);
+    expect(fetched).not.toBeNull();
+    expect(fetched!.commandPreview).toBe("rm -rf /tmp/test");
+    expect(fetched!.riskLevel).toBe("high");
+    expect(fetched!.activityText).toBe("Deleting temporary test files");
+    expect(fetched!.executionTarget).toBe("host");
+  });
+
+  test("enrichment columns default to null when omitted", () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "desktop",
+      guardianPrincipalId: TEST_PRINCIPAL,
+    });
+
+    expect(req.commandPreview).toBeNull();
+    expect(req.riskLevel).toBeNull();
+    expect(req.activityText).toBeNull();
+    expect(req.executionTarget).toBeNull();
+
+    // Verify via read as well
+    const fetched = getCanonicalGuardianRequest(req.id);
+    expect(fetched).not.toBeNull();
+    expect(fetched!.commandPreview).toBeNull();
+    expect(fetched!.riskLevel).toBeNull();
+    expect(fetched!.activityText).toBeNull();
+    expect(fetched!.executionTarget).toBeNull();
+  });
+
   // ── getCanonicalGuardianRequest ───────────────────────────────────
 
   test("gets a request by ID", () => {

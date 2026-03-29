@@ -8,11 +8,10 @@
  * Path resolution:
  *   - Containerized (IS_CONTAINERIZED=true): uses /home/assistant (the assistant
  *     user's persistent home dir) so device.json lives on the assistant's own
- *     filesystem rather than the shared data volume. Falls back to BASE_DATA_DIR
- *     for migration from the old location.
+ *     filesystem rather than the shared data volume. Falls back to the legacy
+ *     BASE_DATA_DIR location for migration.
  *   - Local (single or multi-instance): uses homedir() so all instances on the
- *     same machine share a single device ID, even when BASE_DATA_DIR is set to
- *     an instance-scoped directory.
+ *     same machine share a single device ID.
  *
  * The value is cached in memory after the first successful read/write.
  * Falls back to a generated UUID if the file cannot be read or written.
@@ -23,7 +22,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
+import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("device-id");
@@ -49,16 +48,17 @@ export function getDeviceIdBaseDir(): string {
 /**
  * Resolve the legacy base directory for device.json migration.
  *
- * Returns the old containerized path (BASE_DATA_DIR) so we can fall back to
- * reading device.json from the shared volume if it hasn't been migrated yet.
- * Returns undefined when not containerized or when no legacy path exists.
+ * Returns the old containerized path (via BASE_DATA_DIR env var) so we can
+ * fall back to reading device.json from the shared volume if it hasn't been
+ * migrated yet. Returns undefined when not containerized or when no legacy
+ * path exists.
  */
 function getLegacyDeviceIdBaseDir(): string | undefined {
   if (!getIsContainerized()) {
     return undefined;
   }
-  const baseDataDir = getBaseDataDir();
-  return baseDataDir || undefined;
+  const baseDataDir = process.env.BASE_DATA_DIR?.trim() || undefined;
+  return baseDataDir;
 }
 
 /**

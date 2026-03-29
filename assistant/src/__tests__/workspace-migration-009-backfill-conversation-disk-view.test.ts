@@ -31,7 +31,7 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -252,9 +252,9 @@ describe("009-backfill-conversation-disk-view migration", () => {
 
     expect(existsSync(expectedNewDirPath)).toBe(false);
     expect(existsSync(legacyDirPath)).toBe(true);
-    expect(
-      JSON.parse(readFileSync(metaPath, "utf-8")).updatedAt,
-    ).toBe(new Date(conversationUpdatedAt).toISOString());
+    expect(JSON.parse(readFileSync(metaPath, "utf-8")).updatedAt).toBe(
+      new Date(conversationUpdatedAt).toISOString(),
+    );
     expect(readFileSync(messagesPath, "utf-8").trim().split("\n")).toHaveLength(
       1,
     );

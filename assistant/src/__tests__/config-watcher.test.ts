@@ -18,7 +18,6 @@ import {
 
 const TEST_DIR = join(tmpdir(), `config-watcher-test-${crypto.randomUUID()}`);
 const WORKSPACE_DIR = join(TEST_DIR, "workspace");
-const PROTECTED_DIR = join(TEST_DIR, "protected");
 const SKILLS_DIR = join(WORKSPACE_DIR, "skills");
 
 // ---------------------------------------------------------------------------
@@ -26,7 +25,6 @@ const SKILLS_DIR = join(WORKSPACE_DIR, "skills");
 // ---------------------------------------------------------------------------
 
 mock.module("../util/platform.js", () => ({
-  getRootDir: () => TEST_DIR,
   getWorkspaceDir: () => WORKSPACE_DIR,
   getWorkspaceSkillsDir: () => SKILLS_DIR,
   getWorkspaceConfigPath: () => join(WORKSPACE_DIR, "config.json"),
@@ -110,11 +108,8 @@ mock.module("../memory/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {},
 }));
 
-let trustClearCacheCallCount = 0;
 mock.module("../permissions/trust-store.js", () => ({
-  clearCache: () => {
-    trustClearCacheCallCount++;
-  },
+  clearCache: () => {},
 }));
 
 mock.module("../providers/registry.js", () => ({
@@ -125,20 +120,8 @@ mock.module("../signals/mcp-reload.js", () => ({
   handleMcpReloadSignal: () => {},
 }));
 
-mock.module("../signals/trust-rule.js", () => ({
-  handleTrustRuleSignal: () => {},
-}));
-
 mock.module("../signals/conversation-undo.js", () => ({
   handleConversationUndoSignal: () => {},
-}));
-
-let resetAllowlistCallCount = 0;
-mock.module("../security/secret-allowlist.js", () => ({
-  resetAllowlist: () => {
-    resetAllowlistCallCount++;
-  },
-  validateAllowlistFile: () => [],
 }));
 
 // Import after mocks are set up
@@ -166,7 +149,6 @@ function simulateFileChange(dir: string, filename: string): void {
 
 beforeAll(() => {
   mkdirSync(WORKSPACE_DIR, { recursive: true });
-  mkdirSync(PROTECTED_DIR, { recursive: true });
 });
 
 afterAll(() => {
@@ -182,8 +164,6 @@ const onConversationEvict = () => {
 beforeEach(() => {
   capturedWatchers.length = 0;
   evictCallCount = 0;
-  trustClearCacheCallCount = 0;
-  resetAllowlistCallCount = 0;
   watcher = new ConfigWatcher();
 });
 
@@ -286,41 +266,11 @@ describe("ConfigWatcher workspace file handlers", () => {
   });
 });
 
-describe("ConfigWatcher protected directory handlers", () => {
-  test("trust.json change calls clearTrustCache", async () => {
-    watcher.start(onConversationEvict);
-    const protectedWatcher = findWatcher(PROTECTED_DIR);
-    expect(protectedWatcher).toBeDefined();
-    protectedWatcher!.callback("change", "trust.json");
-
-    await new Promise((r) => setTimeout(r, 300));
-    // trust.json should NOT trigger conversation eviction
-    expect(evictCallCount).toBe(0);
-    // but clearCache should have been called
-    expect(trustClearCacheCallCount).toBe(1);
-  });
-
-  test("secret-allowlist.json change calls resetAllowlist", async () => {
-    watcher.start(onConversationEvict);
-    const protectedWatcher = findWatcher(PROTECTED_DIR);
-    expect(protectedWatcher).toBeDefined();
-    protectedWatcher!.callback("change", "secret-allowlist.json");
-
-    await new Promise((r) => setTimeout(r, 300));
-    // secret-allowlist.json should NOT trigger conversation eviction
-    expect(evictCallCount).toBe(0);
-    // but resetAllowlist should have been called
-    expect(resetAllowlistCallCount).toBe(1);
-  });
-});
-
 describe("ConfigWatcher watcher lifecycle", () => {
-  test("start registers watchers for workspace and protected dirs", () => {
+  test("start registers workspace and signals watchers", () => {
     watcher.start(onConversationEvict);
     const wsWatcher = findWatcher(WORKSPACE_DIR);
-    const protWatcher = findWatcher(PROTECTED_DIR);
     expect(wsWatcher).toBeDefined();
-    expect(protWatcher).toBeDefined();
   });
 
   test("stop cancels all debounce timers and clears watchers", () => {

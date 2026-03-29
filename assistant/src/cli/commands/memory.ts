@@ -1,11 +1,15 @@
 import type { Command } from "commander";
 
 import {
+  cleanupShortSegments,
+  findReextractTarget,
+  findReextractTargets,
   getMemorySystemStatus,
   queryMemory,
   requestMemoryBackfill,
   requestMemoryCleanup,
   requestMemoryRebuildIndex,
+  requestReextract,
 } from "../../memory/admin.js";
 import { listConversations } from "../../memory/conversation-queries.js";
 import { initializeDb } from "../db.js";
@@ -145,6 +149,36 @@ Examples:
     });
 
   memory
+    .command("cleanup-segments")
+    .description("Remove short segments that waste retrieval budget")
+    .option("--dry-run", "Show count of segments that would be removed")
+    .addHelpText(
+      "after",
+      `
+Removes segments shorter than the minimum character threshold from both
+SQLite and Qdrant. Short fragments (e.g. "Collar Touched") burn embedding
+budget, retrieval slots, and injection tokens without adding value.
+
+New segments are already filtered at creation time. This command cleans up
+existing short segments that were stored before the filter was added.
+
+Examples:
+  $ assistant memory cleanup-segments
+  $ assistant memory cleanup-segments --dry-run`,
+    )
+    .action(async (opts: { dryRun?: boolean }) => {
+      initializeDb();
+      const result = await cleanupShortSegments({ dryRun: opts.dryRun });
+      if (opts.dryRun) {
+        log.info(
+          `Dry run: ${result.dryRunCount} short segment(s) would be removed.`,
+        );
+      } else {
+        log.info(`Removed ${result.removed} short segment(s).`);
+      }
+    });
+
+  memory
     .command("query <text>")
     .description(
       "Run a memory recall query and print the injected memory payload",
@@ -216,4 +250,109 @@ Examples:
       const jobId = requestMemoryRebuildIndex();
       log.info(`Queued rebuild-index job: ${jobId}`);
     });
+
+  memory
+    .command("re-extract")
+    .description(
+      "Re-extract memories from conversations using the latest extraction prompt",
+    )
+    .option(
+      "-c, --conversation <id>",
+      "Target a specific conversation by ID (repeatable)",
+      (val: string, prev: string[]) => [...prev, val],
+      [] as string[],
+    )
+    .option(
+      "-t, --top <n>",
+      "Auto-select top N conversations by message count",
+    )
+    .option("--dry-run", "Show what would be re-extracted without doing it")
+    .addHelpText(
+      "after",
+      `
+Re-runs memory extraction on existing conversations using the current
+extraction prompt. This is useful after updating the extraction prompt
+(e.g. importance scoring rework) to re-score and re-extract memories
+from historically important conversations.
+
+The command resets extraction checkpoints so the batch extraction handler
+re-processes all messages. Existing memories are provided as supersession
+context — the new extraction can supersede old flat-fact memories with
+richer, properly-scored replacements.
+
+Requires the assistant daemon to be running (jobs are processed by the
+background worker).
+
+Examples:
+  $ assistant memory re-extract --top 20
+  $ assistant memory re-extract --conversation conv_abc123
+  $ assistant memory re-extract --top 10 --dry-run`,
+    )
+    .action(
+      (opts: {
+        conversation?: string[];
+        top?: string;
+        dryRun?: boolean;
+      }) => {
+        initializeDb();
+
+        const targets = [];
+
+        // Collect targets from --conversation flags
+        if (opts.conversation && opts.conversation.length > 0) {
+          for (const id of opts.conversation) {
+            const target = findReextractTarget(id);
+            if (target) {
+              targets.push(target);
+            } else {
+              log.info(`Conversation not found: ${id}`);
+            }
+          }
+        }
+
+        // Collect targets from --top flag
+        if (opts.top) {
+          const n = Number.parseInt(opts.top, 10);
+          if (!Number.isFinite(n) || n <= 0) {
+            log.info("--top must be a positive integer");
+            return;
+          }
+          const topTargets = findReextractTargets(n);
+          // Deduplicate against conversation targets
+          const seen = new Set(targets.map((t) => t.conversationId));
+          for (const t of topTargets) {
+            if (!seen.has(t.conversationId)) {
+              targets.push(t);
+              seen.add(t.conversationId);
+            }
+          }
+        }
+
+        if (targets.length === 0) {
+          log.info(
+            "No targets specified. Use --conversation <id> or --top <n>.",
+          );
+          return;
+        }
+
+        // Show targets
+        log.info(`\nRe-extraction targets (${targets.length}):`);
+        for (const t of targets) {
+          const title = t.title ?? "(untitled)";
+          log.info(
+            `  ${t.conversationId}  ${t.messageCount} msgs  "${title}"`,
+          );
+        }
+
+        if (opts.dryRun) {
+          log.info("\n--dry-run: no jobs queued.");
+          return;
+        }
+
+        const { jobIds } = requestReextract(targets);
+        log.info(
+          `\nQueued ${jobIds.length} re-extraction job(s). The daemon will process them in the background.`,
+        );
+      },
+    );
 }

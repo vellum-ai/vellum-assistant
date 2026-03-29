@@ -102,6 +102,14 @@ mock.module("../../../../util/platform.js", () => ({
   getLogPath: () => join(testDir, "test.log"),
   getWorkspaceDirDisplay: () => testDir,
   getWorkspacePromptPath: (file: string) => join(testDir, file),
+  getProtectedDir: () => join(testDir, "protected"),
+  getDeprecatedDir: () => join(testDir, "workspace", "deprecated"),
+  getExternalDir: () => join(testDir, "external"),
+  getBinDir: () => join(testDir, "bin"),
+  getDotEnvPath: () => join(testDir, ".env"),
+  getDaemonStderrLogPath: () => join(testDir, "daemon-stderr.log"),
+  getDaemonStartupLockPath: () => join(testDir, "daemon-startup.lock"),
+  getEmbedWorkerPidPath: () => join(testDir, "embed-worker.pid"),
   ensureDataDir: () => {},
 }));
 
@@ -242,5 +250,33 @@ describe("assistant platform status", () => {
     expect(parsed.connected).toBe(true);
     expect(parsed.organizationId).toBe("org-456");
     expect(parsed.userId).toBe("user-789");
+  });
+
+  test("plain text mode does not emit JSON to stdout", async () => {
+    /**
+     * Without --json, the status command should only produce log output
+     * (via the CLI logger) and NOT write JSON to stdout. Previously both
+     * JSON and plain text were emitted, duplicating the information.
+     */
+
+    // GIVEN a disconnected environment with no stored credentials
+    mockResolvePlatformCallbackRegistrationContext = async () => ({
+      containerized: false,
+      platformBaseUrl: "",
+      assistantId: "",
+      hasInternalApiKey: false,
+      hasAssistantApiKey: false,
+      authHeader: null,
+      enabled: false,
+    });
+
+    // WHEN the status command is run without --json
+    const { exitCode, stdout } = await runCommand(["platform", "status"]);
+
+    // THEN the command succeeds
+    expect(exitCode).toBe(0);
+
+    // AND stdout contains no JSON (writeOutput is skipped in plain text mode)
+    expect(stdout.trim()).toBe("");
   });
 });

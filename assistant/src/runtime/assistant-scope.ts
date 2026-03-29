@@ -8,7 +8,7 @@
  * IDs — use this constant instead.
  *
  * Multi-instance invariant: each daemon process is single-tenant within
- * its own BASE_DATA_DIR. The fixed "self" value works across multiple
+ * its own workspace. The fixed "self" value works across multiple
  * local instances because each instance has isolated storage — there is
  * no cross-instance data sharing that would require disambiguating IDs.
  */

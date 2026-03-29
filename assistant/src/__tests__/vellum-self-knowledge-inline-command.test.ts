@@ -42,6 +42,7 @@ const SKILL_SRC_DIR = join(
 
 const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   getRootDir: () => TEST_DIR,
+  getProtectedDir: () => join(TEST_DIR, "protected"),
   getDataDir: () => join(TEST_DIR, "data"),
   ensureDataDir: () => {},
   getPidPath: () => join(TEST_DIR, "vellum.pid"),

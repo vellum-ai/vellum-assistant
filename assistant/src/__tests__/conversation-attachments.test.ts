@@ -16,7 +16,7 @@ mock.module("../util/platform.js", () => ({
   getDbPath: () => join(testDir, "test.db"),
   getLogPath: () => join(testDir, "test.log"),
   ensureDataDir: () => {},
-  getRootDir: () => testDir,
+  getProtectedDir: () => join(testDir, "protected"),
 }));
 
 mock.module("../util/logger.js", () => ({

@@ -29,7 +29,7 @@ const MOCK_BUNDLED_DIR = join(CLASSIFIER_TEST_ROOT, "bundled-skills");
 
 mock.module("../util/platform.js", () => ({
   getWorkspaceSkillsDir: () => MOCK_MANAGED_DIR,
-  getRootDir: () => CLASSIFIER_TEST_ROOT,
+  getProtectedDir: () => join(CLASSIFIER_TEST_ROOT, "protected"),
   getWorkspaceDir: () => join(CLASSIFIER_TEST_ROOT, "workspace"),
   getDataDir: () => join(CLASSIFIER_TEST_ROOT, "data"),
   isMacOS: () => process.platform === "darwin",

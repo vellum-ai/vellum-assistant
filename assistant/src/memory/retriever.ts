@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, notInArray, sql } from "drizzle-orm";
 
 import type { AssistantConfig } from "../config/types.js";
 import { estimateTextTokens } from "../context/token-estimator.js";
@@ -901,7 +901,13 @@ function filterInContextItems(
  * Queries SQLite for random active items not already in the candidate pool,
  * then selects up to `count` items with probability proportional to their
  * importance value (importance-weighted sampling).
+ *
+ * Only items with importance >= MIN_SERENDIPITY_IMPORTANCE are eligible,
+ * so only genuinely significant memories (decisions, personal moments,
+ * turning points) surface as echoes.
  */
+const MIN_SERENDIPITY_IMPORTANCE = 0.7;
+
 function sampleSerendipityItems(
   existingCandidates: TieredCandidate[],
   count: number,
@@ -927,6 +933,11 @@ function sampleSerendipityItems(
       : eq(memoryItems.scopeId, "default");
 
     let rows;
+    const importanceFloor = gte(
+      memoryItems.importance,
+      MIN_SERENDIPITY_IMPORTANCE,
+    );
+
     if (existingItemIds.length > 0) {
       rows = db
         .select({
@@ -942,6 +953,7 @@ function sampleSerendipityItems(
           and(
             eq(memoryItems.status, "active"),
             scopeCondition,
+            importanceFloor,
             notInArray(memoryItems.id, existingItemIds),
           ),
         )
@@ -959,7 +971,13 @@ function sampleSerendipityItems(
           firstSeenAt: memoryItems.firstSeenAt,
         })
         .from(memoryItems)
-        .where(and(eq(memoryItems.status, "active"), scopeCondition))
+        .where(
+          and(
+            eq(memoryItems.status, "active"),
+            scopeCondition,
+            importanceFloor,
+          ),
+        )
         .orderBy(sql`RANDOM()`)
         .limit(RANDOM_POOL_SIZE)
         .all();

@@ -6,7 +6,27 @@
  * device to call the endpoint idempotently.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+
+const testDir = realpathSync(
+  mkdtempSync(join(tmpdir(), "pairing-routes-test-")),
+);
+
+mock.module("../util/platform.js", () => ({
+  getProtectedDir: () => join(testDir, "protected"),
+  getWorkspaceDir: () => join(testDir, "workspace"),
+  getDataDir: () => testDir,
+}));
+
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
+}));
 
 import { PairingStore } from "../daemon/pairing-store.js";
 import type { PairingHandlerContext } from "../runtime/routes/pairing-routes.js";
@@ -22,7 +42,6 @@ function makeContext(store: PairingStore): PairingHandlerContext {
   return {
     pairingStore: store,
     bearerToken: "test-bearer-token",
-    featureFlagToken: undefined,
     pairingBroadcast: mock(() => {}),
   };
 }
@@ -41,6 +60,14 @@ function makePairingRequest(overrides: Record<string, unknown> = {}): Request {
     body: JSON.stringify(body),
   });
 }
+
+afterAll(() => {
+  try {
+    rmSync(testDir, { recursive: true });
+  } catch {
+    /* best effort */
+  }
+});
 
 // ── Tests ────────────────────────────────────────────────────────────────
 

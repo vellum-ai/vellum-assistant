@@ -147,8 +147,6 @@ export function cleanupPairingState(pairingRequestId: string): void {
 export interface PairingHandlerContext {
   pairingStore: PairingStore;
   bearerToken: string | undefined;
-  /** Feature-flag client token to include in pairing approval responses so iOS can PATCH flags. */
-  featureFlagToken: string | undefined;
   pairingBroadcast?: (msg: ServerMessage) => void;
 }
 
@@ -281,9 +279,6 @@ export async function handlePairingRequest(
         bearerToken: ctx.bearerToken,
         gatewayUrl: entry.gatewayUrl,
         localLanUrl: entry.localLanUrl,
-        ...(ctx.featureFlagToken
-          ? { featureFlagToken: ctx.featureFlagToken }
-          : {}),
         ...(credentials
           ? {
               accessToken: credentials.accessToken,
@@ -388,9 +383,6 @@ export function handlePairingStatus(
       bearerToken: entry.bearerToken,
       gatewayUrl: entry.gatewayUrl,
       localLanUrl: entry.localLanUrl,
-      ...(ctx.featureFlagToken
-        ? { featureFlagToken: ctx.featureFlagToken }
-        : {}),
       ...(credentialEntry
         ? {
             accessToken: credentialEntry.credentials.accessToken,

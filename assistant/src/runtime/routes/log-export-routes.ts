@@ -33,8 +33,8 @@ import {
 } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
 import {
+  getDaemonStderrLogPath,
   getDataDir,
-  getRootDir,
   getWorkspaceConfigPath,
   getWorkspaceDir,
 } from "../../util/platform.js";
@@ -186,7 +186,7 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
       }
     }
 
-    const stderrPath = join(getRootDir(), "daemon-stderr.log");
+    const stderrPath = getDaemonStderrLogPath();
     if (existsSync(stderrPath)) {
       try {
         const stat = statSync(stderrPath);
@@ -452,6 +452,8 @@ const WORKSPACE_SKIP_DIRS = new Set([
   "data/attachments",
   "data/sounds",
   "conversations",
+  "signals",
+  "deprecated",
 ]);
 
 /** Files at the workspace root to skip (already covered by sanitized fields). */

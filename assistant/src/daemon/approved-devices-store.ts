@@ -17,7 +17,7 @@ import {
 import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
-import { getRootDir } from "../util/platform.js";
+import { getProtectedDir } from "../util/platform.js";
 
 const log = getLogger("approved-devices-store");
 
@@ -33,7 +33,7 @@ interface ApprovedDevicesFile {
 }
 
 function getStorePath(): string {
-  return join(getRootDir(), "protected", "approved-devices.json");
+  return join(getProtectedDir(), "approved-devices.json");
 }
 
 /** Hash a raw deviceId for storage. */

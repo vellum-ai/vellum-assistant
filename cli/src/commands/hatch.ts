@@ -42,6 +42,7 @@ import { hatchGcp } from "../lib/gcp";
 import type { PollResult, WatchHatchingResult } from "../lib/gcp";
 import { buildNestedConfig, writeInitialConfig } from "../lib/config-utils";
 import {
+  generateLocalSigningKey,
   startLocalDaemon,
   startGateway,
   stopLocalProcesses,
@@ -776,12 +777,16 @@ async function hatchLocal(
   const defaultWorkspaceConfigPath = writeInitialConfig(configValues);
 
   emitProgress(4, 7, "Starting assistant...");
-  await startLocalDaemon(watch, resources, { defaultWorkspaceConfigPath });
+  const signingKey = generateLocalSigningKey();
+  await startLocalDaemon(watch, resources, {
+    defaultWorkspaceConfigPath,
+    signingKey,
+  });
 
   emitProgress(5, 7, "Starting gateway...");
   let runtimeUrl = `http://127.0.0.1:${resources.gatewayPort}`;
   try {
-    runtimeUrl = await startGateway(watch, resources);
+    runtimeUrl = await startGateway(watch, resources, { signingKey });
   } catch (error) {
     // Gateway failed — stop the daemon we just started so we don't leave
     // orphaned processes with no lock file entry.

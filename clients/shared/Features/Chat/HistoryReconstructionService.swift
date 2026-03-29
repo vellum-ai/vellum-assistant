@@ -272,7 +272,7 @@ enum HistoryReconstructionService {
             #endif
 
             if attachment.mimeType.hasPrefix("image/"), !base64.isEmpty, let rawData = Data(base64Encoded: base64) {
-                thumbnailData = generateThumbnail(from: rawData, maxDimension: 120)
+                thumbnailData = generateThumbnail(from: rawData, maxDimension: 800)
                 #if os(macOS)
                 thumbnailImage = thumbnailData.flatMap { NSImage(data: $0) }
                 #elseif os(iOS)

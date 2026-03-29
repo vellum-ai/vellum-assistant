@@ -55,6 +55,7 @@ describe("/schema route", () => {
     expect(body.paths["/readyz"]).toBeDefined();
     expect(body.paths["/schema"]).toBeDefined();
     expect(body.paths["/v1/health"]).toBeDefined();
+    expect(body.paths["/v1/healthz"]).toBeDefined();
     expect(body.paths["/webhooks/telegram"]).toBeDefined();
     expect(body.paths["/webhooks/twilio/voice"]).toBeDefined();
     expect(body.paths["/webhooks/twilio/status"]).toBeDefined();

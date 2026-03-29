@@ -153,6 +153,52 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/healthz": {
+        get: {
+          summary: "Runtime health (via gateway, alias)",
+          description:
+            "Alias for `/v1/health`. Authenticated gateway endpoint that proxies runtime health checks to `/v1/health` on the assistant runtime.",
+          operationId: "runtimeHealthz",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": {
+              description: "Runtime health returned",
+            },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "503": {
+              description: "Bearer token not configured",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "502": {
+              description: "Failed to reach assistant runtime",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+            "504": {
+              description: "Assistant runtime request timed out",
+              content: {
+                "application/json": {
+                  schema: { $ref: "#/components/schemas/ErrorResponse" },
+                },
+              },
+            },
+          },
+        },
+      },
       "/v1/brain-graph": {
         get: {
           summary: "Brain graph data",

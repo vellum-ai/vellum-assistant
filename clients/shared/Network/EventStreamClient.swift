@@ -61,6 +61,11 @@ public final class EventStreamClient {
     /// Conversation IDs that belong to private (temporary) conversations.
     var privateConversationIds: Set<String> = []
 
+    /// Local conversation IDs whose HTTP POST is in flight (server ID not yet known).
+    /// Used by parseSSEData to speculatively remap unknown server IDs that arrive
+    /// before the HTTP response creates the serverToLocalConversationMap entry.
+    private var pendingMappingLocalIds: Set<String> = []
+
     // MARK: - Callbacks
 
     /// Called synchronously before broadcasting to subscribers.
@@ -137,9 +142,11 @@ public final class EventStreamClient {
         bypassSecretCheck: Bool? = nil
     ) {
         locallyOwnedConversationIds.insert(conversationId)
+        pendingMappingLocalIds.insert(conversationId)
 
         Task { @MainActor [weak self] in
             guard let self else { return }
+            defer { self.pendingMappingLocalIds.remove(conversationId) }
             let messageClient = MessageClient()
             let attachmentCount = attachments?.count ?? 0
             log.info("[send-pipeline] sendMessage start — attachmentCount=\(attachmentCount)")
@@ -331,17 +338,36 @@ public final class EventStreamClient {
 
         var jsonString = data
 
-        // Remap server conversation IDs to client-local conversation IDs
-        if let conversationId = extractJsonStringValue(from: jsonString, key: "conversationId"),
-           let localId = serverToLocalConversationMap[conversationId] {
-            jsonString = jsonString.replacingOccurrences(
-                of: "\"conversationId\":\"\(conversationId)\"",
-                with: "\"conversationId\":\"\(localId)\""
-            )
-            jsonString = jsonString.replacingOccurrences(
-                of: "\"conversationId\": \"\(conversationId)\"",
-                with: "\"conversationId\": \"\(localId)\""
-            )
+        // Remap server conversation IDs to client-local conversation IDs.
+        // When a mapping exists (HTTP response already processed), use it directly.
+        // Otherwise, if there's exactly one pending send, speculatively remap to
+        // that local ID — the server likely assigned a new ID that we haven't
+        // mapped yet.  Pre-register the mapping so subsequent events in the same
+        // window are handled by the fast path above.
+        if let conversationId = extractJsonStringValue(from: jsonString, key: "conversationId") {
+            let localId: String?
+            if let mapped = serverToLocalConversationMap[conversationId] {
+                localId = mapped
+            } else if !locallyOwnedConversationIds.contains(conversationId),
+                      pendingMappingLocalIds.count == 1,
+                      let pendingLocalId = pendingMappingLocalIds.first {
+                localId = pendingLocalId
+                serverToLocalConversationMap[conversationId] = pendingLocalId
+                locallyOwnedConversationIds.insert(conversationId)
+                log.info("Speculative remap: \(conversationId, privacy: .public) → \(pendingLocalId, privacy: .public)")
+            } else {
+                localId = nil
+            }
+            if let localId {
+                jsonString = jsonString.replacingOccurrences(
+                    of: "\"conversationId\":\"\(conversationId)\"",
+                    with: "\"conversationId\":\"\(localId)\""
+                )
+                jsonString = jsonString.replacingOccurrences(
+                    of: "\"conversationId\": \"\(conversationId)\"",
+                    with: "\"conversationId\": \"\(localId)\""
+                )
+            }
         }
         if let parentConversationId = extractJsonStringValue(from: jsonString, key: "parentConversationId"),
            let localId = serverToLocalConversationMap[parentConversationId] {

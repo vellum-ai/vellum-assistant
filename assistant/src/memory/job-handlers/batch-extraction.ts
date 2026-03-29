@@ -171,6 +171,11 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
     .get();
 
   // ── Load existing global items for supersession ─────────────────────
+  // When fullReextract is set (re-extraction pass), load all active items
+  // so the LLM can supersede as many old flat-fact memories as possible.
+  const fullReextract = Boolean(job.payload.fullReextract);
+  const existingItemsLimit = fullReextract ? 200 : 20;
+
   const existingItems = db
     .select({
       id: memoryItems.id,
@@ -186,7 +191,7 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
       ),
     )
     .orderBy(desc(memoryItems.lastSeenAt))
-    .limit(20)
+    .limit(existingItemsLimit)
     .all();
 
   // ── Build the batch extraction prompt ───────────────────────────────
@@ -447,7 +452,9 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
             Math.max(existing.confidence, item.confidence),
           ),
           importance: clampUnitInterval(
-            Math.max(existing.importance ?? 0, item.importance),
+            fullReextract
+              ? item.importance
+              : Math.max(existing.importance ?? 0, item.importance),
           ),
           lastSeenAt: Math.max(existing.lastSeenAt, seenAt),
           sourceType: effectiveSourceType,

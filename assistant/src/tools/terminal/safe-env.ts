@@ -48,8 +48,9 @@ export function buildSanitizedEnv(): Record<string, string> {
   // Always inject an internal gateway base for local control-plane/API calls.
   const internalGatewayBase = getGatewayInternalBaseUrl();
   env.INTERNAL_GATEWAY_BASE_URL = internalGatewayBase;
-  // Expose the runtime data directory so child processes can locate databases,
-  // logs, and other instance-scoped state without re-deriving the path.
+  // @deprecated — VELLUM_DATA_DIR is equivalent to $VELLUM_WORKSPACE_DIR/data.
+  // Removing this requires an LLM-based migration or declarative migration
+  // file to update existing user-authored skills to use VELLUM_WORKSPACE_DIR.
   env.VELLUM_DATA_DIR = getDataDir();
   // Expose the workspace directory so skills and child processes can read/write
   // workspace-scoped files (e.g. avatar traits, user data).
