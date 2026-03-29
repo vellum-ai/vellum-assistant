@@ -12,7 +12,6 @@
  *
  * NOT moved:
  *   - .env (stays at root because it contains secrets)
- *   - feature-flag-token (removed entirely in Phase 8)
  *
  * Directories moved:
  *   - external/              -> workspace/external/
@@ -44,7 +43,6 @@ const FILE_MOVES: Array<{ name: string; subdir?: string }> = [
   // .env stays at root — it contains secrets (API keys) and the entire
   // workspace directory is included in diagnostic log exports.
   { name: "embed-worker.pid" },
-  // feature-flag-token removed entirely in Phase 8
 ];
 
 /** Directories to move from root → workspace. */
