@@ -23,7 +23,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { getLogger } from "../../util/logger.js";
-import { getWorkspaceDir } from "../../util/platform.js";
+import { getDeprecatedDir } from "../../util/platform.js";
 import { CURRENT_POLICY_EPOCH, isStaleEpoch } from "./policy.js";
 import type { ScopeProfile, TokenAudience, TokenClaims } from "./types.js";
 
@@ -57,7 +57,7 @@ const LEGACY_SIGNING_KEY_PATH = join(
  * calls to the gateway (i.e. all auth flows go through the env var).
  */
 function getSigningKeyPath(): string {
-  return join(getWorkspaceDir(), "deprecated", "actor-token-signing-key");
+  return join(getDeprecatedDir(), "actor-token-signing-key");
 }
 
 /**
@@ -94,8 +94,8 @@ export function loadSigningKey(): Buffer | undefined {
  * calls to the gateway (i.e. all auth flows go through the env var).
  */
 export function loadOrCreateSigningKey(): Buffer {
-  const existing = loadSigningKey();
   const keyPath = getSigningKeyPath();
+  const existing = loadSigningKey();
   if (existing) {
     return existing;
   }
