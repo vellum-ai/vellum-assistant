@@ -1,5 +1,4 @@
 import { randomBytes } from "node:crypto";
-import { Database } from "bun:sqlite";
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
@@ -14,13 +13,11 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { initializeDb, resetDb } from "../memory/db.js";
+import { getSqlite } from "../memory/db-connection.js";
 import {
   getRecentInvocations,
   rotateToolInvocations,
 } from "../memory/tool-usage-store.js";
-import { ensureDataDir, getDbPath } from "../util/platform.js";
-
-const DB_PATH = getDbPath();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -28,7 +25,7 @@ const DB_PATH = getDbPath();
 
 function addInvocation(ageMs: number): void {
   // Insert directly with a specific timestamp in the past
-  const db = new Database(DB_PATH);
+  const db = getSqlite();
   const id = randomBytes(8).toString("hex");
   const createdAt = Date.now() - ageMs;
   db.prepare(
@@ -45,13 +42,10 @@ function addInvocation(ageMs: number): void {
     100,
     createdAt,
   );
-  db.close();
 }
 
 function clearTable(): void {
-  const db = new Database(DB_PATH);
-  db.run("DELETE FROM tool_invocations");
-  db.close();
+  getSqlite().run("DELETE FROM tool_invocations");
 }
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -62,15 +56,12 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 describe("audit log rotation", () => {
   beforeAll(() => {
-    ensureDataDir();
     resetDb();
     initializeDb();
     // Insert a conversations row so FK-enforced ORM inserts succeed
-    const db = new Database(DB_PATH);
-    db.run(
+    getSqlite().run(
       `INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 'test', ${Date.now()}, ${Date.now()})`,
     );
-    db.close();
   });
 
   beforeEach(() => {
