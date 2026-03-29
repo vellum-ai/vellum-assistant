@@ -18,7 +18,7 @@ const testDir = realpathSync(
 );
 process.env.VELLUM_HOME = testDir;
 process.env.VELLUM_WORKSPACE_DIR = testDir;
-const workspaceDir = join(testDir, "workspace");
+const workspaceDir = testDir;
 const conversationsDir = join(workspaceDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
 

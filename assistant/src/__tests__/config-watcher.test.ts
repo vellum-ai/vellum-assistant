@@ -19,7 +19,7 @@ import {
 const TEST_DIR = join(tmpdir(), `config-watcher-test-${crypto.randomUUID()}`);
 process.env.VELLUM_HOME = TEST_DIR;
 process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
-const WORKSPACE_DIR = join(TEST_DIR, "workspace");
+const WORKSPACE_DIR = TEST_DIR;
 // ---------------------------------------------------------------------------
 // Mock platform paths
 // ---------------------------------------------------------------------------

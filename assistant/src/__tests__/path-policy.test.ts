@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   hostPolicy,
@@ -26,7 +26,7 @@ const CLASSIFIER_TEST_ROOT = realpathSync(
 );
 process.env.VELLUM_HOME = CLASSIFIER_TEST_ROOT;
 process.env.VELLUM_WORKSPACE_DIR = CLASSIFIER_TEST_ROOT;
-const MOCK_MANAGED_DIR = join(CLASSIFIER_TEST_ROOT, "workspace", "skills");
+const MOCK_MANAGED_DIR = join(CLASSIFIER_TEST_ROOT, "skills");
 const MOCK_BUNDLED_DIR = join(CLASSIFIER_TEST_ROOT, "bundled-skills");
 
 mock.module("../config/skills.js", () => ({
@@ -50,6 +50,11 @@ const {
 } = await import("../skills/path-classifier.js");
 
 const testDirs: string[] = [];
+
+beforeEach(() => {
+  process.env.VELLUM_HOME = CLASSIFIER_TEST_ROOT;
+  process.env.VELLUM_WORKSPACE_DIR = CLASSIFIER_TEST_ROOT;
+});
 
 afterEach(() => {
   delete process.env.VELLUM_HOME;
@@ -342,7 +347,6 @@ describe("getManagedSkillsRoot / getBundledSkillsRoot", () => {
   test("returns managed skills dir with trailing separator", () => {
     const root = getManagedSkillsRoot();
     expect(root.endsWith(sep)).toBe(true);
-    expect(root).toContain("workspace");
     expect(root).toContain("skills");
   });
 

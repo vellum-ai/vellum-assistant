@@ -40,7 +40,7 @@ const FAST_TIMEOUTS = {
 } as const;
 
 function placeFakeBinary(script: string): string {
-  const binaryPath = join(testDataDir, "qdrant", "bin", "qdrant");
+  const binaryPath = join(testDataDir, "data", "qdrant", "bin", "qdrant");
   writeFileSync(binaryPath, script);
   chmodSync(binaryPath, 0o755);
   return binaryPath;
@@ -51,7 +51,7 @@ function getTestPort(): number {
   return nextPort++;
 }
 
-const qdrantDir = join(testDataDir, "qdrant");
+const qdrantDir = join(testDataDir, "data", "qdrant");
 const qdrantBinDir = join(qdrantDir, "bin");
 
 beforeAll(() => {
@@ -149,7 +149,7 @@ describe("QdrantManager", () => {
 
   describe("stop() without running process", () => {
     test("removes stale PID file", async () => {
-      const pidPath = join(testDataDir, "qdrant", "qdrant.pid");
+      const pidPath = join(testDataDir, "data", "qdrant", "qdrant.pid");
       writeFileSync(pidPath, "99999");
 
       const mgr = new QdrantManager({ url: "http://127.0.0.1:6333" });
@@ -168,7 +168,7 @@ describe("QdrantManager", () => {
 
   describe("stale PID cleanup during start()", () => {
     test("removes PID file for non-existent process", async () => {
-      const pidPath = join(testDataDir, "qdrant", "qdrant.pid");
+      const pidPath = join(testDataDir, "data", "qdrant", "qdrant.pid");
       writeFileSync(pidPath, "2147483647");
 
       placeFakeBinary("#!/bin/sh\nexit 1");
@@ -189,7 +189,7 @@ describe("QdrantManager", () => {
     }, 10_000);
 
     test("handles invalid PID file contents", async () => {
-      const pidPath = join(testDataDir, "qdrant", "qdrant.pid");
+      const pidPath = join(testDataDir, "data", "qdrant", "qdrant.pid");
       writeFileSync(pidPath, "garbage");
 
       placeFakeBinary("#!/bin/sh\nexit 1");
@@ -210,7 +210,7 @@ describe("QdrantManager", () => {
     }, 10_000);
 
     test("handles empty PID file", async () => {
-      const pidPath = join(testDataDir, "qdrant", "qdrant.pid");
+      const pidPath = join(testDataDir, "data", "qdrant", "qdrant.pid");
       writeFileSync(pidPath, "");
 
       placeFakeBinary("#!/bin/sh\nexit 1");
@@ -235,7 +235,7 @@ describe("QdrantManager", () => {
 
   describe("process lifecycle", () => {
     test("writes PID file after spawning", async () => {
-      const pidPath = join(testDataDir, "qdrant", "qdrant.pid");
+      const pidPath = join(testDataDir, "data", "qdrant", "qdrant.pid");
 
       // Binary that stays alive. We'll stop it before readyz times out.
       placeFakeBinary("#!/bin/sh\nexec sleep 300");
@@ -267,7 +267,7 @@ describe("QdrantManager", () => {
     }, 10_000);
 
     test("stop() escalates to SIGKILL after grace period", async () => {
-      const pidPath = join(testDataDir, "qdrant", "qdrant.pid");
+      const pidPath = join(testDataDir, "data", "qdrant", "qdrant.pid");
 
       // Binary that ignores SIGTERM
       placeFakeBinary('#!/bin/sh\ntrap "" TERM\nexec sleep 300');
@@ -299,7 +299,7 @@ describe("QdrantManager", () => {
 
   describe("start failure cleanup", () => {
     test("cleans up process on readyz timeout", async () => {
-      const pidPath = join(testDataDir, "qdrant", "qdrant.pid");
+      const pidPath = join(testDataDir, "data", "qdrant", "qdrant.pid");
 
       // Binary that stays alive but never serves readyz
       placeFakeBinary("#!/bin/sh\nexec sleep 300");
@@ -315,7 +315,7 @@ describe("QdrantManager", () => {
     }, 10_000);
 
     test("fails fast with exit code when process exits immediately", async () => {
-      const pidPath = join(testDataDir, "qdrant", "qdrant.pid");
+      const pidPath = join(testDataDir, "data", "qdrant", "qdrant.pid");
 
       // GIVEN a Qdrant binary that exits immediately with code 1
       placeFakeBinary("#!/bin/sh\nexit 1");
@@ -374,7 +374,7 @@ describe("QdrantManager", () => {
         /* readyz timeout */
       }
 
-      const binaryPath = join(testDataDir, "qdrant", "bin", "qdrant");
+      const binaryPath = join(testDataDir, "data", "qdrant", "bin", "qdrant");
       expect(existsSync(binaryPath)).toBe(true);
     }, 10_000);
   });

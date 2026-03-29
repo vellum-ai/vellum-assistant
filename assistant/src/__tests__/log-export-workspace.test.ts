@@ -30,10 +30,8 @@ const testDir = realpathSync(
 );
 process.env.VELLUM_HOME = testDir;
 process.env.VELLUM_WORKSPACE_DIR = testDir;
-const testWorkspaceDir = join(testDir, "workspace");
-const testDbDir = join(testDir, "db");
+const testWorkspaceDir = testDir;
 mkdirSync(testWorkspaceDir, { recursive: true });
-mkdirSync(testDbDir, { recursive: true });
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>

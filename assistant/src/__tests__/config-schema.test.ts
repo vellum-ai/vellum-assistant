@@ -14,7 +14,7 @@ const TEST_DIR = join(
 );
 process.env.VELLUM_HOME = TEST_DIR;
 process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
-const WORKSPACE_DIR = join(TEST_DIR, "workspace");
+const WORKSPACE_DIR = TEST_DIR;
 const CONFIG_PATH = join(WORKSPACE_DIR, "config.json");
 
 function ensureTestDir(): void {

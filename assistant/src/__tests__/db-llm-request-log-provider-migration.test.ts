@@ -17,7 +17,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 const testDir = mkdtempSync(join(tmpdir(), "llm-request-log-provider-"));
 process.env.VELLUM_HOME = testDir;
 process.env.VELLUM_WORKSPACE_DIR = testDir;
-const dbPath = join(testDir, "test.db");
+const dbPath = join(testDir, "data", "db", "assistant.db");
 const originalBunTest = process.env.BUN_TEST;
 
 mock.module("../util/logger.js", () => ({

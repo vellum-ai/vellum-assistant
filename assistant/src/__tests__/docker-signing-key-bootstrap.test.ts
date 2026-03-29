@@ -52,6 +52,7 @@ beforeEach(() => {
   savedEnv.ACTOR_TOKEN_SIGNING_KEY = process.env.ACTOR_TOKEN_SIGNING_KEY;
   // Clean up key files from previous tests so they don't leak between cases.
   rmSync(join(testDir, ".vellum"), { recursive: true, force: true });
+  rmSync(join(testDir, "deprecated"), { recursive: true, force: true });
   mkdirSync(join(testDir, ".vellum", "protected"), { recursive: true });
 });
 
