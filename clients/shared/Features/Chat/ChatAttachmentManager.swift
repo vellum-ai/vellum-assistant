@@ -253,7 +253,7 @@ public final class ChatAttachmentManager {
 
             var thumbnail: Data?
             if let utType = UTType(filenameExtension: url.pathExtension), utType.conforms(to: .image) {
-                thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 120)
+                thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 800)
             }
 
             if wasCompressed {
@@ -352,7 +352,7 @@ public final class ChatAttachmentManager {
             log.debug("[Attachment] normalized id=\(attachmentId) mimeType=\(mimeType) originalBytes=\(pngData.count) finalBytes=\(finalData.count) compressed=\(wasCompressed)")
 
             let base64 = finalData.base64EncodedString()
-            let thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 120)
+            let thumbnail = Self.generateThumbnail(from: finalData, maxDimension: 800)
 
             return .success(ProcessedAttachmentData(
                 id: attachmentId,

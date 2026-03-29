@@ -192,8 +192,8 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                     if isSingleImage {
                         // Single images: prefer full-resolution data so the frame
                         // sizing (which uses native pixel dimensions) is accurate.
-                        // Thumbnails are 120px max — using them caps the display
-                        // at ~60pt on Retina, far too small.
+                        // Thumbnails are 800px max — using them gives ~400pt on
+                        // Retina, adequate for most previews.
                         if let fullData = Data(base64Encoded: attachment.data), !fullData.isEmpty,
                            let img = NSImage(data: fullData) {
                             guard !Task.isCancelled else { return }
