@@ -46,10 +46,6 @@ mock.module("../tools/terminal/safe-env.js", () => ({
 }));
 
 // Mock platform
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => "/tmp/test-data",
-}));
-
 // Mock proxy session manager
 const mockGetOrStartSession = mock((_convId: string, _credIds: string[]) =>
   Promise.resolve({
@@ -77,6 +73,8 @@ const TEST_DIR = join(
   tmpdir(),
   `vellum-shell-cred-ref-test-${randomBytes(4).toString("hex")}`,
 );
+process.env.VELLUM_HOME = TEST_DIR;
+process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
 const META_PATH = join(TEST_DIR, "metadata.json");
 
 // Import the shell tool after mocks
@@ -98,6 +96,8 @@ beforeEach(() => {
 });
 
 afterAll(() => {
+  delete process.env.VELLUM_HOME;
+  delete process.env.VELLUM_WORKSPACE_DIR;
   _setMetadataPath(null);
   if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
   mock.restore();

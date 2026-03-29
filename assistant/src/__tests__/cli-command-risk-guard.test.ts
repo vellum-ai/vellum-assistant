@@ -11,19 +11,8 @@ import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
 const guardTestDir = mkdtempSync(join(tmpdir(), "cli-risk-guard-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(guardTestDir, "protected"),
-  getDataDir: () => join(guardTestDir, "data"),
-  getWorkspaceSkillsDir: () => join(guardTestDir, "skills"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(guardTestDir, "test.pid"),
-  getDbPath: () => join(guardTestDir, "test.db"),
-  getLogPath: () => join(guardTestDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+process.env.VELLUM_HOME = guardTestDir;
+process.env.VELLUM_WORKSPACE_DIR = guardTestDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>

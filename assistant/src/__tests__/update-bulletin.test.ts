@@ -41,39 +41,6 @@ let tempTemplateDir: string;
 // Mock platform to avoid env-registry transitive imports.
 // All needed exports are stubbed; getWorkspacePromptPath is the only one
 // exercised by update-bulletin.ts.
-mock.module("../util/platform.js", () => ({
-  getWorkspacePromptPath: mock((file: string) => join(tempDir, file)),
-  getWorkspaceDir: () => tempDir,
-  getProtectedDir: () => join(tempDir, "protected"),
-  getDataDir: () => join(tempDir, "data"),
-  getPlatformName: () => "darwin",
-  isMacOS: () => false,
-  isLinux: () => false,
-  isWindows: () => false,
-  ensureDataDir: () => {},
-  getDbPath: () => "",
-  getLogPath: () => "",
-  getHistoryPath: () => "",
-  getHooksDir: () => "",
-  getSessionTokenPath: () => "",
-  getPlatformTokenPath: () => "",
-  getPidPath: () => "",
-  getWorkspaceConfigPath: () => "",
-  getWorkspaceSkillsDir: () => "",
-  getWorkspaceHooksDir: () => "",
-
-  getSandboxRootDir: () => "",
-  getSandboxWorkingDir: () => "",
-  getInterfacesDir: () => "",
-  getClipboardCommand: () => null,
-  readPlatformToken: () => null,
-  readSessionToken: () => null,
-  getTCPPort: () => 8765,
-  isTCPEnabled: () => false,
-  getTCPHost: () => "127.0.0.1",
-  isIOSPairingEnabled: () => false,
-}));
-
 // Mock system-prompt to provide only stripCommentLines without pulling in
 // the rest of the system-prompt transitive dependency tree.
 mock.module("../prompts/system-prompt.js", () => {
@@ -128,6 +95,8 @@ describe("syncUpdateBulletinOnStartup", () => {
         .toString(36)
         .slice(2)}`,
     );
+    process.env.VELLUM_HOME = tempDir;
+    process.env.VELLUM_WORKSPACE_DIR = tempDir;
     mkdirSync(tempDir, { recursive: true });
     tempTemplateDir = join(
       tmpdir(),
@@ -139,6 +108,8 @@ describe("syncUpdateBulletinOnStartup", () => {
   });
 
   afterEach(() => {
+    delete process.env.VELLUM_HOME;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     rmSync(tempDir, { recursive: true, force: true });
     rmSync(tempTemplateDir, { recursive: true, force: true });
   });

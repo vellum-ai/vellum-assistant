@@ -87,18 +87,8 @@ mock.module("../config/env.js", () => ({
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "twilio-routes-test-")),
 );
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
@@ -440,6 +430,8 @@ describe("twilio webhook routes", () => {
   });
 
   afterAll(() => {
+    delete process.env.VELLUM_HOME;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     globalThis.fetch = originalFetch;
     resetDb();
     try {

@@ -15,7 +15,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Create a temp workspace directory for isolation
@@ -24,17 +24,10 @@ import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 const testWorkspaceDir = realpathSync(
   mkdtempSync(join(tmpdir(), "workspace-routes-test-")),
 );
+process.env.VELLUM_HOME = testWorkspaceDir;
+process.env.VELLUM_WORKSPACE_DIR = testWorkspaceDir;
 
 // Mock platform module so getWorkspaceDir returns our temp dir
-mock.module("../../util/platform.js", () => ({
-  getWorkspaceDir: () => testWorkspaceDir,
-  getRootDir: () => testWorkspaceDir,
-  getDataDir: () => testWorkspaceDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-}));
-
 import { workspaceRouteDefinitions } from "./workspace-routes.js";
 import { isTextMimeType, resolveWorkspacePath } from "./workspace-utils.js";
 
@@ -66,6 +59,8 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  delete process.env.VELLUM_HOME;
+  delete process.env.VELLUM_WORKSPACE_DIR;
   rmSync(testWorkspaceDir, { recursive: true, force: true });
 });
 

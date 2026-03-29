@@ -29,22 +29,10 @@ import {
 } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "relay-server-test-"));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // ── Platform + logger mocks (must come before any source imports) ────
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const realPlatform = require("../util/platform.js");
-mock.module("../util/platform.js", () => ({
-  ...realPlatform,
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const realLogger = require("../util/logger.js");
@@ -213,6 +201,8 @@ import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 initializeDb();
 
 afterAll(() => {
+  delete process.env.VELLUM_HOME;
+  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
   try {
     rmSync(testDir, { recursive: true });

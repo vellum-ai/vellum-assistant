@@ -13,11 +13,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => testDir,
-}));
-
 import {
   isAllowlisted,
   loadAllowlist,
@@ -33,11 +28,15 @@ describe("secret-allowlist", () => {
         .toString(36)
         .slice(2)}`,
     );
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     mkdirSync(join(testDir, "protected"), { recursive: true });
     resetAllowlist();
   });
 
   afterEach(() => {
+    delete process.env.VELLUM_HOME;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     resetAllowlist();
     if (existsSync(testDir)) {
       rmSync(testDir, { recursive: true, force: true });

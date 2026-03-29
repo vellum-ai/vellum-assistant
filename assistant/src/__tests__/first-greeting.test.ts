@@ -1,28 +1,9 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 let tempDir: string;
-
-mock.module("../util/platform.js", () => ({
-  getWorkspacePromptPath: mock((file: string) => join(tempDir, file)),
-  getWorkspaceDir: () => tempDir,
-  getProtectedDir: () => join(tempDir, "protected"),
-  getDataDir: () => join(tempDir, "data"),
-  getPlatformName: () => "darwin",
-  isMacOS: () => false,
-  isLinux: () => false,
-  isWindows: () => false,
-  ensureDataDir: () => {},
-  getDbPath: () => "",
-  getLogPath: () => "",
-  getHistoryPath: () => "",
-  getHooksDir: () => "",
-  getSessionTokenPath: () => "",
-  getPlatformTokenPath: () => "",
-  getPidPath: () => "",
-}));
 
 const { isWakeUpGreeting, getCannedFirstGreeting, CANNED_FIRST_GREETING } =
   await import("../daemon/first-greeting.js");
@@ -30,10 +11,14 @@ const { isWakeUpGreeting, getCannedFirstGreeting, CANNED_FIRST_GREETING } =
 describe("first-greeting", () => {
   beforeEach(() => {
     tempDir = join(tmpdir(), `first-greeting-test-${Date.now()}`);
+    process.env.VELLUM_HOME = tempDir;
+    process.env.VELLUM_WORKSPACE_DIR = tempDir;
     mkdirSync(tempDir, { recursive: true });
   });
 
   afterEach(() => {
+    delete process.env.VELLUM_HOME;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     rmSync(tempDir, { recursive: true, force: true });
   });
 

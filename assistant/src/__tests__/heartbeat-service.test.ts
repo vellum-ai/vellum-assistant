@@ -6,10 +6,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Mock platform to use a temp workspace dir
 let testWorkspaceDir: string;
 
-mock.module("../util/platform.js", () => ({
-  getWorkspacePromptPath: (file: string) => join(testWorkspaceDir, file),
-}));
-
 // Mock config loader
 let mockConfig = {
   heartbeat: {
@@ -88,6 +84,8 @@ describe("HeartbeatService", () => {
       tmpdir(),
       `vellum-hb-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
+    process.env.VELLUM_HOME = testWorkspaceDir;
+    process.env.VELLUM_WORKSPACE_DIR = testWorkspaceDir;
     mkdirSync(testWorkspaceDir, { recursive: true });
 
     processMessageCalls = [];
@@ -343,7 +341,9 @@ describe("HeartbeatService", () => {
 
     expect(afterReset).not.toBeNull();
     // The new nextRunAt should be >= the interval from now
-    expect(afterReset!).toBeGreaterThanOrEqual(before + mockConfig.heartbeat.intervalMs);
+    expect(afterReset!).toBeGreaterThanOrEqual(
+      before + mockConfig.heartbeat.intervalMs,
+    );
     service.stop();
   });
 

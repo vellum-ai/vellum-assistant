@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -13,6 +13,8 @@ const TEST_DIR = join(
   tmpdir(),
   `vellum-rotation-test-${randomBytes(4).toString("hex")}`,
 );
+process.env.VELLUM_HOME = TEST_DIR;
+process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
 const DB_PATH = join(TEST_DIR, "assistant.db");
 
 mock.module("../util/logger.js", () => ({
@@ -20,18 +22,6 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
-}));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => TEST_DIR,
-  getDbPath: () => DB_PATH,
-  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
-  ensureDataDir: () => {
-    if (!existsSync(TEST_DIR)) mkdirSync(TEST_DIR, { recursive: true });
-  },
-  isMacOS: () => false,
-  isLinux: () => false,
-  isWindows: () => false,
 }));
 
 import { initializeDb, resetDb } from "../memory/db.js";

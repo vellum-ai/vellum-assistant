@@ -1,16 +1,11 @@
 import { mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 const TEST_DIR = join(tmpdir(), `vellum-journal-test-${crypto.randomUUID()}`);
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const realPlatform = require("../util/platform.js");
-mock.module("../util/platform.js", () => ({
-  ...realPlatform,
-  getWorkspaceDir: () => TEST_DIR,
-}));
+process.env.VELLUM_HOME = TEST_DIR;
+process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
 
 const {
   buildJournalContext,
@@ -49,9 +44,7 @@ describe("formatJournalRelativeTime", () => {
 
   test("returns days for times between 1-6 days ago", () => {
     const now = Date.now();
-    expect(formatJournalRelativeTime(now - 24 * 60 * 60_000)).toBe(
-      "1 day ago",
-    );
+    expect(formatJournalRelativeTime(now - 24 * 60 * 60_000)).toBe("1 day ago");
     expect(formatJournalRelativeTime(now - 3 * 24 * 60 * 60_000)).toBe(
       "3 days ago",
     );
@@ -101,6 +94,8 @@ describe("buildJournalContext", () => {
   });
 
   afterEach(() => {
+    delete process.env.VELLUM_HOME;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     rmSync(TEST_DIR, { recursive: true, force: true });
   });
 

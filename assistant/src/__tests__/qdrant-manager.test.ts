@@ -20,10 +20,8 @@ import {
 } from "bun:test";
 
 const testDataDir = "/tmp/qdrant-manager-test-" + process.pid;
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDataDir,
-}));
+process.env.VELLUM_HOME = testDataDir;
+process.env.VELLUM_WORKSPACE_DIR = testDataDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -76,6 +74,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete process.env.VELLUM_HOME;
+  delete process.env.VELLUM_WORKSPACE_DIR;
   delete process.env.QDRANT_URL;
 });
 

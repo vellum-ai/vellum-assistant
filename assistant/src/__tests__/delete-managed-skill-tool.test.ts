@@ -12,11 +12,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 let TEST_DIR = "";
 
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(TEST_DIR, "protected"),
-  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
-}));
-
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -52,10 +47,14 @@ function createSkill(id: string): void {
 
 beforeEach(() => {
   TEST_DIR = mkdtempSync(join(tmpdir(), "delete-tool-test-"));
+  process.env.VELLUM_HOME = TEST_DIR;
+  process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
   mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
 });
 
 afterEach(() => {
+  delete process.env.VELLUM_HOME;
+  delete process.env.VELLUM_WORKSPACE_DIR;
   rmSync(TEST_DIR, { recursive: true, force: true });
 });
 

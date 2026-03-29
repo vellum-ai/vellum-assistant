@@ -2,24 +2,23 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 const testDir = mkdtempSync(join(tmpdir(), "llm-request-log-provider-"));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 const dbPath = join(testDir, "test.db");
 const originalBunTest = process.env.BUN_TEST;
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => dbPath,
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -40,7 +39,9 @@ function createTestDb() {
   return drizzle(sqlite, { schema });
 }
 
-function getColumnInfo(raw: Database): Array<{ name: string; notnull: number }> {
+function getColumnInfo(
+  raw: Database,
+): Array<{ name: string; notnull: number }> {
   return raw.query(`PRAGMA table_info(llm_request_logs)`).all() as Array<{
     name: string;
     notnull: number;
@@ -74,6 +75,8 @@ describe("llm_request_logs provider migration", () => {
   });
 
   afterEach(() => {
+    delete process.env.VELLUM_HOME;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     resetDb();
     removeTestDbFiles();
   });
@@ -132,9 +135,9 @@ describe("llm_request_logs provider migration", () => {
 
     migrateLlmRequestLogProvider(db);
 
-    expect(getColumnInfo(raw).some((column) => column.name === "provider")).toBe(
-      true,
-    );
+    expect(
+      getColumnInfo(raw).some((column) => column.name === "provider"),
+    ).toBe(true);
 
     const row = raw
       .query(
@@ -142,17 +145,15 @@ describe("llm_request_logs provider migration", () => {
          FROM llm_request_logs
          WHERE id = 'log-upgrade'`,
       )
-      .get() as
-      | {
-          id: string;
-          conversation_id: string;
-          message_id: string | null;
-          provider: string | null;
-          request_payload: string;
-          response_payload: string;
-          created_at: number;
-        }
-      | null;
+      .get() as {
+      id: string;
+      conversation_id: string;
+      message_id: string | null;
+      provider: string | null;
+      request_payload: string;
+      response_payload: string;
+      created_at: number;
+    } | null;
 
     expect(row).toEqual({
       id: "log-upgrade",
@@ -200,9 +201,7 @@ describe("llm_request_logs provider migration", () => {
     expect(() => migrateLlmRequestLogProvider(db)).not.toThrow();
 
     const row = raw
-      .query(
-        `SELECT provider FROM llm_request_logs WHERE id = 'log-rerun'`,
-      )
+      .query(`SELECT provider FROM llm_request_logs WHERE id = 'log-rerun'`)
       .get() as { provider: string | null } | null;
 
     expect(row).toEqual({

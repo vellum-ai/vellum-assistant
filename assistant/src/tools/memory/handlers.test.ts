@@ -18,19 +18,10 @@ import {
 } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "memory-recall-handler-"));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // ── Module mocks (must precede production imports) ───────────────────
-
-mock.module("../../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
@@ -260,6 +251,8 @@ describe("handleMemoryRecall", () => {
   });
 
   afterAll(() => {
+    delete process.env.VELLUM_HOME;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     rmSync(testDir, { recursive: true, force: true });
   });
 

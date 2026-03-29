@@ -17,36 +17,12 @@ import {
 // ---------------------------------------------------------------------------
 
 const TEST_DIR = join(tmpdir(), `config-watcher-test-${crypto.randomUUID()}`);
+process.env.VELLUM_HOME = TEST_DIR;
+process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
 const WORKSPACE_DIR = join(TEST_DIR, "workspace");
-const SKILLS_DIR = join(WORKSPACE_DIR, "skills");
-
 // ---------------------------------------------------------------------------
 // Mock platform paths
 // ---------------------------------------------------------------------------
-
-mock.module("../util/platform.js", () => ({
-  getWorkspaceDir: () => WORKSPACE_DIR,
-  getWorkspaceSkillsDir: () => SKILLS_DIR,
-  getWorkspaceConfigPath: () => join(WORKSPACE_DIR, "config.json"),
-  getWorkspacePromptPath: (file: string) => join(WORKSPACE_DIR, file),
-  ensureDataDir: () => {},
-  getDataDir: () => join(WORKSPACE_DIR, "data"),
-  getPidPath: () => join(TEST_DIR, "vellum.pid"),
-  getDbPath: () => join(WORKSPACE_DIR, "data", "assistant.db"),
-  getLogPath: () => join(WORKSPACE_DIR, "data", "logs", "vellum.log"),
-  getHistoryPath: () => join(WORKSPACE_DIR, "data", "history"),
-  getHooksDir: () => join(WORKSPACE_DIR, "hooks"),
-  getSignalsDir: () => join(TEST_DIR, "signals"),
-
-  getSandboxRootDir: () => join(WORKSPACE_DIR, "data", "sandbox"),
-  getSandboxWorkingDir: () => WORKSPACE_DIR,
-  getInterfacesDir: () => join(WORKSPACE_DIR, "data", "interfaces"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPlatformName: () => process.platform,
-  getClipboardCommand: () => null,
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -152,6 +128,8 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  delete process.env.VELLUM_HOME;
+  delete process.env.VELLUM_WORKSPACE_DIR;
   rmSync(TEST_DIR, { recursive: true, force: true });
 });
 

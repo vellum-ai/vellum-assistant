@@ -7,19 +7,10 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
 const testDir = mkdtempSync(join(tmpdir(), "conversation-fork-lineage-"));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 const dbPath = join(testDir, "test.db");
 const originalBunTest = process.env.BUN_TEST;
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => dbPath,
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -42,7 +33,9 @@ function createTestDb() {
 
 function getColumnNames(raw: Database): string[] {
   return (
-    raw.query(`PRAGMA table_info(conversations)`).all() as Array<{ name: string }>
+    raw.query(`PRAGMA table_info(conversations)`).all() as Array<{
+      name: string;
+    }>
   ).map((column) => column.name);
 }
 
@@ -91,6 +84,8 @@ describe("conversation fork lineage migration", () => {
   });
 
   afterAll(() => {
+    delete process.env.VELLUM_HOME;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     process.env.BUN_TEST = originalBunTest;
     removeTestDbFiles();
     try {

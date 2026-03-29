@@ -1458,7 +1458,10 @@ describe("injectNowScratchpad", () => {
     const messageWithMemory: Message = {
       role: "user",
       content: [
-        { type: "text", text: "<memory_context __injected>\nrecalled notes\n</memory_context>" },
+        {
+          type: "text",
+          text: "<memory_context __injected>\nrecalled notes\n</memory_context>",
+        },
         { type: "text", text: "What should I work on?" },
       ],
     };
@@ -1635,9 +1638,9 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
       (result[0].content[0] as { type: "text"; text: string }).text,
     ).toContain("<NOW.md");
     // Original text is last
-    expect(
-      (result[0].content[1] as { type: "text"; text: string }).text,
-    ).toBe("What should I do?");
+    expect((result[0].content[1] as { type: "text"; text: string }).text).toBe(
+      "What should I do?",
+    );
   });
 
   test("does not inject when nowScratchpad is null", () => {

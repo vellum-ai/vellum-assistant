@@ -2,10 +2,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Mock platform so we don't touch real ~/.vellum
 const testDataDir = "/tmp/browser-manager-test";
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDataDir,
-}));
-
+process.env.VELLUM_HOME = testDataDir;
+process.env.VELLUM_WORKSPACE_DIR = testDataDir;
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {

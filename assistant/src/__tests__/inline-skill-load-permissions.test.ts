@@ -23,22 +23,11 @@ import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 // ── Mock setup (must be before any imports from the project) ──────────────
 
 const testDir = mkdtempSync(join(tmpdir(), "inline-skill-perm-test-"));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // Point the file-based trust backend at the test temp dir.
 process.env.GATEWAY_SECURITY_DIR = join(testDir, "protected");
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => join(testDir, "data"),
-  getWorkspaceSkillsDir: () => join(testDir, "skills"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>

@@ -13,22 +13,11 @@ import {
 
 // Use a temp directory so trust-store doesn't touch ~/.vellum
 const testDir = mkdtempSync(join(tmpdir(), "ephemeral-perm-test-"));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // Point the file-based trust backend at the test temp dir.
 process.env.GATEWAY_SECURITY_DIR = join(testDir, "protected");
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => join(testDir, "data"),
-  getWorkspaceSkillsDir: () => join(testDir, "skills"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -328,6 +317,8 @@ describe("ephemeral-permissions", () => {
     });
 
     afterEach(() => {
+      delete process.env.VELLUM_HOME;
+      delete process.env.VELLUM_WORKSPACE_DIR;
       testConfig.permissions.mode = "workspace";
     });
 

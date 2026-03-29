@@ -2,7 +2,10 @@ import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { getWorkspaceDirOverride } from "../config/env-registry.js";
+import {
+  getVellumHomeOverride,
+  getWorkspaceDirOverride,
+} from "../config/env-registry.js";
 
 export function isMacOS(): boolean {
   return process.platform === "darwin";
@@ -62,6 +65,8 @@ export function normalizeAssistantId(assistantId: string): string {
  * env-var indirection.
  */
 function vellumRoot(): string {
+  const override = getVellumHomeOverride();
+  if (override) return override;
   return join(homedir(), ".vellum");
 }
 

@@ -17,19 +17,8 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const testTmpDir = mkdtempSync(join(tmpdir(), "terminal-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testTmpDir, "protected"),
-  getDataDir: () => join(testTmpDir, "data"),
-  getSandboxWorkingDir: () => join(testTmpDir, "sandbox"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testTmpDir, "test.pid"),
-  getDbPath: () => join(testTmpDir, "test.db"),
-  getLogPath: () => join(testTmpDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+process.env.VELLUM_HOME = testTmpDir;
+process.env.VELLUM_WORKSPACE_DIR = testTmpDir;
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
@@ -394,6 +383,8 @@ describe("buildSanitizedEnv", () => {
   const originalEnv = { ...process.env };
 
   afterEach(() => {
+    delete process.env.VELLUM_HOME;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     // Restore env
     for (const key of Object.keys(process.env)) {
       if (!(key in originalEnv)) {

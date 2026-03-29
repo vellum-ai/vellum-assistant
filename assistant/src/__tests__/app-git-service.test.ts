@@ -2,18 +2,13 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { _resetGitServiceRegistry } from "../workspace/git-service.js";
 
 // Mock getDataDir to use a temp directory
 let testDataDir: string;
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDataDir,
-  getProjectDir: () => testDataDir,
-}));
 
 // Re-import app-store after mocking so it uses our temp dir
 const {
@@ -31,11 +26,15 @@ describe("App Git Service", () => {
       tmpdir(),
       `vellum-app-git-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
+    process.env.VELLUM_HOME = testDataDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDataDir;
     mkdirSync(join(testDataDir, "apps"), { recursive: true });
     _resetGitServiceRegistry();
   });
 
   afterEach(() => {
+    delete process.env.VELLUM_HOME;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     if (existsSync(testDataDir)) {
       rmSync(testDataDir, { recursive: true, force: true });
     }

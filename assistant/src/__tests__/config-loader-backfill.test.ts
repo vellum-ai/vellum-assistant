@@ -26,6 +26,8 @@ const TEST_DIR = join(
   tmpdir(),
   `vellum-backfill-test-${randomBytes(4).toString("hex")}`,
 );
+process.env.VELLUM_HOME = TEST_DIR;
+process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
 const WORKSPACE_DIR = join(TEST_DIR, "workspace");
 const CONFIG_PATH = join(WORKSPACE_DIR, "config.json");
 
@@ -64,21 +66,11 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(TEST_DIR, "protected"),
-  getWorkspaceDir: () => WORKSPACE_DIR,
-  getWorkspaceConfigPath: () => CONFIG_PATH,
-  getDataDir: () => join(TEST_DIR, "data"),
-  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
-  ensureDataDir: () => ensureTestDir(),
-  isMacOS: () => false,
-  isLinux: () => false,
-  isWindows: () => false,
-}));
-
 // Restore all mocked modules after this file's tests complete to prevent
 // cross-test contamination when running grouped with other test files.
 afterAll(() => {
+  delete process.env.VELLUM_HOME;
+  delete process.env.VELLUM_WORKSPACE_DIR;
   mock.restore();
 });
 

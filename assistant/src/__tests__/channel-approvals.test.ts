@@ -18,18 +18,8 @@ mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 // ---------------------------------------------------------------------------
 
 const testDir = mkdtempSync(join(tmpdir(), "channel-approvals-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -55,6 +45,8 @@ import {
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 afterAll(() => {
+  delete process.env.VELLUM_HOME;
+  delete process.env.VELLUM_WORKSPACE_DIR;
   try {
     rmSync(testDir, { recursive: true });
   } catch {

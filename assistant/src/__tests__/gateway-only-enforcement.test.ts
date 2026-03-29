@@ -17,19 +17,8 @@ import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "gw-only-enforcement-test-")),
 );
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => testDir,
-  getWorkspaceConfigPath: () => join(testDir, "config.json"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 const logMessages: { level: string; msg: string; args?: unknown }[] = [];
 
@@ -189,6 +178,8 @@ describe("gateway-only ingress enforcement", () => {
   });
 
   afterAll(async () => {
+    delete process.env.VELLUM_HOME;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     await server.stop();
   });
 

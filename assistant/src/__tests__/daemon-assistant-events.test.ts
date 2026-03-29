@@ -6,29 +6,9 @@
  *   - send()      → one mirrored assistant event per message
  *   - broadcast() → one mirrored assistant event per message (not per socket)
  */
-import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
 // ── Platform mock (must happen before imports that read it) ─────────────────
-mock.module("../util/platform.js", () => ({
-  getSessionTokenPath: () => "/tmp/test-token",
-  getProtectedDir: () => join("/tmp/test", "protected"),
-  getDataDir: () => "/tmp/test",
-  getWorkspaceDir: () => "/tmp/test/workspace",
-  getWorkspaceSkillsDir: () => "/tmp/test/skills",
-  getSandboxWorkingDir: () => "/tmp/test/sandbox",
-  getTCPPort: () => undefined,
-  getTCPHost: () => "127.0.0.1",
-  isTCPEnabled: () => false,
-  isMacOS: () => false,
-  isLinux: () => true,
-  isWindows: () => false,
-  getPidPath: () => "/tmp/test.pid",
-  getLogPath: () => "/tmp/test.log",
-  getDbPath: () => "/tmp/test.db",
-  ensureDataDir: () => {},
-}));
-
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {

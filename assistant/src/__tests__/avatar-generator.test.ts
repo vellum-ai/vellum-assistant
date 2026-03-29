@@ -7,6 +7,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 let mockRouterResult: unknown;
 let mockRouterError: Error | undefined;
 let mockWorkspaceDir = "/tmp/test-workspace";
+process.env.VELLUM_HOME = mockWorkspaceDir;
+process.env.VELLUM_WORKSPACE_DIR = mockWorkspaceDir;
 
 const generateAvatarFn = mock(async () => {
   if (mockRouterError) throw mockRouterError;
@@ -32,10 +34,6 @@ mock.module("../util/logger.js", () => ({
     warn: () => {},
     error: () => {},
   }),
-}));
-
-mock.module("../util/platform.js", () => ({
-  getWorkspaceDir: () => mockWorkspaceDir,
 }));
 
 mock.module("node:fs", () => ({

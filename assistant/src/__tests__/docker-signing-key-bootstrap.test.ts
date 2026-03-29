@@ -23,27 +23,14 @@ import {
 } from "bun:test";
 
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), "signing-key-test-")));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // Mock homedir() so the hardcoded LEGACY_SIGNING_KEY_PATH resolves inside
 // the temp test directory instead of the real ~/.vellum/protected/.
 mock.module("node:os", () => ({
   homedir: () => testDir,
   tmpdir,
-}));
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, ".vellum", "protected"),
-  getWorkspaceDir: () => join(testDir, ".vellum", "workspace"),
-  getDeprecatedDir: () => join(testDir, ".vellum", "workspace", "deprecated"),
-  getDataDir: () => testDir,
-  getDbPath: () => join(testDir, "test.db"),
-  normalizeAssistantId: (id: string) => (id === "self" ? "self" : id),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -67,6 +54,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete process.env.VELLUM_HOME;
+  delete process.env.VELLUM_WORKSPACE_DIR;
   if (savedEnv.ACTOR_TOKEN_SIGNING_KEY === undefined) {
     delete process.env.ACTOR_TOKEN_SIGNING_KEY;
   } else {

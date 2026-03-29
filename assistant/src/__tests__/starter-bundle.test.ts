@@ -9,6 +9,8 @@ const TEST_ROOT = join(
   "..",
   ".test-starter-bundle-" + process.pid,
 );
+process.env.VELLUM_HOME = TEST_ROOT;
+process.env.VELLUM_WORKSPACE_DIR = TEST_ROOT;
 const TRUST_PATH = join(TEST_ROOT, "protected", "trust.json");
 
 // We need to mock getRootDir before importing trust-store
@@ -18,10 +20,6 @@ import { mock } from "bun:test";
 process.env.GATEWAY_SECURITY_DIR = join(TEST_ROOT, "protected");
 
 // Mock the platform module to use our test root
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(TEST_ROOT, "protected"),
-}));
-
 // Mock the skills config module used by defaults.ts
 mock.module("../config/skills.js", () => ({
   getBundledSkillsDir: () => join(TEST_ROOT, "bundled-skills"),
@@ -51,6 +49,8 @@ describe("Starter approval bundle", () => {
   });
 
   afterEach(() => {
+    delete process.env.VELLUM_HOME;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     // Clean up test directory
     if (existsSync(TEST_ROOT)) {
       rmSync(TEST_ROOT, { recursive: true, force: true });

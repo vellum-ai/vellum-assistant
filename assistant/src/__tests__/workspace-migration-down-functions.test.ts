@@ -34,12 +34,6 @@ mock.module("../security/credential-key.js", () => ({
 
 // Mock getRootDir for 016-extract-feature-flags-to-protected
 let mockRootDir: string = "/tmp/mock-root";
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(mockRootDir, "protected"),
-  getDataDir: () => join(mockRootDir, "workspace", "data"),
-  getWorkspaceDir: () => join(mockRootDir, "workspace"),
-}));
-
 // ---------------------------------------------------------------------------
 // Imports — after mocking
 // ---------------------------------------------------------------------------
@@ -89,6 +83,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  delete process.env.VELLUM_HOME;
+  delete process.env.VELLUM_WORKSPACE_DIR;
   if (existsSync(workspaceDir)) {
     rmSync(workspaceDir, { recursive: true, force: true });
   }
@@ -776,6 +772,8 @@ describe("016-extract-feature-flags-to-protected down()", () => {
     // so we set that env var so the inlined function resolves to mockRootDir.
     const baseDir = freshWorkspace();
     mockRootDir = join(baseDir, ".vellum");
+    process.env.VELLUM_HOME = mockRootDir;
+    process.env.VELLUM_WORKSPACE_DIR = mockRootDir;
     mkdirSync(mockRootDir, { recursive: true });
     savedBaseDataDir = process.env.BASE_DATA_DIR;
     process.env.BASE_DATA_DIR = baseDir;

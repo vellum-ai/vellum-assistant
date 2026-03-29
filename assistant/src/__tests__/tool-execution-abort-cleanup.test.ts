@@ -75,15 +75,6 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
   getSessionEnv: () => ({}),
 }));
 
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => "/tmp/protected",
-  getDataDir: () => "/tmp",
-  getWorkspaceDir: () => "/tmp/workspace",
-  getConversationsDir: () => "/tmp/workspace/conversations",
-  getDbPath: () => "/tmp/assistant.db",
-  ensureDataDir: () => {},
-}));
-
 mock.module("../tools/credentials/resolve.js", () => ({
   resolveCredentialRef: () => null,
 }));

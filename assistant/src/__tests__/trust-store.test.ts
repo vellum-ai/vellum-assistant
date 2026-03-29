@@ -11,6 +11,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Create a temp directory for the trust file
 const testDir = mkdtempSync(join(tmpdir(), "trust-store-test-"));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // Point the file-based trust backend at the test temp dir so
 // getGatewaySecurityDir() (which checks this env var first) writes
@@ -18,19 +20,6 @@ const testDir = mkdtempSync(join(tmpdir(), "trust-store-test-"));
 process.env.GATEWAY_SECURITY_DIR = join(testDir, "protected");
 
 // Mock platform module so trust-store writes to temp dir instead of ~/.vellum
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getWorkspaceDir: () => join(testDir, "workspace"),
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
-
 // Mock logger to suppress output during tests
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({

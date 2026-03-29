@@ -6,21 +6,8 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "http-conversation-lineage-test-")),
 );
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(join(testDir, ".vellum"), "protected"),
-  getDataDir: () => join(testDir, ".vellum", "workspace", "data"),
-  getWorkspaceDir: () => join(testDir, ".vellum", "workspace"),
-  getConversationsDir: () =>
-    join(testDir, ".vellum", "workspace", "conversations"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -84,6 +71,8 @@ describe("conversation lineage in HTTP reads", () => {
   });
 
   afterAll(async () => {
+    delete process.env.VELLUM_HOME;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     await server?.stop();
     resetDb();
     try {

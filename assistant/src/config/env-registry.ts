@@ -59,6 +59,15 @@ export function isPlatformRemote(): boolean {
 }
 
 /**
+ * VELLUM_HOME — string, default: undefined
+ * Overrides the default ~/.vellum root directory.
+ * Used in tests and containerized deployments where the root dir differs.
+ */
+export function getVellumHomeOverride(): string | undefined {
+  return str("VELLUM_HOME");
+}
+
+/**
  * VELLUM_WORKSPACE_DIR — string, default: undefined
  * Overrides the default workspace directory.
  * Used in containerized deployments where the workspace is a separate volume.
@@ -85,6 +94,7 @@ const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_DEV",
   "VELLUM_ENABLE_INSECURE_LAN_PAIRING",
   "VELLUM_HATCHED_BY",
+  "VELLUM_HOME",
   "VELLUM_HOOK_EVENT",
   "VELLUM_HOOK_NAME",
   "VELLUM_HOOK_SETTINGS",

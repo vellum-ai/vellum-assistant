@@ -12,19 +12,8 @@ import {
 } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "memory-regressions-exp-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  getWorkspaceDir: () => testDir,
-  getProtectedDir: () => join(testDir, "protected"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../security/secure-keys.js", () => ({
   getProviderKeyAsync: async () => undefined,
@@ -124,6 +113,8 @@ describe("Memory regressions (experimental)", () => {
   });
 
   afterAll(() => {
+    delete process.env.VELLUM_HOME;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     resetDb();
     try {
       rmSync(testDir, { recursive: true });

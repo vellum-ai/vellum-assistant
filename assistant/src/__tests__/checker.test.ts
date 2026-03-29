@@ -23,23 +23,11 @@ import {
 
 // Use a temp directory so trust-store doesn't touch ~/.vellum
 const checkerTestDir = mkdtempSync(join(tmpdir(), "checker-test-"));
+process.env.VELLUM_HOME = checkerTestDir;
+process.env.VELLUM_WORKSPACE_DIR = checkerTestDir;
 
 // Point the file-based trust backend at the test temp dir.
 process.env.GATEWAY_SECURITY_DIR = join(checkerTestDir, "protected");
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(checkerTestDir, "protected"),
-  getDataDir: () => join(checkerTestDir, "data"),
-  getWorkspaceDir: () => join(checkerTestDir, "workspace"),
-  getWorkspaceSkillsDir: () => join(checkerTestDir, "skills"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(checkerTestDir, "test.pid"),
-  getDbPath: () => join(checkerTestDir, "test.db"),
-  getLogPath: () => join(checkerTestDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 // Capture logger.warn() calls so tests can assert on deprecation warnings.
 const loggerWarnCalls: string[] = [];
@@ -4627,6 +4615,8 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
   });
 
   afterEach(() => {
+    delete process.env.VELLUM_HOME;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     testConfig.permissions = { mode: "workspace" };
   });
 

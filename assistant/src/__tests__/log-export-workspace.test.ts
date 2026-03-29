@@ -28,26 +28,12 @@ import { afterAll, describe, expect, mock, test } from "bun:test";
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "log-export-workspace-test-")),
 );
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 const testWorkspaceDir = join(testDir, "workspace");
 const testDbDir = join(testDir, "db");
-const testDbPath = join(testDbDir, "assistant.db");
-
 mkdirSync(testWorkspaceDir, { recursive: true });
 mkdirSync(testDbDir, { recursive: true });
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => testDir,
-  getWorkspaceDir: () => testWorkspaceDir,
-  getWorkspaceConfigPath: () => join(testWorkspaceDir, "config.json"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => testDbPath,
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -67,6 +53,8 @@ import { logExportRouteDefinitions } from "../runtime/routes/log-export-routes.j
 initializeDb();
 
 afterAll(() => {
+  delete process.env.VELLUM_HOME;
+  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
   try {
     rmSync(testDir, { recursive: true });

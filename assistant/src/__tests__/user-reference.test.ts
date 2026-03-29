@@ -3,10 +3,8 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 const TEST_DIR = "/tmp/vellum-user-ref-test";
-
-mock.module("../util/platform.js", () => ({
-  getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
-}));
+process.env.VELLUM_HOME = TEST_DIR;
+process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
 
 // Mutable state the tests control
 let mockFileExists = false;
