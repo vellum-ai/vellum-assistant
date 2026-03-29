@@ -5,9 +5,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // ---------------------------------------------------------------------------
 
 let mockGeminiKey: string | undefined = "test-gemini-key";
-let mockWorkspaceDir = "/tmp/test-workspace-e2e";
-process.env.VELLUM_HOME = mockWorkspaceDir;
-process.env.VELLUM_WORKSPACE_DIR = mockWorkspaceDir;
 
 const mkdirSyncFn = mock(() => {});
 const writeFileSyncFn = mock(() => {});
@@ -138,8 +135,7 @@ function geminiContentResponse() {
   };
 }
 
-const expectedAvatarPath =
-  "/tmp/test-workspace-e2e/data/avatar/avatar-image.png";
+const expectedAvatarPath = `${process.env.VELLUM_WORKSPACE_DIR}/data/avatar/avatar-image.png`;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -150,11 +146,7 @@ describe("avatar E2E integration", () => {
   const originalGeminiKey = process.env.GEMINI_API_KEY;
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = mockWorkspaceDir;
-    process.env.VELLUM_WORKSPACE_DIR = mockWorkspaceDir;
     mockGeminiKey = "test-gemini-key";
-    mockWorkspaceDir = "/tmp/test-workspace-e2e";
-
     mkdirSyncFn.mockClear();
     writeFileSyncFn.mockClear();
     renameSyncFn.mockClear();
@@ -170,8 +162,6 @@ describe("avatar E2E integration", () => {
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
     // Restore original GEMINI_API_KEY
     if (originalGeminiKey === undefined) {
       delete process.env.GEMINI_API_KEY;

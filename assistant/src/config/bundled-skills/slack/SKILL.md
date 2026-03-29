@@ -62,6 +62,20 @@ When the user asks to scan or catch up on Slack:
 3. Offer to drill into specific threads with `conversations.replies`
 4. Summarize with attribution: who said what, decisions made, open questions
 
+## User Resolution
+
+When you need to send a DM or look up a Slack user by name, check contacts first to avoid redundant API calls:
+
+1. **Before calling `users.list`**: Use `contact_search` with `query: "<name>"` and `channel_type: "slack"`. If a matching contact has `externalUserId` (Slack user ID) and `externalChatId` (DM channel ID), skip the API lookups and use those IDs directly with `chat.postMessage`.
+
+2. **After resolving via API**: When you had to call `users.list` or `conversations.open` to resolve a user, save the mapping with `contact_upsert` so future lookups are instant:
+   ```
+   contact_upsert {
+     display_name: "<display name>"
+     channels: [{ type: "slack", address: "<slack handle>", external_user_id: "<U...>", external_chat_id: "<D...>" }]
+   }
+   ```
+
 ## Privacy Rules
 
 **Channel privacy must be respected at all times:**

@@ -1,6 +1,3 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeEach,
@@ -13,11 +10,7 @@ import {
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-const testDir = mkdtempSync(join(tmpdir(), "call-controller-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
-
-// ── Platform + logger mocks (must come before any source imports) ────
+// ── Logger mock (must come before any source imports) ────
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -158,14 +151,7 @@ import { conversations } from "../memory/schema.js";
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // ── RelayConnection mock factory ────────────────────────────────────
@@ -351,8 +337,6 @@ function setupControllerWithOrigin(task?: string) {
 
 describe("call-controller", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     // Reset the bridge mock to default behaviour
     mockStartVoiceTurn.mockImplementation(

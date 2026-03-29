@@ -6,9 +6,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let mockRouterResult: unknown;
 let mockRouterError: Error | undefined;
-let mockWorkspaceDir = "/tmp/test-workspace";
-process.env.VELLUM_HOME = mockWorkspaceDir;
-process.env.VELLUM_WORKSPACE_DIR = mockWorkspaceDir;
 
 const generateAvatarFn = mock(async () => {
   if (mockRouterError) throw mockRouterError;
@@ -68,7 +65,6 @@ describe("generateAndSaveAvatar", () => {
   beforeEach(() => {
     mockRouterResult = successResult();
     mockRouterError = undefined;
-    mockWorkspaceDir = "/tmp/test-workspace";
     generateAvatarFn.mockClear();
     mkdirSyncFn.mockClear();
     writeFileSyncFn.mockClear();
@@ -114,7 +110,7 @@ describe("generateAndSaveAvatar", () => {
   test("atomic write — file is written to .tmp then renamed", async () => {
     await executeAvatar("a friendly cat");
 
-    const expectedPath = "/tmp/test-workspace/data/avatar/avatar-image.png";
+    const expectedPath = `${process.env.VELLUM_WORKSPACE_DIR}/data/avatar/avatar-image.png`;
 
     // Verify mkdirSync was called for the directory
     expect(mkdirSyncFn).toHaveBeenCalledTimes(1);

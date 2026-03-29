@@ -47,6 +47,14 @@
                 "is_primary": {
                   "type": "boolean",
                   "description": "Whether this is the primary channel for this type"
+                },
+                "external_user_id": {
+                  "type": "string",
+                  "description": "Platform-native user ID (e.g. Slack user ID like U12345). Used to cache user lookups."
+                },
+                "external_chat_id": {
+                  "type": "string",
+                  "description": "Platform-native chat/DM channel ID (e.g. Slack DM channel like D12345). Used to cache DM channel lookups."
                 }
               },
               "required": ["type", "address"]

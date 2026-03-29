@@ -7,14 +7,7 @@
  * - Voice-ingress preflight blocks doomed outbound calls before Twilio dialing.
  * - Pointer messages are written on successful call start and on failure.
  */
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(mkdtempSync(join(tmpdir(), "call-domain-test-")));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -133,8 +126,6 @@ import { conversations } from "../memory/schema.js";
 initializeDb();
 
 beforeEach(() => {
-  process.env.VELLUM_HOME = testDir;
-  process.env.VELLUM_WORKSPACE_DIR = testDir;
   resetTables();
   clearActiveCallLeases();
   twilioInitiateCallBehavior = "success";
@@ -195,14 +186,7 @@ function getLatestAssistantText(conversationId: string): string | null {
 }
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 function makeConfig(
