@@ -105,7 +105,6 @@ mock.module("../util/platform.js", () => ({
   getEmbeddingModelsDir: () => join(testDir, "models"),
   getBinDir: () => join(testDir, "bin"),
   getDotEnvPath: () => join(testDir, ".env"),
-  getFeatureFlagTokenPath: () => join(testDir, "feature-flag-token"),
   getDaemonStderrLogPath: () => join(testDir, "daemon-stderr.log"),
   getDaemonStartupLockPath: () => join(testDir, "daemon-startup.lock"),
   getEmbedWorkerPidPath: () => join(testDir, "embed-worker.pid"),

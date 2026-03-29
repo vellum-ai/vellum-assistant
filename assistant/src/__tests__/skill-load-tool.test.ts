@@ -56,7 +56,6 @@ const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   getSignalsDir: () => join(TEST_DIR, "workspace", "signals"),
   getDaemonStderrLogPath: () => join(TEST_DIR, "logs", "daemon-stderr.log"),
   getDaemonStartupLockPath: () => join(TEST_DIR, "daemon-startup.lock"),
-  getFeatureFlagTokenPath: () => join(TEST_DIR, "feature-flag-token"),
   getExternalDir: () => join(TEST_DIR, "external"),
   getBinDir: () => join(TEST_DIR, "bin"),
   getDotEnvPath: () => join(TEST_DIR, ".env"),

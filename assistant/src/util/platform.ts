@@ -245,11 +245,6 @@ export function getDaemonStartupLockPath(): string {
   return join(getWorkspaceDir(), "daemon-startup.lock");
 }
 
-/** Returns the path to the feature-flag client token file (~/.vellum/workspace/feature-flag-token). */
-export function getFeatureFlagTokenPath(): string {
-  return join(getWorkspaceDir(), "feature-flag-token");
-}
-
 /** Returns the directory for externally-installed packages (~/.vellum/workspace/external). */
 export function getExternalDir(): string {
   return join(getWorkspaceDir(), "external");
