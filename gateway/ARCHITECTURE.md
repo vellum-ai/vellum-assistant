@@ -53,7 +53,7 @@ The gateway exposes a REST API for reading and mutating assistant feature flags.
 
 **Token separation (authentication boundary):**
 
-The assistant feature flags API uses a dedicated feature-flag token stored at `~/.vellum/feature-flag-token`, separate from JWT auth tokens. This separation ensures that clients with feature-flag access cannot access runtime endpoints, and vice versa.
+The assistant feature flags API uses a dedicated feature-flag token stored at `~/.vellum/workspace/feature-flag-token`, separate from JWT auth tokens. This separation ensures that clients with feature-flag access cannot access runtime endpoints, and vice versa.
 
 | Operation                      | Accepted tokens                                                     |
 | ------------------------------ | ------------------------------------------------------------------- |
