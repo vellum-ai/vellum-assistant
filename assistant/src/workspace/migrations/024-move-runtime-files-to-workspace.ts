@@ -8,9 +8,11 @@
  * Files moved:
  *   - daemon-stderr.log      -> workspace/logs/daemon-stderr.log
  *   - daemon-startup.lock    -> workspace/daemon-startup.lock
- *   - .env                   -> workspace/.env
  *   - embed-worker.pid       -> workspace/embed-worker.pid
  *   - feature-flag-token     -> workspace/feature-flag-token
+ *
+ * NOT moved (stays at root because it contains secrets):
+ *   - .env
  *
  * Directories moved:
  *   - external/              -> workspace/external/
@@ -39,7 +41,8 @@ function getRootDir(): string {
 const FILE_MOVES: Array<{ name: string; subdir?: string }> = [
   { name: "daemon-stderr.log", subdir: "logs" },
   { name: "daemon-startup.lock" },
-  { name: ".env" },
+  // .env stays at root — it contains secrets (API keys) and the entire
+  // workspace directory is included in diagnostic log exports.
   { name: "embed-worker.pid" },
   { name: "feature-flag-token" },
 ];
@@ -89,7 +92,7 @@ function moveDirContents(oldDir: string, newDir: string): void {
 export const moveRuntimeFilesToWorkspaceMigration: WorkspaceMigration = {
   id: "024-move-runtime-files-to-workspace",
   description:
-    "Move daemon-stderr.log, daemon-startup.lock, .env, embed-worker.pid, feature-flag-token, external/, and bin/ from root to workspace",
+    "Move daemon-stderr.log, daemon-startup.lock, embed-worker.pid, feature-flag-token, external/, and bin/ from root to workspace",
 
   run(workspaceDir: string): void {
     const rootDir = getRootDir();

@@ -260,9 +260,9 @@ export function getBinDir(): string {
   return join(getWorkspaceDir(), "bin");
 }
 
-/** Returns the path to the dot-env file (~/.vellum/workspace/.env). */
+/** Returns the path to the dot-env file (~/.vellum/.env). Stays at root because it contains secrets. */
 export function getDotEnvPath(): string {
-  return join(getWorkspaceDir(), ".env");
+  return join(vellumRoot(), ".env");
 }
 
 /** Returns the path to the embed-worker PID file (~/.vellum/workspace/embed-worker.pid). */
