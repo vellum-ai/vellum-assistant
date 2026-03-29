@@ -64,6 +64,7 @@ struct ComposerView: View {
     var isInteractionEnabled: Bool = true
 
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
+    @Environment(\.chatColumnWidth) private var chatColumnWidth
     #if os(macOS)
     @Environment(\.dropActions) private var dropActions
     #endif
@@ -129,7 +130,7 @@ struct ComposerView: View {
         .animation(VAnimation.fast, value: showSlashMenu)
         .padding(.horizontal, VSpacing.lg)
         .padding(.top, VSpacing.sm)
-        .frame(maxWidth: VSpacing.chatColumnMaxWidth)
+        .frame(maxWidth: chatColumnWidth)
         .frame(maxWidth: .infinity)
         .disabled(!isInteractionEnabled)
         .animation(VAnimation.fast, value: isComposerFocused)
