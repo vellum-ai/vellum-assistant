@@ -45,6 +45,20 @@ export function getIsContainerized(): boolean {
 }
 
 /**
+ * Whether this assistant is running as a platform-managed remote instance.
+ *
+ * Currently this is determined solely by the IS_CONTAINERIZED env var, which
+ * the platform sets when provisioning assistant containers. This is not ideal
+ * because any Docker environment could set it. We plan to replace this with a
+ * less spoof-able mechanism in the future — e.g. a signed platform token
+ * verified via asymmetric cryptography or an authenticated attestation
+ * endpoint on the platform.
+ */
+export function isPlatformRemote(): boolean {
+  return getIsContainerized();
+}
+
+/**
  * VELLUM_WORKSPACE_DIR — string, default: undefined
  * Overrides the default workspace directory.
  * Used in containerized deployments where the workspace is a separate volume.
