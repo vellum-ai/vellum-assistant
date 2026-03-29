@@ -1,11 +1,9 @@
 import { execFileSync, execSync, spawn } from "child_process";
 import { randomBytes } from "crypto";
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
-  renameSync,
   unlinkSync,
   writeFileSync,
 } from "fs";
@@ -196,47 +194,23 @@ function resolveDaemonMainPath(assistantIndex: string): string {
 }
 
 /**
- * Load or generate the shared signing key for a local hatch instance.
+ * Generate a fresh signing key for a local hatch session.
  *
  * Both the daemon and gateway must use the same HMAC signing key so JWT
- * tokens minted by one can be verified by the other. When `instanceDir`
- * is provided (named instances, e2e tests), the key lives under
- * `<instanceDir>/.vellum/protected/actor-token-signing-key`; otherwise
- * it falls back to `~/.vellum/protected/actor-token-signing-key`.
- *
- * The returned hex string is suitable for passing as the
- * `ACTOR_TOKEN_SIGNING_KEY` env var to both spawned processes.
+ * tokens minted by one can be verified by the other. The CLI generates
+ * an ephemeral key each time and passes it as `ACTOR_TOKEN_SIGNING_KEY`
+ * to both processes — the daemon and gateway each persist it on their
+ * own terms (the `.vellum/` directory layout is their concern, not the
+ * CLI's).
  */
-function loadOrCreateLocalSigningKey(instanceDir?: string): string {
-  const base = instanceDir ?? homedir();
-  const keyPath = join(base, ".vellum", "protected", "actor-token-signing-key");
-
-  if (existsSync(keyPath)) {
-    try {
-      const raw = readFileSync(keyPath);
-      if (raw.length === 32) {
-        return raw.toString("hex");
-      }
-    } catch {
-      // Fall through to generate a new key
-    }
-  }
-
-  const newKey = randomBytes(32);
-  const dir = dirname(keyPath);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-  const tmpPath = keyPath + ".tmp." + process.pid;
-  writeFileSync(tmpPath, newKey, { mode: 0o600 });
-  renameSync(tmpPath, keyPath);
-  chmodSync(keyPath, 0o600);
-  return newKey.toString("hex");
+export function generateLocalSigningKey(): string {
+  return randomBytes(32).toString("hex");
 }
 
 type DaemonStartOptions = {
   foreground?: boolean;
   defaultWorkspaceConfigPath?: string;
+  signingKey?: string;
 };
 
 async function startDaemonFromSource(
@@ -309,9 +283,9 @@ async function startDaemonFromSource(
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
     VELLUM_CLOUD: "local",
     VELLUM_DEV: "1",
-    ACTOR_TOKEN_SIGNING_KEY: loadOrCreateLocalSigningKey(
-      resources?.instanceDir,
-    ),
+    ...(options?.signingKey
+      ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
+      : {}),
   };
   if (resources) {
     env.BASE_DATA_DIR = resources.instanceDir;
@@ -430,9 +404,9 @@ async function startDaemonWatchFromSource(
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
     VELLUM_DEV: "1",
-    ACTOR_TOKEN_SIGNING_KEY: loadOrCreateLocalSigningKey(
-      resources?.instanceDir,
-    ),
+    ...(options?.signingKey
+      ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
+      : {}),
   };
   if (resources) {
     env.BASE_DATA_DIR = resources.instanceDir;
@@ -1018,12 +992,9 @@ export async function startLocalDaemon(
         delete daemonEnv.QDRANT_URL;
       }
 
-      // Pre-load the signing key so daemon and gateway share the same key.
-      // Without this, the daemon falls back to ~/.vellum/ while the gateway
-      // reads from <BASE_DATA_DIR>/.vellum/, causing JWT auth mismatches.
-      daemonEnv.ACTOR_TOKEN_SIGNING_KEY = loadOrCreateLocalSigningKey(
-        resources?.instanceDir,
-      );
+      if (options?.signingKey) {
+        daemonEnv.ACTOR_TOKEN_SIGNING_KEY = options.signingKey;
+      }
 
       // Write a sentinel PID file before spawning so concurrent hatch() calls
       // see the file and fall through to the isDaemonResponsive() port check
@@ -1136,6 +1107,7 @@ export async function startLocalDaemon(
 export async function startGateway(
   watch: boolean = false,
   resources?: LocalInstanceResources,
+  options?: { signingKey?: string },
 ): Promise<string> {
   const effectiveGatewayPort = resources?.gatewayPort ?? GATEWAY_PORT;
 
@@ -1168,14 +1140,13 @@ export async function startGateway(
     defaultAssistantId: "self",
   });
 
-  // Pre-load the signing key so daemon and gateway share the same key.
-  const signingKeyHex = loadOrCreateLocalSigningKey(resources?.instanceDir);
-
   const gatewayEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),
     RUNTIME_HTTP_PORT: String(effectiveDaemonPort),
     GATEWAY_PORT: String(effectiveGatewayPort),
-    ACTOR_TOKEN_SIGNING_KEY: signingKeyHex,
+    ...(options?.signingKey
+      ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
+      : {}),
     ...(watch ? { VELLUM_DEV: "1" } : {}),
     // Set BASE_DATA_DIR so the gateway loads the correct credentials and
     // workspace config for this instance (mirrors the daemon env setup).
