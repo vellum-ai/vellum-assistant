@@ -9,6 +9,7 @@ struct ConversationHeaderPresentation {
     let isStarted: Bool
     let showsActionsMenu: Bool
     let isPrivateConversation: Bool
+    let isChannelConversation: Bool
     let canCopy: Bool
     let isPinned: Bool
     let showsForkConversationAction: Bool
@@ -26,6 +27,7 @@ struct ConversationHeaderPresentation {
             self.isStarted = false
             self.showsActionsMenu = false
             self.isPrivateConversation = false
+            self.isChannelConversation = false
             self.canCopy = false
             self.isPinned = false
             self.showsForkConversationAction = false
@@ -38,6 +40,7 @@ struct ConversationHeaderPresentation {
         self.displayTitle = conversation.title
         self.isPinned = conversation.isPinned
         self.isPrivateConversation = conversation.kind == .private
+        self.isChannelConversation = conversation.isChannelConversation
 
         // "Started" = has a conversationId OR has at least one non-empty user message
         let hasUserMessage = activeViewModel?.messages.contains(where: {
