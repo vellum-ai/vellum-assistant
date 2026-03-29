@@ -12,19 +12,14 @@ import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), "actor-token-test-")));
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => testDir,
-  getDbPath: () => join(testDir, "test.db"),
-  normalizeAssistantId: (id: string) => (id === "self" ? "self" : id),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+// getProtectedDir derives from vellumRoot(), not workspace — must mock separately
+mock.module("../util/platform.js", () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const real = require("../util/platform.js");
+  return { ...real, getProtectedDir: () => join(testDir, "protected") };
+});
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -96,6 +91,7 @@ const nonLoopbackServer = mockServer("203.0.113.50");
 initializeDb();
 
 beforeEach(() => {
+  process.env.VELLUM_WORKSPACE_DIR = testDir;
   // Initialize signing key for JWT verification
   initAuthSigningKey(TEST_KEY);
   // Reset the external assistant ID cache so tests don't leak state
@@ -110,6 +106,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
+  delete process.env.VELLUM_WORKSPACE_DIR;
   try {
     rmSync(testDir, { recursive: true, force: true });
   } catch {}

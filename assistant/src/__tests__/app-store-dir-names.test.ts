@@ -7,32 +7,22 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-// ---------------------------------------------------------------------------
-// Mock getDataDir to use a temp directory
-// ---------------------------------------------------------------------------
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 let testDataDir: string;
 
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDataDir,
-  getProjectDir: () => testDataDir,
-}));
-
-// Re-import app-store after mocking so it uses our temp dir
-const {
-  slugify,
+import {
+  createApp,
+  deleteApp,
   generateAppDirName,
-  validateDirName,
-  resolveAppDir,
+  getApp,
   getAppDirPath,
   getAppsDir,
-  createApp,
-  getApp,
+  resolveAppDir,
+  slugify,
   updateApp,
-  deleteApp,
-} = await import("../memory/app-store.js");
+  validateDirName,
+} from "../memory/app-store.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -59,10 +49,12 @@ function makeAppParams(name: string) {
 
 beforeEach(() => {
   testDataDir = freshTempDir();
-  mkdirSync(join(testDataDir, "apps"), { recursive: true });
+  process.env.VELLUM_WORKSPACE_DIR = testDataDir;
+  mkdirSync(join(testDataDir, "data", "apps"), { recursive: true });
 });
 
 afterEach(() => {
+  delete process.env.VELLUM_WORKSPACE_DIR;
   if (existsSync(testDataDir)) {
     rmSync(testDataDir, { recursive: true, force: true });
   }

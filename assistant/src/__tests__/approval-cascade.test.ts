@@ -23,6 +23,7 @@ import type { Message, ProviderResponse } from "../providers/types.js";
 import type { ConfirmationDetails } from "../runtime/pending-interactions.js";
 
 const testDir = mkdtempSync(join(tmpdir(), "approval-cascade-test-"));
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede Conversation import
@@ -47,10 +48,6 @@ function makeLoggerStub(): Record<string, unknown> {
 
 mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
-}));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
 }));
 
 mock.module("../memory/guardian-action-store.js", () => ({
@@ -326,6 +323,7 @@ function makeConfirmationDetails(patterns: string[]): ConfirmationDetails {
 }
 
 afterAll(() => {
+  delete process.env.VELLUM_WORKSPACE_DIR;
   try {
     rmSync(testDir, { recursive: true, force: true });
   } catch {
@@ -334,6 +332,7 @@ afterAll(() => {
 });
 
 beforeEach(() => {
+  process.env.VELLUM_WORKSPACE_DIR = testDir;
   pendingInteractions.clear();
 });
 
