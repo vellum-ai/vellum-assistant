@@ -71,6 +71,14 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
 - **Architecture**: When introducing, removing, or significantly modifying a service/module/data flow, update `ARCHITECTURE.md` and impacted domain docs. Mermaid diagrams must reflect current architecture.
 - **AGENTS.md**: When a PR establishes a new mandatory pattern or architectural constraint, update `AGENTS.md`. Only for project-wide rules — use code comments for module-scoped patterns.
 
+## Worktrees & Source Control
+
+Never commit worktree directories or worktree artifacts to the repository. Git worktrees (created by `git worktree add`, Codex, or similar tools) are local working copies and must remain local. The `.gitignore` already excludes common worktree directory patterns (`worktrees/`, `.worktrees/`, `.codex-worktrees/`, `*-worktrees/`), but be vigilant about new naming conventions. If a tool creates worktree directories under a new prefix, add the pattern to `.gitignore` before committing.
+
+**References:**
+- [Git Worktree documentation](https://git-scm.com/docs/git-worktree) — worktrees are meant to be local, ephemeral working directories
+- [gitignore documentation](https://git-scm.com/docs/gitignore) — patterns for excluding generated/local files
+
 ## Dead Code Removal
 
 Proactively remove unused code during every change. Remove code your change makes unused, clean up adjacent dead code, delete rather than comment out, check for orphaned files. Ask: "After my change, is there any code that nothing calls, imports, or references?" If yes, delete it.
