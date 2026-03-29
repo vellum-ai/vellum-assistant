@@ -458,7 +458,7 @@ export function buildExportVBundle(
     files.push(
       ...walkDirectory(workspaceDir, "workspace", {
         includeBinary: true,
-        skipDirs: ["embedding-models", "data/qdrant", "signals"],
+        skipDirs: ["embedding-models", "data/qdrant", "signals", "deprecated"],
       }),
     );
   }

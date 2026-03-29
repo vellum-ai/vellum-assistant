@@ -453,6 +453,7 @@ const WORKSPACE_SKIP_DIRS = new Set([
   "data/sounds",
   "conversations",
   "signals",
+  "deprecated",
 ]);
 
 /** Files at the workspace root to skip (already covered by sanitized fields). */
