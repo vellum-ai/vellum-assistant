@@ -400,6 +400,7 @@ export function loadConfig(): AssistantConfig {
         // proactive behavior out of the box. We do this here instead of
         // in the schema default so that existing users who upgrade don't
         // get heartbeat silently enabled via backfillConfigDefaults.
+        config.heartbeat.enabled = true;
         (persistable as Record<string, unknown>).heartbeat = {
           ...(persistable.heartbeat ?? {}),
           enabled: true,
