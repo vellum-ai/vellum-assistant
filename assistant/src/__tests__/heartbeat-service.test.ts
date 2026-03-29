@@ -1,6 +1,6 @@
-import { writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 
@@ -76,6 +76,11 @@ const { HeartbeatService } = await import("../heartbeat/heartbeat-service.js");
 describe("HeartbeatService", () => {
   let processMessageCalls: Array<{ conversationId: string; content: string }>;
   let alerterCalls: Array<{ type: string; title: string; body: string }>;
+
+  afterEach(() => {
+    // Clean up HEARTBEAT.md between tests so file-existence tests don't leak
+    rmSync(join(testWorkspaceDir, "HEARTBEAT.md"), { force: true });
+  });
 
   beforeEach(() => {
     processMessageCalls = [];
