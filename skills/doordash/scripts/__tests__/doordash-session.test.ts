@@ -61,7 +61,8 @@ describe("DoorDash session helpers", () => {
         expect(statSync(sessionPath).mode & 0o777).toBe(0o600);
         expect(loadSession()).not.toBeNull();
       } finally {
-        if (previousWorkspaceDir === undefined) delete process.env.VELLUM_WORKSPACE_DIR;
+        if (previousWorkspaceDir === undefined)
+          delete process.env.VELLUM_WORKSPACE_DIR;
         else process.env.VELLUM_WORKSPACE_DIR = previousWorkspaceDir;
         rmSync(tempDir, { recursive: true, force: true });
       }
@@ -86,7 +87,8 @@ describe("DoorDash session helpers", () => {
         saveSession(makeSession());
         expect(statSync(sessionPath).mode & 0o777).toBe(0o600);
       } finally {
-        if (previousWorkspaceDir === undefined) delete process.env.VELLUM_WORKSPACE_DIR;
+        if (previousWorkspaceDir === undefined)
+          delete process.env.VELLUM_WORKSPACE_DIR;
         else process.env.VELLUM_WORKSPACE_DIR = previousWorkspaceDir;
         rmSync(tempDir, { recursive: true, force: true });
       }
