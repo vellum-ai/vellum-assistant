@@ -330,7 +330,7 @@ extension ChatBubble {
                 image: image,
                 filename: attachment.filename,
                 base64Data: attachment.data.isEmpty ? nil : attachment.data,
-                lazyAttachmentId: attachment.isLazyLoad && !attachment.id.isEmpty ? attachment.id : nil
+                lazyAttachmentId: attachment.data.isEmpty && !attachment.id.isEmpty ? attachment.id : nil
             )
         }) { attachment in
             fileAttachmentChip(attachment)
