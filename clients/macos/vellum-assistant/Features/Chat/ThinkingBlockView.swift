@@ -52,10 +52,11 @@ struct ThinkingBlockView: View {
                 VIconView(isExpanded ? .chevronUp : .chevronDown, size: 9)
                     .foregroundStyle(VColor.contentTertiary)
             }
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, VSpacing.sm)
-        .padding(.vertical, VSpacing.xs)
+        .pointerCursor()
     }
 }
