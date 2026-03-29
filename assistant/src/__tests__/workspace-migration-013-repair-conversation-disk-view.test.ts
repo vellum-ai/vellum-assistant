@@ -18,7 +18,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 const testDir = mkdtempSync(join(tmpdir(), "workspace-migration-013-test-"));
 process.env.VELLUM_HOME = testDir;
 process.env.VELLUM_WORKSPACE_DIR = testDir;
-const workspaceDir = join(testDir, "workspace");
+const workspaceDir = testDir;
 const conversationsDir = join(workspaceDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
 
