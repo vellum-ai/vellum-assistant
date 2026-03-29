@@ -9,10 +9,7 @@
  * - sendToClient receives state signals (confirmation_state_changed, assistant_activity_state)
  * - "deny" decisions produce 'denied' state, "allow" produces 'approved'
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 import type {
   AgentEvent,
@@ -21,10 +18,6 @@ import type {
 } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
-
-const testDir = mkdtempSync(
-  join(tmpdir(), "session-confirmation-signals-test-"),
-);
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede Conversation import
@@ -49,10 +42,6 @@ function makeLoggerStub(): Record<string, unknown> {
 
 mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
-}));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
 }));
 
 mock.module("../memory/guardian-action-store.js", () => ({
@@ -253,7 +242,7 @@ function makeConversation(
     "system prompt",
     4096,
     sendToClient ?? (() => {}),
-    testDir,
+    process.env.VELLUM_WORKSPACE_DIR!,
   );
 }
 
@@ -282,14 +271,6 @@ function seedPendingConfirmation(
     timer: setTimeout(() => {}, 60_000),
   });
 }
-
-afterAll(() => {
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Tests
