@@ -101,7 +101,6 @@ mock.module("../../../../util/platform.js", () => ({
   getBinDir: () => join(testDir, "bin"),
   getDotEnvPath: () => join(testDir, ".env"),
   getEmbedWorkerPidPath: () => join(testDir, "embed-worker.pid"),
-  getLegacyRootDir: () => join(testDir, "legacy"),
   getConversationsDir: () => join(testDir, "conversations"),
   getEmbeddingModelsDir: () => join(testDir, "models"),
   getSandboxRootDir: () => join(testDir, "sandbox"),

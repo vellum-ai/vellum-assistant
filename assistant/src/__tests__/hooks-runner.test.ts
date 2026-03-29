@@ -112,19 +112,6 @@ describe("Hook Runner", () => {
     expect(result.stdout.trim()).toBe("post-message|env-hook");
   });
 
-  test("sets VELLUM_ROOT_DIR environment variable", async () => {
-    const hook = createTestHook(
-      hooksDir,
-      "rootdir-hook",
-      '#!/bin/bash\necho "$VELLUM_ROOT_DIR"',
-    );
-    const eventData: HookEventData = { event: "daemon-start" };
-
-    const result = await runHookScript(hook, eventData);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toContain(".vellum");
-  });
-
   test("sets VELLUM_WORKSPACE_DIR environment variable", async () => {
     const hook = createTestHook(
       hooksDir,
@@ -136,24 +123,6 @@ describe("Hook Runner", () => {
     const result = await runHookScript(hook, eventData);
     expect(result.exitCode).toBe(0);
     const wsDir = result.stdout.trim();
-    expect(wsDir.length).toBeGreaterThan(0);
-    expect(wsDir).toBe(testDir);
-  });
-
-  test("sets both VELLUM_ROOT_DIR and VELLUM_WORKSPACE_DIR", async () => {
-    const hook = createTestHook(
-      hooksDir,
-      "both-dirs-hook",
-      '#!/bin/bash\necho "$VELLUM_ROOT_DIR|$VELLUM_WORKSPACE_DIR"',
-    );
-    const eventData: HookEventData = { event: "pre-tool-execute" };
-
-    const result = await runHookScript(hook, eventData);
-    expect(result.exitCode).toBe(0);
-    const [rootDir, wsDir] = result.stdout.trim().split("|");
-    // Both env vars are set and non-empty
-    expect(rootDir).toContain(".vellum");
-    expect(rootDir.length).toBeGreaterThan(0);
     expect(wsDir.length).toBeGreaterThan(0);
     expect(wsDir).toBe(testDir);
   });

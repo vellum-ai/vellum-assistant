@@ -266,25 +266,6 @@ export function getEmbedWorkerPidPath(): string {
 }
 
 /**
- * Returns the root dir path for use in backward-compatible env vars
- * (e.g. VELLUM_ROOT_DIR passed to hook scripts).
- *
- * Unlike `dirname(getWorkspaceDir())`, this always returns the true root
- * (~/.vellum) even when VELLUM_WORKSPACE_DIR is overridden to a custom
- * path (Docker / containerized mode).
- *
- * @deprecated Callers should migrate to workspace-based paths. This helper
- * exists only for backward compatibility with user-authored hook scripts.
- */
-export function getLegacyRootDir(): string {
-  return vellumRoot();
-}
-
-// --- Workspace path primitives ---
-// These will become the canonical paths after workspace migration.
-// Currently not used by call-sites; wired in later PRs.
-
-/**
  * Returns the workspace root for user-facing state.
  *
  * When the VELLUM_WORKSPACE_DIR env var is set, returns that value (used in

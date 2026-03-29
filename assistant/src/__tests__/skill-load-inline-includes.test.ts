@@ -76,7 +76,6 @@ const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
   getBinDir: () => join(TEST_DIR, "bin"),
   getDotEnvPath: () => join(TEST_DIR, ".env"),
   getEmbedWorkerPidPath: () => join(TEST_DIR, "embed-worker.pid"),
-  getLegacyRootDir: () => TEST_DIR,
   getSoundsDir: () => join(TEST_DIR, "sounds"),
 };
 mock.module("../util/platform.js", () => platformOverrides);
