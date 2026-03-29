@@ -9,10 +9,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => "/tmp/headless-browser-test",
-}));
-
 // Track calls to browserManager and url-safety helpers
 let mockPage: {
   goto: ReturnType<typeof mock>;

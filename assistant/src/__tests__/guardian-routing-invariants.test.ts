@@ -15,27 +15,10 @@
  */
 
 import { readFileSync } from "node:fs";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
-
-const testDir = mkdtempSync(
-  join(tmpdir(), "guardian-routing-invariants-test-"),
-);
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -74,11 +57,6 @@ function resetTables(): void {
 
 afterAll(() => {
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    // best-effort cleanup
-  }
 });
 
 // ---------------------------------------------------------------------------

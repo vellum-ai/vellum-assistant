@@ -1,23 +1,7 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { ConversationCreatedInfo } from "../notifications/broadcaster.js";
 import type { NotificationDeliveryResult } from "../notifications/types.js";
-
-const testDir = mkdtempSync(join(tmpdir(), "guardian-dispatch-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -143,11 +127,6 @@ describe("guardian-dispatch", () => {
 
   afterAll(() => {
     resetDb();
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      /* best effort */
-    }
   });
 
   test("creates a guardian action request and vellum delivery from pipeline results", async () => {
