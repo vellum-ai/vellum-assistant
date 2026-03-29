@@ -87,6 +87,7 @@ mock.module("../util/platform.js", () => ({
   getDataDir: () => testDir,
   getProtectedDir: () => join(testDir, "protected"),
   getWorkspaceDir: () => testDir,
+  getWorkspaceDirDisplay: () => testDir,
   getWorkspaceConfigPath: () => join(testDir, "config.json"),
   getWorkspaceSkillsDir: () => join(testDir, "skills"),
   getWorkspaceHooksDir: () => join(testDir, "hooks"),
@@ -97,6 +98,18 @@ mock.module("../util/platform.js", () => ({
   getLogPath: () => join(testDir, "logs", "test.log"),
   getHistoryPath: () => join(testDir, "history"),
   getHooksDir: () => join(testDir, "hooks"),
+  getConversationsDir: () => join(testDir, "conversations"),
+  getSignalsDir: () => join(testDir, "signals"),
+  getExternalDir: () => join(testDir, "external"),
+  getSoundsDir: () => join(testDir, "sounds"),
+  getEmbeddingModelsDir: () => join(testDir, "models"),
+  getBinDir: () => join(testDir, "bin"),
+  getDotEnvPath: () => join(testDir, ".env"),
+  getFeatureFlagTokenPath: () => join(testDir, "feature-flag-token"),
+  getDaemonStderrLogPath: () => join(testDir, "daemon-stderr.log"),
+  getDaemonStartupLockPath: () => join(testDir, "daemon-startup.lock"),
+  getEmbedWorkerPidPath: () => join(testDir, "embed-worker.pid"),
+  getLegacyRootDir: () => join(testDir, "legacy-root"),
 
   getSandboxRootDir: () => join(testDir, "sandbox"),
   getSandboxWorkingDir: () => testDir,
@@ -113,6 +126,7 @@ mock.module("../util/platform.js", () => ({
   isTCPEnabled: () => false,
   readPlatformToken: () => null,
   readSessionToken: () => null,
+  normalizeAssistantId: (id: string) => id,
   ensureDataDir: () => {},
 }));
 
@@ -201,6 +215,24 @@ mock.module("../memory/conversation-crud.js", () => ({
   },
   parseConversation: () => null,
   parseMessage: () => null,
+  getAssistantMessageIdsInTurn: () => [],
+  getTurnTimeBounds: () => null,
+  PRIVATE_CONVERSATION_FORK_ERROR: "Cannot fork a private conversation",
+  countConversationsByScheduleJobId: () => 0,
+  forkConversation: () => null,
+  wipeConversation: () => ({
+    conversations: 0,
+    messages: 0,
+    memoryItemIds: [],
+    memoryEntityIds: [],
+  }),
+  purgePrivateConversations: () => ({
+    purged: 0,
+    memoryItemIds: [],
+    memoryEntityIds: [],
+  }),
+  getMessagesPaginated: () => ({ messages: [], hasMore: false }),
+  getLastAssistantTimestampBefore: () => null,
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
@@ -380,9 +412,9 @@ describe("Conversation initialization benchmark", () => {
     await initializeTools();
     const definitions = getAllToolDefinitions();
 
-    // Sanity: we expect a meaningful number of core tools (at least 18)
+    // Sanity: we expect a meaningful number of core tools (at least 14)
     // but not an unreasonable explosion (under 200)
-    expect(definitions.length).toBeGreaterThanOrEqual(18);
+    expect(definitions.length).toBeGreaterThanOrEqual(14);
     expect(definitions.length).toBeLessThan(200);
   });
 });

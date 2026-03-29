@@ -88,7 +88,6 @@ export interface PathResolver {
 
 export class DefaultPathResolver implements PathResolver {
   constructor(
-    private protectedDir?: string,
     private workspaceDir?: string,
     private hooksDir?: string,
   ) {}
@@ -113,9 +112,6 @@ export class DefaultPathResolver implements PathResolver {
     }
     if (archivePath === "config/settings.json" && this.workspaceDir) {
       return join(this.workspaceDir, "config.json");
-    }
-    if (archivePath === "trust/trust.json" && this.protectedDir) {
-      return join(this.protectedDir, "trust.json");
     }
     if (archivePath.startsWith("skills/") && this.workspaceDir) {
       const resolved = resolve(

@@ -339,6 +339,11 @@ export function getWorkspaceHooksDir(): string {
   return join(getWorkspaceDir(), "hooks");
 }
 
+/** Returns ~/.vellum/workspace/deprecated — transitional files slated for removal. */
+export function getDeprecatedDir(): string {
+  return join(getWorkspaceDir(), "deprecated");
+}
+
 /** Returns ~/.vellum/workspace/conversations */
 export function getConversationsDir(): string {
   return join(getWorkspaceDir(), "conversations");

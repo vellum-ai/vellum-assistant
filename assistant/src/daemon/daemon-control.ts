@@ -11,6 +11,7 @@ import { resolve } from "node:path";
 
 import { getRuntimeHttpHost, getRuntimeHttpPort } from "../config/env.js";
 import { getIsContainerized } from "../config/env-registry.js";
+import { loadOrCreateSigningKey } from "../runtime/auth/token-service.js";
 import { DaemonError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -352,6 +353,24 @@ async function startDaemonLocked(): Promise<{
   // Spawn the daemon as a detached child process
   const mainPath = resolve(import.meta.dirname ?? __dirname, "main.ts");
 
+  // Pre-load the signing key so the daemon receives it via env var and
+  // never needs to access the protected directory for key material.
+  // Done before opening stderrFd to avoid leaking the file descriptor if
+  // loadOrCreateSigningKey throws.
+  const spawnEnv = { ...process.env };
+  if (!spawnEnv.ACTOR_TOKEN_SIGNING_KEY) {
+    try {
+      const key = loadOrCreateSigningKey();
+      spawnEnv.ACTOR_TOKEN_SIGNING_KEY = key.toString("hex");
+    } catch (err) {
+      throw new DaemonError(
+        `Failed to pre-load signing key for daemon: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
+
   // Redirect the child's stderr to a file instead of piping it back to the
   // parent. A pipe's read end is destroyed when the parent exits, leaving
   // fd 2 broken in the child. Bun (unlike Node.js) does not ignore SIGPIPE,
@@ -362,7 +381,7 @@ async function startDaemonLocked(): Promise<{
   const child = spawn("bun", ["run", mainPath], {
     detached: true,
     stdio: ["ignore", "ignore", stderrFd],
-    env: { ...process.env },
+    env: spawnEnv,
   });
 
   // The child inherited the fd; close the parent's copy.

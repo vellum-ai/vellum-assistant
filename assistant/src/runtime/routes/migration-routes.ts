@@ -11,7 +11,6 @@
  * results with is_valid flag and detailed error descriptions.
  */
 
-import { join } from "node:path";
 import { Database } from "bun:sqlite";
 
 import { z } from "zod";
@@ -23,7 +22,6 @@ import { clearCache as clearTrustCache } from "../../permissions/trust-store.js"
 import { getLogger } from "../../util/logger.js";
 import {
   getDbPath,
-  getProtectedDir,
   getWorkspaceDir,
   getWorkspaceHooksDir,
 } from "../../util/platform.js";
@@ -145,7 +143,6 @@ export async function handleMigrationExport(req: Request): Promise<Response> {
 
   try {
     const { archive, manifest } = buildExportVBundle({
-      trustPath: join(getProtectedDir(), "trust.json"),
       // hooksDir is intentionally omitted — hooks now live under workspace/hooks/
       // and are included in the workspace walk. Passing hooksDir separately would
       // export them twice (once as workspace/hooks/... and again as hooks/...).
@@ -303,9 +300,7 @@ export async function handleMigrationImportPreflight(
       });
     }
 
-    // Step 2: Analyze what would change on import
     const pathResolver = new DefaultPathResolver(
-      getProtectedDir(),
       getWorkspaceDir(),
       getWorkspaceHooksDir(),
     );
@@ -388,7 +383,6 @@ export async function handleMigrationImport(req: Request): Promise<Response> {
     }
 
     const pathResolver = new DefaultPathResolver(
-      getProtectedDir(),
       getWorkspaceDir(),
       getWorkspaceHooksDir(),
     );

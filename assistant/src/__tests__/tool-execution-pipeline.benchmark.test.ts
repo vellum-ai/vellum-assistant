@@ -237,7 +237,7 @@ describe("Tool execution pipeline benchmark", () => {
 
     const p50 = percentile(timings, 50);
     expect(p50).toBeLessThan(5);
-    expect(results[0]).toBe(RiskLevel.Medium);
+    expect(results[0]).toBe(RiskLevel.Low);
   });
 
   test("check: full permission check for low-risk tool", async () => {

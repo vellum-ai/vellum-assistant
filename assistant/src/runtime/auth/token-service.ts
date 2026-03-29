@@ -19,10 +19,11 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { getLogger } from "../../util/logger.js";
-import { getProtectedDir } from "../../util/platform.js";
+import { getDeprecatedDir } from "../../util/platform.js";
 import { CURRENT_POLICY_EPOCH, isStaleEpoch } from "./policy.js";
 import type { ScopeProfile, TokenAudience, TokenClaims } from "./types.js";
 
@@ -35,51 +36,71 @@ const log = getLogger("token-service");
 let _authSigningKey: Buffer | undefined;
 
 /**
- * Path to the persisted signing key file.
- * Stored in the protected directory alongside other sensitive material.
+ * Hardcoded legacy path to the signing key under ~/.vellum/protected/.
+ * Used as a read-only fallback so existing assistants keep working after
+ * the code update — avoids generating a new key that would break auth
+ * with an already-running daemon.
+ *
+ * This constant can be deleted once we stop calling the gateway directly.
+ */
+const LEGACY_SIGNING_KEY_PATH = join(
+  homedir(),
+  ".vellum",
+  "protected",
+  "actor-token-signing-key",
+);
+
+/**
+ * Returns the canonical path to the signing key file under workspace/deprecated/.
+ *
+ * This file can be fully deleted once the assistant stops making direct
+ * calls to the gateway (i.e. all auth flows go through the env var).
  */
 function getSigningKeyPath(): string {
-  return join(getProtectedDir(), "actor-token-signing-key");
+  return join(getDeprecatedDir(), "actor-token-signing-key");
 }
 
 /**
- * Load a signing key from disk. Returns the key buffer if found and valid,
- * or undefined if the file does not exist or is invalid.
- *
- * Used in the Docker 403-fallback path where generating a new key would
- * create a mismatch with the gateway's already-bootstrapped key.
+ * Load a signing key from a file on disk. Returns the key buffer if found
+ * and valid, or undefined if the file does not exist or is invalid.
  */
 export function loadSigningKey(): Buffer | undefined {
-  const keyPath = getSigningKeyPath();
-  if (!existsSync(keyPath)) {
-    return undefined;
-  }
-  try {
-    const raw = readFileSync(keyPath);
-    if (raw.length === 32) {
-      log.info("Auth signing key loaded from disk");
-      return raw;
+  // Try the canonical workspace/deprecated/ path first, then fall back to
+  // the legacy protected/ path so existing assistants keep working.
+  for (const keyPath of [getSigningKeyPath(), LEGACY_SIGNING_KEY_PATH]) {
+    if (!existsSync(keyPath)) {
+      continue;
     }
-    log.warn("Signing key file has unexpected length");
-    return undefined;
-  } catch (err) {
-    log.warn({ err }, "Failed to read signing key file");
-    return undefined;
+    try {
+      const raw = readFileSync(keyPath);
+      if (raw.length === 32) {
+        log.info({ keyPath }, "Auth signing key loaded from disk");
+        return raw;
+      }
+      log.warn({ keyPath }, "Signing key file has unexpected length");
+    } catch (err) {
+      log.warn({ err, keyPath }, "Failed to read signing key file");
+    }
   }
+  return undefined;
 }
 
 /**
  * Load a signing key from disk or generate and persist a new one.
  * Uses atomic-write + chmod 0o600 for safe persistence.
+ *
+ * The key is stored at workspace/deprecated/actor-token-signing-key.
+ * This file can be fully deleted once the assistant stops making direct
+ * calls to the gateway (i.e. all auth flows go through the env var).
  */
 export function loadOrCreateSigningKey(): Buffer {
+  const keyPath = getSigningKeyPath();
   const existing = loadSigningKey();
   if (existing) {
     return existing;
   }
 
   // Generate and persist a new key
-  const keyPath = getSigningKeyPath();
   const newKey = randomBytes(32);
   const dir = dirname(keyPath);
   if (!existsSync(dir)) {
@@ -95,11 +116,9 @@ export function loadOrCreateSigningKey(): Buffer {
 }
 
 /**
- * Resolve the signing key for the current environment.
- *
- * Resolution order:
- *   1. ACTOR_TOKEN_SIGNING_KEY env var (hex-encoded, set by CLI for Docker)
- *   2. File-based load/create (~/.vellum/protected/actor-token-signing-key)
+ * Resolve the signing key for the daemon from the `ACTOR_TOKEN_SIGNING_KEY`
+ * env var (hex-encoded, 64 chars). The CLI launcher sets this before
+ * spawning the daemon; in Docker the gateway injects it.
  */
 export function resolveSigningKey(): Buffer {
   const envKey = process.env.ACTOR_TOKEN_SIGNING_KEY;
@@ -113,6 +132,9 @@ export function resolveSigningKey(): Buffer {
     return Buffer.from(envKey, "hex");
   }
 
+  // Fallback: env var not set (e.g. daemon spawned by cli/src/lib/local.ts
+  // which does not yet inject the env var). Load or create from disk.
+  log.warn("ACTOR_TOKEN_SIGNING_KEY env var not set — falling back to disk");
   return loadOrCreateSigningKey();
 }
 

@@ -93,6 +93,7 @@ mock.module("../../../../util/platform.js", () => ({
   getWorkspaceConfigPath: () => join(testDir, "workspace", "config.json"),
   getHooksDir: () => join(testDir, "hooks"),
   getProtectedDir: () => join(testDir, "protected"),
+  getDeprecatedDir: () => join(testDir, "workspace", "deprecated"),
   getSignalsDir: () => join(testDir, "signals"),
   getDaemonStderrLogPath: () => join(testDir, "daemon-stderr.log"),
   getDaemonStartupLockPath: () => join(testDir, "daemon-startup.lock"),
