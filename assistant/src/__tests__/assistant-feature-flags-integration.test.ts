@@ -8,14 +8,7 @@
  *   - Protected feature-flags.json is the sole override mechanism
  *   - Undeclared keys default to enabled
  */
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -23,10 +16,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Test-scoped temp directory and config state
 // ---------------------------------------------------------------------------
 
-const TEST_DIR = join(
-  tmpdir(),
-  `vellum-asst-flags-test-${crypto.randomUUID()}`,
-);
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 let currentConfig: Record<string, unknown> = {
   services: {
@@ -47,35 +37,6 @@ let currentConfig: Record<string, unknown> = {
 const DECLARED_FLAG_ID = "contacts";
 const DECLARED_FLAG_KEY = DECLARED_FLAG_ID;
 const DECLARED_SKILL_ID = "contacts";
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const realPlatform = require("../util/platform.js");
-mock.module("../util/platform.js", () => ({
-  ...realPlatform,
-  getProtectedDir: () => join(TEST_DIR, "protected"),
-  getDataDir: () => TEST_DIR,
-  getWorkspaceDir: () => TEST_DIR,
-  getWorkspaceConfigPath: () => join(TEST_DIR, "config.json"),
-  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
-  getWorkspaceHooksDir: () => join(TEST_DIR, "hooks"),
-  getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
-  ensureDataDir: () => {},
-  getPidPath: () => join(TEST_DIR, "vellum.pid"),
-  getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
-  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
-  getHistoryPath: () => join(TEST_DIR, "history"),
-  getHooksDir: () => join(TEST_DIR, "hooks"),
-
-  getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
-  getSandboxWorkingDir: () => TEST_DIR,
-  getInterfacesDir: () => join(TEST_DIR, "interfaces"),
-  isMacOS: () => false,
-  isLinux: () => false,
-  isWindows: () => false,
-  getPlatformName: () => "linux",
-  getClipboardCommand: () => null,
-  readSessionToken: () => null,
-}));
 
 const noopLogger = new Proxy({} as Record<string, unknown>, {
   get: (_target, prop) => (prop === "child" ? () => noopLogger : () => {}),
@@ -128,7 +89,6 @@ const { skillFlagKey } = await import("../config/skill-state.js");
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  mkdirSync(TEST_DIR, { recursive: true });
   _setOverridesForTesting({});
   currentConfig = {
     services: {
@@ -149,9 +109,6 @@ beforeEach(() => {
 
 afterEach(() => {
   _setOverridesForTesting({});
-  if (existsSync(TEST_DIR)) {
-    rmSync(TEST_DIR, { recursive: true, force: true });
-  }
 });
 
 // ---------------------------------------------------------------------------
