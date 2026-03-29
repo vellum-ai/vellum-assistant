@@ -264,6 +264,25 @@ export function identityRouteDefinitions(): RouteDefinition[] {
       }),
     },
     {
+      endpoint: "healthz",
+      method: "GET",
+      handler: () => handleDetailedHealth(),
+      policyKey: "health",
+      summary: "Detailed health check (alias)",
+      description:
+        "Alias for /v1/health. Returns runtime health including version, disk, memory, CPU, and migration status.",
+      tags: ["system"],
+      responseBody: z.object({
+        status: z.string(),
+        timestamp: z.string(),
+        version: z.string(),
+        disk: z.object({}).passthrough(),
+        memory: z.object({}).passthrough(),
+        cpu: z.object({}).passthrough(),
+        migrations: z.object({}).passthrough(),
+      }),
+    },
+    {
       endpoint: "identity",
       method: "GET",
       handler: () => handleGetIdentity(),

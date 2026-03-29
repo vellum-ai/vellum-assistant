@@ -419,6 +419,12 @@ async function main() {
       auth: "edge",
       handler: (req) => runtimeHealthProxy.handleRuntimeHealth(req),
     },
+    {
+      path: "/v1/healthz",
+      method: "GET",
+      auth: "edge",
+      handler: (req) => runtimeHealthProxy.handleRuntimeHealth(req),
+    },
 
     // ── Brain graph ──
     {
