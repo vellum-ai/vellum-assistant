@@ -2,7 +2,6 @@ import { getConfig } from "../config/loader.js";
 import type { HeartbeatAlert } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { readTextFileSync } from "../util/fs.js";
-import { stripCommentLines } from "../prompts/system-prompt.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
 
@@ -203,7 +202,13 @@ export class HeartbeatService {
     const raw =
       readTextFileSync(getWorkspacePromptPath("HEARTBEAT.md")) ??
       DEFAULT_CHECKLIST;
-    return stripCommentLines(raw);
+    // Strip _-prefixed comment lines (same convention as system prompt),
+    // inlined here to avoid pulling in the heavy system-prompt module.
+    return raw
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("_"))
+      .join("\n");
   }
 
   /** @internal Exposed for testing. */
