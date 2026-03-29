@@ -1,3 +1,4 @@
+import { recordRequestLog } from "../memory/llm-request-log-store.js";
 import {
   extractText,
   getConfiguredProvider,
@@ -164,6 +165,20 @@ async function generateCommentary(session: WatchSession): Promise<void> {
       },
     );
 
+    if (response.rawRequest && response.rawResponse) {
+      try {
+        recordRequestLog(
+          session.conversationId,
+          JSON.stringify(response.rawRequest),
+          JSON.stringify(response.rawResponse),
+          undefined,
+          response.actualProvider ?? provider.name,
+        );
+      } catch (err) {
+        log.warn({ err }, "Failed to persist watch commentary LLM log");
+      }
+    }
+
     const commentaryText = extractText(response);
 
     if (commentaryText && commentaryText !== "SKIP") {
@@ -309,6 +324,20 @@ export async function generateSummary(session: WatchSession): Promise<void> {
         },
       },
     );
+
+    if (response.rawRequest && response.rawResponse) {
+      try {
+        recordRequestLog(
+          session.conversationId,
+          JSON.stringify(response.rawRequest),
+          JSON.stringify(response.rawResponse),
+          undefined,
+          response.actualProvider ?? provider.name,
+        );
+      } catch (err) {
+        log.warn({ err }, "Failed to persist watch summary LLM log");
+      }
+    }
 
     log.debug(
       { watchId: session.watchId },
