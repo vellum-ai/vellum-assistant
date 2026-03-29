@@ -398,6 +398,8 @@ export function buildCliReferenceSection(): string {
     "",
     "The `assistant` CLI is available in the sandbox for managing assistant settings, integrations, and services. Always use the `bash` tool (never `host_bash`) when running `assistant` commands.",
     "",
+    "Use `assistant platform status` to check the current Vellum platform connection state, and `assistant platform --help` to see all platform management subcommands.",
+    "",
     "Run `assistant --help` to see all available commands, or `assistant <command> --help` for detailed help on any subcommand.",
   ].join("\n");
 }
