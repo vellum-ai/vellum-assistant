@@ -669,10 +669,17 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
 
 export function logExportRouteDefinitions(): RouteDefinition[] {
   const exportRequestBody = z.object({
-    auditLimit: z.number().int().describe("Max audit records (default 1000)"),
-    conversationId: z.string().describe("Scope to a single conversation"),
-    startTime: z.number().describe("Lower bound epoch ms"),
-    endTime: z.number().describe("Upper bound epoch ms"),
+    auditLimit: z
+      .number()
+      .int()
+      .optional()
+      .describe("Max audit records (default 1000)"),
+    conversationId: z
+      .string()
+      .optional()
+      .describe("Scope to a single conversation"),
+    startTime: z.number().optional().describe("Lower bound epoch ms"),
+    endTime: z.number().optional().describe("Upper bound epoch ms"),
   });
 
   return [
@@ -682,7 +689,7 @@ export function logExportRouteDefinitions(): RouteDefinition[] {
       policyKey: "export",
       summary: "Export logs and audit data",
       description:
-        "Export audit records, daemon logs, workspace contents, and config as a tar.gz archive.",
+        "Export audit records, assistant logs, workspace contents, and config as a tar.gz archive.",
       tags: ["export"],
       requestBody: exportRequestBody,
       handler: async ({ req }) => {
@@ -696,7 +703,7 @@ export function logExportRouteDefinitions(): RouteDefinition[] {
       policyKey: "export",
       summary: "Export logs and audit data (alias)",
       description:
-        "Alias for /v1/export. Export audit records, daemon logs, workspace contents, and config as a tar.gz archive.",
+        "Alias for /v1/export. Export audit records, assistant logs, workspace contents, and config as a tar.gz archive.",
       tags: ["export"],
       requestBody: exportRequestBody,
       handler: async ({ req }) => {
