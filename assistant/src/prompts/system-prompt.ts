@@ -65,6 +65,28 @@ export function ensurePromptFiles(): void {
     }
   }
 
+  // Seed HEARTBEAT.md if it doesn't exist — always, not just on first run.
+  // This gives new and existing users a meaningful default checklist focused
+  // on continuity and presence rather than the hardcoded weather/news fallback.
+  const heartbeatDest = getWorkspacePromptPath("HEARTBEAT.md");
+  if (!existsSync(heartbeatDest)) {
+    const heartbeatSrc = join(templatesDir, "HEARTBEAT.md");
+    try {
+      if (existsSync(heartbeatSrc)) {
+        copyFileSync(heartbeatSrc, heartbeatDest);
+        log.info(
+          { file: "HEARTBEAT.md", dest: heartbeatDest },
+          "Created HEARTBEAT.md from template",
+        );
+      }
+    } catch (err) {
+      log.warn(
+        { err, file: "HEARTBEAT.md" },
+        "Failed to create HEARTBEAT.md from template",
+      );
+    }
+  }
+
   // Only seed BOOTSTRAP.md on a truly fresh install so that deleting it
   // reliably signals onboarding completion across daemon restarts.
   if (isFirstRun) {
