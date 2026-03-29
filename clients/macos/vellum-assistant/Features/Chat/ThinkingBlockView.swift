@@ -16,6 +16,7 @@ struct ThinkingBlockView: View {
 
             if isExpanded {
                 Divider()
+                    .padding(.horizontal, VSpacing.sm)
 
                 ScrollView {
                     Text(content)
@@ -27,6 +28,8 @@ struct ThinkingBlockView: View {
                 }
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxHeight: 300)
+                .clipped()
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .background(VColor.surfaceOverlay)
@@ -37,7 +40,7 @@ struct ThinkingBlockView: View {
 
     private var headerRow: some View {
         Button(action: {
-            withAnimation(.easeInOut(duration: 0.2)) {
+            withAnimation(VAnimation.fast) {
                 isExpanded.toggle()
             }
         }) {
