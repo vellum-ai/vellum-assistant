@@ -455,15 +455,9 @@ extension MainWindowView {
                                             .foregroundStyle(VColor.contentDefault)
                                             .lineLimit(1)
                                             .truncationMode(.tail)
-                                        Text("\(group.conversations.count)")
-                                            .font(.system(size: 10, weight: .medium))
+                                        Text("(\(group.conversations.count))")
+                                            .font(.system(size: 12))
                                             .foregroundStyle(VColor.contentTertiary)
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 2)
-                                            .background(
-                                                Capsule()
-                                                    .fill(VColor.contentTertiary.opacity(0.12))
-                                            )
                                         Spacer()
                                     }
                                     .padding(.leading, VSpacing.xs)
