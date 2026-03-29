@@ -9,8 +9,6 @@ import {
   DOCKER_READY_TIMEOUT_MS,
   dockerResourceNames,
   GATEWAY_INTERNAL_PORT,
-  migrateCesSecurityFiles,
-  migrateGatewaySecurityFiles,
   startContainers,
   stopContainers,
 } from "./docker.js";
@@ -573,12 +571,6 @@ export async function performDockerRollback(
   await stopContainers(res);
   console.log("✅ Containers stopped\n");
 
-  console.log("🔄 Migrating security files to gateway volume...");
-  await migrateGatewaySecurityFiles(res, (msg) => console.log(msg));
-
-  console.log("🔄 Migrating credential files to CES security volume...");
-  await migrateCesSecurityFiles(res, (msg) => console.log(msg));
-
   console.log("🚀 Starting containers with target version...");
   await startContainers(
     {
@@ -699,9 +691,6 @@ export async function performDockerRollback(
         }
 
         await stopContainers(res);
-
-        await migrateGatewaySecurityFiles(res, (msg) => console.log(msg));
-        await migrateCesSecurityFiles(res, (msg) => console.log(msg));
 
         await startContainers(
           {
