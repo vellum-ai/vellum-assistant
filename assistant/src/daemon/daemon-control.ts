@@ -370,9 +370,10 @@ async function startDaemonLocked(): Promise<{
       const key = loadOrCreateSigningKey(keyPath);
       spawnEnv.ACTOR_TOKEN_SIGNING_KEY = key.toString("hex");
     } catch (err) {
-      log.warn(
-        { err },
-        "Failed to pre-load signing key for daemon — daemon will fall back to file-based key",
+      throw new DaemonError(
+        `Failed to pre-load signing key for daemon: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
       );
     }
   }
