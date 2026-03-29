@@ -34,12 +34,6 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => "/tmp",
-  getWorkspaceDir: () => "/tmp/workspace",
-  getConversationsDir: () => "/tmp/workspace/conversations",
-}));
-
 mock.module("../memory/guardian-action-store.js", () => ({
   getGuardianActionRequest: () => null,
   resolveGuardianActionRequest: () => {},
@@ -1459,8 +1453,13 @@ describe("Conversation host attachment directives", () => {
       expect(warningDelta).toBeUndefined();
       const completion = events.find((e) => e.type === "message_complete");
       expect(completion).toBeDefined();
-      expect((completion as { attachmentWarnings?: string[] }).attachmentWarnings)
-        .toEqual(expect.arrayContaining([expect.stringContaining("access denied by user")]));
+      expect(
+        (completion as { attachmentWarnings?: string[] }).attachmentWarnings,
+      ).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining("access denied by user"),
+        ]),
+      );
     } finally {
       rmSync(hostPath, { force: true });
     }

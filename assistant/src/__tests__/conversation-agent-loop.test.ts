@@ -15,10 +15,6 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => "/tmp",
-}));
-
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     provider: "mock-provider",
