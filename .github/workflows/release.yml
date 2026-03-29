@@ -2227,6 +2227,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           RELEASE_TRIGGER_SECRET: ${{ secrets.RELEASE_TRIGGER_SECRET }}
+          SLACK_USER_ID: ${{ inputs.slack_user_id }}
         run: |
           VERSION="${{ needs.extract-version.outputs.version }}"
           VERSION_TAG="v${VERSION}"
@@ -2293,7 +2294,6 @@ jobs:
 
           CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$DH" "$RR")
 
-          SLACK_USER_ID="${{ inputs.slack_user_id }}"
           if [ -n "$SLACK_USER_ID" ]; then
             TRIGGERED_BY="<@${SLACK_USER_ID}>"
           else
