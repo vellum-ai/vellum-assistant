@@ -6,6 +6,7 @@ import { dockerResourceNames, wakeContainers } from "../lib/docker.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 import {
   generateLocalSigningKey,
+  loadExistingSigningKey,
   isAssistantWatchModeAvailable,
   isGatewayWatchModeAvailable,
   startLocalDaemon,
@@ -107,7 +108,7 @@ export async function wake(): Promise<void> {
     }
   }
 
-  const signingKey = generateLocalSigningKey();
+  const signingKey = loadExistingSigningKey(resources) ?? generateLocalSigningKey();
 
   if (!daemonRunning) {
     await startLocalDaemon(watch, resources, { foreground, signingKey });

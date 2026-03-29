@@ -1,25 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-  afterAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  spyOn,
-  test,
-} from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
-
-// ---------------------------------------------------------------------------
-// Test isolation: in-memory SQLite via temp directory
-// ---------------------------------------------------------------------------
-
-const testDir = mkdtempSync(join(tmpdir(), "channel-approvals-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -43,16 +24,6 @@ import {
   handleChannelDecision,
 } from "../runtime/channel-approvals.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-
-afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -110,8 +81,6 @@ function registerPendingConfirmation(
 
 describe("getChannelApprovalPrompt", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     pendingInteractions.clear();
   });
 
@@ -272,8 +241,6 @@ describe("buildApprovalUIMetadata", () => {
 
 describe("handleChannelDecision", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     pendingInteractions.clear();
   });
 

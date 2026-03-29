@@ -1994,6 +1994,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 if !isDuplicate { localOnly.append(local) }
             }
             var mergedMessages = chatMessages + localOnly
+            mergedMessages.sort { $0.timestamp < $1.timestamp }
             let hasModelCommand = applyHistoryResponseMarkers(to: &mergedMessages)
             self.messages = mergedMessages
             self.reconnectLatchTimeoutTask?.cancel()
@@ -2014,6 +2015,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                 uniqueHistory = chatMessages
             }
             var mergedMessages = uniqueHistory + self.messages
+            mergedMessages.sort { $0.timestamp < $1.timestamp }
             let hasModelCommand = applyHistoryResponseMarkers(to: &mergedMessages)
             self.messages = mergedMessages
             refreshModelMetadataIfNeeded(hasModelCommand)
