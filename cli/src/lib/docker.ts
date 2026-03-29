@@ -306,8 +306,6 @@ export function dockerResourceNames(instanceName: string) {
     assistantContainer: `${instanceName}-assistant`,
     cesContainer: `${instanceName}-credential-executor`,
     cesSecurityVolume: `${instanceName}-ces-sec`,
-    /** @deprecated Legacy — no longer created for new instances. Retained for migration of existing instances. */
-    dataVolume: `${instanceName}-data`,
     gatewayContainer: `${instanceName}-gateway`,
     gatewaySecurityVolume: `${instanceName}-gateway-sec`,
     network: `${instanceName}-net`,
@@ -362,8 +360,10 @@ export async function retireDocker(name: string): Promise<void> {
   } catch {
     // network may not exist
   }
+  // Also attempt to remove the legacy data volume from older instances.
+  const legacyDataVolume = `${name}-data`;
   for (const vol of [
-    res.dataVolume,
+    legacyDataVolume,
     res.socketVolume,
     res.workspaceVolume,
     res.cesSecurityVolume,
@@ -660,8 +660,14 @@ export async function migrateGatewaySecurityFiles(
   res: ReturnType<typeof dockerResourceNames>,
   log: (msg: string) => void,
 ): Promise<void> {
+  // Legacy data volume name — older instances stored protected files here.
+  const legacyDataVolume = res.assistantContainer.replace(
+    /-assistant$/,
+    "-data",
+  );
+
   // New instances don't have a data volume — nothing to migrate.
-  if (!(await dockerVolumeExists(res.dataVolume))) {
+  if (!(await dockerVolumeExists(legacyDataVolume))) {
     log("   No data volume found — skipping gateway security migration.");
     return;
   }
@@ -690,7 +696,7 @@ export async function migrateGatewaySecurityFiles(
         "--name",
         migrationContainer,
         "-v",
-        `${res.dataVolume}:/data:ro`,
+        `${legacyDataVolume}:/data:ro`,
         "-v",
         `${res.gatewaySecurityVolume}:/gateway-security`,
         "busybox",
@@ -725,8 +731,14 @@ export async function migrateCesSecurityFiles(
   res: ReturnType<typeof dockerResourceNames>,
   log: (msg: string) => void,
 ): Promise<void> {
+  // Legacy data volume name — older instances stored protected files here.
+  const legacyDataVolume = res.assistantContainer.replace(
+    /-assistant$/,
+    "-data",
+  );
+
   // New instances don't have a data volume — nothing to migrate.
-  if (!(await dockerVolumeExists(res.dataVolume))) {
+  if (!(await dockerVolumeExists(legacyDataVolume))) {
     log("   No data volume found — skipping CES security migration.");
     return;
   }
@@ -755,7 +767,7 @@ export async function migrateCesSecurityFiles(
         "--name",
         migrationContainer,
         "-v",
-        `${res.dataVolume}:/data:ro`,
+        `${legacyDataVolume}:/data:ro`,
         "-v",
         `${res.cesSecurityVolume}:/ces-security`,
         "busybox",
@@ -1204,7 +1216,6 @@ export async function hatchDocker(
       cloud: "docker",
       species,
       hatchedAt: new Date().toISOString(),
-      volume: res.dataVolume,
       serviceGroupVersion: cliPkg.version ? `v${cliPkg.version}` : undefined,
       containerInfo: {
         assistantImage: imageTags.assistant,
