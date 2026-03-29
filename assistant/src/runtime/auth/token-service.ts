@@ -19,6 +19,7 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { getLogger } from "../../util/logger.js";
@@ -35,7 +36,22 @@ const log = getLogger("token-service");
 let _authSigningKey: Buffer | undefined;
 
 /**
- * Returns the path to the signing key file under workspace/deprecated/.
+ * Hardcoded legacy path to the signing key under ~/.vellum/protected/.
+ * Used as a read-only fallback so existing assistants keep working after
+ * the code update — avoids generating a new key that would break auth
+ * with an already-running daemon.
+ *
+ * This constant can be deleted once we stop calling the gateway directly.
+ */
+const LEGACY_SIGNING_KEY_PATH = join(
+  homedir(),
+  ".vellum",
+  "protected",
+  "actor-token-signing-key",
+);
+
+/**
+ * Returns the canonical path to the signing key file under workspace/deprecated/.
  *
  * This file can be fully deleted once the assistant stops making direct
  * calls to the gateway (i.e. all auth flows go through the env var).
@@ -49,22 +65,24 @@ function getSigningKeyPath(): string {
  * and valid, or undefined if the file does not exist or is invalid.
  */
 export function loadSigningKey(): Buffer | undefined {
-  const keyPath = getSigningKeyPath();
-  if (!existsSync(keyPath)) {
-    return undefined;
-  }
-  try {
-    const raw = readFileSync(keyPath);
-    if (raw.length === 32) {
-      log.info("Auth signing key loaded from disk");
-      return raw;
+  // Try the canonical workspace/deprecated/ path first, then fall back to
+  // the legacy protected/ path so existing assistants keep working.
+  for (const keyPath of [getSigningKeyPath(), LEGACY_SIGNING_KEY_PATH]) {
+    if (!existsSync(keyPath)) {
+      continue;
     }
-    log.warn("Signing key file has unexpected length");
-    return undefined;
-  } catch (err) {
-    log.warn({ err }, "Failed to read signing key file");
-    return undefined;
+    try {
+      const raw = readFileSync(keyPath);
+      if (raw.length === 32) {
+        log.info({ keyPath }, "Auth signing key loaded from disk");
+        return raw;
+      }
+      log.warn({ keyPath }, "Signing key file has unexpected length");
+    } catch (err) {
+      log.warn({ err, keyPath }, "Failed to read signing key file");
+    }
   }
+  return undefined;
 }
 
 /**
@@ -104,18 +122,20 @@ export function loadOrCreateSigningKey(): Buffer {
  */
 export function resolveSigningKey(): Buffer {
   const envKey = process.env.ACTOR_TOKEN_SIGNING_KEY;
-  if (!envKey) {
-    throw new Error(
-      "ACTOR_TOKEN_SIGNING_KEY env var is not set — the daemon requires it",
-    );
+  if (envKey) {
+    if (!/^[0-9a-f]{64}$/i.test(envKey)) {
+      throw new Error(
+        `Invalid ACTOR_TOKEN_SIGNING_KEY: expected 64 hex characters, got ${envKey.length} chars`,
+      );
+    }
+    log.info("Signing key loaded from ACTOR_TOKEN_SIGNING_KEY env var");
+    return Buffer.from(envKey, "hex");
   }
-  if (!/^[0-9a-f]{64}$/i.test(envKey)) {
-    throw new Error(
-      `Invalid ACTOR_TOKEN_SIGNING_KEY: expected 64 hex characters, got ${envKey.length} chars`,
-    );
-  }
-  log.info("Signing key loaded from ACTOR_TOKEN_SIGNING_KEY env var");
-  return Buffer.from(envKey, "hex");
+
+  // Fallback: env var not set (e.g. daemon spawned by cli/src/lib/local.ts
+  // which does not yet inject the env var). Load or create from disk.
+  log.warn("ACTOR_TOKEN_SIGNING_KEY env var not set — falling back to disk");
+  return loadOrCreateSigningKey();
 }
 
 function getSigningKey(): Buffer {
