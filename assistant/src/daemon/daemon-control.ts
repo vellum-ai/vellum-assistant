@@ -354,15 +354,10 @@ async function startDaemonLocked(): Promise<{
   // Spawn the daemon as a detached child process
   const mainPath = resolve(import.meta.dirname ?? __dirname, "main.ts");
 
-  // Redirect the child's stderr to a file instead of piping it back to the
-  // parent. A pipe's read end is destroyed when the parent exits, leaving
-  // fd 2 broken in the child. Bun (unlike Node.js) does not ignore SIGPIPE,
-  // so any later stderr write would silently kill the daemon.
-  const stderrPath = getDaemonStderrLogPath();
-  const stderrFd = openSync(stderrPath, "w");
-
   // Pre-load the signing key so the daemon receives it via env var and
   // never needs to access the protected directory for key material.
+  // Done before opening stderrFd to avoid leaking the file descriptor if
+  // loadOrCreateSigningKey throws.
   const spawnEnv = { ...process.env };
   if (!spawnEnv.ACTOR_TOKEN_SIGNING_KEY) {
     try {
@@ -377,6 +372,13 @@ async function startDaemonLocked(): Promise<{
       );
     }
   }
+
+  // Redirect the child's stderr to a file instead of piping it back to the
+  // parent. A pipe's read end is destroyed when the parent exits, leaving
+  // fd 2 broken in the child. Bun (unlike Node.js) does not ignore SIGPIPE,
+  // so any later stderr write would silently kill the daemon.
+  const stderrPath = getDaemonStderrLogPath();
+  const stderrFd = openSync(stderrPath, "w");
 
   const child = spawn("bun", ["run", mainPath], {
     detached: true,
