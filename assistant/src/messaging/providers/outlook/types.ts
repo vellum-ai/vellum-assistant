@@ -61,6 +61,7 @@ export interface OutlookMailFolder {
 /** Outlook mail folder list response */
 export interface OutlookMailFolderListResponse {
   value?: OutlookMailFolder[];
+  "@odata.nextLink"?: string;
 }
 
 /** Payload for sending a message via Microsoft Graph */

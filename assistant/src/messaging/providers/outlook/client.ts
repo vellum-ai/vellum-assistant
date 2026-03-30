@@ -60,12 +60,19 @@ async function request<T>(
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     let resp: OAuthConnectionResponse;
     try {
+      const extraHeaders =
+        options?.headers &&
+        typeof options.headers === "object" &&
+        !Array.isArray(options.headers)
+          ? (options.headers as Record<string, string>)
+          : {};
       resp = await connection.request({
         method,
         path,
         query,
         headers: {
           "Content-Type": "application/json",
+          ...extraHeaders,
         },
         body: options?.body ? JSON.parse(options.body as string) : undefined,
       });
@@ -172,7 +179,8 @@ export async function searchMessages(
   },
 ): Promise<OutlookMessageListResponse> {
   const query: Record<string, string> = {
-    $search: `"${searchQuery.replace(/"/g, '\\"')}"`,
+    $search: `"${searchQuery.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`,
+    $count: "true",
   };
   if (options?.top !== undefined) query["$top"] = String(options.top);
   if (options?.skip !== undefined) query["$skip"] = String(options.skip);
@@ -180,7 +188,11 @@ export async function searchMessages(
   return request<OutlookMessageListResponse>(
     connection,
     "/v1.0/me/messages",
-    undefined,
+    {
+      headers: {
+        ConsistencyLevel: "eventual",
+      },
+    },
     query,
   );
 }
@@ -212,13 +224,29 @@ export async function replyToMessage(
 export async function listMailFolders(
   connection: OAuthConnection,
 ): Promise<OutlookMailFolder[]> {
-  const resp = await request<OutlookMailFolderListResponse>(
-    connection,
-    "/v1.0/me/mailFolders",
-    undefined,
-    { $top: "100" },
-  );
-  return resp.value ?? [];
+  const allFolders: OutlookMailFolder[] = [];
+  let nextQuery: Record<string, string> | undefined = { $top: "100" };
+
+  while (nextQuery) {
+    const resp = await request<OutlookMailFolderListResponse>(
+      connection,
+      "/v1.0/me/mailFolders",
+      undefined,
+      nextQuery,
+    );
+    if (resp.value) allFolders.push(...resp.value);
+    if (resp["@odata.nextLink"]) {
+      const nextUrl = new URL(resp["@odata.nextLink"]);
+      nextQuery = {};
+      nextUrl.searchParams.forEach((v, k) => {
+        nextQuery![k] = v;
+      });
+    } else {
+      nextQuery = undefined;
+    }
+  }
+
+  return allFolders;
 }
 
 /** Mark a message as read. */
