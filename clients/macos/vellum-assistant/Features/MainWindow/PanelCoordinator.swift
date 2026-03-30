@@ -403,7 +403,6 @@ extension MainWindowView {
                 conversationStartersEnabled: conversationStartersEnabled,
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,
-                connectionManager: connectionManager,
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
                 conversationManager: conversationManager,
@@ -606,12 +605,11 @@ func openFilePicker(viewModel: ChatViewModel) {
 
 /// Observes the active ChatViewModel and renders the chat interface.
 struct ActiveChatViewWrapper: View {
-    var viewModel: ChatViewModel
-    @ObservedObject var windowState: MainWindowState
+    @Bindable var viewModel: ChatViewModel
+    var windowState: MainWindowState
     let conversationStartersEnabled: Bool
     var showInspectButton: Bool = false
     var isTTSEnabled: Bool = false
-    let connectionManager: GatewayConnectionManager
     var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
     let conversationManager: ConversationManager
@@ -637,9 +635,48 @@ struct ActiveChatViewWrapper: View {
 
     var body: some View {
         ZStack {
-            chatContent
-                .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
-                .disabled(inspectorMessageId != nil)
+            ActiveChatContentView(
+                viewModel: viewModel,
+                settingsStore: settingsStore,
+                ambientAgent: ambientAgent,
+                conversationStartersEnabled: conversationStartersEnabled,
+                showInspectButton: showInspectButton,
+                isTTSEnabled: isTTSEnabled,
+                isTemporaryChat: isTemporaryChat,
+                isReadonly: isReadonly,
+                voiceModeManager: voiceModeManager,
+                voiceService: voiceService,
+                onEndVoiceMode: onEndVoiceMode,
+                onDictateToggle: onDictateToggle,
+                onVoiceModeToggle: onVoiceModeToggle,
+                conversationId: conversationId,
+                isInteractionEnabled: inspectorMessageId == nil && !isReadonly,
+                onMicrophoneToggle: onMicrophoneToggle,
+                onInspectMessage: { presentInspector(for: $0) },
+                onSubagentTap: { windowState.selectedSubagentId = $0 },
+                onForkFromMessage: { [conversationManager] daemonMessageId in
+                    Task { @MainActor in
+                        await conversationManager.forkConversation(throughDaemonMessageId: daemonMessageId)
+                    }
+                },
+                onAddFunds: {
+                    settingsStore.pendingSettingsTab = .billing
+                    windowState.selection = .panel(.settings)
+                },
+                onOpenModelsAndServices: {
+                    settingsStore.pendingSettingsTab = .modelsAndServices
+                    windowState.selection = .panel(.settings)
+                },
+                onBootstrapSendLogs: {
+                    AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue)
+                },
+                anchorMessageId: $anchorMessageId,
+                highlightedMessageId: $highlightedMessageId,
+                isBootstrapping: isBootstrapping,
+                isBootstrapTimedOut: isBootstrapTimedOut
+            )
+            .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
+            .disabled(inspectorMessageId != nil)
 
             if let messageId = inspectorMessageId {
                 MessageInspectorView(
@@ -655,13 +692,54 @@ struct ActiveChatViewWrapper: View {
         }
     }
 
-    private var chatContent: some View {
+    private func presentInspector(for messageId: String?) {
+        guard let messageId else { return }
+        withAnimation(VAnimation.standard) {
+            inspectorMessageId = messageId
+        }
+    }
+
+    private func dismissInspector() {
+        withAnimation(VAnimation.standard) {
+            inspectorMessageId = nil
+        }
+    }
+}
+
+/// Isolates ChatViewModel property reads into its own observation scope,
+/// preventing viewModel changes from invalidating ActiveChatViewWrapper.
+private struct ActiveChatContentView: View {
+    @Bindable var viewModel: ChatViewModel
+    @ObservedObject var settingsStore: SettingsStore
+    var ambientAgent: AmbientAgent
+    let conversationStartersEnabled: Bool
+    var showInspectButton: Bool = false
+    var isTTSEnabled: Bool = false
+    var isTemporaryChat: Bool = false
+    var isReadonly: Bool = false
+    var voiceModeManager: VoiceModeManager? = nil
+    var voiceService: OpenAIVoiceService? = nil
+    var onEndVoiceMode: (() -> Void)? = nil
+    var onDictateToggle: (() -> Void)? = nil
+    var onVoiceModeToggle: (() -> Void)? = nil
+    var conversationId: UUID?
+    var isInteractionEnabled: Bool = true
+    let onMicrophoneToggle: () -> Void
+    let onInspectMessage: (String?) -> Void
+    let onSubagentTap: (String) -> Void
+    let onForkFromMessage: (String) -> Void
+    let onAddFunds: () -> Void
+    let onOpenModelsAndServices: () -> Void
+    let onBootstrapSendLogs: () -> Void
+    @Binding var anchorMessageId: UUID?
+    @Binding var highlightedMessageId: UUID?
+    var isBootstrapping: Bool = false
+    var isBootstrapTimedOut: Bool = false
+
+    var body: some View {
         ChatView(
             messages: viewModel.messages,
-            inputText: Binding(
-                get: { viewModel.inputText },
-                set: { viewModel.inputText = $0 }
-            ),
+            inputText: $viewModel.inputText,
             isThinking: viewModel.isThinking,
             isCompacting: viewModel.isCompacting,
             isSending: viewModel.isSending,
@@ -709,16 +787,10 @@ struct ActiveChatViewWrapper: View {
             onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
             watchSession: ambientAgent.activeWatchSession,
             onStopWatch: { viewModel.stopWatchSession() },
-            onForkFromMessage: { [conversationManager] daemonMessageId in
-                Task { @MainActor in
-                    await conversationManager.forkConversation(throughDaemonMessageId: daemonMessageId)
-                }
-            },
+            onForkFromMessage: onForkFromMessage,
             showInspectButton: showInspectButton,
             isTTSEnabled: isTTSEnabled,
-            onInspectMessage: { daemonMessageId in
-                presentInspector(for: daemonMessageId)
-            },
+            onInspectMessage: onInspectMessage,
             mediaEmbedSettings: MediaEmbedResolverSettings(
                 enabled: settingsStore.mediaEmbedsEnabled,
                 enabledSince: settingsStore.mediaEmbedsEnabledSince,
@@ -729,9 +801,7 @@ struct ActiveChatViewWrapper: View {
             onAbortSubagent: { subagentId in
                 Task { await SubagentClient().abort(subagentId: subagentId, conversationId: viewModel.conversationId) }
             },
-            onSubagentTap: { subagentId in
-                windowState.selectedSubagentId = subagentId
-            },
+            onSubagentTap: onSubagentTap,
             onRehydrateMessage: { messageId in
                 viewModel.rehydrateMessage(id: messageId)
             },
@@ -765,7 +835,7 @@ struct ActiveChatViewWrapper: View {
             },
             onFetchConversationStarters: { [weak viewModel] in viewModel?.fetchConversationStarters() },
             activePendingRequestId: viewModel.activePendingRequestId,
-            isInteractionEnabled: inspectorMessageId == nil && !isReadonly,
+            isInteractionEnabled: isInteractionEnabled,
             isReadonly: isReadonly,
             contextWindowFillRatio: viewModel.contextWindowFillRatio,
             contextWindowTokens: viewModel.contextWindowTokens,
@@ -776,16 +846,10 @@ struct ActiveChatViewWrapper: View {
             btwLoading: viewModel.btwLoading,
             onDismissBtw: { viewModel.dismissBtw() },
             creditsExhaustedError: viewModel.errorManager.conversationError?.isCreditsExhausted == true ? viewModel.errorManager.conversationError : nil,
-            onAddFunds: {
-                settingsStore.pendingSettingsTab = .billing
-                windowState.selection = .panel(.settings)
-            },
+            onAddFunds: onAddFunds,
             onDismissCreditsExhausted: { viewModel.dismissConversationError() },
             providerNotConfiguredError: viewModel.errorManager.conversationError?.isProviderNotConfigured == true ? viewModel.errorManager.conversationError : nil,
-            onOpenModelsAndServices: {
-                settingsStore.pendingSettingsTab = .modelsAndServices
-                windowState.selection = .panel(.settings)
-            },
+            onOpenModelsAndServices: onOpenModelsAndServices,
             onDismissProviderNotConfigured: { viewModel.dismissConversationError() },
             displayedMessageCount: viewModel.displayedMessageCount,
             hasMoreMessages: viewModel.hasMoreMessages,
@@ -793,23 +857,8 @@ struct ActiveChatViewWrapper: View {
             loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
             isBootstrapping: isBootstrapping,
             isBootstrapTimedOut: isBootstrapTimedOut,
-            onBootstrapSendLogs: {
-                AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue)
-            }
+            onBootstrapSendLogs: onBootstrapSendLogs
         )
-    }
-
-    private func presentInspector(for messageId: String?) {
-        guard let messageId else { return }
-        withAnimation(VAnimation.standard) {
-            inspectorMessageId = messageId
-        }
-    }
-
-    private func dismissInspector() {
-        withAnimation(VAnimation.standard) {
-            inspectorMessageId = nil
-        }
     }
 }
 

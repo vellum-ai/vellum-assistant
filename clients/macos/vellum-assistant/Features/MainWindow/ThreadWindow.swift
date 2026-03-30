@@ -170,7 +170,7 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
 /// Avoids observing `ConversationManager` directly — only the specific callbacks
 /// and data needed are passed in to prevent broad re-renders.
 private struct ThreadWindowContentView: View {
-    var viewModel: ChatViewModel
+    @Bindable var viewModel: ChatViewModel
     let conversationLocalId: UUID
     @ObservedObject var conversationManager: ConversationManager
     @ObservedObject var settingsStore: SettingsStore
@@ -192,8 +192,23 @@ private struct ThreadWindowContentView: View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
                 threadTitleBar
-                chatContent
-                    .padding(.bottom, VSpacing.md)
+                ThreadChatContentView(
+                    viewModel: viewModel,
+                    settingsStore: settingsStore,
+                    ambientAgent: ambientAgent,
+                    onFork: onFork,
+                    isInteractionEnabled: !(conversation?.isChannelConversation ?? false),
+                    isReadonly: conversation?.isChannelConversation ?? false,
+                    onAddFunds: {
+                        settingsStore.pendingSettingsTab = .billing
+                    },
+                    onOpenModelsAndServices: {
+                        settingsStore.pendingSettingsTab = .modelsAndServices
+                    },
+                    anchorMessageId: $anchorMessageId,
+                    highlightedMessageId: $highlightedMessageId
+                )
+                .padding(.bottom, VSpacing.md)
             }
 
             // Actions drawer rendered above all content
@@ -267,14 +282,26 @@ private struct ThreadWindowContentView: View {
         .frame(width: 200)
         .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
     }
+}
 
-    private var chatContent: some View {
+/// Isolates ChatViewModel property reads into its own observation scope,
+/// preventing viewModel changes from invalidating ThreadWindowContentView.
+private struct ThreadChatContentView: View {
+    @Bindable var viewModel: ChatViewModel
+    @ObservedObject var settingsStore: SettingsStore
+    var ambientAgent: AmbientAgent
+    let onFork: (String) -> Void
+    var isInteractionEnabled: Bool = true
+    var isReadonly: Bool = false
+    let onAddFunds: () -> Void
+    let onOpenModelsAndServices: () -> Void
+    @Binding var anchorMessageId: UUID?
+    @Binding var highlightedMessageId: UUID?
+
+    var body: some View {
         ChatView(
             messages: viewModel.messages,
-            inputText: Binding(
-                get: { viewModel.inputText },
-                set: { viewModel.inputText = $0 }
-            ),
+            inputText: $viewModel.inputText,
             isThinking: viewModel.isThinking,
             isCompacting: viewModel.isCompacting,
             isSending: viewModel.isSending,
@@ -327,22 +354,18 @@ private struct ThreadWindowContentView: View {
             subagentDetailStore: viewModel.subagentDetailStore,
             isHistoryLoaded: viewModel.isHistoryLoaded,
             activePendingRequestId: viewModel.activePendingRequestId,
-            isInteractionEnabled: !(conversation?.isChannelConversation ?? false),
-            isReadonly: conversation?.isChannelConversation ?? false,
+            isInteractionEnabled: isInteractionEnabled,
+            isReadonly: isReadonly,
             contextWindowFillRatio: viewModel.contextWindowFillRatio,
             contextWindowTokens: viewModel.contextWindowTokens,
             contextWindowMaxTokens: viewModel.contextWindowMaxTokens,
             anchorMessageId: $anchorMessageId,
             highlightedMessageId: $highlightedMessageId,
             creditsExhaustedError: viewModel.errorManager.conversationError?.isCreditsExhausted == true ? viewModel.errorManager.conversationError : nil,
-            onAddFunds: {
-                settingsStore.pendingSettingsTab = .billing
-            },
+            onAddFunds: onAddFunds,
             onDismissCreditsExhausted: { viewModel.dismissConversationError() },
             providerNotConfiguredError: viewModel.errorManager.conversationError?.isProviderNotConfigured == true ? viewModel.errorManager.conversationError : nil,
-            onOpenModelsAndServices: {
-                settingsStore.pendingSettingsTab = .modelsAndServices
-            },
+            onOpenModelsAndServices: onOpenModelsAndServices,
             onDismissProviderNotConfigured: { viewModel.dismissConversationError() },
             displayedMessageCount: viewModel.displayedMessageCount,
             hasMoreMessages: viewModel.hasMoreMessages,
