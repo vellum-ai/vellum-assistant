@@ -6,14 +6,14 @@ import VellumAssistantShared
 // MARK: - MessageListScrollState
 
 /// Replaces `MessageListScrollCoordinator` (ObservableObject) with an
-/// `@Observable` class that only triggers SwiftUI view re-evaluations for
-/// 4 properties that legitimately drive UI changes. All scroll-frequency
+/// `@Observable` class where a single `uiVersion` counter is the ONLY
+/// property that triggers SwiftUI view re-evaluations. All scroll-frequency
 /// state is `@ObservationIgnored` to prevent the cascading re-render
 /// feedback loops that caused the old coordinator to freeze the app.
 @Observable @MainActor
 final class MessageListScrollState {
 
-    // MARK: - Observed Properties (trigger view updates)
+    // MARK: - UI State (single uiVersion observation)
 
     @ObservationIgnored private var _isFollowingBottom = true
 
