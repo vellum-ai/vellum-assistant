@@ -1,10 +1,8 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Mock the data dir to a temp directory so tests don't touch ~/.vellum/
-let testDir: string;
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -22,25 +20,13 @@ import { scanText } from "../security/secret-scanner.js";
 
 describe("secret-allowlist", () => {
   beforeEach(() => {
-    testDir = join(
-      tmpdir(),
-      `vellum-allowlist-test-${Date.now()}-${Math.random()
-        .toString(36)
-        .slice(2)}`,
-    );
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
-    mkdirSync(join(testDir, "protected"), { recursive: true });
+    mkdirSync(join(testDir, "data"), { recursive: true });
     resetAllowlist();
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
     resetAllowlist();
-    if (existsSync(testDir)) {
-      rmSync(testDir, { recursive: true, force: true });
-    }
+    rmSync(join(testDir, "data"), { recursive: true, force: true });
   });
 
   // -----------------------------------------------------------------------
@@ -55,7 +41,7 @@ describe("secret-allowlist", () => {
   // -----------------------------------------------------------------------
   test("[experimental] suppresses exact values", () => {
     writeFileSync(
-      join(testDir, "protected", "secret-allowlist.json"),
+      join(testDir, "data", "secret-allowlist.json"),
       JSON.stringify({ values: ["my-test-api-key-12345"] }),
     );
     expect(isAllowlisted("my-test-api-key-12345")).toBe(true);
@@ -64,7 +50,7 @@ describe("secret-allowlist", () => {
 
   test("[experimental] exact values are case-sensitive", () => {
     writeFileSync(
-      join(testDir, "protected", "secret-allowlist.json"),
+      join(testDir, "data", "secret-allowlist.json"),
       JSON.stringify({ values: ["MyTestKey"] }),
     );
     expect(isAllowlisted("MyTestKey")).toBe(true);
@@ -76,7 +62,7 @@ describe("secret-allowlist", () => {
   // -----------------------------------------------------------------------
   test("[experimental] suppresses values matching a prefix", () => {
     writeFileSync(
-      join(testDir, "protected", "secret-allowlist.json"),
+      join(testDir, "data", "secret-allowlist.json"),
       JSON.stringify({ prefixes: ["my-internal-"] }),
     );
     expect(isAllowlisted("my-internal-key-abc123")).toBe(true);
@@ -88,7 +74,7 @@ describe("secret-allowlist", () => {
   // -----------------------------------------------------------------------
   test("[experimental] suppresses values matching a regex pattern", () => {
     writeFileSync(
-      join(testDir, "protected", "secret-allowlist.json"),
+      join(testDir, "data", "secret-allowlist.json"),
       JSON.stringify({ patterns: ["^ci-test-[a-z0-9]+$"] }),
     );
     expect(isAllowlisted("ci-test-abc123")).toBe(true);
@@ -97,7 +83,7 @@ describe("secret-allowlist", () => {
 
   test("[experimental] invalid regex is skipped without crashing", () => {
     writeFileSync(
-      join(testDir, "protected", "secret-allowlist.json"),
+      join(testDir, "data", "secret-allowlist.json"),
       JSON.stringify({ patterns: ["[invalid", "^valid$"] }),
     );
     loadAllowlist();
@@ -112,7 +98,7 @@ describe("secret-allowlist", () => {
   // -----------------------------------------------------------------------
   test("[experimental] combines values, prefixes, and patterns", () => {
     writeFileSync(
-      join(testDir, "protected", "secret-allowlist.json"),
+      join(testDir, "data", "secret-allowlist.json"),
       JSON.stringify({
         values: ["exact-match-value"],
         prefixes: ["test-prefix-"],
@@ -130,7 +116,7 @@ describe("secret-allowlist", () => {
   // -----------------------------------------------------------------------
   test("handles malformed JSON gracefully", () => {
     writeFileSync(
-      join(testDir, "protected", "secret-allowlist.json"),
+      join(testDir, "data", "secret-allowlist.json"),
       "not json{{{",
     );
     loadAllowlist();
@@ -140,7 +126,7 @@ describe("secret-allowlist", () => {
 
   test("handles non-array fields gracefully", () => {
     writeFileSync(
-      join(testDir, "protected", "secret-allowlist.json"),
+      join(testDir, "data", "secret-allowlist.json"),
       JSON.stringify({ values: "not-an-array", prefixes: 42 }),
     );
     loadAllowlist();
@@ -153,7 +139,7 @@ describe("secret-allowlist", () => {
   test("[experimental] allowlisted values are suppressed by scanText", () => {
     const awsKey = "AKIAIOSFODNN7REALKEY";
     writeFileSync(
-      join(testDir, "protected", "secret-allowlist.json"),
+      join(testDir, "data", "secret-allowlist.json"),
       JSON.stringify({ values: [awsKey] }),
     );
     resetAllowlist();
@@ -165,7 +151,7 @@ describe("secret-allowlist", () => {
 
   test("non-allowlisted values are still detected by scanText", () => {
     writeFileSync(
-      join(testDir, "protected", "secret-allowlist.json"),
+      join(testDir, "data", "secret-allowlist.json"),
       JSON.stringify({ values: ["AKIAIOSFODNN7OTHERKE"] }),
     );
     resetAllowlist();
@@ -177,7 +163,7 @@ describe("secret-allowlist", () => {
 
   test("[experimental] prefix allowlist suppresses pattern matches", () => {
     writeFileSync(
-      join(testDir, "protected", "secret-allowlist.json"),
+      join(testDir, "data", "secret-allowlist.json"),
       JSON.stringify({ prefixes: ["ghp_AAAA"] }),
     );
     resetAllowlist();
@@ -197,7 +183,7 @@ describe("secret-allowlist", () => {
 
     // Create the file — but fileChecked is cached, so it won't be seen
     writeFileSync(
-      join(testDir, "protected", "secret-allowlist.json"),
+      join(testDir, "data", "secret-allowlist.json"),
       JSON.stringify({ values: ["test-key"] }),
     );
     expect(isAllowlisted("test-key")).toBe(false);
@@ -210,7 +196,7 @@ describe("secret-allowlist", () => {
   test("[experimental] retries loading when file was malformed on first call", () => {
     // First call with malformed JSON
     writeFileSync(
-      join(testDir, "protected", "secret-allowlist.json"),
+      join(testDir, "data", "secret-allowlist.json"),
       "not json{{{",
     );
     loadAllowlist();
@@ -218,7 +204,7 @@ describe("secret-allowlist", () => {
 
     // Fix the file
     writeFileSync(
-      join(testDir, "protected", "secret-allowlist.json"),
+      join(testDir, "data", "secret-allowlist.json"),
       JSON.stringify({ values: ["test-key"] }),
     );
 
@@ -231,7 +217,7 @@ describe("secret-allowlist", () => {
   // -----------------------------------------------------------------------
   test("[experimental] resetAllowlist clears cached state", () => {
     writeFileSync(
-      join(testDir, "protected", "secret-allowlist.json"),
+      join(testDir, "data", "secret-allowlist.json"),
       JSON.stringify({ values: ["test-value"] }),
     );
     loadAllowlist();
@@ -239,7 +225,7 @@ describe("secret-allowlist", () => {
 
     // Reset and remove file — should no longer be allowlisted
     resetAllowlist();
-    rmSync(join(testDir, "protected", "secret-allowlist.json"));
+    rmSync(join(testDir, "data", "secret-allowlist.json"));
     expect(isAllowlisted("test-value")).toBe(false);
   });
 });

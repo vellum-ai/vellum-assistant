@@ -1,7 +1,7 @@
 /**
  * User-defined allowlist for suppressing secret scanner false positives.
  *
- * Reads `~/.vellum/secret-allowlist.json` (if present) and provides
+ * Reads `~/.vellum/workspace/data/secret-allowlist.json` (if present) and provides
  * `isAllowlisted(value)` to check whether a matched value should be
  * suppressed.
  *
@@ -18,7 +18,7 @@ import { join } from "node:path";
 
 import { pathExists } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
-import { getProtectedDir } from "../util/platform.js";
+import { getDataDir } from "../util/platform.js";
 
 const log = getLogger("secret-allowlist");
 
@@ -45,7 +45,7 @@ let allowedRegexes: RegExp[] = [];
 export function loadAllowlist(): void {
   if (loaded || fileChecked) return;
 
-  const filePath = join(getProtectedDir(), "secret-allowlist.json");
+  const filePath = join(getDataDir(), "secret-allowlist.json");
   if (!pathExists(filePath)) {
     fileChecked = true;
     return;
@@ -169,7 +169,7 @@ function validateAllowlist(
  * Returns validation errors, or null if the file doesn't exist.
  */
 export function validateAllowlistFile(): AllowlistValidationError[] | null {
-  const filePath = join(getProtectedDir(), "secret-allowlist.json");
+  const filePath = join(getDataDir(), "secret-allowlist.json");
   if (!pathExists(filePath)) return null;
 
   const raw = readFileSync(filePath, "utf-8");

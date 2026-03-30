@@ -1,10 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-let TEST_DIR = "";
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -25,16 +23,11 @@ function makeContext(): ToolContext {
 }
 
 beforeEach(() => {
-  TEST_DIR = mkdtempSync(join(tmpdir(), "scaffold-tool-test-"));
-  process.env.VELLUM_HOME = TEST_DIR;
-  process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
   mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
 });
 
 afterEach(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  rmSync(TEST_DIR, { recursive: true, force: true });
+  rmSync(join(TEST_DIR, "skills"), { recursive: true, force: true });
 });
 
 describe("scaffold_managed_skill tool", () => {

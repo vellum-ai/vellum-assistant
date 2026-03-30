@@ -2,9 +2,7 @@ import * as realFs from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const TEST_DIR = "/tmp/vellum-user-ref-test";
-process.env.VELLUM_HOME = TEST_DIR;
-process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Mutable state the tests control
 let mockFileExists = false;

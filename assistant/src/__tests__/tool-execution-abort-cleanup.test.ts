@@ -13,11 +13,11 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+
 // ── Shared mock setup ────────────────────────────────────────────────────────
 // Config mock must be declared before importing tool modules so that the
 // mock.module calls are hoisted above the dynamic imports.
-import { mock } from "bun:test";
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
