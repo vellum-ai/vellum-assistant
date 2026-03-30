@@ -39,7 +39,8 @@ type RoutingEntry = {
 
 /**
  * Read the workspace config file at startup to populate gateway operational
- * settings. The CLI writes these values before starting the gateway.
+ * settings. In Docker, the daemon writes these values. In local mode, the
+ * CLI passes them via env vars (which take precedence in loadConfig()).
  */
 function readWorkspaceConfig(): Record<string, unknown> {
   try {
@@ -105,24 +106,36 @@ export function loadConfig(): GatewayConfig {
 
   const gatewayInternalBaseUrl = `http://127.0.0.1:${port}`;
 
-  // Read operational settings from workspace config. The CLI writes these
-  // before spawning the gateway (see cli/src/lib/local.ts writeGatewayConfig).
+  // Read operational settings from workspace config (Docker) or env vars (CLI).
   const wsConfig = readWorkspaceConfig();
   const gw = (wsConfig.gateway ?? {}) as Record<string, unknown>;
 
+  // Env vars take precedence over workspace config values. This allows the
+  // CLI to pass gateway settings directly via the process environment instead
+  // of writing to the workspace config file.
   const runtimeProxyEnabled =
+    process.env.RUNTIME_PROXY_ENABLED === "true" ||
     gw.runtimeProxyEnabled === true ||
-    gw.runtimeProxyEnabled === "true" ||
-    process.env.RUNTIME_PROXY_ENABLED === "true";
+    gw.runtimeProxyEnabled === "true";
   const runtimeProxyRequireAuth =
-    gw.runtimeProxyRequireAuth !== false &&
-    gw.runtimeProxyRequireAuth !== "false";
-  const unmappedPolicy = gw.unmappedPolicy === "default" ? "default" : "reject";
+    process.env.RUNTIME_PROXY_REQUIRE_AUTH !== undefined
+      ? process.env.RUNTIME_PROXY_REQUIRE_AUTH !== "false"
+      : gw.runtimeProxyRequireAuth !== false &&
+        gw.runtimeProxyRequireAuth !== "false";
+  const unmappedPolicy =
+    process.env.UNMAPPED_POLICY === "default"
+      ? "default"
+      : gw.unmappedPolicy === "default"
+        ? "default"
+        : "reject";
   const defaultAssistantId =
-    typeof gw.defaultAssistantId === "string" && gw.defaultAssistantId
+    process.env.DEFAULT_ASSISTANT_ID?.trim() ||
+    (typeof gw.defaultAssistantId === "string" && gw.defaultAssistantId
       ? gw.defaultAssistantId
-      : undefined;
-  const routingEntries = parseRoutingEntries(gw.routingEntries);
+      : undefined);
+  const routingEntries = process.env.ROUTING_ENTRIES
+    ? parseRoutingEntries(JSON.parse(process.env.ROUTING_ENTRIES))
+    : parseRoutingEntries(gw.routingEntries);
 
   const logFile: LogFileConfig = {
     dir: undefined,

@@ -480,12 +480,11 @@ function normalizeIngressUrl(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
-// ── Workspace config helpers ──
+// ── Workspace config readers (read-only) ──
 
 function getWorkspaceConfigPath(instanceDir?: string): string {
-  // When VELLUM_WORKSPACE_DIR is set, the gateway reads its config from
-  // join(VELLUM_WORKSPACE_DIR, "config.json"). The CLI must write to the
-  // same location so the gateway sees the settings at startup.
+  // When VELLUM_WORKSPACE_DIR is set, the config lives at
+  // join(VELLUM_WORKSPACE_DIR, "config.json").
   const workspaceDirOverride = process.env.VELLUM_WORKSPACE_DIR?.trim();
   if (!instanceDir && workspaceDirOverride) {
     return join(workspaceDirOverride, "config.json");
@@ -494,70 +493,6 @@ function getWorkspaceConfigPath(instanceDir?: string): string {
     instanceDir ??
     (process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir()));
   return join(baseDataDir, ".vellum", "workspace", "config.json");
-}
-
-function loadWorkspaceConfig(instanceDir?: string): Record<string, unknown> {
-  const configPath = getWorkspaceConfigPath(instanceDir);
-  try {
-    if (!existsSync(configPath)) return {};
-    return JSON.parse(readFileSync(configPath, "utf-8")) as Record<
-      string,
-      unknown
-    >;
-  } catch {
-    return {};
-  }
-}
-
-function saveWorkspaceConfig(
-  config: Record<string, unknown>,
-  instanceDir?: string,
-): void {
-  const configPath = getWorkspaceConfigPath(instanceDir);
-  const dir = dirname(configPath);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-}
-
-/**
- * Write gateway operational settings to the workspace config file so the
- * gateway reads them at startup via its config.ts readWorkspaceConfig().
- */
-function writeGatewayConfig(
-  instanceDir?: string,
-  opts?: {
-    runtimeProxyEnabled?: boolean;
-    runtimeProxyRequireAuth?: boolean;
-    unmappedPolicy?: "reject" | "default";
-    defaultAssistantId?: string;
-    routingEntries?: Array<{
-      type: "conversation_id" | "actor_id";
-      key: string;
-      assistantId: string;
-    }>;
-  },
-): void {
-  const config = loadWorkspaceConfig(instanceDir);
-  const gateway = (config.gateway ?? {}) as Record<string, unknown>;
-
-  if (opts?.runtimeProxyEnabled !== undefined) {
-    gateway.runtimeProxyEnabled = opts.runtimeProxyEnabled;
-  }
-  if (opts?.runtimeProxyRequireAuth !== undefined) {
-    gateway.runtimeProxyRequireAuth = opts.runtimeProxyRequireAuth;
-  }
-  if (opts?.unmappedPolicy !== undefined) {
-    gateway.unmappedPolicy = opts.unmappedPolicy;
-  }
-  if (opts?.defaultAssistantId !== undefined) {
-    gateway.defaultAssistantId = opts.defaultAssistantId;
-  }
-  if (opts?.routingEntries !== undefined) {
-    gateway.routingEntries = opts.routingEntries;
-  }
-
-  config.gateway = gateway;
-  saveWorkspaceConfig(config, instanceDir);
 }
 
 function readWorkspaceIngressPublicBaseUrl(
@@ -1131,19 +1066,16 @@ export async function startGateway(
   const effectiveDaemonPort =
     resources?.daemonPort ?? Number(process.env.RUNTIME_HTTP_PORT || "7821");
 
-  // Write gateway operational settings to workspace config before starting
-  // the gateway process. The gateway reads these at startup from config.json.
-  writeGatewayConfig(resources?.instanceDir, {
-    runtimeProxyEnabled: true,
-    runtimeProxyRequireAuth: true,
-    unmappedPolicy: "default",
-    defaultAssistantId: "self",
-  });
-
   const gatewayEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),
     RUNTIME_HTTP_PORT: String(effectiveDaemonPort),
     GATEWAY_PORT: String(effectiveGatewayPort),
+    // Pass gateway operational settings via env vars so the CLI does not
+    // need direct access to the workspace config file.
+    RUNTIME_PROXY_ENABLED: "true",
+    RUNTIME_PROXY_REQUIRE_AUTH: "true",
+    UNMAPPED_POLICY: "default",
+    DEFAULT_ASSISTANT_ID: "self",
     ...(options?.signingKey
       ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
       : {}),
