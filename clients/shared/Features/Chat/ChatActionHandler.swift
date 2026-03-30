@@ -466,7 +466,6 @@ final class ChatActionHandler {
         vm.currentAssistantMessageId = nil
         vm.currentTurnUserText = nil
         vm.currentAssistantHasText = false
-        vm.lastContentWasToolCall = false
         // Reset processing messages to sent and drop attachment base64 data
         // for lazy-loadable attachments (sizeBytes != nil means the daemon can
         // re-serve them). Locally-added attachments (sizeBytes == nil) keep their
@@ -518,7 +517,6 @@ final class ChatActionHandler {
         vm.currentAssistantMessageId = nil
         vm.currentTurnUserText = nil
         vm.currentAssistantHasText = false
-        vm.lastContentWasToolCall = false
         vm.discardStreamingBuffer()
         vm.discardPartialOutputBuffer()
     }
@@ -577,7 +575,6 @@ final class ChatActionHandler {
         vm.currentAssistantMessageId = nil
         vm.currentTurnUserText = nil
         vm.currentAssistantHasText = false
-        vm.lastContentWasToolCall = false
         vm.discardStreamingBuffer()
         vm.flushPartialOutputBuffer()
         // Reset processing messages to sent
@@ -681,7 +678,6 @@ final class ChatActionHandler {
             vm.currentAssistantMessageId = nil
             vm.currentTurnUserText = nil
             vm.currentAssistantHasText = false
-            vm.lastContentWasToolCall = false
         }
         if msg.runStillActive != true && vm.pendingQueuedCount == 0 {
             vm.isSending = false
@@ -716,7 +712,6 @@ final class ChatActionHandler {
         vm.currentAssistantMessageId = nil
         vm.currentTurnUserText = nil
         vm.currentAssistantHasText = false
-        vm.lastContentWasToolCall = false
         // Reset processing messages to sent and clear attachment binary payloads.
         // Only clear for lazy-loadable attachments (sizeBytes != nil); locally-created
         // attachments (sizeBytes == nil) can't be re-fetched and need their data preserved.
@@ -777,7 +772,6 @@ final class ChatActionHandler {
         vm.currentAssistantMessageId = nil
         vm.currentTurnUserText = nil
         vm.currentAssistantHasText = false
-        vm.lastContentWasToolCall = false
         if !wasCancelling {
             vm.errorText = err.message
             // When the backend blocks a message for containing secrets,
@@ -995,7 +989,6 @@ final class ChatActionHandler {
         vm.currentAssistantMessageId = nil
         vm.currentTurnUserText = nil
         vm.currentAssistantHasText = false
-        vm.lastContentWasToolCall = false
         vm.flushPartialOutputBuffer()
         // When the user intentionally cancelled, suppress the error.
         // Otherwise, insert an inline error message so errors are visually

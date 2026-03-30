@@ -105,7 +105,6 @@ extension ChatViewModel {
                 let segIdx = messages[index].textSegments.count
                 messages[index].textSegments.append(text)
                 messages[index].contentOrder.append(.text(segIdx))
-                lastContentWasToolCall = false
             } else {
                 messages[index].textSegments[messages[index].textSegments.count - 1] += text
             }
@@ -122,7 +121,6 @@ extension ChatViewModel {
             }
             currentAssistantMessageId = msg.id
             messages.append(msg)
-            lastContentWasToolCall = false
         }
     }
 
@@ -226,7 +224,6 @@ extension ChatViewModel {
             currentAssistantMessageId = newMsg.id
             messages.append(newMsg)
         }
-        lastContentWasToolCall = true
     }
 
     /// Handle a `tool_use_start` event: create or update a tool call chip with input data.
@@ -306,7 +303,6 @@ extension ChatViewModel {
             currentAssistantMessageId = newMsg.id
             messages.append(newMsg)
         }
-        lastContentWasToolCall = true
     }
 
     /// Handle a `tool_input_delta` event: update streaming code preview for a tool call.
