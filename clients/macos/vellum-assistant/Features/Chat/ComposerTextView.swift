@@ -22,6 +22,7 @@ final class ComposerTextView: NSTextView {
     var onDownArrow: (() -> Bool)?
     var onEscape: (() -> Bool)?
     var onPasteImage: (() -> Void)?
+    var onFocusChanged: ((Bool) -> Void)?
 
     // MARK: - Placeholder Drawing
 
@@ -49,12 +50,14 @@ final class ComposerTextView: NSTextView {
 
     override func becomeFirstResponder() -> Bool {
         let result = super.becomeFirstResponder()
+        if result { onFocusChanged?(true) }
         needsDisplay = true
         return result
     }
 
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
+        if result { onFocusChanged?(false) }
         needsDisplay = true
         return result
     }

@@ -138,6 +138,10 @@ struct ComposerTextEditor: NSViewRepresentable {
         textView.onDownArrow = onDownArrow
         textView.onEscape = onEscape
         textView.onPasteImage = onPasteImage
+        textView.onFocusChanged = { [weak coordinator = context.coordinator] focused in
+            guard let coordinator, coordinator.parent.isFocused != focused else { return }
+            coordinator.parent.isFocused = focused
+        }
 
         // Re-strip drag types in case TextKit re-registered them during
         // font or attribute updates above.
@@ -186,6 +190,10 @@ struct ComposerTextEditor: NSViewRepresentable {
         }
 
         func textDidBeginEditing(_ notification: Notification) {
+            // Focus state is primarily driven by ComposerTextView's
+            // becomeFirstResponder / resignFirstResponder callbacks.
+            // This delegate fires only once editing begins (on first
+            // keyDown), so it serves as a secondary sync only.
             if !parent.isFocused {
                 parent.isFocused = true
             }
