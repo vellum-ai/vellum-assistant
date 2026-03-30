@@ -50,6 +50,8 @@ export interface ExtractedItem {
   overrideConfidence: OverrideConfidence;
   /** True when the LLM emitted a supersedes ID that was rejected (hallucinated). */
   supersedesRejected?: boolean;
+  /** Which speaker's message this item was extracted from (batch extraction only). */
+  sourceRole?: "user" | "assistant";
 }
 
 export const VALID_KINDS = new Set<string>([

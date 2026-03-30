@@ -55,6 +55,7 @@ interface LLMBatchExtractedItem {
   importance: number;
   supersedes: string | null;
   overrideConfidence: string;
+  source_role?: "user" | "assistant";
 }
 
 interface BatchExtractResult {
@@ -138,7 +139,7 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
         })
         .from(messages)
         .where(eq(messages.conversationId, conversationId))
-        .orderBy(asc(messages.createdAt))
+        .orderBy(asc(messages.createdAt), asc(messages.id))
         .all();
     }
   } else {
@@ -152,7 +153,7 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
       })
       .from(messages)
       .where(eq(messages.conversationId, conversationId))
-      .orderBy(asc(messages.createdAt))
+      .orderBy(asc(messages.createdAt), asc(messages.id))
       .all();
   }
 
@@ -302,6 +303,12 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
                     description:
                       "How confident you are that this overrides an existing item",
                   },
+                  source_role: {
+                    type: "string",
+                    enum: ["user", "assistant"],
+                    description:
+                      "Which speaker's message this item was primarily extracted from",
+                  },
                 },
                 required: [
                   "kind",
@@ -311,6 +318,7 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
                   "importance",
                   "supersedes",
                   "overrideConfidence",
+                  "source_role",
                 ],
               },
             },
@@ -402,6 +410,11 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
       ? (raw.overrideConfidence as OverrideConfidence)
       : "inferred";
 
+    const sourceRole =
+      raw.source_role === "user" || raw.source_role === "assistant"
+        ? raw.source_role
+        : undefined;
+
     validatedItems.push({
       kind: resolvedKind as MemoryItemKind,
       subject,
@@ -412,18 +425,19 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
       supersedes,
       overrideConfidence,
       supersedesRejected,
+      sourceRole,
     });
   }
 
   const dedupedItems = deduplicateItems(validatedItems);
 
   // ── Upsert extracted items ──────────────────────────────────────────
-  // Use the last message in the batch as the source message for all items
   const lastMessage = unextractedMessages[unextractedMessages.length - 1];
   let upserted = 0;
 
   for (const item of dedupedItems) {
     const seenAt = lastMessage.createdAt;
+    const itemRole = item.sourceRole ?? lastMessage.role;
     const existing = db
       .select()
       .from(memoryItems)
@@ -447,7 +461,7 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
             ? "journal_carry_forward"
             : "extraction";
       const effectiveVerificationState =
-        existing.verificationState === "user_reported"
+        itemRole === "user" || existing.verificationState === "user_reported"
           ? "user_reported"
           : existing.verificationState === "user_confirmed"
             ? "user_confirmed"
@@ -466,6 +480,7 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
           ),
           lastSeenAt: Math.max(existing.lastSeenAt, seenAt),
           sourceType: effectiveSourceType,
+          sourceMessageRole: itemRole,
           verificationState: effectiveVerificationState,
         })
         .where(eq(memoryItems.id, existing.id))
@@ -483,8 +498,9 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
           importance: item.importance,
           fingerprint: item.fingerprint,
           sourceType: "extraction",
-          verificationState: "assistant_inferred",
-          sourceMessageRole: lastMessage.role,
+          verificationState:
+            itemRole === "user" ? "user_reported" : "assistant_inferred",
+          sourceMessageRole: itemRole,
           scopeId,
           firstSeenAt: lastMessage.createdAt,
           lastSeenAt: seenAt,
