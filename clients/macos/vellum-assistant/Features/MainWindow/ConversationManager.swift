@@ -193,8 +193,6 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Stores the groupId a conversation had before being pinned, so it can be
     /// restored on unpin instead of falling back to heuristic-based routing.
     private var prePinGroupIds: [UUID: String?] = [:]
-    /// Stores the groupId a conversation had before being archived, so unarchive can restore it.
-    private var preArchiveGroupIds: [UUID: String?] = [:]
     /// Local seen/unread toggles should survive a stale daemon conversation-list
     /// replay until the daemon either acknowledges them or reports a newer reply.
     private var pendingAttentionOverrides: [String: PendingAttentionOverride] = [:]
@@ -762,23 +760,19 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     func archiveConversation(id: UUID) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
 
-        // Clear ordering state before archiving so stale is_pinned/display_order
-        // values don't affect DB pagination (which sorts by is_pinned DESC).
-        // Send the update BEFORE setting isArchived, because sendReorderConversations()
-        // only serializes visibleConversations (non-archived).
-        let hadGroup = conversations[index].groupId != nil
+        // Clear displayOrder so the conversation sorts by recency when unarchived
+        // (avoids snapping to a stale position). groupId is intentionally preserved —
+        // the daemon never receives a nil update (archived conversations are excluded
+        // from visibleConversations/reorder payloads), so both client and server
+        // retain the original group assignment through the archive/unarchive lifecycle.
         let hadOrder = conversations[index].displayOrder != nil
 
-        // Save groupId so unarchive can restore it.
-        preArchiveGroupIds[id] = conversations[index].groupId
-
         var conversation = conversations[index]
-        conversation.groupId = nil
         conversation.displayOrder = nil
         conversation.isArchived = true
         conversations[index] = conversation
 
-        if hadGroup || hadOrder {
+        if hadOrder {
             sendReorderConversations()
         }
 
@@ -847,12 +841,6 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
 
         conversations[index].isArchived = false
-
-        // Restore groupId saved before archive.
-        if let stored = preArchiveGroupIds.removeValue(forKey: id) {
-            conversations[index].groupId = stored
-            sendReorderConversations()
-        }
 
         // Ensure a ChatViewModel exists (lazily created if it was evicted on archive).
         getOrCreateViewModel(for: id)
