@@ -1,21 +1,14 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Mock the data dir to a temp directory so tests don't touch ~/.vellum/
-let testDir: string;
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
-}));
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => testDir,
 }));
 
 import {
@@ -27,21 +20,13 @@ import { scanText } from "../security/secret-scanner.js";
 
 describe("secret-allowlist", () => {
   beforeEach(() => {
-    testDir = join(
-      tmpdir(),
-      `vellum-allowlist-test-${Date.now()}-${Math.random()
-        .toString(36)
-        .slice(2)}`,
-    );
     mkdirSync(join(testDir, "protected"), { recursive: true });
     resetAllowlist();
   });
 
   afterEach(() => {
     resetAllowlist();
-    if (existsSync(testDir)) {
-      rmSync(testDir, { recursive: true, force: true });
-    }
+    rmSync(join(testDir, "protected"), { recursive: true, force: true });
   });
 
   // -----------------------------------------------------------------------

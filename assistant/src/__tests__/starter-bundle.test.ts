@@ -11,16 +11,10 @@ const TEST_ROOT = join(
 );
 const TRUST_PATH = join(TEST_ROOT, "protected", "trust.json");
 
-// We need to mock getRootDir before importing trust-store
 import { mock } from "bun:test";
 
 // Point the file-based trust backend at the test temp dir.
 process.env.GATEWAY_SECURITY_DIR = join(TEST_ROOT, "protected");
-
-// Mock the platform module to use our test root
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(TEST_ROOT, "protected"),
-}));
 
 // Mock the skills config module used by defaults.ts
 mock.module("../config/skills.js", () => ({

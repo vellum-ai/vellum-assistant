@@ -206,9 +206,7 @@ describe("HeartbeatService", () => {
     await service.runOnce();
 
     expect(processMessageCalls).toHaveLength(1);
-    expect(processMessageCalls[0].content).toContain(
-      "Check in with yourself",
-    );
+    expect(processMessageCalls[0].content).toContain("Check in with yourself");
   });
 
   test("creates background conversation with generating title placeholder", async () => {

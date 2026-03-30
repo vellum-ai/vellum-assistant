@@ -391,5 +391,4 @@ describe("ProviderCommitMessageGenerator", () => {
     const options = callArgs[3] as { config: { model: string } };
     expect(options.config.model).toBe("llama3.2:3b");
   });
-
 });
