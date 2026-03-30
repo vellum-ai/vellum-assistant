@@ -609,17 +609,7 @@ export class DaemonServer {
             "string"
             ? (msg as { conversationId: string }).conversationId
             : undefined;
-        const event = buildAssistantEvent(
-          DAEMON_INTERNAL_ASSISTANT_ID,
-          msg,
-          msgConversationId ?? conversationId,
-        );
-        assistantEventHub.publish(event).catch((err) => {
-          log.warn(
-            { err },
-            "assistant-events hub subscriber threw during signal user-message",
-          );
-        });
+        this.publishAssistantEvent(msg, msgConversationId ?? conversationId);
       };
 
       if (conversation.isProcessing()) {
