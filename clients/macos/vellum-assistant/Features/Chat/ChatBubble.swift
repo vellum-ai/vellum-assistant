@@ -704,7 +704,7 @@ struct ChatBubble: View {
                 }
             }
         }
-        .modifier(ConditionalTextSelection(isEnabled: !message.isStreaming))
+        .textSelection(enabled: !message.isStreaming)
         // NOTE: The per-segment .task(id:) in ChatBubbleTextContent handles
         // async parsing for each individual text segment. A prior whole-message
         // .task(id:) here parsed message.text (all segments joined), but
@@ -792,20 +792,6 @@ struct ChatBubble: View {
 final class SegmentCacheEntry: NSObject {
     let segments: [MarkdownSegment]
     init(_ segments: [MarkdownSegment]) { self.segments = segments }
-}
-
-/// Applies `.textSelection(.enabled)` only when active, to avoid creating
-/// SelectionOverlay backing views during streaming.
-struct ConditionalTextSelection: ViewModifier {
-    let isEnabled: Bool
-
-    func body(content: Content) -> some View {
-        if isEnabled {
-            content.textSelection(.enabled)
-        } else {
-            content.textSelection(.disabled)
-        }
-    }
 }
 
 /// Applies `.compositingGroup()` only when active, to avoid re-compositing during streaming.
