@@ -612,6 +612,51 @@ const PROVIDER_SEED_DATA: Record<
     identityResponsePaths: ["handle", "email"],
   },
 
+  outlook: {
+    providerKey: "outlook",
+    authUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+    tokenUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    pingUrl: "https://graph.microsoft.com/v1.0/me",
+    baseUrl: "https://graph.microsoft.com",
+    displayName: "Outlook / Microsoft",
+    description: "Email and calendar",
+    dashboardUrl:
+      "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+    clientIdPlaceholder: "Application (client) ID from Azure portal",
+    defaultScopes: [
+      "openid",
+      "profile",
+      "email",
+      "offline_access",
+      "User.Read",
+      "Mail.Read",
+      "Mail.Send",
+      "Calendars.Read",
+      "Calendars.ReadWrite",
+    ],
+    scopePolicy: {
+      allowAdditionalScopes: true,
+      allowedOptionalScopes: ["Contacts.Read", "Files.Read", "Tasks.ReadWrite"],
+      forbiddenScopes: [],
+    },
+    extraParams: { prompt: "consent" },
+    tokenEndpointAuthMethod: "client_secret_post",
+    callbackTransport: "gateway",
+    managedServiceConfigKey: "outlook-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "graph.microsoft.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    appType: "App registration",
+    identityUrl: "https://graph.microsoft.com/v1.0/me",
+    identityResponsePaths: ["mail", "userPrincipalName"],
+    featureFlag: "outlook-oauth-integration",
+  },
+
   // Manual-token providers: these don't use OAuth2 flows but need provider
   // rows so that oauth_app and oauth_connection FK chains can reference them.
   // The authUrl/tokenUrl values are placeholders — never used at runtime.
