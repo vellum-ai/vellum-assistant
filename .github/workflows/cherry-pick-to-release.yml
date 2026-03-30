@@ -33,10 +33,12 @@ jobs:
       - name: Determine latest release branch
         id: release
         run: |
-          # Find the latest release/v* branch by semantic version sort
+          # Find the latest release/v* branch by semantic version sort.
+          # Use -V (version sort) on the first key so that the 'release/v'
+          # prefix is handled correctly across major versions.
           LATEST_BRANCH=$(git branch -r --list 'origin/release/v*' \
             | sed 's|origin/||; s/^[[:space:]]*//' \
-            | sort -t. -k1,1n -k2,2n -k3,3n \
+            | sort -t. -k1,1V -k2,2n -k3,3n \
             | tail -1)
 
           if [ -z "$LATEST_BRANCH" ]; then
@@ -64,8 +66,9 @@ jobs:
           git checkout "$RELEASE_BRANCH"
           git checkout -b "$CHERRY_PICK_BRANCH"
 
-          # Attempt the cherry-pick
-          if git cherry-pick "$MERGE_SHA" --no-edit; then
+          # Attempt the cherry-pick. Use -m 1 for merge commits (no-op for
+          # non-merge commits since git ignores -m when there's only one parent).
+          if git cherry-pick -m 1 --no-edit "$MERGE_SHA"; then
             git push origin "$CHERRY_PICK_BRANCH"
 
             PR_URL=$(gh pr create \
@@ -79,21 +82,18 @@ jobs:
             # Cherry-pick failed — abort and notify on the original PR
             git cherry-pick --abort
 
-            gh pr comment "$PR_NUMBER" \
-              --body "$(cat <<EOF
-          :warning: **Cherry-pick to \`${RELEASE_BRANCH}\` failed due to conflicts.**
+            BODY=":warning: **Cherry-pick to \`${RELEASE_BRANCH}\` failed due to conflicts.**"
+            BODY="${BODY}"$'\n\n'"To resolve manually:"
+            BODY="${BODY}"$'\n'"\`\`\`bash"
+            BODY="${BODY}"$'\n'"git fetch origin"
+            BODY="${BODY}"$'\n'"git checkout -b ${CHERRY_PICK_BRANCH} origin/${RELEASE_BRANCH}"
+            BODY="${BODY}"$'\n'"git cherry-pick -m 1 ${MERGE_SHA}"
+            BODY="${BODY}"$'\n'"# resolve conflicts, then:"
+            BODY="${BODY}"$'\n'"git push origin ${CHERRY_PICK_BRANCH}"
+            BODY="${BODY}"$'\n'"\`\`\`"
+            BODY="${BODY}"$'\n'"Then open a PR from \`${CHERRY_PICK_BRANCH}\` into \`${RELEASE_BRANCH}\`."
 
-          To resolve manually:
-          \`\`\`bash
-          git fetch origin
-          git checkout -b ${CHERRY_PICK_BRANCH} origin/${RELEASE_BRANCH}
-          git cherry-pick ${MERGE_SHA}
-          # resolve conflicts, then:
-          git push origin ${CHERRY_PICK_BRANCH}
-          \`\`\`
-          Then open a PR from \`${CHERRY_PICK_BRANCH}\` into \`${RELEASE_BRANCH}\`.
-          EOF
-          )"
+            gh pr comment "$PR_NUMBER" --body "$BODY"
 
             echo "::warning::Cherry-pick of #${PR_NUMBER} to ${RELEASE_BRANCH} failed due to conflicts. Commented on the original PR."
           fi
