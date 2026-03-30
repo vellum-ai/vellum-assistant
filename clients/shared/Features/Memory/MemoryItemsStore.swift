@@ -6,6 +6,7 @@ import Foundation
 public final class MemoryItemsStore {
     public var items: [MemoryItemPayload] = []
     public var total: Int = 0
+    public var kindCounts: [String: Int] = [:]
     public var isLoading = false
 
     // Filter state
@@ -36,6 +37,7 @@ public final class MemoryItemsStore {
         if let response {
             items = response.items
             total = response.total
+            kindCounts = response.kindCounts ?? [:]
         }
         isLoading = false
     }
