@@ -175,6 +175,9 @@ Examples:
         );
       } else {
         log.info(`Removed ${result.removed} short segment(s).`);
+        if (result.failed > 0) {
+          log.warn(`${result.failed} segment(s) skipped — Qdrant deletion failed. Re-run when Qdrant is available.`);
+        }
       }
     });
 
