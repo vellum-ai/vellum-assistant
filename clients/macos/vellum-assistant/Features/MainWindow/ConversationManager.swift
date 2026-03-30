@@ -1111,8 +1111,25 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     ) -> ConversationModel {
         let effectiveCreatedAtMillis = item.createdAt ?? item.updatedAt
         let isPinned = item.isPinned ?? false
-        // Old-daemon fallback: derive groupId from isPinned when groupId is absent.
-        let groupId = item.groupId ?? (isPinned ? ConversationGroup.pinned.id : nil)
+        // Old-daemon fallback: derive groupId from source/isPinned when groupId is absent.
+        // Ensures scheduled and background conversations appear in the correct system
+        // groups even when the daemon hasn't run the group migration backfill.
+        let groupId: String? = item.groupId ?? {
+            if isPinned { return ConversationGroup.pinned.id }
+            let source = item.source
+            if source == "schedule" || source == "reminder" {
+                return ConversationGroup.scheduled.id
+            }
+            if source == "heartbeat" || source == "task" {
+                return ConversationGroup.background.id
+            }
+            // Title-based fallback for HTTP-mode schedule conversations (no source field)
+            let title = item.title
+            if title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ") {
+                return ConversationGroup.scheduled.id
+            }
+            return nil
+        }()
         return ConversationModel(
             id: localId,
             title: item.title,

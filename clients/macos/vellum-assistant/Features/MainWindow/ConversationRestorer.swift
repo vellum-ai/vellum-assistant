@@ -236,7 +236,23 @@ final class ConversationRestorer {
         for session in recentConversations {
             // Old-daemon fallback: derive groupId from isPinned when groupId is absent.
             let isPinned = session.isPinned ?? false
-            let groupId = session.groupId ?? (isPinned ? ConversationGroup.pinned.id : nil)
+            // Derive groupId from source/isPinned when the server doesn't provide it.
+            // The gateway may strip groupId, and old daemons don't send it at all.
+            let groupId: String? = session.groupId ?? {
+                if isPinned { return ConversationGroup.pinned.id }
+                let source = session.source
+                if source == "schedule" || source == "reminder" {
+                    return ConversationGroup.scheduled.id
+                }
+                if source == "heartbeat" || source == "task" {
+                    return ConversationGroup.background.id
+                }
+                let title = session.title
+                if title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ") {
+                    return ConversationGroup.scheduled.id
+                }
+                return nil
+            }()
 
             // If a local conversation already exists (e.g. created by
             // createNotificationConversation before the session list response arrived),

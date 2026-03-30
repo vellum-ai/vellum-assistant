@@ -220,12 +220,7 @@ extension MainWindowView {
                 DaemonLoadingConversationsSkeleton()
             }
 
-            let isDragging = sidebar.draggingConversationId != nil
             let groupEntries = conversationManager.groupedConversations
-                .filter { entry in
-                    guard let group = entry.group, group.isSystemGroup else { return true }
-                    return !entry.conversations.isEmpty || isDragging
-                }
                 .map { entry in
                     SidebarGroupEntry(
                         id: entry.group?.id ?? "ungrouped",
