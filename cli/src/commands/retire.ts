@@ -42,7 +42,7 @@ function extractHostFromUrl(url: string): string {
   }
 }
 
-export { retireLocal } from "../lib/retire-local";
+export { retireLocal };
 
 async function retireCustom(entry: AssistantEntry): Promise<void> {
   const host = extractHostFromUrl(entry.runtimeUrl);

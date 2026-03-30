@@ -506,7 +506,7 @@ function watchHatchingDesktop(
   });
 }
 
-export { hatchLocal } from "../lib/hatch-local";
+export { hatchLocal };
 
 function getCliVersion(): string {
   return cliPkg.version ?? "unknown";

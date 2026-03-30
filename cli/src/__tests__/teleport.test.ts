@@ -123,7 +123,7 @@ mock.module("../lib/platform-client.js", () => ({
 
 const hatchLocalMock = mock(async () => {});
 
-mock.module("../commands/hatch.js", () => ({
+mock.module("../lib/hatch-local.js", () => ({
   hatchLocal: hatchLocalMock,
 }));
 
@@ -137,7 +137,7 @@ mock.module("../lib/docker.js", () => ({
 
 const retireLocalMock = mock(async () => {});
 
-mock.module("../commands/retire.js", () => ({
+mock.module("../lib/retire-local.js", () => ({
   retireLocal: retireLocalMock,
 }));
 
