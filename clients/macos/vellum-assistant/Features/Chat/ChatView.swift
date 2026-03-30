@@ -544,14 +544,25 @@ struct ChatView: View {
         viewModel.sendMessage()
     }
 
-    /// Presents an NSOpenPanel for attaching files to the chat.
+    /// Presents an NSOpenPanel as a window-attached sheet for attaching files.
     private func presentFilePicker() {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
-        panel.canChooseFiles = true
         panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.item]
-        panel.begin { response in
+        panel.allowedContentTypes = [
+            .png, .jpeg, .gif, .webP, .pdf, .plainText, .commaSeparatedText,
+            UTType("net.daringfireball.markdown") ?? .plainText,
+            .movie, .mpeg4Movie, .quickTimeMovie, .avi,
+            .mp3, .wav, .aiff, .audio,
+        ]
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+            guard panel.runModal() == .OK else { return }
+            for url in panel.urls {
+                viewModel.addAttachment(url: url)
+            }
+            return
+        }
+        panel.beginSheetModal(for: window) { response in
             guard response == .OK else { return }
             for url in panel.urls {
                 viewModel.addAttachment(url: url)
