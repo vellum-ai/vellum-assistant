@@ -72,7 +72,7 @@ private struct InlineToolCallImageView: View {
 
 // MARK: - Attachment Image Grid (async)
 
-/// Renders image attachments in a horizontal grid.
+/// Renders image attachments in a wrapping grid.
 ///
 /// NSImage(data:) must never be called during SwiftUI view body evaluation or
 /// layout measurement — doing so triggers re-entrant AppKit constraint
@@ -100,19 +100,22 @@ private struct AttachmentImageGrid<Fallback: View>: View {
     /// Single images render at full width; multiple images use a compact grid.
     private var isSingleImage: Bool { imageAttachments.count == 1 }
 
+    private static let gridColumns = [
+        GridItem(.adaptive(minimum: 160, maximum: 160), spacing: VSpacing.sm)
+    ]
+
     @available(macOS, deprecated: 13.0)
     var body: some View {
-        HStack(spacing: VSpacing.sm) {
-            ForEach(imageAttachments, id: \.id) { attachment in
-                Group {
-                    if let nsImage = loadedImages[attachment.id] {
-                        Group {
-                            if isSingleImage {
-                                singleImageContent(nsImage)
-                            } else {
-                                gridImageContent(nsImage)
-                            }
+        let content = ForEach(imageAttachments, id: \.id) { attachment in
+            Group {
+                if let nsImage = loadedImages[attachment.id] {
+                    Group {
+                        if isSingleImage {
+                            singleImageContent(nsImage)
+                        } else {
+                            gridImageContent(nsImage)
                         }
+                    }
                         .onTapGesture {
                             onTap(attachment, nsImage)
                         }
@@ -251,6 +254,14 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                     // placeholder instead of showing the filename/download affordance.
                     failedIds.insert(attachment.id)
                 }
+            }
+        }
+
+        if isSingleImage {
+            content
+        } else {
+            LazyVGrid(columns: Self.gridColumns, alignment: .leading, spacing: VSpacing.sm) {
+                content
             }
         }
     }
