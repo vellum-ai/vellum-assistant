@@ -64,91 +64,38 @@ struct SkillDetailView: View {
 
     // MARK: - File Browser
 
+    private var browserFiles: [VFileBrowserFile] {
+        guard let files = skillsManager.selectedSkillFiles else { return [] }
+        return files.files
+            .filter { !$0.isBinary && $0.content != nil }
+            .map { VFileBrowserFile(
+                id: $0.path, name: $0.name, path: $0.path,
+                size: $0.size, mimeType: $0.mimeType,
+                isBinary: $0.isBinary, content: $0.content,
+                icon: fileIcon(for: $0.mimeType, fileName: $0.name)
+            )}
+    }
+
     @ViewBuilder
     private var skillDetailFileBrowser: some View {
-        HStack(alignment: .top, spacing: VSpacing.xl) {
-            skillFilesSection
-                .frame(width: 280, alignment: .topLeading)
-                .frame(maxHeight: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(VColor.surfaceBase)
+        VFileBrowser(
+            files: browserFiles,
+            selectedPath: $expandedFilePath
+        ) { selectedFile in
+            if let selectedFile,
+               let content = selectedFile.content {
+                FileContentView(
+                    fileName: selectedFile.path,
+                    mimeType: selectedFile.mimeType,
+                    content: .constant(content),
+                    viewMode: $skillFileViewMode,
+                    isActivelyEditing: .constant(false)
                 )
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-
-            skillDetailFileContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(VColor.surfaceBase)
+            } else {
+                VEmptyState(
+                    title: hasViewableFiles ? "Select a file to view" : "No viewable files",
+                    icon: VIcon.fileText.rawValue
                 )
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    @ViewBuilder
-    private var skillDetailFileContent: some View {
-        if let selectedPath = expandedFilePath,
-           let filesResponse = skillsManager.selectedSkillFiles,
-           let file = filesResponse.files.first(where: { $0.path == selectedPath }),
-           !file.isBinary,
-           let content = file.content {
-            FileContentView(
-                fileName: file.path,
-                mimeType: file.mimeType,
-                content: .constant(content),
-                viewMode: $skillFileViewMode,
-                isActivelyEditing: .constant(false)
-            )
-        } else {
-            VEmptyState(
-                title: hasViewableFiles ? "Select a file to view" : "No viewable files",
-                icon: VIcon.fileText.rawValue
-            )
-        }
-    }
-
-    @ViewBuilder
-    private var skillFilesSection: some View {
-        if skillsManager.isLoadingSkillFiles || skillsManager.skillFilesError != nil ||
-            (skillsManager.selectedSkillFiles != nil && !skillsManager.selectedSkillFiles!.files.isEmpty) {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("Files")
-                        .font(VFont.bodySmallEmphasised)
-                        .foregroundStyle(VColor.contentDefault)
-                    Spacer()
-                }
-                .padding(.horizontal, VSpacing.md)
-                .frame(height: 36)
-
-                Divider().background(VColor.borderBase)
-
-                VStack(spacing: 0) {
-                    if skillsManager.isLoadingSkillFiles {
-                        VStack {
-                            Spacer()
-                            ProgressView()
-                                .frame(maxWidth: .infinity)
-                            Spacer()
-                        }
-                    } else if let error = skillsManager.skillFilesError {
-                        Text(error)
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.systemNegativeStrong)
-                            .padding(VSpacing.md)
-                    } else if let filesResponse = skillsManager.selectedSkillFiles, !filesResponse.files.isEmpty {
-                        ScrollView(.vertical) {
-                            SkillFileTreeView(
-                                files: filesResponse.files,
-                                selectedFilePath: $expandedFilePath
-                            )
-                            .padding(.vertical, VSpacing.xs)
-                        }
-                    }
-                }
-                .frame(maxHeight: .infinity, alignment: .topLeading)
             }
         }
     }
