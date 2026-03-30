@@ -91,6 +91,18 @@ public struct GuardianClient: GuardianClientProtocol {
             let response = try await GatewayHTTPClient.post(
                 path: "guardian/init", json: body, extraHeaders: extraHeaders, timeout: 15
             )
+
+            // If the gateway rejects bootstrap with "Bootstrap already completed"
+            // (403), the guardian-init.lock file from a previous bootstrap is
+            // blocking re-issuance. Remove it so the next retry can succeed.
+            // This happens when credentials are wiped (terminal refresh error,
+            // daemon instance change) but the lock file persists.
+            if response.statusCode == 403 {
+                Self.removeBootstrapLockFileIfNeeded(responseData: response.data)
+                log.error("Access token bootstrap failed (HTTP 403)")
+                return false
+            }
+
             guard response.isSuccess else {
                 log.error("Access token bootstrap failed (HTTP \(response.statusCode))")
                 return false
@@ -110,6 +122,34 @@ public struct GuardianClient: GuardianClientProtocol {
         } catch {
             log.error("Access token bootstrap error: \(error.localizedDescription)")
             return false
+        }
+    }
+
+    // MARK: - Bootstrap Lock File Recovery
+
+    /// Removes the `guardian-init.lock` file when the gateway rejects
+    /// bootstrap with "Bootstrap already completed". The lock persists
+    /// from a prior successful bootstrap, but if the credentials were
+    /// wiped (terminal refresh error, instance change), the lock must
+    /// be cleared to allow re-issuance.
+    private static func removeBootstrapLockFileIfNeeded(responseData: Data) {
+        guard let json = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+              let error = json["error"] as? String,
+              error == "Bootstrap already completed" else {
+            return
+        }
+
+        let rootDir = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".vellum")
+        let lockPath = rootDir.appendingPathComponent("guardian-init.lock")
+
+        guard FileManager.default.fileExists(atPath: lockPath.path) else { return }
+
+        do {
+            try FileManager.default.removeItem(at: lockPath)
+            log.info("Removed guardian-init.lock to allow re-bootstrap")
+        } catch {
+            log.error("Failed to remove guardian-init.lock: \(error.localizedDescription)")
         }
     }
 
