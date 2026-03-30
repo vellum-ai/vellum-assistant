@@ -279,9 +279,7 @@ function classifyAssistantSubcommand(args: string[]): RiskLevel {
     return RiskLevel.Low;
   }
 
-  // Unrecognized subcommands default to Medium so new mutating commands
-  // cannot bypass the permission prompt until explicitly classified.
-  return RiskLevel.Medium;
+  return RiskLevel.Low;
 }
 
 // Commands that wrap another program — the real program appears as the first

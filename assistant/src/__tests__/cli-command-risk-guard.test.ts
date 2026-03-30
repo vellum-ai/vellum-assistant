@@ -205,6 +205,136 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
       expectLowRisk(command, risk);
     }
   });
+
+  test("assistant credentials set is High risk (modifies stored credentials)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant credentials set",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("assistant credentials delete is High risk (removes stored credentials)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant credentials delete",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("assistant keys set is High risk (modifies API keys)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant keys set",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("assistant keys delete is High risk (removes API keys)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant keys delete",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("non-sensitive keys subcommands remain Low risk", async () => {
+    const lowRiskKeysCommands = ["assistant keys", "assistant keys list"];
+
+    for (const command of lowRiskKeysCommands) {
+      const risk = await classifyRisk("bash", { command });
+      expectLowRisk(command, risk);
+    }
+  });
+
+  test("assistant trust remove is High risk (removes trust rules)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant trust remove",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("assistant trust clear is High risk (clears all trust rules)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant trust clear",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("non-sensitive trust subcommands remain Low risk", async () => {
+    const lowRiskTrustCommands = ["assistant trust", "assistant trust list"];
+
+    for (const command of lowRiskTrustCommands) {
+      const risk = await classifyRisk("bash", { command });
+      expectLowRisk(command, risk);
+    }
+  });
+
+  test("assistant config set is High risk (modifies configuration)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant config set",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("non-sensitive config subcommands remain Low risk", async () => {
+    const lowRiskConfigCommands = ["assistant config", "assistant config get"];
+
+    for (const command of lowRiskConfigCommands) {
+      const risk = await classifyRisk("bash", { command });
+      expectLowRisk(command, risk);
+    }
+  });
+
+  test("assistant memory mutating subcommands are Medium risk", async () => {
+    const mediumRiskMemoryCommands = [
+      "assistant memory backfill",
+      "assistant memory cleanup",
+      "assistant memory cleanup-segments",
+      "assistant memory rebuild-index",
+      "assistant memory re-extract",
+    ];
+
+    for (const command of mediumRiskMemoryCommands) {
+      const risk = await classifyRisk("bash", { command });
+      expect(risk).toBe(RiskLevel.Medium);
+    }
+  });
+
+  test("non-sensitive memory subcommands remain Low risk", async () => {
+    const lowRiskMemoryCommands = [
+      "assistant memory",
+      "assistant memory status",
+      "assistant memory query",
+    ];
+
+    for (const command of lowRiskMemoryCommands) {
+      const risk = await classifyRisk("bash", { command });
+      expectLowRisk(command, risk);
+    }
+  });
+
+  test("assistant skills mutating subcommands are Medium risk", async () => {
+    const mediumRiskSkillsCommands = [
+      "assistant skills install",
+      "assistant skills uninstall",
+      "assistant skills add",
+    ];
+
+    for (const command of mediumRiskSkillsCommands) {
+      const risk = await classifyRisk("bash", { command });
+      expect(risk).toBe(RiskLevel.Medium);
+    }
+  });
+
+  test("non-sensitive skills subcommands remain Low risk", async () => {
+    const lowRiskSkillsCommands = [
+      "assistant skills",
+      "assistant skills list",
+      "assistant skills search",
+    ];
+
+    for (const command of lowRiskSkillsCommands) {
+      const risk = await classifyRisk("bash", { command });
+      expectLowRisk(command, risk);
+    }
+  });
 });
 
 describe("CLI command risk guard: wrapper program propagation", () => {
