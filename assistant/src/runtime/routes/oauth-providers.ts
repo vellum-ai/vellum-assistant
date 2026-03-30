@@ -6,8 +6,10 @@
  * runtime auth middleware.
  */
 
+import { loadConfig } from "../../config/loader.js";
 import { getProvider, listProviders } from "../../oauth/oauth-store.js";
 import { serializeProviderSummary } from "../../oauth/provider-serializer.js";
+import { isProviderVisible } from "../../oauth/provider-visibility.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
@@ -22,7 +24,9 @@ export function oauthProvidersRouteDefinitions(): RouteDefinition[] {
       method: "GET",
       handler: ({ url }) => {
         const rows = listProviders();
-        let serialized = rows
+        const config = loadConfig();
+        const visibleRows = rows.filter((r) => isProviderVisible(r, config));
+        let serialized = visibleRows
           .map((row) => serializeProviderSummary(row))
           .filter((s): s is NonNullable<typeof s> => s !== null);
 
@@ -46,6 +50,14 @@ export function oauthProvidersRouteDefinitions(): RouteDefinition[] {
       handler: ({ params }) => {
         const row = getProvider(params.providerKey);
         if (!row) {
+          return httpError(
+            "NOT_FOUND",
+            `No OAuth provider registered for "${params.providerKey}"`,
+            404,
+          );
+        }
+
+        if (!isProviderVisible(row, loadConfig())) {
           return httpError(
             "NOT_FOUND",
             `No OAuth provider registered for "${params.providerKey}"`,
