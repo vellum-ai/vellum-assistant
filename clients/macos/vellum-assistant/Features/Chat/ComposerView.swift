@@ -255,6 +255,7 @@ struct ComposerView: View {
                 },
                 onPasteImage: onPaste
             )
+            .frame(height: measuredTextHeight)
         }
         .padding(.vertical, VSpacing.xs)
         .frame(height: measuredTextHeight + 2 * VSpacing.xs)
