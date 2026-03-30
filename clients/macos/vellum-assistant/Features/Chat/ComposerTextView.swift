@@ -93,6 +93,7 @@ final class ComposerTextView: NSTextView {
 
         if event.keyCode == 48, !modifiers.contains(.shift) {
             if onTab?() == true { return }
+            return  // Prevent NSTextView from inserting a literal tab character
         }
 
         if event.keyCode == 126 {
