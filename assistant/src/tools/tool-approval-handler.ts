@@ -11,6 +11,7 @@ import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
 import { getLogger } from "../util/logger.js";
 import { getAllTools, getTool } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
+import { redactSecrets } from "../security/secret-scanner.js";
 import { summarizeToolInput } from "./tool-input-summary.js";
 import type {
   ExecutionTarget,
@@ -33,7 +34,7 @@ function buildToolGrantQuestionText(
     context.requesterIdentifier ||
     context.requesterExternalUserId ||
     "A trusted contact";
-  const inputSummary = summarizeToolInput(toolName, input);
+  const inputSummary = redactSecrets(summarizeToolInput(toolName, input));
   return inputSummary
     ? `${senderLabel} wants to use "${toolName}": ${inputSummary}`
     : `${senderLabel} is requesting permission to use "${toolName}"`;
