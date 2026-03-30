@@ -748,7 +748,6 @@ struct MessageListView: View {
                             .accessibilityHidden(true)
                     }
                 }
-                .textSelection(.enabled)
                 .disabled(!isInteractionEnabled)
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)

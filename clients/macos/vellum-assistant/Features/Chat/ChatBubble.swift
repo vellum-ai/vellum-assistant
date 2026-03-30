@@ -704,6 +704,7 @@ struct ChatBubble: View {
                 }
             }
         }
+        .textSelection(message.isStreaming ? .disabled : .enabled)
         // NOTE: The per-segment .task(id:) in ChatBubbleTextContent handles
         // async parsing for each individual text segment. A prior whole-message
         // .task(id:) here parsed message.text (all segments joined), but
