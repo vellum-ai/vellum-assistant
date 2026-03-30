@@ -352,11 +352,11 @@ final class VellumCli {
                     log.warning("CLI sleep timed out after \(Int(timeout))s — terminating process")
                     proc.terminate()
                 }
+                return proc.terminationStatus
             } catch {
                 log.error("Failed to launch CLI sleep: \(error.localizedDescription, privacy: .public)")
+                return -1
             }
-
-            return proc.terminationStatus
         }.value
 
         let elapsed = ContinuousClock.now - startTime

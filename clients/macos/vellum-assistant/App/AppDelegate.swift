@@ -725,7 +725,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         debugStateWriter.stop()
         RandomSoundTimer.shared.stop()
         SoundManager.shared.stop()
-        Task { await vellumCli.stop() }
+        // Blocking is intentional here — the process exits immediately after
+        // this callback returns, so we must wait synchronously for the CLI to
+        // finish stopping the daemon/gateway.
+        let sem = DispatchSemaphore(value: 0)
+        Task {
+            await vellumCli.stop()
+            sem.signal()
+        }
+        sem.wait(timeout: .now() + 16)
     }
 
     // MARK: - Public Actions (for SwiftUI .commands menu items)
