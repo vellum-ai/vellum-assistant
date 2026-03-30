@@ -18,7 +18,7 @@ struct MainWindowView: View {
     let usageDashboardStore: UsageDashboardStore
     @ObservedObject var windowState: MainWindowState
     @StateObject var assistantFeatureFlagStore: AssistantFeatureFlagStore
-    @State private var selectedConversationId: UUID?
+    @State var selectedConversationId: UUID?
     @State var sharing = SharingState()
     @State var sidebar = SidebarInteractionState()
     @AppStorage("isAppChatOpen") var isAppChatOpen: Bool = false
@@ -26,7 +26,7 @@ struct MainWindowView: View {
     @State var showConversationActionsDrawer = false
     /// Frame of the conversation title button in the coordinate space of coreLayoutView,
     /// used to position the actions drawer directly below it.
-    @State private var conversationTitleFrame: CGRect = .zero
+    @State var conversationTitleFrame: CGRect = .zero
     /// Stores the conversation ID the user was on before entering temporary chat,
     /// so we can restore it when they exit instead of jumping to visibleConversations.first
     /// (which may be a pinned conversation unrelated to what they were doing).
@@ -66,7 +66,7 @@ struct MainWindowView: View {
     /// Cached assistant display name, refreshed when IDENTITY.md changes on disk.
     @State var cachedAssistantName: String = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
     /// File watcher for IDENTITY.md — fires when the assistant's name changes.
-    @State private var identityFileWatcher: DispatchSourceFileSystemObject?
+    @State var identityFileWatcher: DispatchSourceFileSystemObject?
     /// Whether the "coming alive" overlay is currently showing.
     @State private var showComingAlive: Bool
     /// Whether the daemon-loading skeleton overlay is currently showing.
@@ -74,7 +74,7 @@ struct MainWindowView: View {
     /// Whether the assistant loading has timed out (assistant unreachable).
     @State var assistantLoadingTimedOut = false
     /// Whether the main window is in native macOS fullscreen (traffic lights hidden).
-    @State private var isInFullscreen: Bool = false
+    @State var isInFullscreen: Bool = false
 
     init(conversationManager: ConversationManager, appListManager: AppListManager, zoomManager: ZoomManager, traceStore: TraceStore, usageDashboardStore: UsageDashboardStore, connectionManager: GatewayConnectionManager, eventStreamClient: EventStreamClient, surfaceManager: SurfaceManager, ambientAgent: AmbientAgent, settingsStore: SettingsStore, authManager: AuthManager, windowState: MainWindowState, documentManager: DocumentManager, onMicrophoneToggle: @escaping () -> Void = {}, voiceModeManager: VoiceModeManager, updateManager: UpdateManager, onSendWakeUp: (() -> Void)? = nil) {
         self.conversationManager = conversationManager
@@ -216,7 +216,7 @@ struct MainWindowView: View {
         windowState.showToast(message: "Conversation copied to clipboard", style: .success)
     }
 
-    private var conversationHeaderPresentation: ConversationHeaderPresentation {
+    var conversationHeaderPresentation: ConversationHeaderPresentation {
         ConversationHeaderPresentation(
             activeConversation: conversationManager.activeConversation,
             activeViewModel: conversationManager.activeViewModel,
@@ -658,7 +658,7 @@ struct MainWindowView: View {
 /// By capturing the viewModel reference at render-time, closures always act on
 /// the correct conversation's ViewModel — even if the user switches conversations while a
 /// toast is visible.
-private struct ErrorToastOverlay: View {
+struct ErrorToastOverlay: View {
     let errorManager: ChatErrorManager
     let onOpenModelsAndServices: () -> Void
     let onRetryConversationError: () -> Void
