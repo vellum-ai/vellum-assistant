@@ -913,8 +913,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         }
         // Hard-delete the stripped messages so ChatMessage objects are freed entirely.
         messages.removeSubrange(0..<trimEnd)
-        // displayedMessages is updated automatically via the messageManager.messagesPublisher
-        // Combine bridge subscription set up in ChatPaginationState init.
         // After deleting the oldest messages, advance the history cursor to the oldest
         // retained message and mark that older pages are available from the daemon so
         // the user can paginate back to re-fetch the trimmed messages.
@@ -1127,7 +1125,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.historyCursor = oldestRetained.timestamp.timeIntervalSince1970 * 1000
                 }
                 self.hasMoreHistory = true
-                // displayedMessages is updated automatically via messagesPublisher.
                 self.displayedMessageCount = Self.messagePageSize
             }
         }
