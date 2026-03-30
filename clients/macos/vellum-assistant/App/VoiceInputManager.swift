@@ -208,8 +208,8 @@ final class VoiceInputManager {
     /// Safe to call regardless of `isRecording` — used as the shared cleanup path for all
     /// stop methods and as a recovery mechanism when state becomes inconsistent.
     private func tearDownAudioState() {
-        audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
+        audioEngine.stop()
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest?.endAudio()
@@ -237,8 +237,8 @@ final class VoiceInputManager {
         Self.amplitudeSubject.send(0)
         onAmplitudeChanged?(0)
 
-        audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
+        audioEngine.stop()
 
         // Signal end of audio — the recognizer will process remaining audio
         // and fire the callback with isFinal = true.
@@ -249,8 +249,8 @@ final class VoiceInputManager {
     /// Clears any stale internal buffers or format caches that accumulate
     /// after failed start/stop cycles.
     private func resetAudioEngine() {
-        audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
+        audioEngine.stop()
         audioEngine.reset()
     }
 
@@ -711,7 +711,8 @@ final class VoiceInputManager {
             onRecordingStateChanged?(false)
             currentDictationContext = nil
             overlayWindow.dismiss()
-            resetAudioEngine()
+            tearDownAudioState()
+            audioEngine.reset()
         }
     }
 
@@ -815,8 +816,8 @@ final class VoiceInputManager {
 
         onRecordingStateChanged?(false)
 
-        audioEngine.stop()
         audioEngine.inputNode.removeTap(onBus: 0)
+        audioEngine.stop()
 
         // Signal end of audio — the recognizer will process remaining audio
         // and fire the callback with isFinal = true.
