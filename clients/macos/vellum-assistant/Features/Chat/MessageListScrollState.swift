@@ -356,8 +356,8 @@ final class MessageListScrollState {
     @ObservationIgnored private var resizeStabilizationTask: Task<Void, Never>?
 
     /// Tracks overlapping stabilization windows. Stabilization only ends
-    /// when all active windows have completed, matching the old
-    /// SuppressionReasons OptionSet behavior.
+    /// when all active windows have completed, so concurrent reasons
+    /// (e.g. resize during pagination) don't prematurely restore the mode.
     @ObservationIgnored private var activeStabilizationCount = 0
 
     // MARK: - Deep-Link Anchor Tracking

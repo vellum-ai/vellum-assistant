@@ -638,8 +638,8 @@ struct MessageListView: View {
         }
     }
 
-    /// The scroll view content extracted into its own `@ViewBuilder` to keep
-    /// each view builder block small enough for the Swift type checker.
+    /// The scroll view's main content: LazyVStack of message cells,
+    /// pagination sentinel, thinking indicators, and tail spacer.
     @ViewBuilder
     private var scrollViewContent: some View {
         LazyVStack(alignment: .leading, spacing: VSpacing.md) {

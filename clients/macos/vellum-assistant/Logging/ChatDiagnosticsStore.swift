@@ -46,8 +46,8 @@ struct NumericSanitizer: Sendable {
 
 // MARK: - Event Payloads
 
-/// Kind of diagnostic event. Later PRs add new cases; the raw value is the
-/// string written into the JSONL session log so it must remain stable.
+/// Kind of diagnostic event. The raw value is the string written into the
+/// JSONL session log so it must remain stable across versions.
 enum ChatDiagnosticEventKind: String, Codable, Sendable {
     case scrollPositionChanged
     case scrollLoopDetected
@@ -203,13 +203,11 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
     let containerWidth: Double?
     /// Human-readable reason for the last `scrollTo` call.
     let lastScrollToReason: String?
-    /// Formerly: timestamp of the last scroll-loop warning from the loop guard.
-    /// Always `nil` — the loop guard is being removed. Retained for backward
-    /// compatibility with serialized snapshots.
+    /// Legacy field, always `nil`. Retained for backward compatibility with
+    /// serialized snapshots.
     let lastLoopWarningTimestamp: Date?
-    /// Formerly: rolling event counts from the scroll loop guard.
-    /// Always `nil` — the loop guard is being removed. Retained for backward
-    /// compatibility with serialized snapshots.
+    /// Legacy field, always `nil`. Retained for backward compatibility with
+    /// serialized snapshots.
     let scrollLoopGuardCounts: [String: Int]?
 
     // MARK: Sanitization metadata

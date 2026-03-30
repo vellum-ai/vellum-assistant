@@ -227,11 +227,9 @@ struct DebugSnapshot: Codable {
         let scrollViewportHeight: Double?
         let containerWidth: Double?
         let lastScrollToReason: String?
-        /// Formerly: timestamp of the last scroll-loop warning. Always `nil` —
-        /// the loop guard is being removed.
+        /// Legacy field, always `nil`. Retained for backward compatibility.
         let lastLoopWarningTimestamp: Date?
-        /// Formerly: rolling event counts from the scroll loop guard. Always
-        /// `nil` — the loop guard is being removed.
+        /// Legacy field, always `nil`. Retained for backward compatibility.
         let scrollLoopGuardCounts: [String: Int]?
         /// Names of geometry fields whose original values were non-finite
         /// (nan, inf, -inf) and were replaced with `nil` during sanitization.
