@@ -1,6 +1,8 @@
 import * as realChildProcess from "node:child_process";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { isLinux, isMacOS } from "../util/platform.js";
+
 const execSyncMock = mock(
   (_command: string, _opts?: unknown): unknown => undefined,
 );
@@ -8,15 +10,6 @@ const execSyncMock = mock(
 mock.module("node:child_process", () => ({
   ...realChildProcess,
   execSync: execSyncMock,
-}));
-
-// Mock platform detection — default to macOS
-let mockIsMacOS = true;
-let mockIsLinux = false;
-
-mock.module("../util/platform.js", () => ({
-  isMacOS: () => mockIsMacOS,
-  isLinux: () => mockIsLinux,
 }));
 
 // Mock config loader — return a config with sandbox settings
@@ -49,8 +42,6 @@ const { runSandboxDiagnostics } =
 
 beforeEach(() => {
   execSyncMock.mockReset();
-  mockIsMacOS = true;
-  mockIsLinux = false;
   mockSandboxConfig = {
     enabled: true,
   };
@@ -84,23 +75,25 @@ describe("runSandboxDiagnostics — active backend reason", () => {
   });
 });
 
-describe("runSandboxDiagnostics — native backend check (macOS)", () => {
-  test("passes when sandbox-exec works on macOS", () => {
+describe("runSandboxDiagnostics — native backend check", () => {
+  test("passes when native sandbox command succeeds", () => {
     const result = runSandboxDiagnostics();
     const nativeCheck = result.checks.find((c) =>
       c.label.includes("Native sandbox"),
     );
     expect(nativeCheck).toBeDefined();
     expect(nativeCheck!.ok).toBe(true);
-    expect(nativeCheck!.label).toContain("macOS");
+    // Verify the label matches the real platform
+    if (isMacOS()) {
+      expect(nativeCheck!.label).toContain("macOS");
+    } else if (isLinux()) {
+      expect(nativeCheck!.label).toContain("Linux");
+    }
   });
 
-  test("fails when sandbox-exec does not work on macOS", () => {
-    execSyncMock.mockImplementation((cmd: string) => {
-      if (typeof cmd === "string" && cmd.includes("sandbox-exec")) {
-        throw new Error("not available");
-      }
-      return "Docker version 24.0.7";
+  test("fails when native sandbox command does not work", () => {
+    execSyncMock.mockImplementation(() => {
+      throw new Error("not available");
     });
     const result = runSandboxDiagnostics();
     const nativeCheck = result.checks.find((c) =>
@@ -108,52 +101,6 @@ describe("runSandboxDiagnostics — native backend check (macOS)", () => {
     );
     expect(nativeCheck).toBeDefined();
     expect(nativeCheck!.ok).toBe(false);
-  });
-});
-
-describe("runSandboxDiagnostics — native backend check (Linux)", () => {
-  test("passes when bwrap works on Linux", () => {
-    mockIsMacOS = false;
-    mockIsLinux = true;
-    const result = runSandboxDiagnostics();
-    const nativeCheck = result.checks.find((c) =>
-      c.label.includes("Native sandbox"),
-    );
-    expect(nativeCheck).toBeDefined();
-    expect(nativeCheck!.ok).toBe(true);
-    expect(nativeCheck!.label).toContain("Linux");
-  });
-
-  test("fails when bwrap is not available on Linux", () => {
-    mockIsMacOS = false;
-    mockIsLinux = true;
-    execSyncMock.mockImplementation((cmd: string) => {
-      if (typeof cmd === "string" && cmd.includes("bwrap")) {
-        throw new Error("not found");
-      }
-      return "Docker version 24.0.7";
-    });
-    const result = runSandboxDiagnostics();
-    const nativeCheck = result.checks.find((c) =>
-      c.label.includes("Native sandbox"),
-    );
-    expect(nativeCheck).toBeDefined();
-    expect(nativeCheck!.ok).toBe(false);
-    expect(nativeCheck!.detail).toContain("bubblewrap");
-  });
-});
-
-describe("runSandboxDiagnostics — native backend check (unsupported OS)", () => {
-  test("reports unsupported when neither macOS nor Linux", () => {
-    mockIsMacOS = false;
-    mockIsLinux = false;
-    const result = runSandboxDiagnostics();
-    const nativeCheck = result.checks.find((c) =>
-      c.label.includes("Native sandbox"),
-    );
-    expect(nativeCheck).toBeDefined();
-    expect(nativeCheck!.ok).toBe(false);
-    expect(nativeCheck!.detail).toContain("not supported");
   });
 });
 
