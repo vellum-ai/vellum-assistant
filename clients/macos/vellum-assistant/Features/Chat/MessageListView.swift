@@ -990,10 +990,10 @@ struct MessageListView: View {
                         // response. Daemon confirmation resumes stay bottom-pinned.
                         if !isDaemonConfirmationResume, let lastUserMsg = messages.last(where: { $0.role == .user }) {
                             scrollState.pushToTopMessageId = lastUserMsg.id
-                            // Store the target for phase 2. The actual
-                            // scroll fires in onChange(of: uiVersion)
-                            // after the body re-evaluates with the tail
-                            // spacer rendered at full height.
+                            // Defer the actual scroll until the next
+                            // uiVersion change so the tail spacer is
+                            // rendered and defaultScrollAnchor is
+                            // suppressed before scrollTo executes.
                             scrollState.pendingPushToTopTarget = lastUserMsg.id
                             scrollState.syncUIImmediately()
                             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
@@ -1019,10 +1019,9 @@ struct MessageListView: View {
                 }
             }
             .onChange(of: scrollState.uiVersion) { _, _ in
-                // Phase 2 of push-to-top: the body has re-evaluated with
-                // the tail spacer at full height and defaultScrollAnchor
-                // suppressed for size changes. Now scroll the user message
-                // to the viewport top.
+                // Consume any pending push-to-top target now that the
+                // body has re-evaluated with the tail spacer rendered
+                // and defaultScrollAnchor suppressed for size changes.
                 guard let targetId = scrollState.pendingPushToTopTarget else { return }
                 scrollState.pendingPushToTopTarget = nil
                 withAnimation(VAnimation.fast) {

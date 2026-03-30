@@ -325,10 +325,9 @@ final class MessageListScrollState {
     /// regardless of whether messages.count changes.
     @ObservationIgnored var anchorTimeoutTask: Task<Void, Never>?
 
-    /// The message ID that should be scrolled to the viewport top once the
-    /// tail spacer has rendered. Set in phase 1 of push-to-top (onChange of
-    /// isSending) and consumed in phase 2 (onChange of uiVersion) after the
-    /// body re-evaluates with the spacer at full height.
+    /// The message ID awaiting a deferred scroll-to-top. Set when sending
+    /// begins and consumed after the next `uiVersion` bump, which guarantees
+    /// the tail spacer has rendered before the scroll executes.
     @ObservationIgnored var pendingPushToTopTarget: UUID?
 
     // MARK: - Deep-Link Anchor Tracking
