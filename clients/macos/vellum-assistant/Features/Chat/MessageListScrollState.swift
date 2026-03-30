@@ -461,6 +461,8 @@ final class MessageListScrollState {
         bodyEvalTimestamps.removeAll()
         if _hideScrollIndicators { _hideScrollIndicators = false }
         if _isPaginationInFlight { _isPaginationInFlight = false }
+        cachedDerivedStateBox = nil
+        lastPaginationCompletedAt = .distantPast
         syncUIImmediately()
     }
 }
