@@ -94,6 +94,7 @@ describe("recordUsage", () => {
       outputTokens: 1_000_000,
       cacheCreationInputTokens: 0,
       cacheReadInputTokens: 0,
+      anthropicCacheCreation: null,
       speed: "fast",
     };
     const expectedPricing = resolvePricingForUsageWithOverrides(
