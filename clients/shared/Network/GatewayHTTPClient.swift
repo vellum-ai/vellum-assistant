@@ -294,7 +294,7 @@ public enum GatewayHTTPClient {
     /// for non-managed (bearer token) connections.
     ///
     /// On a 401 response, drains the response stream, attempts to refresh
-    /// credentials via `ActorCredentialRefresher`, and retries the request once
+    /// credentials via `TokenRefreshCoordinator`, and retries the request once
     /// with fresh auth headers.
     ///
     /// - Parameters:
