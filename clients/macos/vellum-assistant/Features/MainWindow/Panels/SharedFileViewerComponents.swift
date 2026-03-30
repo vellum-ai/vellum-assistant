@@ -232,8 +232,13 @@ struct FileContentHeaderBar<Trailing: View>: View {
         HStack(spacing: VSpacing.sm) {
             VIconView(icon, size: 12)
                 .foregroundStyle(VColor.primaryBase)
+                .padding(6)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .fill(VColor.surfaceActive)
+                )
             Text(fileName)
-                .font(VFont.labelDefault)
+                .font(VFont.titleSmall)
                 .foregroundStyle(VColor.contentDefault)
                 .lineLimit(1)
                 .truncationMode(.middle)
