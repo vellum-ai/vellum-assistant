@@ -928,9 +928,29 @@ export class DaemonServer {
     conversation.setAssistantId(
       options?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
     );
-    conversation.setTrustContext(options?.trustContext ?? null);
-    conversation.setAuthContext(options?.authContext ?? null);
+    // Only overwrite trust/auth context when explicitly provided. Callers that
+    // don't supply a trust context (e.g. signal-injected messages) should
+    // inherit whatever the conversation already has from a prior session.
+    if (options?.trustContext !== undefined) {
+      conversation.setTrustContext(options.trustContext);
+    }
+    if (options?.authContext !== undefined) {
+      conversation.setAuthContext(options.authContext);
+    }
     await conversation.ensureActorScopedHistory();
+
+    // Persist the conversation's current trust/auth context so it survives
+    // eviction and recreation. The restore path in getOrCreateConversation
+    // reads from storedOptions.trustContext / storedOptions.authContext.
+    const currentTrust = conversation.trustContext;
+    const currentAuth = conversation.authContext;
+    if (currentTrust || currentAuth) {
+      this.conversationOptions.set(conversationId, {
+        ...this.conversationOptions.get(conversationId),
+        ...(currentTrust ? { trustContext: currentTrust } : {}),
+        ...(currentAuth ? { authContext: currentAuth } : {}),
+      });
+    }
     conversation.setChannelCapabilities(
       resolveChannelCapabilities(
         sourceChannel,
