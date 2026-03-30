@@ -60,8 +60,8 @@ final class MessageListScrollState {
     private(set) var uiVersion: UInt64 = 0
 
     /// Snapshot: whether push-to-top is active. Used by `syncUISnapshots`
-    /// to detect state transitions and bump `uiVersion`. The view reads
-    /// `tailSpacerHeight` directly (the spacer is always present).
+    /// to detect state transitions and bump `uiVersion` so the view
+    /// re-evaluates with the updated `tailSpacerHeight`.
     @ObservationIgnored private(set) var showTailSpacer = false
 
     /// Snapshot: whether scroll indicators should be hidden.

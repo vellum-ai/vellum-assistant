@@ -739,10 +739,11 @@ struct MessageListView: View {
                         }
 
                     // Viewport-height spacer that allows the last message
-                    // to scroll to the top. Always present in the view
-                    // hierarchy (height 0 when inactive) to avoid the
-                    // content-height discontinuity that occurs when a
-                    // conditional view is inserted into a LazyVStack.
+                    // to scroll to the top during push-to-top. Height is 0
+                    // when inactive; kept in the hierarchy unconditionally
+                    // because inserting/removing a LazyVStack child causes
+                    // a content-height discontinuity that makes the scroll
+                    // position jump.
                     Color.clear
                         .frame(height: scrollState.tailSpacerHeight)
                         .allowsHitTesting(false)
@@ -990,15 +991,14 @@ struct MessageListView: View {
                         // response. Daemon confirmation resumes stay bottom-pinned.
                         if !isDaemonConfirmationResume, let lastUserMsg = messages.last(where: { $0.role == .user }) {
                             scrollState.pushToTopMessageId = lastUserMsg.id
-                            // Bypass the 16ms debounce so the tail spacer
-                            // height is applied in the next layout pass,
-                            // before the deferred scroll executes.
+                            // Flush the debounced UI sync so the tail
+                            // spacer height is current before scrolling.
                             scrollState.syncUIImmediately()
                             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                                         "target=userMessage reason=pushToTop")
-                            // Defer scroll to the next run-loop iteration so
-                            // SwiftUI lays out the tail spacer (now at full
-                            // viewport height) before positioning the message.
+                            // Yield one run-loop iteration so SwiftUI lays
+                            // out the updated tail spacer before executing
+                            // the scroll.
                             Task { @MainActor in
                                 withAnimation(VAnimation.fast) {
                                     scrollState.performScrollTo(lastUserMsg.id, anchor: .top)
