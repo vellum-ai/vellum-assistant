@@ -1,8 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let TEST_DIR = "";
 
@@ -80,16 +78,8 @@ function makeContext(): ToolContext {
 }
 
 beforeEach(() => {
-  TEST_DIR = mkdtempSync(join(tmpdir(), "lifecycle-test-"));
-  process.env.VELLUM_HOME = TEST_DIR;
-  process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
+  TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
   mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
-});
-
-afterEach(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  rmSync(TEST_DIR, { recursive: true, force: true });
 });
 
 describe("managed skill lifecycle: scaffold → catalog → prompt → delete", () => {

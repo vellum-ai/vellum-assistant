@@ -10,9 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const TEST_DIR = join(tmpdir(), `vellum-skills-test-${crypto.randomUUID()}`);
-process.env.VELLUM_HOME = TEST_DIR;
-process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 const noopLogger = {
   info: () => {},
@@ -59,17 +57,13 @@ function writeSkill(
 
 describe("skills catalog loading", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
   });
 
   test("parses markdown list path entries from SKILLS.md", () => {
@@ -192,16 +186,17 @@ describe("workspace skills", () => {
   }
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
     mkdirSync(workspaceSkillsDir, { recursive: true });
   });
 
   afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
+    const outsideDir = join(TEST_DIR, "outside");
+    if (existsSync(outsideDir))
+      rmSync(outsideDir, { recursive: true, force: true });
     if (existsSync(WORKSPACE_DIR)) {
       rmSync(WORKSPACE_DIR, { recursive: true, force: true });
     }
@@ -256,15 +251,13 @@ describe("workspace skills", () => {
 
 describe("tool manifest detection", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });
 
   afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
   });
 
   test("attaches toolManifest metadata when valid TOOLS.json is present", () => {
@@ -431,15 +424,13 @@ describe("tool manifest detection", () => {
 
 describe("includes frontmatter parsing", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });
 
   afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
   });
 
   function writeSkillWithIncludes(skillId: string, includes: string): void {
@@ -531,15 +522,13 @@ describe("includes frontmatter parsing", () => {
 
 describe("bundled browser skill", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });
 
   afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
   });
 
   test("browser skill appears in full catalog (including bundled)", () => {
@@ -659,15 +648,13 @@ describe("ingress-dependent setup skills declare public-ingress intentionally", 
 
 describe("bundled computer-use skill", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });
 
   afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
   });
 
   test("computer-use skill appears in full catalog (including bundled)", () => {

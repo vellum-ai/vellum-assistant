@@ -15,7 +15,6 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -25,11 +24,7 @@ import { join } from "node:path";
 import { afterAll, describe, expect, mock, test } from "bun:test";
 
 // Set up temp directories before mocking
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "log-export-workspace-test-")),
-);
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const testWorkspaceDir = testDir;
 mkdirSync(testWorkspaceDir, { recursive: true });
 
@@ -51,14 +46,7 @@ import { logExportRouteDefinitions } from "../runtime/routes/log-export-routes.j
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // ---------------------------------------------------------------------------

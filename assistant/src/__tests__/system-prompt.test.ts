@@ -5,14 +5,11 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // Mock platform to use a temp directory
-const TEST_DIR = join(tmpdir(), `vellum-sysprompt-test-${crypto.randomUUID()}`);
-process.env.VELLUM_HOME = TEST_DIR;
-process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 import { mock } from "bun:test";
 
@@ -112,16 +109,20 @@ function basePrompt(result: string): string {
 
 describe("buildSystemPrompt", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(TEST_DIR, { recursive: true });
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
+    for (const name of [
+      "IDENTITY.md",
+      "SOUL.md",
+      "USER.md",
+      "BOOTSTRAP.md",
+      "UPDATES.md",
+      "skills",
+    ]) {
+      const p = join(TEST_DIR, name);
+      if (existsSync(p)) rmSync(p, { recursive: true, force: true });
     }
   });
 
@@ -464,14 +465,19 @@ describe("stripCommentLines", () => {
 
 describe("ensurePromptFiles", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(TEST_DIR, { recursive: true });
   });
 
   afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
+    for (const name of [
+      "IDENTITY.md",
+      "SOUL.md",
+      "USER.md",
+      "BOOTSTRAP.md",
+      "conversations",
+    ]) {
+      const p = join(TEST_DIR, name);
+      if (existsSync(p)) rmSync(p, { recursive: true, force: true });
     }
   });
 

@@ -15,14 +15,8 @@
  * - Secret scanning < 50ms for large outputs (100KB)
  * - ToolExecutor overhead < 20ms regardless of tool execution time
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 
-const testDir = mkdtempSync(join(tmpdir(), "tool-pipeline-bench-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+import { beforeAll, describe, expect, mock, test } from "bun:test";
 
 // Local registry for ToolExecutor tests — the mock delegates to this map
 // so that registerTool/getTool/getAllTools work for our benchmark tools.
@@ -179,16 +173,6 @@ describe("Tool execution pipeline benchmark", () => {
       await classifyRisk("file_read", { path: "/tmp/test.ts" }, "/tmp");
       await check("file_read", { path: "/tmp/test.ts" }, "/tmp");
       scanText("no secrets here");
-    }
-  });
-
-  afterAll(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      // best effort cleanup
     }
   });
 

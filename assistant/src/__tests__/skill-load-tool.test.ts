@@ -1,20 +1,8 @@
-import {
-  existsSync,
-  mkdirSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const TEST_DIR = join(
-  tmpdir(),
-  `vellum-skill-load-tool-test-${crypto.randomUUID()}`,
-);
-process.env.VELLUM_HOME = TEST_DIR;
-process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Build a mock that covers every export from platform.ts — any function not
 // explicitly mapped returns a no-op stub so that transitive imports don't fail.
@@ -113,21 +101,11 @@ async function executeSkillLoad(
 
 describe("skill_load tool", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
     mockAutoInstall.mockReset();
     mockAutoInstall.mockImplementation((_skillId: string) =>
       Promise.resolve(false),
     );
-  });
-
-  afterEach(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
   });
 
   test("loads a skill by exact id", async () => {
