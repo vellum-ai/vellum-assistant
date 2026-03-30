@@ -22,6 +22,7 @@ import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import {
   buildModelInfoEvent,
+  formatCompactResult,
   isModelSlashCommand,
 } from "../../daemon/conversation-process.js";
 import {
@@ -1325,6 +1326,74 @@ export async function handleSendMessage(
     } finally {
       // No-op for the slash-command early-return path (handled inside
       // setTimeout above), but still needed for error paths.
+      if (!cleanupDeferred && conversation.processing) {
+        conversation.processing = false;
+        silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
+      }
+    }
+  }
+
+  if (slashResult.kind === "compact") {
+    conversation.processing = true;
+    let cleanupDeferred = false;
+    try {
+      const provenance = provenanceFromTrustContext(conversation.trustContext);
+      const channelMeta = {
+        ...provenance,
+        userMessageChannel: sourceChannel,
+        assistantMessageChannel: sourceChannel,
+        userMessageInterface: sourceInterface,
+        assistantMessageInterface: sourceInterface,
+      };
+      const cleanMsg = createUserMessage(rawContent, attachments);
+      const persisted = await addMessage(
+        mapping.conversationId,
+        "user",
+        JSON.stringify(cleanMsg.content),
+        channelMeta,
+      );
+      conversation.getMessages().push(cleanMsg);
+
+      conversation.emitActivityState(
+        "thinking",
+        "context_compacting",
+        "assistant_turn",
+      );
+      const result = await conversation.forceCompact();
+      const responseText = formatCompactResult(result);
+
+      const assistantMsg = createAssistantMessage(responseText);
+      await addMessage(
+        mapping.conversationId,
+        "assistant",
+        JSON.stringify(assistantMsg.content),
+        channelMeta,
+      );
+      conversation.getMessages().push(assistantMsg);
+
+      const response = Response.json(
+        {
+          accepted: true,
+          messageId: persisted.id,
+          conversationId: mapping.conversationId,
+        },
+        { status: 202 },
+      );
+
+      const conversationId = mapping.conversationId;
+      setTimeout(() => {
+        onEvent({ type: "assistant_text_delta", text: responseText });
+        onEvent({
+          type: "message_complete",
+          conversationId,
+        });
+        conversation.processing = false;
+        silentlyWithLog(conversation.drainQueue(), "compact-command queue drain");
+      }, 0);
+
+      cleanupDeferred = true;
+      return response;
+    } finally {
       if (!cleanupDeferred && conversation.processing) {
         conversation.processing = false;
         silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
