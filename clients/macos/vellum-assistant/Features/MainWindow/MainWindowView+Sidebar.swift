@@ -588,7 +588,7 @@ extension MainWindowView {
                     }
 
                     // Channel conversation sections
-                    ForEach(channelConversationGroups) { group in
+                    ForEach(channelConversationGroups, id: \.id) { group in
                         let isCollapsed = sidebar.collapsedChannelSections.contains(group.channel)
                         let sectionHasUnread = isCollapsed &&
                             group.conversations.contains(where: { $0.hasUnseenLatestAssistantMessage })
