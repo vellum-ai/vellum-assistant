@@ -23,6 +23,18 @@ import { getSignalsDir } from "../util/platform.js";
 
 const log = getLogger("signal:user-message");
 
+// ── Attachment descriptor ───────────────────────────────────────────
+
+/** A file-backed attachment included in a signal payload. */
+export interface SignalAttachment {
+  /** Absolute path to the file on disk. */
+  path: string;
+  /** Display filename (e.g. "f_0001.jpg"). */
+  filename: string;
+  /** MIME type (e.g. "image/jpeg"). */
+  mimeType: string;
+}
+
 // ── Daemon callback registry ─────────────────────────────────────────
 
 type UserMessageCallback = (params: {
@@ -31,6 +43,7 @@ type UserMessageCallback = (params: {
   sourceChannel: string;
   sourceInterface: string;
   bypassSecretCheck?: boolean;
+  attachments?: SignalAttachment[];
 }) => Promise<{ accepted: boolean; error?: string; message?: string }>;
 
 let _sendUserMessage: UserMessageCallback | null = null;
@@ -99,6 +112,11 @@ export async function handleUserMessageSignal(filename: string): Promise<void> {
       interface?: string;
       requestId?: string;
       bypassSecretCheck?: boolean;
+      attachments?: Array<{
+        path?: string;
+        filename?: string;
+        mimeType?: string;
+      }>;
     };
     const { requestId } = parsed;
     parsedRequestId = requestId;
@@ -131,12 +149,31 @@ export async function handleUserMessageSignal(filename: string): Promise<void> {
       return;
     }
 
+    // Validate and normalize attachments
+    const attachments: SignalAttachment[] = [];
+    if (Array.isArray(parsed.attachments)) {
+      for (const a of parsed.attachments) {
+        if (
+          typeof a.path === "string" &&
+          typeof a.filename === "string" &&
+          typeof a.mimeType === "string"
+        ) {
+          attachments.push({
+            path: a.path,
+            filename: a.filename,
+            mimeType: a.mimeType,
+          });
+        }
+      }
+    }
+
     const result = await _sendUserMessage({
       conversationKey: parsed.conversationKey,
       content: parsed.content,
       sourceChannel: parsed.sourceChannel ?? "vellum",
       sourceInterface: parsed.interface ?? "cli",
       bypassSecretCheck: parsed.bypassSecretCheck === true,
+      ...(attachments.length > 0 ? { attachments } : {}),
     });
 
     log.info(
