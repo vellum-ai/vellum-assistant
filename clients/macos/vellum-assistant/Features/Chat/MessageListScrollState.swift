@@ -59,8 +59,7 @@ final class MessageListScrollState {
     /// re-evaluation from scroll state. Bumped at most once per 16ms frame.
     private(set) var uiVersion: UInt64 = 0
 
-    /// Snapshot: whether the tail spacer should render and
-    /// `defaultScrollAnchor(.bottom)` should be suppressed.
+    /// Snapshot: whether the tail spacer should render.
     @ObservationIgnored private(set) var showTailSpacer = false
 
     /// Snapshot: whether scroll indicators should be hidden.

@@ -759,7 +759,6 @@ struct MessageListView: View {
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
             .defaultScrollAnchor(.bottom, for: .initialOffset)
-            .defaultScrollAnchor(scrollState.showTailSpacer ? nil : .bottom, for: .sizeChanges)
             .scrollPosition($scrollPosition)
             .environment(\.suppressAutoScroll, { [self] in
                 // Cancel any pending expansion timeout before re-evaluating.
@@ -992,8 +991,7 @@ struct MessageListView: View {
                             scrollState.pushToTopMessageId = lastUserMsg.id
                             // Defer the actual scroll until the next
                             // uiVersion change so the tail spacer is
-                            // rendered and defaultScrollAnchor is
-                            // suppressed before scrollTo executes.
+                            // rendered before scrollTo executes.
                             scrollState.pendingPushToTopTarget = lastUserMsg.id
                             scrollState.syncUIImmediately()
                             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
@@ -1021,8 +1019,7 @@ struct MessageListView: View {
             }
             .onChange(of: scrollState.uiVersion) { _, _ in
                 // Consume any pending push-to-top target now that the
-                // body has re-evaluated with the tail spacer rendered
-                // and defaultScrollAnchor suppressed for size changes.
+                // body has re-evaluated with the tail spacer rendered.
                 guard let targetId = scrollState.pendingPushToTopTarget else { return }
                 scrollState.pendingPushToTopTarget = nil
                 withAnimation(VAnimation.fast) {
