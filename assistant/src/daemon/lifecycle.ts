@@ -81,6 +81,7 @@ import {
   setCesClient,
   setCesReconnect,
 } from "../security/secure-keys.js";
+import { seedCliCommandMemories } from "../cli/cli-memory.js";
 import { seedCatalogSkillMemories } from "../skills/skill-memory.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getDeviceId } from "../util/device-id.js";
@@ -646,6 +647,12 @@ export async function runDaemon(): Promise<void> {
       void seedCatalogSkillMemories().catch((err) =>
         log.warn({ err }, "Catalog skill memory seeding failed — continuing"),
       );
+
+      try {
+        seedCliCommandMemories();
+      } catch (err) {
+        log.warn({ err }, "CLI command memory seeding failed — continuing");
+      }
     }
 
     // Fire-and-forget: Qdrant init runs concurrently with the rest of startup
