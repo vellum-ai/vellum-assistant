@@ -235,6 +235,34 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
 
   const db = getDb();
 
+  // ── Kind counts (shared across all code paths) ─────────────────────
+  // Respects status/search filters but NOT kind filter, so the sidebar
+  // can show totals for every kind simultaneously.
+  const kindCountConditions = [];
+  if (statusParam && statusParam !== "all") {
+    kindCountConditions.push(eq(memoryItems.status, statusParam));
+  }
+  if (searchParam) {
+    kindCountConditions.push(
+      or(
+        like(memoryItems.subject, `%${searchParam}%`),
+        like(memoryItems.statement, `%${searchParam}%`),
+      )!,
+    );
+  }
+  const kindCountWhere =
+    kindCountConditions.length > 0 ? and(...kindCountConditions) : undefined;
+  const kindCountRows = db
+    .select({ kind: memoryItems.kind, count: count() })
+    .from(memoryItems)
+    .where(kindCountWhere)
+    .groupBy(memoryItems.kind)
+    .all();
+  const kindCounts: Record<string, number> = {};
+  for (const row of kindCountRows) {
+    kindCounts[row.kind] = row.count;
+  }
+
   // ── Semantic search path ────────────────────────────────────────────
   // When a search query is present, try Qdrant hybrid search first.
   // Falls back to SQL LIKE when embeddings / Qdrant are unavailable.
@@ -254,7 +282,11 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
       );
 
       if (pageIds.length === 0) {
-        return Response.json({ items: [], total: semanticResult.total });
+        return Response.json({
+          items: [],
+          total: semanticResult.total,
+          kindCounts,
+        });
       }
 
       // Re-apply the same DB-side filters used in the SQL path as defense-
@@ -289,6 +321,7 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
       return Response.json({
         items: enrichedItems,
         total: semanticResult.total,
+        kindCounts,
       });
     }
     // semanticResult was null (Qdrant unavailable) or empty — fall through to SQL
@@ -344,7 +377,7 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
     scopeLabel: resolveScopeLabel(item.scopeId, titleMap),
   }));
 
-  return Response.json({ items: enrichedItems, total });
+  return Response.json({ items: enrichedItems, total, kindCounts });
 }
 
 // ---------------------------------------------------------------------------

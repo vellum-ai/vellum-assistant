@@ -205,8 +205,10 @@ struct MemoriesPanel: View {
     }
 
     private func kindCount(for kind: MemoryKind?) -> Int {
-        guard let kind else { return store.items.count }
-        return store.items.filter { $0.kind == kind.rawValue }.count
+        guard let kind else {
+            return store.kindCounts.values.reduce(0, +)
+        }
+        return store.kindCounts[kind.rawValue] ?? 0
     }
 
     /// Items filtered by selected kind (client-side only — store always holds all items).
