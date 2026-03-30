@@ -364,6 +364,12 @@ final class MessageListScrollState {
         isAtBottom = true
         hasReceivedScrollEvent = false
         lastContentOffsetY = 0
+        // Clear circuit breaker state so a throttle tripped in the previous
+        // conversation doesn't suppress scheduleUISync() in the new one.
+        throttleRecoveryTask?.cancel()
+        throttleRecoveryTask = nil
+        isThrottled = false
+        bodyEvalTimestamps.removeAll()
         // Hide scroll indicators during the conversation switch grace period
         // to mask LazyVStack content size estimation changes.
         scrollIndicatorRestoreTask?.cancel()

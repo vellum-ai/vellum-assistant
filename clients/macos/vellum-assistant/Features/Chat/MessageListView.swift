@@ -120,7 +120,7 @@ struct MessageListView: View {
     /// won't trigger re-renders on frequent `data` progress ticks.
     var taskProgressManager = TaskProgressOverlayManager.shared
     /// Consolidates all scroll-related state with @Observable fine-grained tracking.
-    /// Only 4 properties trigger view re-evaluations: isFollowingBottom,
+    /// Only 4 properties trigger view re-evaluations: showScrollToLatest,
     /// pushToTopMessageId, isPaginationInFlight, hideScrollIndicators.
     @State private var scrollState = MessageListScrollState()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
