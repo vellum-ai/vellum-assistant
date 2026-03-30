@@ -192,6 +192,7 @@ describe("serializeProviderSummary", () => {
       client_id_placeholder: "your-client-id.apps.googleusercontent.com",
       requires_client_secret: true,
       supports_managed_mode: true,
+      feature_flag: null,
     });
   });
 

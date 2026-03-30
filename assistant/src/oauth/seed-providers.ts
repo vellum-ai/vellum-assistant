@@ -59,6 +59,7 @@ const PROVIDER_SEED_DATA: Record<
     identityResponsePaths?: string[];
     identityFormat?: string;
     identityOkField?: string;
+    featureFlag?: string;
   }
 > = {
   google: {

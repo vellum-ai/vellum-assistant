@@ -31,6 +31,7 @@ export interface SerializedProviderSummary {
   client_id_placeholder: string | null;
   requires_client_secret: boolean;
   supports_managed_mode: boolean;
+  feature_flag: string | null;
 }
 
 /**
@@ -87,6 +88,7 @@ function _serializeProvider(
       : null,
     identityFormat: row.identityFormat ?? null,
     identityOkField: row.identityOkField ?? null,
+    featureFlag: row.featureFlag ?? null,
     redirectUri:
       options?.redirectUri !== undefined ? options.redirectUri : null,
     createdAt: new Date(row.createdAt).toISOString(),
@@ -112,5 +114,6 @@ export function serializeProviderSummary(
     client_id_placeholder: row.clientIdPlaceholder ?? null,
     requires_client_secret: !!(row.requiresClientSecret ?? 1),
     supports_managed_mode: !!row.managedServiceConfigKey,
+    feature_flag: row.featureFlag ?? null,
   };
 }
