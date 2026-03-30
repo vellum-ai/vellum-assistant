@@ -335,6 +335,7 @@ export async function drainQueue(
         ...(Object.keys(drainImageSourcePaths).length > 0
           ? { imageSourcePaths: drainImageSourcePaths }
           : {}),
+        sentAt: next.sentAt,
       };
       const cleanUserMsg = createUserMessage(next.content, next.attachments);
       const llmUserMsg = enrichMessageWithSourcePaths(
@@ -455,7 +456,7 @@ export async function drainQueue(
       resolvedContent,
       next.attachments,
       next.requestId,
-      next.metadata,
+      { ...next.metadata, sentAt: next.sentAt },
       next.displayContent,
     );
   } catch (err) {

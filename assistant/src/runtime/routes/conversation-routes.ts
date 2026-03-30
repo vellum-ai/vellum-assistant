@@ -418,6 +418,19 @@ export function handleListMessages(
     }
     const rendered = renderHistoryContent(content);
 
+    // Extract sentAt from metadata for display timestamps. When a message
+    // was queued or its persistence was delayed (long assistant generation),
+    // sentAt captures the actual event time. Falls back to createdAt.
+    let sentAt: number | undefined;
+    if (msg.metadata) {
+      try {
+        const meta = JSON.parse(msg.metadata);
+        if (typeof meta.sentAt === "number") sentAt = meta.sentAt;
+      } catch {
+        // Ignore malformed metadata
+      }
+    }
+
     // Strip <no_response/> markers from assistant messages so web/API
     // clients never see the raw sentinel. Only assistant messages produce
     // this marker; user messages are left untouched.
@@ -450,6 +463,7 @@ export function handleListMessages(
         role: msg.role,
         text: rendered.text.replace(NO_RESPONSE_INLINE_RE, "").trim(),
         timestamp: msg.createdAt,
+        sentAt,
         toolCalls: rendered.toolCalls,
         toolCallsBeforeText: rendered.toolCallsBeforeText,
         textSegments: filteredSegments,
@@ -466,6 +480,7 @@ export function handleListMessages(
       role: msg.role,
       text: rendered.text,
       timestamp: msg.createdAt,
+      sentAt,
       toolCalls: rendered.toolCalls,
       toolCallsBeforeText: rendered.toolCallsBeforeText,
       textSegments: rendered.textSegments,
@@ -542,11 +557,14 @@ export function handleListMessages(
       prevAssistantTimestamp = msgTimestamp;
     }
 
+    // Use sentAt (actual event time) for the display timestamp when
+    // available, falling back to createdAt (persistence time).
+    const displayTimestamp = m.sentAt ?? m.timestamp;
     return {
       id: m.id ?? "",
       role: m.role,
       content: m.text,
-      timestamp: new Date(m.timestamp).toISOString(),
+      timestamp: new Date(displayTimestamp).toISOString(),
       attachments: msgAttachments,
       ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
       ...(interfaces ? { interfaces } : {}),

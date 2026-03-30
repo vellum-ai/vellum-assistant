@@ -1850,6 +1850,7 @@ describe("MessageQueue byte budget", () => {
       })),
       requestId,
       onEvent: () => {},
+      sentAt: Date.now(),
     };
   }
 
