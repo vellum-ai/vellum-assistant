@@ -15,6 +15,12 @@ const log = getLogger("slack-dm-context");
 /** Maximum number of prior messages to include in context. */
 const MAX_CONTEXT_MESSAGES = 10;
 
+/**
+ * Over-fetch so the current message (which is filtered out) doesn't
+ * reduce the effective context window below MAX_CONTEXT_MESSAGES.
+ */
+const FETCH_LIMIT = 15;
+
 /** Timeout for the conversations.history API call. */
 const FETCH_TIMEOUT_MS = 5_000;
 
@@ -47,7 +53,7 @@ export async function fetchDmContext(
 
     const params = new URLSearchParams({
       channel,
-      limit: "10",
+      limit: String(FETCH_LIMIT),
     });
 
     const resp = await fetchImpl(
