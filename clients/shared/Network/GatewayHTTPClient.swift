@@ -104,11 +104,13 @@ public enum GatewayHTTPClient {
     ///   - json: A JSON-serializable dictionary used as the request body.
     ///   - extraHeaders: Optional additional headers to include in the request.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
+    ///   - skipRetry: When `true`, skips the 401 retry interceptor. Used by the
+    ///     credential refresh endpoint to prevent recursive refresh loops.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, serialization errors, or network errors.
-    public static func post(path: String, json: [String: Any], extraHeaders: [String: String]? = nil, timeout: TimeInterval = 30) async throws -> Response {
+    public static func post(path: String, json: [String: Any], extraHeaders: [String: String]? = nil, timeout: TimeInterval = 30, skipRetry: Bool = false) async throws -> Response {
         let body = try JSONSerialization.data(withJSONObject: json)
-        return try await executeWithRetry(path: path, method: "POST", timeout: timeout) { request in
+        return try await executeWithRetry(path: path, method: "POST", timeout: timeout, skipRetry: skipRetry) { request in
             request.httpBody = body
             if let extraHeaders {
                 for (key, value) in extraHeaders {
@@ -598,12 +600,17 @@ public enum GatewayHTTPClient {
     /// Executes a request with automatic 401 retry for non-managed (bearer token) connections.
     /// On a 401 response, attempts to refresh credentials via `TokenRefreshCoordinator`
     /// and retries the request once with fresh auth headers.
+    ///
+    /// - Parameter skipRetry: When `true`, the 401 retry interceptor is bypassed and the
+    ///   response is returned as-is. Used by the credential refresh endpoint to prevent
+    ///   recursive refresh loops.
     private static func executeWithRetry(
         path: String,
         params: [String: String]? = nil,
         method: String,
         timeout: TimeInterval,
         quiet: Bool = false,
+        skipRetry: Bool = false,
         configure: ((_ request: inout URLRequest) -> Void)? = nil
     ) async throws -> Response {
         let connection = try resolveConnection()
@@ -611,7 +618,7 @@ public enum GatewayHTTPClient {
         configure?(&request)
         let response = try await execute(request, quiet: quiet)
 
-        guard response.statusCode == 401, !connection.isManaged else {
+        guard !skipRetry, response.statusCode == 401, !connection.isManaged else {
             return response
         }
 
