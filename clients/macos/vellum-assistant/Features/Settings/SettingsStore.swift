@@ -356,10 +356,6 @@ public final class SettingsStore: ObservableObject {
     private var routingSourceRefreshTask: Task<Void, Never>?
     private var yourOwnOAuthConnectPollingTask: Task<Void, Never>?
 
-    /// Tracks the last observed `connectedAssistantId` so the UserDefaults change
-    /// subscription can avoid spurious re-fetches on unrelated key changes.
-    private var _lastObservedConnectedAssistantId: String? = UserDefaults.standard.string(forKey: "connectedAssistantId")
-
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle conversations.
     private var lastDaemonModel: String?
@@ -603,14 +599,29 @@ public final class SettingsStore: ObservableObject {
 
         // Refresh when the connected assistant changes so the state reflects
         // the newly selected managed assistant rather than the previous one.
-        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
-            .receive(on: RunLoop.main)
+        // Uses scoped publisher(for:) + debounce per AGENTS.md to avoid
+        // firing on every UserDefaults write app-wide.
+        UserDefaults.standard.publisher(for: \.connectedAssistantId)
+            .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
+            .removeDuplicates()
             .sink { [weak self] _ in
                 guard let self else { return }
-                let newId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-                guard newId != self._lastObservedConnectedAssistantId else { return }
-                self._lastObservedConnectedAssistantId = newId
                 // Reset stale maintenance state immediately before async refresh
+                self.managedAssistantMaintenanceMode = nil
+                self.maintenanceModeRefreshError = nil
+                Task { @MainActor [weak self] in
+                    await self?.refreshManagedAssistantMaintenanceMode()
+                }
+            }
+            .store(in: &cancellables)
+
+        // Refresh when the connected organization changes — switching org without
+        // switching assistant can also leave maintenance state stale.
+        UserDefaults.standard.publisher(for: \.connectedOrganizationId)
+            .debounce(for: .milliseconds(100), scheduler: RunLoop.main)
+            .removeDuplicates()
+            .sink { [weak self] _ in
+                guard let self else { return }
                 self.managedAssistantMaintenanceMode = nil
                 self.maintenanceModeRefreshError = nil
                 Task { @MainActor [weak self] in
