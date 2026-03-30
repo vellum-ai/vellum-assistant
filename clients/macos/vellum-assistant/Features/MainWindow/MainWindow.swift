@@ -113,13 +113,23 @@ class TitleBarZoomableWindow: NSWindow {
         }
     }
 
-    deinit {
+    /// Remove all notification observers and event monitors installed by
+    /// `observeAppActivation()`. Idempotent — safe to call more than once.
+    /// Called by `MainWindow.detachWindow()` when the window is reused for
+    /// auth, and again by `deinit` as a safety net.
+    func removeObservers() {
         for observer in notificationObservers {
             NotificationCenter.default.removeObserver(observer)
         }
+        notificationObservers.removeAll()
         for monitor in eventMonitors {
             NSEvent.removeMonitor(monitor)
         }
+        eventMonitors.removeAll()
+    }
+
+    deinit {
+        removeObservers()
     }
 
     override func keyDown(with event: NSEvent) {
@@ -524,6 +534,7 @@ public final class MainWindow {
         }
         defaultTrafficLightOrigin = nil
         if let zoomable = window as? TitleBarZoomableWindow {
+            zoomable.removeObservers()
             zoomable.composerRedirectHandler = nil
             zoomable.composerContainerView = nil
         }
