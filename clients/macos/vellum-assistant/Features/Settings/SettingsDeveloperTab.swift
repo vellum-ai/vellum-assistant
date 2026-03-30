@@ -161,8 +161,8 @@ struct SettingsDeveloperTab: View {
             store.refreshDangerouslySkipPermissions()
 
             // Assistant info setup
-            lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+            Task { lockfileAssistants = LockfileAssistant.loadAll() }
             Task { await refreshAwakeStates() }
             refreshDisplayNames()
             identity = IdentityInfo.load()

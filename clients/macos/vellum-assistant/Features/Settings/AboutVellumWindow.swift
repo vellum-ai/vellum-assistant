@@ -117,8 +117,10 @@ struct AboutVellumView: View {
         .multilineTextAlignment(.center)
         .background(VColor.surfaceBase)
         .onAppear {
-            lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+            Task {
+                lockfileAssistants = LockfileAssistant.loadAll()
+            }
             Task { await fetchHealthz() }
         }
     }

@@ -259,10 +259,9 @@ public final class SettingsStore: ObservableObject {
     @Published var ingressEnabled: Bool = false
     @Published var ingressPublicBaseUrl: String = ""
     /// Read-only gateway target derived from daemon config.
-    /// Initial value reads env var > lockfile runtimeUrl > default 7830; updated by HTTP.
-    @Published var localGatewayTarget: String = LockfilePaths.resolveGatewayUrl(
-        connectedAssistantId: UserDefaults.standard.string(forKey: "connectedAssistantId")
-    )
+    /// Seeded with the default port; resolved asynchronously from the lockfile
+    /// so that file I/O does not block the main thread during init.
+    @Published var localGatewayTarget: String = "http://127.0.0.1:7830"
 
     /// Set to `true` once the first ingress config response arrives, so the
     /// view layer can defer diagnostics until the real config values are available.
@@ -311,18 +310,15 @@ public final class SettingsStore: ObservableObject {
     /// Whether the connected assistant is remote (not running locally).
     /// When true, local workspace config writes are skipped to avoid creating
     /// a `.vellum/` directory that doesn't belong to any local assistant.
-    private var isCurrentAssistantRemote: Bool {
-        UserDefaults.standard.string(forKey: "connectedAssistantId")
-            .flatMap { LockfileAssistant.loadByName($0) }?.isRemote ?? false
-    }
+    /// Cached to avoid synchronous lockfile I/O on every access; refreshed
+    /// asynchronously during init and when the connected assistant changes.
+    private var isCurrentAssistantRemote: Bool = false
 
     /// Whether the connected assistant runs in Docker on the local machine.
     /// Docker assistants are "remote" for filesystem purposes (workspace is on
     /// a Docker volume) but support config changes via the HTTP API.
-    private var isCurrentAssistantDocker: Bool {
-        UserDefaults.standard.string(forKey: "connectedAssistantId")
-            .flatMap { LockfileAssistant.loadByName($0) }?.isDocker ?? false
-    }
+    /// Cached to avoid synchronous lockfile I/O on every access.
+    private var isCurrentAssistantDocker: Bool = false
 
     /// Guards against stale `get` responses overwriting an optimistic
     /// toggle. Set when `setIngressEnabled` fires; cleared once a matching
@@ -463,6 +459,14 @@ public final class SettingsStore: ObservableObject {
             self?.refreshAPIKeyState()
         }
 
+        // Resolve lockfile-derived state (gateway URL, assistant topology)
+        // asynchronously so that synchronous Data(contentsOf:) file I/O
+        // does not block the main thread during init.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.refreshLockfileState()
+        }
+
         // Debounce UserDefaults writes so rapid toggle changes don't thrash disk I/O.
         // dropFirst must come before debounce: it consumes the synchronous initial emission so that
         // only genuine user-driven changes flow into debounce and are eventually persisted.
@@ -562,6 +566,19 @@ public final class SettingsStore: ObservableObject {
 
         // Twilio config is now handled via HTTP — no callback wiring needed.
 
+    }
+
+    // MARK: - Lockfile State
+
+    /// Refreshes cached lockfile-derived state (gateway URL, assistant topology)
+    /// by reading the lockfile. Called asynchronously during init to avoid
+    /// blocking the main thread with synchronous file I/O.
+    private func refreshLockfileState() {
+        let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        localGatewayTarget = LockfilePaths.resolveGatewayUrl(connectedAssistantId: assistantId)
+        let assistant = assistantId.flatMap { LockfileAssistant.loadByName($0) }
+        isCurrentAssistantRemote = assistant?.isRemote ?? false
+        isCurrentAssistantDocker = assistant?.isDocker ?? false
     }
 
     // MARK: - API Key Actions
@@ -2720,12 +2737,12 @@ public final class SettingsStore: ObservableObject {
         // daemon reports its own loopback address which is not reachable from
         // the client. For local assistants, use the daemon's authoritative value
         // since it reflects the daemon's actual runtime environment.
-        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let assistant = connectedId.flatMap { LockfileAssistant.loadByName($0) }
-            ?? LockfileAssistant.loadLatest()
-        if let assistant, assistant.isRemote {
+        // Uses cached isCurrentAssistantRemote to avoid synchronous lockfile
+        // I/O on every SSE event.
+        if isCurrentAssistantRemote {
+            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
             self.localGatewayTarget = LockfilePaths.resolveGatewayUrl(
-                connectedAssistantId: assistant.assistantId
+                connectedAssistantId: connectedId
             )
         } else {
             self.localGatewayTarget = response.localGatewayTarget
