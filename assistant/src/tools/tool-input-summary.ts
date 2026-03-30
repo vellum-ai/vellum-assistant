@@ -1,8 +1,8 @@
 /**
  * Summarizes tool input into a concise string for guardian approval display.
  *
- * The summary is shown only to the guardian who already has full access,
- * so no secret masking is applied.
+ * Returns unredacted text — callers that persist the result (e.g. to the
+ * canonical_guardian_requests table) must apply redactSecrets() before writing.
  */
 
 function truncate(value: string, maxLen: number): string {

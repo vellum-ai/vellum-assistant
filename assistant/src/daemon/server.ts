@@ -53,6 +53,7 @@ import { registerConversationUndoCallback } from "../signals/conversation-undo.j
 import { appendEventToStream } from "../signals/event-stream.js";
 import { registerUserMessageCallback } from "../signals/user-message.js";
 import { getSubagentManager } from "../subagent/index.js";
+import { redactSecrets } from "../security/secret-scanner.js";
 import { summarizeToolInput } from "../tools/tool-input-summary.js";
 import { getLogger } from "../util/logger.js";
 import {
@@ -197,9 +198,13 @@ function makePendingInteractionRegistrar(
           guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
           commandPreview:
-            summarizeToolInput(msg.toolName, inputRecord) || undefined,
+            redactSecrets(
+              summarizeToolInput(msg.toolName, inputRecord),
+            ) || undefined,
           riskLevel: msg.riskLevel,
-          activityText: activityRaw,
+          activityText: activityRaw
+            ? redactSecrets(activityRaw)
+            : undefined,
           executionTarget: msg.executionTarget,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),

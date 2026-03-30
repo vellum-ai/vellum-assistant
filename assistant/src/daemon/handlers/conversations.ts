@@ -25,6 +25,7 @@ import {
 } from "../../memory/conversation-title-service.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
+import { redactSecrets } from "../../security/secret-scanner.js";
 import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { truncate } from "../../util/truncate.js";
 import type { Conversation } from "../conversation.js";
@@ -102,9 +103,13 @@ export function makeEventSender(params: {
             guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
             toolName: event.toolName,
             commandPreview:
-              summarizeToolInput(event.toolName, inputRecord) || undefined,
+              redactSecrets(
+                summarizeToolInput(event.toolName, inputRecord),
+              ) || undefined,
             riskLevel: event.riskLevel,
-            activityText: activityRaw,
+            activityText: activityRaw
+              ? redactSecrets(activityRaw)
+              : undefined,
             executionTarget: event.executionTarget,
             status: "pending",
             requestCode: generateCanonicalRequestCode(),
