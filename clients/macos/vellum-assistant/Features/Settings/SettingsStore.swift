@@ -250,6 +250,30 @@ public final class SettingsStore: ObservableObject {
         "brave": "Brave",
     ]
 
+    // MARK: - Managed Assistant Maintenance Mode State
+
+    /// Current maintenance-mode payload for the selected managed assistant.
+    /// `nil` when not in a managed context or when the state has not yet been loaded.
+    @Published var managedAssistantMaintenanceMode: PlatformAssistantMaintenanceMode?
+
+    /// `true` while a maintenance-mode refresh is in flight.
+    @Published var maintenanceModeRefreshing: Bool = false
+
+    /// `true` while an enter-maintenance-mode request is in flight.
+    @Published var maintenanceModeEntering: Bool = false
+
+    /// `true` while an exit-maintenance-mode request is in flight.
+    @Published var maintenanceModeExiting: Bool = false
+
+    /// Non-nil when the most recent refresh failed.
+    @Published var maintenanceModeRefreshError: String?
+
+    /// Non-nil when the most recent enter-maintenance-mode call failed.
+    @Published var maintenanceModeEnterError: String?
+
+    /// Non-nil when the most recent exit-maintenance-mode call failed.
+    @Published var maintenanceModeExitError: String?
+
     // MARK: - Platform Config State
 
     @Published var platformBaseUrl: String = ""
@@ -331,6 +355,10 @@ public final class SettingsStore: ObservableObject {
     private var pendingIngressUrl: String?
     private var routingSourceRefreshTask: Task<Void, Never>?
     private var yourOwnOAuthConnectPollingTask: Task<Void, Never>?
+
+    /// Tracks the last observed `connectedAssistantId` so the UserDefaults change
+    /// subscription can avoid spurious re-fetches on unrelated key changes.
+    private var _lastObservedConnectedAssistantId: String? = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
     /// Last model reported by the daemon — used to skip redundant model_set calls
     /// that would otherwise reinitialize providers and evict idle conversations.
@@ -561,6 +589,51 @@ public final class SettingsStore: ObservableObject {
         }
 
         // Twilio config is now handled via HTTP — no callback wiring needed.
+
+        // Refresh maintenance-mode state when the app returns to the foreground
+        // so the UI stays current if maintenance was toggled elsewhere.
+        NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.refreshManagedAssistantMaintenanceMode()
+                }
+            }
+            .store(in: &cancellables)
+
+        // Refresh when the connected assistant changes so the state reflects
+        // the newly selected managed assistant rather than the previous one.
+        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let newId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+                guard newId != self._lastObservedConnectedAssistantId else { return }
+                self._lastObservedConnectedAssistantId = newId
+                // Reset stale maintenance state immediately before async refresh
+                self.managedAssistantMaintenanceMode = nil
+                self.maintenanceModeRefreshError = nil
+                Task { @MainActor [weak self] in
+                    await self?.refreshManagedAssistantMaintenanceMode()
+                }
+            }
+            .store(in: &cancellables)
+
+        // Refresh after a successful local bootstrap/hatch flow completes so the
+        // maintenance state reflects the freshly hatched assistant.
+        NotificationCenter.default.publisher(for: .localBootstrapCompleted)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.refreshManagedAssistantMaintenanceMode()
+                }
+            }
+            .store(in: &cancellables)
+
+        // Perform the initial load.
+        Task { @MainActor [weak self] in
+            await self?.refreshManagedAssistantMaintenanceMode()
+        }
 
     }
 
@@ -2380,6 +2453,121 @@ public final class SettingsStore: ObservableObject {
             } catch {
                 log.error("Failed to disconnect managed OAuth connection for \(providerKey): \(error)")
                 managedOAuthError[providerKey] = error.localizedDescription
+            }
+        }
+    }
+
+    // MARK: - Managed Assistant Maintenance Mode Actions
+
+    /// Fetches the current maintenance-mode state for the selected managed assistant
+    /// and updates `managedAssistantMaintenanceMode`.
+    ///
+    /// This is a no-op when the connected assistant is not managed.
+    func refreshManagedAssistantMaintenanceMode() async {
+        guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+              !connectedId.isEmpty,
+              let assistant = LockfileAssistant.loadByName(connectedId),
+              assistant.isManaged else {
+            // Not a managed assistant — clear any stale state.
+            managedAssistantMaintenanceMode = nil
+            return
+        }
+
+        let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+        guard !orgId.isEmpty else {
+            log.warning("Cannot refresh maintenance mode: no connectedOrganizationId set")
+            return
+        }
+
+        maintenanceModeRefreshing = true
+        maintenanceModeRefreshError = nil
+        defer { maintenanceModeRefreshing = false }
+
+        do {
+            let updated = try await AuthService.shared.refreshAssistant(
+                id: assistant.assistantId,
+                organizationId: orgId
+            )
+            managedAssistantMaintenanceMode = updated.maintenance_mode
+            log.info("Refreshed maintenance mode for assistant \(assistant.assistantId, privacy: .public): enabled=\(updated.maintenance_mode?.enabled ?? false)")
+        } catch {
+            maintenanceModeRefreshError = error.localizedDescription
+            log.error("Failed to refresh maintenance mode for assistant \(assistant.assistantId, privacy: .public): \(error)")
+        }
+    }
+
+    /// Enters maintenance mode for the selected managed assistant.
+    ///
+    /// Sets `maintenanceModeEntering` while the request is in flight and updates
+    /// `managedAssistantMaintenanceMode` on success.
+    func enterManagedAssistantMaintenanceMode() {
+        Task {
+            guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+                  !connectedId.isEmpty,
+                  let assistant = LockfileAssistant.loadByName(connectedId),
+                  assistant.isManaged else {
+                maintenanceModeEnterError = "No managed assistant selected"
+                return
+            }
+
+            let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+            guard !orgId.isEmpty else {
+                maintenanceModeEnterError = "No organization ID available"
+                return
+            }
+
+            maintenanceModeEntering = true
+            maintenanceModeEnterError = nil
+            defer { maintenanceModeEntering = false }
+
+            do {
+                let updated = try await AuthService.shared.enterMaintenanceMode(
+                    assistantId: assistant.assistantId,
+                    organizationId: orgId
+                )
+                managedAssistantMaintenanceMode = updated.maintenance_mode
+                log.info("Entered maintenance mode for assistant \(assistant.assistantId, privacy: .public)")
+            } catch {
+                maintenanceModeEnterError = error.localizedDescription
+                log.error("Failed to enter maintenance mode for assistant \(assistant.assistantId, privacy: .public): \(error)")
+            }
+        }
+    }
+
+    /// Exits maintenance mode for the selected managed assistant.
+    ///
+    /// Sets `maintenanceModeExiting` while the request is in flight and updates
+    /// `managedAssistantMaintenanceMode` on success.
+    func exitManagedAssistantMaintenanceMode() {
+        Task {
+            guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+                  !connectedId.isEmpty,
+                  let assistant = LockfileAssistant.loadByName(connectedId),
+                  assistant.isManaged else {
+                maintenanceModeExitError = "No managed assistant selected"
+                return
+            }
+
+            let orgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+            guard !orgId.isEmpty else {
+                maintenanceModeExitError = "No organization ID available"
+                return
+            }
+
+            maintenanceModeExiting = true
+            maintenanceModeExitError = nil
+            defer { maintenanceModeExiting = false }
+
+            do {
+                let updated = try await AuthService.shared.exitMaintenanceMode(
+                    assistantId: assistant.assistantId,
+                    organizationId: orgId
+                )
+                managedAssistantMaintenanceMode = updated.maintenance_mode
+                log.info("Exited maintenance mode for assistant \(assistant.assistantId, privacy: .public)")
+            } catch {
+                maintenanceModeExitError = error.localizedDescription
+                log.error("Failed to exit maintenance mode for assistant \(assistant.assistantId, privacy: .public): \(error)")
             }
         }
     }
