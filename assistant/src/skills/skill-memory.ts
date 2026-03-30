@@ -207,7 +207,22 @@ export function seedCatalogSkillMemories(): void {
     const catalogIds = new Set<string>();
     for (const { summary } of enabled) {
       catalogIds.add(summary.id);
-      upsertSkillCapabilityMemory(summary.id, fromSkillSummary(summary));
+      const input = fromSkillSummary(summary);
+
+      // Enrich mcp-setup description with configured server names
+      if (summary.id === "mcp-setup") {
+        const servers = config.mcp?.servers;
+        if (servers) {
+          const names = Object.keys(servers).filter(
+            (name) => servers[name]?.enabled !== false,
+          );
+          if (names.length > 0) {
+            input.description += ` Configured: ${names.join(", ")}`;
+          }
+        }
+      }
+
+      upsertSkillCapabilityMemory(summary.id, input);
     }
 
     // Prune stale capability memories for skills no longer in the enabled set
