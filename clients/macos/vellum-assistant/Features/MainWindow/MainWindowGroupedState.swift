@@ -90,8 +90,6 @@ final class SidebarInteractionState {
 
     /// Per-channel "show all" toggle (default: show first 3).
     var showAllChannelConversations: [String: Bool] = [:]
-    /// Set of schedule group keys (scheduleJobId values) that are currently expanded.
-    var expandedScheduleGroups: Set<String> = []
     var showAllApps: Bool = false
 
     /// Toggles the expand/collapse state of a section.
