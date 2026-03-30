@@ -1,8 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let TEST_DIR = "";
 
@@ -37,22 +35,6 @@ const mockConfig = {
     "web-search": { mode: "your-own", provider: "inference-provider-native" },
   },
 };
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(TEST_DIR, "protected"),
-  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
-  getDataDir: () => TEST_DIR,
-  ensureDataDir: () => {},
-  getPidPath: () => join(TEST_DIR, "vellum.pid"),
-  getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
-  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
-  getHistoryPath: () => join(TEST_DIR, "history"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPlatformName: () => process.platform,
-  getClipboardCommand: () => null,
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -96,12 +78,8 @@ function makeContext(): ToolContext {
 }
 
 beforeEach(() => {
-  TEST_DIR = mkdtempSync(join(tmpdir(), "lifecycle-test-"));
+  TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
   mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
-});
-
-afterEach(() => {
-  rmSync(TEST_DIR, { recursive: true, force: true });
 });
 
 describe("managed skill lifecycle: scaffold → catalog → prompt → delete", () => {

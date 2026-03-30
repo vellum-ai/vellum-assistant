@@ -15,30 +15,14 @@
  * - Secret scanning < 50ms for large outputs (100KB)
  * - ToolExecutor overhead < 20ms regardless of tool execution time
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 
-const testDir = mkdtempSync(join(tmpdir(), "tool-pipeline-bench-"));
+import { beforeAll, describe, expect, mock, test } from "bun:test";
 
 // Local registry for ToolExecutor tests — the mock delegates to this map
 // so that registerTool/getTool/getAllTools work for our benchmark tools.
 const localRegistry = new Map<string, import("../tools/types.js").Tool>();
 
 // Mocks must precede imports of modules under test.
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-  getHooksDir: () => join(testDir, "hooks"),
-}));
-
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -189,14 +173,6 @@ describe("Tool execution pipeline benchmark", () => {
       await classifyRisk("file_read", { path: "/tmp/test.ts" }, "/tmp");
       await check("file_read", { path: "/tmp/test.ts" }, "/tmp");
       scanText("no secrets here");
-    }
-  });
-
-  afterAll(() => {
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      // best effort cleanup
     }
   });
 

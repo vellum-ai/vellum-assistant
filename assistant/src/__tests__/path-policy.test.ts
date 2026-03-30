@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   hostPolicy,
@@ -21,23 +21,9 @@ import {
 // We create and realpath the root eagerly so that macOS's /tmp -> /private/tmp
 // symlink doesn't cause prefix mismatches between normalized roots and paths.
 
-const CLASSIFIER_TEST_ROOT = realpathSync(
-  mkdtempSync(join(tmpdir(), "path-classifier-")),
-);
-const MOCK_MANAGED_DIR = join(CLASSIFIER_TEST_ROOT, "workspace", "skills");
+const CLASSIFIER_TEST_ROOT = process.env.VELLUM_WORKSPACE_DIR!;
+const MOCK_MANAGED_DIR = join(CLASSIFIER_TEST_ROOT, "skills");
 const MOCK_BUNDLED_DIR = join(CLASSIFIER_TEST_ROOT, "bundled-skills");
-
-mock.module("../util/platform.js", () => ({
-  getWorkspaceSkillsDir: () => MOCK_MANAGED_DIR,
-  getProtectedDir: () => join(CLASSIFIER_TEST_ROOT, "protected"),
-  getWorkspaceDir: () => join(CLASSIFIER_TEST_ROOT, "workspace"),
-  getDataDir: () => join(CLASSIFIER_TEST_ROOT, "data"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPlatformName: () => process.platform,
-  ensureDataDir: () => {},
-}));
 
 mock.module("../config/skills.js", () => ({
   getBundledSkillsDir: () => MOCK_BUNDLED_DIR,
@@ -60,6 +46,8 @@ const {
 } = await import("../skills/path-classifier.js");
 
 const testDirs: string[] = [];
+
+beforeEach(() => {});
 
 afterEach(() => {
   for (const dir of testDirs.splice(0)) {
@@ -350,7 +338,6 @@ describe("getManagedSkillsRoot / getBundledSkillsRoot", () => {
   test("returns managed skills dir with trailing separator", () => {
     const root = getManagedSkillsRoot();
     expect(root.endsWith(sep)).toBe(true);
-    expect(root).toContain("workspace");
     expect(root).toContain("skills");
   });
 

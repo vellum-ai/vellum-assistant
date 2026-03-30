@@ -2,56 +2,18 @@
  * Tests that skill_load rejects loading a skill whose feature flag is OFF
  * with a deterministic error message.
  */
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 
-const TEST_DIR = join(
-  tmpdir(),
-  `vellum-skill-load-flag-test-${crypto.randomUUID()}`,
-);
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 let currentConfig: Record<string, unknown> = {};
 
 const DECLARED_SKILL_ID = "contacts";
 const DECLARED_FLAG_KEY = "contacts";
-
-const platformOverrides: Record<string, (...args: unknown[]) => unknown> = {
-  getRootDir: () => TEST_DIR,
-  getDataDir: () => TEST_DIR,
-  ensureDataDir: () => {},
-  getPidPath: () => join(TEST_DIR, "vellum.pid"),
-  getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
-  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
-  getWorkspaceDir: () => join(TEST_DIR, "workspace"),
-  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
-  getWorkspaceConfigPath: () => join(TEST_DIR, "workspace", "config.json"),
-  getWorkspaceHooksDir: () => join(TEST_DIR, "workspace", "hooks"),
-  getWorkspacePromptPath: (f: unknown) =>
-    join(TEST_DIR, "workspace", String(f)),
-  getInterfacesDir: () => join(TEST_DIR, "interfaces"),
-  getHooksDir: () => join(TEST_DIR, "hooks"),
-
-  getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
-  getSandboxWorkingDir: () => join(TEST_DIR, "sandbox", "work"),
-  getHistoryPath: () => join(TEST_DIR, "history"),
-  getSessionTokenPath: () => join(TEST_DIR, "session-token"),
-  readSessionToken: () => null,
-  getClipboardCommand: () => null,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPlatformName: () => process.platform,
-};
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const realPlatform = require("../util/platform.js");
-mock.module("../util/platform.js", () => ({
-  ...realPlatform,
-  ...platformOverrides,
-}));
 
 const noopLogger = new Proxy({} as Record<string, unknown>, {
   get: (_target, prop) => (prop === "child" ? () => noopLogger : () => {}),
@@ -119,9 +81,6 @@ describe("skill_load feature flag enforcement", () => {
 
   afterEach(() => {
     _setOverridesForTesting({});
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
   });
 
   test("returns deterministic error for flag OFF skill", async () => {

@@ -3,47 +3,18 @@
  * and file-based load/create (local mode).
  */
 
-import {
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  afterAll,
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const testDir = realpathSync(mkdtempSync(join(tmpdir(), "signing-key-test-")));
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Mock homedir() so the hardcoded LEGACY_SIGNING_KEY_PATH resolves inside
 // the temp test directory instead of the real ~/.vellum/protected/.
 mock.module("node:os", () => ({
   homedir: () => testDir,
   tmpdir,
-}));
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, ".vellum", "protected"),
-  getWorkspaceDir: () => join(testDir, ".vellum", "workspace"),
-  getDeprecatedDir: () => join(testDir, ".vellum", "workspace", "deprecated"),
-  getDataDir: () => testDir,
-  getDbPath: () => join(testDir, "test.db"),
-  normalizeAssistantId: (id: string) => (id === "self" ? "self" : id),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -63,6 +34,7 @@ beforeEach(() => {
   savedEnv.ACTOR_TOKEN_SIGNING_KEY = process.env.ACTOR_TOKEN_SIGNING_KEY;
   // Clean up key files from previous tests so they don't leak between cases.
   rmSync(join(testDir, ".vellum"), { recursive: true, force: true });
+  rmSync(join(testDir, "deprecated"), { recursive: true, force: true });
   mkdirSync(join(testDir, ".vellum", "protected"), { recursive: true });
 });
 
@@ -72,12 +44,6 @@ afterEach(() => {
   } else {
     process.env.ACTOR_TOKEN_SIGNING_KEY = savedEnv.ACTOR_TOKEN_SIGNING_KEY;
   }
-});
-
-afterAll(() => {
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {}
 });
 
 describe("resolveSigningKey", () => {

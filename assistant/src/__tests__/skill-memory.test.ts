@@ -1,25 +1,7 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
-
-const testDir = mkdtempSync(join(tmpdir(), "skill-memory-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-  getWorkspaceSkillsDir: () => join(testDir, "skills"),
-  getWorkspaceConfigPath: () => join(testDir, "config.json"),
-  readPlatformToken: () => undefined,
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -87,16 +69,13 @@ import {
   seedCatalogSkillMemories,
   upsertSkillCapabilityMemory,
 } from "../skills/skill-memory.js";
+import { ensureDataDir, getDbPath } from "../util/platform.js";
 
+ensureDataDir();
 initializeDb();
 
 afterAll(() => {
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    // best effort cleanup
-  }
 });
 
 function resetTables() {
@@ -281,8 +260,9 @@ describe("upsertSkillCapabilityMemory", () => {
     // resetting the connection leaves stale migration checkpoints that skip
     // checkpoint-guarded ALTER TABLE migrations (e.g. source_type column).
     resetDb();
+    const dbPath = getDbPath();
     for (const ext of ["", "-wal", "-shm"]) {
-      rmSync(join(testDir, `test.db${ext}`), { force: true });
+      rmSync(`${dbPath}${ext}`, { force: true });
     }
     initializeDb();
   });
@@ -333,8 +313,9 @@ describe("deleteSkillCapabilityMemory", () => {
     // Restore DB state for subsequent tests (see upsert "does not throw" test
     // for rationale on why we delete the DB file).
     resetDb();
+    const dbPath = getDbPath();
     for (const ext of ["", "-wal", "-shm"]) {
-      rmSync(join(testDir, `test.db${ext}`), { force: true });
+      rmSync(`${dbPath}${ext}`, { force: true });
     }
     initializeDb();
   });
@@ -553,8 +534,9 @@ describe("seedCatalogSkillMemories", () => {
     // Restore DB state for subsequent tests (see upsert "does not throw" test
     // for rationale on why we delete the DB file).
     resetDb();
+    const dbPath = getDbPath();
     for (const ext of ["", "-wal", "-shm"]) {
-      rmSync(join(testDir, `test.db${ext}`), { force: true });
+      rmSync(`${dbPath}${ext}`, { force: true });
     }
     initializeDb();
   });
