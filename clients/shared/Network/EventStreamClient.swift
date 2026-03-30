@@ -222,14 +222,13 @@ public final class EventStreamClient {
                     userMessage: message,
                     retryable: false
                 )))
-            case .insufficientBalance(let detail, let failedContent):
+            case .insufficientBalance(let detail, _):
                 self.broadcastMessage(.conversationError(ConversationErrorMessage(
                     conversationId: conversationId,
                     code: .providerBilling,
                     userMessage: detail,
                     retryable: true,
-                    errorCategory: "credits_exhausted",
-                    failedMessageContent: failedContent
+                    errorCategory: "credits_exhausted"
                 )))
             case .error(_, let message, _):
                 self.broadcastMessage(.conversationError(ConversationErrorMessage(
