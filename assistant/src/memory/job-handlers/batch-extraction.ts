@@ -16,6 +16,7 @@ import {
   setMemoryCheckpoint,
 } from "../checkpoints.js";
 import { getConversationMemoryScopeId } from "../conversation-crud.js";
+import { maybeEnqueueConversationStartersJob } from "../conversation-starters-cadence.js";
 import { getDb } from "../db.js";
 import { computeMemoryFingerprint } from "../fingerprint.js";
 import {
@@ -31,7 +32,6 @@ import {
   VALID_KINDS,
   VALID_OVERRIDE_CONFIDENCES,
 } from "../items-extractor.js";
-import { maybeEnqueueConversationStartersJob } from "../conversation-starters-cadence.js";
 import { asString } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { extractTextFromStoredMessageContent } from "../message-content.js";
