@@ -238,7 +238,7 @@ export async function run(
           const crossPosted = await addMessage(
             binding.conversationId,
             "assistant",
-            text,
+            JSON.stringify([{ type: "text", text }]),
             { automated: true, crossPostedFrom: context.conversationId },
             { skipIndexing: true },
           );
