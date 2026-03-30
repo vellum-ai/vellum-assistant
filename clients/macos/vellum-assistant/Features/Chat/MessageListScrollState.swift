@@ -352,9 +352,6 @@ final class MessageListScrollState {
     /// Timeout task for expansion stabilization — auto-ends after 200ms.
     @ObservationIgnored private var expansionTimeoutTask: Task<Void, Never>?
 
-    /// Task for resize stabilization — auto-ends after 100ms.
-    @ObservationIgnored private var resizeStabilizationTask: Task<Void, Never>?
-
     /// Tracks overlapping stabilization windows. Stabilization only ends
     /// when all active windows have completed, so concurrent reasons
     /// (e.g. resize during pagination) don't prematurely restore the mode.
@@ -453,8 +450,6 @@ final class MessageListScrollState {
     private func cancelStabilizationTasks() {
         expansionTimeoutTask?.cancel()
         expansionTimeoutTask = nil
-        resizeStabilizationTask?.cancel()
-        resizeStabilizationTask = nil
     }
 
     // MARK: - Scroll Execution

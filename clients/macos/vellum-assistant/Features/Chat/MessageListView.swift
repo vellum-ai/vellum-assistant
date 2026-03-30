@@ -772,7 +772,6 @@ struct MessageListView: View {
         if scrollState.showScrollToLatest {
             Button(action: {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollToLatestPressed")
-                scrollState.transition(to: .followingBottom)
                 scrollState.requestPinToBottom(animated: true, userInitiated: true)
             }) {
                 HStack(spacing: VSpacing.xs) {
@@ -1116,7 +1115,6 @@ struct MessageListView: View {
                 anchorMessageId = nil
                 scrollState.anchorSetTime = nil
                 scrollState.anchorTimeoutTask = nil
-                scrollState.transition(to: .followingBottom)
                 scrollState.requestPinToBottom(animated: true, userInitiated: true)
             }
         }
