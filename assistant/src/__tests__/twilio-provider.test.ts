@@ -3,16 +3,9 @@
  * fail-closed auth token behavior, and caller ID eligibility checks.
  */
 import { createHmac } from "node:crypto";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { credentialKey } from "../security/credential-key.js";
-
-const testDir = mkdtempSync(join(tmpdir(), "twilio-provider-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -60,8 +53,6 @@ function computeValidSignature(
 
 describe("TwilioConversationRelayProvider", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     mockAuthToken = "test-auth-token-secret";
     mockAccountSid = "AC_test_account";
   });
@@ -192,14 +183,10 @@ describe("TwilioConversationRelayProvider", () => {
     let originalFetch: typeof globalThis.fetch;
 
     beforeEach(() => {
-      process.env.VELLUM_HOME = testDir;
-      process.env.VELLUM_WORKSPACE_DIR = testDir;
       originalFetch = globalThis.fetch;
     });
 
     afterEach(() => {
-      delete process.env.VELLUM_HOME;
-      delete process.env.VELLUM_WORKSPACE_DIR;
       globalThis.fetch = originalFetch;
     });
 

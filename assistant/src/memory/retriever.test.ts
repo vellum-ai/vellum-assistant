@@ -5,9 +5,6 @@
  * empty results → no injection, superseded items filtered out,
  * staleness demotion, budget allocation, and degradation scenarios.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeAll,
@@ -17,10 +14,6 @@ import {
   mock,
   test,
 } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "memory-retriever-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -290,8 +283,6 @@ describe("Memory Retriever Pipeline", () => {
   });
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM memory_item_sources");
     db.run("DELETE FROM memory_items");
@@ -304,10 +295,7 @@ describe("Memory Retriever Pipeline", () => {
   });
 
   afterAll(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
     resetDb();
-    rmSync(testDir, { recursive: true, force: true });
   });
 
   // -----------------------------------------------------------------------

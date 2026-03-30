@@ -11,18 +11,11 @@
  * 4. activated — when the trusted contact successfully verifies
  * 5. denied — when the guardian denies the request
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
-
-const testDir = mkdtempSync(join(tmpdir(), "trusted-contact-lifecycle-notif-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -85,14 +78,7 @@ import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // ---------------------------------------------------------------------------
@@ -148,8 +134,6 @@ function buildInboundRequest(overrides: Record<string, unknown> = {}): Request {
 
 describe("trusted contact lifecycle notification signals", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetState();
   });
 
@@ -368,8 +352,6 @@ describe("trusted contact lifecycle notification signals", () => {
 
 describe("trusted contact activated notification signal", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetState();
   });
 

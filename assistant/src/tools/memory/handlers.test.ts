@@ -4,22 +4,7 @@
  * Covers happy path (multi-source results), empty results, degraded mode
  * (embeddings/Qdrant unavailable), scope filtering, and error handling.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "memory-recall-handler-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Module mocks (must precede production imports) ───────────────────
 
@@ -246,16 +231,8 @@ describe("handleMemoryRecall", () => {
   });
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     clearTables();
     clearEmbeddingBackendCache();
-  });
-
-  afterAll(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
-    rmSync(testDir, { recursive: true, force: true });
   });
 
   // ── Input validation ──────────────────────────────────────────────

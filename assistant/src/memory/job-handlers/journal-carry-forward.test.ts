@@ -1,19 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "journal-carry-forward-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
@@ -111,20 +96,12 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  process.env.VELLUM_HOME = testDir;
-  process.env.VELLUM_WORKSPACE_DIR = testDir;
   resetDb();
   initializeDb();
   // Clear memory items table between tests
   getDb().delete(memoryItems).run();
   enqueuedJobs.length = 0;
   mockProviderResponse = null;
-});
-
-afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  rmSync(testDir, { recursive: true, force: true });
 });
 
 describe("journalCarryForwardJob", () => {

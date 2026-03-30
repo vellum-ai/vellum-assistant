@@ -16,16 +16,7 @@
  *   4. Grants are revoked on call end (controller.destroy).
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(
-  join(tmpdir(), "voice-scoped-grant-consumer-test-"),
-);
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // ── Platform + logger mocks (must come before any source imports) ────
 
@@ -105,14 +96,7 @@ import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // ---------------------------------------------------------------------------
@@ -255,8 +239,6 @@ function grantParams(
 
 describe("voice bridge confirmation handling (grant consumption via primitive)", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     clearTables();
   });
 

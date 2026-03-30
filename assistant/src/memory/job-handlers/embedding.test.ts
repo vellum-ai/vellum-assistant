@@ -1,19 +1,8 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const testDir = mkdtempSync(join(tmpdir(), "embed-media-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
@@ -75,17 +64,9 @@ describe("embedMediaJob", () => {
   });
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     embedAndUpsertCalls.length = 0;
     resetDb();
     initializeDb();
-  });
-
-  afterAll(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
-    rmSync(testDir, { recursive: true, force: true });
   });
 
   function makeJob(payload: Record<string, unknown>): MemoryJob {

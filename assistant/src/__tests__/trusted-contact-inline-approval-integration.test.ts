@@ -17,14 +17,9 @@
  *   f. Timeout/stale flow: guardian decision after prompt timeout produces deterministic outcome
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const testDir = mkdtempSync(join(tmpdir(), "tc-inline-approval-integration-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // ---------------------------------------------------------------------------
 // Mocks — must be set before any production imports
@@ -194,14 +189,7 @@ function resetTables(): void {
 }
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // ---------------------------------------------------------------------------
@@ -258,8 +246,6 @@ describe("(a) target flow: trusted-contact inline guardian approval end-to-end",
   });
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     events.length = 0;
     emittedSignals.length = 0;
@@ -389,8 +375,6 @@ describe("(a) target flow: trusted-contact inline guardian approval end-to-end",
 
 describe("(b) prompt-path flow: confirmation_request bridges to guardian", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     emittedSignals.length = 0;
     mockGuardianBinding = {
@@ -485,8 +469,6 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
   });
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     events.length = 0;
     emittedSignals.length = 0;
@@ -586,8 +568,6 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
   });
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     events.length = 0;
     emittedSignals.length = 0;
@@ -715,8 +695,6 @@ function checkIsBoundGuardianActor(params: {
 
 describe("(e) guardian-only prompt delivery invariant", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     deliveredReplies.length = 0;
     mockPendingApprovals = [
       {
@@ -786,8 +764,6 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
   });
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     events.length = 0;
     emittedSignals.length = 0;
@@ -1033,8 +1009,6 @@ describe("(f) timeout/stale flow: stale guardian decision after inline wait time
 
 describe("cross-milestone integration checks", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     events.length = 0;
     emittedSignals.length = 0;

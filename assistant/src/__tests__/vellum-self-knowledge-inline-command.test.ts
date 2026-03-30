@@ -11,24 +11,13 @@
  *   (i.e. the model is never told to shell out manually).
  */
 
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Paths ──────────────────────────────────────────────────────────────────
 
-const TEST_DIR = mkdtempSync(
-  join(tmpdir(), "vellum-self-knowledge-inline-test-"),
-);
-process.env.VELLUM_HOME = TEST_DIR;
-process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 /** Resolve the real skill directory so we can copy SKILL.md into the test. */
 const SKILL_SRC_DIR = join(
@@ -165,8 +154,6 @@ async function executeSkillLoad(
 
 describe("vellum-self-knowledge inline command expansion", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
     runInlineCommandCalls.length = 0;
     mockAutoInstall.mockReset();
@@ -200,11 +187,8 @@ describe("vellum-self-knowledge inline command expansion", () => {
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
     _setOverridesForTesting({});
     if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
     }
   });
 

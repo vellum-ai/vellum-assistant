@@ -1,11 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(mkdtempSync(join(tmpdir(), "auth-token-test-")));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
@@ -25,17 +18,7 @@ import {
 const TEST_KEY = Buffer.from("test-signing-key-32-bytes-long!!");
 
 beforeEach(() => {
-  process.env.VELLUM_HOME = testDir;
-  process.env.VELLUM_WORKSPACE_DIR = testDir;
   initAuthSigningKey(TEST_KEY);
-});
-
-afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {}
 });
 
 describe("mintToken / verifyToken round-trip", () => {

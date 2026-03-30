@@ -1,13 +1,11 @@
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -15,9 +13,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks — must come before any imports that depend on them
 // ---------------------------------------------------------------------------
 
-const testDir = mkdtempSync(join(tmpdir(), "workspace-migration-013-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const workspaceDir = testDir;
 const conversationsDir = join(workspaceDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
@@ -56,14 +52,7 @@ import { repairConversationDiskViewMigration } from "../workspace/migrations/013
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 function resetTables() {
@@ -156,8 +145,6 @@ function toConversationTimestamp(createdAtMs: number): string {
 
 describe("013-repair-conversation-disk-view migration", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     resetConversationsDir();
   });

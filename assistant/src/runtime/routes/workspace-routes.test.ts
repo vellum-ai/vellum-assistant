@@ -4,28 +4,15 @@
  * Covers path resolution (traversal prevention), MIME type detection,
  * directory listing, file metadata, and raw content serving with range support.
  */
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { beforeAll, describe, expect, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Create a temp workspace directory for isolation
 // ---------------------------------------------------------------------------
 
-const testWorkspaceDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "workspace-routes-test-")),
-);
-process.env.VELLUM_HOME = testWorkspaceDir;
-process.env.VELLUM_WORKSPACE_DIR = testWorkspaceDir;
+const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Mock platform module so getWorkspaceDir returns our temp dir
 import { workspaceRouteDefinitions } from "./workspace-routes.js";
@@ -56,12 +43,6 @@ beforeAll(() => {
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
   ]);
   writeFileSync(binaryFile, pngSignature);
-});
-
-afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  rmSync(testWorkspaceDir, { recursive: true, force: true });
 });
 
 // ---------------------------------------------------------------------------

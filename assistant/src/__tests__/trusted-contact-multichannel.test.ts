@@ -6,18 +6,11 @@
  * These tests confirm no channel-specific assumptions leaked into the
  * trusted contact code paths.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
-
-const testDir = mkdtempSync(join(tmpdir(), "trusted-contact-multichannel-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -95,14 +88,7 @@ import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // ---------------------------------------------------------------------------
@@ -190,8 +176,6 @@ function buildInboundRequest(
 for (const config of CHANNEL_CONFIGS) {
   describe(`trusted contact flow on ${config.channel} channel`, () => {
     beforeEach(() => {
-      process.env.VELLUM_HOME = testDir;
-      process.env.VELLUM_WORKSPACE_DIR = testDir;
       resetState();
     });
 
@@ -331,8 +315,6 @@ for (const config of CHANNEL_CONFIGS) {
 
 describe("voice identity binding with E.164 phone numbers", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetState();
   });
 
@@ -391,8 +373,6 @@ describe("voice identity binding with E.164 phone numbers", () => {
 
 describe("cross-channel isolation", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetState();
   });
 

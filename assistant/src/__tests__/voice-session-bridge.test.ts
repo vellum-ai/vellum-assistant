@@ -1,14 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { Conversation } from "../daemon/conversation.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 
-const testDir = mkdtempSync(join(tmpdir(), "voice-bridge-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 let mockedConfig: {
   secretDetection: { enabled: boolean };
   calls: { disclosure: { enabled: boolean; text: string } };
@@ -90,8 +84,6 @@ function injectDeps(conversationFactory: () => Conversation): void {
 
 describe("voice-session-bridge", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     mockedConfig = {
       secretDetection: { enabled: false },
       calls: {
@@ -1027,12 +1019,5 @@ describe("voice-session-bridge", () => {
 });
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
 });

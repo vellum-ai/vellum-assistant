@@ -95,8 +95,6 @@ describe("syncUpdateBulletinOnStartup", () => {
         .toString(36)
         .slice(2)}`,
     );
-    process.env.VELLUM_HOME = tempDir;
-    process.env.VELLUM_WORKSPACE_DIR = tempDir;
     mkdirSync(tempDir, { recursive: true });
     tempTemplateDir = join(
       tmpdir(),
@@ -108,8 +106,6 @@ describe("syncUpdateBulletinOnStartup", () => {
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
     rmSync(tempDir, { recursive: true, force: true });
     rmSync(tempTemplateDir, { recursive: true, force: true });
   });

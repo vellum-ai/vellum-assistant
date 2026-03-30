@@ -12,9 +12,6 @@
  * - Voice webhook TwiML relay URL generation
  * - Handler-level idempotency concurrency (concurrent duplicates, failure-retry)
  */
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeEach,
@@ -83,12 +80,6 @@ mock.module("../config/env.js", () => ({
     mockIngressPublicBaseUrl = value ?? "";
   },
 }));
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "twilio-routes-test-")),
-);
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
@@ -392,8 +383,6 @@ function makeInboundVoiceRequest(params: Record<string, string>): Request {
 
 describe("twilio webhook routes", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     clearActiveCallLeases();
     mockIngressPublicBaseUrl = "https://ingress.example.com";
@@ -432,15 +421,8 @@ describe("twilio webhook routes", () => {
   });
 
   afterAll(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
     globalThis.fetch = originalFetch;
     resetDb();
-    try {
-      rmSync(testDir, { recursive: true, force: true });
-    } catch {
-      /* best effort */
-    }
   });
 
   // ── Callback idempotency / replay tests ───────────────────────────
