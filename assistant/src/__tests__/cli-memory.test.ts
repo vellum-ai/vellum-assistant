@@ -58,13 +58,13 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
-import { memoryItems, memoryJobs } from "../memory/schema.js";
 import {
   buildCliCapabilityStatement,
   seedCliCommandMemories,
   upsertCliCapabilityMemory,
 } from "../cli/cli-memory.js";
+import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { memoryItems, memoryJobs } from "../memory/schema.js";
 import { ensureDataDir, getDbPath } from "../util/platform.js";
 
 ensureDataDir();
