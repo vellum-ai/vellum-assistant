@@ -29,9 +29,9 @@ struct SkillDetailView: View {
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(8)
+                    .frame(maxWidth: 800, alignment: .leading)
             }
-
-            SkillDetailMetaInfo(skill: skill)
             skillDetailFileBrowser
         }
         .onAppear {
@@ -162,48 +162,37 @@ struct SkillDetailTitleRow: View {
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(spacing: VSpacing.sm) {
-            VButton(
-                label: "Back",
-                iconOnly: VIcon.chevronLeft.rawValue,
-                style: .ghost,
-                tooltip: "Back to Skills"
-            ) {
-                onBack()
-            }
+        HStack {
+            HStack(spacing: VSpacing.lg) {
+                VButton(
+                    label: "Back",
+                    iconOnly: VIcon.arrowLeft.rawValue,
+                    style: .outlined,
+                    tooltip: "Back to Skills"
+                ) {
+                    onBack()
+                }
+                .frame(width: 32, height: 32)
 
-            if let emoji = skill.emoji, !emoji.isEmpty {
-                Text(emoji)
-                    .font(.system(size: 16))
-                    .frame(width: 20, height: 20)
-            } else {
-                VIconView(.zap, size: 12)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .frame(width: 20, height: 20)
-            }
+                HStack(spacing: VSpacing.sm) {
+                    if let emoji = skill.emoji, !emoji.isEmpty {
+                        Text(emoji)
+                            .font(.system(size: 20))
+                    }
 
-            Text(skill.name)
-                .font(VFont.titleSmall)
-                .foregroundStyle(VColor.contentDefault)
-                .lineLimit(1)
+                    Text(skill.name)
+                        .font(VFont.titleMedium)
+                        .foregroundStyle(VColor.contentEmphasized)
+                        .lineLimit(1)
+                }
 
-            if skill.updateAvailable {
-                Text("UPDATE")
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.systemNegativeHover)
+                VSkillTypePill(source: skill.source)
             }
 
             Spacer()
 
-            VSkillTypePill(source: skill.source)
-
             if skill.source == "managed" || skill.source == "clawhub" {
-                VButton(
-                    label: "Delete",
-                    iconOnly: VIcon.trash.rawValue,
-                    style: .dangerGhost,
-                    tooltip: "Uninstall skill"
-                ) {
+                VButton(label: "Remove", style: .dangerOutline) {
                     onDelete()
                 }
             }
@@ -211,48 +200,3 @@ struct SkillDetailTitleRow: View {
     }
 }
 
-// MARK: - Meta Info
-
-struct SkillDetailMetaInfo: View {
-    let skill: SkillInfo
-
-    var body: some View {
-        HStack(spacing: VSpacing.lg) {
-            if let installedVersion = skill.installedVersion, !installedVersion.isEmpty {
-                skillMetaItem(icon: .tag, value: "v\(installedVersion)")
-            }
-
-            if skill.updateAvailable {
-                if let latestVersion = skill.latestVersion, !latestVersion.isEmpty {
-                    skillMetaItem(icon: .circleArrowUp, value: "v\(latestVersion) available", color: VColor.systemNegativeHover)
-                } else {
-                    skillMetaItem(icon: .circleArrowUp, value: "Update available", color: VColor.systemNegativeHover)
-                }
-            }
-
-            if let provenance = skill.provenance,
-               provenance.kind == "third-party",
-               let urlString = provenance.sourceUrl,
-               let url = URL(string: urlString) {
-                Link(destination: url) {
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.externalLink, size: 9)
-                        Text("View on \(provenance.provider ?? "source")")
-                            .font(VFont.labelSmall)
-                    }
-                    .foregroundStyle(VColor.contentTertiary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private func skillMetaItem(icon: VIcon, value: String, color: Color = VColor.contentTertiary) -> some View {
-        HStack(spacing: VSpacing.xs) {
-            VIconView(icon, size: 9)
-            Text(value)
-        }
-        .font(VFont.labelSmall)
-        .foregroundStyle(color)
-    }
-}
