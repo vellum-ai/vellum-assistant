@@ -2,7 +2,10 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
 import { getMemoryCheckpoint } from "../memory/checkpoints.js";
-import { enqueueMemoryJob } from "../memory/jobs-store.js";
+import {
+  enqueueMemoryJob,
+  hasActiveCarryForwardJob,
+} from "../memory/jobs-store.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
@@ -83,10 +86,11 @@ export function buildJournalContext(
   // Wrapped in try-catch so DB errors never break journal context rendering.
   if (rotatingOut.length > 0 && userSlug != null) {
     try {
-      const safeSlug = basename(userSlug);
+      const safeSlug = basename(userSlug) || "unknown";
       for (const entry of rotatingOut) {
         const checkpointKey = `journal_carry_forward:${safeSlug}:${entry.filename}`;
         if (getMemoryCheckpoint(checkpointKey) != null) continue;
+        if (hasActiveCarryForwardJob(entry.filename, safeSlug)) continue;
 
         let content: string;
         try {
