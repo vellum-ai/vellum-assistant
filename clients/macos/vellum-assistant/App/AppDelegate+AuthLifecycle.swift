@@ -228,15 +228,10 @@ extension AppDelegate {
             // them alive with potentially stale state.
             for assistant in LockfileAssistant.loadAll() where !assistant.isRemote && !assistant.isManaged {
                 if assistant.assistantId != connectedAssistantId {
-                    guard let instanceDir = assistant.instanceDir else { continue }
-                    let pidPath = VellumAssistantShared.resolvePidPath(instanceDir: instanceDir)
-                    if let data = try? Data(contentsOf: URL(fileURLWithPath: pidPath)),
-                       let pidString = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                       let pid = pid_t(pidString),
-                       kill(pid, 0) == 0,
-                       Self.isVellumProcess(pid: pid) {
-                        kill(pid, SIGTERM)
-                        log.info("Stopped assistant \(assistant.assistantId, privacy: .public) (pid \(pid))")
+                    do {
+                        try await vellumCli.sleep(name: assistant.assistantId)
+                    } catch {
+                        log.warning("Failed to stop assistant \(assistant.assistantId, privacy: .public): \(error.localizedDescription, privacy: .public)")
                     }
                 }
             }

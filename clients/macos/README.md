@@ -214,9 +214,9 @@ This builds the app (if needed), generates the background image, creates a style
 
 ---
 
-## Local Assistant (Daemon)
+## Local Assistant
 
-The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **local assistant process** (internally called the daemon), a backend process that manages LLM API calls, conversation state, and tool execution. The app connects to it via HTTP+SSE (the runtime HTTP server port is resolved dynamically from the lockfile for multi-instance setups).
+The macOS app is a frontend — all inference (chat, computer-use sessions, ambient analysis) goes through the **local assistant process**, a backend process that manages LLM API calls, conversation state, and tool execution. The app connects to the assistant exclusively through the **Gateway** (a local HTTP proxy) — it should never connect to the assistant process directly. The Gateway port is resolved dynamically from the lockfile for multi-instance setups.
 
 **Local mode: You must start the assistant before using the app.** Without it, the app will connect but get no responses. (In managed mode, the assistant runs on the Vellum platform — no local process needed.)
 
