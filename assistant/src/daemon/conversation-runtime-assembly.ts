@@ -16,11 +16,11 @@ import {
   type TurnInterfaceContext,
 } from "../channels/types.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
-import { stripCommentLines } from "../util/strip-comment-lines.js";
 import type { Message } from "../providers/types.js";
 import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
+import { stripCommentLines } from "../util/strip-comment-lines.js";
 
 /**
  * Describes the capabilities of the channel through which the user is
@@ -507,10 +507,7 @@ export function injectNowScratchpad(
   let insertIdx = 0;
   for (let i = 0; i < message.content.length; i++) {
     const block = message.content[i];
-    if (
-      block.type === "text" &&
-      block.text.startsWith("<memory_context")
-    ) {
+    if (block.type === "text" && block.text.startsWith("<memory_context")) {
       insertIdx = i + 1;
     } else {
       break;

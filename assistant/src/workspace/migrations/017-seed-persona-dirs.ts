@@ -13,8 +13,8 @@ import { desc, eq } from "drizzle-orm";
 import { generateUserFileSlug } from "../../contacts/contact-store.js";
 import { getDb } from "../../memory/db.js";
 import { contacts } from "../../memory/schema/contacts.js";
-import { stripCommentLines } from "../../util/strip-comment-lines.js";
 import { isTemplateContent } from "../../prompts/system-prompt.js";
+import { stripCommentLines } from "../../util/strip-comment-lines.js";
 import type { WorkspaceMigration } from "./types.js";
 
 export const seedPersonaDirsMigration: WorkspaceMigration = {
