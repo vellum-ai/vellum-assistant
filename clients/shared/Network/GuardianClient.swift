@@ -98,7 +98,9 @@ public struct GuardianClient: GuardianClientProtocol {
             // This happens when credentials are wiped (terminal refresh error,
             // daemon instance change) but the lock file persists.
             if response.statusCode == 403 {
+                #if os(macOS)
                 Self.removeBootstrapLockFileIfNeeded(responseData: response.data)
+                #endif
                 log.error("Access token bootstrap failed (HTTP 403)")
                 return false
             }
@@ -127,6 +129,7 @@ public struct GuardianClient: GuardianClientProtocol {
 
     // MARK: - Bootstrap Lock File Recovery
 
+    #if os(macOS)
     /// Removes the `guardian-init.lock` file when the gateway rejects
     /// bootstrap with "Bootstrap already completed". The lock persists
     /// from a prior successful bootstrap, but if the credentials were
@@ -152,6 +155,7 @@ public struct GuardianClient: GuardianClientProtocol {
             log.error("Failed to remove guardian-init.lock: \(error.localizedDescription)")
         }
     }
+    #endif
 
     // MARK: - Response Shapes
 
