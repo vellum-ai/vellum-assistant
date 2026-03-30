@@ -261,6 +261,7 @@ struct ComposerView: View {
         .background(
             ComposerFocusBridge(
                 isFocused: composerFocus,
+                isInteractionEnabled: isInteractionEnabled,
                 onRedirectKeystroke: { chars in
                     inputText += chars
                     composerFocus = true

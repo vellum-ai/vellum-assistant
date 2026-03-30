@@ -28,6 +28,7 @@ extension EnvironmentValues {
 /// `ComposerTextView.keyDown(with:)` and `performKeyEquivalent(with:)`.
 struct ComposerFocusBridge: NSViewRepresentable {
     let isFocused: Bool
+    let isInteractionEnabled: Bool
     let onRedirectKeystroke: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -44,8 +45,12 @@ struct ComposerFocusBridge: NSViewRepresentable {
         guard let window = nsView.window as? TitleBarZoomableWindow else { return }
 
         let coordinator = context.coordinator
-        window.composerRedirectHandler = { chars in
-            coordinator.parent.onRedirectKeystroke(chars)
+        if isInteractionEnabled {
+            window.composerRedirectHandler = { chars in
+                coordinator.parent.onRedirectKeystroke(chars)
+            }
+        } else {
+            window.composerRedirectHandler = nil
         }
 
         // Walk up from the bridge view to find the composer container —

@@ -68,6 +68,11 @@ struct ComposerTextEditor: NSViewRepresentable {
 
         textView.postsFrameChangedNotifications = true
 
+        // Strip all drag types so the NSTextView doesn't intercept file drops
+        // (which would insert file paths as text). File drops are handled by
+        // SwiftUI's .onDrop modifier on the composer container.
+        textView.unregisterDraggedTypes()
+
         scrollView.documentView = textView
         textView.delegate = context.coordinator
 
