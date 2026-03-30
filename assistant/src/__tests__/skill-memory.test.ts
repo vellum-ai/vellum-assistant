@@ -64,8 +64,10 @@ import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { memoryItems, memoryJobs } from "../memory/schema.js";
 import type { CatalogSkill } from "../skills/catalog-install.js";
 import {
+  type SkillCapabilityInput,
   buildCapabilityStatement,
   deleteSkillCapabilityMemory,
+  fromCatalogSkill,
   seedCatalogSkillMemories,
   upsertSkillCapabilityMemory,
 } from "../skills/skill-memory.js";
@@ -99,33 +101,37 @@ function makeSkill(overrides: Partial<CatalogSkill> = {}): CatalogSkill {
 
 describe("buildCapabilityStatement", () => {
   test("includes display name, id, and description", () => {
-    const entry = makeSkill({
-      metadata: { vellum: { "display-name": "My Skill" } },
-    });
-    const result = buildCapabilityStatement(entry);
+    const input: SkillCapabilityInput = {
+      id: "test-skill",
+      displayName: "My Skill",
+      description: "A skill for testing",
+    };
+    const result = buildCapabilityStatement(input);
     expect(result).toContain('"My Skill"');
     expect(result).toContain("(test-skill)");
     expect(result).toContain("A skill for testing");
   });
 
   test("includes activation hints when present", () => {
-    const entry = makeSkill({
-      metadata: {
-        vellum: {
-          "display-name": "My Skill",
-          "activation-hints": ["user asks to search", "needs web data"],
-        },
-      },
-    });
-    const result = buildCapabilityStatement(entry);
+    const input: SkillCapabilityInput = {
+      id: "test-skill",
+      displayName: "My Skill",
+      description: "A skill for testing",
+      activationHints: ["user asks to search", "needs web data"],
+    };
+    const result = buildCapabilityStatement(input);
     expect(result).toContain("Use when:");
     expect(result).toContain("user asks to search");
     expect(result).toContain("needs web data");
   });
 
-  test("works without metadata (falls back to name)", () => {
-    const entry = makeSkill({ metadata: undefined });
-    const result = buildCapabilityStatement(entry);
+  test("works with just name as displayName", () => {
+    const input: SkillCapabilityInput = {
+      id: "test-skill",
+      displayName: "Test Skill",
+      description: "A skill for testing",
+    };
+    const result = buildCapabilityStatement(input);
     expect(result).toContain('"Test Skill"');
     expect(result).toContain("(test-skill)");
     expect(result).toContain("A skill for testing");
@@ -133,9 +139,57 @@ describe("buildCapabilityStatement", () => {
 
   test("truncates long statements to 500 chars", () => {
     const longDesc = "x".repeat(600);
-    const entry = makeSkill({ description: longDesc });
-    const result = buildCapabilityStatement(entry);
+    const input: SkillCapabilityInput = {
+      id: "test-skill",
+      displayName: "Test Skill",
+      description: longDesc,
+    };
+    const result = buildCapabilityStatement(input);
     expect(result.length).toBe(500);
+  });
+});
+
+// ─── fromCatalogSkill ───────────────────────────────────────────────────────
+
+describe("fromCatalogSkill", () => {
+  test("extracts displayName from vellum display-name metadata", () => {
+    const entry = makeSkill({
+      name: "fallback-name",
+      metadata: { vellum: { "display-name": "Pretty Name" } },
+    });
+    const input = fromCatalogSkill(entry);
+    expect(input.displayName).toBe("Pretty Name");
+  });
+
+  test("falls back to name when display-name metadata is absent", () => {
+    const entry = makeSkill({ name: "My Skill", metadata: undefined });
+    const input = fromCatalogSkill(entry);
+    expect(input.displayName).toBe("My Skill");
+  });
+
+  test("extracts activationHints from vellum metadata", () => {
+    const hints = ["user asks to search", "needs web data"];
+    const entry = makeSkill({
+      metadata: { vellum: { "activation-hints": hints } },
+    });
+    const input = fromCatalogSkill(entry);
+    expect(input.activationHints).toEqual(hints);
+  });
+
+  test("leaves activationHints undefined when not present", () => {
+    const entry = makeSkill({ metadata: undefined });
+    const input = fromCatalogSkill(entry);
+    expect(input.activationHints).toBeUndefined();
+  });
+
+  test("copies id and description directly", () => {
+    const entry = makeSkill({
+      id: "my-id",
+      description: "Does amazing things",
+    });
+    const input = fromCatalogSkill(entry);
+    expect(input.id).toBe("my-id");
+    expect(input.description).toBe("Does amazing things");
   });
 });
 
@@ -145,8 +199,8 @@ describe("upsertSkillCapabilityMemory", () => {
   beforeEach(resetTables);
 
   test("inserts with correct kind, subject, confidence, importance", () => {
-    const entry = makeSkill();
-    upsertSkillCapabilityMemory("test-skill", entry);
+    const input = fromCatalogSkill(makeSkill());
+    upsertSkillCapabilityMemory("test-skill", input);
 
     const db = getDb();
     const items = db.select().from(memoryItems).all();
@@ -165,8 +219,8 @@ describe("upsertSkillCapabilityMemory", () => {
   });
 
   test("is idempotent (same entry only touches lastSeenAt)", () => {
-    const entry = makeSkill();
-    upsertSkillCapabilityMemory("test-skill", entry);
+    const input = fromCatalogSkill(makeSkill());
+    upsertSkillCapabilityMemory("test-skill", input);
 
     const db = getDb();
     const before = db.select().from(memoryItems).all();
@@ -174,7 +228,7 @@ describe("upsertSkillCapabilityMemory", () => {
     const originalLastSeen = before[0].lastSeenAt;
 
     // Upsert again
-    upsertSkillCapabilityMemory("test-skill", entry);
+    upsertSkillCapabilityMemory("test-skill", input);
 
     const after = db.select().from(memoryItems).all();
     expect(after).toHaveLength(1);
@@ -188,8 +242,10 @@ describe("upsertSkillCapabilityMemory", () => {
   });
 
   test("updates statement when description changes", () => {
-    const entry = makeSkill({ description: "Original description" });
-    upsertSkillCapabilityMemory("test-skill", entry);
+    const input = fromCatalogSkill(
+      makeSkill({ description: "Original description" }),
+    );
+    upsertSkillCapabilityMemory("test-skill", input);
 
     const db = getDb();
     const before = db.select().from(memoryItems).all();
@@ -197,8 +253,10 @@ describe("upsertSkillCapabilityMemory", () => {
     expect(before[0].statement).toContain("Original description");
 
     // Change description
-    const updatedEntry = makeSkill({ description: "Updated description" });
-    upsertSkillCapabilityMemory("test-skill", updatedEntry);
+    const updatedInput = fromCatalogSkill(
+      makeSkill({ description: "Updated description" }),
+    );
+    upsertSkillCapabilityMemory("test-skill", updatedInput);
 
     const after = db.select().from(memoryItems).all();
     expect(after).toHaveLength(1);
@@ -211,8 +269,8 @@ describe("upsertSkillCapabilityMemory", () => {
   });
 
   test("reactivates soft-deleted items", () => {
-    const entry = makeSkill();
-    upsertSkillCapabilityMemory("test-skill", entry);
+    const input = fromCatalogSkill(makeSkill());
+    upsertSkillCapabilityMemory("test-skill", input);
 
     const db = getDb();
     // Soft-delete the item
@@ -228,7 +286,7 @@ describe("upsertSkillCapabilityMemory", () => {
     db.run("DELETE FROM memory_jobs");
 
     // Upsert again — should reactivate
-    upsertSkillCapabilityMemory("test-skill", entry);
+    upsertSkillCapabilityMemory("test-skill", input);
 
     const reactivated = db.select().from(memoryItems).all();
     expect(reactivated).toHaveLength(1);
@@ -252,7 +310,7 @@ describe("upsertSkillCapabilityMemory", () => {
     db.run("DROP TABLE IF EXISTS memory_items");
 
     expect(() => {
-      upsertSkillCapabilityMemory("test-skill", makeSkill());
+      upsertSkillCapabilityMemory("test-skill", fromCatalogSkill(makeSkill()));
     }).not.toThrow();
 
     // Restore DB state for subsequent tests.
@@ -274,8 +332,8 @@ describe("deleteSkillCapabilityMemory", () => {
   beforeEach(resetTables);
 
   test("soft-deletes matching item", () => {
-    const entry = makeSkill();
-    upsertSkillCapabilityMemory("test-skill", entry);
+    const input = fromCatalogSkill(makeSkill());
+    upsertSkillCapabilityMemory("test-skill", input);
 
     const db = getDb();
     const before = db.select().from(memoryItems).all();
@@ -409,7 +467,7 @@ describe("seedCatalogSkillMemories", () => {
     // Pre-populate a skill so we can verify it gets pruned
     upsertSkillCapabilityMemory(
       "existing-skill",
-      makeSkill({ id: "existing-skill" }),
+      fromCatalogSkill(makeSkill({ id: "existing-skill" })),
     );
 
     const db = getDb();
