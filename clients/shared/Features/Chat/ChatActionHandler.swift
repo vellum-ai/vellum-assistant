@@ -245,6 +245,7 @@ final class ChatActionHandler {
             vm.handleGuardianActionDecisionResponse(response)
 
         case .usageUpdate(let update):
+            guard belongsToConversation(update.conversationId) else { return }
             if let tokens = update.contextWindowTokens {
                 vm.contextWindowTokens = tokens
             }
