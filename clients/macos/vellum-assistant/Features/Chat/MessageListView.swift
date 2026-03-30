@@ -123,8 +123,9 @@ struct MessageListView: View {
     /// won't trigger re-renders on frequent `data` progress ticks.
     var taskProgressManager = TaskProgressOverlayManager.shared
     /// Consolidates all scroll-related state with @Observable fine-grained tracking.
-    /// Only 4 properties trigger view re-evaluations: showScrollToLatest,
-    /// pushToTopMessageId, isPaginationInFlight, hideScrollIndicators.
+    /// Only 1 property triggers view re-evaluations: `uiVersion`.
+    /// Snapshot values (showTailSpacer, scrollIndicatorsHidden, showScrollToLatest)
+    /// are @ObservationIgnored and synced via the uiVersion counter.
     @State private var scrollState = MessageListScrollState()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State private var resizeScrollTask: Task<Void, Never>?
@@ -646,6 +647,7 @@ struct MessageListView: View {
                     }
 
                     let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
+                    let _ = scrollState.uiVersion
                     let state = derivedState
                     let catalogHash = MessageCellView.hashCatalog(providerCatalog)
                     ForEach(state.displayMessageIds, id: \.self) { messageId in
@@ -739,7 +741,7 @@ struct MessageListView: View {
                     // Viewport-height spacer that allows the last message
                     // to scroll to the top. Only rendered during push-to-top
                     // to avoid empty scrollable space in idle state.
-                    if scrollState.pushToTopMessageId != nil {
+                    if scrollState.showTailSpacer {
                         Color.clear
                             .frame(height: scrollState.viewportHeight.isFinite ? max(0, scrollState.viewportHeight) : 0)
                             .allowsHitTesting(false)
@@ -884,7 +886,7 @@ struct MessageListView: View {
                     sentinelMinY: -newState.contentOffsetY
                 )
             }
-            .scrollIndicators(scrollState.hideScrollIndicators ? .hidden : .automatic)
+            .scrollIndicators(scrollState.scrollIndicatorsHidden ? .hidden : .automatic)
             .overlay(alignment: .bottom) {
                 if scrollState.showScrollToLatest {
                     Button(action: {
