@@ -4,6 +4,11 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
+mock.module("../util/platform.js", () => ({
+  getProtectedDir: () => join(testDir, "protected"),
+  getDataDir: () => testDir,
+}));
+
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
