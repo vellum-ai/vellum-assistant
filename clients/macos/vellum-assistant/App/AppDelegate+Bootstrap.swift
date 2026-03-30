@@ -177,6 +177,11 @@ extension AppDelegate {
             log.info("Assistant instance changed — re-running credential bootstrap")
             Task { @MainActor in
                 self.ensureActorCredentials()
+                // The new daemon instance has lost all injected secrets
+                // (platform API key, base URL, org/user IDs). Re-inject them
+                // so managed-credential assistants can reach the platform.
+                self.localBootstrapDidComplete = false
+                self.ensureLocalAssistantApiKey()
             }
         }
 
