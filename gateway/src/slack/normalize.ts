@@ -379,7 +379,7 @@ export function normalizeSlackDirectMessage(
       raw: event as unknown as Record<string, unknown>,
     },
     routing,
-    threadTs: event.thread_ts ?? event.ts,
+    ...(event.thread_ts ? { threadTs: event.thread_ts } : {}),
     channel: event.channel,
     ...(slackFiles ? { slackFiles } : {}),
   };
@@ -754,8 +754,9 @@ export function normalizeSlackMessageEdit(
       raw: event as unknown as Record<string, unknown>,
     },
     routing,
-    // Fall back to the original message ts, not the wrapper event ts
-    threadTs: edited.thread_ts ?? edited.ts,
+    // For DMs without a thread, omit threadTs so the reply goes directly in conversation.
+    // For channels (or DMs already in a thread), fall back to edited.ts.
+    ...(isDm && !edited.thread_ts ? {} : { threadTs: edited.thread_ts ?? edited.ts }),
     channel: event.channel,
   };
 }
