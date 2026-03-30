@@ -62,6 +62,9 @@ struct ComposerView: View {
     var composerCompactHeight: CGFloat = 38
     var conversationId: UUID?
     var isInteractionEnabled: Bool = true
+    var contextWindowFillRatio: Double? = nil
+    var contextWindowTokens: Int? = nil
+    var contextWindowMaxTokens: Int? = nil
 
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     #if os(macOS)
@@ -409,6 +412,12 @@ struct ComposerView: View {
                 )
 
                 .vTooltip("Attach file")
+
+                ContextWindowIndicator(
+                    fillRatio: contextWindowFillRatio,
+                    tokensUsed: contextWindowTokens,
+                    tokensMax: contextWindowMaxTokens
+                )
 
                 Spacer()
             }

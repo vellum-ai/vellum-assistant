@@ -330,6 +330,8 @@ private struct ThreadWindowContentView: View {
             isInteractionEnabled: !(conversation?.isChannelConversation ?? false),
             isReadonly: conversation?.isChannelConversation ?? false,
             contextWindowFillRatio: viewModel.contextWindowFillRatio,
+            contextWindowTokens: viewModel.contextWindowTokens,
+            contextWindowMaxTokens: viewModel.contextWindowMaxTokens,
             anchorMessageId: $anchorMessageId,
             highlightedMessageId: $highlightedMessageId,
             creditsExhaustedError: viewModel.errorManager.conversationError?.isCreditsExhausted == true ? viewModel.errorManager.conversationError : nil,
