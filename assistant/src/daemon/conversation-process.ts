@@ -26,6 +26,7 @@ import {
 } from "../memory/conversation-crud.js";
 import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
+import type { ContextWindowResult } from "../context/window-manager.js";
 import type { Message } from "../providers/types.js";
 import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
 import { getLogger } from "../util/logger.js";
@@ -46,6 +47,20 @@ import type { TraceEmitter } from "./trace-emitter.js";
 import { resolveVerificationSessionIntent } from "./verification-session-intent.js";
 
 const log = getLogger("conversation-process");
+
+/** Format the result of a forced compaction into a user-facing message. */
+export function formatCompactResult(result: ContextWindowResult): string {
+  const fmt = (n: number) => n.toLocaleString("en-US");
+  if (!result.compacted) {
+    return `Context compaction skipped — ${result.reason ?? "nothing to compact"}.`;
+  }
+  const saved = result.previousEstimatedInputTokens - result.estimatedInputTokens;
+  return [
+    "Context Compacted\n",
+    `Tokens:   ${fmt(result.previousEstimatedInputTokens)} → ${fmt(result.estimatedInputTokens)} (${fmt(saved)} saved)`,
+    `Messages: ${fmt(result.compactedMessages)} compacted`,
+  ].join("\n");
+}
 
 /** Build a model_info event with fresh config data. */
 export async function buildModelInfoEvent(): Promise<ServerMessage> {
@@ -139,6 +154,8 @@ export interface ProcessConversationContext {
     requestId?: string,
     statusText?: string,
   ): void;
+  /** Force context compaction regardless of threshold/cooldown. */
+  forceCompact(): Promise<ContextWindowResult>;
 }
 
 function resolveQueuedTurnContext(
@@ -420,6 +437,82 @@ export async function drainQueue(
       next.onEvent({ type: "error", message });
     }
     // Continue draining regardless of success/failure
+    await drainQueue(conversation);
+    return;
+  }
+
+  // /compact — force context compaction, persist exchange, continue draining.
+  if (slashResult.kind === "compact") {
+    try {
+      const drainProvenance = provenanceFromTrustContext(
+        conversation.trustContext,
+      );
+      const drainChannelMeta = {
+        ...drainProvenance,
+        ...(queuedTurnCtx
+          ? {
+              userMessageChannel: queuedTurnCtx.userMessageChannel,
+              assistantMessageChannel: queuedTurnCtx.assistantMessageChannel,
+            }
+          : {}),
+        ...(queuedInterfaceCtx
+          ? {
+              userMessageInterface: queuedInterfaceCtx.userMessageInterface,
+              assistantMessageInterface:
+                queuedInterfaceCtx.assistantMessageInterface,
+            }
+          : {}),
+        sentAt: next.sentAt,
+      };
+      const cleanUserMsg = createUserMessage(next.content, next.attachments);
+      await addMessage(
+        conversation.conversationId,
+        "user",
+        JSON.stringify(cleanUserMsg.content),
+        drainChannelMeta,
+      );
+      conversation.messages.push(cleanUserMsg);
+
+      conversation.emitActivityState(
+        "thinking",
+        "context_compacting",
+        "assistant_turn",
+        next.requestId,
+      );
+      const result = await conversation.forceCompact();
+      const responseText = formatCompactResult(result);
+
+      const assistantMsg = createAssistantMessage(responseText);
+      await addMessage(
+        conversation.conversationId,
+        "assistant",
+        JSON.stringify(assistantMsg.content),
+        drainChannelMeta,
+      );
+      conversation.messages.push(assistantMsg);
+
+      next.onEvent({ type: "assistant_text_delta", text: responseText });
+      conversation.traceEmitter.emit(
+        "message_complete",
+        "Compact slash command handled",
+        { requestId: next.requestId, status: "success" },
+      );
+      next.onEvent({
+        type: "message_complete",
+        conversationId: conversation.conversationId,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(
+        {
+          err,
+          conversationId: conversation.conversationId,
+          requestId: next.requestId,
+        },
+        "Failed to execute /compact",
+      );
+      next.onEvent({ type: "error", message });
+    }
     await drainQueue(conversation);
     return;
   }
@@ -773,6 +866,66 @@ export async function processMessage(
         requestId,
         status: "success",
       },
+    );
+    onEvent({
+      type: "message_complete",
+      conversationId: conversation.conversationId,
+    });
+    return persisted.id;
+  }
+
+  // /compact — force context compaction, persist exchange, return message ID.
+  if (slashResult.kind === "compact") {
+    const pmTurnCtx = conversation.getTurnChannelContext();
+    const pmInterfaceCtx = conversation.getTurnInterfaceContext();
+    const pmProvenance = provenanceFromTrustContext(conversation.trustContext);
+    const pmChannelMeta = {
+      ...pmProvenance,
+      ...(pmTurnCtx
+        ? {
+            userMessageChannel: pmTurnCtx.userMessageChannel,
+            assistantMessageChannel: pmTurnCtx.assistantMessageChannel,
+          }
+        : {}),
+      ...(pmInterfaceCtx
+        ? {
+            userMessageInterface: pmInterfaceCtx.userMessageInterface,
+            assistantMessageInterface: pmInterfaceCtx.assistantMessageInterface,
+          }
+        : {}),
+    };
+    const cleanUserMsg = createUserMessage(content, attachments);
+    const persisted = await addMessage(
+      conversation.conversationId,
+      "user",
+      JSON.stringify(cleanUserMsg.content),
+      pmChannelMeta,
+    );
+    conversation.messages.push(cleanUserMsg);
+
+    conversation.emitActivityState(
+      "thinking",
+      "context_compacting",
+      "assistant_turn",
+      requestId,
+    );
+    const result = await conversation.forceCompact();
+    const responseText = formatCompactResult(result);
+
+    const assistantMsg = createAssistantMessage(responseText);
+    await addMessage(
+      conversation.conversationId,
+      "assistant",
+      JSON.stringify(assistantMsg.content),
+      pmChannelMeta,
+    );
+    conversation.messages.push(assistantMsg);
+
+    onEvent({ type: "assistant_text_delta", text: responseText });
+    conversation.traceEmitter.emit(
+      "message_complete",
+      "Compact slash command handled",
+      { requestId, status: "success" },
     );
     onEvent({
       type: "message_complete",

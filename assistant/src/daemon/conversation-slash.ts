@@ -16,7 +16,8 @@ import type { PairingStore } from "./pairing-store.js";
 
 export type SlashResolution =
   | { kind: "passthrough"; content: string }
-  | { kind: "unknown"; message: string; qrFilename?: string };
+  | { kind: "unknown"; message: string; qrFilename?: string }
+  | { kind: "compact" };
 
 // ── /pair command — module-level pairing context ────────────────────
 
@@ -129,6 +130,7 @@ function resolveStatusCommand(context: SlashContext): SlashResolution {
 function resolveCommandsList(context?: SlashContext): string[] {
   const fallbackLines = [
     "/commands — List all available commands",
+    "/compact — Force context compaction immediately",
     "/models — List all available models",
     "/pair — Generate pairing info for connecting a mobile device",
   ];
@@ -141,6 +143,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
   if (context.userMessageInterface === "macos") {
     return [
       "/commands — List all available commands",
+      "/compact — Force context compaction immediately",
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
@@ -152,6 +155,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
   if (context.userMessageInterface === "ios") {
     return [
       "/commands — List all available commands",
+      "/compact — Force context compaction immediately",
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
@@ -161,6 +165,7 @@ function resolveCommandsList(context?: SlashContext): string[] {
 
   return [
     "/commands — List all available commands",
+    "/compact — Force context compaction immediately",
     "/models — List all available models",
     "/status — Show conversation status and context usage",
     "/btw — Ask a side question while the assistant is working",
@@ -168,8 +173,9 @@ function resolveCommandsList(context?: SlashContext): string[] {
 }
 
 /**
- * Resolve built-in slash commands (/models, /status, /commands, /pair).
- * Returns `unknown` with a deterministic message, or the (possibly rewritten) content.
+ * Resolve built-in slash commands (/models, /status, /commands, /compact, /pair).
+ * Returns `unknown` with a deterministic message, `compact` for forced compaction,
+ * or the (possibly rewritten) content as `passthrough`.
  */
 export async function resolveSlash(
   content: string,
@@ -208,6 +214,11 @@ export async function resolveSlash(
   // Handle /pair command
   const pairResult = resolvePairCommand(content, context);
   if (pairResult) return pairResult;
+
+  // Handle /compact command
+  if (trimmed === "/compact") {
+    return { kind: "compact" };
+  }
 
   // Handle /status command
   if (trimmed === "/status") {

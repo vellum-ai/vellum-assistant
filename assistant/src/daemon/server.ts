@@ -68,6 +68,7 @@ import {
 } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
 import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
+import { formatCompactResult } from "./conversation-process.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
 import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
@@ -1165,6 +1166,54 @@ export class DaemonServer {
         "assistant",
         JSON.stringify(assistantMsg.content),
         serverChannelMeta,
+      );
+      conversation.getMessages().push(assistantMsg);
+      return { messageId: persisted.id };
+    }
+
+    if (slashResult.kind === "compact") {
+      const serverTurnCtx = conversation.getTurnChannelContext();
+      const serverProvenance = provenanceFromTrustContext(
+        conversation.trustContext,
+      );
+      const compactChannelMeta = {
+        ...serverProvenance,
+        ...(serverTurnCtx
+          ? {
+              userMessageChannel: serverTurnCtx.userMessageChannel,
+              assistantMessageChannel: serverTurnCtx.assistantMessageChannel,
+            }
+          : {}),
+        ...(serverInterfaceCtx
+          ? {
+              userMessageInterface: serverInterfaceCtx.userMessageInterface,
+              assistantMessageInterface:
+                serverInterfaceCtx.assistantMessageInterface,
+            }
+          : {}),
+      };
+      const cleanMsg = createUserMessage(content, attachments);
+      const persisted = await addMessage(
+        conversationId,
+        "user",
+        JSON.stringify(cleanMsg.content),
+        compactChannelMeta,
+      );
+      conversation.getMessages().push(cleanMsg);
+
+      conversation.emitActivityState(
+        "thinking",
+        "context_compacting",
+        "assistant_turn",
+      );
+      const result = await conversation.forceCompact();
+      const responseText = formatCompactResult(result);
+      const assistantMsg = createAssistantMessage(responseText);
+      await addMessage(
+        conversationId,
+        "assistant",
+        JSON.stringify(assistantMsg.content),
+        compactChannelMeta,
       );
       conversation.getMessages().push(assistantMsg);
       return { messageId: persisted.id };

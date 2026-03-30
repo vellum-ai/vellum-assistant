@@ -24,7 +24,10 @@ import type {
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { Speed } from "../config/schemas/inference.js";
-import { ContextWindowManager } from "../context/window-manager.js";
+import {
+  ContextWindowManager,
+  type ContextWindowResult,
+} from "../context/window-manager.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
@@ -880,6 +883,20 @@ export class Conversation {
       ...(statusText ? { statusText } : {}),
     } as ServerMessage;
     this.sendToClient(msg);
+  }
+
+  async forceCompact(): Promise<ContextWindowResult> {
+    const result = await this.contextWindowManager.maybeCompact(
+      this.messages,
+      this.abortController?.signal ?? undefined,
+      { force: true, lastCompactedAt: this.contextCompactedAt ?? undefined },
+    );
+    if (result.compacted) {
+      this.messages = result.messages;
+      this.contextCompactedMessageCount += result.compactedPersistedMessages;
+      this.contextCompactedAt = Date.now();
+    }
+    return result;
   }
 
   setChannelCapabilities(caps: ChannelCapabilities | null): void {

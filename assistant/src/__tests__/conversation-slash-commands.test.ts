@@ -36,6 +36,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     );
     expect(lines).toEqual([
       "/commands — List all available commands",
+      "/compact — Force context compaction immediately",
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
@@ -53,6 +54,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     );
     expect(lines).toEqual([
       "/commands — List all available commands",
+      "/compact — Force context compaction immediately",
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
@@ -66,6 +68,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     );
     expect(lines).toEqual([
       "/commands — List all available commands",
+      "/compact — Force context compaction immediately",
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
@@ -76,6 +79,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     const lines = await resolveCommandsLines(makeSlashContext());
     expect(lines).toEqual([
       "/commands — List all available commands",
+      "/compact — Force context compaction immediately",
       "/models — List all available models",
       "/pair — Generate pairing info for connecting a mobile device",
       "/status — Show conversation status and context usage",
@@ -86,6 +90,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     const lines = await resolveCommandsLines();
     expect(lines).toEqual([
       "/commands — List all available commands",
+      "/compact — Force context compaction immediately",
       "/models — List all available models",
       "/pair — Generate pairing info for connecting a mobile device",
     ]);
