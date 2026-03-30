@@ -204,7 +204,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(tools[1].cache_control).toBeUndefined();
 
     // Last tool: cache_control ephemeral
-    expect(tools[2].cache_control).toEqual({ type: "ephemeral" });
+    expect(tools[2].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   test("single tool gets cache_control", async () => {
@@ -215,7 +215,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       cache_control?: { type: string };
     }>;
     expect(tools).toHaveLength(1);
-    expect(tools[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(tools[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   test("no tools param when tools are omitted", async () => {
@@ -276,7 +276,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // Second user turn (second-to-last): cache_control ephemeral
     const secondUserLastBlock =
       userMessages[1].content[userMessages[1].content.length - 1];
-    expect(secondUserLastBlock.cache_control).toEqual({ type: "ephemeral" });
+    expect(secondUserLastBlock.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 
     // Third user turn (last): no cache_control
     const thirdUserLastBlock =
@@ -320,7 +320,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const userMsgs = sent.filter((m) => m.role === "user");
     // First user msg (second-to-last) should get cache
     const firstLast = userMsgs[0].content[userMsgs[0].content.length - 1];
-    expect(firstLast.cache_control).toEqual({ type: "ephemeral" });
+    expect(firstLast.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
     // tool_result msg (last) should NOT get cache
     const secondLast = userMsgs[1].content[userMsgs[1].content.length - 1];
     expect(secondLast.cache_control).toBeUndefined();
@@ -1333,7 +1333,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     // Turn 2 (second-to-last): cache on last block only
     expect(userMsgs[1].content[0].cache_control).toBeUndefined();
-    expect(userMsgs[1].content[1].cache_control).toEqual({ type: "ephemeral" });
+    expect(userMsgs[1].content[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 
     // Turn 3 (last): no cache
     expect(userMsgs[2].content[0].cache_control).toBeUndefined();
@@ -1570,6 +1570,7 @@ describe("AnthropicProvider — Managed Proxy Fallback", () => {
     }>;
     expect(tools[tools.length - 1].cache_control).toEqual({
       type: "ephemeral",
+      ttl: "1h",
     });
   });
 });
