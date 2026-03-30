@@ -758,7 +758,8 @@ struct MessageListView: View {
             .plainTextCopy()
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
-            .defaultScrollAnchor(scrollState.showTailSpacer ? nil : .bottom)
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
+            .defaultScrollAnchor(scrollState.showTailSpacer ? nil : .bottom, for: .sizeChanges)
             .scrollPosition($scrollPosition)
             .environment(\.suppressAutoScroll, { [self] in
                 // Cancel any pending expansion timeout before re-evaluating.
@@ -989,25 +990,14 @@ struct MessageListView: View {
                         // response. Daemon confirmation resumes stay bottom-pinned.
                         if !isDaemonConfirmationResume, let lastUserMsg = messages.last(where: { $0.role == .user }) {
                             scrollState.pushToTopMessageId = lastUserMsg.id
-                            // Flush the debounced UI sync so the tail
-                            // spacer and defaultScrollAnchor are current
-                            // in the next layout pass.
+                            // Store the target for phase 2. The actual
+                            // scroll fires in onChange(of: uiVersion)
+                            // after the body re-evaluates with the tail
+                            // spacer rendered at full height.
+                            scrollState.pendingPushToTopTarget = lastUserMsg.id
                             scrollState.syncUIImmediately()
                             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                                         "target=userMessage reason=pushToTop")
-                            // Defer the scroll so SwiftUI processes the
-                            // uiVersion bump first (rendering the tail
-                            // spacer and switching defaultScrollAnchor
-                            // to nil). Without the spacer, there isn't
-                            // enough content below the message for .top
-                            // to be satisfied.
-                            let targetId = lastUserMsg.id
-                            Task { @MainActor in
-                                guard scrollState.pushToTopMessageId != nil else { return }
-                                withAnimation(VAnimation.fast) {
-                                    scrollState.performScrollTo(targetId, anchor: .top)
-                                }
-                            }
                         } else {
                             scrollState.pinToBottom(animated: true)
                         }
@@ -1026,6 +1016,17 @@ struct MessageListView: View {
                     if !hasEverSentMessage && messages.contains(where: { $0.role == .user }) {
                         hasEverSentMessage = true
                     }
+                }
+            }
+            .onChange(of: scrollState.uiVersion) { _, _ in
+                // Phase 2 of push-to-top: the body has re-evaluated with
+                // the tail spacer at full height and defaultScrollAnchor
+                // suppressed for size changes. Now scroll the user message
+                // to the viewport top.
+                guard let targetId = scrollState.pendingPushToTopTarget else { return }
+                scrollState.pendingPushToTopTarget = nil
+                withAnimation(VAnimation.fast) {
+                    scrollState.performScrollTo(targetId, anchor: .top)
                 }
             }
             .onChange(of: messages.count) {
