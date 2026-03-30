@@ -19,6 +19,7 @@ import SwiftUI
 public struct VNavItem<Trailing: View>: View {
     public let icon: String?
     public let label: String
+    public var subtitle: String?
     public var isActive: Bool
     public var isExpanded: Bool
     public let action: () -> Void
@@ -32,6 +33,7 @@ public struct VNavItem<Trailing: View>: View {
     public init(
         icon: String? = nil,
         label: String,
+        subtitle: String? = nil,
         isActive: Bool = false,
         isExpanded: Bool = true,
         action: @escaping () -> Void,
@@ -39,6 +41,7 @@ public struct VNavItem<Trailing: View>: View {
     ) {
         self.icon = icon
         self.label = label
+        self.subtitle = subtitle
         self.isActive = isActive
         self.isExpanded = isExpanded
         self.action = action
@@ -60,15 +63,24 @@ public struct VNavItem<Trailing: View>: View {
                     .foregroundStyle(iconColor)
                     .frame(width: Self.iconSlotSize, height: Self.iconSlotSize)
             }
-            Text(label)
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(textColor)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(width: isExpanded ? nil : 0, alignment: .leading)
-                .clipped()
-                .opacity(isExpanded ? 1 : 0)
-                .allowsHitTesting(false)
+            VStack(alignment: .leading, spacing: VSpacing.xxs) {
+                Text(label)
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(textColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if let subtitle, isExpanded {
+                    Text(subtitle)
+                        .font(VFont.bodySmallDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+            .frame(width: isExpanded ? nil : 0, alignment: .leading)
+            .clipped()
+            .opacity(isExpanded ? 1 : 0)
+            .allowsHitTesting(false)
             if isExpanded {
                 Spacer()
                 trailing
@@ -101,11 +113,12 @@ public extension VNavItem where Trailing == EmptyView {
     init(
         icon: String? = nil,
         label: String,
+        subtitle: String? = nil,
         isActive: Bool = false,
         isExpanded: Bool = true,
         action: @escaping () -> Void
     ) {
-        self.init(icon: icon, label: label, isActive: isActive, isExpanded: isExpanded, action: action) {
+        self.init(icon: icon, label: label, subtitle: subtitle, isActive: isActive, isExpanded: isExpanded, action: action) {
             EmptyView()
         }
     }
@@ -116,6 +129,7 @@ public extension VNavItem where Trailing == VNavItemTrailingIcon {
     init(
         icon: String? = nil,
         label: String,
+        subtitle: String? = nil,
         isActive: Bool = false,
         trailingIcon: String,
         trailingIconRotation: Angle = .zero,
@@ -123,7 +137,7 @@ public extension VNavItem where Trailing == VNavItemTrailingIcon {
         action: @escaping () -> Void
     ) {
         let active = isActive
-        self.init(icon: icon, label: label, isActive: isActive, isExpanded: isExpanded, action: action) {
+        self.init(icon: icon, label: label, subtitle: subtitle, isActive: isActive, isExpanded: isExpanded, action: action) {
             VNavItemTrailingIcon(
                 icon: trailingIcon,
                 rotation: trailingIconRotation,

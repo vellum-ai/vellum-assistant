@@ -125,6 +125,15 @@ struct NavigationGallerySection: View {
 
                 VCard {
                     VStack(alignment: .leading, spacing: VSpacing.sm) {
+                        Text("With Subtitle").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        VNavItem(icon: VIcon.wrench.rawValue, label: "Build a Character", subtitle: "Build your own character") {}
+                        VNavItem(icon: VIcon.image.rawValue, label: "Upload Image", subtitle: "Choose an image from your Mac") {}
+                    }
+                }
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.sm) {
                         Text("Without Icon").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
 
                         VNavItem(label: "Overview", isActive: false) {}

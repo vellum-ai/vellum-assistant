@@ -25,6 +25,10 @@ public enum VShadow {
 
     /// Forest glow for accent elements (focused inputs, active buttons)
     public static let accentGlow = Definition(color: VColor.primaryActive.opacity(0.3), radius: 8, x: 0, y: 0)
+
+    /// Modal shadow — dual-layer: subtle near shadow + soft spread
+    public static let modalNear = Definition(color: VColor.auxBlack.opacity(0.1), radius: 1.5, x: 0, y: 1)
+    public static let modalFar  = Definition(color: VColor.auxBlack.opacity(0.1), radius: 6, x: 0, y: 4)
 }
 
 public extension View {
