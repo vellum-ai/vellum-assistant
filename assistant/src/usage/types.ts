@@ -38,6 +38,8 @@ export interface UsageEventInput {
   conversationId: string | null;
   runId: string | null;
   requestId: string | null;
+  /** Number of actual LLM API calls represented by this event (defaults to 1). */
+  llmCallCount?: number;
 }
 
 /**
