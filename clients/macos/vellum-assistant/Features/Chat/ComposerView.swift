@@ -413,7 +413,7 @@ struct ComposerView: View {
 
                 .vTooltip("Attach file")
 
-                ContextWindowIndicator(
+                VContextWindowIndicator(
                     fillRatio: contextWindowFillRatio,
                     tokensUsed: contextWindowTokens,
                     tokensMax: contextWindowMaxTokens

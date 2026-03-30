@@ -4,7 +4,7 @@ import SwiftUI
 /// Designed to sit in the composer toolbar area. On hover, shows a rich
 /// popover with percentage, token counts, and compaction note.
 /// Hidden when `fillRatio` is nil (no usage data yet).
-public struct ContextWindowIndicator: View {
+public struct VContextWindowIndicator: View {
     public let fillRatio: Double?
     public let tokensUsed: Int?
     public let tokensMax: Int?
@@ -20,15 +20,20 @@ public struct ContextWindowIndicator: View {
     private let ringSize: CGFloat = 16
     private let ringLineWidth: CGFloat = 2
 
+    private var clampedRatio: Double? {
+        guard let ratio = fillRatio else { return nil }
+        return min(max(ratio, 0), 1)
+    }
+
     private var ringColor: Color {
-        guard let ratio = fillRatio else { return .clear }
+        guard let ratio = clampedRatio else { return .clear }
         if ratio >= 0.8 { return VColor.systemNegativeStrong }
         if ratio >= 0.6 { return VColor.systemMidStrong }
         return VColor.contentTertiary
     }
 
     private var percentText: String {
-        guard let ratio = fillRatio else { return "0%" }
+        guard let ratio = clampedRatio else { return "0%" }
         return "\(Int(ratio * 100))%"
     }
 
@@ -41,7 +46,7 @@ public struct ContextWindowIndicator: View {
     }
 
     public var body: some View {
-        if let ratio = fillRatio, ratio > 0 {
+        if let ratio = clampedRatio {
             circularRing(ratio: ratio)
                 .onHover { hovering in
                     isHovered = hovering
@@ -63,7 +68,7 @@ public struct ContextWindowIndicator: View {
 
             // Fill ring
             Circle()
-                .trim(from: 0, to: CGFloat(min(ratio, 1.0)))
+                .trim(from: 0, to: CGFloat(ratio))
                 .stroke(ringColor, style: StrokeStyle(lineWidth: ringLineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .frame(width: ringSize, height: ringSize)
