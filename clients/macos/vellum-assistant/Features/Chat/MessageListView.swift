@@ -511,8 +511,6 @@ struct MessageListView: View {
             viewportHeight: scrollState.viewportHeight,
             wasInRange: scrollState.wasPaginationTriggerInRange
         )
-        scrollState.wasPaginationTriggerInRange = isInRange
-
         guard shouldFire,
               hasMoreMessages,
               !isLoadingMoreMessages,
@@ -521,7 +519,9 @@ struct MessageListView: View {
 
         guard Date().timeIntervalSince(scrollState.lastPaginationCompletedAt) > 0.5 else { return }
 
-        // Fire pagination
+        // Fire pagination — update edge state only now so guard rejections
+        // (including cooldown) don't consume the one-shot rising edge.
+        scrollState.wasPaginationTriggerInRange = isInRange
         scrollState.isPaginationInFlight = true
         let anchorId = scrollState.cachedFirstVisibleMessageId
         os_signpost(.event, log: PerfSignposts.log, name: "paginationSentinelFired")
