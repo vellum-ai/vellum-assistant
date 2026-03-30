@@ -2,6 +2,12 @@ import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
 
+struct ChannelConversationGroup: Identifiable {
+    var id: String { channel }
+    let channel: String
+    let conversations: [ConversationModel]
+}
+
 // MARK: - Sidebar Content
 
 extension MainWindowView {
@@ -65,7 +71,7 @@ extension MainWindowView {
 
     /// All channel-bound conversations, grouped by originChannel.
     /// Sorted alphabetically by channel name for stable sidebar ordering.
-    var channelConversationGroups: [(channel: String, conversations: [ConversationModel])] {
+    var channelConversationGroups: [ChannelConversationGroup] {
         let channelConversations = conversationManager.visibleConversations.filter { $0.isChannelConversation }
         var grouped: [String: [ConversationModel]] = [:]
         for conversation in channelConversations {
@@ -73,7 +79,7 @@ extension MainWindowView {
             grouped[channel, default: []].append(conversation)
         }
         return grouped.keys.sorted().map { key in
-            (channel: key, conversations: grouped[key]!)
+            ChannelConversationGroup(channel: key, conversations: grouped[key]!)
         }
     }
 
@@ -582,7 +588,7 @@ extension MainWindowView {
                     }
 
                     // Channel conversation sections
-                    ForEach(channelConversationGroups, id: \.channel) { group in
+                    ForEach(channelConversationGroups) { group in
                         let isCollapsed = sidebar.collapsedChannelSections.contains(group.channel)
                         let sectionHasUnread = isCollapsed &&
                             group.conversations.contains(where: { $0.hasUnseenLatestAssistantMessage })
