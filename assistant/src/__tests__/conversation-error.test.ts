@@ -443,12 +443,12 @@ describe("classifyConversationError", () => {
       expect(result.errorCategory).toBe("provider_not_configured");
     });
 
-    it("classifies ProviderError with 402 as credits_exhausted (non-retryable)", () => {
+    it("classifies ProviderError with 402 as credits_exhausted (retryable)", () => {
       const err = new ProviderError("Payment Required", "anthropic", 402);
       const result = classifyConversationError(err, baseCtx);
       expect(result.code).toBe("PROVIDER_BILLING");
       expect(result.errorCategory).toBe("credits_exhausted");
-      expect(result.retryable).toBe(false);
+      expect(result.retryable).toBe(true);
     });
 
     it("classifies ProviderError with 400 as PROVIDER_API (retryable)", () => {

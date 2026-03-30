@@ -242,7 +242,7 @@ function classifyCore(
         code: "PROVIDER_BILLING",
         userMessage:
           "You've run out of credits. Add funds to continue using the assistant.",
-        retryable: false,
+        retryable: true,
         errorCategory: "credits_exhausted",
       };
     }

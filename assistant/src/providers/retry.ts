@@ -40,9 +40,18 @@ function isRetryableStreamError(error: unknown): boolean {
   return RETRYABLE_STREAM_PATTERNS.some((p) => error.message.includes(p));
 }
 
+/** 402 billing errors may be transient when effective balance is briefly miscalculated. */
+function isBillingError(error: unknown): boolean {
+  return error instanceof ProviderError && error.statusCode === 402;
+}
+
+/** Max retries for billing errors — keep low to avoid hammering when genuinely depleted. */
+const BILLING_MAX_RETRIES = 1;
+
 function isRetryableError(error: unknown): boolean {
   if (error instanceof ProviderError && error.statusCode !== undefined) {
     if (error.statusCode === 429 || error.statusCode >= 500) return true;
+    if (error.statusCode === 402) return true;
   }
   if (isRetryableStreamError(error)) return true;
   return isRetryableNetworkError(error);
@@ -67,7 +76,8 @@ function normalizeSendMessageOptions(
   const needsThinkingStrip =
     providerName !== "anthropic" && config.thinking !== undefined;
   const needsEffortStrip =
-    !EFFORT_SUPPORTED_PROVIDERS.has(providerName) && config.effort !== undefined;
+    !EFFORT_SUPPORTED_PROVIDERS.has(providerName) &&
+    config.effort !== undefined;
   const needsSpeedStrip =
     providerName !== "anthropic" && config.speed !== undefined;
 
@@ -146,6 +156,12 @@ export class RetryProvider implements Provider {
         lastError = error;
 
         if (attempt < DEFAULT_MAX_RETRIES && isRetryableError(error)) {
+          // Billing errors get fewer retries to avoid hammering when genuinely depleted.
+          const maxRetries = isBillingError(error)
+            ? BILLING_MAX_RETRIES
+            : DEFAULT_MAX_RETRIES;
+          if (attempt >= maxRetries) throw error;
+
           // Prefer server-provided Retry-After; fall back to exponential backoff.
           const retryAfter =
             error instanceof ProviderError ? error.retryAfterMs : undefined;
@@ -161,13 +177,15 @@ export class RetryProvider implements Provider {
                   error.statusCode !== undefined &&
                   error.statusCode >= 500
                 ? `server_error_${error.statusCode}`
-                : isRetryableStreamError(error)
-                  ? "stream_corruption"
-                  : "network_error";
+                : isBillingError(error)
+                  ? "billing_402"
+                  : isRetryableStreamError(error)
+                    ? "stream_corruption"
+                    : "network_error";
           log.warn(
             {
               attempt: attempt + 1,
-              maxRetries: DEFAULT_MAX_RETRIES,
+              maxRetries: maxRetries,
               delay,
               retryAfterHeader: retryAfter !== undefined,
               errorType,
