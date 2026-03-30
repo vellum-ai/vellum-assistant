@@ -461,7 +461,7 @@ async function importToAssistant(
 
   if (cloud === "local") {
     // Local target
-    const accessToken = await getAccessToken(
+    let accessToken = await getAccessToken(
       entry.runtimeUrl,
       entry.assistantId,
       entry.assistantId,
@@ -484,6 +484,35 @@ async function importToAssistant(
             signal: AbortSignal.timeout(120_000),
           },
         );
+
+        // Retry once with a fresh token on 401
+        if (response.status === 401) {
+          let refreshedToken: string | null = null;
+          try {
+            const freshToken = await leaseGuardianToken(
+              entry.runtimeUrl,
+              entry.assistantId,
+            );
+            refreshedToken = freshToken.accessToken;
+          } catch {
+            // If token refresh fails, fall through to the error handler below
+          }
+          if (refreshedToken) {
+            accessToken = refreshedToken;
+            response = await fetch(
+              `${entry.runtimeUrl}/v1/migrations/import-preflight`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  "Content-Type": "application/octet-stream",
+                },
+                body: new Blob([bundleData]),
+                signal: AbortSignal.timeout(120_000),
+              },
+            );
+          }
+        }
       } catch (err) {
         if (err instanceof Error && err.name === "TimeoutError") {
           console.error("Error: Preflight request timed out after 2 minutes.");
@@ -521,6 +550,32 @@ async function importToAssistant(
         body: new Blob([bundleData]),
         signal: AbortSignal.timeout(120_000),
       });
+
+      // Retry once with a fresh token on 401
+      if (response.status === 401) {
+        let refreshedToken: string | null = null;
+        try {
+          const freshToken = await leaseGuardianToken(
+            entry.runtimeUrl,
+            entry.assistantId,
+          );
+          refreshedToken = freshToken.accessToken;
+        } catch {
+          // If token refresh fails, fall through to the error handler below
+        }
+        if (refreshedToken) {
+          accessToken = refreshedToken;
+          response = await fetch(`${entry.runtimeUrl}/v1/migrations/import`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/octet-stream",
+            },
+            body: new Blob([bundleData]),
+            signal: AbortSignal.timeout(120_000),
+          });
+        }
+      }
     } catch (err) {
       if (err instanceof Error && err.name === "TimeoutError") {
         console.error("Error: Import request timed out after 2 minutes.");
