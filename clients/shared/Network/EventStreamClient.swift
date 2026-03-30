@@ -222,13 +222,14 @@ public final class EventStreamClient {
                     userMessage: message,
                     retryable: false
                 )))
-            case .insufficientBalance(let detail, _):
+            case .insufficientBalance(let detail, let failedContent):
                 self.broadcastMessage(.conversationError(ConversationErrorMessage(
                     conversationId: conversationId,
                     code: .providerBilling,
                     userMessage: detail,
                     retryable: true,
-                    errorCategory: "credits_exhausted"
+                    errorCategory: "credits_exhausted",
+                    failedMessageContent: failedContent
                 )))
             case .error(_, let message, _):
                 self.broadcastMessage(.conversationError(ConversationErrorMessage(
@@ -265,7 +266,7 @@ public final class EventStreamClient {
                             conversationId: "",
                             code: .providerBilling,
                             userMessage: "Your balance has run out. Add funds to continue using the assistant.",
-                            retryable: true,
+                            retryable: false,
                             errorCategory: "credits_exhausted"
                         )))
                     }
