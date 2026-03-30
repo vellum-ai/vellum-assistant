@@ -474,42 +474,6 @@ function resolveGatewayDir(): string {
   }
 }
 
-function normalizeIngressUrl(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const normalized = value.trim().replace(/\/+$/, "");
-  return normalized || undefined;
-}
-
-// ── Workspace config readers (read-only) ──
-
-function getWorkspaceConfigPath(instanceDir?: string): string {
-  // When VELLUM_WORKSPACE_DIR is set, the config lives at
-  // join(VELLUM_WORKSPACE_DIR, "config.json").
-  const workspaceDirOverride = process.env.VELLUM_WORKSPACE_DIR?.trim();
-  if (!instanceDir && workspaceDirOverride) {
-    return join(workspaceDirOverride, "config.json");
-  }
-  const baseDataDir =
-    instanceDir ??
-    (process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir()));
-  return join(baseDataDir, ".vellum", "workspace", "config.json");
-}
-
-function readWorkspaceIngressPublicBaseUrl(
-  instanceDir?: string,
-): string | undefined {
-  const workspaceConfigPath = getWorkspaceConfigPath(instanceDir);
-  try {
-    const raw = JSON.parse(
-      readFileSync(workspaceConfigPath, "utf-8"),
-    ) as Record<string, unknown>;
-    const ingress = raw.ingress as Record<string, unknown> | undefined;
-    return normalizeIngressUrl(ingress?.publicBaseUrl);
-  } catch {
-    return undefined;
-  }
-}
-
 /**
  * Check if the daemon is responsive by hitting its HTTP `/healthz` endpoint.
  * This replaces the socket-based `isSocketResponsive()` check.
@@ -1084,15 +1048,8 @@ export async function startGateway(
     // workspace config for this instance (mirrors the daemon env setup).
     ...(resources ? { BASE_DATA_DIR: resources.instanceDir } : {}),
   };
-  // The gateway reads the ingress URL from the workspace config file via
-  // ConfigFileCache — no env var passthrough needed. Log the resolved value
-  // for diagnostic visibility during startup.
-  const workspaceIngressPublicBaseUrl = readWorkspaceIngressPublicBaseUrl(
-    resources?.instanceDir,
-  );
-  const ingressPublicBaseUrl = workspaceIngressPublicBaseUrl ?? publicUrl;
-  if (ingressPublicBaseUrl) {
-    console.log(`   Ingress URL: ${ingressPublicBaseUrl}`);
+  if (publicUrl) {
+    console.log(`   Ingress URL: ${publicUrl}`);
   }
 
   let gateway;
