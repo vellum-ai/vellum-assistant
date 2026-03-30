@@ -630,19 +630,18 @@ extension MainWindowView {
 
                         if !isCollapsed {
                             let showAll = sidebar.showAllChannelConversations[group.channel] ?? false
-                            let displayed: [ConversationModel]
-                            if showAll {
-                                displayed = group.conversations
-                            } else {
+                            let displayed: [ConversationModel] = {
+                                if showAll {
+                                    return group.conversations
+                                }
                                 // Auto-expand if any hidden conversation has unread messages.
                                 let visible = Array(group.conversations.prefix(3))
                                 let hidden = group.conversations.dropFirst(3)
                                 if hidden.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
-                                    displayed = group.conversations
-                                } else {
-                                    displayed = visible
+                                    return group.conversations
                                 }
-                            }
+                                return visible
+                            }()
 
                             ForEach(displayed) { conversation in
                                 makeSidebarRow(conversation: conversation)
