@@ -155,8 +155,11 @@ function parseRequestCode(
   text: string,
   scopeConversationId?: string,
 ): CodeParseResult | null {
+  // Strip common channel formatting delimiters (backticks, bold, italic,
+  // strikethrough) that messaging platforms wrap around inline code.
+  const cleaned = text.replace(/[`*_~]/g, "").trim();
   // Request codes are 6 hex chars (A-F, 0-9), uppercase
-  const upper = text.toUpperCase();
+  const upper = cleaned.toUpperCase();
   const match = upper.match(/^([A-F0-9]{6})(?:\s|$)/);
   if (!match) return null;
 
@@ -185,7 +188,7 @@ function parseRequestCode(
     return null;
   }
 
-  const remainingText = text.slice(code.length).trim();
+  const remainingText = cleaned.slice(code.length).trim();
   return { request, remainingText };
 }
 
