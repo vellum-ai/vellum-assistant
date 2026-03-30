@@ -222,6 +222,11 @@ struct MessageListView: View {
         os_signpost(.begin, log: stallLog, name: "DerivedState.resolve")
         scrollState.recordBodyEvaluation()
 
+        if scrollState.isThrottled, let cached = scrollState.cachedDerivedStateBox as? MessageListDerivedState {
+            os_signpost(.end, log: stallLog, name: "DerivedState.resolve")
+            return cached
+        }
+
         // Compute visible messages first so version tracking and layout
         // both operate on the same filtered set.
         let liveMessages = visibleMessages
@@ -380,6 +385,7 @@ struct MessageListView: View {
             hasMessages: !liveMessages.isEmpty
         )
 
+        scrollState.cachedDerivedStateBox = result
         os_signpost(.end, log: stallLog, name: "DerivedState.resolve")
         return result
     }
