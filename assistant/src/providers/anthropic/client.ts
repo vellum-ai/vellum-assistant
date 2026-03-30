@@ -791,15 +791,28 @@ export class AnthropicProvider implements Provider {
         }
       }
 
-      // Strip thinking/redacted_thinking blocks from all historical assistant
+      // Strip thinking/redacted_thinking blocks from historical assistant
       // messages. These blocks carry cryptographic signatures tied to their
       // original API response. Consolidated messages (from multi-step tool use)
       // combine thinking blocks from different responses, making signature
       // validation fail with "thinking blocks cannot be modified". Stripping is
       // safe: the API allows it for all historical messages, and new responses
       // generate fresh thinking blocks.
-      for (const msg of formatted) {
+      //
+      // The latest assistant turn is preserved: the API requires the most recent
+      // assistant message's thinking blocks to be passed back unmodified when
+      // sending tool results during in-progress tool-use loops.
+      let lastAssistantIdx = -1;
+      for (let i = formatted.length - 1; i >= 0; i--) {
+        if (formatted[i].role === "assistant") {
+          lastAssistantIdx = i;
+          break;
+        }
+      }
+      for (let i = 0; i < formatted.length; i++) {
+        const msg = formatted[i];
         if (msg.role !== "assistant" || !Array.isArray(msg.content)) continue;
+        if (i === lastAssistantIdx) continue;
         const stripped = msg.content.filter(
           (b) =>
             (b as { type: string }).type !== "thinking" &&
