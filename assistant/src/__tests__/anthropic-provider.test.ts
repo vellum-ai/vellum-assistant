@@ -138,16 +138,16 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   // -----------------------------------------------------------------------
   // System prompt cache control
   // -----------------------------------------------------------------------
-  test("system prompt has cache_control ephemeral", async () => {
+  test("system prompt has cache_control ephemeral with 1h TTL", async () => {
     await provider.sendMessage([userMsg("Hi")], undefined, "You are helpful.");
 
     const system = lastStreamParams!.system as Array<{
       type: string;
       text: string;
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
     expect(system).toHaveLength(1);
-    expect(system[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(system[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   test("no system param when system prompt is omitted", async () => {
@@ -166,13 +166,13 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const system = lastStreamParams!.system as Array<{
       type: string;
       text: string;
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
     expect(system).toHaveLength(2);
     expect(system[0].text).toBe(staticBlock);
-    expect(system[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(system[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
     expect(system[1].text).toBe(dynamicBlock);
-    expect(system[1].cache_control).toEqual({ type: "ephemeral" });
+    expect(system[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   // -----------------------------------------------------------------------
@@ -1548,9 +1548,9 @@ describe("AnthropicProvider — Managed Proxy Fallback", () => {
 
     // System prompt cache control
     const system = lastStreamParams!.system as Array<{
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
-    expect(system[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(system[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 
     // Last tool cache control
     const tools = lastStreamParams!.tools as Array<{
