@@ -63,7 +63,6 @@ mock.module("../tools/terminal/sandbox.js", () => ({
 }));
 
 import { loadSkillCatalog } from "../config/skills.js";
-import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import { executeDeleteManagedSkill } from "../tools/skills/delete-managed.js";
 import { SkillLoadTool } from "../tools/skills/load.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
@@ -115,14 +114,7 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     expect(found!.name).toBe("Lifecycle Test");
     expect(found!.description).toBe("Integration test skill.");
 
-    // Step 4: Verify skill appears in system prompt (markdown bullet: **id**: description)
-    const prompt = buildSystemPrompt();
-    expect(prompt).toContain("**lifecycle-test**");
-    expect(prompt).toContain("Integration test skill");
-    // Dynamic Skill Authoring section moved to tool descriptions; prompt should not contain it
-    expect(prompt).not.toContain("## Dynamic Skill Authoring Workflow");
-
-    // Step 5: Delete the skill
+    // Step 4: Delete the skill
     const deleteResult = await executeDeleteManagedSkill(
       {
         skill_id: "lifecycle-test",
@@ -134,14 +126,14 @@ describe("managed skill lifecycle: scaffold → catalog → prompt → delete", 
     const deleteData = JSON.parse(deleteResult.content as string);
     expect(deleteData.deleted).toBe(true);
 
-    // Step 6: Verify skill is gone from filesystem
+    // Step 5: Verify skill is gone from filesystem
     expect(existsSync(skillMdPath)).toBe(false);
 
-    // Step 7: Verify skill no longer in catalog
+    // Step 6: Verify skill no longer in catalog
     const catalogAfter = loadSkillCatalog();
     expect(catalogAfter.find((s) => s.id === "lifecycle-test")).toBeUndefined();
 
-    // Step 8: Verify SKILLS.md index no longer has the entry
+    // Step 7: Verify SKILLS.md index no longer has the entry
     const indexPath = join(TEST_DIR, "skills", "SKILLS.md");
     if (existsSync(indexPath)) {
       const indexContent = readFileSync(indexPath, "utf-8");

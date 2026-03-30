@@ -183,29 +183,17 @@ describe("cross-tool routing consistency", () => {
 // 4. Activation hints in skills catalog (replaces domain routing sections)
 // =====================================================================
 
-describe("Activation hints in skills catalog", () => {
-  test("phone-calls skill includes hints and avoid-when in catalog line", () => {
-    const prompt = buildSystemPrompt();
-    const line = prompt.split("\n").find((l) => l.includes("**phone-calls**"));
-    expect(line).toBeDefined();
-    // Activation hints and avoid-when are folded into the description
-    expect(line).toContain("Twilio");
-    expect(line).toContain("Avoid: ");
-    expect(line).toContain("voice-setup");
-  });
-
-  test("browser skill includes hints in catalog line", () => {
-    const prompt = buildSystemPrompt();
-    const line = prompt.split("\n").find((l) => l.includes("**browser**"));
-    expect(line).toBeDefined();
-    expect(line).toContain("browser_*");
-  });
-
+describe("Skills catalog and routing sections removed from system prompt", () => {
   test("domain routing sections are no longer in system prompt", () => {
     const prompt = buildSystemPrompt();
     expect(prompt).not.toContain("## Routing: Guardian Verification");
     expect(prompt).not.toContain("## Routing: Phone Calls");
     expect(prompt).not.toContain("## Routing: Voice Setup");
     expect(prompt).not.toContain("## Routing: Starter Tasks");
+  });
+
+  test("skills catalog is no longer in system prompt", () => {
+    const prompt = buildSystemPrompt();
+    expect(prompt).not.toContain("## Available Skills");
   });
 });
