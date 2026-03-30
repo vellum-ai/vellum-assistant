@@ -301,6 +301,7 @@ describe("fast mode pricing", () => {
       outputTokens: 1_000_000,
       cacheCreationInputTokens: 0,
       cacheReadInputTokens: 0,
+      anthropicCacheCreation: null,
       speed: "fast",
     };
 
@@ -317,6 +318,7 @@ describe("fast mode pricing", () => {
       outputTokens: 1_000_000,
       cacheCreationInputTokens: 0,
       cacheReadInputTokens: 0,
+      anthropicCacheCreation: null,
       speed: "standard",
     };
 
@@ -332,6 +334,7 @@ describe("fast mode pricing", () => {
       outputTokens: 1_000_000,
       cacheCreationInputTokens: 0,
       cacheReadInputTokens: 0,
+      anthropicCacheCreation: null,
       speed: null,
     };
 
@@ -379,6 +382,7 @@ describe("fast mode pricing", () => {
       outputTokens: 1_000_000,
       cacheCreationInputTokens: 0,
       cacheReadInputTokens: 0,
+      anthropicCacheCreation: null,
       speed: "fast",
     };
 
