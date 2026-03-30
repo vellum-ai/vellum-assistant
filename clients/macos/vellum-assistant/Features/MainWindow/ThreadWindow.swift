@@ -208,6 +208,7 @@ private struct ThreadWindowContentView: View {
                     anchorMessageId: $anchorMessageId,
                     highlightedMessageId: $highlightedMessageId
                 )
+                .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
                 .padding(.bottom, VSpacing.md)
             }
 
