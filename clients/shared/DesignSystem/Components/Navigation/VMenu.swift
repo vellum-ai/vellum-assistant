@@ -311,13 +311,7 @@ public struct VSubMenuItem<Content: View>: View {
         .animation(VAnimation.fast, value: isHovered)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
         .contentShape(Rectangle())
-        .background(GeometryReader { geo in
-            Color.clear.preference(key: ScreenRectPreferenceKey.self, value: geo.frame(in: .global))
-        })
-        .onPreferenceChange(ScreenRectPreferenceKey.self) { rect in
-            // Store for use when opening the child panel
-            lastKnownRect = rect
-        }
+        .background(ScreenRectReader(rect: $screenRect))
         .onHover { hovering in
             isHovered = hovering
             guard isEnabled else { return }
@@ -331,6 +325,20 @@ public struct VSubMenuItem<Content: View>: View {
             } else {
                 hoverTimer?.cancel()
                 hoverTimer = nil
+                // Only start grace timer if the mouse isn't already inside
+                // the child panel. AppKit fires mouseExited on the parent item
+                // when the mouse enters a sibling window (the child panel),
+                // but the child's tracking area may not have fired mouseEntered
+                // yet if it was just created.
+                if let coordinator, coordinator.hasChild,
+                   let childPanel = coordinator.panels.last {
+                    let mouseLocation = NSEvent.mouseLocation
+                    let locationInPanel = childPanel.convertPoint(fromScreen: mouseLocation)
+                    let panelBounds = childPanel.contentView?.bounds ?? .zero
+                    if panelBounds.contains(locationInPanel) {
+                        return // Mouse is in child panel — don't start timer
+                    }
+                }
                 coordinator?.startGraceTimer()
             }
         }
@@ -346,24 +354,10 @@ public struct VSubMenuItem<Content: View>: View {
         .accessibilityAddTraits(.isButton)
     }
 
-    @State private var lastKnownRect: CGRect?
+    @State private var screenRect: CGRect = .zero
 
     private func showChild(coordinator: VMenuCoordinator?) {
-        guard let coordinator else { return }
-
-        // Convert global SwiftUI rect to screen coordinates.
-        // SwiftUI's .global coordinate space has origin at top-left with y-down.
-        // macOS screen coordinates have origin at bottom-left with y-up.
-        guard let globalRect = lastKnownRect,
-              let screen = NSScreen.main else { return }
-
-        let screenHeight = screen.frame.height
-        let screenRect = CGRect(
-            x: globalRect.origin.x,
-            y: screenHeight - globalRect.origin.y - globalRect.height,
-            width: globalRect.width,
-            height: globalRect.height
-        )
+        guard let coordinator, screenRect != .zero else { return }
 
         let menuWidth = effectiveWidth
         let contentBuilder = content
@@ -379,11 +373,28 @@ public struct VSubMenuItem<Content: View>: View {
     }
 }
 
-/// Preference key to read a view's frame in global coordinates.
-private struct ScreenRectPreferenceKey: PreferenceKey {
-    static let defaultValue: CGRect? = nil
-    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
-        value = nextValue() ?? value
+/// Invisible NSView that reads its own screen-space frame and writes it to a SwiftUI binding.
+/// This gives the correct screen coordinates (origin bottom-left, y-up) regardless of
+/// which screen or window the view is on — unlike SwiftUI's `.global` coordinate space
+/// which is window-relative.
+private struct ScreenRectReader: NSViewRepresentable {
+    @Binding var rect: CGRect
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.setAccessibilityElement(false)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let window = nsView.window else { return }
+            let viewFrame = nsView.convert(nsView.bounds, to: nil)
+            let screenFrame = window.convertToScreen(viewFrame)
+            if screenFrame != rect {
+                rect = screenFrame
+            }
+        }
     }
 }
 #else

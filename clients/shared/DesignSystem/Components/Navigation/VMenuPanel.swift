@@ -196,16 +196,20 @@ public class VMenuPanel: NSPanel {
     }
 
     /// Calculate child panel origin anchored to a parent item's screen rect.
-    /// Positions at the trailing edge, top-aligned. Flips to leading edge on right overflow.
+    /// Positions the child's visual left edge flush with the anchor's right edge,
+    /// top-aligned with the anchor item. Flips to leading edge on right overflow.
     private static func anchoredOrigin(for size: CGSize, anchorRect: CGRect) -> CGPoint {
         let screen = NSScreen.screens.first(where: { $0.frame.contains(anchorRect.origin) })?.visibleFrame
             ?? NSScreen.main?.visibleFrame
             ?? .zero
 
-        // Default: child leading edge at anchor's trailing edge, top-aligned.
-        // Subtract shadowInset so the VMenu's visual edge aligns with the anchor.
+        // The child panel has `shadowInset` padding on all sides. To align
+        // the child's VISUAL left edge with the anchor's right edge, offset
+        // the panel origin left by shadowInset.
         var x = anchorRect.maxX - shadowInset
-        // Align child top with anchor top (macOS y-axis is bottom-up).
+        // Align child's visual top with anchor's top.
+        // macOS y-axis is bottom-up: anchorRect.maxY is the top edge.
+        // The child's visual top is at panel.origin.y + size.height - shadowInset.
         var y = anchorRect.maxY - size.height + shadowInset
 
         // Right overflow: flip to left side of anchor

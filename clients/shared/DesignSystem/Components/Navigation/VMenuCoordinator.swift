@@ -144,11 +144,27 @@ public final class VMenuCoordinator {
     // MARK: - Grace Timer
 
     /// Start a 200ms timer that dismisses the child panel.
-    /// Cancel with `cancelGraceTimer()` if the mouse enters the child panel.
+    ///
+    /// When the timer fires, the cursor position is checked against the child
+    /// panel's frame. If the cursor is inside the child, the dismiss is skipped —
+    /// this handles the case where AppKit does not send `mouseEntered` when a
+    /// tracking area is created with the cursor already inside it.
     func startGraceTimer() {
         cancelGraceTimer()
         let work = DispatchWorkItem { [weak self] in
-            self?.dismissChild()
+            guard let self, self.hasChild else { return }
+            // If the cursor is inside the child panel, skip dismiss.
+            // AppKit may not have fired mouseEntered for the child's tracking
+            // area if it was created under the cursor.
+            if let childPanel = self.panels.last {
+                let mouseLocation = NSEvent.mouseLocation
+                let locationInPanel = childPanel.convertPoint(fromScreen: mouseLocation)
+                let panelBounds = childPanel.contentView?.bounds ?? .zero
+                if panelBounds.contains(locationInPanel) {
+                    return
+                }
+            }
+            self.dismissChild()
         }
         graceTimer = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
