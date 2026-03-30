@@ -97,6 +97,7 @@ class TitleBarZoomableWindow: NSWindow {
         if let monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown, handler: { [weak self] event in
             DispatchQueue.main.async { @MainActor in
                 guard let self,
+                      event.window === self,
                       let responder = self.firstResponder as? NSView,
                       let container = self.composerContainerView,
                       responder.isDescendant(of: container) else { return }
