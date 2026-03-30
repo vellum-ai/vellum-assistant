@@ -9,7 +9,7 @@ public struct VDropdownOption<T: Hashable>: Identifiable {
     public let value: T
     public let icon: VIcon?
 
-    public var id: String { label }
+    public var id: T { value }
 
     public init(label: String, value: T, icon: VIcon? = nil) {
         self.label = label
