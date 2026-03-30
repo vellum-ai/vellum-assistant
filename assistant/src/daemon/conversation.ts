@@ -23,6 +23,7 @@ import type {
 } from "../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import type { Speed } from "../config/schemas/inference.js";
 import { ContextWindowManager } from "../context/window-manager.js";
 import type { CesClient } from "../credential-execution/client.js";
 import { EventBus } from "../events/bus.js";
@@ -264,6 +265,7 @@ export class Conversation {
     broadcastToAllClients?: (msg: ServerMessage) => void,
     memoryPolicy?: ConversationMemoryPolicy,
     sharedCesClient?: CesClient,
+    speedOverride?: Speed,
   ) {
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
@@ -385,6 +387,7 @@ export class Conversation {
     };
 
     const fastModeEnabled = isAssistantFeatureFlagEnabled("fast-mode", config);
+    const resolvedSpeed = speedOverride ?? config.speed;
 
     this.agentLoop = new AgentLoop(
       provider,
@@ -394,8 +397,8 @@ export class Conversation {
         maxInputTokens: config.contextWindow.maxInputTokens,
         thinking: config.thinking,
         effort: config.effort,
-        ...(fastModeEnabled && config.speed === "fast"
-          ? { speed: config.speed }
+        ...(fastModeEnabled && resolvedSpeed === "fast"
+          ? { speed: resolvedSpeed }
           : {}),
       },
       toolDefs.length > 0 ? toolDefs : undefined,
