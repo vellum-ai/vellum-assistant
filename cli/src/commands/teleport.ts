@@ -3,6 +3,7 @@ import {
   loadAllAssistants,
   removeAssistantEntry,
   saveAssistantEntry,
+  setActiveAssistant,
 } from "../lib/assistant-config.js";
 import type { AssistantEntry } from "../lib/assistant-config.js";
 import {
@@ -823,6 +824,7 @@ export async function resolveOrHatchTarget(
       hatchedAt: new Date().toISOString(),
     };
     saveAssistantEntry(entry);
+    setActiveAssistant(result.id);
     console.log(`Hatched new platform assistant: ${result.id}`);
     return entry;
   }
