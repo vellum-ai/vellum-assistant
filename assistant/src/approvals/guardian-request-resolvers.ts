@@ -24,9 +24,9 @@ import {
   type NotificationSourceChannel,
 } from "../notifications/signal.js";
 import { addRule } from "../permissions/trust-store.js";
+import type { UserDecision } from "../permissions/types.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
-import type { UserDecision } from "../permissions/types.js";
 import type { ApprovalAction } from "../runtime/channel-approval-types.js";
 import { createOutboundSession } from "../runtime/channel-verification-service.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
