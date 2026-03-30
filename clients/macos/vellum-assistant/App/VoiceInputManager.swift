@@ -204,6 +204,18 @@ final class VoiceInputManager {
         }
     }
 
+    /// Unconditionally tear down audio engine state (tap, engine, recognition task/request).
+    /// Safe to call regardless of `isRecording` — used as the shared cleanup path for all
+    /// stop methods and as a recovery mechanism when state becomes inconsistent.
+    private func tearDownAudioState() {
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        recognitionTask?.cancel()
+        recognitionTask = nil
+        recognitionRequest?.endAudio()
+        recognitionRequest = nil
+    }
+
     // MARK: - Continuous Recording (Voice Mode)
 
     /// Start recording without requiring a key hold. Used by voice mode for hands-free operation.
@@ -231,6 +243,15 @@ final class VoiceInputManager {
         // Signal end of audio — the recognizer will process remaining audio
         // and fire the callback with isFinal = true.
         recognitionRequest?.endAudio()
+    }
+
+    /// Reset the audio engine to a clean state after an error.
+    /// Clears any stale internal buffers or format caches that accumulate
+    /// after failed start/stop cycles.
+    private func resetAudioEngine() {
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        audioEngine.reset()
     }
 
     // MARK: - Activation Monitor Setup
@@ -593,16 +614,23 @@ final class VoiceInputManager {
         request.shouldReportPartialResults = true
         recognitionRequest = request
 
+        // Remove any stale tap left from a previous session that was not properly
+        // cleaned up (e.g. audio engine stopped unexpectedly). installTap crashes
+        // with NSInternalInconsistencyException if a tap already exists on the bus.
+        // See: https://stackoverflow.com/questions/41805381
         let inputNode = audioEngine.inputNode
+        inputNode.removeTap(onBus: 0)
+
         let recordingFormat = inputNode.outputFormat(forBus: 0)
 
-        guard recordingFormat.channelCount > 0 else {
-            log.error("No audio input channels available")
+        guard recordingFormat.channelCount > 0, recordingFormat.sampleRate > 0 else {
+            log.error("Invalid audio format — channels: \(recordingFormat.channelCount), sampleRate: \(recordingFormat.sampleRate)")
             isRecording = false
             onRecordingStateChanged?(false)
             currentDictationContext = nil
             recognitionRequest = nil
             overlayWindow.dismiss()
+            resetAudioEngine()
             return
         }
 
@@ -681,13 +709,10 @@ final class VoiceInputManager {
             log.error("Audio engine failed to start: \(error.localizedDescription)")
             isRecording = false
             onRecordingStateChanged?(false)
-            recognitionRequest?.endAudio()
-            recognitionRequest = nil
-            recognitionTask?.cancel()
-            recognitionTask = nil
             currentDictationContext = nil
-            audioEngine.inputNode.removeTap(onBus: 0)
             overlayWindow.dismiss()
+            tearDownAudioState()
+            audioEngine.reset()
         }
     }
 
@@ -791,10 +816,8 @@ final class VoiceInputManager {
 
         onRecordingStateChanged?(false)
 
-        if audioEngine.isRunning {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
-        }
+        audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
 
         // Signal end of audio — the recognizer will process remaining audio
         // and fire the callback with isFinal = true.
@@ -802,7 +825,13 @@ final class VoiceInputManager {
     }
 
     private func stopRecording() {
-        guard isRecording else { return }
+        guard isRecording else {
+            // Even when isRecording is false, audio state may be inconsistent
+            // (e.g. a prior error set isRecording=false without fully cleaning up).
+            // Tear down unconditionally so the cancel button always works.
+            tearDownAudioState()
+            return
+        }
 
         isRecording = false
         onRecordingStateChanged?(false)
@@ -819,13 +848,6 @@ final class VoiceInputManager {
         awaitingDaemonResponse = false  // reset for next recording
         log.info("Voice recording stopped")
 
-        if audioEngine.isRunning {
-            audioEngine.stop()
-            audioEngine.inputNode.removeTap(onBus: 0)
-        }
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest?.endAudio()
-        recognitionRequest = nil
+        tearDownAudioState()
     }
 }
