@@ -581,7 +581,7 @@ export class ContextWindowManager {
     const overheadTokens =
       estimateTextTokens(SUMMARY_SYSTEM_PROMPT) +
       estimateTextTokens(currentSummary) +
-      // Scaffolding text in buildSummaryPrompt ("Update the summary...",
+      // Scaffolding text in buildSummaryContentBlocks ("Update the summary...",
       // section headers, etc.) — generous fixed estimate.
       200 +
       this.summaryMaxTokens;
@@ -598,6 +598,7 @@ export class ContextWindowManager {
     for (const block of blocks) {
       totalTokens += estimateBlockTokens(block);
     }
+    const originalTotalTokens = totalTokens;
     if (totalTokens <= maxTranscriptTokens) return blocks;
 
     // First pass: drop images from the beginning until we fit or run out of
@@ -618,17 +619,39 @@ export class ContextWindowManager {
     if (totalTokens <= maxTranscriptTokens) return result;
 
     // Second pass: drop text blocks from the beginning (oldest) until we fit.
+    // If a single text block exceeds the remaining budget, truncate it rather
+    // than dropping it entirely so the summarizer always has content to work with.
     let dropUntil = 0;
     let droppedTokens = 0;
     for (let i = 0; i < result.length && totalTokens > maxTranscriptTokens; i++) {
-      droppedTokens += estimateBlockTokens(result[i]);
-      totalTokens -= estimateBlockTokens(result[i]);
+      const blockTokens = estimateBlockTokens(result[i]);
+      const excess = totalTokens - maxTranscriptTokens;
+      if (blockTokens > excess && result[i].type === "text") {
+        // Truncate this block to shed exactly the excess tokens.
+        const keepTokens = blockTokens - excess;
+        const text = (result[i] as { type: "text"; text: string }).text;
+        // Approximate: 1 token ≈ 4 characters for truncation purposes.
+        const keepChars = Math.max(1, Math.floor(keepTokens * 4));
+        const truncatedText = text.slice(-keepChars);
+        const truncatedBlock: ContentBlock = {
+          type: "text",
+          text: `[...truncated] ${truncatedText}`,
+        };
+        const newBlockTokens = estimateBlockTokens(truncatedBlock);
+        droppedTokens += blockTokens - newBlockTokens;
+        totalTokens -= blockTokens - newBlockTokens;
+        result[i] = truncatedBlock;
+        dropUntil = i;
+        break;
+      }
+      droppedTokens += blockTokens;
+      totalTokens -= blockTokens;
       dropUntil = i + 1;
     }
 
     log.info(
       {
-        originalTokens: totalTokens + droppedTokens,
+        originalTokens: originalTotalTokens,
         cappedTokens: maxTranscriptTokens,
         droppedTokens,
       },
