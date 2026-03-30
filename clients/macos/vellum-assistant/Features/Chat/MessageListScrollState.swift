@@ -229,6 +229,7 @@ final class MessageListScrollState {
                 self.isThrottled = false
                 self.bodyEvalTimestamps.removeAll()
                 self.throttleRecoveryTask = nil
+                self.scheduleUISync()
             }
         }
     }
