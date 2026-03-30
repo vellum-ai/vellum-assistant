@@ -551,7 +551,10 @@ export async function uploadAttachment(
 ): Promise<UploadAttachmentResponse> {
   const skipCb = opts?.skipCircuitBreaker === true;
 
-  if (!skipCb) cbBeforeRequest();
+  // Always check the breaker for fail-fast (OPEN/HALF_OPEN rejection).
+  // skipCb only suppresses success/failure accounting so attachment errors
+  // don't trip the breaker.
+  cbBeforeRequest();
 
   const url = `${config.assistantRuntimeBaseUrl}/v1/attachments`;
 
