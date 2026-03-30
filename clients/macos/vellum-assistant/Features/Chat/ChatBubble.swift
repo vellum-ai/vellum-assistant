@@ -8,18 +8,7 @@ import VellumAssistantShared
 struct ChatBubble: View, Equatable {
     // MARK: - Equatable
 
-    /// Custom Equatable conformance that intentionally skips closure properties.
-    ///
-    /// SwiftUI's view diffing algorithm uses reflection to compare stored properties,
-    /// but closures are never equal by value — every parent body evaluation creates new
-    /// closure instances. With ~13 closure properties, ChatBubble is completely
-    /// non-diffable, causing unconditional body re-evaluation on every parent update.
-    ///
-    /// By conforming to Equatable and comparing only data properties, SwiftUI can
-    /// short-circuit body re-evaluation when only closures differ but data is unchanged.
-    ///
-    /// This follows the same pattern as MessageCellView (MessageListView.swift) and is
-    /// recommended by Airbnb Engineering for views with closure properties:
+    /// Compares only data properties, skipping closures which are never equal by value.
     /// https://airbnb.tech/mobile/understanding-and-improving-swiftui-performance/
     static func == (lhs: ChatBubble, rhs: ChatBubble) -> Bool {
         lhs.message == rhs.message
@@ -72,9 +61,8 @@ struct ChatBubble: View, Equatable {
     var isTTSEnabled: Bool = false
     /// When true, hide the inline avatar (e.g. thinking indicator is showing it instead).
     var hideInlineAvatar: Bool = false
-    /// Isolates hover state from ChatBubble's body to prevent re-evaluation on hover.
-    /// ChatBubble owns but never reads `hoverState.isHovered` — only the extracted
-    /// ChatBubbleOverflowMenu reads it, so hover changes only invalidate that child.
+    /// Owned but never read in this body — only ChatBubbleOverflowMenu reads it,
+    /// so hover changes invalidate only the overflow menu, not this view.
     @State private var hoverState = ChatBubbleHoverState()
     /// Stores async-parsed segments for large messages (>500 chars) that missed the
     /// synchronous cache. Keyed by text content so multiple segments can be in flight.

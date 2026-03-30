@@ -4,17 +4,9 @@ import VellumAssistantShared
 
 // MARK: - Hover State
 
-/// Lightweight @Observable class that isolates hover state from ChatBubble's body.
-///
-/// ChatBubble owns this via @State but never reads `isHovered` in its body —
-/// only ChatBubbleOverflowMenu reads it. Per the Observation framework, only
-/// views that access a tracked property are invalidated when it changes. This
-/// means hover enter/exit on the bubble does NOT trigger a ChatBubble.body
-/// re-evaluation; only the small overflow menu is re-evaluated (an opacity toggle).
-///
-/// References:
-/// - [WWDC23 — Discover Observation in SwiftUI](https://developer.apple.com/videos/play/wwdc2023/10149/)
-/// - [Apple: Understanding and improving SwiftUI performance](https://developer.apple.com/documentation/Xcode/understanding-and-improving-swiftui-performance)
+/// Shared hover state for a chat bubble, scoped so only the overflow menu
+/// is invalidated on hover changes rather than the entire bubble body.
+/// https://developer.apple.com/videos/play/wwdc2023/10149/
 @MainActor @Observable
 final class ChatBubbleHoverState {
     var isHovered = false
@@ -22,16 +14,9 @@ final class ChatBubbleHoverState {
 
 // MARK: - Overflow Menu
 
-/// Extracted from ChatBubble to isolate volatile @State properties (copy confirmation,
-/// TTS audio, popover state) from the monolithic 800+ line parent view.
-///
-/// When any of these states change (hover, copy feedback, audio playback), only this
-/// small view's body is re-evaluated — not the entire ChatBubble with its expensive
-/// markdown rendering, interleaved content, and media embeds.
-///
-/// References:
-/// - [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
-///   "Move @State to the narrowest view that needs it"
+/// Timestamp, copy, TTS, fork, and inspect actions shown on hover.
+/// Owns volatile @State (copy confirmation, audio player, popover) so that
+/// changes only re-evaluate this small view, not the full ChatBubble body.
 struct ChatBubbleOverflowMenu: View {
     let message: ChatMessage
     let hoverState: ChatBubbleHoverState
