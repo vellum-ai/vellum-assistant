@@ -21,25 +21,11 @@ import {
   test,
 } from "bun:test";
 
-// Use a temp directory so trust-store doesn't touch ~/.vellum
-const checkerTestDir = mkdtempSync(join(tmpdir(), "checker-test-"));
+// Use the preload-provided workspace directory so trust-store doesn't touch ~/.vellum
+const checkerTestDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Point the file-based trust backend at the test temp dir.
 process.env.GATEWAY_SECURITY_DIR = join(checkerTestDir, "protected");
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(checkerTestDir, "protected"),
-  getDataDir: () => join(checkerTestDir, "data"),
-  getWorkspaceDir: () => join(checkerTestDir, "workspace"),
-  getWorkspaceSkillsDir: () => join(checkerTestDir, "skills"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(checkerTestDir, "test.pid"),
-  getDbPath: () => join(checkerTestDir, "test.db"),
-  getLogPath: () => join(checkerTestDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 // Capture logger.warn() calls so tests can assert on deprecation warnings.
 const loggerWarnCalls: string[] = [];
@@ -176,14 +162,6 @@ describe("Permission Checker", () => {
     }
     try {
       rmSync(join(checkerTestDir, "skills"), { recursive: true, force: true });
-    } catch {
-      /* may not exist */
-    }
-    try {
-      rmSync(join(checkerTestDir, "workspace", "skills"), {
-        recursive: true,
-        force: true,
-      });
     } catch {
       /* may not exist */
     }

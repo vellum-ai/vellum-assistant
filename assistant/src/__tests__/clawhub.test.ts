@@ -1,21 +1,9 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mock } from "bun:test";
 
 let TEST_DIR = "";
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(TEST_DIR, "protected"),
-  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -32,12 +20,12 @@ import {
 } from "../skills/clawhub.js";
 
 beforeEach(() => {
-  TEST_DIR = mkdtempSync(join(tmpdir(), "clawhub-test-"));
+  TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
   mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
 });
 
 afterEach(() => {
-  rmSync(TEST_DIR, { recursive: true, force: true });
+  rmSync(join(TEST_DIR, "skills"), { recursive: true, force: true });
 });
 
 // ---------------------------------------------------------------------------
