@@ -560,11 +560,11 @@ describe("same-environment rejection", () => {
     expect(hatchAssistantMock).not.toHaveBeenCalled();
   });
 
-  test("flag says docker but resolved target is local -> uses resolved cloud", async () => {
+  test("flag says docker but resolved target is local -> rejects cloud mismatch", async () => {
     // User passes --docker but the named target is actually a local assistant
     setArgv("--from", "src", "--docker", "misidentified");
 
-    const srcEntry = makeEntry("src", { cloud: "local" });
+    const srcEntry = makeEntry("src", { cloud: "vellum" });
     // Target is actually local despite the --docker flag
     const dstEntry = makeEntry("misidentified", { cloud: "local" });
 
@@ -574,17 +574,10 @@ describe("same-environment rejection", () => {
       return null;
     });
 
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
-
-    try {
-      await expect(teleport()).rejects.toThrow("process.exit:1");
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining("Cannot teleport between two local assistants"),
-      );
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    await expect(teleport()).rejects.toThrow("process.exit:1");
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("is a local assistant, not docker"),
+    );
   });
 });
 
@@ -682,6 +675,33 @@ describe("resolveOrHatchTarget", () => {
       }),
     );
     expect(result.assistantId).toBe("platform-new-id");
+  });
+
+  test("existing assistant with wrong cloud -> rejects", async () => {
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    await expect(resolveOrHatchTarget("docker", "my-local")).rejects.toThrow(
+      "process.exit:1",
+    );
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("is a local assistant, not docker"),
+    );
+  });
+
+  test("name with path traversal -> rejects before hatching", async () => {
+    findAssistantByNameMock.mockReturnValue(null);
+
+    await expect(
+      resolveOrHatchTarget("docker", "../../../etc/passwd"),
+    ).rejects.toThrow("process.exit:1");
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("invalid characters"),
+    );
+    expect(hatchDockerMock).not.toHaveBeenCalled();
   });
 });
 
