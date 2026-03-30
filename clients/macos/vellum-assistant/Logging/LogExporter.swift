@@ -618,8 +618,8 @@ enum LogExporter {
     ///
     /// Resolves the workspace log directory from the connected assistant's
     /// lockfile entry (via `instanceDir` or `baseDataDir`) to support
-    /// multi-instance setups. Falls back to `~/.vellum/workspace/` when
-    /// no lockfile entry is available.
+    /// multi-instance setups. Falls back to the latest lockfile entry,
+    /// then `~/.vellum/workspace/` as a last resort.
     private nonisolated static func collectFallbackDaemonLogs(
         into directory: URL,
         home: String,
@@ -630,6 +630,7 @@ enum LogExporter {
         try? fileManager.createDirectory(at: fallbackDir, withIntermediateDirectories: true)
 
         let workspaceDir: String = connectedAssistant?.workspaceDir
+            ?? LockfileAssistant.loadLatest()?.workspaceDir
             ?? URL(fileURLWithPath: home).appendingPathComponent(".vellum/workspace").path
         let workspaceLogDir = URL(fileURLWithPath: workspaceDir)
             .appendingPathComponent("data/logs", isDirectory: true)
