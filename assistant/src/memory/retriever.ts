@@ -275,6 +275,8 @@ async function runHyDESearch(
     scopeIds,
     sparseVector,
   );
+  // Suppress unhandled rejection if Qdrant rejects before we await
+  rawSearchPromise.catch(() => {});
 
   // Attempt HyDE expansion — returns [] on any failure
   let hypotheticalDocs: string[];
