@@ -64,11 +64,11 @@ import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { memoryItems, memoryJobs } from "../memory/schema.js";
 import type { CatalogSkill } from "../skills/catalog-install.js";
 import {
-  type SkillCapabilityInput,
   buildCapabilityStatement,
   deleteSkillCapabilityMemory,
   fromCatalogSkill,
   seedCatalogSkillMemories,
+  type SkillCapabilityInput,
   upsertSkillCapabilityMemory,
 } from "../skills/skill-memory.js";
 import { ensureDataDir, getDbPath } from "../util/platform.js";
