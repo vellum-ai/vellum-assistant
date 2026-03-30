@@ -1,12 +1,10 @@
-import Combine
 import Foundation
 import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatPaginationState")
 
 /// Owns message-pagination and display-window state: the visible message
-/// suffix window, daemon cursor-based history loading, and the throttled
-/// Combine pipeline that syncs `displayedMessages` from `ChatMessageManager`.
+/// suffix window and daemon cursor-based history loading.
 @MainActor @Observable
 public final class ChatPaginationState {
 
@@ -27,11 +25,13 @@ public final class ChatPaginationState {
     /// True while a previous-page load is in progress (brief async delay for UX).
     public var isLoadingMoreMessages: Bool = false
 
-    /// The subset of messages that are actually displayed (excludes subagent notifications
-    /// and other UI-only messages that the view filters before rendering).
-    /// Cached as a stored property to avoid O(n) filter on every access
-    /// during streaming (which can be dozens of times per second).
-    public private(set) var displayedMessages: [ChatMessage] = []
+    /// The subset of messages visible to the user (excludes subagent notifications,
+    /// hidden messages, and messages without renderable content).
+    /// Computed from `messageManager.messages` so the Observation framework
+    /// tracks the single underlying stored property.
+    public var displayedMessages: [ChatMessage] {
+        ChatVisibleMessageFilter.visibleMessages(from: messageManager.messages)
+    }
 
     // MARK: - Daemon History Pagination
 
@@ -71,7 +71,7 @@ public final class ChatPaginationState {
 
     // MARK: - Dependencies
 
-    /// The message manager whose `messagesPublisher` drives `displayedMessages`.
+    /// The message manager whose `messages` property backs the computed `displayedMessages`.
     @ObservationIgnored private let messageManager: ChatMessageManager
 
     /// Callback invoked when `loadPreviousMessagePage` needs to fetch an older
@@ -84,37 +84,16 @@ public final class ChatPaginationState {
     /// Set after init to avoid capturing `self` before ChatViewModel is fully initialized.
     @ObservationIgnored var conversationIdProvider: () -> String? = { nil }
 
-    /// Combine subscription for the throttled messagesPublisher -> displayedMessages sync.
-    @ObservationIgnored private var messagesSyncSub: AnyCancellable?
-
     // MARK: - Init
 
     init(
         messageManager: ChatMessageManager
     ) {
         self.messageManager = messageManager
-
-        // Keep displayedMessages in sync with messages via publisher subscription.
-        // This catches every mutation site (current and future) without requiring
-        // manual updateDisplayedMessages() calls at each one.
-        //
-        // Two correctness/perf fixes applied here:
-        // 1. Use the delivered `newMessages` value directly rather than reading
-        //    `self.messages` inside the sink. The CurrentValueSubject bridge
-        //    delivers the latest value at the point of emission.
-        // 2. Throttle to 50ms so displayedMessages (and any SwiftUI views observing
-        //    it) only refresh at most every 50ms, matching the coalesced publish
-        //    window used for the rest of the view model.
-        messagesSyncSub = messageManager.messagesPublisher
-            .throttle(for: .milliseconds(50), scheduler: RunLoop.main, latest: true)
-            .sink { [weak self] newMessages in
-                self?.displayedMessages = ChatVisibleMessageFilter.visibleMessages(from: newMessages)
-            }
     }
 
     // MARK: - Public API
 
-    /// Recompute and cache the displayedMessages from the current messages array.
     /// Load the previous page of messages by expanding the display window.
     /// When all locally loaded messages are already visible and the daemon has
     /// more history available, requests the next older page from the daemon.

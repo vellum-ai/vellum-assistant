@@ -152,8 +152,9 @@ See `MainWindowState.observeNavigationHistory()` for a production example.
 
 ### High-Frequency Updates
 
-- **Coalesce high-frequency publishes.** When a Combine publisher or `@Observable` property fires at high frequency (for example per-token streaming), coalesce updates with `throttle`, `debounce`, or a manual coalescing window to avoid render churn. Use **100 ms minimum** as the default. A **50 ms minimum** is acceptable when the body evaluation cost has been verified to be sub-millisecond (e.g. paths using the two-stage cache in `MessageListView` where only the cheap live-data stage runs per evaluation).
-- **Cache expensive derived values.** Never expose a frequently-read, O(n) property as a plain computed var. Convert it to a `@Published` stored var updated on write with a `throttle` or `debounce` (same minimums as above: 100 ms default, 50 ms for verified-cheap paths). Move any heavy work (sorting, JSON sizing, filtering large collections) off the main thread before updating the stored var.
+- **Coalesce high-frequency Combine publishes.** When a Combine publisher fires at high frequency (for example per-token streaming), coalesce updates with `throttle`, `debounce`, or a manual coalescing window to avoid render churn. Use **100 ms minimum** as the default. A **50 ms minimum** is acceptable when the body evaluation cost has been verified to be sub-millisecond.
+- **Use computed properties for derived `@Observable` state.** On `@Observable` classes, derive values from stored properties via computed properties — the Observation framework [traces through to the underlying stored property](https://developer.apple.com/documentation/observation), so views share a single dependency. Do **not** sync a stored property from another stored property via Combine or `withObservationTracking` — this creates a second observation source and causes [double-invalidation](https://developer.apple.com/videos/play/wwdc2023/10149/). Reserve stored-property caching for genuinely expensive work (sorting, JSON sizing, large-collection transforms) that cannot run in a view body evaluation; in that case, update the cache off the main thread and coalesce writes.
+- **Coalesce `@Observable` stored-property mutations during streaming.** When a stored property on an `@Observable` class mutates at high frequency (e.g. per-token), batch mutations with a coalescing window so SwiftUI body evaluations are throttled. Use **100 ms minimum** as the default; **50 ms** is acceptable for verified-cheap body paths.
 - **Scope `UserDefaults` observation with `publisher(for:)` + debounce.** Do not subscribe to `UserDefaults.didChangeNotification` (app-wide) to watch a single key — it fires on every defaults write across the whole app. Use `UserDefaults.publisher(for: \.myKey)` with a 100 ms `.debounce` to limit scope and frequency.
 
 ### Concurrency and Task Management
@@ -246,6 +247,16 @@ Programmatic scrolling uses `scrollPosition.scrollTo(id:anchor:)` instead of `Sc
 ### Scroll Suppression (SuppressionReasons OptionSet)
 
 A `SuppressionReasons` OptionSet (`.resize`, `.pagination`, `.expansion`) manages reasons for temporarily suppressing auto-scroll-to-bottom. The `suppressionReasons` property and the derived `isSuppressed` flag are both `@ObservationIgnored` — the view never reads suppression state directly for rendering. Multiple reasons can be active concurrently; `isSuppressed` is true when any reason is set. Manage flags via `beginSuppression(_:)` and `endSuppression(_:)`. Only `.expansion` uses a 200ms auto-timeout Task; `.resize` and `.pagination` manage their lifecycle manually within their task bodies. Check `scrollState.isSuppressed` before issuing any automatic scroll-to-bottom call.
+
+### Upstream Observation Fixes
+
+Three fixes outside the scroll subsystem prevent observation feedback loops that drive excessive scroll-state and body re-evaluation:
+
+- **Pagination cooldown.** The pagination sentinel enforces a 500ms cooldown between completions via `lastPaginationCompletedAt` on `MessageListScrollState`. This prevents a feedback loop where scroll triggers pagination, `displayedMessageCount` changes cause body re-evaluation, content/geometry changes fire the sentinel again, and pagination re-enters. The cooldown ensures rapid pagination completions cannot cascade.
+
+- **Body-level circuit breaker.** When `isThrottled` is true (more than 100 body evaluations in 2 seconds), `derivedState` returns a cached `MessageListDerivedState` instead of recomputing O(n) derived properties. This makes body re-evaluation cheap during any loop regardless of its source — scroll state changes, pagination, or parent cascade (e.g., `ConversationManager` `objectWillChange`). The circuit breaker is a safety net that caps the cost of body evaluations even when the root-cause loop is not scroll-related.
+
+- **AssistantActivitySnapshot equality.** `textLength` is excluded from the `Equatable` conformance of `AssistantActivitySnapshot` so that `.removeDuplicates()` in the assistant activity Combine pipeline filters out per-token streaming deltas. As a result, `handleAssistantMessageArrival` only fires on structural message changes (new message, role change, completion) rather than on every token append. This prevents per-token `objectWillChange` emissions from `ConversationManager`, which would otherwise cascade into `MessageListBody` re-evaluation and scroll-state recomputation on every streamed token.
 
 ### Rules
 

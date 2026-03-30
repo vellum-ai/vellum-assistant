@@ -40,7 +40,7 @@ export async function runSkillToolScript(
   context: ToolContext,
   options?: RunSkillToolScriptOptions,
 ): Promise<ToolExecutionResult> {
-  if (options?.target === "sandbox") {
+  if (options?.target === "sandbox" && !options?.bundled) {
     return runSkillToolScriptSandbox(skillDir, executorPath, input, context, {
       timeoutMs: options.timeoutMs,
       expectedSkillVersionHash: options.expectedSkillVersionHash,

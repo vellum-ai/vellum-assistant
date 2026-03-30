@@ -228,16 +228,10 @@ extension AppDelegate {
             // them alive with potentially stale state.
             for assistant in LockfileAssistant.loadAll() where !assistant.isRemote && !assistant.isManaged {
                 if assistant.assistantId != connectedAssistantId {
-                    guard let instanceDir = assistant.instanceDir else { continue }
-                    let env = ["BASE_DATA_DIR": instanceDir]
-                    let pidPath = VellumAssistantShared.resolvePidPath(environment: env)
-                    if let data = try? Data(contentsOf: URL(fileURLWithPath: pidPath)),
-                       let pidString = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-                       let pid = pid_t(pidString),
-                       kill(pid, 0) == 0,
-                       Self.isVellumProcess(pid: pid) {
-                        kill(pid, SIGTERM)
-                        log.info("Stopped assistant \(assistant.assistantId, privacy: .public) (pid \(pid))")
+                    do {
+                        try await vellumCli.sleep(name: assistant.assistantId)
+                    } catch {
+                        log.warning("Failed to stop assistant \(assistant.assistantId, privacy: .public): \(error.localizedDescription, privacy: .public)")
                     }
                 }
             }
@@ -756,30 +750,4 @@ extension AppDelegate {
         tearDownQuickInputMonitors()
     }
 
-    // MARK: - Process identity validation
-
-    /// Verify that a PID belongs to a vellum-related process by inspecting its
-    /// command line via `ps`. Prevents killing unrelated processes when a PID
-    /// file is stale and the OS has reused the PID.
-    private static func isVellumProcess(pid: pid_t) -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-p", "\(pid)", "-o", "command="]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return false
-        }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let command = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !command.isEmpty else {
-            return false
-        }
-        let vellumPatterns = ["vellum-daemon", "vellum-cli", "vellum-gateway", "@vellumai", "/.vellum/", "/vellum/", "/daemon/main"]
-        return vellumPatterns.contains { command.contains($0) }
-    }
 }

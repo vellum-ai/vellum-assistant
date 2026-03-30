@@ -108,6 +108,10 @@ final class MessageListScrollState {
     /// Tracks whether the pagination sentinel was previously inside the trigger band.
     @ObservationIgnored var wasPaginationTriggerInRange: Bool = false
 
+    /// Timestamp of the last pagination completion, used to enforce a 500ms
+    /// cooldown between successive pagination fires.
+    @ObservationIgnored var lastPaginationCompletedAt: Date = .distantPast
+
     /// The conversation ID currently being displayed. Updated in `reset(for:)`
     /// so closures always read the live value.
     @ObservationIgnored var currentConversationId: UUID?
@@ -229,6 +233,7 @@ final class MessageListScrollState {
     @ObservationIgnored private var bodyEvalTimestamps: [CFAbsoluteTime] = []
     /// When true, scheduleUISync() is suppressed to break a runaway re-evaluation loop.
     @ObservationIgnored private(set) var isThrottled = false
+    @ObservationIgnored var cachedDerivedStateBox: Any?
     @ObservationIgnored private var throttleRecoveryTask: Task<Void, Never>?
 
     /// Called once per MessageListView body evaluation. Trips the circuit
@@ -324,6 +329,11 @@ final class MessageListScrollState {
     /// regardless of whether messages.count changes.
     @ObservationIgnored var anchorTimeoutTask: Task<Void, Never>?
 
+    /// The message ID awaiting a deferred scroll-to-top. Set when sending
+    /// begins and consumed after the next `uiVersion` bump, which guarantees
+    /// the tail spacer has rendered before the scroll executes.
+    @ObservationIgnored var pendingPushToTopTarget: UUID?
+
     // MARK: - Deep-Link Anchor Tracking
 
     /// Timestamp when anchorMessageId was set. Used together with pagination
@@ -394,10 +404,12 @@ final class MessageListScrollState {
         paginationTask = nil
         if _isPaginationInFlight { _isPaginationInFlight = false }
         wasPaginationTriggerInRange = false
+        lastPaginationCompletedAt = .distantPast
         // Invalidate the layout cache so the new conversation doesn't
         // hit a stale cache from the previous conversation.
         cachedLayoutKey = nil
         cachedLayoutMetadata = nil
+        cachedDerivedStateBox = nil
         messageListVersion = 0
         lastKnownRawMessageCount = 0
         lastKnownVisibleMessageCount = 0
@@ -409,6 +421,7 @@ final class MessageListScrollState {
         // Reset follow state for the new conversation.
         if !_isFollowingBottom { _isFollowingBottom = true }
         if _pushToTopMessageId != nil { _pushToTopMessageId = nil }
+        pendingPushToTopTarget = nil
         isAtBottom = true
         hasReceivedScrollEvent = false
         lastContentOffsetY = 0
@@ -453,7 +466,10 @@ final class MessageListScrollState {
         isThrottled = false
         bodyEvalTimestamps.removeAll()
         if _hideScrollIndicators { _hideScrollIndicators = false }
+        pendingPushToTopTarget = nil
         if _isPaginationInFlight { _isPaginationInFlight = false }
+        cachedDerivedStateBox = nil
+        lastPaginationCompletedAt = .distantPast
         syncUIImmediately()
     }
 }

@@ -41,6 +41,7 @@ function makeRow(overrides: Partial<OAuthProviderRow> = {}): OAuthProviderRow {
     identityResponsePaths: null,
     identityFormat: null,
     identityOkField: null,
+    featureFlag: null,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -191,6 +192,7 @@ describe("serializeProviderSummary", () => {
       client_id_placeholder: "your-client-id.apps.googleusercontent.com",
       requires_client_secret: true,
       supports_managed_mode: true,
+      feature_flag: null,
     });
   });
 

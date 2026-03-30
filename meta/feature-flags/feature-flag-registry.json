@@ -362,6 +362,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "outlook-oauth-integration",
+      "scope": "assistant",
+      "key": "outlook-oauth-integration",
+      "label": "Outlook / Microsoft Integration",
+      "description": "Enable the Outlook / Microsoft OAuth provider for connecting to Microsoft Graph APIs (email, calendar)",
+      "defaultEnabled": false
+    },
+    {
       "id": "conversation-groups-ui",
       "scope": "assistant",
       "key": "conversation-groups-ui",

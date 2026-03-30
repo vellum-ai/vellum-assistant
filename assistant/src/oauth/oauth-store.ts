@@ -48,7 +48,7 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
  * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
- * identityResponsePaths, identityFormat, identityOkField)
+ * identityResponsePaths, identityFormat, identityOkField, featureFlag)
  * and display metadata (displayName, description, dashboardUrl,
  * clientIdPlaceholder, requiresClientSecret) propagate to existing
  * installations on every startup, while user-customizable fields
@@ -95,6 +95,7 @@ export function seedProviders(
     identityResponsePaths?: string[];
     identityFormat?: string;
     identityOkField?: string;
+    featureFlag?: string;
   }>,
 ): void {
   const db = getDb();
@@ -138,6 +139,7 @@ export function seedProviders(
       : null;
     const identityFormat = p.identityFormat ?? null;
     const identityOkField = p.identityOkField ?? null;
+    const featureFlag = p.featureFlag ?? null;
 
     db.insert(oauthProviders)
       .values({
@@ -172,6 +174,7 @@ export function seedProviders(
         identityResponsePaths,
         identityFormat,
         identityOkField,
+        featureFlag,
         createdAt: now,
         updatedAt: now,
       })
@@ -206,6 +209,7 @@ export function seedProviders(
           identityResponsePaths,
           identityFormat,
           identityOkField,
+          featureFlag,
           updatedAt: now,
         },
       })
@@ -270,6 +274,7 @@ export function registerProvider(params: {
   identityResponsePaths?: string[];
   identityFormat?: string;
   identityOkField?: string;
+  featureFlag?: string;
 }): OAuthProviderRow {
   const db = getDb();
   const now = Date.now();
@@ -321,6 +326,7 @@ export function registerProvider(params: {
       : null,
     identityFormat: params.identityFormat ?? null,
     identityOkField: params.identityOkField ?? null,
+    featureFlag: params.featureFlag ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -376,6 +382,7 @@ export function updateProvider(
     identityResponsePaths: string[];
     identityFormat: string;
     identityOkField: string;
+    featureFlag: string;
   }>,
 ): OAuthProviderRow | undefined {
   const existing = getProvider(providerKey);
@@ -430,6 +437,7 @@ export function updateProvider(
     set.identityFormat = params.identityFormat;
   if (params.identityOkField !== undefined)
     set.identityOkField = params.identityOkField;
+  if (params.featureFlag !== undefined) set.featureFlag = params.featureFlag;
 
   db.update(oauthProviders)
     .set(set)

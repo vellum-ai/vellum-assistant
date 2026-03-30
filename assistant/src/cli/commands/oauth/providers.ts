@@ -15,6 +15,7 @@ import {
   updateProvider,
 } from "../../../oauth/oauth-store.js";
 import { serializeProvider } from "../../../oauth/provider-serializer.js";
+import { isProviderVisible } from "../../../oauth/provider-visibility.js";
 import { SEEDED_PROVIDER_KEYS } from "../../../oauth/seed-providers.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
@@ -123,7 +124,12 @@ Examples:
         cmd: Command,
       ) => {
         try {
-          let rows = listProviders().map(parseProviderRow);
+          const config = loadConfig();
+          let allProviders = listProviders();
+          allProviders = allProviders.filter((r) =>
+            isProviderVisible(r, config),
+          );
+          let rows = allProviders.map(parseProviderRow);
 
           if (opts.providerKey) {
             const needles = opts.providerKey
@@ -183,6 +189,15 @@ Examples:
         const row = getProvider(providerKey);
 
         if (!row) {
+          writeOutput(cmd, {
+            ok: false,
+            error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers. To register a custom provider, run 'assistant oauth providers register --help'.`,
+          });
+          process.exitCode = 1;
+          return;
+        }
+
+        if (!isProviderVisible(row, loadConfig())) {
           writeOutput(cmd, {
             ok: false,
             error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers. To register a custom provider, run 'assistant oauth providers register --help'.`,
@@ -622,6 +637,15 @@ Examples:
             return;
           }
 
+          if (!isProviderVisible(existing, loadConfig())) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `Provider "${providerKey}" not found. Run 'assistant oauth providers list' to see all registered providers.`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+
           // Block updates to built-in providers
           if (SEEDED_PROVIDER_KEYS.has(providerKey)) {
             writeOutput(cmd, {
@@ -753,6 +777,15 @@ Examples:
         try {
           const provider = getProvider(providerKey);
           if (!provider) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers.`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          if (!isProviderVisible(provider, loadConfig())) {
             writeOutput(cmd, {
               ok: false,
               error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers.`,
