@@ -638,132 +638,139 @@ struct MessageListView: View {
         }
     }
 
+    /// The scroll view content extracted into its own `@ViewBuilder` to keep
+    /// each view builder block small enough for the Swift type checker.
+    @ViewBuilder
+    private var scrollViewContent: some View {
+        LazyVStack(alignment: .leading, spacing: VSpacing.md) {
+            // MARK: - Pagination sentinel
+
+            if isLoadingMoreMessages {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                        .controlSize(.small)
+                    Spacer()
+                }
+                .padding(.vertical, VSpacing.sm)
+                .id("page-loading-indicator")
+            }
+
+            let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
+            let _ = scrollState.uiVersion
+            let state = derivedState
+            let catalogHash = MessageCellView.hashCatalog(providerCatalog)
+            ForEach(state.displayMessageIds, id: \.self) { messageId in
+                if let message = state.displayMessageById[messageId] {
+                    let index = state.messageIndexById[messageId] ?? 0
+                    MessageCellView(
+                        message: message,
+                        index: index,
+                        showTimestamp: state.showTimestamp.contains(messageId),
+                        nextDecidedConfirmation: state.nextDecidedConfirmationByIndex[index],
+                        isConfirmationRenderedInline: state.isConfirmationRenderedInlineByIndex.contains(index),
+                        hasPrecedingAssistant: state.hasPrecedingAssistantByIndex.contains(index),
+                        hasUserMessage: state.hasUserMessage,
+                        activePendingRequestId: state.activePendingRequestId,
+                        latestAssistantId: state.latestAssistantId,
+                        anchoredThinkingIndex: state.anchoredThinkingIndex,
+                        subagentsByParent: state.subagentsByParent,
+                        canInlineProcessing: state.canInlineProcessing,
+                        shouldShowThinkingIndicator: state.shouldShowThinkingIndicator,
+                        assistantStatusText: state.effectiveStatusText,
+                        dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
+                        activeSurfaceId: taskProgressManager.activeSurfaceId,
+                        isHighlighted: highlightedMessageId == messageId,
+                        mediaEmbedSettings: mediaEmbedSettings,
+                        onConfirmationAllow: onConfirmationAllow,
+                        onConfirmationDeny: onConfirmationDeny,
+                        onAlwaysAllow: onAlwaysAllow,
+                        onTemporaryAllow: onTemporaryAllow,
+                        onGuardianAction: onGuardianAction,
+                        onSurfaceAction: onSurfaceAction,
+                        onDismissDocumentWidget: onDismissDocumentWidget,
+                        onForkFromMessage: forkFromMessageAction,
+                        showInspectButton: showInspectButton,
+                        isTTSEnabled: isTTSEnabled,
+                        onInspectMessage: onInspectMessage,
+                        onRehydrateMessage: onRehydrateMessage,
+                        onSurfaceRefetch: onSurfaceRefetch,
+                        onRetryFailedMessage: onRetryFailedMessage,
+                        onRetryConversationError: onRetryConversationError,
+                        onAbortSubagent: onAbortSubagent,
+                        onSubagentTap: onSubagentTap,
+                        subagentDetailStore: subagentDetailStore,
+                        selectedModel: selectedModel,
+                        configuredProviders: configuredProviders,
+                        providerCatalog: providerCatalog,
+                        providerCatalogHash: catalogHash
+                    )
+                    .equatable()
+                }
+            }
+
+            ForEach(state.orphanSubagents) { subagent in
+                SubagentEventsReader(
+                    store: subagentDetailStore,
+                    subagent: subagent,
+                    onAbort: { onAbortSubagent?(subagent.id) },
+                    onTap: { onSubagentTap?(subagent.id) }
+                )
+                    .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
+                    .id("subagent-\(subagent.id)")
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+
+            if state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == nil {
+                if isCompacting {
+                    compactingIndicatorRow()
+                } else {
+                    thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
+                }
+                // Show avatar below thinking indicator so it moves
+                // immediately when the user sends a message.
+                thinkingAvatarRow
+            } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
+                compactingIndicatorRow()
+            }
+
+
+            Color.clear.frame(height: 1)
+                .id("scroll-bottom-anchor")
+                .onAppear {
+                    // Only auto-tether on initial load (before any scroll events).
+                    // After the user has scrolled, rely on onScrollPhaseChange and
+                    // onScrollGeometryChange tracking to manage mode —
+                    // LazyVStack fires onAppear in the prefetch zone (several screens
+                    // ahead) which would prematurely re-tether during normal scrolling.
+                    if !scrollState.hasBeenInteracted {
+                        scrollState.handleReachedBottom()
+                    }
+                }
+
+            // Viewport-height spacer that allows the last message
+            // to scroll to the top during push-to-top.
+            if scrollState.showTailSpacer {
+                Color.clear
+                    .frame(height: scrollState.tailSpacerHeight)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .disabled(!isInteractionEnabled)
+        .padding(.horizontal, VSpacing.xl)
+        .padding(.top, VSpacing.md)
+        .padding(.bottom, VSpacing.md)
+        .frame(maxWidth: VSpacing.chatColumnMaxWidth)
+        .frame(maxWidth: .infinity)
+    }
+
     var body: some View {
         #if DEBUG
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "MessageListView.body")
         #endif
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: VSpacing.md) {
-                    // MARK: - Pagination sentinel
-
-                    if isLoadingMoreMessages {
-                        HStack {
-                            Spacer()
-                            ProgressView()
-                                .controlSize(.small)
-                            Spacer()
-                        }
-                        .padding(.vertical, VSpacing.sm)
-                        .id("page-loading-indicator")
-                    }
-
-                    let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
-                    let _ = scrollState.uiVersion
-                    let state = derivedState
-                    let catalogHash = MessageCellView.hashCatalog(providerCatalog)
-                    ForEach(state.displayMessageIds, id: \.self) { messageId in
-                        if let message = state.displayMessageById[messageId] {
-                            let index = state.messageIndexById[messageId] ?? 0
-                            MessageCellView(
-                                message: message,
-                                index: index,
-                                showTimestamp: state.showTimestamp.contains(messageId),
-                                nextDecidedConfirmation: state.nextDecidedConfirmationByIndex[index],
-                                isConfirmationRenderedInline: state.isConfirmationRenderedInlineByIndex.contains(index),
-                                hasPrecedingAssistant: state.hasPrecedingAssistantByIndex.contains(index),
-                                hasUserMessage: state.hasUserMessage,
-                                activePendingRequestId: state.activePendingRequestId,
-                                latestAssistantId: state.latestAssistantId,
-                                anchoredThinkingIndex: state.anchoredThinkingIndex,
-                                subagentsByParent: state.subagentsByParent,
-                                canInlineProcessing: state.canInlineProcessing,
-                                shouldShowThinkingIndicator: state.shouldShowThinkingIndicator,
-                                assistantStatusText: state.effectiveStatusText,
-                                dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
-                                activeSurfaceId: taskProgressManager.activeSurfaceId,
-                                isHighlighted: highlightedMessageId == messageId,
-                                mediaEmbedSettings: mediaEmbedSettings,
-                                onConfirmationAllow: onConfirmationAllow,
-                                onConfirmationDeny: onConfirmationDeny,
-                                onAlwaysAllow: onAlwaysAllow,
-                                onTemporaryAllow: onTemporaryAllow,
-                                onGuardianAction: onGuardianAction,
-                                onSurfaceAction: onSurfaceAction,
-                                onDismissDocumentWidget: onDismissDocumentWidget,
-                                onForkFromMessage: forkFromMessageAction,
-                                showInspectButton: showInspectButton,
-                                isTTSEnabled: isTTSEnabled,
-                                onInspectMessage: onInspectMessage,
-                                onRehydrateMessage: onRehydrateMessage,
-                                onSurfaceRefetch: onSurfaceRefetch,
-                                onRetryFailedMessage: onRetryFailedMessage,
-                                onRetryConversationError: onRetryConversationError,
-                                onAbortSubagent: onAbortSubagent,
-                                onSubagentTap: onSubagentTap,
-                                subagentDetailStore: subagentDetailStore,
-                                selectedModel: selectedModel,
-                                configuredProviders: configuredProviders,
-                                providerCatalog: providerCatalog,
-                                providerCatalogHash: catalogHash
-                            )
-                            .equatable()
-                        }
-                    }
-
-                    ForEach(state.orphanSubagents) { subagent in
-                        SubagentEventsReader(
-                            store: subagentDetailStore,
-                            subagent: subagent,
-                            onAbort: { onAbortSubagent?(subagent.id) },
-                            onTap: { onSubagentTap?(subagent.id) }
-                        )
-                            .frame(maxWidth: VSpacing.chatBubbleMaxWidth, alignment: .leading)
-                            .id("subagent-\(subagent.id)")
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
-                    }
-
-                    if state.shouldShowThinkingIndicator && state.anchoredThinkingIndex == nil {
-                        if isCompacting {
-                            compactingIndicatorRow()
-                        } else {
-                            thinkingIndicatorRow(hasUserMessage: state.hasUserMessage)
-                        }
-                        // Show avatar below thinking indicator so it moves
-                        // immediately when the user sends a message.
-                        thinkingAvatarRow
-                    } else if isCompacting && !state.shouldShowThinkingIndicator && !state.canInlineProcessing {
-                        compactingIndicatorRow()
-                    }
-
-
-                    Color.clear.frame(height: 1)
-                        .id("scroll-bottom-anchor")
-                        .onAppear {
-                            // Only auto-tether on initial load (before any scroll events).
-                            // After the user has scrolled, rely on onScrollPhaseChange and
-                            // onScrollGeometryChange tracking to manage mode —
-                            // LazyVStack fires onAppear in the prefetch zone (several screens
-                            // ahead) which would prematurely re-tether during normal scrolling.
-                            if !scrollState.hasBeenInteracted {
-                                scrollState.handleReachedBottom()
-                            }
-                        }
-
-                    // Viewport-height spacer that allows the last message
-                    // to scroll to the top during push-to-top.
-                    if scrollState.showTailSpacer {
-                        Color.clear
-                            .frame(height: scrollState.tailSpacerHeight)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                    }
-                }
-                .disabled(!isInteractionEnabled)
-                .padding(.horizontal, VSpacing.xl)
-                .padding(.top, VSpacing.md)
-                .padding(.bottom, VSpacing.md)
-                .frame(maxWidth: VSpacing.chatColumnMaxWidth)
-                .frame(maxWidth: .infinity)
+                scrollViewContent
             }
             .scrollContentBackground(.hidden)
             .coordinateSpace(name: "chatScrollView")
