@@ -19,7 +19,12 @@ export interface CapturedQuery {
 }
 
 function getCapturedQueriesPath(): string {
-  return join(process.env.VELLUM_WORKSPACE_DIR!, "data", "doordash", "captured-queries.json");
+  return join(
+    process.env.VELLUM_WORKSPACE_DIR!,
+    "data",
+    "doordash",
+    "captured-queries.json",
+  );
 }
 
 /**
