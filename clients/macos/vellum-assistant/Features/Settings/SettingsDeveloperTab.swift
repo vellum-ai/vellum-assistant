@@ -709,14 +709,110 @@ struct SettingsDeveloperTab: View {
 
     // MARK: - SSH Terminal
 
+    /// `true` while either a maintenance-enter or maintenance-exit request is in flight.
+    private var maintenanceTransitionInFlight: Bool {
+        store.maintenanceModeEntering || store.maintenanceModeExiting
+    }
+
     private var sshTerminalSection: some View {
         SettingsCard(
             title: "SSH Terminal",
-            subtitle: "Open a terminal session to the assistant's host machine."
+            subtitle: "Maintenance mode pauses the normal assistant pod and routes terminal sessions into the mounted debug pod, giving you direct access to the assistant's workspace PVC."
         ) {
-            VButton(label: "Open Terminal", style: .outlined) {
-                openTerminalWindow()
+            // Maintenance mode status row
+            maintenanceModeStatusRow
+
+            SettingsDivider()
+
+            // Maintenance mode action buttons
+            HStack(spacing: VSpacing.sm) {
+                if store.managedAssistantMaintenanceMode?.enabled == true {
+                    VButton(
+                        label: "Resume Assistant",
+                        style: .outlined,
+                        isDisabled: maintenanceTransitionInFlight
+                    ) {
+                        store.exitManagedAssistantMaintenanceMode()
+                    }
+                    .accessibilityLabel("Resume Assistant")
+                } else {
+                    VButton(
+                        label: "Enter Maintenance Mode",
+                        style: .outlined,
+                        isDisabled: maintenanceTransitionInFlight
+                    ) {
+                        store.enterManagedAssistantMaintenanceMode()
+                    }
+                    .accessibilityLabel("Enter Maintenance Mode")
+                }
+
+                VButton(label: "Open Terminal", style: .primary) {
+                    openTerminalWindow()
+                }
+                .accessibilityLabel("Open Terminal")
             }
+
+            // Show inline error messages if a maintenance operation fails.
+            if let enterError = store.maintenanceModeEnterError {
+                Text(enterError)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.systemNegativeStrong)
+            }
+            if let exitError = store.maintenanceModeExitError {
+                Text(exitError)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.systemNegativeStrong)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var maintenanceModeStatusRow: some View {
+        if store.maintenanceModeRefreshing {
+            HStack(spacing: VSpacing.sm) {
+                ProgressView()
+                    .controlSize(.mini)
+                    .progressViewStyle(.circular)
+                Text("Loading maintenance status…")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+        } else if let maintenance = store.managedAssistantMaintenanceMode {
+            if maintenance.enabled {
+                VStack(alignment: .leading, spacing: VSpacing.xs) {
+                    HStack(spacing: VSpacing.xs) {
+                        Circle()
+                            .fill(VColor.systemMidStrong)
+                            .frame(width: 8, height: 8)
+                            .accessibilityHidden(true)
+                        Text("Maintenance mode active")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(VColor.contentDefault)
+                            .accessibilityValue("Maintenance mode active")
+                    }
+                    if let podName = maintenance.debug_pod_name {
+                        Text("Debug pod: \(podName)")
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(VColor.contentTertiary)
+                            .textSelection(.enabled)
+                    }
+                }
+            } else {
+                HStack(spacing: VSpacing.xs) {
+                    Circle()
+                        .fill(VColor.systemPositiveStrong)
+                        .frame(width: 8, height: 8)
+                        .accessibilityHidden(true)
+                    Text("Assistant running normally")
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentDefault)
+                        .accessibilityValue("Assistant running normally")
+                }
+            }
+        } else {
+            Text("Maintenance status unavailable")
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentTertiary)
         }
     }
 
