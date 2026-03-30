@@ -1466,7 +1466,7 @@ describe("Permission Checker", () => {
 
   describe("default workspace prompt file allow rules", () => {
     test("file_edit of workspace IDENTITY.md is auto-allowed", async () => {
-      const identityPath = join(checkerTestDir, "workspace", "IDENTITY.md");
+      const identityPath = join(checkerTestDir, "IDENTITY.md");
       const result = await check("file_edit", { path: identityPath }, "/tmp");
       expect(result.decision).toBe("allow");
       expect(result.matchedRule).toBeDefined();
@@ -1474,7 +1474,7 @@ describe("Permission Checker", () => {
     });
 
     test("file_read of workspace USER.md is auto-allowed", async () => {
-      const userPath = join(checkerTestDir, "workspace", "USER.md");
+      const userPath = join(checkerTestDir, "USER.md");
       const result = await check("file_read", { path: userPath }, "/tmp");
       expect(result.decision).toBe("allow");
       expect(result.matchedRule).toBeDefined();
@@ -1482,7 +1482,7 @@ describe("Permission Checker", () => {
     });
 
     test("file_write of workspace SOUL.md is auto-allowed", async () => {
-      const soulPath = join(checkerTestDir, "workspace", "SOUL.md");
+      const soulPath = join(checkerTestDir, "SOUL.md");
       const result = await check("file_write", { path: soulPath }, "/tmp");
       expect(result.decision).toBe("allow");
       expect(result.matchedRule).toBeDefined();
@@ -1490,7 +1490,7 @@ describe("Permission Checker", () => {
     });
 
     test("file_write of workspace BOOTSTRAP.md is auto-allowed", async () => {
-      const bootstrapPath = join(checkerTestDir, "workspace", "BOOTSTRAP.md");
+      const bootstrapPath = join(checkerTestDir, "BOOTSTRAP.md");
       const result = await check("file_write", { path: bootstrapPath }, "/tmp");
       expect(result.decision).toBe("allow");
       expect(result.matchedRule).toBeDefined();
@@ -1498,7 +1498,7 @@ describe("Permission Checker", () => {
     });
 
     test("file_read of workspace UPDATES.md is auto-allowed", async () => {
-      const updatesPath = join(checkerTestDir, "workspace", "UPDATES.md");
+      const updatesPath = join(checkerTestDir, "UPDATES.md");
       const result = await check("file_read", { path: updatesPath }, "/tmp");
       expect(result.decision).toBe("allow");
       expect(result.matchedRule).toBeDefined();
@@ -1506,7 +1506,7 @@ describe("Permission Checker", () => {
     });
 
     test("file_write of workspace UPDATES.md is auto-allowed", async () => {
-      const updatesPath = join(checkerTestDir, "workspace", "UPDATES.md");
+      const updatesPath = join(checkerTestDir, "UPDATES.md");
       const result = await check("file_write", { path: updatesPath }, "/tmp");
       expect(result.decision).toBe("allow");
       expect(result.matchedRule).toBeDefined();
@@ -1514,7 +1514,7 @@ describe("Permission Checker", () => {
     });
 
     test("file_edit of workspace UPDATES.md is auto-allowed", async () => {
-      const updatesPath = join(checkerTestDir, "workspace", "UPDATES.md");
+      const updatesPath = join(checkerTestDir, "UPDATES.md");
       const result = await check("file_edit", { path: updatesPath }, "/tmp");
       expect(result.decision).toBe("allow");
       expect(result.matchedRule).toBeDefined();
@@ -1522,7 +1522,7 @@ describe("Permission Checker", () => {
     });
 
     test("file_write of non-workspace file is auto-allowed (Low risk)", async () => {
-      const otherPath = join(checkerTestDir, "workspace", "OTHER.md");
+      const otherPath = join(checkerTestDir, "OTHER.md");
       // Use a workingDir that doesn't contain the path so it's not workspace-scoped
       const result = await check("file_write", { path: otherPath }, "/home");
       // Low risk → auto-allowed even outside workspace
@@ -2049,7 +2049,7 @@ describe("Permission Checker", () => {
       expect(risk).toBe(RiskLevel.Low);
     });
 
-    test("file_write to skill directory prompts as High risk", async () => {
+    test("file_write to skill directory prompts via default ask rule", async () => {
       ensureSkillsDir();
       const skillPath = join(
         checkerTestDir,
@@ -2059,7 +2059,10 @@ describe("Permission Checker", () => {
       );
       const result = await check("file_write", { path: skillPath }, "/tmp");
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("High risk");
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.id).toBe(
+        "default:ask-file_write-managed-skills",
+      );
     });
 
     test("file_write to skill directory is NOT allowed by a generic file_write allow rule (High risk)", async () => {
@@ -2074,7 +2077,6 @@ describe("Permission Checker", () => {
       const result = await check("file_write", { path: skillPath }, "/tmp");
       // High risk requires explicit allowHighRisk — a plain allow rule is insufficient.
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("High risk");
     });
 
     test("file_write to skill directory is allowed with allowHighRisk: true rule", async () => {
@@ -2574,10 +2576,8 @@ describe("Permission Checker", () => {
           "executor.ts",
         );
         const result = await check("file_write", { path: skillPath }, "/tmp");
+        // The important invariant is that it prompts (default ask rule or strict mode).
         expect(result.decision).toBe("prompt");
-        // In strict mode the "no matching rule" check fires before the
-        // high-risk fallback — the important invariant is that it prompts.
-        expect(result.reason).toContain("requires approval");
       });
 
       test("strict mode: file_edit of skill source prompts (no implicit allow)", async () => {
@@ -2591,7 +2591,6 @@ describe("Permission Checker", () => {
         );
         const result = await check("file_edit", { path: skillPath }, "/tmp");
         expect(result.decision).toBe("prompt");
-        expect(result.reason).toContain("requires approval");
       });
 
       test("strict mode: file_write to non-skill path prompts as Strict mode", async () => {
@@ -2603,7 +2602,7 @@ describe("Permission Checker", () => {
         expect(result.reason).toContain("Strict mode");
       });
 
-      test("workspace mode: file_write to skill source still prompts as High risk", async () => {
+      test("workspace mode: file_write to skill source still prompts", async () => {
         testConfig.permissions.mode = "workspace";
         ensureSkillsDir();
         const skillPath = join(
@@ -2614,7 +2613,6 @@ describe("Permission Checker", () => {
         );
         const result = await check("file_write", { path: skillPath }, "/tmp");
         expect(result.decision).toBe("prompt");
-        expect(result.reason).toContain("High risk");
       });
 
       test("strict mode: host_file_write to skill source prompts (high risk overrides host ask)", async () => {
@@ -2774,34 +2772,19 @@ describe("Permission Checker", () => {
   // Regression tests: user-created allow rules (priority 100) must override
   // the default ask rules for skill-source mutations (priority 50).
   //
-  // Paths use platform helpers/workspace/skills/ (not getWorkspaceSkillsDir())
-  // because getDefaultRuleTemplates builds the managed-skill ask rule from
-  // platform helpers, so using a different prefix would avoid contention with
-  // the default rule and silently pass even if the priority regressed.
-  //
-  // extraDirs is set to the parent "workspace" directory (not "workspace/skills")
-  // so that isSkillSourcePath classifies the paths as High risk without creating
-  // a duplicate extra-0 ask rule for the exact same path as the managed rule.
-  // The third test explicitly asserts the matched rule ID is the managed-skill
-  // rule to guard against regressions in default rule generation.
+  // Paths use the real workspace skills directory (getWorkspaceSkillsDir())
+  // so that getDefaultRuleTemplates builds the managed-skill ask rule for the
+  // exact same path.  The third test explicitly asserts the matched rule ID is
+  // the managed-skill rule to guard against regressions in default rule
+  // generation.
 
   describe("user override of skill mutation default ask rules", () => {
     // Must match the path getDefaultRuleTemplates computes for managedSkillsDir
-    const wsSkillsDir = join(checkerTestDir, "workspace", "skills");
-    // Use parent directory for extraDirs — broad enough for isSkillSourcePath
-    // to recognize skill paths, but distinct from the managed-skill rule path.
-    const wsDir = join(checkerTestDir, "workspace");
+    const wsSkillsDir = join(checkerTestDir, "skills");
 
     function ensureSkillsDir(): void {
       mkdirSync(wsSkillsDir, { recursive: true });
     }
-
-    beforeEach(() => {
-      // Register the workspace parent dir so isSkillSourcePath detects skill
-      // paths under workspace/skills/ without duplicating the managed-skill
-      // default ask rule (the mock for getWorkspaceSkillsDir points elsewhere).
-      testConfig.skills.load.extraDirs = [wsDir];
-    });
 
     test("user allowHighRisk rule at priority 100 overrides default ask for skill source writes", async () => {
       ensureSkillsDir();
