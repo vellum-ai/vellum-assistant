@@ -264,7 +264,7 @@ public final class EventStreamClient {
                         self.broadcastMessage(.conversationError(ConversationErrorMessage(
                             conversationId: "",
                             code: .providerBilling,
-                            userMessage: "Your balance has run out. Add funds to continue using the assistant.",
+                            userMessage: "Your balance appears depleted. If you recently added funds, it may take a minute to update.",
                             retryable: false,
                             errorCategory: "credits_exhausted"
                         )))

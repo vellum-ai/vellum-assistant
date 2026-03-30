@@ -133,7 +133,7 @@ public struct MessageClient: MessageClientProtocol {
                 return .error(statusCode: 422, message: "Failed to send message (HTTP 422)", failedMessageContent: content)
             } else if response.statusCode == 402 {
                 let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any]
-                let detail = (json?["detail"] as? String) ?? "Insufficient balance. Please add funds to continue."
+                let detail = (json?["detail"] as? String) ?? "Your balance appears depleted. If you recently added funds, wait a minute and retry."
                 log.warning("Send message blocked by billing guard (402)")
                 return .insufficientBalance(detail: detail, failedMessageContent: content)
             } else {
