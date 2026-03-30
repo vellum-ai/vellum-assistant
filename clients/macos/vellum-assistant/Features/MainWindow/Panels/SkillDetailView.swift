@@ -78,24 +78,40 @@ struct SkillDetailView: View {
 
     @ViewBuilder
     private var skillDetailFileBrowser: some View {
-        VFileBrowser(
-            files: browserFiles,
-            selectedPath: $expandedFilePath
-        ) { selectedFile in
-            if let selectedFile,
-               let content = selectedFile.content {
-                FileContentView(
-                    fileName: selectedFile.path,
-                    mimeType: selectedFile.mimeType,
-                    content: .constant(content),
-                    viewMode: $skillFileViewMode,
-                    isActivelyEditing: .constant(false)
-                )
-            } else {
-                VEmptyState(
-                    title: hasViewableFiles ? "Select a file to view" : "No viewable files",
-                    icon: VIcon.fileText.rawValue
-                )
+        if skillsManager.isLoadingSkillFiles {
+            VEmptyState(
+                title: "Loading files...",
+                icon: VIcon.fileText.rawValue
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay { ProgressView().controlSize(.small) }
+        } else if let error = skillsManager.skillFilesError {
+            VEmptyState(
+                title: "Failed to load files",
+                subtitle: error,
+                icon: VIcon.circleAlert.rawValue
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            VFileBrowser(
+                files: browserFiles,
+                selectedPath: $expandedFilePath
+            ) { selectedFile in
+                if let selectedFile,
+                   let content = selectedFile.content {
+                    FileContentView(
+                        fileName: selectedFile.path,
+                        mimeType: selectedFile.mimeType,
+                        content: .constant(content),
+                        viewMode: $skillFileViewMode,
+                        isActivelyEditing: .constant(false)
+                    )
+                } else {
+                    VEmptyState(
+                        title: hasViewableFiles ? "Select a file to view" : "No viewable files",
+                        icon: VIcon.fileText.rawValue
+                    )
+                }
             }
         }
     }
