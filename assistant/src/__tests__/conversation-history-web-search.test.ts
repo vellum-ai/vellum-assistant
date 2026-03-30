@@ -508,22 +508,25 @@ describe("ensureToolPairing with server_tool_use / web_search_tool_result", () =
     default: class MockAnthropic {
       static APIError = FakeAPIError;
       constructor(_args: Record<string, unknown>) {}
-      messages = {
-        stream: (
-          params: Record<string, unknown>,
-          _options?: Record<string, unknown>,
-        ) => {
-          lastStreamParams = JSON.parse(JSON.stringify(params));
-          const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
-          return {
-            on(event: string, cb: (...args: unknown[]) => void) {
-              (handlers[event] ??= []).push(cb);
-              return this;
-            },
-            async finalMessage() {
-              return fakeResponse;
-            },
-          };
+      beta = {
+        messages: {
+          stream: (
+            params: Record<string, unknown>,
+            _options?: Record<string, unknown>,
+          ) => {
+            lastStreamParams = JSON.parse(JSON.stringify(params));
+            const handlers: Record<string, ((...args: unknown[]) => void)[]> =
+              {};
+            return {
+              on(event: string, cb: (...args: unknown[]) => void) {
+                (handlers[event] ??= []).push(cb);
+                return this;
+              },
+              async finalMessage() {
+                return fakeResponse;
+              },
+            };
+          },
         },
       };
     },
