@@ -149,8 +149,6 @@ extension MainWindowView {
     var conversationSwitcherDrawerLayer: some View {
         if showConversationSwitcher {
             ConversationSwitcherDrawer(
-                regularConversations: regularConversations,
-                activeConversationId: conversationManager.activeConversationId,
                 conversationManager: conversationManager,
                 windowState: windowState,
                 sidebar: sidebar,
