@@ -22,6 +22,7 @@ export interface SkillCapabilityInput {
   displayName: string;
   description: string;
   activationHints?: string[];
+  avoidWhen?: string[];
 }
 
 /**
@@ -34,6 +35,7 @@ export function fromSkillSummary(entry: SkillSummary): SkillCapabilityInput {
     displayName: entry.displayName,
     description: entry.description,
     activationHints: entry.activationHints,
+    avoidWhen: entry.avoidWhen,
   };
 }
 
@@ -42,11 +44,14 @@ export function fromSkillSummary(entry: SkillSummary): SkillCapabilityInput {
  * Truncated to 500 chars max (matching the limit used by memory item extraction).
  */
 export function buildCapabilityStatement(input: SkillCapabilityInput): string {
-  const { displayName, activationHints } = input;
+  const { displayName, activationHints, avoidWhen } = input;
 
   let statement = `The "${displayName}" skill (${input.id}) is available. ${input.description}.`;
   if (activationHints && activationHints.length > 0) {
     statement += ` Use when: ${activationHints.join("; ")}.`;
+  }
+  if (avoidWhen && avoidWhen.length > 0) {
+    statement += ` Avoid when: ${avoidWhen.join("; ")}.`;
   }
 
   // Truncate to 500 chars max
