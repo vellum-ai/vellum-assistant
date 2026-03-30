@@ -1,8 +1,13 @@
 import Foundation
 
 /// Shared credential refresher. Calls POST /v1/guardian/refresh
-/// through the gateway via `GatewayHTTPClient`, updates credential storage via
-/// ActorTokenManager, and handles terminal errors that require re-pairing.
+/// through the gateway via `GatewayHTTPClient.postDirect`, updates credential
+/// storage via ActorTokenManager, and handles terminal errors that require
+/// re-pairing.
+///
+/// **Important:** Uses `postDirect` (not `post`) to bypass the 401 retry
+/// interceptor. Routing through `post` → `executeWithRetry` would cause
+/// recursive refresh attempts when the refresh endpoint itself returns 401.
 public class ActorCredentialRefresher {
 
     public enum RefreshResult {
@@ -29,7 +34,7 @@ public class ActorCredentialRefresher {
         let body: [String: Any] = ["refreshToken": refreshToken, "platform": platform, "deviceId": deviceId]
 
         do {
-            let response = try await GatewayHTTPClient.post(
+            let response = try await GatewayHTTPClient.postDirect(
                 path: "guardian/refresh",
                 json: body,
                 timeout: 15
