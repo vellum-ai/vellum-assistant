@@ -60,11 +60,18 @@ jobs:
           git config user.name "vellum-automation[bot]"
           git config user.email "192048195+vellum-automation[bot]@users.noreply.github.com"
 
-          CHERRY_PICK_BRANCH="cherry-pick/pr-${PR_NUMBER}-to-${RELEASE_BRANCH}"
+          # Use a deterministic branch name based only on the release branch
+          # so that multiple cherry-picks accumulate on a single branch.
+          CHERRY_PICK_BRANCH="cherry-pick/${RELEASE_BRANCH}"
 
-          # Create the cherry-pick branch from the release branch
-          git checkout "$RELEASE_BRANCH"
-          git checkout -b "$CHERRY_PICK_BRANCH"
+          # Reuse the cherry-pick branch if it already exists, otherwise create it
+          if git ls-remote --exit-code origin "$CHERRY_PICK_BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$CHERRY_PICK_BRANCH"
+            git checkout "$CHERRY_PICK_BRANCH"
+          else
+            git checkout "$RELEASE_BRANCH"
+            git checkout -b "$CHERRY_PICK_BRANCH"
+          fi
 
           # Detect whether the merge commit has multiple parents (true merge)
           # or a single parent (squash merge). Only pass -m 1 for true merges.
@@ -77,13 +84,19 @@ jobs:
           if git cherry-pick $CHERRY_PICK_ARGS "$MERGE_SHA"; then
             git push origin "$CHERRY_PICK_BRANCH"
 
-            PR_URL=$(gh pr create \
-              --title "Cherry-pick #${PR_NUMBER} to ${RELEASE_BRANCH}: ${PR_TITLE}" \
-              --body "Cherry-pick of #${PR_NUMBER} onto \`${RELEASE_BRANCH}\`." \
-              --base "$RELEASE_BRANCH" \
-              --head "$CHERRY_PICK_BRANCH")
+            # Create a PR only if one doesn't already exist for this branch
+            EXISTING_PR=$(gh pr list --head "$CHERRY_PICK_BRANCH" --base "$RELEASE_BRANCH" --json number --jq '.[0].number // empty')
+            if [ -n "$EXISTING_PR" ]; then
+              echo "Cherry-pick pushed to existing PR #${EXISTING_PR}"
+            else
+              PR_URL=$(gh pr create \
+                --title "Cherry-picks for ${RELEASE_BRANCH}" \
+                --body "Automated cherry-picks onto \`${RELEASE_BRANCH}\`." \
+                --base "$RELEASE_BRANCH" \
+                --head "$CHERRY_PICK_BRANCH")
 
-            echo "Created cherry-pick PR: $PR_URL"
+              echo "Created cherry-pick PR: $PR_URL"
+            fi
           else
             # Cherry-pick failed — abort and notify on the original PR
             git cherry-pick --abort
@@ -92,7 +105,7 @@ jobs:
             BODY="${BODY}"$'\n\n'"To resolve manually:"
             BODY="${BODY}"$'\n'"\`\`\`bash"
             BODY="${BODY}"$'\n'"git fetch origin"
-            BODY="${BODY}"$'\n'"git checkout -b ${CHERRY_PICK_BRANCH} origin/${RELEASE_BRANCH}"
+            BODY="${BODY}"$'\n'"git checkout ${CHERRY_PICK_BRANCH} 2>/dev/null || git checkout -b ${CHERRY_PICK_BRANCH} origin/${RELEASE_BRANCH}"
             BODY="${BODY}"$'\n'"git cherry-pick ${CHERRY_PICK_ARGS} ${MERGE_SHA}"
             BODY="${BODY}"$'\n'"# resolve conflicts, then:"
             BODY="${BODY}"$'\n'"git push origin ${CHERRY_PICK_BRANCH}"
