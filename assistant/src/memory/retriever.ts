@@ -242,6 +242,8 @@ interface HyDESearchResult {
   candidates: Candidate[];
   hydeExpanded: boolean;
   hydeDocCount: number;
+  /** Whether any HyDE doc produced a sparse vector with non-empty indices */
+  hydeSparseUsed: boolean;
 }
 
 /**
@@ -294,6 +296,7 @@ async function runHyDESearch(
       candidates: rawResults,
       hydeExpanded: false,
       hydeDocCount: 0,
+      hydeSparseUsed: false,
     };
   }
 
@@ -319,13 +322,16 @@ async function runHyDESearch(
       candidates: rawResults,
       hydeExpanded: false,
       hydeDocCount: 0,
+      hydeSparseUsed: false,
     };
   }
 
   // Run parallel semantic searches for each hypothetical doc embedding,
   // generating per-doc sparse embeddings so sparse and dense components match.
+  let hydeSparseUsed = false;
   const hydeSearchPromises = hydeVectors.map((vector, i) => {
     const docSparseVector = generateSparseEmbedding(hypotheticalDocs[i]!);
+    if (docSparseVector.indices.length > 0) hydeSparseUsed = true;
     return semanticSearch(
       vector,
       provider,
@@ -356,6 +362,7 @@ async function runHyDESearch(
     candidates: allCandidates,
     hydeExpanded: true,
     hydeDocCount: hypotheticalDocs.length,
+    hydeSparseUsed,
   };
 }
 
@@ -453,7 +460,7 @@ export async function buildMemoryRecall(
         hybridCandidates = hydeCandidates.candidates;
         hydeExpanded = hydeCandidates.hydeExpanded;
         hydeDocCount = hydeCandidates.hydeDocCount;
-        sparseVectorUsed = sparseVectorAvailable || hydeExpanded;
+        sparseVectorUsed = sparseVectorAvailable || hydeCandidates.hydeSparseUsed;
       } else {
         // ── Standard path: single raw query search ──
         hybridCandidates = await semanticSearch(
