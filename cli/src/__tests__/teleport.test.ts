@@ -500,6 +500,66 @@ describe("same-environment rejection", () => {
     }
   });
 
+  test("same-env rejection happens before hatching (no orphaned assistants)", async () => {
+    setArgv("--from", "my-local", "--local");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    await expect(teleport()).rejects.toThrow("process.exit:1");
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Cannot teleport between two local assistants"),
+    );
+    // Crucially: no hatch should have been called — the early guard fires first
+    expect(hatchLocalMock).not.toHaveBeenCalled();
+    expect(hatchDockerMock).not.toHaveBeenCalled();
+    expect(hatchAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("same-env rejection before hatching for docker", async () => {
+    setArgv("--from", "my-docker", "--docker");
+
+    const dockerEntry = makeEntry("my-docker", { cloud: "docker" });
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-docker") return dockerEntry;
+      return null;
+    });
+
+    await expect(teleport()).rejects.toThrow("process.exit:1");
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Cannot teleport between two docker assistants"),
+    );
+    expect(hatchLocalMock).not.toHaveBeenCalled();
+    expect(hatchDockerMock).not.toHaveBeenCalled();
+    expect(hatchAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("same-env rejection before hatching for platform (vellum cloud)", async () => {
+    setArgv("--from", "my-cloud", "--platform");
+
+    const platformEntry = makeEntry("my-cloud", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-cloud") return platformEntry;
+      return null;
+    });
+
+    await expect(teleport()).rejects.toThrow("process.exit:1");
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "Cannot teleport between two platform assistants",
+      ),
+    );
+    expect(hatchLocalMock).not.toHaveBeenCalled();
+    expect(hatchDockerMock).not.toHaveBeenCalled();
+    expect(hatchAssistantMock).not.toHaveBeenCalled();
+  });
+
   test("flag says docker but resolved target is local -> uses resolved cloud", async () => {
     // User passes --docker but the named target is actually a local assistant
     setArgv("--from", "src", "--docker", "misidentified");
