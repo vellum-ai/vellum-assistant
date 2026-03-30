@@ -144,7 +144,7 @@ public struct VNavItemTrailingIcon: View {
     }
 
     public var body: some View {
-        VIconView(.resolve(icon), size: 10)
+        VIconView(.resolve(icon), size: 13)
             .foregroundStyle(iconColor)
             .rotationEffect(rotation)
             .animation(VAnimation.fast, value: rotation)
