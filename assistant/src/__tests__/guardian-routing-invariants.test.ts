@@ -616,6 +616,127 @@ describe("routing invariant: code-only messages return clarification", () => {
 });
 
 // ===========================================================================
+// SECTION 4b: Channel formatting delimiters stripped from code parser
+// ===========================================================================
+
+describe("routing invariant: channel formatting delimiters stripped from code parser", () => {
+  beforeEach(() => resetTables());
+
+  test("backtick-wrapped code + approve is parsed correctly", async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "A1B2C3",
+      toolName: "shell",
+      inputDigest: "sha256:abc",
+      expiresAt: Date.now() + 60_000,
+    });
+    registerPendingToolApprovalInteraction(req.id, "conv-1", "shell");
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "`A1B2C3 approve`",
+        conversationId: "conv-1",
+      }),
+    );
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe("canonical_decision_applied");
+    expect(result.decisionApplied).toBe(true);
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe("approved");
+  });
+
+  test("bold+backtick code + reject is parsed correctly", async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "D4E5F6",
+      expiresAt: Date.now() + 60_000,
+    });
+    registerPendingToolApprovalInteraction(req.id, "conv-1", "shell");
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "*`D4E5F6 reject`*",
+        conversationId: "conv-1",
+      }),
+    );
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe("canonical_decision_applied");
+    expect(result.decisionApplied).toBe(true);
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe("denied");
+  });
+
+  test("backtick-wrapped code only returns clarification", async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "A1B2C3",
+      toolName: "shell",
+      questionText: "Run shell command: ls -la",
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "`A1B2C3`",
+        conversationId: "conv-1",
+      }),
+    );
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe("code_only_clarification");
+    expect(result.decisionApplied).toBe(false);
+
+    const unchanged = getCanonicalGuardianRequest(req.id);
+    expect(unchanged!.status).toBe("pending");
+  });
+
+  test("asterisk-wrapped code + approve is parsed correctly", async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "A1B2C3",
+      toolName: "shell",
+      inputDigest: "sha256:abc",
+      expiresAt: Date.now() + 60_000,
+    });
+    registerPendingToolApprovalInteraction(req.id, "conv-1", "shell");
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "*A1B2C3 approve*",
+        conversationId: "conv-1",
+      }),
+    );
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe("canonical_decision_applied");
+    expect(result.decisionApplied).toBe(true);
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe("approved");
+  });
+});
+
+// ===========================================================================
 // SECTION 5: Disambiguation with multiple pending requests stays fail-closed
 // ===========================================================================
 
