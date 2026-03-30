@@ -22,12 +22,12 @@ final class IntrinsicScrollView: NSScrollView {
     }
 }
 
-/// NSViewRepresentable wrapper for `ComposerTextView`, replacing SwiftUI's
-/// `TextField(axis: .vertical)` which suffers from O(n) performance
-/// degradation in `SelectionOverlay.updateNSView` when text contains many
-/// paragraphs.
+/// NSViewRepresentable wrapper that hosts a ``ComposerTextView`` inside an
+/// ``IntrinsicScrollView``. Manages two-way text and focus binding with
+/// SwiftUI, height measurement via TextKit layout, and callback wiring
+/// for key events, image paste, and submit actions.
 ///
-/// Ref: https://developer.apple.com/documentation/appkit/nstextview
+/// Ref: https://developer.apple.com/documentation/swiftui/nsviewrepresentable
 struct ComposerTextEditor: NSViewRepresentable {
     /// Inset values matching NSTextView's internal layout offsets.
     /// Used to align SwiftUI overlays (ghost text, slash highlighting)

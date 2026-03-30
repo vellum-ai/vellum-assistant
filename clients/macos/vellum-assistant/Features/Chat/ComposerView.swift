@@ -140,11 +140,11 @@ struct ComposerView: View {
             avatarSeed = identity?.name ?? "default"
         }
         .task {
-            // Delay focus slightly so the NSTextView field editor is fully
-            // installed before we request first-responder status. Setting
-            // @FocusState synchronously during an animated layout pass
-            // (e.g. the empty-state fade-in) can give logical focus without
-            // rendering the blinking caret.
+            // Delay focus slightly so the NSTextView is fully installed
+            // in the view hierarchy before requesting first-responder
+            // status. Setting @FocusState synchronously during an animated
+            // layout pass (e.g. the empty-state fade-in) can give logical
+            // focus without rendering the blinking caret.
             try? await Task.sleep(nanoseconds: 50_000_000)
             guard !Task.isCancelled else { return }
             composerFocus = isInteractionEnabled
@@ -179,13 +179,14 @@ struct ComposerView: View {
         }
     }
 
-    /// The text overlays (slash highlighting, ghost text) rendered behind / on
-    /// top of the TextField inside the ZStack. Extracted to its own builder so
-    /// the compiler can type-check the ZStack body in reasonable time.
+    /// Text overlays (slash highlighting, ghost text) rendered behind / on
+    /// top of the text editor inside the ZStack. Separated into its own
+    /// builder so the compiler can type-check the ZStack body in
+    /// reasonable time.
     @ViewBuilder
     private func composerTextOverlays(font: Font, hasSlashHighlight: Bool) -> some View {
         // Slash command highlighting overlay — renders the full input
-        // with the /command prefix in the accent color. The TextField
+        // with the /command prefix in the accent color. The text editor
         // below is made transparent so this overlay provides the
         // visible text coloring.
         if hasSlashHighlight {
@@ -306,10 +307,9 @@ struct ComposerView: View {
         }
     }
 
-    /// Shared send logic used by `.onSubmit` (native Return-to-send) and the
-    /// AppKit `ComposerFocusBridge` Cmd+Enter interception. Keeps slash-menu
-    /// selection and pending-confirmation approval working regardless of how
-    /// "send" is triggered.
+    /// Shared send logic invoked by the composer's submit callback.
+    /// Handles slash-menu selection and pending-confirmation approval
+    /// regardless of how "send" is triggered.
     private func performSendAction() {
         let sendPath: String
         if showSlashMenu {

@@ -1,13 +1,11 @@
 #if os(macOS)
 import AppKit
 
-/// Custom NSTextView subclass for the chat composer, replacing SwiftUI's
-/// `TextField(axis: .vertical)` which has O(n) performance degradation with
-/// paragraph count due to `SelectionOverlay.updateNSView` internally calling
-/// `NSAttributedString.replacingLineBreakModes()` on every layout pass.
+/// NSTextView subclass powering the chat composer input.
 ///
-/// NSTextView uses TextKit's `NSLayoutManager` directly and does not suffer
-/// from this overhead.
+/// Handles placeholder drawing, Return/Tab/Arrow/Escape key routing
+/// (via ``ComposerReturnKeyRouting``), Cmd+V image-paste interception,
+/// and focus-change callbacks.
 ///
 /// Ref: https://developer.apple.com/documentation/appkit/nstextview
 final class ComposerTextView: NSTextView {
@@ -79,14 +77,11 @@ final class ComposerTextView: NSTextView {
                 modifiers: modifiers
             )
             switch action {
-            case .bridgeSend:
+            case .send:
                 onSubmit?()
                 return
-            case .bridgeInsertNewline:
+            case .insertNewline:
                 insertText("\n", replacementRange: selectedRange())
-                return
-            case .deferToSubmit:
-                onSubmit?()
                 return
             }
         }

@@ -19,13 +19,11 @@ extension EnvironmentValues {
 
 // MARK: - Composer Focus Bridge
 
-/// Minimal NSViewRepresentable that provides AppKit integration for the composer:
-/// - Registers a typing-redirect handler with TitleBarZoomableWindow so
+/// Minimal NSViewRepresentable that provides AppKit window integration
+/// for the composer:
+/// - Registers a typing-redirect handler with `TitleBarZoomableWindow` so
 ///   keystrokes auto-focus the composer when nothing else is focused.
 /// - Registers the composer container view for click-away-to-blur detection.
-///
-/// Key routing (Return, Cmd+V image paste) is handled directly by
-/// `ComposerTextView.keyDown(with:)` and `performKeyEquivalent(with:)`.
 struct ComposerFocusBridge: NSViewRepresentable {
     let isFocused: Bool
     let isInteractionEnabled: Bool
