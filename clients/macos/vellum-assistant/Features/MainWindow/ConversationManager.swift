@@ -1381,8 +1381,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     }
 
     func renameGroup(_ groupId: String, name: String) async {
-        guard let idx = groups.firstIndex(where: { $0.id == groupId }),
-              !groups[idx].isSystemGroup else { return }
+        guard let idx = groups.firstIndex(where: { $0.id == groupId }) else { return }
         groups[idx].name = name
         _ = await groupClient.updateGroup(groupId: groupId, name: name, sortPosition: nil)
     }

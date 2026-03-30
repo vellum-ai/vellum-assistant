@@ -158,7 +158,7 @@ struct SidebarConversationItem: View, Equatable {
                             .transition(.opacity)
                     } else if conversation.isPinned {
                         VIconView(.pin, size: 13)
-                            .foregroundStyle(VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .rotationEffect(.degrees(-45))
                             .frame(width: 20, height: 20)
                             .nativeTooltip("Pinned")

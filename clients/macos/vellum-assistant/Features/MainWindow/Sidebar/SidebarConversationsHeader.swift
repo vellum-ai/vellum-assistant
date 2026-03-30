@@ -29,21 +29,22 @@ struct SidebarConversationsHeader: View {
                         label: "Mark all as seen",
                         iconOnly: VIcon.circleCheck.rawValue,
                         style: .ghost,
-                        tooltip: "Mark all as seen",
                         action: onMarkAllSeen
                     )
                     .disabled(isLoading)
+                    .vTooltip("Mark all as seen")
                 }
                 VButton(
                     label: "New group",
                     iconOnly: VIcon.folderPlus.rawValue,
                     style: .ghost,
-                    tooltip: "New group",
                     action: onCreateGroup
                 )
-                VButton(label: "New conversation", iconOnly: VIcon.squarePen.rawValue, style: .ghost, tooltip: newChatTooltip, action: onNewConversation)
+                .vTooltip("New group")
+                VButton(label: "New conversation", iconOnly: VIcon.squarePen.rawValue, style: .ghost, action: onNewConversation)
                     .disabled(isLoading)
                     .opacity(isLoading ? 0.4 : 1)
+                    .vTooltip(newChatTooltip)
             }
         }
         .padding(.leading, 0)

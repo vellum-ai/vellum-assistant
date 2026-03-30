@@ -132,15 +132,15 @@ extension MainWindowView {
                 get: { sidebar.renamingGroupName },
                 set: { sidebar.renamingGroupName = $0 }
             ),
-            onRename: group.isSystemGroup ? nil : { name in
+            onRename: { name in
                 sidebar.renamingGroupId = group.id
                 sidebar.renamingGroupName = name
             },
-            onCommitRename: group.isSystemGroup ? nil : { newName in
+            onCommitRename: { newName in
                 sidebar.renamingGroupId = nil
                 Task<Void, Never> { await conversationManager.renameGroup(group.id, name: newName) }
             },
-            onCancelRename: group.isSystemGroup ? nil : {
+            onCancelRename: {
                 sidebar.renamingGroupId = nil
             },
             onDelete: group.isSystemGroup ? nil : {
