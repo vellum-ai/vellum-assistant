@@ -764,14 +764,22 @@ export async function resolveOrHatchTarget(
       return existing;
     }
 
-    // Name not found — will hatch. Validate the name first.
-    try {
-      validateAssistantName(targetName);
-    } catch {
-      console.error(
-        "Error: Target name contains invalid characters (path separators or traversal segments are not allowed).",
+    // Name not found — will hatch.
+    if (targetEnv === "platform") {
+      // Platform API doesn't accept custom names — warn and ignore
+      console.log(
+        `Note: Platform assistants receive a server-assigned ID. The name '${targetName}' will not be used.`,
       );
-      process.exit(1);
+    } else {
+      // Validate the name before passing to hatch
+      try {
+        validateAssistantName(targetName);
+      } catch {
+        console.error(
+          "Error: Target name contains invalid characters (path separators or traversal segments are not allowed).",
+        );
+        process.exit(1);
+      }
     }
   }
 
@@ -793,7 +801,7 @@ export async function resolveOrHatchTarget(
 
   if (targetEnv === "docker") {
     const beforeIds = new Set(loadAllAssistants().map((e) => e.assistantId));
-    await hatchDocker("vellum", true, targetName ?? null, false, {});
+    await hatchDocker("vellum", false, targetName ?? null, false, {});
     const entry = targetName
       ? findAssistantByName(targetName)
       : (loadAllAssistants().find((e) => !beforeIds.has(e.assistantId)) ??
@@ -1079,7 +1087,28 @@ export async function teleport(): Promise<void> {
   console.log(`Exporting from ${from} (${fromCloud})...`);
   const bundleData = await exportFromAssistant(fromEntry, fromCloud);
 
-  // Resolve or hatch target
+  // Auto-retire source BEFORE hatching target to free up ports.
+  // For local<->docker transfers, both bind the same default ports (7830, etc.),
+  // so the source must be retired first to avoid "address already in use" errors.
+  const sourceIsLocalOrDocker = fromCloud === "local" || fromCloud === "docker";
+  const targetIsLocalOrDocker = targetEnv === "local" || targetEnv === "docker";
+
+  if (sourceIsLocalOrDocker && targetIsLocalOrDocker) {
+    if (!keepSource) {
+      console.log(`Retiring source assistant '${from}'...`);
+      if (fromCloud === "docker") {
+        await retireDocker(fromEntry.assistantId);
+      } else {
+        await retireLocal(fromEntry.assistantId, fromEntry);
+      }
+      removeAssistantEntry(fromEntry.assistantId);
+      console.log(`Source assistant '${from}' retired.`);
+    } else {
+      console.log(`Source assistant '${from}' kept (--keep-source).`);
+    }
+  }
+
+  // Resolve or hatch target (after source is retired to avoid port conflicts)
   const toEntry = await resolveOrHatchTarget(targetEnv, targetName);
   const toCloud = resolveCloud(toEntry);
 
@@ -1097,28 +1126,6 @@ export async function teleport(): Promise<void> {
   // Import to target
   console.log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
   await importToAssistant(toEntry, toCloud, bundleData, false);
-
-  // Auto-retire source if applicable (local<->docker, not dry-run, not --keep-source)
-  if (!dryRun) {
-    const sourceIsLocalOrDocker =
-      fromCloud === "local" || fromCloud === "docker";
-    const targetIsLocalOrDocker = toCloud === "local" || toCloud === "docker";
-
-    if (sourceIsLocalOrDocker && targetIsLocalOrDocker) {
-      if (!keepSource) {
-        console.log(`Retiring source assistant '${from}'...`);
-        if (fromCloud === "docker") {
-          await retireDocker(fromEntry.assistantId);
-        } else {
-          await retireLocal(fromEntry.assistantId, fromEntry);
-        }
-        removeAssistantEntry(fromEntry.assistantId);
-        console.log(`Source assistant '${from}' retired.`);
-      } else {
-        console.log(`Source assistant '${from}' kept (--keep-source).`);
-      }
-    }
-  }
 
   // Success summary
   console.log(`Teleport complete: ${from} → ${toEntry.assistantId}`);
