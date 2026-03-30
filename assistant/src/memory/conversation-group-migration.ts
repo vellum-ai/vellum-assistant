@@ -94,41 +94,55 @@ export function ensureGroupMigration(): void {
     // exclusions make the SQL self-documenting and migration-order-independent.
     // COALESCE handles NULL source values (legacy rows).
 
-    // Step A: Pinned -> system:pinned (runs first, always wins)
-    rawExec(`
-      UPDATE conversations SET group_id = 'system:pinned'
-      WHERE is_pinned = 1 AND group_id IS NULL
-    `);
+    // Wrap all backfill steps in a transaction so a partial failure
+    // (e.g. crash mid-backfill) doesn't leave conversations half-classified
+    // with the marker row missing, which would cause a re-run to skip
+    // already-classified rows (group_id IS NULL guard).
+    try {
+      rawExec("BEGIN");
 
-    // Step B: Scheduled -> system:scheduled (schedule/reminder source or has schedule_job_id)
-    rawExec(`
-      UPDATE conversations SET group_id = 'system:scheduled'
-      WHERE (source IN ('schedule', 'reminder') OR schedule_job_id IS NOT NULL)
-      AND group_id IS NULL
-    `);
+      // Step A: Pinned -> system:pinned (runs first, always wins)
+      rawExec(`
+        UPDATE conversations SET group_id = 'system:pinned'
+        WHERE is_pinned = 1 AND group_id IS NULL
+      `);
 
-    // Step C: Background -> system:background (background type, heartbeat, or task — excluding notifications)
-    // Explicit exclusion of schedule sources + schedule_job_id as a safety net.
-    // Step B already catches those via group_id IS NULL guard, but the explicit exclusion
-    // makes the SQL self-documenting and protects against future migration ordering changes.
-    // Note: source can be NULL for legacy rows. NULL != 'notification' evaluates to NULL (not TRUE)
-    // in SQL, so use COALESCE to treat NULL source as empty string for the exclusion checks.
-    rawExec(`
-      UPDATE conversations SET group_id = 'system:background'
-      WHERE (
-        (conversation_type = 'background' AND COALESCE(source, '') != 'notification')
-        OR source IN ('heartbeat', 'task')
-      )
-      AND COALESCE(source, '') NOT IN ('schedule', 'reminder')
-      AND schedule_job_id IS NULL
-      AND group_id IS NULL
-    `);
+      // Step B: Scheduled -> system:scheduled (schedule/reminder source or has schedule_job_id)
+      rawExec(`
+        UPDATE conversations SET group_id = 'system:scheduled'
+        WHERE (source IN ('schedule', 'reminder') OR schedule_job_id IS NOT NULL)
+        AND group_id IS NULL
+      `);
 
-    // Mark backfill as complete so it won't re-run on future process restarts
-    rawExec(`
-      INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group)
-      VALUES ('_backfill_complete', '_backfill_complete', -1, TRUE)
-    `);
+      // Step C: Background -> system:background (background type, heartbeat, or task — excluding notifications)
+      // Explicit exclusion of schedule sources + schedule_job_id as a safety net.
+      // Step B already catches those via group_id IS NULL guard, but the explicit exclusion
+      // makes the SQL self-documenting and protects against future migration ordering changes.
+      // Note: source can be NULL for legacy rows. NULL != 'notification' evaluates to NULL (not TRUE)
+      // in SQL, so use COALESCE to treat NULL source as empty string for the exclusion checks.
+      rawExec(`
+        UPDATE conversations SET group_id = 'system:background'
+        WHERE (
+          (conversation_type = 'background' AND COALESCE(source, '') != 'notification')
+          OR source IN ('heartbeat', 'task')
+        )
+        AND COALESCE(source, '') NOT IN ('schedule', 'reminder')
+        AND schedule_job_id IS NULL
+        AND group_id IS NULL
+      `);
+
+      // Mark backfill as complete so it won't re-run on future process restarts
+      rawExec(`
+        INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group)
+        VALUES ('_backfill_complete', '_backfill_complete', -1, TRUE)
+      `);
+
+      rawExec("COMMIT");
+    } catch (err) {
+      rawExec("ROLLBACK");
+      log.error({ err }, "Group backfill transaction failed, rolled back");
+      throw err;
+    }
   }
 
   migrated = true;

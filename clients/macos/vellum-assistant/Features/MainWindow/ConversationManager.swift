@@ -148,6 +148,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Subscription to activeViewModel's messages count changes.
     /// Drives activeMessageCount so only message-count-dependent views re-render,
     /// not the entire window tree.
+    private var groupsCancellable: AnyCancellable?
     private var activeViewModelCancellable: AnyCancellable?
     /// Tracks the message count of the active conversation's view model.
     /// SwiftUI views that need to react to new messages should observe this
@@ -189,6 +190,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// once the associated ChatViewModel finishes its current send/think cycle.
     /// Populated when a notification_intent arrives while the VM is busy.
     private var pendingNotificationCatchUpIds: Set<String> = []
+    /// Stores the groupId a conversation had before being pinned, so it can be
+    /// restored on unpin instead of falling back to heuristic-based routing.
+    private var prePinGroupIds: [UUID: String?] = [:]
     /// Local seen/unread toggles should survive a stale daemon conversation-list
     /// replay until the daemon either acknowledges them or reports a newer reply.
     private var pendingAttentionOverrides: [String: PendingAttentionOverride] = [:]
@@ -280,9 +284,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     /// Precomputed lookup from groupId -> sortPosition. Rebuilt when `groups` changes (infrequent).
     /// Avoids O(N) linear scan per sort comparison in `visibleConversationSortOrder`.
-    private var groupSortPositionMap: [String: Double] {
-        Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0.sortPosition) })
-    }
+    private var groupSortPositionMap: [String: Double] = [:]
 
     private func groupSortPosition(for groupId: String?) -> Double {
         guard let groupId else { return Double.infinity }  // ungrouped sorts last (intentional)
@@ -340,6 +342,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         self.conversationForkClient = conversationForkClient
         self.conversationDetailClient = conversationDetailClient
         self.conversationRestorer = ConversationRestorer(connectionManager: connectionManager, eventStreamClient: eventStreamClient)
+        // Keep groupSortPositionMap in sync whenever `groups` changes.
+        self.groupsCancellable = $groups.sink { [weak self] newGroups in
+            self?.groupSortPositionMap = Dictionary(uniqueKeysWithValues: newGroups.map { ($0.id, $0.sortPosition) })
+        }
         // On first launch (post-onboarding), skip conversation restoration — there are
         // no meaningful prior conversations. Allow activeConversationId writes immediately so
         // the wake-up conversation's UUID is persisted.
@@ -1133,25 +1139,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     ) -> ConversationModel {
         let effectiveCreatedAtMillis = item.createdAt ?? item.updatedAt
         let isPinned = item.isPinned ?? false
-        // Old-daemon fallback: derive groupId from source/isPinned when groupId is absent.
-        // Ensures scheduled and background conversations appear in the correct system
-        // groups even when the daemon hasn't run the group migration backfill.
-        let groupId: String? = item.groupId ?? {
-            if isPinned { return ConversationGroup.pinned.id }
-            let source = item.source
-            if source == "schedule" || source == "reminder" {
-                return ConversationGroup.scheduled.id
-            }
-            if source == "heartbeat" || source == "task" {
-                return ConversationGroup.background.id
-            }
-            // Title-based fallback for HTTP-mode schedule conversations (no source field)
-            let title = item.title
-            if title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ") {
-                return ConversationGroup.scheduled.id
-            }
-            return nil
-        }()
+        let groupId = ConversationModel.deriveGroupId(
+            serverGroupId: item.groupId,
+            isPinned: isPinned,
+            source: item.source,
+            title: item.title
+        )
         return ConversationModel(
             id: localId,
             title: item.title,
@@ -1227,6 +1220,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     func pinConversation(id: UUID) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        // Remember the pre-pin groupId so unpin can restore the original group.
+        prePinGroupIds[id] = conversations[index].groupId
         conversations[index].groupId = ConversationGroup.pinned.id
         let maxOrder = conversations
             .filter { $0.groupId == ConversationGroup.pinned.id }
@@ -1237,7 +1232,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     func unpinConversation(id: UUID) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
-        if conversations[index].isScheduleConversation {
+        // Restore the group the conversation belonged to before pinning.
+        // Falls back to heuristic routing when no pre-pin groupId was recorded
+        // (e.g. conversations pinned before this feature was added).
+        if let stored = prePinGroupIds.removeValue(forKey: id) {
+            conversations[index].groupId = stored
+        } else if conversations[index].isScheduleConversation {
             conversations[index].groupId = ConversationGroup.scheduled.id
         } else if conversations[index].shouldReturnToBackgroundOnUnpin {
             conversations[index].groupId = ConversationGroup.background.id

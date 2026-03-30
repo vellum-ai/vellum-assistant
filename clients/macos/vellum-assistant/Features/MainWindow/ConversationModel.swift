@@ -94,6 +94,24 @@ struct ConversationModel: Identifiable, Hashable {
         return originChannel != "vellum"
     }
 
+    /// Derive the groupId for a conversation from server metadata when the server
+    /// doesn't provide an explicit groupId. Shared by ConversationManager and
+    /// ConversationRestorer to avoid duplicated classification logic.
+    static func deriveGroupId(serverGroupId: String?, isPinned: Bool, source: String?, title: String) -> String? {
+        if let serverGroupId { return serverGroupId }
+        if isPinned { return ConversationGroup.pinned.id }
+        if source == "schedule" || source == "reminder" {
+            return ConversationGroup.scheduled.id
+        }
+        if source == "heartbeat" || source == "task" {
+            return ConversationGroup.background.id
+        }
+        if title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ") {
+            return ConversationGroup.scheduled.id
+        }
+        return nil
+    }
+
     static func == (lhs: ConversationModel, rhs: ConversationModel) -> Bool {
         lhs.id == rhs.id &&
             lhs.title == rhs.title &&

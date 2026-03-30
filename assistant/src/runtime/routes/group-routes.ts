@@ -74,6 +74,10 @@ export function groupRouteDefinitions(): RouteDefinition[] {
       summary: "Update group",
       description: "Update a conversation group's name or sort position.",
       tags: ["groups"],
+      requestBody: z.object({
+        name: z.string().optional(),
+        sortPosition: z.number().optional(),
+      }),
       handler: async ({ req, params }) => {
         const groupId = params.groupId;
         const existing = getGroup(groupId);

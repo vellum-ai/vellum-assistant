@@ -55,7 +55,3 @@ struct ScheduleReorderDropDelegate: DropDelegate {
         return conversationManager.moveConversation(sourceId: sourceId, targetId: targetConversation.id)
     }
 }
-
-// ScheduleGroupHeaderDropDelegate has been replaced by ScheduleSubGroupHeaderDropDelegate
-// in SidebarSectionView.swift, which handles collapsed schedule sub-group drop targets
-// directly within the SidebarSectionView component.
