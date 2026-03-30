@@ -287,12 +287,12 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 | Need | Use this | Not this |
 |------|----------|----------|
 | Multi-line text input (short/medium) | `TextField(axis: .vertical)` + `.lineLimit(1...N)` | Custom `NSTextView` in `NSScrollView` |
-| Multi-line text input (scrollable) | `TextField(axis: .vertical)` inside `ScrollView` with `.onGeometryChange` height measurement (see chat composer). Fall back to `GeometryReader` in `.background()` if needed | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
+| Multi-line text input (scrollable) | `TextField(axis: .vertical)` inside `ScrollView` with `.onGeometryChange` height measurement. Fall back to `GeometryReader` in `.background()` if needed | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
+| Chat composer (arbitrary-length input) | Custom `NSTextView` via `NSViewRepresentable` (see `ComposerTextView` + `ComposerTextEditor`). `TextField(axis: .vertical)` has [O(n) performance degradation](https://justdoswift.substack.com/p/choosing-a-text-editor-in-swiftui) in `SelectionOverlay.updateNSView` with large text — Apple's own apps use [NSTextView](https://developer.apple.com/documentation/appkit/nstextview) for composers | `TextField(axis: .vertical)` for inputs that accept arbitrary-length paste |
 | Long-form text editing | `TextEditor` (acceptable for editor-like surfaces where the user expects a full text-editing experience, e.g., contact notes, skill editing, tool permission tester). Editable code views use `HighlightedTextView` with `CodeTextView` (`NSViewRepresentable`). Read-only code views use `VCodeView` (design system), which wraps a non-editable `NSTextView` for native text selection and copy | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
 | Vertical centering in text field | Native `TextField` behavior | Custom `NSClipView` subclass |
 | Auto-growing height | `ScrollView` + `.onGeometryChange` on inner content + `.frame(height: clamp(measured, min, max))`. Fall back to `GeometryReader` in `.background()` if needed | Custom AppKit height sync. Note: `.lineLimit(1...N)` truncates instead of scrolling on macOS when content exceeds N lines — only use it for short-form inputs where truncation is acceptable (e.g., `VTextEditor`) |
-| Return-to-send in chat input | `.onSubmit { sendAction() }` (native SwiftUI) | `.onKeyPress(.return)` (returning `.ignored` doesn't fall back to TextField's newline behavior) |
-| Newline in chat input | Shift+Return via AppKit bridge (intercepts before `.onSubmit`); treat default-mode Option+Return as send, not newline | Relying solely on `.onSubmit` modifier detection (SwiftUI's `.onSubmit` cannot distinguish Shift+Return from plain Return) |
+| Return-to-send in chat input | `ComposerTextView.keyDown(with:)` using `ComposerReturnKeyRouting` — handles Return/Shift+Return/Cmd+Return directly in the NSTextView subclass | `.onKeyPress(.return)` (returning `.ignored` doesn't fall back to TextField's newline behavior) |
 | Keyboard shortcuts | `.onKeyPress()` modifiers | `keyDown(with:)` / `performKeyEquivalent` overrides |
 | Attributed/colored text display | `AttributedString` + `Text` overlay | `layoutManager.addTemporaryAttributes` |
 | File drag-drop | `.onDrop(of: [.fileURL])` | `performDragOperation` override |
@@ -302,9 +302,8 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 </details>
 
 **When AppKit bridges are still needed** (keep them minimal — only AppKit-specific logic, no business logic or layout):
+- Chat composer text input (`ComposerTextView` + `ComposerTextEditor`) — justified by `TextField(axis: .vertical)` [O(n) performance issue](https://justdoswift.substack.com/p/choosing-a-text-editor-in-swiftui)
 - Intercepting `Cmd+V` for image paste detection (pasteboard inspection not available in SwiftUI)
-- Intercepting return-key shortcuts that SwiftUI cannot route precisely before `.onSubmit` fires, including `Cmd+Enter` send, `Shift+Return` newline, and default-mode `Option+Return` send
-- Registering window-level event monitors (`NSEvent.addLocalMonitorForEvents`)
 - Accessing `NSWindow` properties (e.g., typing redirect handlers, container view registration)
 
 ---
