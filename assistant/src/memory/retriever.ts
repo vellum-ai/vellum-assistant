@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, notInArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 
 import type { AssistantConfig } from "../config/types.js";
 import { estimateTextTokens } from "../context/token-estimator.js";
@@ -1108,10 +1108,7 @@ function sampleSerendipityItems(
       : eq(memoryItems.scopeId, "default");
 
     let rows;
-    const importanceFloor = gte(
-      memoryItems.importance,
-      MIN_SERENDIPITY_IMPORTANCE,
-    );
+    const importanceFloor = sql`COALESCE(${memoryItems.importance}, 0.5) >= ${MIN_SERENDIPITY_IMPORTANCE}`;
 
     if (existingItemIds.length > 0) {
       rows = db
