@@ -533,6 +533,14 @@ public final class SettingsStore: ObservableObject {
             .sink { value in UserDefaults.standard.set(value, forKey: "popOutShortcut") }
             .store(in: &cancellables)
 
+        // Re-resolve lockfile-derived state whenever the connected assistant changes
+        // so that isCurrentAssistantRemote/isCurrentAssistantDocker stay in sync.
+        UserDefaults.standard.publisher(for: \.connectedAssistantId)
+            .dropFirst()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in self?.refreshLockfileState() }
+            .store(in: &cancellables)
+
         // Mirror GatewayConnectionManager's trust-rules-open flag so views can disable their buttons
         connectionManager?.$isTrustRulesSheetOpen
             .receive(on: RunLoop.main)
