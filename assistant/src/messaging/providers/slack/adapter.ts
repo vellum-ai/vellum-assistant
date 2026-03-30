@@ -259,6 +259,7 @@ export const slackProvider: MessagingProvider = {
           });
           if (existing && !existing.channel.externalChatId) {
             upsertContactChannel({
+              contactId: existing.contact.id,
               sourceChannel: "slack",
               externalUserId: dmUserId,
               externalChatId: conv.id,
