@@ -208,6 +208,7 @@ export async function seedCatalogSkillMemories(): Promise<void> {
 
     const now = Date.now();
     for (const item of allCapabilities) {
+      if (!item.subject.startsWith("skill:")) continue;
       const itemSkillId = item.subject.replace("skill:", "");
       if (!catalogIds.has(itemSkillId)) {
         db.update(memoryItems)
