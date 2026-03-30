@@ -48,7 +48,7 @@ export type OAuthConnectionRow = typeof oauthConnections.$inferSelect;
  * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
- * identityResponsePaths, identityFormat, identityOkField)
+ * identityResponsePaths, identityFormat, identityOkField, featureFlag)
  * and display metadata (displayName, description, dashboardUrl,
  * clientIdPlaceholder, requiresClientSecret) propagate to existing
  * installations on every startup, while user-customizable fields

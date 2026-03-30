@@ -9,7 +9,7 @@ import { seedProviders } from "./oauth-store.js";
  * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
- * identityResponsePaths, identityFormat, identityOkField)
+ * identityResponsePaths, identityFormat, identityOkField, featureFlag)
  * and display metadata (displayName,
  * description, dashboardUrl, clientIdPlaceholder, requiresClientSecret)
  * are overwritten on subsequent startups — user-customizable
