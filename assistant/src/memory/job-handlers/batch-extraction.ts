@@ -33,6 +33,7 @@ import {
   VALID_OVERRIDE_CONFIDENCES,
 } from "../items-extractor.js";
 import { asString } from "../job-utils.js";
+import { maybeEnqueueConversationStartersJob } from "../conversation-starters-cadence.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { extractTextFromStoredMessageContent } from "../message-content.js";
 import { withQdrantBreaker } from "../qdrant-circuit-breaker.js";

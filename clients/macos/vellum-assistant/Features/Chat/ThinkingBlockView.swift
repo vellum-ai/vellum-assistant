@@ -24,7 +24,7 @@ struct ThinkingBlockView: View {
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(VSpacing.sm)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity)
             }
         }
         .background(VColor.surfaceOverlay)
