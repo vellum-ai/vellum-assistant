@@ -136,20 +136,20 @@ struct MemoriesPanel: View {
                     }
                 }
 
-            VFilterDropdown(
-                options: MemoryStatusFilter.allCases.map { VFilterOption(label: $0.rawValue, value: $0, icon: $0.icon) },
+            VDropdown(
+                options: MemoryStatusFilter.allCases.map { VDropdownOption(label: $0.rawValue, value: $0, icon: $0.icon) },
                 selection: $statusFilter,
-                width: 158,
+                maxWidth: 158,
                 onChange: { newStatus in
                     store.statusFilter = newStatus.apiValue
                     Task { await store.loadItems() }
                 }
             )
 
-            VFilterDropdown(
-                options: MemorySortOption.allCases.map { VFilterOption(label: $0.rawValue, value: $0, icon: $0.icon) },
+            VDropdown(
+                options: MemorySortOption.allCases.map { VDropdownOption(label: $0.rawValue, value: $0, icon: $0.icon) },
                 selection: $sortOption,
-                width: 158,
+                maxWidth: 158,
                 onChange: { newSort in
                     store.sortField = newSort.sortField
                     store.sortOrder = newSort.sortOrder

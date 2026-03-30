@@ -253,7 +253,6 @@ struct AssistantUpgradeSection: View {
                         options: pickerReleases.map { release in
                             (label: releaseLabel(for: release), value: release.version)
                         },
-                        size: .small,
                         maxWidth: 240
                     )
                 }

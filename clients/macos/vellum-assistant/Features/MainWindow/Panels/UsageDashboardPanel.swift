@@ -71,13 +71,13 @@ struct UsageDashboardPanel: View {
     @ViewBuilder
     private func timeRangeStrip(store: UsageDashboardStore) -> some View {
         HStack {
-            VFilterDropdown(
-                options: UsageTimeRange.allCases.map { VFilterOption(label: $0.rawValue, value: $0) },
+            VDropdown(
+                options: UsageTimeRange.allCases.map { VDropdownOption(label: $0.rawValue, value: $0) },
                 selection: Binding(
                     get: { store.selectedRange },
                     set: { _ in }
                 ),
-                width: 150,
+                maxWidth: 150,
                 onChange: { newRange in
                     refreshTask?.cancel()
                     breakdownTask?.cancel()
@@ -298,7 +298,6 @@ struct UsageDashboardPanel: View {
                 }
             ),
             options: UsageGroupByDimension.allCases.map { ($0.rawValue.capitalized, $0) },
-            size: .small,
             maxWidth: 140
         )
     }

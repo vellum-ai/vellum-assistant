@@ -219,7 +219,6 @@ struct InputsGallerySection: View {
                                     "Label",
                                     placeholder: "Small size...",
                                     text: $smallTextFieldValue,
-                                    size: .small
                                 )
                             }
                         }
@@ -242,7 +241,6 @@ struct InputsGallerySection: View {
                                     text: $smallTextFieldValue,
                                     leadingIcon: VIcon.search.rawValue,
                                     trailingIcon: VIcon.circleX.rawValue,
-                                    size: .small
                                 )
                             }
                         }
@@ -476,69 +474,6 @@ struct InputsGallerySection: View {
                                 )
                                 .disabled(true)
 
-                                VDropdown(
-                                    "Error (empty)",
-                                    placeholder: "Select an option...",
-                                    selection: .constant(""),
-                                    options: [
-                                        (label: "Option A", value: "a"),
-                                        (label: "Option B", value: "b")
-                                    ],
-                                    emptyValue: "",
-                                    errorMessage: "Selection is required"
-                                )
-                            }
-
-                            VStack(alignment: .leading, spacing: VSpacing.lg) {
-                                VDropdown(
-                                    "Error (filled)",
-                                    placeholder: "Select an option...",
-                                    selection: $dropdownErrorValue,
-                                    options: [
-                                        (label: "Option A", value: "a"),
-                                        (label: "Option B", value: "b")
-                                    ],
-                                    emptyValue: "",
-                                    errorMessage: "Invalid selection"
-                                )
-                            }
-                        }
-
-                        Divider().background(VColor.borderBase)
-
-                        // --- Size Variants ---
-                        Text("Size variants").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
-
-                        HStack(alignment: .top, spacing: VSpacing.xl) {
-                            VStack(alignment: .leading, spacing: VSpacing.md) {
-                                Text("Regular (default)").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
-                                VDropdown(
-                                    "Label",
-                                    placeholder: "Regular size...",
-                                    selection: $dropdownValue,
-                                    options: [
-                                        (label: "Option A", value: "a"),
-                                        (label: "Option B", value: "b"),
-                                        (label: "Option C", value: "c")
-                                    ],
-                                    emptyValue: ""
-                                )
-                            }
-
-                            VStack(alignment: .leading, spacing: VSpacing.md) {
-                                Text("Small").font(VFont.labelDefault).foregroundStyle(VColor.contentTertiary)
-                                VDropdown(
-                                    "Label",
-                                    placeholder: "Small size...",
-                                    selection: $smallDropdownValue,
-                                    options: [
-                                        (label: "Option A", value: "a"),
-                                        (label: "Option B", value: "b"),
-                                        (label: "Option C", value: "c")
-                                    ],
-                                    emptyValue: "",
-                                    size: .small
-                                )
                             }
                         }
                     }

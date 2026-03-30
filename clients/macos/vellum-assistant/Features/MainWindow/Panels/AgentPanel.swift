@@ -126,10 +126,10 @@ struct AgentPanelContent: View {
     private var filterBar: some View {
         HStack(spacing: VSpacing.sm) {
             VSearchBar(placeholder: "Search Skills", text: $skillsManager.searchQuery)
-            VFilterDropdown(
-                options: SkillFilter.allCases.map { VFilterOption(label: $0.rawValue, value: $0, icon: $0.icon) },
+            VDropdown(
+                options: SkillFilter.allCases.map { VDropdownOption(label: $0.rawValue, value: $0, icon: $0.icon) },
                 selection: $skillsManager.skillFilter,
-                width: 130
+                maxWidth: 130
             )
         }
     }
