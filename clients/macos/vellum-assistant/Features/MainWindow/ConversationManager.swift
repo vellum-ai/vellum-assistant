@@ -3,7 +3,7 @@ import VellumAssistantShared
 import Foundation
 import UserNotifications
 import os
-import Combine
+@preconcurrency import Combine
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationManager")
 private let stallLog = OSLog(subsystem: "com.vellum.assistant", category: "LayoutStall")
