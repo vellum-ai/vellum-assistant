@@ -989,7 +989,7 @@ struct MessageListView: View {
         if let id = anchorMessageId, messages.contains(where: { $0.id == id }) {
             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested", "target=anchorMessage reason=messagesChanged")
             os_signpost(.event, log: PerfSignposts.log, name: "anchorCleared", "reason=foundInMessages")
-            scrollState.transition(to: .programmaticScroll(reason: .deepLinkAnchor))
+            scrollState.transition(to: .programmaticScroll(reason: .deepLinkAnchor(id: id)))
             withAnimation {
                 scrollState.scrollTo?(id, .center)
             }
@@ -1089,7 +1089,7 @@ struct MessageListView: View {
         // Cancel scroll restore when a new anchor is set.
         scrollState.scrollRestoreTask?.cancel()
         scrollState.scrollRestoreTask = nil
-        scrollState.transition(to: .programmaticScroll(reason: .deepLinkAnchor))
+        scrollState.transition(to: .programmaticScroll(reason: .deepLinkAnchor(id: id)))
         scrollState.anchorSetTime = Date()
         scrollState.anchorTimeoutTask?.cancel()
         scrollState.anchorTimeoutTask = nil
