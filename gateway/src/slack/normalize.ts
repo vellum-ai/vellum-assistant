@@ -166,6 +166,16 @@ export function getUserInfoCacheSize(): number {
   return userInfoCache.size;
 }
 
+/** Slack file object (subset relevant to attachment handling). */
+export interface SlackFile {
+  id: string;
+  name?: string;
+  mimetype?: string;
+  size?: number;
+  url_private_download?: string;
+  url_private?: string;
+}
+
 /**
  * Slack `app_mention` event shape (subset relevant to normalization).
  */
@@ -178,6 +188,7 @@ export interface SlackAppMentionEvent {
   thread_ts?: string;
   client_msg_id?: string;
   event_ts?: string;
+  files?: SlackFile[];
 }
 
 /**
@@ -194,6 +205,7 @@ export interface SlackDirectMessageEvent {
   thread_ts?: string;
   client_msg_id?: string;
   event_ts?: string;
+  files?: SlackFile[];
 }
 
 /**
@@ -211,6 +223,7 @@ export interface SlackChannelMessageEvent {
   thread_ts?: string;
   client_msg_id?: string;
   event_ts?: string;
+  files?: SlackFile[];
 }
 
 /**
