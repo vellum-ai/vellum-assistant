@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-// Stub the root dir before importing trust-store so it uses our temp directory
+// Set up a temp directory before importing trust-store
 const TEST_ROOT = join(
   import.meta.dirname ?? __dirname,
   "..",
@@ -21,7 +21,7 @@ mock.module("../config/skills.js", () => ({
   getBundledSkillsDir: () => join(TEST_ROOT, "bundled-skills"),
 }));
 
-// Now import trust-store (which uses the mocked platform)
+// Now import trust-store (which uses GATEWAY_SECURITY_DIR)
 import {
   acceptStarterBundle,
   clearCache,
