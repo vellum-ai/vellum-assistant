@@ -16,6 +16,7 @@ public struct VContextWindowIndicator: View {
     }
 
     @State private var isHovered = false
+    @State private var hoverTask: Task<Void, Never>?
 
     private let ringSize: CGFloat = 16
     private let ringLineWidth: CGFloat = 2
@@ -49,7 +50,16 @@ public struct VContextWindowIndicator: View {
         if let ratio = clampedRatio {
             circularRing(ratio: ratio)
                 .onHover { hovering in
-                    isHovered = hovering
+                    hoverTask?.cancel()
+                    if hovering {
+                        hoverTask = Task {
+                            try? await Task.sleep(nanoseconds: 200_000_000)
+                            guard !Task.isCancelled else { return }
+                            isHovered = true
+                        }
+                    } else {
+                        isHovered = false
+                    }
                 }
                 .popover(isPresented: $isHovered, arrowEdge: .top) {
                     popoverContent

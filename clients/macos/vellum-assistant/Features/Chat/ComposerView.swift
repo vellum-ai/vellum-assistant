@@ -400,9 +400,7 @@ struct ComposerView: View {
     private var composerActionBar: some View {
         HStack(spacing: VSpacing.xs) {
             // Left side
-            if isAssistantBusy && !hasPendingConfirmation {
-                Spacer()
-            } else {
+            if !isAssistantBusy || hasPendingConfirmation {
                 VButton(
                     label: "Attach file",
                     iconOnly: VIcon.paperclip.rawValue,
@@ -412,15 +410,15 @@ struct ComposerView: View {
                 )
 
                 .vTooltip("Attach file")
-
-                VContextWindowIndicator(
-                    fillRatio: contextWindowFillRatio,
-                    tokensUsed: contextWindowTokens,
-                    tokensMax: contextWindowMaxTokens
-                )
-
-                Spacer()
             }
+
+            VContextWindowIndicator(
+                fillRatio: contextWindowFillRatio,
+                tokensUsed: contextWindowTokens,
+                tokensMax: contextWindowMaxTokens
+            )
+
+            Spacer()
 
             // Right side
             if isAssistantBusy && !hasPendingConfirmation {
