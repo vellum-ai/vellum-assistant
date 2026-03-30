@@ -229,6 +229,7 @@ final class MessageListScrollState {
     @ObservationIgnored private var bodyEvalTimestamps: [CFAbsoluteTime] = []
     /// When true, scheduleUISync() is suppressed to break a runaway re-evaluation loop.
     @ObservationIgnored private(set) var isThrottled = false
+    @ObservationIgnored var cachedDerivedStateBox: Any?
     @ObservationIgnored private var throttleRecoveryTask: Task<Void, Never>?
 
     /// Called once per MessageListView body evaluation. Trips the circuit
@@ -398,6 +399,7 @@ final class MessageListScrollState {
         // hit a stale cache from the previous conversation.
         cachedLayoutKey = nil
         cachedLayoutMetadata = nil
+        cachedDerivedStateBox = nil
         messageListVersion = 0
         lastKnownRawMessageCount = 0
         lastKnownVisibleMessageCount = 0
