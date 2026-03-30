@@ -31,6 +31,7 @@ import {
   VALID_KINDS,
   VALID_OVERRIDE_CONFIDENCES,
 } from "../items-extractor.js";
+import { maybeEnqueueConversationStartersJob } from "../conversation-starters-cadence.js";
 import { asString } from "../job-utils.js";
 import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
 import { extractTextFromStoredMessageContent } from "../message-content.js";
@@ -738,4 +739,15 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
     },
     "Batch extraction completed",
   );
+
+  if (upserted > 0) {
+    try {
+      maybeEnqueueConversationStartersJob(scopeId);
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "Failed to check conversation starters cadence",
+      );
+    }
+  }
 }
