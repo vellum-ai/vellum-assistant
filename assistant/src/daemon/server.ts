@@ -576,6 +576,17 @@ export class DaemonServer {
       if (params.attachments && params.attachments.length > 0) {
         for (const a of params.attachments) {
           try {
+            const validation = attachmentsStore.validateAttachmentUpload(
+              a.filename,
+              a.mimeType,
+            );
+            if (!validation.ok) {
+              log.warn(
+                { error: validation.error, path: a.path },
+                "Signal attachment rejected by validation",
+              );
+              continue;
+            }
             const size = statSync(a.path).size;
             const stored = attachmentsStore.uploadFileBackedAttachment(
               a.filename,
@@ -584,12 +595,11 @@ export class DaemonServer {
               size,
             );
             attachmentIds.push(stored.id);
-            const fileData = readFileSync(a.path).toString("base64");
             resolvedAttachments.push({
               id: stored.id,
               filename: a.filename,
               mimeType: a.mimeType,
-              data: fileData,
+              data: "",
               filePath: a.path,
             });
           } catch (err) {
@@ -613,6 +623,13 @@ export class DaemonServer {
       };
 
       if (conversation.isProcessing()) {
+        // Hydrate file data now — the queue path won't re-read from
+        // the attachment store, so base64 content must be inline.
+        for (const att of resolvedAttachments) {
+          if (att.filePath && !att.data) {
+            att.data = readFileSync(att.filePath).toString("base64");
+          }
+        }
         const requestId = crypto.randomUUID();
         const resolvedChannel = resolveTurnChannel(params.sourceChannel);
         const resolvedInterface = resolveTurnInterface(params.sourceInterface);
