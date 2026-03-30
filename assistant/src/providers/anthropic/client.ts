@@ -903,7 +903,7 @@ export class AnthropicProvider implements Provider {
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
             ...(i === otherTools.length - 1
-              ? { cache_control: { type: "ephemeral" as const } }
+              ? { cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }
               : {}),
           }));
           const webSearchTool: Anthropic.WebSearchTool20250305 = {
@@ -918,7 +918,7 @@ export class AnthropicProvider implements Provider {
             description: t.description,
             input_schema: t.input_schema as Anthropic.Tool["input_schema"],
             ...(i === tools.length - 1
-              ? { cache_control: { type: "ephemeral" as const } }
+              ? { cache_control: { type: "ephemeral" as const, ttl: "1h" as const } }
               : {}),
           }));
         }
@@ -947,9 +947,9 @@ export class AnthropicProvider implements Provider {
         if (Array.isArray(content) && content.length > 0) {
           (
             content[content.length - 1] as unknown as {
-              cache_control?: { type: string };
+              cache_control?: { type: string; ttl?: string };
             }
-          ).cache_control = { type: "ephemeral" };
+          ).cache_control = { type: "ephemeral", ttl: "1h" };
         }
       }
 
