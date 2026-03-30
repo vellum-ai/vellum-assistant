@@ -2192,7 +2192,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Subscribe to busy-state publishers on a ChatViewModel so `busyConversationIds` stays current.
     func subscribeToBusyState(for conversationId: UUID, viewModel: ChatViewModel) {
         // Tear down any previous subscriptions for this conversation.
-        busyStateCancellables.removeValue(forKey: conversationId)
+        if let old = busyStateCancellables.removeValue(forKey: conversationId) {
+            tearDownCancellables(old)
+        }
         var subs = Set<AnyCancellable>()
 
         let mgr = viewModel.messageManager
@@ -2234,7 +2236,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Any change to the latest assistant message's rendered content marks
     /// inactive conversations unseen, including mid-stream continuation updates.
     private func subscribeToAssistantActivity(for conversationId: UUID, viewModel: ChatViewModel) {
-        assistantActivityCancellables[conversationId]?.cancel()
+        if let old = assistantActivityCancellables.removeValue(forKey: conversationId) {
+            tearDownCancellables([old])
+        }
         if let snapshot = latestAssistantActivitySnapshot(in: viewModel.messages) {
             latestAssistantActivitySnapshots[conversationId] = snapshot
         } else {
@@ -2349,7 +2353,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     ///
     /// Derives state with priority: error > waitingForInput > processing > idle.
     func subscribeToInteractionState(for conversationId: UUID, viewModel: ChatViewModel) {
-        interactionStateCancellables.removeValue(forKey: conversationId)
+        if let old = interactionStateCancellables.removeValue(forKey: conversationId) {
+            tearDownCancellables(old)
+        }
         var subs = Set<AnyCancellable>()
 
         let msgMgr = viewModel.messageManager
