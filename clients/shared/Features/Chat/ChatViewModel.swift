@@ -240,6 +240,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.assistantActivityReason = nil
                     self.assistantStatusText = nil
                     self.isCompacting = false
+                    self.contextWindowTokens = nil
+                    self.contextWindowMaxTokens = nil
                     // Streaming message state
                     if let existingId = self.currentAssistantMessageId,
                        let index = self.messages.firstIndex(where: { $0.id == existingId }) {
@@ -254,7 +256,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.currentAssistantMessageId = nil
                     self.currentTurnUserText = nil
                     self.currentAssistantHasText = false
-                    self.lastContentWasToolCall = false
                     self.discardStreamingBuffer()
                     self.discardPartialOutputBuffer()
                     // Voice state
@@ -316,6 +317,20 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     public var isCompacting: Bool {
         get { messageManager.isCompacting }
         set { messageManager.isCompacting = newValue }
+    }
+    public var contextWindowTokens: Int? {
+        get { messageManager.contextWindowTokens }
+        set { messageManager.contextWindowTokens = newValue }
+    }
+    public var contextWindowMaxTokens: Int? {
+        get { messageManager.contextWindowMaxTokens }
+        set { messageManager.contextWindowMaxTokens = newValue }
+    }
+    public var contextWindowFillRatio: Double? {
+        guard let tokens = contextWindowTokens,
+              let max = contextWindowMaxTokens,
+              max > 0 else { return nil }
+        return min(Double(tokens) / Double(max), 1.0)
     }
     public var activePendingRequestId: String? {
         messageManager.activePendingRequestId
@@ -602,9 +617,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// Tracks whether the current assistant message has received any text content.
     /// Used to determine `arrivedBeforeText` for each tool call in the message.
     @ObservationIgnored var currentAssistantHasText: Bool = false
-    /// Tracks whether the last content block was a tool call, so the next text
-    /// delta starts a new segment instead of appending to the previous one.
-    @ObservationIgnored var lastContentWasToolCall: Bool = false
     /// When true, incoming deltas are suppressed until the daemon acknowledges
     /// the cancellation (via `generation_cancelled` or `message_complete`).
     // Public (rather than private) so tests can simulate the
@@ -1962,7 +1974,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         surfaceRefetchCoordinator.cancelRefetchTasks()
         currentAssistantMessageId = nil
         currentAssistantHasText = false
-        lastContentWasToolCall = false
 
         if needsReconnectCatchUp {
             // Reconnect catch-up: the SSE stream dropped while a run was

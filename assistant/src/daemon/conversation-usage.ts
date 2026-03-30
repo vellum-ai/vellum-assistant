@@ -85,13 +85,14 @@ function extractAnthropicSpeed(
   rawResponse: unknown,
 ): "fast" | "standard" | null {
   const responses = Array.isArray(rawResponse) ? rawResponse : [rawResponse];
+  let foundStandard = false;
   for (const response of responses) {
     const rec = asRecord(response);
     const usage = asRecord(rec?.usage);
     if (usage?.speed === "fast") return "fast";
-    if (usage?.speed === "standard") return "standard";
+    if (usage?.speed === "standard") foundStandard = true;
   }
-  return null;
+  return foundStandard ? "standard" : null;
 }
 
 function resolveStructuredPricing(
@@ -125,6 +126,7 @@ export function recordUsage(
   cacheReadInputTokens = 0,
   rawResponse?: unknown,
   llmCallCount = 1,
+  contextWindow?: { tokens: number; maxTokens: number },
 ): void {
   if (inputTokens <= 0 && outputTokens <= 0) return;
 
@@ -179,6 +181,10 @@ export function recordUsage(
     totalOutputTokens: ctx.usageStats.outputTokens,
     estimatedCost,
     model,
+    ...(contextWindow && {
+      contextWindowTokens: contextWindow.tokens,
+      contextWindowMaxTokens: contextWindow.maxTokens,
+    }),
   });
 
   // Dual-write: persist per-turn usage event to the new ledger table

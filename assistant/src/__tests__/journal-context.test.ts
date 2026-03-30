@@ -3,65 +3,12 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
-const {
-  buildJournalContext,
-  formatJournalRelativeTime,
-  formatJournalAbsoluteTime,
-} = await import("../prompts/journal-context.js");
+const { buildJournalContext, formatJournalAbsoluteTime } = await import(
+  "../prompts/journal-context.js"
+);
 
 /** Small delay to ensure distinct file birthtimes on APFS. */
 const tick = () => Bun.sleep(5);
-
-describe("formatJournalRelativeTime", () => {
-  test("returns 'just now' for times less than 60 seconds ago", () => {
-    const now = Date.now();
-    expect(formatJournalRelativeTime(now - 30_000)).toBe("just now");
-    expect(formatJournalRelativeTime(now - 1_000)).toBe("just now");
-    expect(formatJournalRelativeTime(now)).toBe("just now");
-  });
-
-  test("returns minutes for times between 1-59 minutes ago", () => {
-    const now = Date.now();
-    expect(formatJournalRelativeTime(now - 60_000)).toBe("1 minute ago");
-    expect(formatJournalRelativeTime(now - 5 * 60_000)).toBe("5 minutes ago");
-    expect(formatJournalRelativeTime(now - 59 * 60_000)).toBe("59 minutes ago");
-  });
-
-  test("returns hours for times between 1-23 hours ago", () => {
-    const now = Date.now();
-    expect(formatJournalRelativeTime(now - 60 * 60_000)).toBe("1 hour ago");
-    expect(formatJournalRelativeTime(now - 3 * 60 * 60_000)).toBe(
-      "3 hours ago",
-    );
-    expect(formatJournalRelativeTime(now - 23 * 60 * 60_000)).toBe(
-      "23 hours ago",
-    );
-  });
-
-  test("returns days for times between 1-6 days ago", () => {
-    const now = Date.now();
-    expect(formatJournalRelativeTime(now - 24 * 60 * 60_000)).toBe("1 day ago");
-    expect(formatJournalRelativeTime(now - 3 * 24 * 60 * 60_000)).toBe(
-      "3 days ago",
-    );
-    expect(formatJournalRelativeTime(now - 6 * 24 * 60 * 60_000)).toBe(
-      "6 days ago",
-    );
-  });
-
-  test("returns weeks for times 7 or more days ago", () => {
-    const now = Date.now();
-    expect(formatJournalRelativeTime(now - 7 * 24 * 60 * 60_000)).toBe(
-      "1 week ago",
-    );
-    expect(formatJournalRelativeTime(now - 14 * 24 * 60 * 60_000)).toBe(
-      "2 weeks ago",
-    );
-    expect(formatJournalRelativeTime(now - 30 * 24 * 60 * 60_000)).toBe(
-      "4 weeks ago",
-    );
-  });
-});
 
 describe("formatJournalAbsoluteTime", () => {
   test("formats a timestamp as MM/DD/YY HH:MM", () => {
@@ -235,15 +182,12 @@ describe("buildJournalContext", () => {
     expect(result).not.toContain("LEAVING CONTEXT");
   });
 
-  test("includes both absolute and relative timestamps in headers", () => {
+  test("includes absolute timestamps in headers", () => {
     const userDir = join(journalDir, "testuser");
     mkdirSync(userDir, { recursive: true });
     writeFileSync(join(userDir, "recent.md"), "recent content");
 
     const result = buildJournalContext(10, "testuser")!;
-    // File was just created, so relative time should be "just now"
-    expect(result).toContain("just now");
-    // Absolute time should match the file's birthtime
     const birthtime = statSync(join(userDir, "recent.md")).birthtimeMs;
     const expected = formatJournalAbsoluteTime(birthtime);
     expect(result).toContain(expected);
@@ -261,9 +205,9 @@ describe("buildJournalContext", () => {
 
     const result = buildJournalContext(3, "testuser")!;
     // Middle entry should have plain header format (no MOST RECENT, no LEAVING CONTEXT)
-    // Format: ## middle.md (MM/DD/YY HH:MM, <relative time>)
+    // Format: ## middle.md (MM/DD/YY HH:MM)
     expect(result).toMatch(
-      /## middle\.md \(\d{2}\/\d{2}\/\d{2} \d{2}:\d{2}, .+\)/,
+      /## middle\.md \(\d{2}\/\d{2}\/\d{2} \d{2}:\d{2}\)/,
     );
   });
 

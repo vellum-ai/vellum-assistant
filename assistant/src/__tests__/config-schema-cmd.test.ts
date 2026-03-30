@@ -1,6 +1,4 @@
-import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
@@ -8,21 +6,15 @@ import { describe, expect, mock, test } from "bun:test";
 // Mocks — declared before imports that depend on platform/logger
 // ---------------------------------------------------------------------------
 
-const TEST_DIR = join(
-  tmpdir(),
-  `vellum-schema-cmd-test-${randomBytes(4).toString("hex")}`,
-);
-process.env.VELLUM_HOME = TEST_DIR;
-process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
-const WORKSPACE_DIR = join(TEST_DIR, "workspace");
+const WORKSPACE_DIR = process.env.VELLUM_WORKSPACE_DIR!;
+
 function ensureTestDir(): void {
   const dirs = [
-    TEST_DIR,
     WORKSPACE_DIR,
-    join(TEST_DIR, "data"),
-    join(TEST_DIR, "memory"),
-    join(TEST_DIR, "memory", "knowledge"),
-    join(TEST_DIR, "logs"),
+    join(WORKSPACE_DIR, "data"),
+    join(WORKSPACE_DIR, "data", "memory"),
+    join(WORKSPACE_DIR, "data", "memory", "knowledge"),
+    join(WORKSPACE_DIR, "data", "logs"),
   ];
   for (const dir of dirs) {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });

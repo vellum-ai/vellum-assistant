@@ -102,6 +102,8 @@ export interface EventHandlerState {
   >;
   /** tool_use_ids emitted in the current turn (populated in handleToolUse, cleared after annotation). */
   currentTurnToolUseIds: string[];
+  /** Wall-clock time (ms since epoch) when the agent loop turn started, used as the display timestamp for assistant messages. */
+  turnStartedAt: number;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -154,6 +156,7 @@ export function createEventHandlerState(): EventHandlerState {
     requestIdToToolUseId: new Map(),
     toolConfirmationOutcomes: new Map(),
     currentTurnToolUseIds: [],
+    turnStartedAt: Date.now(),
   };
 }
 
@@ -270,7 +273,7 @@ export function handleThinkingDelta(
   }
   if (!deps.ctx.streamThinking) return;
   emitLlmCallStartedIfNeeded(state, deps);
-  deps.onEvent({ type: "assistant_thinking_delta", thinking: event.thinking });
+  deps.onEvent({ type: "assistant_thinking_delta", thinking: event.thinking, conversationId: deps.ctx.conversationId });
 }
 
 export function handleToolUse(
@@ -722,6 +725,7 @@ export async function handleMessageComplete(
     userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
     assistantMessageInterface:
       deps.turnInterfaceContext.assistantMessageInterface,
+    sentAt: state.turnStartedAt,
   };
   const assistantMsg = await addMessage(
     deps.ctx.conversationId,

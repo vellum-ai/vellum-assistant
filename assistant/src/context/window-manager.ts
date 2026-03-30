@@ -1,8 +1,16 @@
-import { createUserMessage } from "../agent/message-types.js";
 import type { ContextWindowConfig } from "../config/types.js";
-import type { ContentBlock, Message, Provider } from "../providers/types.js";
+import type {
+  ContentBlock,
+  ImageContent,
+  Message,
+  Provider,
+} from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
-import { estimatePromptTokens, estimateTextTokens } from "./token-estimator.js";
+import {
+  estimateContentBlockTokens,
+  estimatePromptTokens,
+  estimateTextTokens,
+} from "./token-estimator.js";
 import { truncateToolResultsAcrossHistory } from "./tool-result-truncation.js";
 
 const log = getLogger("context-window");
@@ -399,13 +407,13 @@ export class ContextWindowManager {
       };
     }
 
-    const transcript = this.capTranscriptToTokenBudget(
-      serializeMessages(compactableMessages),
+    const transcriptBlocks = this.capTranscriptBlocksToTokenBudget(
+      serializeMessagesToContentBlocks(compactableMessages),
       existingSummary ?? "No previous summary.",
     );
     const summaryUpdate = await this.updateSummary(
       existingSummary ?? "No previous summary.",
-      transcript,
+      transcriptBlocks,
       signal,
     );
     const summary = summaryUpdate.summary;
@@ -426,7 +434,8 @@ export class ContextWindowManager {
     // Media (images, files) in kept turns is preserved naturally — those
     // turns are carried forward as-is and their token cost is already
     // accounted for by pickKeepBoundary's estimatePromptTokens call.
-    // Media in compacted turns is described textually in the summary transcript.
+    // Images in compacted turns are passed to the summarizer so it can
+    // describe their visual content in the summary text.
     const summaryMessage = createContextSummaryMessage(summary);
 
     const { messages: truncatedKeptMessages } =
@@ -555,18 +564,20 @@ export class ContextWindowManager {
   }
 
   /**
-   * Trim the serialized transcript so that the summary prompt (system prompt +
-   * existing summary + transcript + scaffolding) fits within the provider's
-   * input token limit, minus the output budget reserved for the summary itself.
-   * This prevents the summarizer LLM call from exceeding its context window
-   * during forced compaction of very large histories.
+   * Trim the serialized transcript content blocks so that the summary prompt
+   * (system prompt + existing summary + transcript + scaffolding) fits within
+   * the provider's input token limit, minus the output budget reserved for the
+   * summary itself.
+   *
+   * When the transcript exceeds the budget, blocks are dropped from the
+   * beginning (oldest messages first) to preserve recent context. Image blocks
+   * are dropped before text blocks within each pass since they are expensive
+   * and their surrounding text context already captures the conversation flow.
    */
-  private capTranscriptToTokenBudget(
-    transcript: string,
+  private capTranscriptBlocksToTokenBudget(
+    blocks: ContentBlock[],
     currentSummary: string,
-  ): string {
-    // Reserve tokens for: system prompt, summary prompt scaffolding, existing
-    // summary, message overhead, and the output (summaryMaxTokens).
+  ): ContentBlock[] {
     const overheadTokens =
       estimateTextTokens(SUMMARY_SYSTEM_PROMPT) +
       estimateTextTokens(currentSummary) +
@@ -580,26 +591,59 @@ export class ContextWindowManager {
       this.config.maxInputTokens - overheadTokens,
     );
 
-    const transcriptTokens = estimateTextTokens(transcript);
-    if (transcriptTokens <= maxTranscriptTokens) return transcript;
+    const estimateBlockTokens = (b: ContentBlock): number =>
+      estimateContentBlockTokens(b, { providerName: this.provider.name });
 
-    // Truncate from the beginning (older messages) to preserve recent context.
-    const maxChars = maxTranscriptTokens * 4; // inverse of estimateTextTokens
-    const truncated = transcript.slice(transcript.length - maxChars);
+    let totalTokens = 0;
+    for (const block of blocks) {
+      totalTokens += estimateBlockTokens(block);
+    }
+    if (totalTokens <= maxTranscriptTokens) return blocks;
+
+    // First pass: drop images from the beginning until we fit or run out of
+    // images to drop. Images are high-cost and their text context (message
+    // headers, surrounding tool_use/tool_result serializations) is preserved.
+    const result = [...blocks];
+    for (let i = 0; i < result.length && totalTokens > maxTranscriptTokens; i++) {
+      if (result[i].type === "image") {
+        totalTokens -= estimateBlockTokens(result[i]);
+        const stub: ContentBlock = {
+          type: "text",
+          text: `[image omitted from summary context]`,
+        };
+        totalTokens += estimateBlockTokens(stub);
+        result[i] = stub;
+      }
+    }
+    if (totalTokens <= maxTranscriptTokens) return result;
+
+    // Second pass: drop text blocks from the beginning (oldest) until we fit.
+    let dropUntil = 0;
+    let droppedTokens = 0;
+    for (let i = 0; i < result.length && totalTokens > maxTranscriptTokens; i++) {
+      droppedTokens += estimateBlockTokens(result[i]);
+      totalTokens -= estimateBlockTokens(result[i]);
+      dropUntil = i + 1;
+    }
+
     log.info(
       {
-        originalTokens: transcriptTokens,
+        originalTokens: totalTokens + droppedTokens,
         cappedTokens: maxTranscriptTokens,
-        droppedTokens: transcriptTokens - maxTranscriptTokens,
+        droppedTokens,
       },
-      "Capped summary transcript to fit provider input limit",
+      "Capped summary transcript blocks to fit provider input limit",
     );
-    return `[earlier messages truncated]\n${truncated}`;
+
+    return [
+      { type: "text", text: "[earlier messages truncated]" } as ContentBlock,
+      ...result.slice(dropUntil),
+    ];
   }
 
   private async updateSummary(
     currentSummary: string,
-    transcript: string,
+    transcriptBlocks: ContentBlock[],
     signal?: AbortSignal,
   ): Promise<{
     summary: string;
@@ -610,10 +654,14 @@ export class ContextWindowManager {
     cacheReadInputTokens: number;
     rawResponse?: unknown;
   }> {
-    const prompt = buildSummaryPrompt(currentSummary, transcript);
+    const contentBlocks = buildSummaryContentBlocks(
+      currentSummary,
+      transcriptBlocks,
+    );
+    const summaryMessage: Message = { role: "user", content: contentBlocks };
     try {
       const response = await this.provider.sendMessage(
-        [createUserMessage(prompt)],
+        [summaryMessage],
         undefined,
         SUMMARY_SYSTEM_PROMPT,
         {
@@ -639,8 +687,14 @@ export class ContextWindowManager {
       log.warn({ err }, "Summary generation failed, using local fallback");
     }
 
+    // Fallback: extract text-only transcript for local summary generation.
+    const textTranscript = transcriptBlocks
+      .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")
+      .map((b) => b.text)
+      .join("\n\n");
+
     return {
-      summary: fallbackSummary(currentSummary, transcript),
+      summary: fallbackSummary(currentSummary, textTranscript),
       inputTokens: 0,
       outputTokens: 0,
       model: "",
@@ -789,35 +843,102 @@ export function createContextSummaryMessage(summary: string): Message {
   return message;
 }
 
-function buildSummaryPrompt(
+/**
+ * Build content blocks for the summary prompt. Returns a mix of text blocks
+ * (for the scaffolding, existing summary, and serialized non-image content)
+ * and image blocks (preserved from the original messages so the summarizer
+ * can describe what was in them).
+ */
+function buildSummaryContentBlocks(
   currentSummary: string,
-  transcript: string,
-): string {
+  transcriptBlocks: ContentBlock[],
+): ContentBlock[] {
   return [
-    "Update the summary with new transcript data.",
-    "If new information conflicts with older notes, keep the most recent and explicit detail.",
-    "Keep all unresolved asks and next steps.",
-    "",
-    "### Existing Summary",
-    currentSummary.trim().length > 0 ? currentSummary.trim() : "None.",
-    "",
-    "### Transcript",
-    transcript,
-  ].join("\n");
+    {
+      type: "text",
+      text: [
+        "Update the summary with new transcript data.",
+        "If new information conflicts with older notes, keep the most recent and explicit detail.",
+        "Keep all unresolved asks and next steps.",
+        "For any images included below, describe their visual content in the summary so the information is preserved after compaction.",
+        "",
+        "### Existing Summary",
+        currentSummary.trim().length > 0 ? currentSummary.trim() : "None.",
+        "",
+        "### Transcript",
+      ].join("\n"),
+    } as ContentBlock,
+    ...transcriptBlocks,
+  ];
 }
 
-function serializeMessages(messages: Message[]): string {
-  return messages.map((m, i) => serializeForSummary(m, i)).join("\n\n");
-}
+/**
+ * Serialize messages into a sequence of content blocks. Text-based content
+ * (tool calls, tool results, thinking, etc.) is serialized into text blocks.
+ * Image blocks — both top-level and nested inside tool_result contentBlocks —
+ * are preserved as-is so the summarizer LLM can see them.
+ */
+function serializeMessagesToContentBlocks(messages: Message[]): ContentBlock[] {
+  const blocks: ContentBlock[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    const textLines: string[] = [`Message #${i + 1} (${msg.role})`];
 
-function serializeForSummary(message: Message, index: number): string {
-  const lines = [`Message #${index + 1} (${message.role})`];
+    for (const block of msg.content) {
+      if (block.type === "image") {
+        // Flush accumulated text lines before the image.
+        if (textLines.length > 0) {
+          blocks.push({ type: "text", text: textLines.join("\n") });
+          textLines.length = 0;
+        }
+        blocks.push(block);
+      } else if (block.type === "web_search_tool_result") {
+        textLines.push(
+          `web_search_tool_result ${block.tool_use_id}: [opaque]`,
+        );
+      } else if (block.type === "tool_result") {
+        // Extract images from tool_result contentBlocks before serializing.
+        const collectedImages: ImageContent[] = [];
+        textLines.push(serializeToolResultBlock(block, collectedImages));
+        if (collectedImages.length > 0) {
+          // Flush text, emit collected images, then continue.
+          if (textLines.length > 0) {
+            blocks.push({ type: "text", text: textLines.join("\n") });
+            textLines.length = 0;
+          }
+          blocks.push(...collectedImages);
+        }
+      } else {
+        textLines.push(serializeBlock(block));
+      }
+    }
 
-  for (const block of message.content) {
-    lines.push(serializeBlock(block));
+    // Flush remaining text lines for this message.
+    if (textLines.length > 0) {
+      blocks.push({ type: "text", text: textLines.join("\n") });
+    }
   }
+  return blocks;
+}
 
-  return lines.join("\n");
+/**
+ * Serialize images nested inside tool_result contentBlocks, returning them
+ * as separate content blocks to preserve for the summarizer.
+ */
+function serializeToolResultBlock(
+  block: Extract<ContentBlock, { type: "tool_result" }>,
+  collectedImages: ImageContent[],
+): string {
+  if (block.contentBlocks) {
+    for (const cb of block.contentBlocks) {
+      if (cb.type === "image") {
+        collectedImages.push(cb);
+      }
+    }
+  }
+  return `tool_result ${block.tool_use_id}${
+    block.is_error ? " (error)" : ""
+  }: ${clampText(block.content)}`;
 }
 
 function serializeBlock(block: ContentBlock): string {
@@ -831,6 +952,8 @@ function serializeBlock(block: ContentBlock): string {
         block.is_error ? " (error)" : ""
       }: ${clampText(block.content)}`;
     case "image":
+      // Top-level images are handled by serializeMessagesToContentBlocks.
+      // This path is only hit for images in unexpected positions.
       return `image: ${block.source.media_type}, ${
         Math.ceil(block.source.data.length / 4) * 3
       } bytes(base64)`;

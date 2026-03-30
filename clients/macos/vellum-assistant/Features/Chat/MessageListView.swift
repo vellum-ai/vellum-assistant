@@ -109,6 +109,9 @@ struct MessageListView: View {
     @Binding var highlightedMessageId: UUID?
     /// Measured width of the chat container, used to detect sidebar/split resizes
     /// and stabilize scroll position during layout width changes.
+    /// When false, disables interactive controls (buttons, actions) inside the
+    /// message list while keeping scrolling and text selection functional.
+    var isInteractionEnabled: Bool = true
     var containerWidth: CGFloat = 0
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
@@ -120,7 +123,7 @@ struct MessageListView: View {
     /// won't trigger re-renders on frequent `data` progress ticks.
     var taskProgressManager = TaskProgressOverlayManager.shared
     /// Consolidates all scroll-related state with @Observable fine-grained tracking.
-    /// Only 4 properties trigger view re-evaluations: isFollowingBottom,
+    /// Only 4 properties trigger view re-evaluations: showScrollToLatest,
     /// pushToTopMessageId, isPaginationInFlight, hideScrollIndicators.
     @State private var scrollState = MessageListScrollState()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
@@ -216,6 +219,7 @@ struct MessageListView: View {
     /// SwiftUI's `.equatable()` diffing sees every mutation.
     private var derivedState: MessageListDerivedState {
         os_signpost(.begin, log: stallLog, name: "DerivedState.resolve")
+        scrollState.recordBodyEvaluation()
 
         // Compute visible messages first so version tracking and layout
         // both operate on the same filtered set.
@@ -743,6 +747,7 @@ struct MessageListView: View {
                     }
                 }
                 .textSelection(.enabled)
+                .disabled(!isInteractionEnabled)
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.md)

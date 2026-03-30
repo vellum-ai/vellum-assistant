@@ -119,6 +119,7 @@ export async function queryMemory(query: string, conversationId: string) {
 
 export interface CleanupShortSegmentsResult {
   removed: number;
+  failed: number;
   dryRunCount?: number;
 }
 
@@ -139,18 +140,20 @@ export async function cleanupShortSegments(
     .all();
 
   if (opts?.dryRun) {
-    return { removed: 0, dryRunCount: shortSegments.length };
+    return { removed: 0, failed: 0, dryRunCount: shortSegments.length };
   }
 
   let removed = 0;
+  let failed = 0;
   for (const row of shortSegments) {
-    // Delete the Qdrant embedding first (best-effort via circuit breaker)
     try {
       const qdrant = getQdrantClient();
       await withQdrantBreaker(() => qdrant.deleteByTarget("segment", row.id));
-    } catch {
-      // Qdrant may not be running or the vector may not exist — continue
-      // with SQLite deletion regardless
+    } catch (err) {
+      // Keep the SQLite row so the target ID is preserved for retry
+      log.warn({ segmentId: row.id, err }, "Qdrant deletion failed — skipping SQLite deletion to preserve target ID");
+      failed++;
+      continue;
     }
 
     db.delete(memorySegments)
@@ -159,8 +162,8 @@ export async function cleanupShortSegments(
     removed++;
   }
 
-  log.info({ removed, threshold: MIN_SEGMENT_CHARS }, "Cleaned up short segments");
-  return { removed };
+  log.info({ removed, failed, threshold: MIN_SEGMENT_CHARS }, "Cleaned up short segments");
+  return { removed, failed };
 }
 
 // ── Re-extraction ──────────────────────────────────────────────────────

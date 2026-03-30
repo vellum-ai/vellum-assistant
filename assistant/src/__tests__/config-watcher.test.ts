@@ -1,8 +1,5 @@
-import { mkdirSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdirSync } from "node:fs";
 import {
-  afterAll,
   afterEach,
   beforeAll,
   beforeEach,
@@ -16,10 +13,8 @@ import {
 // Temp directory scaffold
 // ---------------------------------------------------------------------------
 
-const TEST_DIR = join(tmpdir(), `config-watcher-test-${crypto.randomUUID()}`);
-process.env.VELLUM_HOME = TEST_DIR;
-process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
-const WORKSPACE_DIR = TEST_DIR;
+const WORKSPACE_DIR = process.env.VELLUM_WORKSPACE_DIR!;
+
 // ---------------------------------------------------------------------------
 // Mock platform paths
 // ---------------------------------------------------------------------------
@@ -127,12 +122,6 @@ beforeAll(() => {
   mkdirSync(WORKSPACE_DIR, { recursive: true });
 });
 
-afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  rmSync(TEST_DIR, { recursive: true, force: true });
-});
-
 let watcher: InstanceType<typeof ConfigWatcher>;
 let evictCallCount: number;
 const onConversationEvict = () => {
@@ -140,8 +129,6 @@ const onConversationEvict = () => {
 };
 
 beforeEach(() => {
-  process.env.VELLUM_HOME = TEST_DIR;
-  process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
   capturedWatchers.length = 0;
   evictCallCount = 0;
   watcher = new ConfigWatcher();

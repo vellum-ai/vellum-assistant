@@ -1,6 +1,4 @@
-import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -8,23 +6,16 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks — declared before imports that depend on platform/logger
 // ---------------------------------------------------------------------------
 
-const TEST_DIR = join(
-  tmpdir(),
-  `vellum-schema-test-${randomBytes(4).toString("hex")}`,
-);
-process.env.VELLUM_HOME = TEST_DIR;
-process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
-const WORKSPACE_DIR = TEST_DIR;
+const WORKSPACE_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 const CONFIG_PATH = join(WORKSPACE_DIR, "config.json");
 
 function ensureTestDir(): void {
   const dirs = [
-    TEST_DIR,
     WORKSPACE_DIR,
-    join(TEST_DIR, "data"),
-    join(TEST_DIR, "memory"),
-    join(TEST_DIR, "memory", "knowledge"),
-    join(TEST_DIR, "logs"),
+    join(WORKSPACE_DIR, "data"),
+    join(WORKSPACE_DIR, "data", "memory"),
+    join(WORKSPACE_DIR, "data", "memory", "knowledge"),
+    join(WORKSPACE_DIR, "data", "logs"),
   ];
   for (const dir of dirs) {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -965,15 +956,13 @@ describe("buildElevenLabsVoiceSpec", () => {
 
 describe("loadConfig with schema validation", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
-    // Keep TEST_DIR and logs in place to avoid racing async logger stream init.
+    // Keep WORKSPACE_DIR and logs in place to avoid racing async logger stream init.
     ensureTestDir();
     const resetPaths = [
       CONFIG_PATH,
-      join(TEST_DIR, "keys.enc"),
-      join(TEST_DIR, "data"),
-      join(TEST_DIR, "memory"),
+      join(WORKSPACE_DIR, "keys.enc"),
+      join(WORKSPACE_DIR, "data"),
+      join(WORKSPACE_DIR, "data", "memory"),
     ];
     for (const path of resetPaths) {
       if (existsSync(path)) {
@@ -981,18 +970,16 @@ describe("loadConfig with schema validation", () => {
       }
     }
     ensureTestDir();
-    _setStorePath(join(TEST_DIR, "keys.enc"));
+    _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
     invalidateConfigCache();
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
     _setStorePath(null);
     invalidateConfigCache();
   });
 
-  // Intentionally do not remove TEST_DIR in afterAll.
+  // Intentionally do not remove WORKSPACE_DIR in afterAll.
   // A late async logger flush may still target logs under this path and can
   // intermittently trigger unhandled ENOENT in CI if the directory is removed.
   test("loads valid config", () => {
@@ -1200,14 +1187,12 @@ describe("loadConfig with schema validation", () => {
 
 describe("Call entrypoint gating", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     ensureTestDir();
     const resetPaths = [
       CONFIG_PATH,
-      join(TEST_DIR, "keys.enc"),
-      join(TEST_DIR, "data"),
-      join(TEST_DIR, "memory"),
+      join(WORKSPACE_DIR, "keys.enc"),
+      join(WORKSPACE_DIR, "data"),
+      join(WORKSPACE_DIR, "data", "memory"),
     ];
     for (const path of resetPaths) {
       if (existsSync(path)) {
@@ -1215,7 +1200,7 @@ describe("Call entrypoint gating", () => {
       }
     }
     ensureTestDir();
-    _setStorePath(join(TEST_DIR, "keys.enc"));
+    _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
     invalidateConfigCache();
   });
 

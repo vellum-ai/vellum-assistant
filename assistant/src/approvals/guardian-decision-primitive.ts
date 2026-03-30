@@ -64,6 +64,28 @@ const log = getLogger("guardian-decision-primitive");
 /** TTL for scoped approval grants minted on guardian approve_once decisions. */
 export const GRANT_TTL_MS = 5 * 60 * 1000;
 
+/** TTL for scoped approval grants minted on guardian approve_10m decisions. */
+export const GRANT_TTL_10M_MS = 10 * 60 * 1000;
+
+/**
+ * Compute the grant `expiresAt` timestamp for a given approval action.
+ *
+ * - `approve_10m` → 10 minutes from now
+ * - `approve_conversation` → no wall-clock expiry (far-future sentinel;
+ *   conversation lifecycle manages cleanup)
+ * - All others (`approve_once`, etc.) → 5 minutes from now (default)
+ */
+export function computeGrantExpiresAt(action: ApprovalAction): number {
+  switch (action) {
+    case "approve_10m":
+      return Date.now() + GRANT_TTL_10M_MS;
+    case "approve_conversation":
+      return Number.MAX_SAFE_INTEGER;
+    default:
+      return Date.now() + GRANT_TTL_MS;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Scoped grant minting
 // ---------------------------------------------------------------------------
@@ -82,8 +104,9 @@ export function tryMintToolApprovalGrant(params: {
   approval: GuardianApprovalRequest;
   decisionChannel: ChannelId;
   guardianExternalUserId: string;
+  effectiveAction: ApprovalAction;
 }): void {
-  const { approvalInfo, approval, decisionChannel, guardianExternalUserId } =
+  const { approvalInfo, approval, decisionChannel, guardianExternalUserId, effectiveAction } =
     params;
 
   if (!approvalInfo.toolName) {
@@ -119,7 +142,7 @@ export function tryMintToolApprovalGrant(params: {
     callSessionId: null,
     guardianExternalUserId,
     requesterExternalUserId: approval.requesterExternalUserId,
-    expiresAt: Date.now() + GRANT_TTL_MS,
+    expiresAt: computeGrantExpiresAt(effectiveAction),
   });
 
   if (result.ok) {
@@ -244,6 +267,7 @@ export function applyGuardianDecision(
       approval,
       decisionChannel: actorChannel,
       guardianExternalUserId: effectiveGuardianId,
+      effectiveAction: effectiveDecision.action,
     });
   }
 
@@ -271,8 +295,9 @@ export function mintCanonicalRequestGrant(params: {
   request: CanonicalGuardianRequest;
   actorChannel: string;
   guardianExternalUserId?: string;
+  effectiveAction: ApprovalAction;
 }): { minted: boolean } {
-  const { request, actorChannel, guardianExternalUserId } = params;
+  const { request, actorChannel, guardianExternalUserId, effectiveAction } = params;
 
   if (!request.toolName || !request.inputDigest) {
     return { minted: false };
@@ -289,7 +314,7 @@ export function mintCanonicalRequestGrant(params: {
     callSessionId: request.callSessionId ?? null,
     guardianExternalUserId: guardianExternalUserId ?? null,
     requesterExternalUserId: request.requesterExternalUserId ?? null,
-    expiresAt: Date.now() + GRANT_TTL_MS,
+    expiresAt: computeGrantExpiresAt(effectiveAction),
   });
 
   if (result.ok) {
@@ -580,6 +605,7 @@ export async function applyCanonicalGuardianDecision(
         actorContext.actorExternalUserId ??
         resolved.guardianExternalUserId ??
         undefined,
+      effectiveAction,
     });
     grantMinted = grantResult.minted;
   }

@@ -45,7 +45,7 @@ Every command must have high-quality `--help` output. Follow the same standards 
 
 The CLI must **never** read from or write to the `.vellum/` directory (e.g. `~/.vellum/protected/`, `<instanceDir>/.vellum/`). That directory structure is an **assistant daemon / gateway implementation detail**. The CLI's job is to spawn those processes and pass configuration via environment variables — not to reach into their internal storage.
 
-For example, the signing key used for JWT auth between the daemon and gateway is passed as the `ACTOR_TOKEN_SIGNING_KEY` env var. The CLI generates an ephemeral key (`generateLocalSigningKey()` in `lib/local.ts`) and passes it to both `startLocalDaemon` and `startGateway`. It does **not** read or write key files on disk — each process manages its own persistence.
+For example, the signing key used for JWT auth between the daemon and gateway is persisted in the lockfile (`resources.signingKey`) so that client actor tokens survive daemon/gateway restarts. On first start (or when the key is missing), the CLI generates a new key via `generateLocalSigningKey()` in `lib/local.ts`, saves it to the lockfile entry, and passes it to both `startLocalDaemon` and `startGateway` as the `ACTOR_TOKEN_SIGNING_KEY` env var. The CLI does **not** read or write to the `.vellum/` directory for signing keys — it uses the lockfile instead.
 
 ## Docker Volume Management
 

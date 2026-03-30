@@ -298,6 +298,7 @@ export async function handleMemoryRecall(
       {
         scopeId,
         scopePolicyOverride,
+        hydeEnabled: true,
       },
     );
 

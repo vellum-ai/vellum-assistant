@@ -532,10 +532,12 @@ public struct AssistantTextDelta: Codable, Sendable {
 public struct AssistantThinkingDelta: Codable, Sendable {
     public let type: String
     public let thinking: String
+    public let conversationId: String?
 
-    public init(type: String, thinking: String) {
+    public init(type: String, thinking: String, conversationId: String? = nil) {
         self.type = type
         self.thinking = thinking
+        self.conversationId = conversationId
     }
 }
 
@@ -4866,8 +4868,14 @@ public struct UsageUpdate: Codable, Sendable {
     public let totalOutputTokens: Int
     public let estimatedCost: Double
     public let model: String
+    public let contextWindowTokens: Int?
+    public let contextWindowMaxTokens: Int?
 
-    public init(type: String, inputTokens: Int, outputTokens: Int, totalInputTokens: Int, totalOutputTokens: Int, estimatedCost: Double, model: String) {
+    public init(type: String, inputTokens: Int, outputTokens: Int,
+                totalInputTokens: Int, totalOutputTokens: Int,
+                estimatedCost: Double, model: String,
+                contextWindowTokens: Int? = nil,
+                contextWindowMaxTokens: Int? = nil) {
         self.type = type
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
@@ -4875,6 +4883,8 @@ public struct UsageUpdate: Codable, Sendable {
         self.totalOutputTokens = totalOutputTokens
         self.estimatedCost = estimatedCost
         self.model = model
+        self.contextWindowTokens = contextWindowTokens
+        self.contextWindowMaxTokens = contextWindowMaxTokens
     }
 }
 

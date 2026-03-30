@@ -15,9 +15,11 @@ final class MessageListScrollState {
 
     // MARK: - Observed Properties (trigger view updates)
 
-    /// Whether the viewport is logically following the bottom of the transcript.
-    /// When false (detached), background pin requests are suppressed.
-    var isFollowingBottom = true
+    @ObservationIgnored private var _isFollowingBottom = true
+
+    /// Logical follow state — scroll handlers and callbacks read this.
+    /// Does NOT trigger view re-evaluation (reads @ObservationIgnored backing store).
+    var isFollowingBottom: Bool { _isFollowingBottom }
 
     /// The message ID whose top edge should be pinned to the viewport top
     /// after the user sends a message (push-to-top pattern). `nil` when
@@ -34,11 +36,11 @@ final class MessageListScrollState {
     /// hiding the indicators during the initial layout window masks this.
     var hideScrollIndicators = false
 
-    // MARK: - Computed Properties
+    /// Whether the "Scroll to latest" CTA should be visible.
+    /// Updated via debounced `scheduleUISync()` — at most once per frame.
+    private(set) var showScrollToLatest = false
 
-    /// Whether the "Scroll to latest" CTA should be visible. Replaces the
-    /// `isNearBottom` binding chain from the old coordinator.
-    var showScrollToLatest: Bool { !isFollowingBottom }
+    // MARK: - Computed Properties
 
     /// Height of the tail spacer when it is visible during push-to-top.
     /// Subtracted from content height for overflow and bottom detection
@@ -196,6 +198,63 @@ final class MessageListScrollState {
     /// without relying on `.defaultScrollAnchor`.
     @ObservationIgnored var scrollToEdge: ((_ edge: Edge) -> Void)?
 
+    // MARK: - Circuit Breaker
+
+    /// Rolling window of body evaluation timestamps for loop detection.
+    @ObservationIgnored private var bodyEvalTimestamps: [CFAbsoluteTime] = []
+    /// When true, scheduleUISync() is suppressed to break a runaway re-evaluation loop.
+    @ObservationIgnored private(set) var isThrottled = false
+    @ObservationIgnored private var throttleRecoveryTask: Task<Void, Never>?
+
+    /// Called once per MessageListView body evaluation. Trips the circuit
+    /// breaker when >100 evaluations occur in 2 seconds, suppressing
+    /// `scheduleUISync()` for 500ms to break the loop.
+    func recordBodyEvaluation() {
+        let now = CFAbsoluteTimeGetCurrent()
+        bodyEvalTimestamps.append(now)
+        // Trim entries older than 2 seconds.
+        let cutoff = now - 2.0
+        if let firstValid = bodyEvalTimestamps.firstIndex(where: { $0 >= cutoff }) {
+            bodyEvalTimestamps.removeFirst(firstValid)
+        }
+
+        if bodyEvalTimestamps.count > 100 && !isThrottled {
+            isThrottled = true
+            os_log(.fault, "Scroll re-evaluation loop detected: %d evals in 2s — throttling for 500ms",
+                   bodyEvalTimestamps.count)
+            throttleRecoveryTask?.cancel()
+            throttleRecoveryTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard let self, !Task.isCancelled else { return }
+                self.isThrottled = false
+                self.bodyEvalTimestamps.removeAll()
+                self.throttleRecoveryTask = nil
+                self.scheduleUISync()
+            }
+        }
+    }
+
+    // MARK: - Debounced UI Sync
+
+    @ObservationIgnored private var uiSyncTask: Task<Void, Never>?
+
+    /// Debounces observed-property updates so rapid oscillation of _isFollowingBottom
+    /// (e.g. during rapid scrolling near bottom) coalesces into at most one
+    /// view re-evaluation per frame instead of one per scroll event.
+    private func scheduleUISync() {
+        guard !isThrottled else { return }
+        uiSyncTask?.cancel()
+        uiSyncTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 16_000_000) // ~1 frame at 60Hz
+            guard let self, !Task.isCancelled else { return }
+            let newValue = !self._isFollowingBottom
+            if self.showScrollToLatest != newValue {
+                self.showScrollToLatest = newValue
+            }
+            self.uiSyncTask = nil
+        }
+    }
+
     // MARK: - Task References
 
     /// In-flight pagination load task.
@@ -242,7 +301,7 @@ final class MessageListScrollState {
         }
 
         // Non-user-initiated requests are gated on follow-state and suppression.
-        guard isFollowingBottom else { return false }
+        guard _isFollowingBottom else { return false }
         guard !isSuppressed else { return false }
 
         if animated {
@@ -257,14 +316,16 @@ final class MessageListScrollState {
 
     /// Transitions to the detached state, suppressing all background pin requests.
     func detach() {
-        guard isFollowingBottom else { return }
-        isFollowingBottom = false
+        guard _isFollowingBottom else { return }
+        _isFollowingBottom = false
+        scheduleUISync()
     }
 
     /// Transitions to the following state, allowing pin requests to proceed.
     func reattach() {
-        guard !isFollowingBottom else { return }
-        isFollowingBottom = true
+        guard !_isFollowingBottom else { return }
+        _isFollowingBottom = true
+        scheduleUISync()
     }
 
     /// Performs a programmatic scroll to the given item ID and anchor point,
@@ -296,11 +357,20 @@ final class MessageListScrollState {
         // Update the live conversation ID so closures read the new value.
         currentConversationId = newConversationId
         // Reset follow state for the new conversation.
-        if !isFollowingBottom { isFollowingBottom = true }
+        if !_isFollowingBottom { _isFollowingBottom = true }
+        // Sync UI immediately for conversation switch (no debounce delay).
+        uiSyncTask?.cancel()
+        if showScrollToLatest { showScrollToLatest = false }
         if pushToTopMessageId != nil { pushToTopMessageId = nil }
         isAtBottom = true
         hasReceivedScrollEvent = false
         lastContentOffsetY = 0
+        // Clear circuit breaker state so a throttle tripped in the previous
+        // conversation doesn't suppress scheduleUISync() in the new one.
+        throttleRecoveryTask?.cancel()
+        throttleRecoveryTask = nil
+        isThrottled = false
+        bodyEvalTimestamps.removeAll()
         // Hide scroll indicators during the conversation switch grace period
         // to mask LazyVStack content size estimation changes.
         scrollIndicatorRestoreTask?.cancel()
@@ -316,6 +386,8 @@ final class MessageListScrollState {
     /// Cancel all tasks and clear suppression. Called from `onDisappear`.
     func cancelAll() {
         clearSuppression()
+        uiSyncTask?.cancel()
+        uiSyncTask = nil
         scrollRestoreTask?.cancel()
         scrollRestoreTask = nil
         paginationTask?.cancel()
@@ -326,6 +398,10 @@ final class MessageListScrollState {
         highlightDismissTask = nil
         scrollIndicatorRestoreTask?.cancel()
         scrollIndicatorRestoreTask = nil
+        throttleRecoveryTask?.cancel()
+        throttleRecoveryTask = nil
+        isThrottled = false
+        bodyEvalTimestamps.removeAll()
         if hideScrollIndicators { hideScrollIndicators = false }
         if isPaginationInFlight { isPaginationInFlight = false }
     }

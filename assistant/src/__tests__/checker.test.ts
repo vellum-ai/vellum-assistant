@@ -21,10 +21,8 @@ import {
   test,
 } from "bun:test";
 
-// Use a temp directory so trust-store doesn't touch ~/.vellum
-const checkerTestDir = mkdtempSync(join(tmpdir(), "checker-test-"));
-process.env.VELLUM_HOME = checkerTestDir;
-process.env.VELLUM_WORKSPACE_DIR = checkerTestDir;
+// Use the preload-provided workspace directory so trust-store doesn't touch ~/.vellum
+const checkerTestDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Point the file-based trust backend at the test temp dir.
 process.env.GATEWAY_SECURITY_DIR = join(checkerTestDir, "protected");
@@ -151,8 +149,6 @@ describe("Permission Checker", () => {
   });
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = checkerTestDir;
-    process.env.VELLUM_WORKSPACE_DIR = checkerTestDir;
     // Reset trust-store state between tests
     clearCache();
     // Reset permissions mode to workspace (default) so existing tests are not affected
@@ -166,14 +162,6 @@ describe("Permission Checker", () => {
     }
     try {
       rmSync(join(checkerTestDir, "skills"), { recursive: true, force: true });
-    } catch {
-      /* may not exist */
-    }
-    try {
-      rmSync(join(checkerTestDir, "skills"), {
-        recursive: true,
-        force: true,
-      });
     } catch {
       /* may not exist */
     }
@@ -2061,7 +2049,7 @@ describe("Permission Checker", () => {
       expect(risk).toBe(RiskLevel.Low);
     });
 
-    test("file_write to skill directory prompts", async () => {
+    test("file_write to skill directory prompts via default ask rule", async () => {
       ensureSkillsDir();
       const skillPath = join(
         checkerTestDir,
@@ -2071,6 +2059,10 @@ describe("Permission Checker", () => {
       );
       const result = await check("file_write", { path: skillPath }, "/tmp");
       expect(result.decision).toBe("prompt");
+      expect(result.matchedRule).toBeDefined();
+      expect(result.matchedRule!.id).toBe(
+        "default:ask-file_write-managed-skills",
+      );
     });
 
     test("file_write to skill directory is NOT allowed by a generic file_write allow rule (High risk)", async () => {
@@ -2085,7 +2077,6 @@ describe("Permission Checker", () => {
       const result = await check("file_write", { path: skillPath }, "/tmp");
       // High risk requires explicit allowHighRisk — a plain allow rule is insufficient.
       expect(result.decision).toBe("prompt");
-      expect(result.reason).toContain("High risk");
     });
 
     test("file_write to skill directory is allowed with allowHighRisk: true rule", async () => {
@@ -2585,6 +2576,7 @@ describe("Permission Checker", () => {
           "executor.ts",
         );
         const result = await check("file_write", { path: skillPath }, "/tmp");
+        // The important invariant is that it prompts (default ask rule or strict mode).
         expect(result.decision).toBe("prompt");
       });
 
@@ -2780,36 +2772,19 @@ describe("Permission Checker", () => {
   // Regression tests: user-created allow rules (priority 100) must override
   // the default ask rules for skill-source mutations (priority 50).
   //
-  // Paths use platform helpers/workspace/skills/ (not getWorkspaceSkillsDir())
-  // because getDefaultRuleTemplates builds the managed-skill ask rule from
-  // platform helpers, so using a different prefix would avoid contention with
-  // the default rule and silently pass even if the priority regressed.
-  //
-  // extraDirs is set to the parent "workspace" directory (not "workspace/skills")
-  // so that isSkillSourcePath classifies the paths as High risk without creating
-  // a duplicate extra-0 ask rule for the exact same path as the managed rule.
-  // The third test explicitly asserts the matched rule ID is the managed-skill
-  // rule to guard against regressions in default rule generation.
+  // Paths use the real workspace skills directory (getWorkspaceSkillsDir())
+  // so that getDefaultRuleTemplates builds the managed-skill ask rule for the
+  // exact same path.  The third test explicitly asserts the matched rule ID is
+  // the managed-skill rule to guard against regressions in default rule
+  // generation.
 
   describe("user override of skill mutation default ask rules", () => {
     // Must match the path getDefaultRuleTemplates computes for managedSkillsDir
     const wsSkillsDir = join(checkerTestDir, "skills");
-    // Use parent directory for extraDirs — broad enough for isSkillSourcePath
-    // to recognize skill paths, but distinct from the managed-skill rule path.
-    const wsDir = join(checkerTestDir, "workspace");
 
     function ensureSkillsDir(): void {
       mkdirSync(wsSkillsDir, { recursive: true });
     }
-
-    beforeEach(() => {
-      process.env.VELLUM_HOME = checkerTestDir;
-      process.env.VELLUM_WORKSPACE_DIR = checkerTestDir;
-      // Register the workspace parent dir so isSkillSourcePath detects skill
-      // paths under workspace/skills/ without duplicating the managed-skill
-      // default ask rule (the mock for getWorkspaceSkillsDir points elsewhere).
-      testConfig.skills.load.extraDirs = [wsDir];
-    });
 
     test("user allowHighRisk rule at priority 100 overrides default ask for skill source writes", async () => {
       ensureSkillsDir();
@@ -4279,8 +4254,6 @@ describe("Permission Checker", () => {
 
   describe("default allow: skill_load", () => {
     beforeEach(() => {
-      process.env.VELLUM_HOME = checkerTestDir;
-      process.env.VELLUM_WORKSPACE_DIR = checkerTestDir;
       clearCache();
       testConfig.permissions = { mode: "strict" };
     });
@@ -4304,8 +4277,6 @@ describe("Permission Checker", () => {
 
   describe("default allow: browser tools", () => {
     beforeEach(() => {
-      process.env.VELLUM_HOME = checkerTestDir;
-      process.env.VELLUM_WORKSPACE_DIR = checkerTestDir;
       clearCache();
       testConfig.permissions = { mode: "strict" };
     });
@@ -4350,8 +4321,6 @@ describe("Permission Checker", () => {
 
 describe("bash network_mode=proxied — no special-casing", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = checkerTestDir;
-    process.env.VELLUM_WORKSPACE_DIR = checkerTestDir;
     clearCache();
     testConfig.permissions = { mode: "workspace" };
     testConfig.skills = { load: { extraDirs: [] } };
@@ -4466,8 +4435,6 @@ describe("computer-use tool permission defaults", () => {
 
 describe("scope matching behavior", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = checkerTestDir;
-    process.env.VELLUM_WORKSPACE_DIR = checkerTestDir;
     clearCache();
     testConfig.permissions = { mode: "workspace" };
     try {
@@ -4610,8 +4577,6 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
   const workspaceDir = "/home/user/my-project";
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = checkerTestDir;
-    process.env.VELLUM_WORKSPACE_DIR = checkerTestDir;
     clearCache();
     testConfig.permissions = { mode: "workspace" };
     testConfig.skills = { load: { extraDirs: [] } };
@@ -4623,8 +4588,6 @@ describe("workspace mode — auto-allow workspace-scoped operations", () => {
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
     testConfig.permissions = { mode: "workspace" };
   });
 
@@ -4879,8 +4842,6 @@ describe("shell command candidates wiring (PR 04)", () => {
 
 describe("integration regressions (PR 11)", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = checkerTestDir;
-    process.env.VELLUM_WORKSPACE_DIR = checkerTestDir;
     // Delete the trust file to prevent stale default rules from prior tests
     try {
       rmSync(join(checkerTestDir, "protected", "trust.json"));

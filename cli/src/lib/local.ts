@@ -207,39 +207,6 @@ export function generateLocalSigningKey(): string {
   return randomBytes(32).toString("hex");
 }
 
-/**
- * Load an existing signing key from disk for use during `wake`.
- *
- * Checks the known persisted key locations (workspace/deprecated/ and
- * the legacy ~/.vellum/protected/ path). Returns the hex-encoded key if
- * found, or undefined if no key exists on disk.
- *
- * `wake` should prefer this over `generateLocalSigningKey()` so that
- * existing actor tokens (held by connected clients) remain valid across
- * daemon/gateway restarts.
- */
-export function loadExistingSigningKey(
-  resources?: LocalInstanceResources,
-): string | undefined {
-  const instanceDir = resources?.instanceDir ?? join(homedir(), ".vellum");
-  const candidates = [
-    join(instanceDir, ".vellum", "workspace", "deprecated", "actor-token-signing-key"),
-    join(homedir(), ".vellum", "protected", "actor-token-signing-key"),
-  ];
-  for (const keyPath of candidates) {
-    if (!existsSync(keyPath)) continue;
-    try {
-      const raw = readFileSync(keyPath);
-      if (raw.length === 32) {
-        return raw.toString("hex");
-      }
-    } catch {
-      // Fall through to next candidate
-    }
-  }
-  return undefined;
-}
-
 type DaemonStartOptions = {
   foreground?: boolean;
   defaultWorkspaceConfigPath?: string;

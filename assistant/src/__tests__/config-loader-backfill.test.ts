@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -6,7 +5,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   afterAll,
@@ -22,23 +20,16 @@ import {
 // Mocks — declared before imports that depend on platform/logger
 // ---------------------------------------------------------------------------
 
-const TEST_DIR = join(
-  tmpdir(),
-  `vellum-backfill-test-${randomBytes(4).toString("hex")}`,
-);
-process.env.VELLUM_HOME = TEST_DIR;
-process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
-const WORKSPACE_DIR = TEST_DIR;
+const WORKSPACE_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 const CONFIG_PATH = join(WORKSPACE_DIR, "config.json");
 
 function ensureTestDir(): void {
   const dirs = [
-    TEST_DIR,
     WORKSPACE_DIR,
-    join(TEST_DIR, "data"),
-    join(TEST_DIR, "memory"),
-    join(TEST_DIR, "memory", "knowledge"),
-    join(TEST_DIR, "logs"),
+    join(WORKSPACE_DIR, "data"),
+    join(WORKSPACE_DIR, "data", "memory"),
+    join(WORKSPACE_DIR, "data", "memory", "knowledge"),
+    join(WORKSPACE_DIR, "data", "logs"),
   ];
   for (const dir of dirs) {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
@@ -69,8 +60,6 @@ mock.module("../util/logger.js", () => ({
 // Restore all mocked modules after this file's tests complete to prevent
 // cross-test contamination when running grouped with other test files.
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   mock.restore();
 });
 
@@ -160,14 +149,12 @@ describe("deepMergeMissing", () => {
 
 describe("config loader backfill", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     ensureTestDir();
     const resetPaths = [
       CONFIG_PATH,
-      join(TEST_DIR, "keys.enc"),
-      join(TEST_DIR, "data"),
-      join(TEST_DIR, "memory"),
+      join(WORKSPACE_DIR, "keys.enc"),
+      join(WORKSPACE_DIR, "data"),
+      join(WORKSPACE_DIR, "data", "memory"),
     ];
     for (const path of resetPaths) {
       if (existsSync(path)) {
@@ -175,7 +162,7 @@ describe("config loader backfill", () => {
       }
     }
     ensureTestDir();
-    _setStorePath(join(TEST_DIR, "keys.enc"));
+    _setStorePath(join(WORKSPACE_DIR, "keys.enc"));
     invalidateConfigCache();
   });
 

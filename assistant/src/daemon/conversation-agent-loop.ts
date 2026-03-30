@@ -1589,6 +1589,12 @@ export async function runAgentLoopImpl(
     const restoredHistory = [...preRepairMessages, ...newMessages];
     ctx.messages = stripInjectedContext(restoredHistory);
 
+    const postLoopContextEstimate = estimatePromptTokens(
+      ctx.messages,
+      ctx.systemPrompt,
+      { providerName: ctx.provider.name, toolTokenBudget },
+    );
+
     emitUsage(
       ctx,
       state.exchangeInputTokens,
@@ -1602,6 +1608,7 @@ export async function runAgentLoopImpl(
       collapseRawResponses(state.exchangeRawResponses),
       state.exchangeProviderName,
       state.exchangeLlmCallCount,
+      { tokens: postLoopContextEstimate, maxTokens: config.contextWindow.maxInputTokens },
     );
 
     void getHookManager().trigger("post-message", {
@@ -1870,6 +1877,7 @@ function emitUsage(
   rawResponse?: unknown,
   providerName?: string,
   llmCallCount = 1,
+  contextWindow?: { tokens: number; maxTokens: number },
 ): void {
   recordUsage(
     {
@@ -1887,6 +1895,7 @@ function emitUsage(
     cacheReadInputTokens,
     rawResponse,
     llmCallCount,
+    contextWindow,
   );
 }
 

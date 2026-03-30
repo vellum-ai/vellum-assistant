@@ -120,7 +120,8 @@ enum HistoryReconstructionService {
                 }
             }
 
-            if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty && inlineSurfaces.isEmpty { continue }
+            let hasThinking = item.thinkingSegments?.isEmpty == false
+            if item.text.isEmpty && toolCalls.isEmpty && attachments.isEmpty && inlineSurfaces.isEmpty && !hasThinking { continue }
             let timestamp = Date(timeIntervalSince1970: TimeInterval(item.timestamp) / 1000.0)
 
             var chatMsg: ChatMessage

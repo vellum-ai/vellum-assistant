@@ -6,6 +6,7 @@ import {
 } from "../memory/canonical-guardian-store.js";
 import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
+import { redactSecrets } from "../security/secret-scanner.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
 import { getLogger } from "../util/logger.js";
@@ -33,7 +34,7 @@ function buildToolGrantQuestionText(
     context.requesterIdentifier ||
     context.requesterExternalUserId ||
     "A trusted contact";
-  const inputSummary = summarizeToolInput(toolName, input);
+  const inputSummary = redactSecrets(summarizeToolInput(toolName, input));
   return inputSummary
     ? `${senderLabel} wants to use "${toolName}": ${inputSummary}`
     : `${senderLabel} is requesting permission to use "${toolName}"`;

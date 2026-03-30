@@ -341,6 +341,8 @@ export interface UsageUpdate {
   totalOutputTokens: number;
   estimatedCost: number;
   model: string;
+  contextWindowTokens?: number;
+  contextWindowMaxTokens?: number;
 }
 
 export interface UsageResponse {

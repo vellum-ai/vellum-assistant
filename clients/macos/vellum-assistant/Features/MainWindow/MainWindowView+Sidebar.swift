@@ -2,6 +2,12 @@ import SwiftUI
 import UniformTypeIdentifiers
 import VellumAssistantShared
 
+struct ChannelConversationGroup: Identifiable {
+    var id: String { channel }
+    let channel: String
+    let conversations: [ConversationModel]
+}
+
 // MARK: - Sidebar Content
 
 extension MainWindowView {
@@ -65,7 +71,7 @@ extension MainWindowView {
 
     /// All channel-bound conversations, grouped by originChannel.
     /// Sorted alphabetically by channel name for stable sidebar ordering.
-    var channelConversationGroups: [(channel: String, conversations: [ConversationModel])] {
+    var channelConversationGroups: [ChannelConversationGroup] {
         let channelConversations = conversationManager.visibleConversations.filter { $0.isChannelConversation }
         var grouped: [String: [ConversationModel]] = [:]
         for conversation in channelConversations {
@@ -73,7 +79,7 @@ extension MainWindowView {
             grouped[channel, default: []].append(conversation)
         }
         return grouped.keys.sorted().map { key in
-            (channel: key, conversations: grouped[key]!)
+            ChannelConversationGroup(channel: key, conversations: grouped[key]!)
         }
     }
 
@@ -582,7 +588,7 @@ extension MainWindowView {
                     }
 
                     // Channel conversation sections
-                    ForEach(channelConversationGroups, id: \.channel) { group in
+                    ForEach(Array(channelConversationGroups), id: \ChannelConversationGroup.id) { (group: ChannelConversationGroup) in
                         let isCollapsed = sidebar.collapsedChannelSections.contains(group.channel)
                         let sectionHasUnread = isCollapsed &&
                             group.conversations.contains(where: { $0.hasUnseenLatestAssistantMessage })
@@ -624,7 +630,18 @@ extension MainWindowView {
 
                         if !isCollapsed {
                             let showAll = sidebar.showAllChannelConversations[group.channel] ?? false
-                            let displayed = showAll ? group.conversations : Array(group.conversations.prefix(3))
+                            let displayed: [ConversationModel] = {
+                                if showAll {
+                                    return group.conversations
+                                }
+                                // Auto-expand if any hidden conversation has unread messages.
+                                let visible = Array(group.conversations.prefix(3))
+                                let hidden = group.conversations.dropFirst(3)
+                                if hidden.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
+                                    return group.conversations
+                                }
+                                return visible
+                            }()
 
                             ForEach(displayed) { conversation in
                                 makeSidebarRow(conversation: conversation)

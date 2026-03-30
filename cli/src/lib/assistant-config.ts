@@ -43,6 +43,9 @@ export interface LocalInstanceResources {
   cesPort: number;
   /** Absolute path to the daemon PID file */
   pidFile: string;
+  /** Persisted HMAC signing key (hex). Survives daemon/gateway restarts so
+   *  client actor tokens remain valid across `wake` cycles. */
+  signingKey?: string;
   [key: string]: unknown;
 }
 

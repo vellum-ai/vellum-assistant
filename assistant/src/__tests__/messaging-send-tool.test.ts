@@ -195,7 +195,7 @@ describe("messaging-send tool", () => {
     expect(addMessageMock).toHaveBeenCalledWith(
       "bound-conv-99",
       "assistant",
-      "hello from A",
+      JSON.stringify([{ type: "text", text: "hello from A" }]),
       { automated: true, crossPostedFrom: "conv-A" },
       { skipIndexing: true },
     );

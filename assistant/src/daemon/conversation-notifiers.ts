@@ -22,7 +22,7 @@ import {
   addMessage,
   provenanceFromTrustContext,
 } from "../memory/conversation-crud.js";
-import { backfillMessageIdOnLogs } from "../memory/llm-request-log-store.js";
+import { setMessageIdOnLogs } from "../memory/llm-request-log-store.js";
 import type { Message } from "../providers/types.js";
 import type { WatchSession } from "../tools/watch/watch-state.js";
 import {
@@ -73,27 +73,27 @@ export function registerConversationNotifiers(
   registerWatchCommentaryNotifier(
     conversationId,
     async (_session: WatchSession) => {
-      const commentary = lastCommentaryByConversation.get(conversationId);
-      if (commentary) {
+      const result = lastCommentaryByConversation.get(conversationId);
+      if (result) {
         lastCommentaryByConversation.delete(conversationId);
 
         const msg = await addMessage(
           conversationId,
           "assistant",
-          JSON.stringify([{ type: "text", text: commentary }]),
+          JSON.stringify([{ type: "text", text: result.text }]),
           provenanceFromTrustContext(ctx.trustContext),
         );
-        ctx.messages.push(createAssistantMessage(commentary));
+        ctx.messages.push(createAssistantMessage(result.text));
 
         try {
-          backfillMessageIdOnLogs(conversationId, msg.id);
+          setMessageIdOnLogs(result.logIds, msg.id);
         } catch {
           // non-fatal — message is persisted even if log linkage fails
         }
 
         ctx.sendToClient({
           type: "assistant_text_delta",
-          text: commentary,
+          text: result.text,
           conversationId: conversationId,
         });
         ctx.sendToClient({
@@ -107,27 +107,27 @@ export function registerConversationNotifiers(
   registerWatchCompletionNotifier(
     conversationId,
     async (_session: WatchSession) => {
-      const summary = lastSummaryByConversation.get(conversationId);
-      if (summary) {
+      const result = lastSummaryByConversation.get(conversationId);
+      if (result) {
         lastSummaryByConversation.delete(conversationId);
 
         const msg = await addMessage(
           conversationId,
           "assistant",
-          JSON.stringify([{ type: "text", text: summary }]),
+          JSON.stringify([{ type: "text", text: result.text }]),
           provenanceFromTrustContext(ctx.trustContext),
         );
-        ctx.messages.push(createAssistantMessage(summary));
+        ctx.messages.push(createAssistantMessage(result.text));
 
         try {
-          backfillMessageIdOnLogs(conversationId, msg.id);
+          setMessageIdOnLogs(result.logIds, msg.id);
         } catch {
           // non-fatal — message is persisted even if log linkage fails
         }
 
         ctx.sendToClient({
           type: "assistant_text_delta",
-          text: summary,
+          text: result.text,
           conversationId: conversationId,
         });
         ctx.sendToClient({

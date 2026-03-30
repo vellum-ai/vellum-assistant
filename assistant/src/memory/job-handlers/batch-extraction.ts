@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { estimateTextTokens } from "../../context/token-estimator.js";
@@ -55,6 +55,7 @@ interface LLMBatchExtractedItem {
   importance: number;
   supersedes: string | null;
   overrideConfidence: string;
+  source_role?: "user" | "assistant";
 }
 
 interface BatchExtractResult {
@@ -97,12 +98,14 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
   if (lastExtractedMessageId) {
     // Get the createdAt of the last extracted message so we can find messages after it
     const lastMsg = db
-      .select({ createdAt: messages.createdAt })
+      .select({ id: messages.id, createdAt: messages.createdAt })
       .from(messages)
       .where(eq(messages.id, lastExtractedMessageId))
       .get();
 
     if (lastMsg) {
+      // Compound cursor: createdAt > X OR (createdAt = X AND id > Y)
+      // Avoids skipping messages that share the same timestamp as the checkpoint
       unextractedMessages = db
         .select({
           id: messages.id,
@@ -114,10 +117,16 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
         .where(
           and(
             eq(messages.conversationId, conversationId),
-            gt(messages.createdAt, lastMsg.createdAt),
+            or(
+              gt(messages.createdAt, lastMsg.createdAt),
+              and(
+                eq(messages.createdAt, lastMsg.createdAt),
+                gt(messages.id, lastMsg.id),
+              ),
+            ),
           ),
         )
-        .orderBy(asc(messages.createdAt))
+        .orderBy(asc(messages.createdAt), asc(messages.id))
         .all();
     } else {
       // Checkpoint references a deleted message — fetch all
@@ -130,7 +139,7 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
         })
         .from(messages)
         .where(eq(messages.conversationId, conversationId))
-        .orderBy(asc(messages.createdAt))
+        .orderBy(asc(messages.createdAt), asc(messages.id))
         .all();
     }
   } else {
@@ -144,7 +153,7 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
       })
       .from(messages)
       .where(eq(messages.conversationId, conversationId))
-      .orderBy(asc(messages.createdAt))
+      .orderBy(asc(messages.createdAt), asc(messages.id))
       .all();
   }
 
@@ -294,6 +303,12 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
                     description:
                       "How confident you are that this overrides an existing item",
                   },
+                  source_role: {
+                    type: "string",
+                    enum: ["user", "assistant"],
+                    description:
+                      "Which speaker's message this item was primarily extracted from",
+                  },
                 },
                 required: [
                   "kind",
@@ -303,6 +318,7 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
                   "importance",
                   "supersedes",
                   "overrideConfidence",
+                  "source_role",
                 ],
               },
             },
@@ -394,6 +410,11 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
       ? (raw.overrideConfidence as OverrideConfidence)
       : "inferred";
 
+    const sourceRole =
+      raw.source_role === "user" || raw.source_role === "assistant"
+        ? raw.source_role
+        : undefined;
+
     validatedItems.push({
       kind: resolvedKind as MemoryItemKind,
       subject,
@@ -404,18 +425,19 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
       supersedes,
       overrideConfidence,
       supersedesRejected,
+      sourceRole,
     });
   }
 
   const dedupedItems = deduplicateItems(validatedItems);
 
   // ── Upsert extracted items ──────────────────────────────────────────
-  // Use the last message in the batch as the source message for all items
   const lastMessage = unextractedMessages[unextractedMessages.length - 1];
   let upserted = 0;
 
   for (const item of dedupedItems) {
     const seenAt = lastMessage.createdAt;
+    const itemRole = item.sourceRole ?? lastMessage.role;
     const existing = db
       .select()
       .from(memoryItems)
@@ -439,7 +461,7 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
             ? "journal_carry_forward"
             : "extraction";
       const effectiveVerificationState =
-        existing.verificationState === "user_reported"
+        itemRole === "user" || existing.verificationState === "user_reported"
           ? "user_reported"
           : existing.verificationState === "user_confirmed"
             ? "user_confirmed"
@@ -458,6 +480,7 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
           ),
           lastSeenAt: Math.max(existing.lastSeenAt, seenAt),
           sourceType: effectiveSourceType,
+          sourceMessageRole: itemRole,
           verificationState: effectiveVerificationState,
         })
         .where(eq(memoryItems.id, existing.id))
@@ -475,7 +498,9 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
           importance: item.importance,
           fingerprint: item.fingerprint,
           sourceType: "extraction",
-          verificationState: "assistant_inferred",
+          verificationState:
+            itemRole === "user" ? "user_reported" : "assistant_inferred",
+          sourceMessageRole: itemRole,
           scopeId,
           firstSeenAt: lastMessage.createdAt,
           lastSeenAt: seenAt,

@@ -1,12 +1,14 @@
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
-import { resolveTargetAssistant } from "../lib/assistant-config.js";
+import {
+  resolveTargetAssistant,
+  saveAssistantEntry,
+} from "../lib/assistant-config.js";
 import { dockerResourceNames, wakeContainers } from "../lib/docker.js";
 import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
 import {
   generateLocalSigningKey,
-  loadExistingSigningKey,
   isAssistantWatchModeAvailable,
   isGatewayWatchModeAvailable,
   startLocalDaemon,
@@ -108,7 +110,14 @@ export async function wake(): Promise<void> {
     }
   }
 
-  const signingKey = loadExistingSigningKey(resources) ?? generateLocalSigningKey();
+  // Reuse the lockfile-persisted signing key so client actor tokens survive
+  // daemon/gateway restarts. Generate and persist a new one only on first wake.
+  let signingKey = resources.signingKey;
+  if (!signingKey) {
+    signingKey = generateLocalSigningKey();
+    entry.resources = { ...resources, signingKey };
+    saveAssistantEntry(entry);
+  }
 
   if (!daemonRunning) {
     await startLocalDaemon(watch, resources, { foreground, signingKey });

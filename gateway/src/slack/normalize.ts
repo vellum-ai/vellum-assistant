@@ -166,6 +166,16 @@ export function getUserInfoCacheSize(): number {
   return userInfoCache.size;
 }
 
+/** Slack file object (subset relevant to attachment handling). */
+export interface SlackFile {
+  id: string;
+  name?: string;
+  mimetype?: string;
+  size?: number;
+  url_private_download?: string;
+  url_private?: string;
+}
+
 /**
  * Slack `app_mention` event shape (subset relevant to normalization).
  */
@@ -178,6 +188,7 @@ export interface SlackAppMentionEvent {
   thread_ts?: string;
   client_msg_id?: string;
   event_ts?: string;
+  files?: SlackFile[];
 }
 
 /**
@@ -194,6 +205,7 @@ export interface SlackDirectMessageEvent {
   thread_ts?: string;
   client_msg_id?: string;
   event_ts?: string;
+  files?: SlackFile[];
 }
 
 /**
@@ -211,6 +223,7 @@ export interface SlackChannelMessageEvent {
   thread_ts?: string;
   client_msg_id?: string;
   event_ts?: string;
+  files?: SlackFile[];
 }
 
 /**
@@ -251,6 +264,29 @@ export function stripBotMention(text: string): string {
   return stripped || text.trim();
 }
 
+function extractSlackAttachments(
+  files: SlackFile[] | undefined,
+): Array<{
+  type: "image" | "document";
+  fileId: string;
+  fileName?: string;
+  mimeType?: string;
+  fileSize?: number;
+}> {
+  if (!files || files.length === 0) return [];
+  return files
+    .filter((f) => f.url_private_download || f.url_private)
+    .map((f) => ({
+      type: f.mimetype?.startsWith("image/")
+        ? ("image" as const)
+        : ("document" as const),
+      fileId: f.id,
+      fileName: f.name,
+      mimeType: f.mimetype,
+      fileSize: f.size,
+    }));
+}
+
 export type NormalizedSlackEvent = {
   event: GatewayInboundEvent;
   routing: RouteResult;
@@ -258,6 +294,8 @@ export type NormalizedSlackEvent = {
   threadTs: string;
   /** Slack channel ID. */
   channel: string;
+  /** Original Slack file objects keyed by file ID, for download in the I/O layer. */
+  slackFiles?: Map<string, SlackFile>;
 };
 
 /**
@@ -300,6 +338,15 @@ export function normalizeSlackDirectMessage(
   const externalMessageId =
     event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
 
+  const attachments = extractSlackAttachments(event.files);
+  const slackFiles = event.files?.length
+    ? new Map(
+        event.files
+          .filter((f) => f.url_private_download || f.url_private)
+          .map((f) => [f.id, f]),
+      )
+    : undefined;
+
   // Use cache-only lookup to avoid blocking normalization on network calls.
   // A background fetch warms the cache for subsequent messages from this user.
   const userInfo =
@@ -316,6 +363,7 @@ export function normalizeSlackDirectMessage(
         content: event.text,
         conversationExternalId: event.channel,
         externalMessageId,
+        ...(attachments.length > 0 ? { attachments } : {}),
       },
       actor: {
         actorExternalId: event.user,
@@ -333,6 +381,7 @@ export function normalizeSlackDirectMessage(
     routing,
     threadTs: event.thread_ts ?? event.ts,
     channel: event.channel,
+    ...(slackFiles ? { slackFiles } : {}),
   };
 }
 
@@ -361,6 +410,15 @@ export function normalizeSlackChannelMessage(
   const externalMessageId =
     event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
 
+  const attachments = extractSlackAttachments(event.files);
+  const slackFiles = event.files?.length
+    ? new Map(
+        event.files
+          .filter((f) => f.url_private_download || f.url_private)
+          .map((f) => [f.id, f]),
+      )
+    : undefined;
+
   const userInfo =
     botToken && event.user
       ? resolveSlackUserSync(event.user, botToken)
@@ -375,6 +433,7 @@ export function normalizeSlackChannelMessage(
         content,
         conversationExternalId: event.channel,
         externalMessageId,
+        ...(attachments.length > 0 ? { attachments } : {}),
       },
       actor: {
         actorExternalId: event.user,
@@ -393,6 +452,7 @@ export function normalizeSlackChannelMessage(
     routing,
     threadTs: event.thread_ts ?? event.ts,
     channel: event.channel,
+    ...(slackFiles ? { slackFiles } : {}),
   };
 }
 
@@ -418,6 +478,15 @@ export function normalizeSlackAppMention(
   const externalMessageId =
     event.client_msg_id ?? event.ts ?? `${event.channel}:${event.ts}`;
 
+  const attachments = extractSlackAttachments(event.files);
+  const slackFiles = event.files?.length
+    ? new Map(
+        event.files
+          .filter((f) => f.url_private_download || f.url_private)
+          .map((f) => [f.id, f]),
+      )
+    : undefined;
+
   const userInfo =
     botToken && event.user
       ? resolveSlackUserSync(event.user, botToken)
@@ -432,6 +501,7 @@ export function normalizeSlackAppMention(
         content,
         conversationExternalId: event.channel,
         externalMessageId,
+        ...(attachments.length > 0 ? { attachments } : {}),
       },
       actor: {
         actorExternalId: event.user,
@@ -449,6 +519,7 @@ export function normalizeSlackAppMention(
     routing,
     threadTs: event.thread_ts ?? event.ts,
     channel: event.channel,
+    ...(slackFiles ? { slackFiles } : {}),
   };
 }
 

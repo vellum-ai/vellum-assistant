@@ -527,7 +527,7 @@ export function injectNowScratchpad(
 /** Strip `<NOW.md>` blocks injected by `injectNowScratchpad`. */
 export function stripNowScratchpad(messages: Message[]): Message[] {
   return stripUserTextBlocksByPrefix(messages, [
-    "<NOW.md",
+    "<NOW.md Always keep this up to date>",
     "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
   ]);
 }
@@ -1055,7 +1055,7 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<active_workspace>",
   "<active_dynamic_page>",
   "<non_interactive_context>",
-  "<NOW.md",
+  "<NOW.md Always keep this up to date>",
   "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
   "<transport_hints>",
 ];

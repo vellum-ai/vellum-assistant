@@ -28,6 +28,9 @@ struct ComposerSection: View {
     var onVoiceModeToggle: (() -> Void)? = nil
     var conversationId: UUID?
     var isInteractionEnabled: Bool = true
+    var contextWindowFillRatio: Double? = nil
+    var contextWindowTokens: Int? = nil
+    var contextWindowMaxTokens: Int? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -63,7 +66,10 @@ struct ComposerSection: View {
                 onVoiceModeToggle: onVoiceModeToggle,
                 placeholderText: isAssistantBusy ? "Working on it..." : "What would you like to do?",
                 conversationId: conversationId,
-                isInteractionEnabled: isInteractionEnabled
+                isInteractionEnabled: isInteractionEnabled,
+                contextWindowFillRatio: contextWindowFillRatio,
+                contextWindowTokens: contextWindowTokens,
+                contextWindowMaxTokens: contextWindowMaxTokens
             )
         }
         .background(

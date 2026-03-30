@@ -14,10 +14,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks — must come before any imports that depend on them
 // ---------------------------------------------------------------------------
 
-const testDir = mkdtempSync(join(tmpdir(), "conv-disk-view-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
-const workspaceDir = testDir;
+const workspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 const conversationsDir = join(workspaceDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
 
@@ -69,14 +66,7 @@ import { getDb, initializeDb, rawRun, resetDb } from "../memory/db.js";
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 function resetTables() {

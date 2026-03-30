@@ -128,6 +128,32 @@ export function upsertDebouncedJob(
   }
 }
 
+/**
+ * Check whether a pending or running `journal_carry_forward` job already
+ * exists for the given filename + userSlug.  Used to prevent duplicate
+ * enqueues while a carry-forward job is still in flight.
+ */
+export function hasActiveCarryForwardJob(
+  filename: string,
+  userSlug: string,
+): boolean {
+  const db = getDb();
+  return (
+    db
+      .select({ id: memoryJobs.id })
+      .from(memoryJobs)
+      .where(
+        and(
+          eq(memoryJobs.type, "journal_carry_forward"),
+          inArray(memoryJobs.status, ["pending", "running"]),
+          sql`json_extract(${memoryJobs.payload}, '$.filename') = ${filename}`,
+          sql`json_extract(${memoryJobs.payload}, '$.userSlug') = ${userSlug}`,
+        ),
+      )
+      .get() != null
+  );
+}
+
 export function enqueueCleanupStaleSupersededItemsJob(
   retentionMs?: number,
 ): string {

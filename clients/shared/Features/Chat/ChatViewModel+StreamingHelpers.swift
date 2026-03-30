@@ -96,11 +96,15 @@ extension ChatViewModel {
         guard !text.isEmpty else { return }
         if let existingId = currentAssistantMessageId,
            let index = messages.firstIndex(where: { $0.id == existingId }) {
-            if lastContentWasToolCall || messages[index].textSegments.isEmpty {
+            let lastWasNonText: Bool = {
+                guard let last = messages[index].contentOrder.last else { return false }
+                if case .text = last { return false }
+                return true  // .toolCall or .thinking
+            }()
+            if lastWasNonText || messages[index].textSegments.isEmpty {
                 let segIdx = messages[index].textSegments.count
                 messages[index].textSegments.append(text)
                 messages[index].contentOrder.append(.text(segIdx))
-                lastContentWasToolCall = false
             } else {
                 messages[index].textSegments[messages[index].textSegments.count - 1] += text
             }
@@ -117,7 +121,6 @@ extension ChatViewModel {
             }
             currentAssistantMessageId = msg.id
             messages.append(msg)
-            lastContentWasToolCall = false
         }
     }
 
@@ -221,7 +224,6 @@ extension ChatViewModel {
             currentAssistantMessageId = newMsg.id
             messages.append(newMsg)
         }
-        lastContentWasToolCall = true
     }
 
     /// Handle a `tool_use_start` event: create or update a tool call chip with input data.
@@ -301,7 +303,6 @@ extension ChatViewModel {
             currentAssistantMessageId = newMsg.id
             messages.append(newMsg)
         }
-        lastContentWasToolCall = true
     }
 
     /// Handle a `tool_input_delta` event: update streaming code preview for a tool call.

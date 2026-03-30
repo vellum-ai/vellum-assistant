@@ -141,12 +141,14 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
     const msg = {
       type: "assistant_thinking_delta" as const,
       thinking: "Let me reason through this...",
+      conversationId: "conv-thinking-test",
     };
     const event = await publishAndReadFrame("parity-thinking-delta", msg);
 
     expect(event.message.type).toBe("assistant_thinking_delta");
     const m = event.message as typeof msg;
     expect(m.thinking).toBe("Let me reason through this...");
+    expect(m.conversationId).toBe("conv-thinking-test");
   });
 
   // ── tool_input_delta ─────────────────────────────────────────────────────

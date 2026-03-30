@@ -653,8 +653,8 @@ extension AssistantTextDelta {
 public typealias AssistantThinkingDeltaMessage = AssistantThinkingDelta
 
 extension AssistantThinkingDelta {
-    public init(thinking: String) {
-        self.init(type: "assistant_thinking_delta", thinking: thinking)
+    public init(thinking: String, conversationId: String? = nil) {
+        self.init(type: "assistant_thinking_delta", thinking: thinking, conversationId: conversationId)
     }
 }
 

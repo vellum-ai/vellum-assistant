@@ -2,8 +2,15 @@ import { describe, it, expect } from "bun:test";
 import {
   normalizeSlackBlockActions,
   normalizeSlackReactionAdded,
+  normalizeSlackDirectMessage,
+  normalizeSlackChannelMessage,
+  normalizeSlackAppMention,
   type SlackBlockActionsPayload,
   type SlackReactionAddedEvent,
+  type SlackDirectMessageEvent,
+  type SlackChannelMessageEvent,
+  type SlackAppMentionEvent,
+  type SlackFile,
 } from "./normalize.js";
 import type { GatewayConfig } from "../config.js";
 
@@ -250,5 +257,218 @@ describe("normalizeSlackReactionAdded", () => {
     expect(result!.event.message.callbackData).toBe(
       "reaction:white_check_mark",
     );
+  });
+});
+
+// --- Attachment extraction tests ---
+
+function makeSlackFile(overrides?: Partial<SlackFile>): SlackFile {
+  return {
+    id: "F001",
+    name: "photo.png",
+    mimetype: "image/png",
+    size: 12345,
+    url_private_download: "https://files.slack.com/download/photo.png",
+    url_private: "https://files.slack.com/files/photo.png",
+    ...overrides,
+  };
+}
+
+function makeDmEvent(
+  overrides?: Partial<SlackDirectMessageEvent>,
+): SlackDirectMessageEvent {
+  return {
+    type: "message",
+    user: "U123",
+    text: "hello",
+    ts: "1234567890.123456",
+    channel: "D789",
+    channel_type: "im",
+    ...overrides,
+  };
+}
+
+function makeChannelEvent(
+  overrides?: Partial<SlackChannelMessageEvent>,
+): SlackChannelMessageEvent {
+  return {
+    type: "message",
+    user: "U123",
+    text: "hello",
+    ts: "1234567890.123456",
+    channel: "C456",
+    channel_type: "channel",
+    ...overrides,
+  };
+}
+
+function makeAppMentionEvent(
+  overrides?: Partial<SlackAppMentionEvent>,
+): SlackAppMentionEvent {
+  return {
+    type: "app_mention",
+    user: "U123",
+    text: "<@UBOT> hello",
+    ts: "1234567890.123456",
+    channel: "C456",
+    ...overrides,
+  };
+}
+
+describe("attachment extraction in normalize functions", () => {
+  describe("normalizeSlackDirectMessage", () => {
+    it("populates attachments with type 'image' for image files", () => {
+      const config = makeConfig();
+      const event = makeDmEvent({
+        files: [
+          makeSlackFile({ id: "F001", mimetype: "image/png", name: "photo.png" }),
+          makeSlackFile({ id: "F002", mimetype: "image/jpeg", name: "pic.jpg" }),
+        ],
+      });
+      const result = normalizeSlackDirectMessage(event, "evt-1", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.message.attachments).toHaveLength(2);
+      expect(result!.event.message.attachments![0]).toEqual({
+        type: "image",
+        fileId: "F001",
+        fileName: "photo.png",
+        mimeType: "image/png",
+        fileSize: 12345,
+      });
+      expect(result!.event.message.attachments![1]).toEqual({
+        type: "image",
+        fileId: "F002",
+        fileName: "pic.jpg",
+        mimeType: "image/jpeg",
+        fileSize: 12345,
+      });
+
+      // slackFiles map should be populated
+      expect(result!.slackFiles).toBeDefined();
+      expect(result!.slackFiles!.size).toBe(2);
+      expect(result!.slackFiles!.get("F001")!.id).toBe("F001");
+      expect(result!.slackFiles!.get("F002")!.id).toBe("F002");
+    });
+
+    it("populates attachments with type 'document' for non-image files", () => {
+      const config = makeConfig();
+      const event = makeDmEvent({
+        files: [
+          makeSlackFile({
+            id: "F003",
+            mimetype: "application/pdf",
+            name: "doc.pdf",
+            size: 99999,
+          }),
+        ],
+      });
+      const result = normalizeSlackDirectMessage(event, "evt-2", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.message.attachments).toHaveLength(1);
+      expect(result!.event.message.attachments![0]).toEqual({
+        type: "document",
+        fileId: "F003",
+        fileName: "doc.pdf",
+        mimeType: "application/pdf",
+        fileSize: 99999,
+      });
+    });
+
+    it("filters out files missing download URLs", () => {
+      const config = makeConfig();
+      const event = makeDmEvent({
+        files: [
+          makeSlackFile({ id: "F004" }),
+          makeSlackFile({
+            id: "F005",
+            url_private_download: undefined,
+            url_private: undefined,
+          }),
+        ],
+      });
+      const result = normalizeSlackDirectMessage(event, "evt-3", config);
+
+      expect(result).not.toBeNull();
+      // Only F004 has download URLs
+      expect(result!.event.message.attachments).toHaveLength(1);
+      expect(result!.event.message.attachments![0].fileId).toBe("F004");
+      expect(result!.slackFiles!.size).toBe(1);
+      expect(result!.slackFiles!.has("F005")).toBe(false);
+    });
+
+    it("omits attachments field when files is empty", () => {
+      const config = makeConfig();
+      const event = makeDmEvent({ files: [] });
+      const result = normalizeSlackDirectMessage(event, "evt-4", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.message.attachments).toBeUndefined();
+      expect(result!.slackFiles).toBeUndefined();
+    });
+
+    it("omits attachments field when files is undefined", () => {
+      const config = makeConfig();
+      const event = makeDmEvent();
+      const result = normalizeSlackDirectMessage(event, "evt-5", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.message.attachments).toBeUndefined();
+      expect(result!.slackFiles).toBeUndefined();
+    });
+  });
+
+  describe("normalizeSlackChannelMessage", () => {
+    it("populates attachments for channel messages with files", () => {
+      const config = makeConfig();
+      const event = makeChannelEvent({
+        files: [
+          makeSlackFile({ id: "F010", mimetype: "image/gif", name: "anim.gif" }),
+        ],
+      });
+      const result = normalizeSlackChannelMessage(event, "evt-ch-1", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.message.attachments).toHaveLength(1);
+      expect(result!.event.message.attachments![0]).toEqual({
+        type: "image",
+        fileId: "F010",
+        fileName: "anim.gif",
+        mimeType: "image/gif",
+        fileSize: 12345,
+      });
+      expect(result!.slackFiles).toBeDefined();
+      expect(result!.slackFiles!.get("F010")!.name).toBe("anim.gif");
+    });
+  });
+
+  describe("normalizeSlackAppMention", () => {
+    it("populates attachments for app mention events with files", () => {
+      const config = makeConfig();
+      const event = makeAppMentionEvent({
+        files: [
+          makeSlackFile({
+            id: "F020",
+            mimetype: "text/plain",
+            name: "notes.txt",
+            size: 500,
+          }),
+        ],
+      });
+      const result = normalizeSlackAppMention(event, "evt-am-1", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.message.attachments).toHaveLength(1);
+      expect(result!.event.message.attachments![0]).toEqual({
+        type: "document",
+        fileId: "F020",
+        fileName: "notes.txt",
+        mimeType: "text/plain",
+        fileSize: 500,
+      });
+      expect(result!.slackFiles).toBeDefined();
+      expect(result!.slackFiles!.get("F020")!.id).toBe("F020");
+    });
   });
 });

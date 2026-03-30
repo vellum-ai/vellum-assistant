@@ -93,6 +93,9 @@ struct ChatView: View {
     var activePendingRequestId: String?
     var isInteractionEnabled: Bool = true
     var isReadonly: Bool = false
+    var contextWindowFillRatio: Double? = nil
+    var contextWindowTokens: Int? = nil
+    var contextWindowMaxTokens: Int? = nil
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
     /// Message ID to visually highlight after an anchor scroll completes.
@@ -386,6 +389,7 @@ struct ChatView: View {
                 conversationId: conversationId,
                 anchorMessageId: $anchorMessageId,
                 highlightedMessageId: $highlightedMessageId,
+                isInteractionEnabled: isInteractionEnabled,
                 containerWidth: containerWidth
             )
 
@@ -448,7 +452,10 @@ struct ChatView: View {
                     onDictateToggle: onDictateToggle,
                     onVoiceModeToggle: onVoiceModeToggle,
                     conversationId: conversationId,
-                    isInteractionEnabled: isInteractionEnabled
+                    isInteractionEnabled: isInteractionEnabled,
+                    contextWindowFillRatio: contextWindowFillRatio,
+                    contextWindowTokens: contextWindowTokens,
+                    contextWindowMaxTokens: contextWindowMaxTokens
                 )
             }
         }
