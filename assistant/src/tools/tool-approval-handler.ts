@@ -6,12 +6,12 @@ import {
 } from "../memory/canonical-guardian-store.js";
 import { isUntrustedTrustClass } from "../runtime/actor-trust-resolver.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
+import { redactSecrets } from "../security/secret-scanner.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getTaskRunRules } from "../tasks/ephemeral-permissions.js";
 import { getLogger } from "../util/logger.js";
 import { getAllTools, getTool } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
-import { redactSecrets } from "../security/secret-scanner.js";
 import { summarizeToolInput } from "./tool-input-summary.js";
 import type {
   ExecutionTarget,
