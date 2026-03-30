@@ -380,7 +380,7 @@ describe("Native Web Search — Tool Filtering", () => {
     // file_read is the last custom tool (only custom tool in this case)
     // and it should get cache_control since it's the last in the mappedOther list
     expect(tools[0].name).toBe("file_read");
-    expect(tools[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(tools[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 
     // Native web search tool should NOT have cache_control set by the mapping logic
     // (it's appended after the mapped custom tools)
