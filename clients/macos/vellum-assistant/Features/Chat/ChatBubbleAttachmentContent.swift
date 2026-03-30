@@ -255,7 +255,6 @@ private struct AttachmentImageGrid<Fallback: View>: View {
                     failedIds.insert(attachment.id)
                 }
             }
-        }
 
         if isSingleImage {
             content
