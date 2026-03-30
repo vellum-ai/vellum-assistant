@@ -561,6 +561,10 @@ export function handleListMessages(
 
     // Use sentAt (actual event time) for the display timestamp when
     // available, falling back to createdAt (persistence time).
+    // Note: clients use this display timestamp as their pagination cursor
+    // after memory-pressure trimming, while server-side pagination filters
+    // on createdAt. The mismatch is benign — it may return slightly extra
+    // data on a page boundary but never loses messages.
     const displayTimestamp = m.sentAt ?? m.timestamp;
     return {
       id: m.id ?? "",

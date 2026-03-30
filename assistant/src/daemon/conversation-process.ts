@@ -380,7 +380,7 @@ export async function drainQueue(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        drainChannelMeta,
+        { ...drainChannelMeta, sentAt: Date.now() },
       );
       conversation.messages.push(assistantMsg);
 
@@ -487,7 +487,7 @@ export async function drainQueue(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        drainChannelMeta,
+        { ...drainChannelMeta, sentAt: Date.now() },
       );
       conversation.messages.push(assistantMsg);
 
