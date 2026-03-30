@@ -1077,9 +1077,10 @@ function filterInContextItems(
  * then selects up to `count` items with probability proportional to their
  * importance value (importance-weighted sampling).
  *
- * Only items with importance >= MIN_SERENDIPITY_IMPORTANCE are eligible,
- * so only genuinely significant memories (decisions, personal moments,
- * turning points) surface as echoes.
+ * Items with importance >= MIN_SERENDIPITY_IMPORTANCE are eligible, as are
+ * legacy items with NULL importance (not yet backfilled). This ensures
+ * genuinely significant memories and pre-importance-era items can both
+ * surface as echoes.
  */
 const MIN_SERENDIPITY_IMPORTANCE = 0.7;
 
@@ -1106,7 +1107,7 @@ function sampleSerendipityItems(
       ? inArray(memoryItems.scopeId, scopeIds)
       : eq(memoryItems.scopeId, "default");
 
-    const importanceFloor = sql`COALESCE(${memoryItems.importance}, 0.5) >= ${MIN_SERENDIPITY_IMPORTANCE}`;
+    const importanceFloor = sql`(${memoryItems.importance} >= ${MIN_SERENDIPITY_IMPORTANCE} OR ${memoryItems.importance} IS NULL)`;
 
     const baseConditions =
       existingItemIds.length > 0
