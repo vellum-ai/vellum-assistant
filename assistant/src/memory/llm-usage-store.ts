@@ -148,9 +148,11 @@ export interface UsageTotals {
   unpricedEventCount: number;
 }
 
-/** A single day bucket with its aggregate totals. */
+export type UsageGranularity = "daily" | "hourly";
+
+/** A single time bucket with its aggregate totals. */
 export interface UsageDayBucket {
-  /** ISO date string (YYYY-MM-DD) in UTC. */
+  /** ISO date string: "YYYY-MM-DD" (daily) or "YYYY-MM-DD HH:00" (hourly), UTC. */
   date: string;
   /** Direct input tokens only; cache traffic is tracked separately in totals. */
   totalInputTokens: number;
@@ -251,6 +253,37 @@ export function getUsageDayBuckets(range: UsageTimeRange): UsageDayBucket[] {
       COALESCE(SUM(output_tokens), 0)                        AS total_output_tokens,
       COALESCE(SUM(estimated_cost_usd), 0)                   AS total_estimated_cost_usd,
       COALESCE(SUM(COALESCE(llm_call_count, 1)), 0)          AS event_count
+    FROM llm_usage_events
+    WHERE created_at >= ?1 AND created_at <= ?2
+    GROUP BY date
+    ORDER BY date ASC
+    `,
+    range.from,
+    range.to,
+  );
+  return rows.map((r) => ({
+    date: r.date,
+    totalInputTokens: r.total_input_tokens,
+    totalOutputTokens: r.total_output_tokens,
+    totalEstimatedCostUsd: r.total_estimated_cost_usd ?? 0,
+    eventCount: r.event_count,
+  }));
+}
+
+/**
+ * Return per-hour aggregates (UTC) within the given time range, ordered ascending.
+ *
+ * Each bucket key is a "YYYY-MM-DD HH:00" string.
+ */
+export function getUsageHourBuckets(range: UsageTimeRange): UsageDayBucket[] {
+  const rows = rawAll<DayBucketRow>(
+    /*sql*/ `
+    SELECT
+      strftime('%Y-%m-%d %H:00', created_at / 1000, 'unixepoch')  AS date,
+      COALESCE(SUM(input_tokens), 0)                               AS total_input_tokens,
+      COALESCE(SUM(output_tokens), 0)                              AS total_output_tokens,
+      COALESCE(SUM(estimated_cost_usd), 0)                         AS total_estimated_cost_usd,
+      COALESCE(SUM(COALESCE(llm_call_count, 1)), 0)                AS event_count
     FROM llm_usage_events
     WHERE created_at >= ?1 AND created_at <= ?2
     GROUP BY date

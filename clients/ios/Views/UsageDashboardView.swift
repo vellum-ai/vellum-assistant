@@ -79,11 +79,12 @@ struct UsageDashboardView: View {
         }
     }
 
-    // MARK: - Daily Trend
+    // MARK: - Trend
 
     @ViewBuilder
     private var dailyTrendSection: some View {
-        Section("Daily Trend") {
+        let isHourly = store.isHourlyGranularity
+        Section(isHourly ? "Hourly Trend" : "Daily Trend") {
             switch store.dailyState {
             case .idle, .loading:
                 HStack {

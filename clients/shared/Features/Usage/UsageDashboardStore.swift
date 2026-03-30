@@ -6,7 +6,7 @@ import Foundation
 @MainActor
 public protocol UsageClientProtocol {
     func fetchUsageTotals(from: Int, to: Int) async -> UsageTotalsResponse?
-    func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse?
+    func fetchUsageDaily(from: Int, to: Int, granularity: String) async -> UsageDailyResponse?
     func fetchUsageBreakdown(from: Int, to: Int, groupBy: String) async -> UsageBreakdownResponse?
 }
 
@@ -31,9 +31,9 @@ public struct UsageClient: UsageClientProtocol {
         return result?.0
     }
 
-    public func fetchUsageDaily(from: Int, to: Int) async -> UsageDailyResponse? {
+    public func fetchUsageDaily(from: Int, to: Int, granularity: String = "daily") async -> UsageDailyResponse? {
         let result: (UsageDailyResponse?, GatewayHTTPClient.Response)? = try? await GatewayHTTPClient.get(
-            path: "usage/daily?from=\(from)&to=\(to)", timeout: 10
+            path: "usage/daily?from=\(from)&to=\(to)&granularity=\(granularity)", timeout: 10
         )
         return result?.0
     }
@@ -163,6 +163,9 @@ public final class UsageDashboardStore {
     public var breakdownState: UsageLoadingState<UsageBreakdownResponse> = .idle
     public var selectedGroupBy: UsageGroupByDimension = .model
 
+    /// Whether the current daily data uses hourly granularity (true when range is "Today").
+    public var isHourlyGranularity: Bool { selectedRange == .today }
+
     // MARK: - Dependencies
 
     private var client: any UsageClientProtocol = UsageClient()
@@ -212,8 +215,9 @@ public final class UsageDashboardStore {
         dailyState = .loading
         breakdownState = .loading
 
+        let granularity = isHourlyGranularity ? "hourly" : "daily"
         async let totalsResult = client.fetchUsageTotals(from: range.from, to: range.to)
-        async let dailyResult = client.fetchUsageDaily(from: range.from, to: range.to)
+        async let dailyResult = client.fetchUsageDaily(from: range.from, to: range.to, granularity: granularity)
         async let breakdownResult = client.fetchUsageBreakdown(
             from: range.from, to: range.to, groupBy: selectedGroupBy.rawValue
         )
