@@ -386,6 +386,7 @@ struct ChatView: View {
                 conversationId: conversationId,
                 anchorMessageId: $anchorMessageId,
                 highlightedMessageId: $highlightedMessageId,
+                isInteractionEnabled: isInteractionEnabled,
                 containerWidth: containerWidth
             )
 

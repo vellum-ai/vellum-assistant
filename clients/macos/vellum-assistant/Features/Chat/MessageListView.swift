@@ -109,6 +109,9 @@ struct MessageListView: View {
     @Binding var highlightedMessageId: UUID?
     /// Measured width of the chat container, used to detect sidebar/split resizes
     /// and stabilize scroll position during layout width changes.
+    /// When false, disables interactive controls (buttons, actions) inside the
+    /// message list while keeping scrolling and text selection functional.
+    var isInteractionEnabled: Bool = true
     var containerWidth: CGFloat = 0
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
@@ -744,6 +747,7 @@ struct MessageListView: View {
                     }
                 }
                 .textSelection(.enabled)
+                .disabled(!isInteractionEnabled)
                 .padding(.horizontal, VSpacing.xl)
                 .padding(.top, VSpacing.md)
                 .padding(.bottom, VSpacing.md)
