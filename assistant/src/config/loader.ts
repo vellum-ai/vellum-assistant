@@ -396,15 +396,6 @@ export function loadConfig(): AssistantConfig {
       const { dataDir: _, ...persistable } = config;
 
       if (!configFileExisted) {
-        // New install: enable heartbeat by default so new users get
-        // proactive behavior out of the box. We do this here instead of
-        // in the schema default so that existing users who upgrade don't
-        // get heartbeat silently enabled via backfillConfigDefaults.
-        config.heartbeat.enabled = true;
-        (persistable as Record<string, unknown>).heartbeat = {
-          ...(persistable.heartbeat ?? {}),
-          enabled: true,
-        };
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");
         log.info("Wrote default config to %s", configPath);
       } else {
