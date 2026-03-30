@@ -70,7 +70,13 @@ public class ActorCredentialRefresher {
                 return .success
             }
 
-            // Check for terminal errors
+            // A 401 on the refresh endpoint means the refresh token itself
+            // is rejected — retrying with the same token will never succeed.
+            if response.statusCode == 401 {
+                return .terminalError(reason: "refresh_unauthorized")
+            }
+
+            // Check for terminal errors in the response body
             if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
                let error = json["error"] as? String {
                 let terminalErrors = ["refresh_reuse_detected", "revoked", "device_binding_mismatch", "refresh_invalid", "refresh_expired"]
