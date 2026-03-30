@@ -208,8 +208,8 @@ final class VoiceInputManager {
     /// Safe to call regardless of `isRecording` — used as the shared cleanup path for all
     /// stop methods and as a recovery mechanism when state becomes inconsistent.
     private func tearDownAudioState() {
-        audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
         recognitionTask?.cancel()
         recognitionTask = nil
         recognitionRequest?.endAudio()
@@ -237,8 +237,8 @@ final class VoiceInputManager {
         Self.amplitudeSubject.send(0)
         onAmplitudeChanged?(0)
 
-        audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
 
         // Signal end of audio — the recognizer will process remaining audio
         // and fire the callback with isFinal = true.
@@ -249,8 +249,8 @@ final class VoiceInputManager {
     /// Clears any stale internal buffers or format caches that accumulate
     /// after failed start/stop cycles.
     private func resetAudioEngine() {
-        audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.reset()
     }
 
@@ -816,8 +816,8 @@ final class VoiceInputManager {
 
         onRecordingStateChanged?(false)
 
-        audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
 
         // Signal end of audio — the recognizer will process remaining audio
         // and fire the callback with isFinal = true.
