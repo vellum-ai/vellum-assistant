@@ -43,6 +43,7 @@ import {
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { getHookManager } from "../hooks/manager.js";
 import { resolveCanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
+import { updateConversationContextWindow } from "../memory/conversation-crud.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import { patternMatchesCandidate } from "../permissions/trust-store.js";
@@ -895,6 +896,11 @@ export class Conversation {
       this.messages = result.messages;
       this.contextCompactedMessageCount += result.compactedPersistedMessages;
       this.contextCompactedAt = Date.now();
+      updateConversationContextWindow(
+        this.conversationId,
+        result.summaryText,
+        this.contextCompactedMessageCount,
+      );
     }
     return result;
   }

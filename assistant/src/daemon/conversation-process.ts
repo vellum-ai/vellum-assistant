@@ -876,62 +876,67 @@ export async function processMessage(
 
   // /compact — force context compaction, persist exchange, return message ID.
   if (slashResult.kind === "compact") {
-    const pmTurnCtx = conversation.getTurnChannelContext();
-    const pmInterfaceCtx = conversation.getTurnInterfaceContext();
-    const pmProvenance = provenanceFromTrustContext(conversation.trustContext);
-    const pmChannelMeta = {
-      ...pmProvenance,
-      ...(pmTurnCtx
-        ? {
-            userMessageChannel: pmTurnCtx.userMessageChannel,
-            assistantMessageChannel: pmTurnCtx.assistantMessageChannel,
-          }
-        : {}),
-      ...(pmInterfaceCtx
-        ? {
-            userMessageInterface: pmInterfaceCtx.userMessageInterface,
-            assistantMessageInterface: pmInterfaceCtx.assistantMessageInterface,
-          }
-        : {}),
-    };
-    const cleanUserMsg = createUserMessage(content, attachments);
-    const persisted = await addMessage(
-      conversation.conversationId,
-      "user",
-      JSON.stringify(cleanUserMsg.content),
-      pmChannelMeta,
-    );
-    conversation.messages.push(cleanUserMsg);
+    conversation.processing = true;
+    try {
+      const pmTurnCtx = conversation.getTurnChannelContext();
+      const pmInterfaceCtx = conversation.getTurnInterfaceContext();
+      const pmProvenance = provenanceFromTrustContext(conversation.trustContext);
+      const pmChannelMeta = {
+        ...pmProvenance,
+        ...(pmTurnCtx
+          ? {
+              userMessageChannel: pmTurnCtx.userMessageChannel,
+              assistantMessageChannel: pmTurnCtx.assistantMessageChannel,
+            }
+          : {}),
+        ...(pmInterfaceCtx
+          ? {
+              userMessageInterface: pmInterfaceCtx.userMessageInterface,
+              assistantMessageInterface: pmInterfaceCtx.assistantMessageInterface,
+            }
+          : {}),
+      };
+      const cleanUserMsg = createUserMessage(content, attachments);
+      const persisted = await addMessage(
+        conversation.conversationId,
+        "user",
+        JSON.stringify(cleanUserMsg.content),
+        pmChannelMeta,
+      );
+      conversation.messages.push(cleanUserMsg);
 
-    conversation.emitActivityState(
-      "thinking",
-      "context_compacting",
-      "assistant_turn",
-      requestId,
-    );
-    const result = await conversation.forceCompact();
-    const responseText = formatCompactResult(result);
+      conversation.emitActivityState(
+        "thinking",
+        "context_compacting",
+        "assistant_turn",
+        requestId,
+      );
+      const result = await conversation.forceCompact();
+      const responseText = formatCompactResult(result);
 
-    const assistantMsg = createAssistantMessage(responseText);
-    await addMessage(
-      conversation.conversationId,
-      "assistant",
-      JSON.stringify(assistantMsg.content),
-      pmChannelMeta,
-    );
-    conversation.messages.push(assistantMsg);
+      const assistantMsg = createAssistantMessage(responseText);
+      await addMessage(
+        conversation.conversationId,
+        "assistant",
+        JSON.stringify(assistantMsg.content),
+        pmChannelMeta,
+      );
+      conversation.messages.push(assistantMsg);
 
-    onEvent({ type: "assistant_text_delta", text: responseText });
-    conversation.traceEmitter.emit(
-      "message_complete",
-      "Compact slash command handled",
-      { requestId, status: "success" },
-    );
-    onEvent({
-      type: "message_complete",
-      conversationId: conversation.conversationId,
-    });
-    return persisted.id;
+      onEvent({ type: "assistant_text_delta", text: responseText });
+      conversation.traceEmitter.emit(
+        "message_complete",
+        "Compact slash command handled",
+        { requestId, status: "success" },
+      );
+      onEvent({
+        type: "message_complete",
+        conversationId: conversation.conversationId,
+      });
+      return persisted.id;
+    } finally {
+      conversation.processing = false;
+    }
   }
 
   const resolvedContent = slashResult.content;
