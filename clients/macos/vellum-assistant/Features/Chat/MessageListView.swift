@@ -780,6 +780,7 @@ struct MessageListView: View {
                     if oldPhase == .interacting || oldPhase == .decelerating,
                        scrollState.pushToTopMessageId != nil {
                         scrollState.pushToTopMessageId = nil
+                        scrollState.pendingPushToTopTarget = nil
                     }
                     scrollState.reattach()
                     scrollState.scrollRestoreTask?.cancel()
@@ -869,6 +870,7 @@ struct MessageListView: View {
                     let pinned = scrollState.pinToBottom(animated: true)
                     if pinned {
                         scrollState.pushToTopMessageId = nil
+                        scrollState.pendingPushToTopTarget = nil
                     }
                 }
 
