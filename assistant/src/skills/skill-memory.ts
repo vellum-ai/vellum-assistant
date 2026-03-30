@@ -1,14 +1,14 @@
 import { and, eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
+import { resolveSkillStates } from "../config/skill-state.js";
+import { type SkillSummary, loadSkillCatalog } from "../config/skills.js";
 import { getDb } from "../memory/db.js";
 import { computeMemoryFingerprint } from "../memory/fingerprint.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { memoryItems } from "../memory/schema.js";
 import { getLogger } from "../util/logger.js";
-import { type CatalogSkill, resolveCatalog } from "./catalog-install.js";
 
 const log = getLogger("skill-memory");
 
@@ -25,15 +25,15 @@ export interface SkillCapabilityInput {
 }
 
 /**
- * Convert a CatalogSkill to a SkillCapabilityInput by extracting nested
- * metadata fields into flat properties.
+ * Convert a SkillSummary to a SkillCapabilityInput.
+ * SkillSummary already has flat properties, so this is a straightforward mapping.
  */
-export function fromCatalogSkill(entry: CatalogSkill): SkillCapabilityInput {
+export function fromSkillSummary(entry: SkillSummary): SkillCapabilityInput {
   return {
     id: entry.id,
-    displayName: entry.metadata?.vellum?.["display-name"] ?? entry.name,
+    displayName: entry.displayName,
     description: entry.description,
-    activationHints: entry.metadata?.vellum?.["activation-hints"],
+    activationHints: entry.activationHints,
   };
 }
 
@@ -193,30 +193,24 @@ export function deleteSkillCapabilityMemory(skillId: string): void {
 }
 
 /**
- * Seed capability memory items for all catalog skills.
- * Prunes stale entries whose skills are no longer in the catalog.
+ * Seed capability memory items for all enabled skills (bundled, managed, workspace, extra).
+ * Prunes stale entries whose skills are no longer in the enabled set.
  * Best-effort: errors are logged but never thrown.
  */
-export async function seedCatalogSkillMemories(): Promise<void> {
+export function seedCatalogSkillMemories(): void {
   try {
-    const catalog = await resolveCatalog();
+    const catalog = loadSkillCatalog();
     const config = getConfig();
+    const resolved = resolveSkillStates(catalog, config);
+    const enabled = resolved.filter((r) => r.state === "enabled");
+
     const catalogIds = new Set<string>();
-
-    for (const entry of catalog) {
-      // Skip skills whose feature flag is disabled
-      const flagId = entry.metadata?.vellum?.["feature-flag"];
-      if (flagId) {
-        if (!isAssistantFeatureFlagEnabled(flagId, config)) {
-          continue;
-        }
-      }
-
-      catalogIds.add(entry.id);
-      upsertSkillCapabilityMemory(entry.id, fromCatalogSkill(entry));
+    for (const { summary } of enabled) {
+      catalogIds.add(summary.id);
+      upsertSkillCapabilityMemory(summary.id, fromSkillSummary(summary));
     }
 
-    // Prune stale capability memories for skills no longer in catalog
+    // Prune stale capability memories for skills no longer in the enabled set
     const db = getDb();
     const allCapabilities = db
       .select()

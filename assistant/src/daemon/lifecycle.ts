@@ -642,11 +642,13 @@ export async function runDaemon(): Promise<void> {
       log.info("Daemon startup: starting memory worker");
       bgRefs.memoryWorker = startMemoryJobsWorker();
 
-      // Seed capability memories for first-party catalog skills so the memory
+      // Seed capability memories for all enabled skills so the memory
       // pipeline can surface relevant skills via semantic search.
-      void seedCatalogSkillMemories().catch((err) =>
-        log.warn({ err }, "Catalog skill memory seeding failed — continuing"),
-      );
+      try {
+        seedCatalogSkillMemories();
+      } catch (err) {
+        log.warn({ err }, "Catalog skill memory seeding failed — continuing");
+      }
 
       try {
         seedCliCommandMemories();

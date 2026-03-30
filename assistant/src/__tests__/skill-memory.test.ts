@@ -20,16 +20,15 @@ mock.module("../memory/qdrant-client.js", () => ({
   initQdrantClient: () => {},
 }));
 
-// Controllable mock for resolveCatalog used by seedCatalogSkillMemories
-let mockResolveCatalog: () => Promise<
-  import("../skills/catalog-install.js").CatalogSkill[]
-> = async () => [];
+// Controllable mock for loadSkillCatalog used by seedCatalogSkillMemories
+let mockLoadSkillCatalog: () => import("../config/skills.js").SkillSummary[] =
+  () => [];
 
-mock.module("../skills/catalog-install.js", () => ({
-  resolveCatalog: (..._args: unknown[]) => mockResolveCatalog(),
+mock.module("../config/skills.js", () => ({
+  loadSkillCatalog: (..._args: unknown[]) => mockLoadSkillCatalog(),
 }));
 
-// Controllable mock for isAssistantFeatureFlagEnabled used by seedCatalogSkillMemories
+// Controllable mock for isAssistantFeatureFlagEnabled used by resolveSkillStates
 let mockIsFeatureFlagEnabled: (key: string) => boolean = () => true;
 
 mock.module("../config/assistant-feature-flags.js", () => ({
@@ -60,14 +59,14 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
+import type { SkillSummary } from "../config/skills.js";
 import { getDb, initializeDb, resetDb } from "../memory/db.js";
 import { memoryItems, memoryJobs } from "../memory/schema.js";
-import type { CatalogSkill } from "../skills/catalog-install.js";
 import {
   type SkillCapabilityInput,
   buildCapabilityStatement,
   deleteSkillCapabilityMemory,
-  fromCatalogSkill,
+  fromSkillSummary,
   seedCatalogSkillMemories,
   upsertSkillCapabilityMemory,
 } from "../skills/skill-memory.js";
@@ -88,11 +87,17 @@ function resetTables() {
   db.run("DELETE FROM memory_jobs");
 }
 
-function makeSkill(overrides: Partial<CatalogSkill> = {}): CatalogSkill {
+function makeSkillSummary(
+  overrides: Partial<SkillSummary> = {},
+): SkillSummary {
   return {
     id: "test-skill",
-    name: "Test Skill",
+    name: "test-skill",
+    displayName: "Test Skill",
     description: "A skill for testing",
+    directoryPath: "/skills/test-skill",
+    skillFilePath: "/skills/test-skill/SKILL.md",
+    source: "managed",
     ...overrides,
   };
 }
@@ -149,45 +154,34 @@ describe("buildCapabilityStatement", () => {
   });
 });
 
-// ─── fromCatalogSkill ───────────────────────────────────────────────────────
+// ─── fromSkillSummary ────────────────────────────────────────────────────────
 
-describe("fromCatalogSkill", () => {
-  test("extracts displayName from vellum display-name metadata", () => {
-    const entry = makeSkill({
-      name: "fallback-name",
-      metadata: { vellum: { "display-name": "Pretty Name" } },
-    });
-    const input = fromCatalogSkill(entry);
+describe("fromSkillSummary", () => {
+  test("maps displayName from SkillSummary", () => {
+    const entry = makeSkillSummary({ displayName: "Pretty Name" });
+    const input = fromSkillSummary(entry);
     expect(input.displayName).toBe("Pretty Name");
   });
 
-  test("falls back to name when display-name metadata is absent", () => {
-    const entry = makeSkill({ name: "My Skill", metadata: undefined });
-    const input = fromCatalogSkill(entry);
-    expect(input.displayName).toBe("My Skill");
-  });
-
-  test("extracts activationHints from vellum metadata", () => {
+  test("maps activationHints from SkillSummary", () => {
     const hints = ["user asks to search", "needs web data"];
-    const entry = makeSkill({
-      metadata: { vellum: { "activation-hints": hints } },
-    });
-    const input = fromCatalogSkill(entry);
+    const entry = makeSkillSummary({ activationHints: hints });
+    const input = fromSkillSummary(entry);
     expect(input.activationHints).toEqual(hints);
   });
 
   test("leaves activationHints undefined when not present", () => {
-    const entry = makeSkill({ metadata: undefined });
-    const input = fromCatalogSkill(entry);
+    const entry = makeSkillSummary({ activationHints: undefined });
+    const input = fromSkillSummary(entry);
     expect(input.activationHints).toBeUndefined();
   });
 
   test("copies id and description directly", () => {
-    const entry = makeSkill({
+    const entry = makeSkillSummary({
       id: "my-id",
       description: "Does amazing things",
     });
-    const input = fromCatalogSkill(entry);
+    const input = fromSkillSummary(entry);
     expect(input.id).toBe("my-id");
     expect(input.description).toBe("Does amazing things");
   });
@@ -199,7 +193,7 @@ describe("upsertSkillCapabilityMemory", () => {
   beforeEach(resetTables);
 
   test("inserts with correct kind, subject, confidence, importance", () => {
-    const input = fromCatalogSkill(makeSkill());
+    const input = fromSkillSummary(makeSkillSummary());
     upsertSkillCapabilityMemory("test-skill", input);
 
     const db = getDb();
@@ -219,7 +213,7 @@ describe("upsertSkillCapabilityMemory", () => {
   });
 
   test("is idempotent (same entry only touches lastSeenAt)", () => {
-    const input = fromCatalogSkill(makeSkill());
+    const input = fromSkillSummary(makeSkillSummary());
     upsertSkillCapabilityMemory("test-skill", input);
 
     const db = getDb();
@@ -242,8 +236,8 @@ describe("upsertSkillCapabilityMemory", () => {
   });
 
   test("updates statement when description changes", () => {
-    const input = fromCatalogSkill(
-      makeSkill({ description: "Original description" }),
+    const input = fromSkillSummary(
+      makeSkillSummary({ description: "Original description" }),
     );
     upsertSkillCapabilityMemory("test-skill", input);
 
@@ -253,8 +247,8 @@ describe("upsertSkillCapabilityMemory", () => {
     expect(before[0].statement).toContain("Original description");
 
     // Change description
-    const updatedInput = fromCatalogSkill(
-      makeSkill({ description: "Updated description" }),
+    const updatedInput = fromSkillSummary(
+      makeSkillSummary({ description: "Updated description" }),
     );
     upsertSkillCapabilityMemory("test-skill", updatedInput);
 
@@ -269,7 +263,7 @@ describe("upsertSkillCapabilityMemory", () => {
   });
 
   test("reactivates soft-deleted items", () => {
-    const input = fromCatalogSkill(makeSkill());
+    const input = fromSkillSummary(makeSkillSummary());
     upsertSkillCapabilityMemory("test-skill", input);
 
     const db = getDb();
@@ -310,7 +304,10 @@ describe("upsertSkillCapabilityMemory", () => {
     db.run("DROP TABLE IF EXISTS memory_items");
 
     expect(() => {
-      upsertSkillCapabilityMemory("test-skill", fromCatalogSkill(makeSkill()));
+      upsertSkillCapabilityMemory(
+        "test-skill",
+        fromSkillSummary(makeSkillSummary()),
+      );
     }).not.toThrow();
 
     // Restore DB state for subsequent tests.
@@ -332,7 +329,7 @@ describe("deleteSkillCapabilityMemory", () => {
   beforeEach(resetTables);
 
   test("soft-deletes matching item", () => {
-    const input = fromCatalogSkill(makeSkill());
+    const input = fromSkillSummary(makeSkillSummary());
     upsertSkillCapabilityMemory("test-skill", input);
 
     const db = getDb();
@@ -385,19 +382,31 @@ describe("seedCatalogSkillMemories", () => {
   beforeEach(() => {
     resetTables();
     // Reset mocks to defaults
-    mockResolveCatalog = async () => [];
+    mockLoadSkillCatalog = () => [];
     mockIsFeatureFlagEnabled = () => true;
   });
 
-  test("upserts capability memories for all catalog entries", async () => {
-    const skills: CatalogSkill[] = [
-      makeSkill({ id: "skill-a", name: "Skill A", description: "Does A" }),
-      makeSkill({ id: "skill-b", name: "Skill B", description: "Does B" }),
-      makeSkill({ id: "skill-c", name: "Skill C", description: "Does C" }),
+  test("upserts capability memories for all enabled skills", () => {
+    const skills: SkillSummary[] = [
+      makeSkillSummary({
+        id: "skill-a",
+        displayName: "Skill A",
+        description: "Does A",
+      }),
+      makeSkillSummary({
+        id: "skill-b",
+        displayName: "Skill B",
+        description: "Does B",
+      }),
+      makeSkillSummary({
+        id: "skill-c",
+        displayName: "Skill C",
+        description: "Does C",
+      }),
     ];
-    mockResolveCatalog = async () => skills;
+    mockLoadSkillCatalog = () => skills;
 
-    await seedCatalogSkillMemories();
+    seedCatalogSkillMemories();
 
     const db = getDb();
     const items = db
@@ -420,15 +429,128 @@ describe("seedCatalogSkillMemories", () => {
     }
   });
 
-  test("prunes stale capabilities for skills no longer in catalog", async () => {
-    // First seed with three skills
-    const initialSkills: CatalogSkill[] = [
-      makeSkill({ id: "skill-a", name: "Skill A", description: "Does A" }),
-      makeSkill({ id: "skill-b", name: "Skill B", description: "Does B" }),
-      makeSkill({ id: "skill-c", name: "Skill C", description: "Does C" }),
+  test("includes bundled skills in seeded memories", () => {
+    const skills: SkillSummary[] = [
+      makeSkillSummary({
+        id: "managed-skill",
+        displayName: "Managed",
+        description: "A managed skill",
+        source: "managed",
+      }),
+      makeSkillSummary({
+        id: "bundled-skill",
+        displayName: "Bundled",
+        description: "A bundled skill",
+        source: "bundled",
+        bundled: true,
+      }),
     ];
-    mockResolveCatalog = async () => initialSkills;
-    await seedCatalogSkillMemories();
+    mockLoadSkillCatalog = () => skills;
+
+    seedCatalogSkillMemories();
+
+    const db = getDb();
+    const items = db
+      .select()
+      .from(memoryItems)
+      .where(eq(memoryItems.kind, "capability"))
+      .all();
+    expect(items).toHaveLength(2);
+
+    const subjects = items.map((i) => i.subject).sort();
+    expect(subjects).toEqual(["skill:bundled-skill", "skill:managed-skill"]);
+
+    for (const item of items) {
+      expect(item.status).toBe("active");
+    }
+  });
+
+  test("excludes bundled skills filtered by allowBundled config", () => {
+    const skills: SkillSummary[] = [
+      makeSkillSummary({
+        id: "allowed-bundled",
+        displayName: "Allowed Bundled",
+        description: "This bundled skill is allowed",
+        source: "bundled",
+        bundled: true,
+      }),
+      makeSkillSummary({
+        id: "blocked-bundled",
+        displayName: "Blocked Bundled",
+        description: "This bundled skill is not in allowBundled",
+        source: "bundled",
+        bundled: true,
+      }),
+      makeSkillSummary({
+        id: "managed-skill",
+        displayName: "Managed",
+        description: "A managed skill",
+        source: "managed",
+      }),
+    ];
+    mockLoadSkillCatalog = () => skills;
+
+    // Override config to set allowBundled to only allow one bundled skill
+    const configWithAllowBundled = {
+      ...TEST_CONFIG,
+      skills: {
+        ...TEST_CONFIG.skills,
+        allowBundled: ["allowed-bundled"],
+      },
+    };
+    mock.module("../config/loader.js", () => ({
+      loadConfig: () => configWithAllowBundled,
+      getConfig: () => configWithAllowBundled,
+      loadRawConfig: () => ({}),
+      saveRawConfig: () => {},
+      invalidateConfigCache: () => {},
+    }));
+
+    seedCatalogSkillMemories();
+
+    const db = getDb();
+    const items = db
+      .select()
+      .from(memoryItems)
+      .where(eq(memoryItems.kind, "capability"))
+      .all();
+
+    // Only allowed-bundled and managed-skill should be seeded
+    expect(items).toHaveLength(2);
+    const subjects = items.map((i) => i.subject).sort();
+    expect(subjects).toEqual(["skill:allowed-bundled", "skill:managed-skill"]);
+
+    // Restore default config mock
+    mock.module("../config/loader.js", () => ({
+      loadConfig: () => TEST_CONFIG,
+      getConfig: () => TEST_CONFIG,
+      loadRawConfig: () => ({}),
+      saveRawConfig: () => {},
+      invalidateConfigCache: () => {},
+    }));
+  });
+
+  test("prunes stale capabilities for skills no longer enabled", () => {
+    // First seed with three skills
+    const initialSkills: SkillSummary[] = [
+      makeSkillSummary({
+        id: "skill-a",
+        displayName: "Skill A",
+        description: "Does A",
+      }),
+      makeSkillSummary({
+        id: "skill-b",
+        displayName: "Skill B",
+        description: "Does B",
+      }),
+      makeSkillSummary({
+        id: "skill-c",
+        displayName: "Skill C",
+        description: "Does C",
+      }),
+    ];
+    mockLoadSkillCatalog = () => initialSkills;
+    seedCatalogSkillMemories();
 
     const db = getDb();
     const beforeItems = db
@@ -440,10 +562,14 @@ describe("seedCatalogSkillMemories", () => {
     expect(beforeItems.every((i) => i.status === "active")).toBe(true);
 
     // Now seed with only skill-a — skill-b and skill-c should be pruned
-    mockResolveCatalog = async () => [
-      makeSkill({ id: "skill-a", name: "Skill A", description: "Does A" }),
+    mockLoadSkillCatalog = () => [
+      makeSkillSummary({
+        id: "skill-a",
+        displayName: "Skill A",
+        description: "Does A",
+      }),
     ];
-    await seedCatalogSkillMemories();
+    seedCatalogSkillMemories();
 
     const afterItems = db
       .select()
@@ -463,11 +589,11 @@ describe("seedCatalogSkillMemories", () => {
     expect(deletedSubjects).toEqual(["skill:skill-b", "skill:skill-c"]);
   });
 
-  test("handles empty catalog without errors", async () => {
+  test("handles empty catalog without errors", () => {
     // Pre-populate a skill so we can verify it gets pruned
     upsertSkillCapabilityMemory(
       "existing-skill",
-      fromCatalogSkill(makeSkill({ id: "existing-skill" })),
+      fromSkillSummary(makeSkillSummary({ id: "existing-skill" })),
     );
 
     const db = getDb();
@@ -476,8 +602,8 @@ describe("seedCatalogSkillMemories", () => {
     expect(beforeItems[0].status).toBe("active");
 
     // Seed with empty catalog
-    mockResolveCatalog = async () => [];
-    await seedCatalogSkillMemories();
+    mockLoadSkillCatalog = () => [];
+    seedCatalogSkillMemories();
 
     // The existing skill should be pruned (soft-deleted)
     const afterItems = db.select().from(memoryItems).all();
@@ -485,7 +611,7 @@ describe("seedCatalogSkillMemories", () => {
     expect(afterItems[0].status).toBe("deleted");
   });
 
-  test("does not prune non-skill capability memories", async () => {
+  test("does not prune non-skill capability memories", () => {
     // Pre-insert a non-skill capability memory directly into the DB
     const db = getDb();
     const now = Date.now();
@@ -507,8 +633,8 @@ describe("seedCatalogSkillMemories", () => {
       .run();
 
     // Seed with empty catalog — skill pruner runs but should skip cli:* items
-    mockResolveCatalog = async () => [];
-    await seedCatalogSkillMemories();
+    mockLoadSkillCatalog = () => [];
+    seedCatalogSkillMemories();
 
     const item = db
       .select()
@@ -519,35 +645,35 @@ describe("seedCatalogSkillMemories", () => {
     expect(item!.status).toBe("active");
   });
 
-  test("does not throw when resolveCatalog rejects", async () => {
-    mockResolveCatalog = async () => {
-      throw new Error("Network failure");
+  test("does not throw when loadSkillCatalog throws", () => {
+    mockLoadSkillCatalog = () => {
+      throw new Error("Catalog load failure");
     };
 
     // Best-effort: should not propagate the error
-    await expect(seedCatalogSkillMemories()).resolves.toBeUndefined();
+    expect(() => seedCatalogSkillMemories()).not.toThrow();
   });
 
-  test("skips skills whose feature flag is disabled", async () => {
-    const skills: CatalogSkill[] = [
-      makeSkill({
+  test("skips skills whose feature flag is disabled", () => {
+    const skills: SkillSummary[] = [
+      makeSkillSummary({
         id: "unflagged-skill",
-        name: "Unflagged",
+        displayName: "Unflagged",
         description: "No flag",
       }),
-      makeSkill({
+      makeSkillSummary({
         id: "flagged-skill",
-        name: "Flagged",
+        displayName: "Flagged",
         description: "Has flag",
-        metadata: { vellum: { "feature-flag": "my_gated_feature" } },
+        featureFlag: "my_gated_feature",
       }),
     ];
-    mockResolveCatalog = async () => skills;
+    mockLoadSkillCatalog = () => skills;
 
     // Disable the feature flag for the flagged skill
     mockIsFeatureFlagEnabled = (key: string) => key !== "my_gated_feature";
 
-    await seedCatalogSkillMemories();
+    seedCatalogSkillMemories();
 
     const db = getDb();
     const items = db
@@ -562,24 +688,24 @@ describe("seedCatalogSkillMemories", () => {
     expect(items[0].status).toBe("active");
   });
 
-  test("prunes pre-existing capability for a skill whose flag becomes disabled", async () => {
+  test("prunes pre-existing capability for a skill whose flag becomes disabled", () => {
     // First seed with both skills, all flags enabled
-    const skills: CatalogSkill[] = [
-      makeSkill({
+    const skills: SkillSummary[] = [
+      makeSkillSummary({
         id: "unflagged-skill",
-        name: "Unflagged",
+        displayName: "Unflagged",
         description: "No flag",
       }),
-      makeSkill({
+      makeSkillSummary({
         id: "flagged-skill",
-        name: "Flagged",
+        displayName: "Flagged",
         description: "Has flag",
-        metadata: { vellum: { "feature-flag": "my_gated_feature" } },
+        featureFlag: "my_gated_feature",
       }),
     ];
-    mockResolveCatalog = async () => skills;
+    mockLoadSkillCatalog = () => skills;
     mockIsFeatureFlagEnabled = () => true;
-    await seedCatalogSkillMemories();
+    seedCatalogSkillMemories();
 
     const db = getDb();
     const beforeItems = db
@@ -592,7 +718,7 @@ describe("seedCatalogSkillMemories", () => {
 
     // Now disable the flag — the flagged skill should be pruned
     mockIsFeatureFlagEnabled = (key: string) => key !== "my_gated_feature";
-    await seedCatalogSkillMemories();
+    seedCatalogSkillMemories();
 
     const afterItems = db
       .select()
@@ -611,9 +737,13 @@ describe("seedCatalogSkillMemories", () => {
     expect(deleted[0].subject).toBe("skill:flagged-skill");
   });
 
-  test("does not throw on DB error during pruning", async () => {
-    mockResolveCatalog = async () => [
-      makeSkill({ id: "skill-a", name: "Skill A", description: "Does A" }),
+  test("does not throw on DB error during pruning", () => {
+    mockLoadSkillCatalog = () => [
+      makeSkillSummary({
+        id: "skill-a",
+        displayName: "Skill A",
+        description: "Does A",
+      }),
     ];
 
     // Drop memory_items to force a DB error during the prune phase
@@ -621,7 +751,7 @@ describe("seedCatalogSkillMemories", () => {
     const db = getDb();
     db.run("DROP TABLE IF EXISTS memory_items");
 
-    await expect(seedCatalogSkillMemories()).resolves.toBeUndefined();
+    expect(() => seedCatalogSkillMemories()).not.toThrow();
 
     // Restore DB state for subsequent tests (see upsert "does not throw" test
     // for rationale on why we delete the DB file).
