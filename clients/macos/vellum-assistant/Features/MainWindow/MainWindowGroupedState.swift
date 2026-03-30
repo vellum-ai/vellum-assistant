@@ -97,13 +97,31 @@ final class SidebarInteractionState {
 
     var showPreferencesDrawer: Bool = false
 
-    /// Clears stale drag state. Called as a fallback when a post-drag hover-in
-    /// is detected by a conversation row, indicating the drag session ended
-    /// without a successful drop (e.g., dropped outside any valid target).
-    func clearStaleDragState() {
-        guard draggingConversationId != nil else { return }
+    @ObservationIgnored private var dragEndLocalMonitor: Any?
+    @ObservationIgnored private var dragEndGlobalMonitor: Any?
+
+    /// Begins a conversation drag session and installs a temporary mouse-up monitor
+    /// so canceled drags are cleaned up reliably.
+    func beginConversationDrag(_ conversationId: UUID) {
+        draggingConversationId = conversationId
+        installDragEndMonitorIfNeeded()
+    }
+
+    /// Ends the current conversation drag session and clears all drop targeting state.
+    func endConversationDrag() {
         draggingConversationId = nil
         dropTargetConversationId = nil
+        dropTargetSectionId = nil
+        removeDragEndMonitor()
+    }
+
+    /// Clears stale drag state if a drag session is still active.
+    func clearStaleDragState() {
+        guard draggingConversationId != nil else {
+            removeDragEndMonitor()
+            return
+        }
+        endConversationDrag()
     }
 
     /// Conversation ID that is currently the drop target during a drag-and-drop reorder.
@@ -120,4 +138,36 @@ final class SidebarInteractionState {
     var renamingGroupId: String?
     /// Text field content for the group currently being renamed.
     var renamingGroupName: String = ""
+
+    private func installDragEndMonitorIfNeeded() {
+        guard dragEndLocalMonitor == nil, dragEndGlobalMonitor == nil else { return }
+
+        dragEndLocalMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp]
+        ) { [weak self] event in
+            Task { @MainActor in
+                self?.clearStaleDragState()
+            }
+            return event
+        }
+
+        dragEndGlobalMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseUp, .rightMouseUp, .otherMouseUp]
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.clearStaleDragState()
+            }
+        }
+    }
+
+    private func removeDragEndMonitor() {
+        if let dragEndLocalMonitor {
+            NSEvent.removeMonitor(dragEndLocalMonitor)
+            self.dragEndLocalMonitor = nil
+        }
+        if let dragEndGlobalMonitor {
+            NSEvent.removeMonitor(dragEndGlobalMonitor)
+            self.dragEndGlobalMonitor = nil
+        }
+    }
 }

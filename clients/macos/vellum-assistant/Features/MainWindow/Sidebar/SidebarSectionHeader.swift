@@ -74,7 +74,7 @@ struct SidebarSectionHeader: View {
         .pointerCursor(onHover: { hovering in
             isHeaderHovered = hovering
         })
-        .background(isDropTarget ? Color.accentColor.opacity(0.15) : .clear)
+        .background(isDropTarget ? VColor.systemPositiveWeak : .clear)
         .cornerRadius(4)
         .modifier(ConditionalGroupContextMenu(
             onRename: onRename.map { rename in { rename(group.name) } },

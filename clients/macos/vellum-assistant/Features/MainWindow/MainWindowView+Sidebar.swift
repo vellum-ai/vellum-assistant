@@ -186,10 +186,7 @@ extension MainWindowView {
             },
             onMarkUnread: { conversationManager.markConversationUnread(conversationId: conversation.id) },
             onDragStart: {
-                sidebar.draggingConversationId = conversation.id
-            },
-            onDragEndDetected: {
-                sidebar.clearStaleDragState()
+                sidebar.beginConversationDrag(conversation.id)
             },
             onOpenInNewWindow: conversation.conversationId != nil ? {
                 AppDelegate.shared?.threadWindowManager?.openThread(
@@ -287,12 +284,15 @@ extension MainWindowView {
                     }
                 }
                 .dropDestination(for: String.self) { items, _ in
-                    sidebar.dropTargetConversationId = nil
-                    sidebar.draggingConversationId = nil
                     guard let droppedId = items.first,
                           let sourceUUID = UUID(uuidString: droppedId),
-                          sourceUUID != conversation.id else { return false }
-                    return conversationManager.moveConversation(sourceId: sourceUUID, targetId: conversation.id)
+                          sourceUUID != conversation.id else {
+                        sidebar.endConversationDrag()
+                        return false
+                    }
+                    let moved = conversationManager.moveConversation(sourceId: sourceUUID, targetId: conversation.id)
+                    sidebar.endConversationDrag()
+                    return moved
                 } isTargeted: { isTargeted in
                     if isTargeted && conversation.id != sidebar.draggingConversationId {
                         sidebar.dropTargetConversationId = conversation.id

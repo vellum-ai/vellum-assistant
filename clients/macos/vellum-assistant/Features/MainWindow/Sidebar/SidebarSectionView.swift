@@ -120,8 +120,13 @@ struct SidebarSectionView: View {
                 .padding(.vertical, VSpacing.xxs)
                 .background(
                     RoundedRectangle(cornerRadius: VRadius.md)
-                        .fill(VColor.contentTertiary.opacity(0.06))
+                        .fill(isDropTarget ? VColor.systemPositiveWeak : VColor.contentTertiary.opacity(0.06))
                 )
+                .modifier(SectionBodyDropModifier(
+                    groupId: group.id,
+                    sidebar: sidebar,
+                    conversationManager: conversationManager
+                ))
                 .transition(.opacity)
             }
         } else {
@@ -415,7 +420,7 @@ struct ScheduleSubGroupHeaderDropDelegate: DropDelegate {
     func performDrop(info: DropInfo) -> Bool {
         let sourceId = sidebar.draggingConversationId
         sidebar.dropTargetConversationId = nil
-        sidebar.draggingConversationId = nil
+        sidebar.endConversationDrag()
         guard let firstConversation = firstConversation,
               let sourceId = sourceId,
               sourceId != firstConversation.id
@@ -475,7 +480,7 @@ struct GroupedReorderDropDelegate: DropDelegate {
         let sourceId = sidebar.draggingConversationId
         let insertAfter = sidebar.dropIndicatorAtBottom
         sidebar.dropTargetConversationId = nil
-        sidebar.draggingConversationId = nil
+        sidebar.endConversationDrag()
         guard let sourceId = sourceId, sourceId != targetConversation.id else { return false }
         return conversationManager.moveConversation(sourceId: sourceId, targetId: targetConversation.id, insertAfterTarget: insertAfter)
     }
@@ -499,5 +504,64 @@ struct SectionHeaderDropModifier: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// ViewModifier that conditionally attaches a conversation-group drop target to
+/// an expanded section body so drops work reliably in whitespace between rows.
+struct SectionBodyDropModifier: ViewModifier {
+    let groupId: String
+    let sidebar: SidebarInteractionState?
+    let conversationManager: ConversationManager?
+
+    func body(content: Content) -> some View {
+        if let sidebar, let conversationManager {
+            content.onDrop(of: [.plainText], delegate: SidebarSectionBodyDropDelegate(
+                groupId: groupId,
+                sidebar: sidebar,
+                conversationManager: conversationManager
+            ))
+        } else {
+            content
+        }
+    }
+}
+
+/// Drop delegate for an expanded section body (not header, not row target).
+/// This is a fallback drop zone for moving a conversation into the section's group
+/// when the cursor is between rows or in empty body space.
+struct SidebarSectionBodyDropDelegate: DropDelegate {
+    let groupId: String
+    let sidebar: SidebarInteractionState
+    let conversationManager: ConversationManager
+
+    func validateDrop(info: DropInfo) -> Bool {
+        guard let sourceId = sidebar.draggingConversationId,
+              let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
+              source.groupId != groupId
+        else { return false }
+        return true
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func dropEntered(info: DropInfo) {
+        sidebar.dropTargetSectionId = groupId
+    }
+
+    func dropExited(info: DropInfo) {
+        if sidebar.dropTargetSectionId == groupId {
+            sidebar.dropTargetSectionId = nil
+        }
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        let sourceId = sidebar.draggingConversationId
+        sidebar.endConversationDrag()
+        guard let sourceId else { return false }
+        conversationManager.moveConversationToGroup(sourceId, groupId: groupId)
+        return true
     }
 }

@@ -50,7 +50,7 @@ struct ScheduleReorderDropDelegate: DropDelegate {
     func performDrop(info: DropInfo) -> Bool {
         let sourceId = sidebar.draggingConversationId
         sidebar.dropTargetConversationId = nil
-        sidebar.draggingConversationId = nil
+        sidebar.endConversationDrag()
         guard let sourceId = sourceId, sourceId != targetConversation.id else { return false }
         return conversationManager.moveConversation(sourceId: sourceId, targetId: targetConversation.id)
     }

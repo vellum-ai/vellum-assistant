@@ -49,10 +49,7 @@ struct ConversationSwitcherDrawer: View {
                         },
                         onMarkUnread: { conversationManager.markConversationUnread(conversationId: conversation.id) },
                         onDragStart: {
-                            sidebar.draggingConversationId = conversation.id
-                        },
-                        onDragEndDetected: {
-                            sidebar.clearStaleDragState()
+                            sidebar.beginConversationDrag(conversation.id)
                         },
                         onOpenInNewWindow: conversation.conversationId != nil ? {
                             AppDelegate.shared?.threadWindowManager?.openThread(

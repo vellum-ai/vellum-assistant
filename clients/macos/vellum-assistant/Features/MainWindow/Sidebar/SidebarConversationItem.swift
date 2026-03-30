@@ -20,8 +20,6 @@ struct SidebarConversationItem: View, Equatable {
     var onStartRename: () -> Void
     var onMarkUnread: () -> Void
     var onDragStart: () -> Void
-    /// Called on hover-in when stale drag state is detected, signalling the drag ended.
-    var onDragEndDetected: (() -> Void)? = nil
     var onOpenInNewWindow: (() -> Void)?
     var onShowFeedback: (() -> Void)?
     /// Available groups for the "Move to" submenu. Excludes the conversation's current group.
@@ -246,9 +244,6 @@ struct SidebarConversationItem: View, Equatable {
         }
         .pointerCursor { hovering in
             isMouseInside = hovering
-            if hovering {
-                onDragEndDetected?()
-            }
         }
         .onChange(of: conversation) { _, _ in
             // Reset menu state when conversation props change within the same view
@@ -284,4 +279,3 @@ struct SidebarConversationItem: View, Equatable {
         }
     }
 }
-

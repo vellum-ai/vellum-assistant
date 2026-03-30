@@ -16,12 +16,10 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
         // We detect them by checking if there's NO draggingConversationId set
         // (group drags don't set draggingConversationId) AND the info contains items.
         if sidebar.draggingConversationId == nil {
-            // Potential group drag — validate group reorder conditions
-            guard let targetGroup = group, !targetGroup.isSystemGroup else { return false }
-            // We can't parse the payload in validateDrop, but we know:
-            // - Target must be a non-system group header
-            // - The actual source validation happens in performDrop
-            return true
+            // Could be a group drag OR a conversation drag where source tracking
+            // is temporarily unavailable. Accept plain-text payloads and let
+            // performDrop parse/route the payload safely.
+            return info.hasItemsConforming(to: [.plainText])
         }
 
         // M4: conversation drop path
@@ -74,6 +72,7 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
                        source.groupId != self.groupId {
                         self.conversationManager.moveConversationToGroup(uuid, groupId: self.groupId)
                     }
+                    self.sidebar.endConversationDrag()
                 case .group(let sourceId):
                     self.performGroupReorder(sourceId: sourceId)
                 }
@@ -86,7 +85,7 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
 
     private func performConversationDrop() -> Bool {
         let sourceId = sidebar.draggingConversationId
-        sidebar.draggingConversationId = nil
+        sidebar.endConversationDrag()
         guard let sourceId else { return false }
         // No-op if the conversation is already in this group (prevents clearing displayOrder)
         if let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
