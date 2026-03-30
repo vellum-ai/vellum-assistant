@@ -346,6 +346,138 @@ public final class AuthService {
         }
     }
 
+    // MARK: - Maintenance Mode
+
+    /// Enter maintenance mode for a managed assistant.
+    ///
+    /// On success the platform pauses the normal assistant pod and mounts the workspace PVC
+    /// into a debug pod. Returns the updated `PlatformAssistant` with a populated
+    /// `maintenance_mode` field.
+    public func enterMaintenanceMode(
+        assistantId: String,
+        organizationId: String
+    ) async throws -> PlatformAssistant {
+        let urlString = "\(baseURL)/v1/assistants/\(assistantId)/enter-maintenance-mode/"
+        guard let url = URL(string: urlString) else {
+            throw PlatformAPIError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+
+        if let token = await SessionTokenManager.getTokenAsync() {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        } else {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw PlatformAPIError.networkError(error.localizedDescription)
+        }
+
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 0
+
+        log.debug("Platform request POST assistants/\(assistantId)/enter-maintenance-mode/ -> \(statusCode)")
+
+        if statusCode == 401 || statusCode == 403 {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard (200..<300).contains(statusCode) else {
+            let detail = String(data: data, encoding: .utf8)
+            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
+        }
+
+        do {
+            return try JSONDecoder().decode(PlatformAssistant.self, from: data)
+        } catch {
+            throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+    }
+
+    /// Exit maintenance mode for a managed assistant.
+    ///
+    /// On success the platform tears down the debug pod and resumes the normal assistant pod.
+    /// Returns the updated `PlatformAssistant` with `maintenance_mode.enabled == false`.
+    public func exitMaintenanceMode(
+        assistantId: String,
+        organizationId: String
+    ) async throws -> PlatformAssistant {
+        let urlString = "\(baseURL)/v1/assistants/\(assistantId)/exit-maintenance-mode/"
+        guard let url = URL(string: urlString) else {
+            throw PlatformAPIError.invalidURL
+        }
+
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.setValue(organizationId, forHTTPHeaderField: "Vellum-Organization-Id")
+
+        if let token = await SessionTokenManager.getTokenAsync() {
+            urlRequest.setValue(token, forHTTPHeaderField: "X-Session-Token")
+        } else {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: urlRequest)
+        } catch {
+            throw PlatformAPIError.networkError(error.localizedDescription)
+        }
+
+        let httpResponse = response as? HTTPURLResponse
+        let statusCode = httpResponse?.statusCode ?? 0
+
+        log.debug("Platform request POST assistants/\(assistantId)/exit-maintenance-mode/ -> \(statusCode)")
+
+        if statusCode == 401 || statusCode == 403 {
+            throw PlatformAPIError.authenticationRequired
+        }
+
+        guard (200..<300).contains(statusCode) else {
+            let detail = String(data: data, encoding: .utf8)
+            throw PlatformAPIError.serverError(statusCode: statusCode, detail: detail)
+        }
+
+        do {
+            return try JSONDecoder().decode(PlatformAssistant.self, from: data)
+        } catch {
+            throw PlatformAPIError.decodingError(error.localizedDescription)
+        }
+    }
+
+    /// Re-fetch a managed assistant's current detail from the platform.
+    ///
+    /// Convenience used after a maintenance-mode mutation to get the freshest state without
+    /// callers having to inline the `getAssistant` + result-unwrap pattern.
+    /// Throws `PlatformAPIError.serverError(statusCode: 404, ...)` when the assistant is not
+    /// found, and `PlatformAPIError.authenticationRequired` on 403/401.
+    public func refreshAssistant(
+        id: String,
+        organizationId: String
+    ) async throws -> PlatformAssistant {
+        let result = try await getAssistant(id: id, organizationId: organizationId)
+        switch result {
+        case .found(let assistant):
+            return assistant
+        case .notFound:
+            throw PlatformAPIError.serverError(statusCode: 404, detail: "Assistant not found")
+        case .accessDenied:
+            throw PlatformAPIError.authenticationRequired
+        }
+    }
+
     // MARK: - Self-Hosted Local Registration
 
     /// Ensure a self-hosted local assistant registration exists on the platform.
