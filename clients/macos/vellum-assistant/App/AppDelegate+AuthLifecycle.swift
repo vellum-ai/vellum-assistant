@@ -551,7 +551,10 @@ extension AppDelegate {
                 alert.addButton(withTitle: "Force Remove")
                 alert.addButton(withTitle: "Cancel")
                 if alert.runModal() != .alertFirstButtonReturn {
-                    // Assistant is still running — user can continue using the app.
+                    // Assistant is still running — reconnect so the user can
+                    // continue using the app (we disconnected above to avoid
+                    // 502 errors during the retire attempt).
+                    try? await connectionManager.connect()
                     return false
                 }
                 // Retire failed but user chose Force Remove — stop the assistant
