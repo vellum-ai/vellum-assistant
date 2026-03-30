@@ -1,15 +1,18 @@
 import Foundation
 
-/// Resolve the `.vellum` data directory, honoring `BASE_DATA_DIR` when set.
-public func resolveVellumDir(environment: [String: String]? = nil) -> String {
-    let env = environment ?? ProcessInfo.processInfo.environment
-    if let baseDir = env["BASE_DATA_DIR"]?.trimmingCharacters(in: .whitespacesAndNewlines), !baseDir.isEmpty {
-        let resolved = baseDir == "~" ? NSHomeDirectory() : (baseDir.hasPrefix("~/") ? NSHomeDirectory() + "/" + String(baseDir.dropFirst(2)) : baseDir)
+/// Resolve the `.vellum` data directory.
+///
+/// When `instanceDir` is provided (e.g. from a lockfile entry's `resources.instanceDir`),
+/// the vellum directory is `{instanceDir}/.vellum`. Otherwise the lockfile is checked
+/// for a multi-instance directory, falling back to `~/.vellum`.
+public func resolveVellumDir(instanceDir: String? = nil) -> String {
+    if let dir = instanceDir?.trimmingCharacters(in: .whitespacesAndNewlines), !dir.isEmpty {
+        let resolved = dir == "~" ? NSHomeDirectory() : (dir.hasPrefix("~/") ? NSHomeDirectory() + "/" + String(dir.dropFirst(2)) : dir)
         return resolved + "/.vellum"
     }
     // Check the lockfile for instance-specific directory (multi-instance support)
-    if let instanceDir = resolveInstanceDirFromLockfile() {
-        return instanceDir + "/.vellum"
+    if let lockfileDir = resolveInstanceDirFromLockfile() {
+        return lockfileDir + "/.vellum"
     }
     return NSHomeDirectory() + "/.vellum"
 }
@@ -36,7 +39,7 @@ private func resolveInstanceDirFromLockfile() -> String? {
     return instanceDir
 }
 
-/// Resolve the daemon PID file path, honoring `BASE_DATA_DIR`.
-public func resolvePidPath(environment: [String: String]? = nil) -> String {
-    return resolveVellumDir(environment: environment) + "/vellum.pid"
+/// Resolve the daemon PID file path for the given instance (or the default instance).
+public func resolvePidPath(instanceDir: String? = nil) -> String {
+    return resolveVellumDir(instanceDir: instanceDir) + "/vellum.pid"
 }

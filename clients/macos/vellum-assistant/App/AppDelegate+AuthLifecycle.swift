@@ -229,8 +229,7 @@ extension AppDelegate {
             for assistant in LockfileAssistant.loadAll() where !assistant.isRemote && !assistant.isManaged {
                 if assistant.assistantId != connectedAssistantId {
                     guard let instanceDir = assistant.instanceDir else { continue }
-                    let env = ["BASE_DATA_DIR": instanceDir]
-                    let pidPath = VellumAssistantShared.resolvePidPath(environment: env)
+                    let pidPath = VellumAssistantShared.resolvePidPath(instanceDir: instanceDir)
                     if let data = try? Data(contentsOf: URL(fileURLWithPath: pidPath)),
                        let pidString = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
                        let pid = pid_t(pidString),
