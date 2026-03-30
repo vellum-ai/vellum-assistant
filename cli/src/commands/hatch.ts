@@ -631,7 +631,7 @@ function installCLISymlink(): void {
   );
 }
 
-async function hatchLocal(
+export async function hatchLocal(
   species: Species,
   name: string | null,
   restart: boolean = false,

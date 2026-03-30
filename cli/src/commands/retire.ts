@@ -52,7 +52,10 @@ function extractHostFromUrl(url: string): string {
   }
 }
 
-async function retireLocal(name: string, entry: AssistantEntry): Promise<void> {
+export async function retireLocal(
+  name: string,
+  entry: AssistantEntry,
+): Promise<void> {
   console.log("\u{1F5D1}\ufe0f  Stopping local assistant...\n");
 
   if (!entry.resources) {
