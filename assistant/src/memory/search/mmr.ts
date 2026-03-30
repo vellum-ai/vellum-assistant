@@ -51,9 +51,6 @@ export function applyMMR(
   candidates: TieredCandidate[],
   penalty: number,
 ): TieredCandidate[] {
-  // Pre-compute sparse embeddings for all candidates
-  const embeddings = candidates.map((c) => generateSparseEmbedding(c.text));
-
   // Separate items from non-items
   const items: { index: number; candidate: TieredCandidate }[] = [];
   const nonItems: TieredCandidate[] = [];
@@ -70,6 +67,12 @@ export function applyMMR(
   // If no items or no penalty, pass through in original order
   if (items.length === 0 || penalty === 0) {
     return candidates;
+  }
+
+  // Pre-compute sparse embeddings only for items (not segments, summaries, media)
+  const embeddings = new Map<number, SparseEmbedding>();
+  for (const item of items) {
+    embeddings.set(item.index, generateSparseEmbedding(item.candidate.text));
   }
 
   // Greedy MMR selection loop
@@ -104,8 +107,8 @@ export function applyMMR(
       for (const selIdx of selected) {
         const selEmbIdx = items[selIdx]!.index;
         const sim = sparseCosine(
-          embeddings[itemEmbIdx]!,
-          embeddings[selEmbIdx]!,
+          embeddings.get(itemEmbIdx)!,
+          embeddings.get(selEmbIdx)!,
         );
         if (sim > maxSim) maxSim = sim;
       }
