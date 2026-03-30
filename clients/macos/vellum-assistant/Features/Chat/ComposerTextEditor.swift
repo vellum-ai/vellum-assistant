@@ -139,6 +139,10 @@ struct ComposerTextEditor: NSViewRepresentable {
         textView.onEscape = onEscape
         textView.onPasteImage = onPasteImage
 
+        // Re-strip drag types in case TextKit re-registered them during
+        // font or attribute updates above.
+        textView.unregisterDraggedTypes()
+
         if let window = textView.window {
             if isFocused, textView != window.firstResponder {
                 window.makeFirstResponder(textView)

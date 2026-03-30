@@ -255,7 +255,7 @@ struct ComposerView: View {
             )
         }
         .padding(.vertical, VSpacing.xs)
-        .frame(height: measuredTextHeight)
+        .frame(height: measuredTextHeight + 2 * VSpacing.xs)
         .accessibilityLabel("Message")
         .frame(maxWidth: .infinity)
         .background(

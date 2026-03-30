@@ -114,6 +114,9 @@ final class ComposerTextView: NSTextView {
     // MARK: - Cmd+V Image Paste
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard window?.firstResponder == self else {
+            return super.performKeyEquivalent(with: event)
+        }
         let modifiers = event.modifierFlags.intersection([.shift, .command, .control, .option])
         if modifiers == [.command],
            event.charactersIgnoringModifiers?.lowercased() == "v",
