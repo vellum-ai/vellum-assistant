@@ -1,6 +1,12 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // Mock platform to use a temp directory
 const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
@@ -104,6 +110,20 @@ function basePrompt(result: string): string {
 describe("buildSystemPrompt", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    for (const name of [
+      "IDENTITY.md",
+      "SOUL.md",
+      "USER.md",
+      "BOOTSTRAP.md",
+      "UPDATES.md",
+      "skills",
+    ]) {
+      const p = join(TEST_DIR, name);
+      if (existsSync(p)) rmSync(p, { recursive: true, force: true });
+    }
   });
 
   test("returns empty string when no files exist", () => {
@@ -446,6 +466,19 @@ describe("stripCommentLines", () => {
 describe("ensurePromptFiles", () => {
   beforeEach(() => {
     mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    for (const name of [
+      "IDENTITY.md",
+      "SOUL.md",
+      "USER.md",
+      "BOOTSTRAP.md",
+      "conversations",
+    ]) {
+      const p = join(TEST_DIR, name);
+      if (existsSync(p)) rmSync(p, { recursive: true, force: true });
+    }
   });
 
   test("creates all 3 files from templates when none exist", () => {

@@ -60,6 +60,12 @@ describe("skills catalog loading", () => {
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });
 
+  afterEach(() => {
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
+  });
+
   test("parses markdown list path entries from SKILLS.md", () => {
     writeSkill("alpha", "Alpha Skill", "First skill");
     writeSkill("beta", "Beta Skill", "Second skill");
@@ -185,6 +191,12 @@ describe("workspace skills", () => {
   });
 
   afterEach(() => {
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
+    const outsideDir = join(TEST_DIR, "outside");
+    if (existsSync(outsideDir))
+      rmSync(outsideDir, { recursive: true, force: true });
     if (existsSync(WORKSPACE_DIR)) {
       rmSync(WORKSPACE_DIR, { recursive: true, force: true });
     }
@@ -240,6 +252,12 @@ describe("workspace skills", () => {
 describe("tool manifest detection", () => {
   beforeEach(() => {
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
+  });
+
+  afterEach(() => {
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
   });
 
   test("attaches toolManifest metadata when valid TOOLS.json is present", () => {
@@ -409,6 +427,12 @@ describe("includes frontmatter parsing", () => {
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });
 
+  afterEach(() => {
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
+  });
+
   function writeSkillWithIncludes(skillId: string, includes: string): void {
     const skillDir = join(TEST_DIR, "skills", skillId);
     mkdirSync(skillDir, { recursive: true });
@@ -499,6 +523,12 @@ describe("includes frontmatter parsing", () => {
 describe("bundled browser skill", () => {
   beforeEach(() => {
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
+  });
+
+  afterEach(() => {
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
   });
 
   test("browser skill appears in full catalog (including bundled)", () => {
@@ -619,6 +649,12 @@ describe("ingress-dependent setup skills declare public-ingress intentionally", 
 describe("bundled computer-use skill", () => {
   beforeEach(() => {
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
+  });
+
+  afterEach(() => {
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
   });
 
   test("computer-use skill appears in full catalog (including bundled)", () => {
