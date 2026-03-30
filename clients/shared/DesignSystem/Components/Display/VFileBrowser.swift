@@ -54,7 +54,7 @@ public struct VFileBrowser<ContentPane: View>: View {
     public init(
         files: [VFileBrowserFile],
         selectedPath: Binding<String?>,
-        sidebarWidth: CGFloat = 220,
+        sidebarWidth: CGFloat = 280,
         @ViewBuilder contentPane: @escaping (VFileBrowserFile?) -> ContentPane
     ) {
         self.files = files
@@ -74,7 +74,7 @@ public struct VFileBrowser<ContentPane: View>: View {
     }
 
     public var body: some View {
-        HStack(spacing: VSpacing.md) {
+        HStack(spacing: VSpacing.sm) {
             sidebarPane
             rightPane
         }
@@ -83,13 +83,17 @@ public struct VFileBrowser<ContentPane: View>: View {
     // MARK: - Sidebar Pane
 
     private var sidebarPane: some View {
-        VStack(spacing: VSpacing.sm) {
+        VStack(spacing: VSpacing.xs) {
             VSearchBar(placeholder: "Search files", text: $searchText)
 
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(filteredFiles) { file in
-                        fileRow(file)
+                        VFileBrowserRow(
+                            file: file,
+                            isActive: selectedPath == file.path,
+                            onSelect: { selectedPath = file.path }
+                        )
                     }
                 }
             }
@@ -104,42 +108,6 @@ public struct VFileBrowser<ContentPane: View>: View {
         )
     }
 
-    // MARK: - File Row
-
-    private func fileRow(_ file: VFileBrowserFile) -> some View {
-        let isActive = selectedPath == file.path
-        return Button {
-            selectedPath = file.path
-        } label: {
-            HStack(spacing: VSpacing.sm) {
-                VIconView(file.icon, size: 14)
-                    .foregroundStyle(VColor.primaryBase)
-
-                Text(file.name)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-
-                Spacer()
-
-                Text(formatFileSize(file.size))
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentTertiary)
-            }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .background(
-                RoundedRectangle(cornerRadius: VRadius.md)
-                    .fill(isActive ? VColor.surfaceActive : Color.clear)
-            )
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(file.name)
-        .accessibilityHint(isActive ? "Selected" : "Tap to select")
-    }
-
     // MARK: - Right Pane
 
     private var rightPane: some View {
@@ -151,6 +119,55 @@ public struct VFileBrowser<ContentPane: View>: View {
                 RoundedRectangle(cornerRadius: VRadius.xl)
                     .strokeBorder(VColor.borderDisabled, lineWidth: 2)
             )
+    }
+}
+
+// MARK: - File Row (with hover state like VNavItem)
+
+private struct VFileBrowserRow: View {
+    let file: VFileBrowserFile
+    let isActive: Bool
+    let onSelect: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: VSpacing.xs) {
+                VIconView(file.icon, size: VSize.iconDefault)
+                    .foregroundStyle(isActive ? VColor.primaryActive : VColor.primaryBase)
+                    .frame(width: VSize.iconSlot, height: VSize.iconSlot)
+
+                Text(file.name)
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(isActive ? VColor.contentEmphasized : VColor.contentSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Spacer()
+
+                Text(formatFileSize(file.size))
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+            .padding(.leading, VSpacing.xs)
+            .padding(.trailing, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .frame(minHeight: VSize.rowMinHeight)
+            .background(
+                isActive ? VColor.surfaceActive :
+                isHovered ? VColor.surfaceBase :
+                Color.clear
+            )
+            .animation(VAnimation.fast, value: isHovered)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .pointerCursor()
+        .accessibilityLabel(file.name)
+        .accessibilityHint(isActive ? "Selected" : "Tap to select")
     }
 }
 #endif

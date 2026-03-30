@@ -92,8 +92,7 @@ struct FileContentView: View {
                     VTabs(
                         items: modes.map { (label: viewModeLabel($0), tag: $0) },
                         selection: $viewMode,
-                        style: .pill,
-                        size: .compact
+                        style: .pill
                     )
                     .fixedSize()
                 }
@@ -105,7 +104,7 @@ struct FileContentView: View {
                 }
             }
 
-            Divider().background(VColor.borderBase)
+            Rectangle().fill(VColor.surfaceBase).frame(height: 1)
 
             ZStack(alignment: .topTrailing) {
                 switch viewMode {
@@ -245,7 +244,7 @@ struct FileContentHeaderBar<Trailing: View>: View {
             Spacer()
             trailing
         }
-        .padding(.horizontal, VSpacing.sm)
-        .frame(height: 36)
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.sm)
     }
 }
