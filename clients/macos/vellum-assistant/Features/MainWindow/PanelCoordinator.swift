@@ -403,7 +403,6 @@ extension MainWindowView {
                 conversationStartersEnabled: conversationStartersEnabled,
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,
-                connectionManager: connectionManager,
                 ambientAgent: ambientAgent,
                 settingsStore: settingsStore,
                 conversationManager: conversationManager,
@@ -568,50 +567,17 @@ extension MainWindowView {
     }
 }
 
-// MARK: - File Picker Helper
-
-@MainActor
-func openFilePicker(viewModel: ChatViewModel) {
-    let panel = NSOpenPanel()
-    panel.allowsMultipleSelection = true
-    panel.canChooseDirectories = false
-    panel.allowedContentTypes = [
-        .png, .jpeg, .gif, .webP, .pdf, .plainText, .commaSeparatedText,
-        UTType("net.daringfireball.markdown") ?? .plainText,
-        .movie, .mpeg4Movie, .quickTimeMovie, .avi,
-        .mp3, .wav, .aiff, .audio,
-    ]
-    // Present as a window sheet instead of a blocking app-modal dialog
-    // so the user can still see the chat while picking files.
-    guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
-        // Fallback to modal if no window is available.
-        guard panel.runModal() == .OK else { return }
-        for url in panel.urls {
-            viewModel.addAttachment(url: url)
-        }
-        return
-    }
-    panel.beginSheetModal(for: window) { response in
-        guard response == .OK else { return }
-        for url in panel.urls {
-            viewModel.addAttachment(url: url)
-        }
-    }
-}
-
 // MARK: - Wrapper Views
-// These observe the ChatViewModel directly so that only the views that
-// actually need ChatViewModel state are invalidated on change, instead
-// of propagating every change up through ConversationManager.
 
-/// Observes the active ChatViewModel and renders the chat interface.
+/// Renders the chat interface with an optional message inspector overlay.
+/// Owns the inspector state and bootstrap-state reading; ChatView reads
+/// viewModel properties directly via @Bindable.
 struct ActiveChatViewWrapper: View {
-    var viewModel: ChatViewModel
-    @ObservedObject var windowState: MainWindowState
+    @Bindable var viewModel: ChatViewModel
+    var windowState: MainWindowState
     let conversationStartersEnabled: Bool
     var showInspectButton: Bool = false
     var isTTSEnabled: Bool = false
-    let connectionManager: GatewayConnectionManager
     var ambientAgent: AmbientAgent
     @ObservedObject var settingsStore: SettingsStore
     let conversationManager: ConversationManager
@@ -637,9 +603,55 @@ struct ActiveChatViewWrapper: View {
 
     var body: some View {
         ZStack {
-            chatContent
-                .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
-                .disabled(inspectorMessageId != nil)
+            ChatView(
+                viewModel: viewModel,
+                selectedModel: settingsStore.selectedModel,
+                configuredProviders: settingsStore.configuredProviders,
+                providerCatalog: settingsStore.providerCatalog,
+                mediaEmbedSettings: MediaEmbedResolverSettings(
+                    enabled: settingsStore.mediaEmbedsEnabled,
+                    enabledSince: settingsStore.mediaEmbedsEnabledSince,
+                    allowedDomains: settingsStore.mediaEmbedVideoAllowlistDomains
+                ),
+                onMicrophoneToggle: onMicrophoneToggle,
+                onForkFromMessage: { [conversationManager] daemonMessageId in
+                    Task { @MainActor in
+                        await conversationManager.forkConversation(throughDaemonMessageId: daemonMessageId)
+                    }
+                },
+                onInspectMessage: { presentInspector(for: $0) },
+                onSubagentTap: { windowState.selectedSubagentId = $0 },
+                onAddFunds: {
+                    settingsStore.pendingSettingsTab = .billing
+                    windowState.selection = .panel(.settings)
+                },
+                onOpenModelsAndServices: {
+                    settingsStore.pendingSettingsTab = .modelsAndServices
+                    windowState.selection = .panel(.settings)
+                },
+                onBootstrapSendLogs: {
+                    AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue)
+                },
+                anchorMessageId: $anchorMessageId,
+                highlightedMessageId: $highlightedMessageId,
+                conversationId: conversationId,
+                isInteractionEnabled: inspectorMessageId == nil && !isReadonly,
+                isReadonly: isReadonly,
+                isBootstrapping: isBootstrapping,
+                isBootstrapTimedOut: isBootstrapTimedOut,
+                showInspectButton: showInspectButton,
+                isTTSEnabled: isTTSEnabled,
+                isTemporaryChat: isTemporaryChat,
+                conversationStartersEnabled: conversationStartersEnabled,
+                voiceModeManager: voiceModeManager,
+                voiceService: voiceService,
+                onEndVoiceMode: onEndVoiceMode,
+                onDictateToggle: onDictateToggle,
+                onVoiceModeToggle: onVoiceModeToggle,
+                watchSession: ambientAgent.activeWatchSession
+            )
+            .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
+            .disabled(inspectorMessageId != nil)
 
             if let messageId = inspectorMessageId {
                 MessageInspectorView(
@@ -653,150 +665,6 @@ struct ActiveChatViewWrapper: View {
         .onChange(of: conversationId) { _, _ in
             inspectorMessageId = nil
         }
-    }
-
-    private var chatContent: some View {
-        ChatView(
-            messages: viewModel.messages,
-            inputText: Binding(
-                get: { viewModel.inputText },
-                set: { viewModel.inputText = $0 }
-            ),
-            isThinking: viewModel.isThinking,
-            isCompacting: viewModel.isCompacting,
-            isSending: viewModel.isSending,
-            isAssistantBusy: viewModel.isAssistantBusy,
-            suggestion: viewModel.suggestion,
-            pendingAttachments: viewModel.pendingAttachments,
-            isLoadingAttachment: viewModel.isLoadingAttachment,
-            isRecording: viewModel.isRecording,
-            onSend: {
-                if viewModel.isRecording { onMicrophoneToggle() }
-                viewModel.sendMessage()
-            },
-            onStop: viewModel.stopGenerating,
-            onAcceptSuggestion: viewModel.acceptSuggestion,
-            onAttach: { openFilePicker(viewModel: viewModel) },
-            onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
-            onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
-            onDropImageData: { data, name in
-                let filename: String
-                if let name {
-                    let basename = (name as NSString).lastPathComponent
-                    let base = (basename as NSString).deletingPathExtension
-                    filename = base.isEmpty ? "Dropped Image.png" : "\(base).png"
-                } else {
-                    filename = "Dropped Image.png"
-                }
-                viewModel.addAttachment(imageData: data, filename: filename)
-            },
-            onPaste: { viewModel.addAttachmentFromPasteboard() },
-            onMicrophoneToggle: onMicrophoneToggle,
-            onDropStarted: { viewModel.attachmentManager.beginExternalLoad() },
-            onDropEnded: { viewModel.attachmentManager.endExternalLoad() },
-            selectedModel: settingsStore.selectedModel,
-            configuredProviders: settingsStore.configuredProviders,
-            providerCatalog: settingsStore.providerCatalog,
-            assistantActivityPhase: viewModel.assistantActivityPhase,
-            assistantActivityAnchor: viewModel.assistantActivityAnchor,
-            assistantActivityReason: viewModel.assistantActivityReason,
-            assistantStatusText: viewModel.assistantStatusText,
-            onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
-            onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
-            onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision) },
-            onTemporaryAllow: { requestId, decision in viewModel.respondToConfirmation(requestId: requestId, decision: decision) },
-            onGuardianAction: { requestId, action in viewModel.submitGuardianDecision(requestId: requestId, action: action) },
-            onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
-            watchSession: ambientAgent.activeWatchSession,
-            onStopWatch: { viewModel.stopWatchSession() },
-            onForkFromMessage: { [conversationManager] daemonMessageId in
-                Task { @MainActor in
-                    await conversationManager.forkConversation(throughDaemonMessageId: daemonMessageId)
-                }
-            },
-            showInspectButton: showInspectButton,
-            isTTSEnabled: isTTSEnabled,
-            onInspectMessage: { daemonMessageId in
-                presentInspector(for: daemonMessageId)
-            },
-            mediaEmbedSettings: MediaEmbedResolverSettings(
-                enabled: settingsStore.mediaEmbedsEnabled,
-                enabledSince: settingsStore.mediaEmbedsEnabledSince,
-                allowedDomains: settingsStore.mediaEmbedVideoAllowlistDomains
-            ),
-            isTemporaryChat: isTemporaryChat,
-            activeSubagents: viewModel.activeSubagents,
-            onAbortSubagent: { subagentId in
-                Task { await SubagentClient().abort(subagentId: subagentId, conversationId: viewModel.conversationId) }
-            },
-            onSubagentTap: { subagentId in
-                windowState.selectedSubagentId = subagentId
-            },
-            onRehydrateMessage: { messageId in
-                viewModel.rehydrateMessage(id: messageId)
-            },
-            onSurfaceRefetch: { surfaceId, conversationId in
-                viewModel.refetchStrippedSurface(surfaceId: surfaceId, conversationId: conversationId)
-            },
-            onRetryFailedMessage: { messageId in
-                viewModel.retryFailedMessage(id: messageId)
-            },
-            onRetryConversationError: { messageId in
-                viewModel.retryAfterConversationError(messageId: messageId)
-            },
-            subagentDetailStore: viewModel.subagentDetailStore,
-            isHistoryLoaded: viewModel.isHistoryLoaded,
-            dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
-            onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },
-
-            voiceModeManager: voiceModeManager,
-            voiceService: voiceService,
-            onEndVoiceMode: onEndVoiceMode,
-            recordingAmplitude: viewModel.recordingAmplitude,
-            onDictateToggle: onDictateToggle,
-            onVoiceModeToggle: onVoiceModeToggle,
-            conversationId: conversationId,
-            daemonGreeting: viewModel.emptyStateGreeting,
-            onRequestGreeting: { [weak viewModel] in viewModel?.generateGreeting() },
-            conversationStarters: conversationStartersEnabled ? viewModel.conversationStarters : [],
-            conversationStartersLoading: conversationStartersEnabled && viewModel.conversationStartersLoading,
-            onSelectStarter: { [weak viewModel] starter in
-                viewModel?.inputText = starter.prompt
-            },
-            onFetchConversationStarters: { [weak viewModel] in viewModel?.fetchConversationStarters() },
-            activePendingRequestId: viewModel.activePendingRequestId,
-            isInteractionEnabled: inspectorMessageId == nil && !isReadonly,
-            isReadonly: isReadonly,
-            contextWindowFillRatio: viewModel.contextWindowFillRatio,
-            contextWindowTokens: viewModel.contextWindowTokens,
-            contextWindowMaxTokens: viewModel.contextWindowMaxTokens,
-            anchorMessageId: $anchorMessageId,
-            highlightedMessageId: $highlightedMessageId,
-            btwResponse: viewModel.btwResponse,
-            btwLoading: viewModel.btwLoading,
-            onDismissBtw: { viewModel.dismissBtw() },
-            creditsExhaustedError: viewModel.errorManager.conversationError?.isCreditsExhausted == true ? viewModel.errorManager.conversationError : nil,
-            onAddFunds: {
-                settingsStore.pendingSettingsTab = .billing
-                windowState.selection = .panel(.settings)
-            },
-            onDismissCreditsExhausted: { viewModel.dismissConversationError() },
-            providerNotConfiguredError: viewModel.errorManager.conversationError?.isProviderNotConfigured == true ? viewModel.errorManager.conversationError : nil,
-            onOpenModelsAndServices: {
-                settingsStore.pendingSettingsTab = .modelsAndServices
-                windowState.selection = .panel(.settings)
-            },
-            onDismissProviderNotConfigured: { viewModel.dismissConversationError() },
-            displayedMessageCount: viewModel.displayedMessageCount,
-            hasMoreMessages: viewModel.hasMoreMessages,
-            isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
-            loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
-            isBootstrapping: isBootstrapping,
-            isBootstrapTimedOut: isBootstrapTimedOut,
-            onBootstrapSendLogs: {
-                AppDelegate.shared?.showLogReportWindow(reason: .connectionIssue)
-            }
-        )
     }
 
     private func presentInspector(for messageId: String?) {

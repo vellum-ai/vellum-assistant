@@ -18,134 +18,61 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ChatV
 //   3. ≥30% reduction in mean graph update duration during streaming
 
 struct ChatView: View {
-    let messages: [ChatMessage]
-    @Binding var inputText: String
-    let isThinking: Bool
-    let isCompacting: Bool
-    let isSending: Bool
-    let isAssistantBusy: Bool
-    let suggestion: String?
-    let pendingAttachments: [ChatAttachment]
-    var isLoadingAttachment: Bool = false
-    let isRecording: Bool
-    let onSend: () -> Void
-    let onStop: () -> Void
-    let onAcceptSuggestion: () -> Void
-    let onAttach: () -> Void
-    let onRemoveAttachment: (String) -> Void
-    let onDropFiles: ([URL]) -> Void
-    let onDropImageData: (Data, String?) -> Void
-    let onPaste: () -> Void
-    let onMicrophoneToggle: () -> Void
-    var onDropStarted: (() -> Void)?
-    var onDropEnded: (() -> Void)?
+    // MARK: - ViewModel
+
+    /// The chat view model. With @Observable + @Bindable, SwiftUI tracks only
+    /// the specific properties read in this view's body — passing the model
+    /// directly does NOT subscribe parent views to any changes.
+    /// See: https://developer.apple.com/documentation/swiftui/migrating-from-the-observable-object-protocol-to-the-observable-macro
+    @Bindable var viewModel: ChatViewModel
+
+    // MARK: - Settings (from SettingsStore, not viewModel)
+
     var selectedModel: String = ""
     var configuredProviders: Set<String> = []
     var providerCatalog: [ProviderCatalogEntry] = []
-    let assistantActivityPhase: String
-    let assistantActivityAnchor: String
-    let assistantActivityReason: String?
-    let assistantStatusText: String?
-    let onConfirmationAllow: (String) -> Void
-    let onConfirmationDeny: (String) -> Void
-    let onAlwaysAllow: (String, String, String, String) -> Void
-    /// Called when a temporary approval option is selected: (requestId, decision).
-    var onTemporaryAllow: ((String, String) -> Void)?
-    var onGuardianAction: ((String, String) -> Void)?
-    let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
-    let watchSession: WatchSession?
-    let onStopWatch: () -> Void
-    var onForkFromMessage: ((String) -> Void)? = nil
-    var showInspectButton: Bool = false
-    var isTTSEnabled: Bool = false
-    var onInspectMessage: ((String?) -> Void)?
     var mediaEmbedSettings: MediaEmbedResolverSettings?
-    var isTemporaryChat: Bool = false
-    var activeSubagents: [SubagentInfo] = []
-    var onAbortSubagent: ((String) -> Void)?
+
+    // MARK: - Parent Callbacks (capture parent state)
+
+    let onMicrophoneToggle: () -> Void
+    var onForkFromMessage: ((String) -> Void)? = nil
+    var onInspectMessage: ((String?) -> Void)?
     var onSubagentTap: ((String) -> Void)?
-    /// Called to rehydrate truncated message content on demand.
-    var onRehydrateMessage: ((UUID) -> Void)?
-    /// Called when a stripped surface scrolls into view and needs its data re-fetched.
-    var onSurfaceRefetch: ((String, String) -> Void)?
-    /// Called when the user taps "Retry" on a per-message send failure.
-    var onRetryFailedMessage: ((UUID) -> Void)?
-    /// Called when the user taps "Retry" on an inline conversation error.
-    /// Receives the error message's ID so the handler can validate the retry target.
-    var onRetryConversationError: ((UUID) -> Void)?
-    var subagentDetailStore: SubagentDetailStore
-    var isHistoryLoaded: Bool = true
-    var dismissedDocumentSurfaceIds: Set<String> = []
-    var onDismissDocumentWidget: ((String) -> Void)?
-    var voiceModeManager: VoiceModeManager? = nil
-    var voiceService: OpenAIVoiceService? = nil
-    var onEndVoiceMode: (() -> Void)? = nil
-    var recordingAmplitude: Float = 0
-    var onDictateToggle: (() -> Void)? = nil
-    var onVoiceModeToggle: (() -> Void)? = nil
-    var conversationId: UUID?
-    var daemonGreeting: String? = nil
-    var onRequestGreeting: (() -> Void)? = nil
-    var conversationStarters: [ConversationStarter] = []
-    var conversationStartersLoading: Bool = false
-    var onSelectStarter: ((ConversationStarter) -> Void)? = nil
-    var onFetchConversationStarters: (() -> Void)? = nil
-    var activePendingRequestId: String?
-    var isInteractionEnabled: Bool = true
-    var isReadonly: Bool = false
-    var contextWindowFillRatio: Double? = nil
-    var contextWindowTokens: Int? = nil
-    var contextWindowMaxTokens: Int? = nil
+    var onAddFunds: (() -> Void)? = nil
+    var onOpenModelsAndServices: (() -> Void)? = nil
+    var onBootstrapSendLogs: (() -> Void)?
+
+    // MARK: - Parent Bindings
+
     /// When set, scroll to this message ID and clear the binding.
     @Binding var anchorMessageId: UUID?
     /// Message ID to visually highlight after an anchor scroll completes.
     @Binding var highlightedMessageId: UUID?
 
-    // MARK: - BTW Side-Chain
+    // MARK: - Parent State / Config
 
-    /// The accumulated response text from a /btw side-chain query, or nil when inactive.
-    var btwResponse: String? = nil
-    /// True while a /btw request is in flight.
-    var btwLoading: Bool = false
-    /// Called to dismiss the btw overlay.
-    var onDismissBtw: (() -> Void)?
-
-    // MARK: - Credits Exhausted (inline banner)
-
-    /// Non-nil when the conversation ended due to credits exhaustion.
-    var creditsExhaustedError: ConversationError? = nil
-    /// Opens the billing / add-funds flow.
-    var onAddFunds: (() -> Void)? = nil
-    /// Dismisses the credits-exhausted banner.
-    var onDismissCreditsExhausted: (() -> Void)? = nil
-
-    // MARK: - Provider Not Configured (inline banner)
-
-    /// Non-nil when the conversation ended because no provider is configured.
-    var providerNotConfiguredError: ConversationError? = nil
-    /// Opens the Models & Services settings tab.
-    var onOpenModelsAndServices: (() -> Void)? = nil
-    /// Dismisses the provider-not-configured banner.
-    var onDismissProviderNotConfigured: (() -> Void)? = nil
-
-    // MARK: - Pagination
-
-    var displayedMessageCount: Int = .max
-    var hasMoreMessages: Bool = false
-    var isLoadingMoreMessages: Bool = false
-    var loadPreviousMessagePage: (() async -> Bool)?
-
-    /// When true, suppresses `ChatEmptyStateView` during first-launch bootstrap
-    /// and shows a loading panel instead.
+    var conversationId: UUID?
+    var isInteractionEnabled: Bool = true
+    var isReadonly: Bool = false
     var isBootstrapping: Bool = false
-
-    /// When true during bootstrap, the daemon failed to connect within the
-    /// timeout window. Shows a failure screen instead of the loading skeleton.
     var isBootstrapTimedOut: Bool = false
+    var showInspectButton: Bool = false
+    var isTTSEnabled: Bool = false
+    var isTemporaryChat: Bool = false
+    var conversationStartersEnabled: Bool = false
 
-    /// Called when the user taps "Report to Vellum" on the bootstrap
-    /// timeout view.
-    var onBootstrapSendLogs: (() -> Void)?
+    // MARK: - Voice Mode (from parent)
+
+    var voiceModeManager: VoiceModeManager? = nil
+    var voiceService: OpenAIVoiceService? = nil
+    var onEndVoiceMode: (() -> Void)? = nil
+    var onDictateToggle: (() -> Void)? = nil
+    var onVoiceModeToggle: (() -> Void)? = nil
+
+    // MARK: - External State
+
+    var watchSession: WatchSession?
 
     @State private var isDropTargeted = false
     @State private var isDraggingInternalImage = false
@@ -161,18 +88,18 @@ struct ChatView: View {
     @State private var skeletonDebounceTask: Task<Void, Never>? = nil
 
     private var isEmptyState: Bool {
-        messages.isEmpty && isHistoryLoaded
+        viewModel.messages.isEmpty && viewModel.isHistoryLoaded
     }
 
     private var shouldShowSkeleton: Bool {
-        messages.isEmpty && !isHistoryLoaded
+        viewModel.messages.isEmpty && !viewModel.isHistoryLoaded
     }
 
     /// Message IDs whose text contains the search query, ordered chronologically.
     private var searchMatches: [UUID] {
         guard isSearchActive, !searchText.isEmpty else { return [] }
         let query = searchText.lowercased()
-        return messages.filter { $0.text.lowercased().contains(query) }.map(\.id)
+        return viewModel.messages.filter { $0.text.lowercased().contains(query) }.map(\.id)
     }
 
     var body: some View {
@@ -194,7 +121,7 @@ struct ChatView: View {
                 .overlay(alignment: .bottom) {
                     btwOverlay
                 }
-                .animation(VAnimation.fast, value: btwResponse != nil)
+                .animation(VAnimation.fast, value: viewModel.btwResponse != nil)
 
             dropTargetOverlay
         }
@@ -208,8 +135,8 @@ struct ChatView: View {
                 dismissSearch()
                 return .handled
             }
-            if btwResponse != nil {
-                onDismissBtw?()
+            if viewModel.btwResponse != nil {
+                viewModel.dismissBtw()
                 return .handled
             }
             return .ignored
@@ -292,51 +219,51 @@ struct ChatView: View {
             } else if isEmptyState {
                 if isTemporaryChat {
                     ChatTemporaryChatEmptyStateView(
-                        inputText: $inputText,
-                        isSending: isSending,
-                        isAssistantBusy: isAssistantBusy,
-                        isRecording: isRecording,
-                        suggestion: suggestion,
-                        pendingAttachments: pendingAttachments,
-                        isLoadingAttachment: isLoadingAttachment,
-                        onSend: onSend,
-                        onStop: onStop,
-                        onAcceptSuggestion: onAcceptSuggestion,
-                        onAttach: onAttach,
-                        onRemoveAttachment: onRemoveAttachment,
-                        onPaste: onPaste,
+                        inputText: $viewModel.inputText,
+                        isSending: viewModel.isSending,
+                        isAssistantBusy: viewModel.isAssistantBusy,
+                        isRecording: viewModel.isRecording,
+                        suggestion: viewModel.suggestion,
+                        pendingAttachments: viewModel.pendingAttachments,
+                        isLoadingAttachment: viewModel.isLoadingAttachment,
+                        onSend: { sendMessage() },
+                        onStop: { viewModel.stopGenerating() },
+                        onAcceptSuggestion: { viewModel.acceptSuggestion() },
+                        onAttach: { presentFilePicker() },
+                        onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+                        onPaste: { viewModel.addAttachmentFromPasteboard() },
                         onMicrophoneToggle: onMicrophoneToggle,
-                        recordingAmplitude: recordingAmplitude,
+                        recordingAmplitude: viewModel.recordingAmplitude,
                         onDictateToggle: onDictateToggle,
                         onVoiceModeToggle: onVoiceModeToggle,
                         conversationId: conversationId
                     )
                 } else {
                     ChatEmptyStateView(
-                        inputText: $inputText,
-                        isSending: isSending,
-                        isAssistantBusy: isAssistantBusy,
-                        isRecording: isRecording,
-                        suggestion: suggestion,
-                        pendingAttachments: pendingAttachments,
-                        isLoadingAttachment: isLoadingAttachment,
-                        onSend: onSend,
-                        onStop: onStop,
-                        onAcceptSuggestion: onAcceptSuggestion,
-                        onAttach: onAttach,
-                        onRemoveAttachment: onRemoveAttachment,
-                        onPaste: onPaste,
+                        inputText: $viewModel.inputText,
+                        isSending: viewModel.isSending,
+                        isAssistantBusy: viewModel.isAssistantBusy,
+                        isRecording: viewModel.isRecording,
+                        suggestion: viewModel.suggestion,
+                        pendingAttachments: viewModel.pendingAttachments,
+                        isLoadingAttachment: viewModel.isLoadingAttachment,
+                        onSend: { sendMessage() },
+                        onStop: { viewModel.stopGenerating() },
+                        onAcceptSuggestion: { viewModel.acceptSuggestion() },
+                        onAttach: { presentFilePicker() },
+                        onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+                        onPaste: { viewModel.addAttachmentFromPasteboard() },
                         onMicrophoneToggle: onMicrophoneToggle,
-                        recordingAmplitude: recordingAmplitude,
+                        recordingAmplitude: viewModel.recordingAmplitude,
                         onDictateToggle: onDictateToggle,
                         onVoiceModeToggle: onVoiceModeToggle,
                         conversationId: conversationId,
-                        daemonGreeting: daemonGreeting,
-                        onRequestGreeting: onRequestGreeting,
-                        conversationStarters: conversationStarters,
-                        conversationStartersLoading: conversationStartersLoading,
-                        onSelectStarter: onSelectStarter,
-                        onFetchConversationStarters: onFetchConversationStarters
+                        daemonGreeting: viewModel.emptyStateGreeting,
+                        onRequestGreeting: { viewModel.generateGreeting() },
+                        conversationStarters: conversationStartersEnabled ? viewModel.conversationStarters : [],
+                        conversationStartersLoading: conversationStartersEnabled && viewModel.conversationStartersLoading,
+                        onSelectStarter: { starter in viewModel.inputText = starter.prompt },
+                        onFetchConversationStarters: { viewModel.fetchConversationStarters() }
                     )
                 }
             } else {
@@ -349,43 +276,47 @@ struct ChatView: View {
     private var activeConversationContent: some View {
         VStack(spacing: 0) {
             MessageListView(
-                messages: messages,
-                isSending: isSending,
-                isThinking: isThinking,
-                isCompacting: isCompacting,
-                assistantActivityPhase: assistantActivityPhase,
-                assistantActivityAnchor: assistantActivityAnchor,
-                assistantActivityReason: assistantActivityReason,
-                assistantStatusText: assistantStatusText,
+                messages: viewModel.messages,
+                isSending: viewModel.isSending,
+                isThinking: viewModel.isThinking,
+                isCompacting: viewModel.isCompacting,
+                assistantActivityPhase: viewModel.assistantActivityPhase,
+                assistantActivityAnchor: viewModel.assistantActivityAnchor,
+                assistantActivityReason: viewModel.assistantActivityReason,
+                assistantStatusText: viewModel.assistantStatusText,
                 selectedModel: selectedModel,
                 configuredProviders: configuredProviders,
                 providerCatalog: providerCatalog,
-                activeSubagents: activeSubagents,
-                dismissedDocumentSurfaceIds: dismissedDocumentSurfaceIds,
-                onConfirmationAllow: onConfirmationAllow,
-                onConfirmationDeny: onConfirmationDeny,
-                onAlwaysAllow: onAlwaysAllow,
-                onTemporaryAllow: onTemporaryAllow,
-                onSurfaceAction: onSurfaceAction,
-                onGuardianAction: onGuardianAction,
-                onDismissDocumentWidget: onDismissDocumentWidget,
+                activeSubagents: viewModel.activeSubagents,
+                dismissedDocumentSurfaceIds: viewModel.dismissedDocumentSurfaceIds,
+                onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
+                onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
+                onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in
+                    viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision)
+                },
+                onTemporaryAllow: { requestId, decision in viewModel.respondToConfirmation(requestId: requestId, decision: decision) },
+                onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
+                onGuardianAction: { requestId, action in viewModel.submitGuardianDecision(requestId: requestId, action: action) },
+                onDismissDocumentWidget: { viewModel.dismissDocumentSurface(id: $0) },
                 onForkFromMessage: onForkFromMessage,
                 showInspectButton: showInspectButton,
                 isTTSEnabled: isTTSEnabled,
                 onInspectMessage: onInspectMessage,
                 mediaEmbedSettings: mediaEmbedSettings,
-                onAbortSubagent: onAbortSubagent,
+                onAbortSubagent: { subagentId in
+                    Task { await SubagentClient().abort(subagentId: subagentId, conversationId: viewModel.conversationId) }
+                },
                 onSubagentTap: onSubagentTap,
-                onRehydrateMessage: onRehydrateMessage,
-                onSurfaceRefetch: onSurfaceRefetch,
-                onRetryFailedMessage: onRetryFailedMessage,
-                onRetryConversationError: onRetryConversationError,
-                subagentDetailStore: subagentDetailStore,
-                activePendingRequestId: activePendingRequestId,
-                displayedMessageCount: displayedMessageCount,
-                hasMoreMessages: hasMoreMessages,
-                isLoadingMoreMessages: isLoadingMoreMessages,
-                loadPreviousMessagePage: loadPreviousMessagePage,
+                onRehydrateMessage: { messageId in viewModel.rehydrateMessage(id: messageId) },
+                onSurfaceRefetch: { surfaceId, conversationId in viewModel.refetchStrippedSurface(surfaceId: surfaceId, conversationId: conversationId) },
+                onRetryFailedMessage: { messageId in viewModel.retryFailedMessage(id: messageId) },
+                onRetryConversationError: { messageId in viewModel.retryAfterConversationError(messageId: messageId) },
+                subagentDetailStore: viewModel.subagentDetailStore,
+                activePendingRequestId: viewModel.activePendingRequestId,
+                displayedMessageCount: viewModel.displayedMessageCount,
+                hasMoreMessages: viewModel.hasMoreMessages,
+                isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
+                loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() },
                 conversationId: conversationId,
                 anchorMessageId: $anchorMessageId,
                 highlightedMessageId: $highlightedMessageId,
@@ -393,7 +324,7 @@ struct ChatView: View {
                 containerWidth: containerWidth
             )
 
-            if let exhaustedError = creditsExhaustedError, exhaustedError.isCreditsExhausted {
+            if let error = viewModel.errorManager.conversationError, error.isCreditsExhausted {
                 CreditsExhaustedBanner(
                     onAddFunds: { onAddFunds?() }
                 )
@@ -402,10 +333,10 @@ struct ChatView: View {
                 .padding(.bottom, -VSpacing.sm)
             }
 
-            if let _ = providerNotConfiguredError {
+            if let error = viewModel.errorManager.conversationError, error.isProviderNotConfigured {
                 MissingApiKeyBanner(
                     onOpenSettings: { onOpenModelsAndServices?() },
-                    onDismiss: { onDismissProviderNotConfigured?() }
+                    onDismiss: { viewModel.dismissConversationError() }
                 )
                 .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
                 .frame(maxWidth: .infinity)
@@ -423,39 +354,39 @@ struct ChatView: View {
                 .padding(.vertical, VSpacing.md)
             } else {
                 ComposerSection(
-                    inputText: $inputText,
-                    isSending: isSending,
-                    isAssistantBusy: isAssistantBusy,
-                    hasPendingConfirmation: activePendingRequestId != nil,
+                    inputText: $viewModel.inputText,
+                    isSending: viewModel.isSending,
+                    isAssistantBusy: viewModel.isAssistantBusy,
+                    hasPendingConfirmation: viewModel.activePendingRequestId != nil,
                     onAllowPendingConfirmation: {
-                        if let requestId = activePendingRequestId {
-                            onConfirmationAllow(requestId)
+                        if let requestId = viewModel.activePendingRequestId {
+                            viewModel.respondToConfirmation(requestId: requestId, decision: "allow")
                         }
                     },
-                    isRecording: isRecording,
-                    suggestion: suggestion,
-                    pendingAttachments: pendingAttachments,
-                    isLoadingAttachment: isLoadingAttachment,
-                    onSend: onSend,
-                    onStop: onStop,
-                    onAcceptSuggestion: onAcceptSuggestion,
-                    onAttach: onAttach,
-                    onRemoveAttachment: onRemoveAttachment,
-                    onPaste: onPaste,
+                    isRecording: viewModel.isRecording,
+                    suggestion: viewModel.suggestion,
+                    pendingAttachments: viewModel.pendingAttachments,
+                    isLoadingAttachment: viewModel.isLoadingAttachment,
+                    onSend: { sendMessage() },
+                    onStop: { viewModel.stopGenerating() },
+                    onAcceptSuggestion: { viewModel.acceptSuggestion() },
+                    onAttach: { presentFilePicker() },
+                    onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
+                    onPaste: { viewModel.addAttachmentFromPasteboard() },
                     onMicrophoneToggle: onMicrophoneToggle,
                     watchSession: watchSession,
-                    onStopWatch: onStopWatch,
+                    onStopWatch: { viewModel.stopWatchSession() },
                     voiceModeManager: voiceModeManager,
                     voiceService: voiceService,
                     onEndVoiceMode: onEndVoiceMode,
-                    recordingAmplitude: recordingAmplitude,
+                    recordingAmplitude: viewModel.recordingAmplitude,
                     onDictateToggle: onDictateToggle,
                     onVoiceModeToggle: onVoiceModeToggle,
                     conversationId: conversationId,
                     isInteractionEnabled: isInteractionEnabled,
-                    contextWindowFillRatio: contextWindowFillRatio,
-                    contextWindowTokens: contextWindowTokens,
-                    contextWindowMaxTokens: contextWindowMaxTokens
+                    contextWindowFillRatio: viewModel.contextWindowFillRatio,
+                    contextWindowTokens: viewModel.contextWindowTokens,
+                    contextWindowMaxTokens: viewModel.contextWindowMaxTokens
                 )
             }
         }
@@ -494,14 +425,14 @@ struct ChatView: View {
 
     @ViewBuilder
     private var btwOverlay: some View {
-        if let btwText = btwResponse {
+        if let btwText = viewModel.btwResponse {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
                 HStack {
                     Text("/btw")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.contentTertiary)
                     Spacer()
-                    Button(action: { onDismissBtw?() }) {
+                    Button(action: { viewModel.dismissBtw() }) {
                         VIconView(.x, size: 12)
                             .foregroundStyle(VColor.contentTertiary)
                     }
@@ -509,11 +440,11 @@ struct ChatView: View {
                     .accessibilityLabel("Dismiss btw response")
                 }
 
-                if btwLoading && btwText.isEmpty {
+                if viewModel.btwLoading && btwText.isEmpty {
                     Text("Thinking...")
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentTertiary)
-                } else if !btwLoading && btwText.isEmpty {
+                } else if !viewModel.btwLoading && btwText.isEmpty {
                     Text("No response received.")
                         .font(VFont.bodyMediumLighter)
                         .foregroundStyle(VColor.contentTertiary)
@@ -524,7 +455,7 @@ struct ChatView: View {
                         .textSelection(.enabled)
                 }
 
-                if !btwLoading {
+                if !viewModel.btwLoading {
                     Text("Press Escape to dismiss")
                         .font(VFont.labelSmall)
                         .foregroundStyle(VColor.contentTertiary)
@@ -578,10 +509,20 @@ struct ChatView: View {
     /// so ComposerView's inner `.onDrop()` shares the same handler.
     private var currentDropActions: DropActions {
         DropActions(
-            onDropFiles: onDropFiles,
-            onDropImageData: onDropImageData,
-            onDropStarted: onDropStarted,
-            onDropEnded: onDropEnded,
+            onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
+            onDropImageData: { data, name in
+                let filename: String
+                if let name {
+                    let basename = (name as NSString).lastPathComponent
+                    let base = (basename as NSString).deletingPathExtension
+                    filename = base.isEmpty ? "Dropped Image.png" : "\(base).png"
+                } else {
+                    filename = "Dropped Image.png"
+                }
+                viewModel.addAttachment(imageData: data, filename: filename)
+            },
+            onDropStarted: { viewModel.attachmentManager.beginExternalLoad() },
+            onDropEnded: { viewModel.attachmentManager.endExternalLoad() },
             isDropTargeted: $isDropTargeted,
             isDraggingInternalImage: $isDraggingInternalImage,
             onInternalDragRejected: { self.removeDragEndMonitors() }
@@ -593,6 +534,40 @@ struct ChatView: View {
     /// drop target for the message list area) continues to work.
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         ComposerDropHandler.handleDrop(providers: providers, actions: currentDropActions)
+    }
+
+    // MARK: - Actions
+
+    /// Stops recording (if active) and sends the current message.
+    private func sendMessage() {
+        if viewModel.isRecording { onMicrophoneToggle() }
+        viewModel.sendMessage()
+    }
+
+    /// Presents an NSOpenPanel as a window-attached sheet for attaching files.
+    private func presentFilePicker() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [
+            .png, .jpeg, .gif, .webP, .pdf, .plainText, .commaSeparatedText,
+            UTType("net.daringfireball.markdown") ?? .plainText,
+            .movie, .mpeg4Movie, .quickTimeMovie, .avi,
+            .mp3, .wav, .aiff, .audio,
+        ]
+        guard let window = NSApp.keyWindow ?? NSApp.mainWindow else {
+            guard panel.runModal() == .OK else { return }
+            for url in panel.urls {
+                viewModel.addAttachment(url: url)
+            }
+            return
+        }
+        panel.beginSheetModal(for: window) { response in
+            guard response == .OK else { return }
+            for url in panel.urls {
+                viewModel.addAttachment(url: url)
+            }
+        }
     }
 
     // MARK: - Search Helpers
