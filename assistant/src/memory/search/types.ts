@@ -72,6 +72,8 @@ export interface MemoryRecallResult {
   hybridSearchMs?: number;
   /** Whether sparse vectors were used in the hybrid search. */
   sparseVectorUsed?: boolean;
+  /** Whether MMR diversity ranking was applied to candidates. */
+  mmrApplied?: boolean;
 }
 
 /**
