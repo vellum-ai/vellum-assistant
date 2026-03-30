@@ -38,14 +38,13 @@ export function buildJournalContext(
   if (maxEntries <= 0) return null;
 
   // When no user is identified, skip journal entirely
-  let journalDir: string;
-  if (userSlug != null) {
-    // Sanitize slug to prevent path traversal
-    const safeSlug = basename(userSlug);
-    journalDir = join(getWorkspaceDir(), "journal", safeSlug);
-  } else {
-    return null;
-  }
+  if (userSlug == null) return null;
+
+  // Sanitize slug once and reuse everywhere — prevents path traversal and
+  // normalizes empty strings to "unknown" so directory reads and carry-forward
+  // dedup keys always agree.
+  const safeSlug = basename(userSlug) || "unknown";
+  const journalDir = join(getWorkspaceDir(), "journal", safeSlug);
 
   let files: string[];
   try {
@@ -84,9 +83,8 @@ export function buildJournalContext(
 
   // Enqueue carry-forward jobs for entries rotating out of the context window.
   // Wrapped in try-catch so DB errors never break journal context rendering.
-  if (rotatingOut.length > 0 && userSlug != null) {
+  if (rotatingOut.length > 0) {
     try {
-      const safeSlug = basename(userSlug) || "unknown";
       for (const entry of rotatingOut) {
         const checkpointKey = `journal_carry_forward:${safeSlug}:${entry.filename}`;
         if (getMemoryCheckpoint(checkpointKey) != null) continue;
@@ -121,7 +119,7 @@ export function buildJournalContext(
   if (entries.length === 0) return null;
 
   const sections: string[] = [
-    `# Journal\n\nYour journal entries, most recent first. These are YOUR words from past conversations.\n**Write new entries to:** \`journal/${basename(userSlug!)}/\``,
+    `# Journal\n\nYour journal entries, most recent first. These are YOUR words from past conversations.\n**Write new entries to:** \`journal/${safeSlug}/\``,
   ];
 
   for (let i = 0; i < entries.length; i++) {
