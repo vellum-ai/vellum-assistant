@@ -63,7 +63,8 @@ export async function expandQueryWithHyDE(
     const entries = text
       .split("---")
       .map((entry) => entry.trim())
-      .filter((entry) => entry.length > 0);
+      .filter((entry) => entry.length > 0)
+      .slice(0, 3);
 
     if (entries.length === 0) {
       log.warn("No entries parsed from HyDE query expansion response");
@@ -72,6 +73,7 @@ export async function expandQueryWithHyDE(
 
     return entries;
   } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
     log.warn(
       { err: err instanceof Error ? err.message : String(err) },
       "HyDE query expansion failed",
