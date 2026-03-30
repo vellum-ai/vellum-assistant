@@ -7,7 +7,6 @@ struct UsageDashboardPanel: View {
 
     @State private var refreshTask: Task<Void, Never>?
     @State private var breakdownTask: Task<Void, Never>?
-    @State private var showTimeRangePopover = false
 
     private var allFailed: Bool {
         store.totalsState.isFailed && store.dailyState.isFailed && store.breakdownState.isFailed
@@ -72,61 +71,20 @@ struct UsageDashboardPanel: View {
     @ViewBuilder
     private func timeRangeStrip(store: UsageDashboardStore) -> some View {
         HStack {
-            timeRangeDropdown(store: store)
-                .frame(width: 150)
-            Spacer()
-        }
-    }
-
-    private func timeRangeDropdown(store: UsageDashboardStore) -> some View {
-        Button {
-            showTimeRangePopover.toggle()
-        } label: {
-            HStack(spacing: VSpacing.md) {
-                Text(store.selectedRange.rawValue)
-                    .foregroundStyle(VColor.contentDefault)
-                    .font(VFont.bodyMediumLighter)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                VIconView(.chevronDown, size: 13)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .accessibilityHidden(true)
-            }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .frame(height: 32)
-            .vInputChrome()
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Time range: \(store.selectedRange.rawValue)")
-        .popover(isPresented: $showTimeRangePopover, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(UsageTimeRange.allCases, id: \.self) { range in
-                    Button {
-                        refreshTask?.cancel()
-                        breakdownTask?.cancel()
-                        refreshTask = Task { await store.selectRange(range) }
-                        showTimeRangePopover = false
-                    } label: {
-                        HStack(spacing: VSpacing.sm) {
-                            Text(range.rawValue)
-                                .font(VFont.bodyMediumLighter)
-                                .foregroundStyle(VColor.contentDefault)
-                            Spacer()
-                            if store.selectedRange == range {
-                                VIconView(.check, size: 12)
-                                    .foregroundStyle(VColor.primaryBase)
-                            }
-                        }
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.sm)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
+            VFilterDropdown(
+                options: UsageTimeRange.allCases.map { VFilterOption(label: $0.rawValue, value: $0) },
+                selection: Binding(
+                    get: { store.selectedRange },
+                    set: { _ in }
+                ),
+                width: 150,
+                onChange: { newRange in
+                    refreshTask?.cancel()
+                    breakdownTask?.cancel()
+                    refreshTask = Task { await store.selectRange(newRange) }
                 }
-            }
-            .padding(.vertical, VSpacing.sm)
-            .frame(width: 180)
+            )
+            Spacer()
         }
     }
 
