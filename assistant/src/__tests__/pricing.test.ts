@@ -294,6 +294,102 @@ describe("resolvePricingForUsage", () => {
   });
 });
 
+describe("fast mode pricing", () => {
+  test("applies 6x multiplier when speed is fast", () => {
+    const usage: PricingUsage = {
+      directInputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      speed: "fast",
+    };
+
+    const result = resolvePricingForUsage("anthropic", "claude-opus-4-6", usage);
+
+    // Base: $5 input + $25 output = $30; fast: $30 * 6 = $180
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBe((5 + 25) * 6);
+  });
+
+  test("does not apply multiplier when speed is standard", () => {
+    const usage: PricingUsage = {
+      directInputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      speed: "standard",
+    };
+
+    const result = resolvePricingForUsage("anthropic", "claude-opus-4-6", usage);
+
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBe(5 + 25);
+  });
+
+  test("does not apply multiplier when speed is null", () => {
+    const usage: PricingUsage = {
+      directInputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      speed: null,
+    };
+
+    const result = resolvePricingForUsage("anthropic", "claude-opus-4-6", usage);
+
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBe(5 + 25);
+  });
+
+  test("fast mode multiplier stacks with cache pricing", () => {
+    const usage: PricingUsage = {
+      directInputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheCreationInputTokens: 1_000_000,
+      cacheReadInputTokens: 1_000_000,
+      anthropicCacheCreation: {
+        ephemeral_5m_input_tokens: 1_000_000,
+        ephemeral_1h_input_tokens: 0,
+      },
+      speed: "fast",
+    };
+
+    const standardUsage: PricingUsage = { ...usage, speed: "standard" };
+
+    const fastResult = resolvePricingForUsage(
+      "anthropic",
+      "claude-opus-4-6",
+      usage,
+    );
+    const standardResult = resolvePricingForUsage(
+      "anthropic",
+      "claude-opus-4-6",
+      standardUsage,
+    );
+
+    expect(fastResult.pricingStatus).toBe("priced");
+    expect(standardResult.pricingStatus).toBe("priced");
+    // Fast mode applies 6x to base rates; cache multipliers stack on top
+    expect(fastResult.estimatedCostUsd).toBe(standardResult.estimatedCostUsd! * 6);
+  });
+
+  test("does not apply fast mode multiplier for non-Anthropic providers", () => {
+    const usage: PricingUsage = {
+      directInputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      speed: "fast",
+    };
+
+    const result = resolvePricingForUsage("openai", "gpt-4o", usage);
+
+    // Should be standard pricing, not 6x
+    expect(result.pricingStatus).toBe("priced");
+    expect(result.estimatedCostUsd).toBe(2.5 + 10);
+  });
+});
+
 describe("resolvePricingForUsageWithOverrides", () => {
   test("uses override pricing for structured Anthropic usage", () => {
     const usage: PricingUsage = {

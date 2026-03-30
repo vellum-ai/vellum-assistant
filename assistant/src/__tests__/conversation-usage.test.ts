@@ -55,6 +55,61 @@ describe("recordUsage", () => {
     updateConversationUsageCalls.length = 0;
   });
 
+  test("applies fast mode pricing when any response has speed: fast", () => {
+    const usageStats = {
+      inputTokens: 0,
+      outputTokens: 0,
+      estimatedCost: 0,
+    };
+
+    // First response is standard, second is fast — should detect fast
+    const rawResponses = [
+      { usage: { speed: "standard" } },
+      { usage: { speed: "fast" } },
+    ];
+
+    recordUsage(
+      {
+        conversationId: "conv-speed-1",
+        providerName: "anthropic",
+        usageStats,
+      },
+      1_000_000,
+      1_000_000,
+      "claude-opus-4-6",
+      () => {},
+      "main_agent",
+      "req-speed-1",
+      0,
+      0,
+      rawResponses,
+    );
+
+    const events = listUsageEvents();
+    expect(events).toHaveLength(1);
+
+    // With fast mode, pricing should use the 6x multiplier
+    const fastUsage: PricingUsage = {
+      directInputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      cacheCreationInputTokens: 0,
+      cacheReadInputTokens: 0,
+      speed: "fast",
+    };
+    const expectedPricing = resolvePricingForUsageWithOverrides(
+      "anthropic",
+      "claude-opus-4-6",
+      fastUsage,
+      [],
+    );
+
+    expect(events[0].estimatedCostUsd).toBe(
+      expectedPricing.estimatedCostUsd ?? null,
+    );
+    // Sanity: fast should be 6x standard ($30 * 6 = $180)
+    expect(expectedPricing.estimatedCostUsd).toBe(180);
+  });
+
   test("stores direct input separately from Anthropic cache usage while keeping live totals combined", () => {
     const usageStats = {
       inputTokens: 0,

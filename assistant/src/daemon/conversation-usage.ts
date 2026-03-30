@@ -85,13 +85,14 @@ function extractAnthropicSpeed(
   rawResponse: unknown,
 ): "fast" | "standard" | null {
   const responses = Array.isArray(rawResponse) ? rawResponse : [rawResponse];
+  let foundStandard = false;
   for (const response of responses) {
     const rec = asRecord(response);
     const usage = asRecord(rec?.usage);
     if (usage?.speed === "fast") return "fast";
-    if (usage?.speed === "standard") return "standard";
+    if (usage?.speed === "standard") foundStandard = true;
   }
-  return null;
+  return foundStandard ? "standard" : null;
 }
 
 function resolveStructuredPricing(
