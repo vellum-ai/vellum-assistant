@@ -21,6 +21,12 @@ final class SoundManager {
     /// Current sound configuration, loaded from disk.
     private(set) var config: SoundsConfig = .defaultConfig
 
+    /// Cached feature flag store used to check the "sounds" flag without disk I/O.
+    /// Set via `start(featureFlagStore:)` so `play(_:)` reads from memory instead
+    /// of calling `AssistantFeatureFlagResolver.isEnabled()` (which performs
+    /// synchronous file reads on the main thread).
+    @ObservationIgnored private var featureFlagStore: AssistantFeatureFlagStore?
+
     /// Cache of loaded NSSound instances keyed by filename to avoid repeated disk loads.
     @ObservationIgnored private var soundCache: [String: NSSound] = [:]
 
@@ -53,7 +59,8 @@ final class SoundManager {
 
     // MARK: - Lifecycle
 
-    func start() {
+    func start(featureFlagStore: AssistantFeatureFlagStore? = nil) {
+        self.featureFlagStore = featureFlagStore
         loadConfig()
         watchConfigFile()
     }
@@ -137,7 +144,11 @@ final class SoundManager {
 
     /// Plays the sound associated with the given event, respecting global and per-event toggles.
     func play(_ event: SoundEvent) {
-        guard AssistantFeatureFlagResolver.isEnabled("sounds") else { return }
+        // Use the cached store when available (zero disk I/O); fall back to
+        // the static resolver only if start() was called without a store.
+        let soundsEnabled = featureFlagStore?.isEnabled("sounds")
+            ?? AssistantFeatureFlagResolver.isEnabled("sounds")
+        guard soundsEnabled else { return }
         guard config.globalEnabled else { return }
 
         let eventConfig = config.config(for: event)

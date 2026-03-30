@@ -38,11 +38,11 @@ public struct FeatureFlagRegistry: Decodable {
 
 // MARK: - Loader
 
-/// Load the unified feature flag registry from the app bundle's Resources.
-///
-/// The `feature-flag-registry.json` file must be included in the target's
-/// "Copy Bundle Resources" build phase so it appears in `Bundle.main`.
-public func loadFeatureFlagRegistry() -> FeatureFlagRegistry? {
+/// Cached registry loaded once per process lifetime.
+/// The bundled `feature-flag-registry.json` is immutable at runtime (baked into
+/// the app at build time), so reading it more than once is unnecessary I/O.
+/// Swift guarantees thread-safe lazy initialization of static properties.
+private let _cachedFeatureFlagRegistry: FeatureFlagRegistry? = {
     guard let url = Bundle.main.url(forResource: "feature-flag-registry", withExtension: "json") else {
         return nil
     }
@@ -50,4 +50,12 @@ public func loadFeatureFlagRegistry() -> FeatureFlagRegistry? {
         return nil
     }
     return try? JSONDecoder().decode(FeatureFlagRegistry.self, from: data)
+}()
+
+/// Load the unified feature flag registry from the app bundle's Resources.
+///
+/// Returns a cached result after the first call — the bundled JSON never
+/// changes at runtime so re-reading from disk is unnecessary.
+public func loadFeatureFlagRegistry() -> FeatureFlagRegistry? {
+    _cachedFeatureFlagRegistry
 }
