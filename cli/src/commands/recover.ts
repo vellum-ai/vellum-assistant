@@ -70,8 +70,12 @@ export async function recover(): Promise<void> {
   unlinkSync(archivePath);
   unlinkSync(metadataPath);
 
-  // 7. Start daemon + gateway (same as wake)
+  // 7. Persist signing key so it survives daemon/gateway restarts (same as wake)
   const signingKey = generateLocalSigningKey();
+  entry.resources = { ...entry.resources, signingKey };
+  saveAssistantEntry(entry);
+
+  // 8. Start daemon + gateway
   await startLocalDaemon(false, entry.resources, { signingKey });
   await startGateway(false, entry.resources, { signingKey });
 
