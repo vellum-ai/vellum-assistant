@@ -33,8 +33,6 @@ extension MainWindowView {
                 activeSessionId: conversationManager.activeViewModel?.conversationId,
                 onClose: { windowState.selection = nil }
             )
-            .background(VColor.surfaceOverlay)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         case .generated:
             GeneratedPanel(
                 onClose: { sharing.showSharePicker = false; windowState.closeDynamicPanel() },
@@ -121,8 +119,6 @@ extension MainWindowView {
                 store: usageDashboardStore,
                 onClose: { windowState.selection = nil }
             )
-            .background(VColor.surfaceOverlay)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         }
     }
 
@@ -444,8 +440,6 @@ extension MainWindowView {
                 activeSessionId: conversationManager.activeViewModel?.conversationId,
                 onClose: { windowState.dismissOverlay() }
             )
-            .background(VColor.surfaceOverlay)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         case .avatarCustomization:
             AvatarCustomizationPanel(onClose: { windowState.selection = .panel(windowState.avatarCustomizationReturnPanel) })
         case .generated:
@@ -516,14 +510,11 @@ extension MainWindowView {
                 pendingMemoryId: $windowState.pendingMemoryId,
                 pendingSkillId: $windowState.pendingSkillId
             )
-            .background(VColor.surfaceOverlay)
         case .usageDashboard:
             UsageDashboardPanel(
                 store: usageDashboardStore,
                 onClose: { windowState.dismissOverlay() }
             )
-            .background(VColor.surfaceOverlay)
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
         }
     }
 

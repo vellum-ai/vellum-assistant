@@ -50,16 +50,7 @@ struct IntelligencePanel: View {
     private let maxContentWidth: CGFloat = 1100
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack(alignment: .center) {
-                Text("About \(cachedAssistantName)")
-                    .font(VFont.titleLarge)
-                    .foregroundStyle(VColor.contentEmphasized)
-                Spacer()
-            }
-            .padding(.bottom, VSpacing.lg)
-
+        VPageContainer(title: "About \(cachedAssistantName)") {
             // Tab bar
             VTabs(
                 items: visibleTabs.map { (label: $0.rawValue, tag: $0) },
@@ -70,7 +61,6 @@ struct IntelligencePanel: View {
             // Tab content
             tabContent
         }
-        .padding(VSpacing.xl)
         .onChange(of: pendingMemoryId) {
             if pendingMemoryId != nil {
                 withAnimation(VAnimation.fast) { selectedTab = .memories }

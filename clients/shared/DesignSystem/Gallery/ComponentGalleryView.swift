@@ -111,6 +111,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
             return [
                 GalleryComponent("vModal", "VModal", keywords: ["modal", "dialog"], description: "Standardized modal container with title, optional subtitle, scrollable content, and optional footer with navigation actions."),
                 GalleryComponent("vAdaptiveStack", "VAdaptiveStack", keywords: ["adaptive stack", "responsive"], description: "Arranges content horizontally when space allows, falling back to vertical stacking via ViewThatFits.", useInsteadOf: "Raw ViewThatFits { HStack { } VStack { } } in feature code"),
+                GalleryComponent("vPageContainer", "VPageContainer", keywords: ["page container", "panel layout"], description: "Standard page container with title, consistent spacing, surfaceOverlay background, and rounded corners. Use for full-width panel pages."),
                 GalleryComponent("vSidePanel", "VSidePanel", keywords: ["side panel", "drawer"], description: "Side panel with title header, close button, optional pinned content, and scrollable body."),
                 GalleryComponent("vSplitView", "VSplitView", keywords: ["split view", "resizable"], description: "Split layout with main content and a togglable, resizable side panel."),
                 GalleryComponent("vAppWorkspaceDockLayout", "VAppWorkspaceDockLayout", keywords: ["dock", "workspace", "layout"], description: "Workspace layout with a togglable, resizable dock panel and draggable divider."),
