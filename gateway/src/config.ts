@@ -122,9 +122,10 @@ export function loadConfig(): GatewayConfig {
       ? process.env.RUNTIME_PROXY_REQUIRE_AUTH !== "false"
       : gw.runtimeProxyRequireAuth !== false &&
         gw.runtimeProxyRequireAuth !== "false";
-  const unmappedPolicy =
-    process.env.UNMAPPED_POLICY === "default"
-      ? "default"
+  const unmappedPolicyEnv = process.env.UNMAPPED_POLICY?.trim();
+  const unmappedPolicy: "reject" | "default" =
+    unmappedPolicyEnv === "default" || unmappedPolicyEnv === "reject"
+      ? unmappedPolicyEnv
       : gw.unmappedPolicy === "default"
         ? "default"
         : "reject";
