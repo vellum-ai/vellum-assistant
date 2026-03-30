@@ -168,6 +168,7 @@ const sampleProviderRow = {
   identityResponsePaths: null,
   identityFormat: null,
   identityOkField: null,
+  featureFlag: null,
   createdAt: Date.now(),
   updatedAt: Date.now(),
 };
