@@ -1,17 +1,9 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 
 // Mock platform to use a temp directory
-const TEST_DIR = join(tmpdir(), `vellum-sysprompt-test-${crypto.randomUUID()}`);
-process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 import { mock } from "bun:test";
 
@@ -111,15 +103,7 @@ function basePrompt(result: string): string {
 
 describe("buildSystemPrompt", () => {
   beforeEach(() => {
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(TEST_DIR, { recursive: true });
-  });
-
-  afterEach(() => {
-    delete process.env.VELLUM_WORKSPACE_DIR;
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
   });
 
   test("returns empty string when no files exist", () => {
@@ -461,14 +445,7 @@ describe("stripCommentLines", () => {
 
 describe("ensurePromptFiles", () => {
   beforeEach(() => {
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(TEST_DIR, { recursive: true });
-  });
-
-  afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
   });
 
   test("creates all 3 files from templates when none exist", () => {

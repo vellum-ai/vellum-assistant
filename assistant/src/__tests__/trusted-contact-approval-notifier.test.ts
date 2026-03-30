@@ -9,13 +9,7 @@
  * 5. Delivery failures allow retry on next poll
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "tc-approval-notifier-test-"));
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Platform mock ──
 // ── Logger mock ──
@@ -234,20 +228,10 @@ async function simulateNotifierPoll(params: {
 
 describe("trusted-contact pending-approval notifier", () => {
   beforeEach(() => {
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     deliveredReplies.length = 0;
     deliverShouldFail = false;
     mockPendingApprovals = [];
     mockGuardianContact = null;
-  });
-
-  afterAll(() => {
-    delete process.env.VELLUM_WORKSPACE_DIR;
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      /* best effort */
-    }
   });
 
   test("sends waiting message to trusted contact when pending approval exists", async () => {

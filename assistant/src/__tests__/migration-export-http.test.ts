@@ -12,22 +12,12 @@
  * - Integration: existing routes are unaffected by the new endpoint
  */
 import { createHash } from "node:crypto";
-import {
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+import { beforeAll, describe, expect, mock, test } from "bun:test";
 
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "migration-export-http-test-")),
-);
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const testDbDir = join(testDir, "data", "db");
 const testDbPath = join(testDbDir, "assistant.db");
 const testConfigPath = join(testDir, "config.json");
@@ -86,15 +76,6 @@ beforeAll(() => {
   mkdirSync(testDbDir, { recursive: true });
   writeFileSync(testDbPath, SQLITE_HEADER);
   writeFileSync(testConfigPath, JSON.stringify(TEST_CONFIG, null, 2));
-});
-
-afterAll(() => {
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // ---------------------------------------------------------------------------

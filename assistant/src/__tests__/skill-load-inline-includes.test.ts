@@ -12,25 +12,15 @@
  *   does not corrupt sibling skill output.
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 
 // ── Test directory ────────────────────────────────────────────────────────────
 
-const TEST_DIR = mkdtempSync(
-  join(tmpdir(), "vellum-skill-load-inline-includes-test-"),
-);
-process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 // ── Mocks (must be declared before any imports from the project) ─────────────
 
@@ -160,7 +150,6 @@ async function executeSkillLoad(
 
 describe("skill_load inline command expansion for included skills", () => {
   beforeEach(() => {
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
     runInlineCommandCalls.length = 0;
     mockAutoInstall.mockReset();
@@ -189,13 +178,6 @@ describe("skill_load inline command expansion for included skills", () => {
       "inline-skill-commands": true,
     });
     testConfig.skills = { load: { extraDirs: [] } };
-  });
-
-  afterEach(() => {
-    delete process.env.VELLUM_WORKSPACE_DIR;
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
   });
 
   // ── Single inline-command child ──────────────────────────────────────

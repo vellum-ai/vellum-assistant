@@ -2,18 +2,13 @@
  * Tests that skill_load rejects loading a skill whose feature flag is OFF
  * with a deterministic error message.
  */
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 
-const TEST_DIR = join(
-  tmpdir(),
-  `vellum-skill-load-flag-test-${crypto.randomUUID()}`,
-);
-process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 let currentConfig: Record<string, unknown> = {};
 
@@ -79,18 +74,13 @@ async function executeSkillLoad(
 
 describe("skill_load feature flag enforcement", () => {
   beforeEach(() => {
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
     currentConfig = {};
     _setOverridesForTesting({});
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_WORKSPACE_DIR;
     _setOverridesForTesting({});
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
   });
 
   test("returns deterministic error for flag OFF skill", async () => {

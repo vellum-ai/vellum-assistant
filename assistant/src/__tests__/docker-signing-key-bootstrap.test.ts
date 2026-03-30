@@ -3,27 +3,12 @@
  * and file-based load/create (local mode).
  */
 
-import {
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  afterAll,
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const testDir = realpathSync(mkdtempSync(join(tmpdir(), "signing-key-test-")));
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Mock homedir() so the hardcoded LEGACY_SIGNING_KEY_PATH resolves inside
 // the temp test directory instead of the real ~/.vellum/protected/.
@@ -46,7 +31,6 @@ const VALID_HEX_KEY = "ab".repeat(32); // 64 hex chars = 32 bytes
 const savedEnv: Record<string, string | undefined> = {};
 
 beforeEach(() => {
-  process.env.VELLUM_WORKSPACE_DIR = testDir;
   savedEnv.ACTOR_TOKEN_SIGNING_KEY = process.env.ACTOR_TOKEN_SIGNING_KEY;
   // Clean up key files from previous tests so they don't leak between cases.
   rmSync(join(testDir, ".vellum"), { recursive: true, force: true });
@@ -55,18 +39,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete process.env.VELLUM_WORKSPACE_DIR;
   if (savedEnv.ACTOR_TOKEN_SIGNING_KEY === undefined) {
     delete process.env.ACTOR_TOKEN_SIGNING_KEY;
   } else {
     process.env.ACTOR_TOKEN_SIGNING_KEY = savedEnv.ACTOR_TOKEN_SIGNING_KEY;
   }
-});
-
-afterAll(() => {
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {}
 });
 
 describe("resolveSigningKey", () => {

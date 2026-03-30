@@ -9,7 +9,6 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import {
-  afterAll,
   afterEach,
   beforeAll,
   beforeEach,
@@ -19,8 +18,7 @@ import {
   test,
 } from "bun:test";
 
-const testDataDir = "/tmp/qdrant-manager-test-" + process.pid;
-process.env.VELLUM_WORKSPACE_DIR = testDataDir;
+const testDataDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -58,7 +56,6 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  process.env.VELLUM_WORKSPACE_DIR = testDataDir;
   // Clear content files but preserve the directory structure
   for (const entry of readdirSync(qdrantDir)) {
     if (entry === "bin") {
@@ -74,12 +71,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete process.env.VELLUM_WORKSPACE_DIR;
   delete process.env.QDRANT_URL;
-});
-
-afterAll(() => {
-  rmSync(testDataDir, { recursive: true, force: true });
 });
 
 describe("QdrantManager", () => {

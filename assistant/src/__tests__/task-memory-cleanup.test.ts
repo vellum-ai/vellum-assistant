@@ -1,6 +1,3 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeAll,
@@ -14,9 +11,6 @@ import {
 import { eq } from "drizzle-orm";
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
-
-const testDir = mkdtempSync(join(tmpdir(), "task-memory-cleanup-"));
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -81,7 +75,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
   });
 
   beforeEach(() => {
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM memory_item_sources");
     db.run("DELETE FROM memory_items");
@@ -95,13 +88,7 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
   });
 
   afterAll(() => {
-    delete process.env.VELLUM_WORKSPACE_DIR;
     resetDb();
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      // best effort
-    }
   });
 
   function seedConversations() {

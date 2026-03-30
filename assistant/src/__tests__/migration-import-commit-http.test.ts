@@ -15,19 +15,15 @@ import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 import {
-  afterAll,
   afterEach,
   beforeAll,
   beforeEach,
@@ -45,10 +41,7 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
   ) as ArrayBuffer;
 }
 
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "migration-import-commit-http-test-")),
-);
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const testDbDir = join(testDir, "data", "db");
 const testDbPath = join(testDbDir, "assistant.db");
 const testConfigPath = join(testDir, "config.json");
@@ -106,19 +99,9 @@ beforeAll(() => {
   writeFileSync(testConfigPath, JSON.stringify(EXISTING_CONFIG, null, 2));
 });
 
-afterAll(() => {
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
-
 // Restore test files before each test so mutations from previous tests
 // do not leak across test cases.
 beforeEach(() => {
-  process.env.VELLUM_WORKSPACE_DIR = testDir;
   mkdirSync(testDbDir, { recursive: true });
   writeFileSync(testDbPath, EXISTING_DB_DATA);
   writeFileSync(testConfigPath, JSON.stringify(EXISTING_CONFIG, null, 2));
