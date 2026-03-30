@@ -1,14 +1,8 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Mock platform to use a temp workspace dir
-let testWorkspaceDir: string;
-
-mock.module("../util/platform.js", () => ({
-  getWorkspacePromptPath: (file: string) => join(testWorkspaceDir, file),
-}));
+const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Mock config loader
 let mockConfig = {
@@ -83,13 +77,12 @@ describe("HeartbeatService", () => {
   let processMessageCalls: Array<{ conversationId: string; content: string }>;
   let alerterCalls: Array<{ type: string; title: string; body: string }>;
 
-  beforeEach(() => {
-    testWorkspaceDir = join(
-      tmpdir(),
-      `vellum-hb-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    );
-    mkdirSync(testWorkspaceDir, { recursive: true });
+  afterEach(() => {
+    // Clean up HEARTBEAT.md between tests so file-existence tests don't leak
+    rmSync(join(testWorkspaceDir, "HEARTBEAT.md"), { force: true });
+  });
 
+  beforeEach(() => {
     processMessageCalls = [];
     alerterCalls = [];
     createdConversations.length = 0;
@@ -343,7 +336,9 @@ describe("HeartbeatService", () => {
 
     expect(afterReset).not.toBeNull();
     // The new nextRunAt should be >= the interval from now
-    expect(afterReset!).toBeGreaterThanOrEqual(before + mockConfig.heartbeat.intervalMs);
+    expect(afterReset!).toBeGreaterThanOrEqual(
+      before + mockConfig.heartbeat.intervalMs,
+    );
     service.stop();
   });
 
@@ -362,13 +357,5 @@ describe("HeartbeatService", () => {
     expect(service.nextRunAt).toBeNull();
     service.resetTimer();
     expect(service.nextRunAt).toBeNull();
-  });
-
-  test("cleanup", () => {
-    try {
-      rmSync(testWorkspaceDir, { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
   });
 });

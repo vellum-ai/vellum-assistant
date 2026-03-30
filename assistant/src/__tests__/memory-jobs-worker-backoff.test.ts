@@ -9,17 +9,6 @@ import { describe, expect, mock, test } from "bun:test";
 
 // ── Mocks (must precede imports of tested module) ──────────────────
 
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => "/tmp/test-backoff",
-  isMacOS: () => false,
-  isLinux: () => true,
-  isWindows: () => false,
-  getPidPath: () => "/tmp/test-backoff/test.pid",
-  getDbPath: () => "/tmp/test-backoff/test.db",
-  getLogPath: () => "/tmp/test-backoff/test.log",
-  ensureDataDir: () => {},
-}));
-
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
