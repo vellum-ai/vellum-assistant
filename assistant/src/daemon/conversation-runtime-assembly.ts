@@ -16,7 +16,7 @@ import {
   type TurnInterfaceContext,
 } from "../channels/types.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
-import { stripCommentLines } from "../prompts/system-prompt.js";
+import { stripCommentLines } from "../util/strip-comment-lines.js";
 import type { Message } from "../providers/types.js";
 import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";

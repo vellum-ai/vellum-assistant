@@ -18,7 +18,7 @@ import {
 
 import { z } from "zod";
 
-import { stripCommentLines } from "../prompts/system-prompt.js";
+import { stripCommentLines } from "../util/strip-comment-lines.js";
 import {
   extractAllText,
   getConfiguredProvider,

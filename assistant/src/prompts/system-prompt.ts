@@ -22,6 +22,7 @@ import {
   getWorkspacePromptPath,
   isMacOS,
 } from "../util/platform.js";
+import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 import { buildJournalContext } from "./journal-context.js";
 
