@@ -280,7 +280,7 @@ re-processes all messages. Existing memories are provided as supersession
 context — the new extraction can supersede old flat-fact memories with
 richer, properly-scored replacements.
 
-Requires the assistant daemon to be running (jobs are processed by the
+Requires the assistant to be running (jobs are processed by the
 background worker).
 
 Examples:
@@ -351,7 +351,7 @@ Examples:
 
         const { jobIds } = requestReextract(targets);
         log.info(
-          `\nQueued ${jobIds.length} re-extraction job(s). The daemon will process them in the background.`,
+          `\nQueued ${jobIds.length} re-extraction job(s). The assistant will process them in the background.`,
         );
       },
     );
