@@ -115,6 +115,10 @@ export async function wake(): Promise<void> {
   // is the source of truth because it is what the gateway actually used to sign
   // existing actor tokens. Prefer it over the lockfile value so that tokens
   // survive upgrades and any scenario where the two diverge.
+  //
+  // NOTE: Removal of this legacy key path read is blocked on removing all use
+  // of the signing key from the assistant daemon. Until then, the on-disk key
+  // must remain the authoritative source.
   const legacyKeyPath = join(
     resources.instanceDir,
     ".vellum",
