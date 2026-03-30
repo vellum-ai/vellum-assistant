@@ -725,7 +725,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         debugStateWriter.stop()
         RandomSoundTimer.shared.stop()
         SoundManager.shared.stop()
-        vellumCli.stop()
+        Task { await vellumCli.stop() }
     }
 
     // MARK: - Public Actions (for SwiftUI .commands menu items)

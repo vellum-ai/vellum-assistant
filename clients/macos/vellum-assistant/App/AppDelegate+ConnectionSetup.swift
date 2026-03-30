@@ -571,7 +571,7 @@ extension AppDelegate {
             UserDefaults.standard.set(currentVersion, forKey: "preUpdateVersion")
 
             // Stop daemon before app replacement
-            self.vellumCli.stop()
+            await self.vellumCli.stop()
         }
         updateManager.startAutomaticChecks()
     }
