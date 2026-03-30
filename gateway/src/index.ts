@@ -1223,105 +1223,112 @@ async function main() {
           !isCallback;
 
         const forward = async (threadContextHint?: string) => {
-          const hints: string[] = [];
-          if (threadContextHint) hints.push(threadContextHint);
+          try {
+            const hints: string[] = [];
+            if (threadContextHint) hints.push(threadContextHint);
 
-          // Download and upload attachments if present (skip for edits and
-          // callback actions — edits only update text, callbacks have no media)
-          let attachmentIds: string[] | undefined;
-          const eventAttachments = normalized.event.message.attachments;
-          if (
-            eventAttachments &&
-            eventAttachments.length > 0 &&
-            normalized.slackFiles &&
-            !isEdit &&
-            !isCallback
-          ) {
-            attachmentIds = [];
-            const maxBytes =
-              config.maxAttachmentBytes.slack ??
-              config.maxAttachmentBytes.default;
-
-            // Filter oversized attachments
-            const eligible = eventAttachments.filter((att) => {
-              if (
-                att.fileSize !== undefined &&
-                att.fileSize > maxBytes
-              ) {
-                log.warn(
-                  {
-                    fileId: att.fileId,
-                    fileSize: att.fileSize,
-                    limit: maxBytes,
-                  },
-                  "Skipping oversized Slack attachment",
-                );
-                return false;
-              }
-              return true;
-            });
-
-            // Process with bounded concurrency. Socket Mode has no retry
-            // mechanism, so all errors (validation and transient) are logged
-            // and skipped — the message is still delivered without the
-            // failed attachment.
-            for (
-              let i = 0;
-              i < eligible.length;
-              i += config.maxAttachmentConcurrency
+            // Download and upload attachments if present (skip for edits and
+            // callback actions — edits only update text, callbacks have no media)
+            let attachmentIds: string[] | undefined;
+            const eventAttachments = normalized.event.message.attachments;
+            if (
+              eventAttachments &&
+              eventAttachments.length > 0 &&
+              normalized.slackFiles &&
+              !isEdit &&
+              !isCallback
             ) {
-              const batch = eligible.slice(
-                i,
-                i + config.maxAttachmentConcurrency,
-              );
-              const results = await Promise.allSettled(
-                batch.map(async (att) => {
-                  const slackFile = normalized.slackFiles?.get(att.fileId);
-                  if (!slackFile) {
-                    throw new Error(
-                      `No SlackFile found for attachment ${att.fileId}`,
-                    );
-                  }
-                  const downloaded = await downloadSlackFile(
-                    slackFile,
-                    botToken,
-                  );
-                  return uploadAttachment(config, downloaded);
-                }),
-              );
-              for (const result of results) {
-                if (result.status === "fulfilled") {
-                  attachmentIds.push(result.value.id);
-                } else if (
-                  result.reason instanceof AttachmentValidationError
+              attachmentIds = [];
+              const maxBytes =
+                config.maxAttachmentBytes.slack ??
+                config.maxAttachmentBytes.default;
+
+              // Filter oversized attachments
+              const eligible = eventAttachments.filter((att) => {
+                if (
+                  att.fileSize !== undefined &&
+                  att.fileSize > maxBytes
                 ) {
                   log.warn(
-                    { err: result.reason },
-                    "Skipping Slack attachment with validation error",
+                    {
+                      fileId: att.fileId,
+                      fileSize: att.fileSize,
+                      limit: maxBytes,
+                    },
+                    "Skipping oversized Slack attachment",
                   );
-                } else {
-                  log.warn(
-                    { err: result.reason },
-                    "Skipping Slack attachment due to download/upload failure",
-                  );
+                  return false;
+                }
+                return true;
+              });
+
+              // Process with bounded concurrency. Socket Mode has no retry
+              // mechanism, so all errors (validation and transient) are logged
+              // and skipped — the message is still delivered without the
+              // failed attachment.
+              for (
+                let i = 0;
+                i < eligible.length;
+                i += config.maxAttachmentConcurrency
+              ) {
+                const batch = eligible.slice(
+                  i,
+                  i + config.maxAttachmentConcurrency,
+                );
+                const results = await Promise.allSettled(
+                  batch.map(async (att) => {
+                    const slackFile = normalized.slackFiles?.get(att.fileId);
+                    if (!slackFile) {
+                      throw new Error(
+                        `No SlackFile found for attachment ${att.fileId}`,
+                      );
+                    }
+                    const downloaded = await downloadSlackFile(
+                      slackFile,
+                      botToken,
+                    );
+                    return uploadAttachment(config, downloaded);
+                  }),
+                );
+                for (const result of results) {
+                  if (result.status === "fulfilled") {
+                    attachmentIds.push(result.value.id);
+                  } else if (
+                    result.reason instanceof AttachmentValidationError
+                  ) {
+                    log.warn(
+                      { err: result.reason },
+                      "Skipping Slack attachment with validation error",
+                    );
+                  } else {
+                    log.warn(
+                      { err: result.reason },
+                      "Skipping Slack attachment due to download/upload failure",
+                    );
+                  }
                 }
               }
             }
-          }
 
-          handleInbound(config, normalized.event, {
-            replyCallbackUrl,
-            routingOverride: normalized.routing,
-            ...(attachmentIds && attachmentIds.length > 0
-              ? { attachmentIds }
-              : {}),
-            ...(hints.length > 0 ? { transportMetadata: { hints } } : {}),
-          }).catch((err) => {
+            handleInbound(config, normalized.event, {
+              replyCallbackUrl,
+              routingOverride: normalized.routing,
+              ...(attachmentIds && attachmentIds.length > 0
+                ? { attachmentIds }
+                : {}),
+              ...(hints.length > 0 ? { transportMetadata: { hints } } : {}),
+            }).catch((err) => {
+              log.error(
+                { err, channel, threadTs },
+                "Failed to forward Slack event to runtime",
+              );
+            });
+          } catch (err) {
             log.error(
               { err, channel, threadTs },
-              "Failed to forward Slack event to runtime",
+              "Failed to process Slack event",
             );
-          });
+          }
         };
 
         if (isThreadReply && botToken) {
