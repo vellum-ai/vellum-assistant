@@ -26,11 +26,12 @@ export function recordRequestLog(
   responsePayload: string,
   messageId?: string,
   provider?: string,
-): void {
+): string {
   const db = getDb();
+  const id = uuid();
   db.insert(llmRequestLogs)
     .values({
-      id: uuid(),
+      id,
       conversationId,
       messageId: messageId ?? null,
       provider: provider ?? null,
@@ -39,6 +40,7 @@ export function recordRequestLog(
       createdAt: Date.now(),
     })
     .run();
+  return id;
 }
 
 export function queryRequestLogs(
@@ -80,6 +82,24 @@ export function backfillMessageIdOnLogs(
         isNull(llmRequestLogs.messageId),
       ),
     )
+    .run();
+}
+
+/**
+ * Set `messageId` on specific log rows identified by their IDs.
+ * Unlike `backfillMessageIdOnLogs` (which updates all null-messageId rows
+ * for a conversation), this targets only the given log rows — safe for
+ * concurrent watch/assistant turns.
+ */
+export function setMessageIdOnLogs(
+  logIds: string[],
+  messageId: string,
+): void {
+  if (logIds.length === 0) return;
+  const db = getDb();
+  db.update(llmRequestLogs)
+    .set({ messageId })
+    .where(inArray(llmRequestLogs.id, logIds))
     .run();
 }
 
