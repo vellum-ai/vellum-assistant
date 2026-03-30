@@ -892,10 +892,11 @@ function serializeMessagesToContentBlocks(messages: Message[]): ContentBlock[] {
           textLines.length = 0;
         }
         blocks.push(block);
-      } else if (
-        block.type === "tool_result" ||
-        block.type === "web_search_tool_result"
-      ) {
+      } else if (block.type === "web_search_tool_result") {
+        textLines.push(
+          `web_search_tool_result ${block.tool_use_id}: [opaque]`,
+        );
+      } else if (block.type === "tool_result") {
         // Extract images from tool_result contentBlocks before serializing.
         const collectedImages: ImageContent[] = [];
         textLines.push(serializeToolResultBlock(block, collectedImages));
