@@ -48,9 +48,15 @@ enum ScrollMode: Equatable, CustomStringConvertible {
     }
 
     /// Whether the mode allows automatic bottom-pinning on new content.
+    /// Both `initialLoad` and `followingBottom` allow auto-scroll —
+    /// the only difference is `initialLoad` marks that no user interaction
+    /// has occurred yet (used by `hasBeenInteracted`).
+    /// Note: `stabilizing` returns `false` even when the previous mode was
+    /// `followingBottom` — stabilization explicitly suppresses auto-scroll
+    /// until the layout mutation completes.
     var allowsAutoScroll: Bool {
         switch self {
-        case .followingBottom: true
+        case .initialLoad, .followingBottom: true
         default: false
         }
     }
