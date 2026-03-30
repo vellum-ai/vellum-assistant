@@ -13,14 +13,38 @@ import { type CatalogSkill, resolveCatalog } from "./catalog-install.js";
 const log = getLogger("skill-memory");
 
 /**
- * Build a semantically rich capability statement from a catalog skill entry.
+ * Generic input for building capability statements.
+ * Decoupled from CatalogSkill so other skill sources (e.g. bundled skills) can
+ * produce capability memories without being shoehorned into the catalog type.
+ */
+export interface SkillCapabilityInput {
+  id: string;
+  displayName: string;
+  description: string;
+  activationHints?: string[];
+}
+
+/**
+ * Convert a CatalogSkill to a SkillCapabilityInput by extracting nested
+ * metadata fields into flat properties.
+ */
+export function fromCatalogSkill(entry: CatalogSkill): SkillCapabilityInput {
+  return {
+    id: entry.id,
+    displayName: entry.metadata?.vellum?.["display-name"] ?? entry.name,
+    description: entry.description,
+    activationHints: entry.metadata?.vellum?.["activation-hints"],
+  };
+}
+
+/**
+ * Build a semantically rich capability statement from a skill capability input.
  * Truncated to 500 chars max (matching the limit used by memory item extraction).
  */
-export function buildCapabilityStatement(entry: CatalogSkill): string {
-  const displayName = entry.metadata?.vellum?.["display-name"] ?? entry.name;
-  const activationHints = entry.metadata?.vellum?.["activation-hints"];
+export function buildCapabilityStatement(input: SkillCapabilityInput): string {
+  const { displayName, activationHints } = input;
 
-  let statement = `The "${displayName}" skill (${entry.id}) is available. ${entry.description}.`;
+  let statement = `The "${displayName}" skill (${input.id}) is available. ${input.description}.`;
   if (activationHints && activationHints.length > 0) {
     statement += ` Use when: ${activationHints.join("; ")}.`;
   }
@@ -34,17 +58,17 @@ export function buildCapabilityStatement(entry: CatalogSkill): string {
 }
 
 /**
- * Upsert a capability memory item for a catalog skill.
+ * Upsert a capability memory item for a skill.
  * Best-effort: errors are logged but never thrown.
  */
 export function upsertSkillCapabilityMemory(
   skillId: string,
-  entry: CatalogSkill,
+  input: SkillCapabilityInput,
 ): void {
   try {
     const db = getDb();
     const subject = `skill:${skillId}`;
-    const statement = buildCapabilityStatement(entry);
+    const statement = buildCapabilityStatement(input);
     const kind = "capability";
     const scopeId = "default";
     const confidence = 1.0;
@@ -189,7 +213,7 @@ export async function seedCatalogSkillMemories(): Promise<void> {
       }
 
       catalogIds.add(entry.id);
-      upsertSkillCapabilityMemory(entry.id, entry);
+      upsertSkillCapabilityMemory(entry.id, fromCatalogSkill(entry));
     }
 
     // Prune stale capability memories for skills no longer in catalog
