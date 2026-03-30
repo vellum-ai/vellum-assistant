@@ -217,6 +217,7 @@ private struct ThreadWindowContentView: View {
                     },
                     onOpenSSHSettings: {
                         settingsStore.pendingSettingsTab = .developer
+                        AppDelegate.shared?.showSettingsWindow(nil)
                     },
                     anchorMessageId: $anchorMessageId,
                     highlightedMessageId: $highlightedMessageId,
