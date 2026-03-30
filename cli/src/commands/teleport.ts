@@ -1,5 +1,7 @@
 import {
   findAssistantByName,
+  loadAllAssistants,
+  removeAssistantEntry,
   saveAssistantEntry,
 } from "../lib/assistant-config.js";
 import type { AssistantEntry } from "../lib/assistant-config.js";
@@ -745,11 +747,13 @@ export async function resolveOrHatchTarget(
 
   // Hatch a new assistant in the target environment
   if (targetEnv === "local") {
+    const beforeIds = new Set(loadAllAssistants().map((e) => e.assistantId));
     await hatchLocal("vellum", targetName ?? null, false, false, false, {});
-    const entry = findAssistantByName(targetName ?? "");
+    const entry = targetName
+      ? findAssistantByName(targetName)
+      : (loadAllAssistants().find((e) => !beforeIds.has(e.assistantId)) ??
+        null);
     if (!entry) {
-      // If no targetName was provided, find the most recently hatched local assistant
-      // by looking up what hatchLocal created
       console.error("Error: Could not find the newly hatched local assistant.");
       process.exit(1);
     }
@@ -758,8 +762,12 @@ export async function resolveOrHatchTarget(
   }
 
   if (targetEnv === "docker") {
+    const beforeIds = new Set(loadAllAssistants().map((e) => e.assistantId));
     await hatchDocker("vellum", true, targetName ?? null, false, {});
-    const entry = findAssistantByName(targetName ?? "");
+    const entry = targetName
+      ? findAssistantByName(targetName)
+      : (loadAllAssistants().find((e) => !beforeIds.has(e.assistantId)) ??
+        null);
     if (!entry) {
       console.error(
         "Error: Could not find the newly hatched docker assistant.",
@@ -985,15 +993,6 @@ export async function teleport(): Promise<void> {
 
   const fromCloud = resolveCloud(fromEntry);
 
-  // Same-environment rejection
-  const normalizedSourceEnv = fromCloud === "vellum" ? "platform" : fromCloud;
-  if (normalizedSourceEnv === targetEnv) {
-    console.error(
-      `Cannot teleport between two ${targetEnv} assistants. Teleport transfers data across different environments.`,
-    );
-    process.exit(1);
-  }
-
   // Export from source
   console.log(`Exporting from ${from} (${fromCloud})...`);
   const bundleData = await exportFromAssistant(fromEntry, fromCloud);
@@ -1001,6 +1000,16 @@ export async function teleport(): Promise<void> {
   // Resolve or hatch target
   const toEntry = await resolveOrHatchTarget(targetEnv, targetName);
   const toCloud = resolveCloud(toEntry);
+
+  // Same-environment rejection — uses resolved clouds, not CLI flag
+  const normalizedSourceEnv = fromCloud === "vellum" ? "platform" : fromCloud;
+  const normalizedTargetEnv = toCloud === "vellum" ? "platform" : toCloud;
+  if (normalizedSourceEnv === normalizedTargetEnv) {
+    console.error(
+      `Cannot teleport between two ${normalizedTargetEnv} assistants. Teleport transfers data across different environments.`,
+    );
+    process.exit(1);
+  }
 
   // Import to target
   console.log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
@@ -1010,8 +1019,7 @@ export async function teleport(): Promise<void> {
   if (!dryRun) {
     const sourceIsLocalOrDocker =
       fromCloud === "local" || fromCloud === "docker";
-    const targetIsLocalOrDocker =
-      targetEnv === "local" || targetEnv === "docker";
+    const targetIsLocalOrDocker = toCloud === "local" || toCloud === "docker";
 
     if (sourceIsLocalOrDocker && targetIsLocalOrDocker) {
       if (!keepSource) {
@@ -1021,6 +1029,7 @@ export async function teleport(): Promise<void> {
         } else {
           await retireLocal(fromEntry.assistantId, fromEntry);
         }
+        removeAssistantEntry(fromEntry.assistantId);
         console.log(`Source assistant '${from}' retired.`);
       } else {
         console.log(`Source assistant '${from}' kept (--keep-source).`);
