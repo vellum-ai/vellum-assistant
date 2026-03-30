@@ -8,7 +8,7 @@ struct MainWindowVersionMismatchBanner: View {
     @ObservedObject var connectionManager: GatewayConnectionManager
     @ObservedObject var updateManager: UpdateManager
     let settingsStore: SettingsStore
-    @ObservedObject var windowState: MainWindowState
+    let windowState: MainWindowState
 
     var body: some View {
         if connectionManager.versionMismatch && !connectionManager.isUpdateInProgress {

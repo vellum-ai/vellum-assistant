@@ -10,7 +10,7 @@ import VellumAssistantShared
 struct MainWindowErrorOverlay: View {
     let activeViewModel: ChatViewModel?
     let settingsStore: SettingsStore
-    @ObservedObject var windowState: MainWindowState
+    let windowState: MainWindowState
 
     var body: some View {
         Group {
