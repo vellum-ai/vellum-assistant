@@ -89,6 +89,7 @@ import {
 } from "./slack/socket-mode.js";
 import { downloadSlackFile } from "./slack/download.js";
 import { fetchThreadContext } from "./slack/thread-context.js";
+import { fetchDmContext } from "./slack/dm-context.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
 import {
@@ -1356,6 +1357,17 @@ async function main() {
               log.error(
                 { err, channel, threadTs },
                 "Unhandled error in Slack forward (thread reply)",
+              );
+            });
+        } else if (channel.startsWith("D") && botToken && messageTs && !isEdit && !isCallback) {
+          fetchDmContext(channel, messageTs, botToken)
+            .then((context) => context ?? undefined)
+            .catch(() => undefined)
+            .then((context) => forward(context))
+            .catch((err) => {
+              log.error(
+                { err, channel },
+                "Unhandled error in Slack forward (DM context)",
               );
             });
         } else {
