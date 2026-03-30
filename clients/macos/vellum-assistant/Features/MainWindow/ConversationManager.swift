@@ -193,6 +193,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Stores the groupId a conversation had before being pinned, so it can be
     /// restored on unpin instead of falling back to heuristic-based routing.
     private var prePinGroupIds: [UUID: String?] = [:]
+    /// Stores the groupId a conversation had before being archived, so unarchive can restore it.
+    private var preArchiveGroupIds: [UUID: String?] = [:]
     /// Local seen/unread toggles should survive a stale daemon conversation-list
     /// replay until the daemon either acknowledges them or reports a newer reply.
     private var pendingAttentionOverrides: [String: PendingAttentionOverride] = [:]
@@ -767,9 +769,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         let hadGroup = conversations[index].groupId != nil
         let hadOrder = conversations[index].displayOrder != nil
 
-        // Batch mutations into a single array write to avoid multiple
-        // @Published objectWillChange emissions that can cause SwiftUI
-        // ForEach re-entrancy crashes.
+        // Save groupId so unarchive can restore it.
+        preArchiveGroupIds[id] = conversations[index].groupId
+
         var conversation = conversations[index]
         conversation.groupId = nil
         conversation.displayOrder = nil
@@ -845,6 +847,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
 
         conversations[index].isArchived = false
+
+        // Restore groupId saved before archive.
+        if let stored = preArchiveGroupIds.removeValue(forKey: id) {
+            conversations[index].groupId = stored
+            sendReorderConversations()
+        }
 
         // Ensure a ChatViewModel exists (lazily created if it was evicted on archive).
         getOrCreateViewModel(for: id)
