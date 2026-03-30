@@ -320,24 +320,26 @@ async function runHyDESearch(
     };
   }
 
-  // Run parallel semantic searches for each hypothetical doc embedding
-  const hydeSearchPromises = hydeVectors.map((vector) =>
-    semanticSearch(
+  // Run parallel semantic searches for each hypothetical doc embedding,
+  // generating per-doc sparse embeddings so sparse and dense components match.
+  const hydeSearchPromises = hydeVectors.map((vector, i) => {
+    const docSparseVector = generateSparseEmbedding(hypotheticalDocs[i]!);
+    return semanticSearch(
       vector,
       provider,
       model,
       limit,
       excludeMessageIds,
       scopeIds,
-      sparseVector,
+      docSparseVector,
     ).catch((err) => {
       log.warn(
         { err: err instanceof Error ? err.message : String(err) },
         "HyDE hypothetical doc search failed; skipping",
       );
       return [] as Candidate[];
-    }),
-  );
+    });
+  });
 
   // Await all searches in parallel (raw + hypothetical)
   const [rawResults, ...hydeResults] = await Promise.all([
