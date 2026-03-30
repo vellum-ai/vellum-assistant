@@ -92,7 +92,6 @@ function basePrompt(result: string): string {
   for (const heading of [
     "## Configuration",
     "## Skills Catalog",
-    "## Available Skills",
     "## External Communications Identity",
     "## Connected Services",
     "## Dynamic Skill Authoring Workflow",
@@ -173,7 +172,7 @@ describe("buildSystemPrompt", () => {
     expect(basePrompt(result)).toBe("Be kind");
   });
 
-  test("appends skills catalog when skills are configured", () => {
+  test("does not include skills catalog in system prompt", () => {
     const skillsDir = join(TEST_DIR, "skills");
     mkdirSync(join(skillsDir, "release-checklist"), { recursive: true });
     writeFileSync(
@@ -185,11 +184,11 @@ describe("buildSystemPrompt", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "Custom identity");
     const result = buildSystemPrompt();
     expect(result).toContain("Custom identity");
-    expect(result).toContain("## Available Skills");
-    expect(result).toContain("**release-checklist**: Deployment checks");
+    expect(result).not.toContain("## Available Skills");
+    expect(result).not.toContain("**release-checklist**");
   });
 
-  test("keeps SOUL.md and IDENTITY.md additive with skills", () => {
+  test("keeps SOUL.md and IDENTITY.md additive without skills catalog", () => {
     const skillsDir = join(TEST_DIR, "skills");
     mkdirSync(join(skillsDir, "incident-response"), { recursive: true });
     writeFileSync(
@@ -202,10 +201,7 @@ describe("buildSystemPrompt", () => {
 
     const result = buildSystemPrompt();
     expect(result).toContain("Identity content\n\nSoul content");
-    expect(result).toContain("## Available Skills");
-    expect(result.indexOf("Soul content")).toBeLessThan(
-      result.indexOf("## Available Skills"),
-    );
+    expect(result).not.toContain("## Available Skills");
   });
 
   test("includes external service access section", () => {

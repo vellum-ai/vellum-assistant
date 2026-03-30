@@ -68,7 +68,7 @@ describe("Dynamic Skill Authoring Workflow moved to tool descriptions", () => {
     expect(result).not.toContain("### Community Skills Discovery");
   });
 
-  test("prompt still includes available skills catalog when skills exist", () => {
+  test("prompt no longer includes available skills catalog", () => {
     const skillsDir = join(TEST_DIR, "skills");
     mkdirSync(join(skillsDir, "test-skill"), { recursive: true });
     writeFileSync(
@@ -79,8 +79,8 @@ describe("Dynamic Skill Authoring Workflow moved to tool descriptions", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
 
     const result = buildSystemPrompt();
-    expect(result).toContain("## Available Skills");
-    expect(result).toContain("**test-skill**");
+    expect(result).not.toContain("## Available Skills");
+    expect(result).not.toContain("**test-skill**");
   });
 
   test("prompt is additive with IDENTITY/SOUL/USER files", () => {
@@ -94,12 +94,11 @@ describe("Dynamic Skill Authoring Workflow moved to tool descriptions", () => {
     expect(result).toContain("User here");
   });
 
-  test("browser skill has activation hints in skills catalog instead of dedicated section", () => {
+  test("browser skill activation hints no longer appear in system prompt", () => {
     writeFileSync(join(TEST_DIR, "IDENTITY.md"), "I am Vellum.");
     const result = buildSystemPrompt();
-    // Browser routing moved from dedicated section to inline hints in catalog bullet
     expect(result).not.toContain("Browser Skill Prerequisite");
-    expect(result).toContain("**browser**");
-    expect(result).toContain("Load first if you need browser_* tools");
+    // Skills catalog removed from system prompt — activation hints live in capability memories
+    expect(result).not.toContain("## Available Skills");
   });
 });

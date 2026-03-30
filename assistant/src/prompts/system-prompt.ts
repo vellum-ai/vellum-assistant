@@ -8,11 +8,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
-import { skillFlagKey } from "../config/skill-state.js";
-import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
@@ -177,14 +174,12 @@ export function ensurePromptFiles(): void {
 }
 
 /**
- * Build the system prompt from ~/.vellum prompt files,
- * then append a generated skills catalog (if any skills are available).
+ * Build the system prompt from ~/.vellum prompt files.
  *
  * Composition:
  *   1. Base prompt: IDENTITY.md + SOUL.md (guaranteed to exist after ensurePromptFiles)
  *   2. Append USER.md (user profile)
  *   3. If BOOTSTRAP.md exists, append first-run ritual instructions
- *   4. Append skills catalog from ~/.vellum/workspace/skills
  */
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
@@ -307,11 +302,9 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   );
   if (journalContext) dynamicParts.push(journalContext);
 
-  const dynamicWithSkills = appendSkillsCatalog(dynamicParts.join("\n\n"));
+  const dynamic = dynamicParts.join("\n\n");
 
-  return (
-    staticParts.join("\n\n") + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamicWithSkills
-  );
+  return staticParts.join("\n\n") + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamic;
 }
 
 function buildAttachmentSection(): string {
@@ -497,57 +490,3 @@ export function buildCoreIdentityContext(opts?: {
   return parts.length > 0 ? parts.join("\n\n") : null;
 }
 
-function appendSkillsCatalog(basePrompt: string): string {
-  const skills = loadSkillCatalog();
-  const config = getConfig();
-
-  // Filter out skills whose assistant feature flag is explicitly OFF
-  const flagFiltered = skills.filter((s) => {
-    const flagKey = skillFlagKey(s);
-    return !flagKey || isAssistantFeatureFlagEnabled(flagKey, config);
-  });
-
-  const sections: string[] = [basePrompt];
-
-  const catalog = formatSkillsCatalog(flagFiltered);
-  if (catalog) sections.push(catalog);
-
-  return sections.join("\n\n");
-}
-
-/**
- * Build a dynamic description for the mcp-setup skill that includes
- * configured MCP server names, so the model knows which servers exist.
- */
-function getMcpSetupDescription(): string {
-  const config = getConfig();
-  const servers = config.mcp?.servers;
-  if (!servers || Object.keys(servers).length === 0) {
-    return "Add, authenticate, list, and remove MCP servers";
-  }
-
-  const serverNames = Object.keys(servers).sort();
-  return `Manage MCP servers. Configured: ${serverNames.join(", ")}. Load to check status, authenticate, or add/remove servers.`;
-}
-
-function formatSkillsCatalog(skills: SkillSummary[]): string {
-  if (skills.length === 0) return "";
-
-  const lines = ["## Available Skills", ""];
-  for (const skill of skills) {
-    const desc =
-      skill.id === "mcp-setup" ? getMcpSetupDescription() : skill.description;
-
-    // Build a single line: - **id**: description. Hints. Avoid: ...
-    const parts = [desc.replace(/\.\s*$/, "")];
-    if (skill.activationHints && skill.activationHints.length > 0) {
-      parts.push(skill.activationHints.join(". "));
-    }
-    if (skill.avoidWhen && skill.avoidWhen.length > 0) {
-      parts.push(`Avoid: ${skill.avoidWhen.join(". ")}`);
-    }
-    lines.push(`- **${skill.id}**: ${parts.join(". ")}`);
-  }
-
-  return lines.join("\n");
-}
