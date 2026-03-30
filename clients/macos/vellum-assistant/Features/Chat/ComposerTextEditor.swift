@@ -63,7 +63,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         let scrollView = IntrinsicScrollView()
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = false
+        scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay

@@ -71,37 +71,5 @@ final class ComposerReturnKeyRoutingTests: XCTestCase {
         XCTAssertEqual(action, .bridgeSend)
     }
 
-    // MARK: - Execution contract
-
-    func testBridgeSendConsumesEventAndCallsOnSend() {
-        var sendCount = 0
-
-        let consumed = ComposerReturnKeyRouting.performBridgeAction(.bridgeSend, textView: nil) {
-            sendCount += 1
-        }
-
-        XCTAssertTrue(consumed)
-        XCTAssertEqual(sendCount, 1)
-    }
-
-    func testBridgeInsertNewlineConsumesEventWithoutSending() {
-        let textView = makeTextView(with: "hello")
-        var sendCount = 0
-
-        let consumed = ComposerReturnKeyRouting.performBridgeAction(.bridgeInsertNewline, textView: textView) {
-            sendCount += 1
-        }
-
-        XCTAssertTrue(consumed)
-        XCTAssertEqual(textView.string, "hello\n")
-        XCTAssertEqual(sendCount, 0)
-    }
-
-    private func makeTextView(with text: String) -> NSTextView {
-        let textView = NSTextView(frame: .zero)
-        textView.string = text
-        textView.setSelectedRange(NSRange(location: (text as NSString).length, length: 0))
-        return textView
-    }
 }
 #endif

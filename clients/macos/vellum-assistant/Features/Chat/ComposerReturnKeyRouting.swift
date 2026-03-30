@@ -36,29 +36,5 @@ enum ComposerReturnKeyRouting {
         return .deferToSubmit
     }
 
-    // Keep bridge interception and `.onSubmit` on the same execution contract
-    // so routing tweaks cannot silently diverge from the user-visible behavior.
-    @discardableResult
-    static func performBridgeAction(
-        _ action: Action,
-        textView: NSTextView?,
-        onSend: () -> Void
-    ) -> Bool {
-        switch action {
-        case .bridgeSend:
-            onSend()
-            return true
-        case .bridgeInsertNewline:
-            insertNewline(into: textView)
-            return true
-        case .deferToSubmit:
-            return false
-        }
-    }
-
-    private static func insertNewline(into textView: NSTextView?) {
-        guard let textView else { return }
-        textView.insertText("\n", replacementRange: textView.selectedRange())
-    }
 }
 #endif

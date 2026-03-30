@@ -215,7 +215,7 @@ struct ComposerView: View {
     private var composerTextField: some View {
         let scaledBody = VFont.chat
         let hasSlashHighlight = slashCommandRange != nil
-        let nsFont = NSFont(name: "DMSans-Regular", size: 16) ?? .systemFont(ofSize: 16)
+        let nsFont = VFont.nsChat
 
         return ZStack(alignment: .topLeading) {
             composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
