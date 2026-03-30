@@ -596,7 +596,11 @@ export async function buildMemoryRecall(
   const filtered = filterByMinScore(allCandidates);
 
   // ── Step 5b: MMR diversity ranking ─────────────────────────────
-  const diversified = applyMMR(filtered, MMR_PENALTY);
+  const mmrRanked = applyMMR(filtered, MMR_PENALTY);
+
+  // MMR rewrites finalScore, so re-enforce the min-score threshold to
+  // drop candidates whose adjusted score fell below the cutoff.
+  const diversified = filterByMinScore(mmrRanked);
 
   // ── Step 5c: Enrich candidates with source labels ──────────────
   enrichSourceLabels(diversified);
