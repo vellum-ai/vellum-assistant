@@ -29,7 +29,6 @@ private let log = Logger(
 /// - `crash-reports/` — recent macOS crash/hang reports (.ips, .crash, .spin) for assistant-related processes (bun, qdrant, vellum-assistant)
 /// - `app-environment.json` — bundle path, quarantine xattr, and translocation status for diagnosing Gatekeeper-related launch issues
 /// - `os-log.txt` — recent entries from the macOS unified log for the app's subsystem
-/// - `daemon-logs-fallback/` — when daemon is unreachable: vellum.log, recent hatch-*.log, and XDG hatch.log read directly from disk (10 MB cap)
 @MainActor
 enum LogExporter {
 
@@ -386,8 +385,8 @@ enum LogExporter {
                 try? data.write(to: tempDir.appendingPathComponent("report-metadata.json"))
             }
         } else if daemonUnreachable {
-            // Write a minimal manifest when no form data is available so the
-            // receiving end still knows these are raw filesystem reads.
+                // Write a minimal manifest when no form data is available so the
+                // receiving end still knows the daemon was unreachable during export.
             var manifest: [String: Any] = ["daemon-unreachable": true]
             if let assistantVersion = connectedAssistant?.serviceGroupVersion {
                 manifest["assistant_version"] = assistantVersion
