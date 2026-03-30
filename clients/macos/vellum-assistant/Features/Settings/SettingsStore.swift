@@ -460,11 +460,11 @@ public final class SettingsStore: ObservableObject {
         }
 
         // Resolve lockfile-derived state (gateway URL, assistant topology)
-        // asynchronously so that synchronous Data(contentsOf:) file I/O
-        // does not block the main thread during init.
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.refreshLockfileState()
+        // on a background thread so that synchronous Data(contentsOf:)
+        // file I/O does not block the main thread during init.
+        Task.detached { [weak self] in
+            let result = Self.loadLockfileState()
+            await MainActor.run { self?.applyLockfileState(result) }
         }
 
         // Debounce UserDefaults writes so rapid toggle changes don't thrash disk I/O.
@@ -578,15 +578,38 @@ public final class SettingsStore: ObservableObject {
 
     // MARK: - Lockfile State
 
-    /// Refreshes cached lockfile-derived state (gateway URL, assistant topology)
-    /// by reading the lockfile. Called asynchronously during init to avoid
-    /// blocking the main thread with synchronous file I/O.
-    private func refreshLockfileState() {
+    private struct LockfileState {
+        let gatewayUrl: String
+        let isRemote: Bool
+        let isDocker: Bool
+    }
+
+    /// Reads lockfile-derived state off the main thread. The result is applied
+    /// to @Published properties on the main actor via `applyLockfileState`.
+    private nonisolated static func loadLockfileState() -> LockfileState {
         let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        localGatewayTarget = LockfilePaths.resolveGatewayUrl(connectedAssistantId: assistantId)
+        let gatewayUrl = LockfilePaths.resolveGatewayUrl(connectedAssistantId: assistantId)
         let assistant = assistantId.flatMap { LockfileAssistant.loadByName($0) }
-        isCurrentAssistantRemote = assistant?.isRemote ?? false
-        isCurrentAssistantDocker = assistant?.isDocker ?? false
+        return LockfileState(
+            gatewayUrl: gatewayUrl,
+            isRemote: assistant?.isRemote ?? false,
+            isDocker: assistant?.isDocker ?? false
+        )
+    }
+
+    private func applyLockfileState(_ state: LockfileState) {
+        localGatewayTarget = state.gatewayUrl
+        isCurrentAssistantRemote = state.isRemote
+        isCurrentAssistantDocker = state.isDocker
+    }
+
+    /// Refreshes cached lockfile-derived state on a background thread.
+    /// Called when the connected assistant changes.
+    private func refreshLockfileState() {
+        Task.detached { [weak self] in
+            let result = Self.loadLockfileState()
+            await MainActor.run { self?.applyLockfileState(result) }
+        }
     }
 
     // MARK: - API Key Actions

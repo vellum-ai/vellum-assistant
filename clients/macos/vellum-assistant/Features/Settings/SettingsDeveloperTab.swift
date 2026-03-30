@@ -162,9 +162,14 @@ struct SettingsDeveloperTab: View {
 
             // Assistant info setup
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
-            Task { lockfileAssistants = LockfileAssistant.loadAll() }
+            Task.detached {
+                let assistants = LockfileAssistant.loadAll()
+                await MainActor.run {
+                    self.lockfileAssistants = assistants
+                    self.refreshDisplayNames()
+                }
+            }
             Task { await refreshAwakeStates() }
-            refreshDisplayNames()
             identity = IdentityInfo.load()
             resolvePlatformUuid()
             Task { await fetchHealthz() }

@@ -118,8 +118,9 @@ struct AboutVellumView: View {
         .background(VColor.surfaceBase)
         .onAppear {
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
-            Task {
-                lockfileAssistants = LockfileAssistant.loadAll()
+            Task.detached {
+                let assistants = LockfileAssistant.loadAll()
+                await MainActor.run { self.lockfileAssistants = assistants }
             }
             Task { await fetchHealthz() }
         }

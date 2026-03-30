@@ -85,11 +85,11 @@ struct SettingsGeneralTab: View {
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
             sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
             sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
-            Task {
-                // Load lockfile off the synchronous main-thread path — the
-                // underlying Data(contentsOf:) file I/O can block the UI.
+            Task.detached {
+                // Load lockfile on a background thread — the underlying
+                // Data(contentsOf:) file I/O can block the main thread.
                 let assistants = LockfileAssistant.loadAll()
-                lockfileAssistants = assistants
+                await MainActor.run { self.lockfileAssistants = assistants }
             }
             Task { await fetchHealthz() }
         }
