@@ -1,6 +1,3 @@
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   afterEach,
@@ -12,12 +9,6 @@ import {
 } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "runtime-attach-meta-test-")),
-);
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -52,14 +43,7 @@ import * as pendingInteractions from "../runtime/pending-interactions.js";
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 const TEST_TOKEN = "test-bearer-token-attach";
@@ -70,8 +54,6 @@ describe("Runtime attachment metadata", () => {
   let port: number;
 
   beforeEach(async () => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM message_attachments");
     db.run("DELETE FROM attachments");
@@ -292,8 +274,6 @@ describe("WhatsApp channel ingress attachment resolution", () => {
   );
 
   beforeEach(async () => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetIngressTables();
     ensureWhatsAppContact();
     noopProcessMessage.mockClear();

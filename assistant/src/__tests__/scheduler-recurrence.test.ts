@@ -1,6 +1,3 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeAll,
@@ -10,10 +7,6 @@ import {
   mock,
   test,
 } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "scheduler-recurrence-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -49,14 +42,7 @@ function forceScheduleDue(scheduleId: string): void {
 }
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // Build an RRULE expression anchored at the given start date, recurring every minute.
@@ -112,8 +98,6 @@ describe("scheduler RRULE execution", () => {
   });
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM cron_runs");
     db.run("DELETE FROM cron_jobs");

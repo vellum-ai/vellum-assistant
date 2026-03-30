@@ -6,9 +6,6 @@
  * Non-tool-approval requests and rejections must NOT mint grants.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeEach,
@@ -22,10 +19,6 @@ import {
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
-
-const testDir = mkdtempSync(join(tmpdir(), "guardian-grant-minting-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -54,14 +47,7 @@ import "../memory/scoped-approval-grants.js";
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // ---------------------------------------------------------------------------
@@ -179,8 +165,6 @@ describe("guardian grant minting on tool-approval decisions", () => {
   let composeSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     deliverSpy = spyOn(gatewayClient, "deliverChannelReply").mockResolvedValue({
       ok: true,
@@ -580,8 +564,6 @@ describe("approval interception trust-class regression coverage", () => {
   let composeSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     deliverSpy = spyOn(gatewayClient, "deliverChannelReply").mockResolvedValue({
       ok: true,

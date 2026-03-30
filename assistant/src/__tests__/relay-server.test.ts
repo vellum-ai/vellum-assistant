@@ -14,9 +14,6 @@
  * - Malformed message resilience
  */
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeEach,
@@ -27,10 +24,6 @@ import {
   mock,
   test,
 } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "relay-server-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // ── Platform + logger mocks (must come before any source imports) ────
 
@@ -201,14 +194,7 @@ import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // ── Mock WebSocket factory ──────────────────────────────────────────
@@ -346,8 +332,6 @@ function getLatestAssistantText(conversationId: string): string | null {
 
 describe("relay-server", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     activeRelayConnections.clear();
     mockUserReference = "my human";

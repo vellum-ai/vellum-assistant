@@ -12,18 +12,11 @@
  *   no_active_session error paths all produce the expected error codes.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
-
-const testDir = mkdtempSync(join(tmpdir(), "guardian-outbound-http-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -112,15 +105,8 @@ import {
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   globalThis.fetch = originalFetch;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 function resetTables(): void {
@@ -152,8 +138,6 @@ function jsonRequest(body: Record<string, unknown>): Request {
 
 // Reset mutable state between tests
 beforeEach(() => {
-  process.env.VELLUM_HOME = testDir;
-  process.env.VELLUM_WORKSPACE_DIR = testDir;
   resetTables();
   telegramDeliverCalls.length = 0;
   voiceCallInitCalls.length = 0;

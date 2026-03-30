@@ -6,9 +6,6 @@
  * - Messages are queued (202, queued: true) when the conversation is busy, not 409.
  * - SSE subscribers receive events from messages sent via this endpoint.
  */
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
@@ -21,12 +18,6 @@ import {
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "send-endpoint-busy-test-")),
-);
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -304,8 +295,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
   let eventHub: AssistantEventHub;
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM messages");
     db.run("DELETE FROM conversations");
@@ -328,14 +317,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
   });
 
   afterAll(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
     resetDb();
-    try {
-      rmSync(testDir, { recursive: true, force: true });
-    } catch {
-      /* best effort */
-    }
   });
 
   async function startServer(

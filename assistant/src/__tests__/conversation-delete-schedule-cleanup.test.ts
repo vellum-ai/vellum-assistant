@@ -3,16 +3,7 @@
  * job also deletes the schedule, preventing orphaned scheduled automations.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(
-  join(tmpdir(), "conv-delete-schedule-cleanup-test-"),
-);
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -39,14 +30,7 @@ import { createSchedule, getSchedule } from "../schedule/schedule-store.js";
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 function getRawDb(): Database {
@@ -86,8 +70,6 @@ function getWipeHandler() {
 
 describe("DELETE /conversations/:id — schedule cleanup", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
     getRawDb().run("DELETE FROM memory_item_sources");
@@ -313,8 +295,6 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
 
 describe("POST /conversations/:id/wipe — schedule cleanup", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
     getRawDb().run("DELETE FROM memory_item_sources");

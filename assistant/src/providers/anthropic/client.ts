@@ -862,6 +862,9 @@ export class AnthropicProvider implements Provider {
           // turns) and dynamic workspace content (changes when files are
           // edited).  The static prefix stays cached even when workspace
           // files change, saving ~8-10K tokens of cache creation per turn.
+          // Both blocks use 1-hour cache TTL to avoid repeated cache misses
+          // for conversations with turn gaps exceeding the default 5-minute
+          // window.
           const staticBlock = systemPrompt.slice(0, boundaryIdx);
           const dynamicBlock = systemPrompt.slice(
             boundaryIdx + SYSTEM_PROMPT_CACHE_BOUNDARY.length,
@@ -870,12 +873,12 @@ export class AnthropicProvider implements Provider {
             {
               type: "text" as const,
               text: staticBlock,
-              cache_control: { type: "ephemeral" as const },
+              cache_control: { type: "ephemeral" as const, ttl: "1h" as const },
             },
             {
               type: "text" as const,
               text: dynamicBlock,
-              cache_control: { type: "ephemeral" as const },
+              cache_control: { type: "ephemeral" as const, ttl: "1h" as const },
             },
           ];
         } else {
@@ -883,7 +886,7 @@ export class AnthropicProvider implements Provider {
             {
               type: "text" as const,
               text: systemPrompt,
-              cache_control: { type: "ephemeral" as const },
+              cache_control: { type: "ephemeral" as const, ttl: "1h" as const },
             },
           ];
         }

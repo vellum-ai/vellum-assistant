@@ -1,11 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "schedule-tools-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -33,14 +26,7 @@ import type { ToolContext } from "../tools/types.js";
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 function getRawDb(): Database {
@@ -62,8 +48,6 @@ const trustedCtx: ToolContext = {
 
 describe("schedule_create tool", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
   });
@@ -188,8 +172,6 @@ describe("schedule_create tool", () => {
 
 describe("schedule_create with fire_at (one-shot)", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
   });
@@ -264,8 +246,6 @@ describe("schedule_create with fire_at (one-shot)", () => {
 
 describe("schedule_create with mode and routing", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
   });
@@ -343,8 +323,6 @@ describe("schedule_create with mode and routing", () => {
 
 describe("schedule_list tool", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
   });
@@ -444,8 +422,6 @@ describe("schedule_list tool", () => {
 
 describe("schedule_list with one-shot schedules", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
   });
@@ -556,8 +532,6 @@ describe("schedule_list with one-shot schedules", () => {
 
 describe("schedule_update tool", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
   });
@@ -722,8 +696,6 @@ describe("schedule_update tool", () => {
 
 describe("schedule_update with mode and routing", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
   });
@@ -925,8 +897,6 @@ describe("schedule_update with mode and routing", () => {
 
 describe("schedule_create with RRULE", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
   });
@@ -982,8 +952,6 @@ describe("schedule_create with RRULE", () => {
 
 describe("schedule_update with RRULE", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
   });
@@ -1070,8 +1038,6 @@ describe("schedule_update with RRULE", () => {
 
 describe("schedule_list with RRULE", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
   });
@@ -1138,8 +1104,6 @@ describe("schedule_list with RRULE", () => {
 
 describe("schedule_create with RRULE set (EXDATE)", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
   });
@@ -1231,8 +1195,6 @@ describe("schedule_create with RRULE set (EXDATE)", () => {
 
 describe("schedule_update with RRULE set", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
   });
@@ -1308,8 +1270,6 @@ describe("schedule_update with RRULE set", () => {
 
 describe("schedule_list with RRULE set", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
   });
@@ -1359,8 +1319,6 @@ describe("schedule_list with RRULE set", () => {
 
 describe("schedule_create with RRULE + EXRULE", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
   });
@@ -1415,8 +1373,6 @@ describe("schedule_create with RRULE + EXRULE", () => {
 
 describe("schedule_delete tool", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     getRawDb().run("DELETE FROM cron_runs");
     getRawDb().run("DELETE FROM cron_jobs");
   });

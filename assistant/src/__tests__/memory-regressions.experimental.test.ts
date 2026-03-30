@@ -1,6 +1,3 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeAll,
@@ -10,10 +7,6 @@ import {
   mock,
   test,
 } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "memory-regressions-exp-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../security/secure-keys.js", () => ({
   getProviderKeyAsync: async () => undefined,
@@ -96,8 +89,6 @@ describe("Memory regressions (experimental)", () => {
   });
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM memory_item_sources");
     db.run("DELETE FROM memory_embeddings");
@@ -115,14 +106,7 @@ describe("Memory regressions (experimental)", () => {
   });
 
   afterAll(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
     resetDb();
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      // best effort cleanup
-    }
   });
 
   async function withMockOllamaQueryEmbedding<T>(

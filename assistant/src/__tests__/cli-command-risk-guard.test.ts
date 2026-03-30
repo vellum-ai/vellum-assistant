@@ -5,14 +5,7 @@
 // sensitive subcommands are intentionally elevated to Medium or High.
 // See #18982 / #18998 for the regression that motivated this guard.
 
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
-
-const guardTestDir = mkdtempSync(join(tmpdir(), "cli-risk-guard-test-"));
-process.env.VELLUM_HOME = guardTestDir;
-process.env.VELLUM_WORKSPACE_DIR = guardTestDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>

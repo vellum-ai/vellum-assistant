@@ -7,18 +7,11 @@
  * 3. Create a guardian approval request for the access request
  * 4. Deduplicate: don't create duplicate requests for repeated messages
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
-
-const testDir = mkdtempSync(join(tmpdir(), "non-member-access-request-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -81,14 +74,7 @@ import { handleChannelInbound } from "../runtime/routes/channel-routes.js";
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // ---------------------------------------------------------------------------
@@ -162,8 +148,6 @@ function buildInboundRequest(overrides: Record<string, unknown> = {}): Request {
 describe("non-member access request notification", () => {
   let anchorPrincipalId: string;
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     anchorPrincipalId = resetState();
   });
 
@@ -361,8 +345,6 @@ describe("non-member access request notification", () => {
 describe("access-request-helper unit tests", () => {
   let anchorPrincipalId: string;
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     anchorPrincipalId = resetState();
   });
 
