@@ -66,6 +66,7 @@ struct SettingsDeveloperTab: View {
     @State private var lastSentryStatus: String?
     @State private var sentryDismissTask: Task<Void, Never>?
     @State private var isSentryEnabled: Bool = true
+    @State private var isSentrySdkRunning: Bool = false
 
     @State private var featureFlagSearchText: String = ""
     @State private var featureFlagScopeFilter: String = "all"
@@ -179,6 +180,7 @@ struct SettingsDeveloperTab: View {
             // Sentry setup
             isSentryEnabled = UserDefaults.standard.object(forKey: "sendDiagnostics") as? Bool
                 ?? true
+            isSentrySdkRunning = SentrySDK.isEnabled
         }
         .alert("Retire Assistant", isPresented: $showingRetireConfirmation) {
             Button("Cancel", role: .cancel) {}
@@ -1079,7 +1081,15 @@ struct SettingsDeveloperTab: View {
                 HStack(spacing: VSpacing.xs) {
                     VIconView(.triangleAlert, size: 12)
                         .foregroundStyle(VColor.systemNegativeHover)
-                    Text("Share Diagnostics is disabled. Non-fatal events will be silently dropped unless you enable \"Share Diagnostics\" in the Privacy tab.")
+                    Text("Share Diagnostics is disabled. Events will be silently dropped unless you enable \"Share Diagnostics\" in the Privacy tab.")
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.systemNegativeHover)
+                }
+            } else if !isSentrySdkRunning {
+                HStack(spacing: VSpacing.xs) {
+                    VIconView(.triangleAlert, size: 12)
+                        .foregroundStyle(VColor.systemNegativeHover)
+                    Text("Sentry SDK is not running (DSN missing from this build). Events will be silently dropped.")
                         .font(VFont.labelDefault)
                         .foregroundStyle(VColor.systemNegativeHover)
                 }
@@ -1173,6 +1183,10 @@ struct SettingsDeveloperTab: View {
     private func sendSentryTestEvent(level: SentryLevel, label: String) {
         guard isSentryEnabled else {
             showSentryStatus("Sentry is disabled — \(label) not sent.")
+            return
+        }
+        guard SentrySDK.isEnabled else {
+            showSentryStatus("Sentry SDK is not running (DSN missing?) — \(label) not sent.")
             return
         }
         let event = Event(level: level)

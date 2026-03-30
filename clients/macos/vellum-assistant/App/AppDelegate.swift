@@ -362,6 +362,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // can be attached to the scope for the automatic crash event.
         let crashLogURLs = sendDiagnostics ? CrashReporter.pendingCrashLogURLs() : []
 
+        if !sendDiagnostics {
+            log.info("Sentry disabled: user opted out of diagnostics")
+        } else if MetricKitManager.macosDSN.isEmpty {
+            log.warning("Sentry disabled: SENTRY_DSN_MACOS not set in this build")
+        }
+
         if sendDiagnostics && !MetricKitManager.macosDSN.isEmpty {
             let appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
             let buildNumber = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
@@ -414,6 +420,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
 
             SentryLogReporter.start()
+            log.info("Sentry initialized (env=\(SentryDeviceInfo.sentryEnvironment, privacy: .public), crashedLastRun=\(crashedLastRun, privacy: .public), ipsFiles=\(crashLogURLs.count, privacy: .public))")
         }
 
         // Record this launch so the next session can identify new crashes.
