@@ -59,7 +59,9 @@ final class MessageListScrollState {
     /// re-evaluation from scroll state. Bumped at most once per 16ms frame.
     private(set) var uiVersion: UInt64 = 0
 
-    /// Snapshot: whether the tail spacer should render.
+    /// Snapshot: whether push-to-top is active. Used by `syncUISnapshots`
+    /// to detect state transitions and bump `uiVersion`. The view reads
+    /// `tailSpacerHeight` directly (the spacer is always present).
     @ObservationIgnored private(set) var showTailSpacer = false
 
     /// Snapshot: whether scroll indicators should be hidden.
