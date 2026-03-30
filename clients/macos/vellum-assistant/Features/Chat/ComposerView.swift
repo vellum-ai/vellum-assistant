@@ -219,6 +219,8 @@ struct ComposerView: View {
 
         return ZStack(alignment: .topLeading) {
             composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
+                .padding(.leading, ComposerTextEditor.textInsetX)
+                .padding(.top, ComposerTextEditor.textInsetY)
             ComposerTextEditor(
                 text: $inputText,
                 measuredHeight: $measuredTextHeight,

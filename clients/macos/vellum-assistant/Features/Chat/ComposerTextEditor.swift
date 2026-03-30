@@ -9,6 +9,12 @@ import SwiftUI
 ///
 /// Ref: https://developer.apple.com/documentation/appkit/nstextview
 struct ComposerTextEditor: NSViewRepresentable {
+    /// Inset values matching NSTextView's internal layout offsets.
+    /// Used to align SwiftUI overlays (ghost text, slash highlighting)
+    /// with the NSTextView's rendered text position.
+    static let textInsetX: CGFloat = 5   // lineFragmentPadding
+    static let textInsetY: CGFloat = 6   // textContainerInset.height
+
     @Binding var text: String
     @Binding var measuredHeight: CGFloat
     @Binding var isFocused: Bool
@@ -51,8 +57,8 @@ struct ComposerTextEditor: NSViewRepresentable {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainer?.lineFragmentPadding = 5
-        textView.textContainerInset = NSSize(width: 0, height: 6)
+        textView.textContainer?.lineFragmentPadding = Self.textInsetX
+        textView.textContainerInset = NSSize(width: 0, height: Self.textInsetY)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.font = font

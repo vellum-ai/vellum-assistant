@@ -86,11 +86,7 @@ final class ComposerTextView: NSTextView {
                 insertText("\n", replacementRange: selectedRange())
                 return
             case .deferToSubmit:
-                if modifiers.isEmpty {
-                    onSubmit?()
-                    return
-                }
-                super.keyDown(with: event)
+                onSubmit?()
                 return
             }
         }
