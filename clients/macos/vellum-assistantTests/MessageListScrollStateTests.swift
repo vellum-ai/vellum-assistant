@@ -60,11 +60,15 @@ final class MessageListScrollStateTests: XCTestCase {
         XCTAssertTrue(state.isFollowingBottom)
     }
 
-    func testRapidDetachCallsDoNotAccumulate() {
+    func testRapidDetachCallsDoNotAccumulate() async throws {
         for _ in 0..<100 {
             state.detach()
         }
         XCTAssertFalse(state.isFollowingBottom)
+        // showScrollToLatest is debounced — not yet updated synchronously.
+        XCTAssertFalse(state.showScrollToLatest)
+        // Wait for the debounced UI sync to fire.
+        try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertTrue(state.showScrollToLatest)
     }
 
@@ -220,6 +224,7 @@ final class MessageListScrollStateTests: XCTestCase {
         state.reset(for: newId)
 
         XCTAssertTrue(state.isFollowingBottom, "Should restore following state")
+        XCTAssertFalse(state.showScrollToLatest, "Should sync showScrollToLatest immediately on reset")
         XCTAssertFalse(state.isSuppressed, "Should clear suppression")
         XCTAssertFalse(state.isPaginationInFlight, "Should clear pagination flag")
         XCTAssertFalse(state.wasPaginationTriggerInRange, "Should clear trigger range flag")
@@ -270,15 +275,19 @@ final class MessageListScrollStateTests: XCTestCase {
 
     // MARK: - Computed Properties
 
-    func testShowScrollToLatest() {
+    func testShowScrollToLatest() async throws {
         XCTAssertFalse(state.showScrollToLatest,
                        "Should be false when following bottom")
 
         state.detach()
+        // Wait for debounced UI sync.
+        try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertTrue(state.showScrollToLatest,
                       "Should be true when not following bottom")
 
         state.reattach()
+        // Wait for debounced UI sync.
+        try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertFalse(state.showScrollToLatest,
                        "Should be false again after reattach")
     }

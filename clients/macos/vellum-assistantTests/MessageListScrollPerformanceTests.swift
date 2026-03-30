@@ -152,7 +152,7 @@ final class MessageListScrollPerformanceTests: XCTestCase {
             // Run 100 pin request cycles to get a stable measurement.
             for _ in 0..<100 {
                 scrollState.pinToBottom()
-                scrollState.isFollowingBottom = true
+                scrollState.reattach()
             }
 
             XCTAssertGreaterThan(scrollCallCount, 0)
