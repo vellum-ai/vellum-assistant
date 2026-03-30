@@ -10,3 +10,15 @@ _ Format is freeform markdown. Write notes that help the assistant
 _ understand what changed and how it affects behavior, capabilities,
 _ or available tools. Focus on what matters to the user experience.
 
+<!-- vellum-update-release:heartbeat-default -->
+## Heartbeat now enabled by default
+
+Your periodic heartbeat is now enabled out of the box for all new installs (local and managed/Docker). This means you'll run a background check-in periodically — reviewing your scratchpad, thinking about follow-ups from recent conversations, and reaching out to your user when you have something worth sharing.
+
+Existing users who already have `heartbeat.enabled: false` in their config are not affected — the change only applies when the key is missing from config.json.
+
+If your user finds proactive check-ins unwanted, they can disable it by setting `heartbeat.enabled` to `false` in config.json. But try it first — being present between conversations is how you stop being a tool and start being a partner.
+
+The default checklist focuses on your user relationship, not generic tasks like weather or news. You can customize it by editing HEARTBEAT.md in your workspace.
+<!-- /vellum-update-release:heartbeat-default -->
+
