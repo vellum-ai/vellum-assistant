@@ -1460,6 +1460,36 @@ describe("routing invariant: expired requests are excluded from pending discover
     expect(resolvedExpired!.status).toBe("pending");
   });
 
+  test("backtick-wrapped plain-text approve is normalized and applied", async () => {
+    const req = createCanonicalGuardianRequest({
+      kind: "tool_approval",
+      sourceType: "channel",
+      conversationId: "conv-1",
+      guardianExternalUserId: "guardian-1",
+      guardianPrincipalId: TEST_PRINCIPAL_ID,
+      requestCode: "FMT001",
+      toolName: "shell",
+      expiresAt: Date.now() + 60_000,
+    });
+    registerPendingToolApprovalInteraction(req.id, "conv-1", "shell");
+
+    const result = await routeGuardianReply(
+      replyCtx({
+        messageText: "`approve`",
+        conversationId: "conv-guardian-conversation",
+        pendingRequestIds: [req.id],
+        approvalConversationGenerator: undefined,
+      }),
+    );
+
+    expect(result.consumed).toBe(true);
+    expect(result.type).toBe("canonical_decision_applied");
+    expect(result.decisionApplied).toBe(true);
+
+    const resolved = getCanonicalGuardianRequest(req.id);
+    expect(resolved!.status).toBe("approved");
+  });
+
   test("all expired hinted requests means no pending found — not consumed", async () => {
     const expired1 = createCanonicalGuardianRequest({
       kind: "tool_approval",
