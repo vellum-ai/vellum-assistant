@@ -100,9 +100,9 @@ private struct AttachmentImageGrid<Fallback: View>: View {
     /// Single images render at full width; multiple images use a compact grid.
     private var isSingleImage: Bool { imageAttachments.count == 1 }
 
-    private static let gridColumns = [
-        GridItem(.adaptive(minimum: 160, maximum: 160), spacing: VSpacing.sm)
-    ]
+    private var gridColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 160, maximum: 160), spacing: VSpacing.sm)]
+    }
 
     @available(macOS, deprecated: 13.0)
     var body: some View {
@@ -259,7 +259,7 @@ private struct AttachmentImageGrid<Fallback: View>: View {
         if isSingleImage {
             content
         } else {
-            LazyVGrid(columns: Self.gridColumns, alignment: .leading, spacing: VSpacing.sm) {
+            LazyVGrid(columns: gridColumns, alignment: .leading, spacing: VSpacing.sm) {
                 content
             }
         }
