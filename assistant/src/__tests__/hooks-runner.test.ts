@@ -3,9 +3,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-// Set BASE_DATA_DIR before importing modules that use getRootDir()
+// Set VELLUM_WORKSPACE_DIR before importing modules that use platform helpers
 const testDir = join(tmpdir(), `hooks-runner-test-${Date.now()}`);
-process.env.BASE_DATA_DIR = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 import { runHookScript } from "../hooks/runner.js";
 import type { DiscoveredHook, HookEventData } from "../hooks/types.js";
@@ -40,7 +40,7 @@ describe("Hook Runner", () => {
   let hooksDir: string;
 
   beforeEach(() => {
-    hooksDir = join(testDir, ".vellum", "hooks");
+    hooksDir = join(testDir, "hooks");
     mkdirSync(hooksDir, { recursive: true });
   });
 
@@ -136,26 +136,8 @@ describe("Hook Runner", () => {
     const result = await runHookScript(hook, eventData);
     expect(result.exitCode).toBe(0);
     const wsDir = result.stdout.trim();
-    expect(wsDir).toContain(".vellum");
-    expect(wsDir).toEndWith("workspace");
-  });
-
-  test("sets both VELLUM_ROOT_DIR and VELLUM_WORKSPACE_DIR", async () => {
-    const hook = createTestHook(
-      hooksDir,
-      "both-dirs-hook",
-      '#!/bin/bash\necho "$VELLUM_ROOT_DIR|$VELLUM_WORKSPACE_DIR"',
-    );
-    const eventData: HookEventData = { event: "pre-tool-execute" };
-
-    const result = await runHookScript(hook, eventData);
-    expect(result.exitCode).toBe(0);
-    const [rootDir, wsDir] = result.stdout.trim().split("|");
-    expect(rootDir).toContain(".vellum");
-    expect(wsDir).toContain(".vellum");
-    expect(wsDir).toEndWith("workspace");
-    // workspace dir should be a subdirectory of root dir
-    expect(wsDir).toStartWith(rootDir);
+    expect(wsDir.length).toBeGreaterThan(0);
+    expect(wsDir).toBe(testDir);
   });
 
   test("handles non-existent script gracefully", async () => {

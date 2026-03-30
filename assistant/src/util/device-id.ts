@@ -8,11 +8,9 @@
  * Path resolution:
  *   - Containerized (IS_CONTAINERIZED=true): uses /home/assistant (the assistant
  *     user's persistent home dir) so device.json lives on the assistant's own
- *     filesystem rather than the shared data volume. Falls back to BASE_DATA_DIR
- *     for migration from the old location.
+ *     filesystem rather than the shared data volume.
  *   - Local (single or multi-instance): uses homedir() so all instances on the
- *     same machine share a single device ID, even when BASE_DATA_DIR is set to
- *     an instance-scoped directory.
+ *     same machine share a single device ID.
  *
  * The value is cached in memory after the first successful read/write.
  * Falls back to a generated UUID if the file cannot be read or written.
@@ -23,7 +21,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
+import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "./logger.js";
 
 const log = getLogger("device-id");
@@ -44,21 +42,6 @@ export function getDeviceIdBaseDir(): string {
     return "/home/assistant";
   }
   return homedir();
-}
-
-/**
- * Resolve the legacy base directory for device.json migration.
- *
- * Returns the old containerized path (BASE_DATA_DIR) so we can fall back to
- * reading device.json from the shared volume if it hasn't been migrated yet.
- * Returns undefined when not containerized or when no legacy path exists.
- */
-function getLegacyDeviceIdBaseDir(): string | undefined {
-  if (!getIsContainerized()) {
-    return undefined;
-  }
-  const baseDataDir = getBaseDataDir();
-  return baseDataDir || undefined;
 }
 
 /**
@@ -96,55 +79,10 @@ export function getDeviceId(): string {
       }
     }
   } catch (err) {
-    log.warn({ err }, "Failed to read device.json — checking legacy path");
+    log.warn({ err }, "Failed to read device.json — generating new device ID");
   }
 
-  // Migration fallback: check the legacy location (shared volume) if the new
-  // location doesn't have a valid device.json yet.
-  const legacyBase = getLegacyDeviceIdBaseDir();
-  if (legacyBase) {
-    const legacyPath = join(legacyBase, ".vellum", "device.json");
-    try {
-      if (existsSync(legacyPath)) {
-        const raw = JSON.parse(readFileSync(legacyPath, "utf-8"));
-        if (
-          raw &&
-          typeof raw === "object" &&
-          typeof raw.deviceId === "string" &&
-          raw.deviceId.length > 0
-        ) {
-          cached = raw.deviceId as string;
-          log.info(
-            { deviceId: cached },
-            "Resolved device ID from legacy device.json — will persist to new location",
-          );
-          // Persist to the new location so future reads don't need the fallback
-          try {
-            mkdirSync(vellumDir, { recursive: true });
-            writeFileSync(
-              filePath,
-              JSON.stringify({ deviceId: cached }, null, 2) + "\n",
-              { mode: 0o644 },
-            );
-            log.info("Migrated device.json to new location");
-          } catch (writeErr) {
-            log.warn(
-              { err: writeErr },
-              "Failed to migrate device.json to new location",
-            );
-          }
-          return cached;
-        }
-      }
-    } catch (err) {
-      log.warn(
-        { err },
-        "Failed to read legacy device.json — generating new device ID",
-      );
-    }
-  }
-
-  // Either the file doesn't exist at either location, or deviceId was missing/empty.
+  // Either the file doesn't exist or deviceId was missing/empty.
   // Generate a new UUID and persist it.
   try {
     mkdirSync(vellumDir, { recursive: true });

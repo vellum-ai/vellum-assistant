@@ -62,6 +62,9 @@ struct ComposerView: View {
     var composerCompactHeight: CGFloat = 38
     var conversationId: UUID?
     var isInteractionEnabled: Bool = true
+    var contextWindowFillRatio: Double? = nil
+    var contextWindowTokens: Int? = nil
+    var contextWindowMaxTokens: Int? = nil
 
     @Environment(\.cmdEnterToSend) private var cmdEnterToSend
     #if os(macOS)
@@ -397,9 +400,7 @@ struct ComposerView: View {
     private var composerActionBar: some View {
         HStack(spacing: VSpacing.xs) {
             // Left side
-            if isAssistantBusy && !hasPendingConfirmation {
-                Spacer()
-            } else {
+            if !isAssistantBusy || hasPendingConfirmation {
                 VButton(
                     label: "Attach file",
                     iconOnly: VIcon.paperclip.rawValue,
@@ -409,9 +410,15 @@ struct ComposerView: View {
                 )
 
                 .vTooltip("Attach file")
-
-                Spacer()
             }
+
+            VContextWindowIndicator(
+                fillRatio: contextWindowFillRatio,
+                tokensUsed: contextWindowTokens,
+                tokensMax: contextWindowMaxTokens
+            )
+
+            Spacer()
 
             // Right side
             if isAssistantBusy && !hasPendingConfirmation {

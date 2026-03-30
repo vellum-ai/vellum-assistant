@@ -35,6 +35,7 @@ public class VMenuPanel: NSPanel {
     public static func show<Content: View>(
         at screenPoint: CGPoint,
         sourceAppearance: NSAppearance? = nil,
+        excludeRect: CGRect? = nil,
         @ViewBuilder content: () -> Content,
         onDismiss: @escaping () -> Void
     ) -> VMenuPanel {
@@ -93,7 +94,7 @@ public class VMenuPanel: NSPanel {
 
         // Register with coordinator — it installs the unified click monitor
         let sourceWindow = NSApp.windows.first(where: { $0.frame.contains(screenPoint) && !($0 is VMenuPanel) })
-        coordinator.registerRootPanel(panel, sourceWindow: sourceWindow, onDismiss: onDismiss)
+        coordinator.registerRootPanel(panel, sourceWindow: sourceWindow, excludeRect: excludeRect, onDismiss: onDismiss)
 
         return panel
     }

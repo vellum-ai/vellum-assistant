@@ -38,7 +38,7 @@ Examples:
   assistant oauth providers list
   assistant oauth providers get google
   assistant oauth mode google --set=managed
-  assistant oauth connect google --open-browser
+  assistant oauth connect google
   assistant oauth status google
   assistant oauth ping google
   assistant oauth request --provider google /gmail/v1/users/me/messages

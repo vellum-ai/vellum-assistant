@@ -8,6 +8,13 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+mock.module("../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
+}));
+
 import { PairingStore } from "../daemon/pairing-store.js";
 import type { PairingHandlerContext } from "../runtime/routes/pairing-routes.js";
 import { handlePairingRequest } from "../runtime/routes/pairing-routes.js";
@@ -22,7 +29,6 @@ function makeContext(store: PairingStore): PairingHandlerContext {
   return {
     pairingStore: store,
     bearerToken: "test-bearer-token",
-    featureFlagToken: undefined,
     pairingBroadcast: mock(() => {}),
   };
 }

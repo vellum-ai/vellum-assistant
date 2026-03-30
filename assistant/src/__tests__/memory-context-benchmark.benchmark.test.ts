@@ -7,9 +7,6 @@
  * - recall.injectedTokens: <= computed dynamic budget
  * - recall.enabled: true
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeAll,
@@ -28,19 +25,6 @@ import { computeRecallBudget } from "../memory/retrieval-budget.js";
 import { buildMemoryRecall } from "../memory/retriever.js";
 import { conversations, memorySegments, messages } from "../memory/schema.js";
 import type { Message, Provider } from "../providers/types.js";
-
-const testDir = mkdtempSync(join(tmpdir(), "memory-context-benchmark-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -204,11 +188,6 @@ describe("Memory context benchmark", () => {
 
   afterAll(() => {
     resetDb();
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      // best effort cleanup
-    }
   });
 
   test("long-session compaction + recall benchmark remains within expected bounds", async () => {

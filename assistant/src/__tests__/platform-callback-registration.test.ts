@@ -33,10 +33,8 @@ mock.module("../util/logger.js", () => ({
 
 const originalFetch = globalThis.fetch;
 
-const {
-  registerCallbackRoute,
-  resolvePlatformCallbackRegistrationContext,
-} = await import("../inbound/platform-callback-registration.js");
+const { registerCallbackRoute, resolvePlatformCallbackRegistrationContext } =
+  await import("../inbound/platform-callback-registration.js");
 
 describe("platform callback registration", () => {
   beforeEach(() => {
@@ -65,9 +63,7 @@ describe("platform callback registration", () => {
     expect(context.enabled).toBe(true);
     expect(context.containerized).toBe(true);
     expect(context.platformBaseUrl).toBe("https://platform.example.com");
-    expect(context.assistantId).toBe(
-      "11111111-2222-4333-8444-555555555555",
-    );
+    expect(context.assistantId).toBe("11111111-2222-4333-8444-555555555555");
     expect(context.hasInternalApiKey).toBe(false);
     expect(context.hasAssistantApiKey).toBe(true);
     expect(context.authHeader).toBe("Api-Key ast-managed-key");

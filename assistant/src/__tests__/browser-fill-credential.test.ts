@@ -9,10 +9,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => "/tmp/browser-fill-credential-test",
-}));
-
 let mockPage: {
   click: ReturnType<typeof mock>;
   fill: ReturnType<typeof mock>;

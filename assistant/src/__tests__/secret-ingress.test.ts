@@ -32,11 +32,6 @@ mock.module("../util/logger.js", () => ({
   }),
 }));
 
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => "/tmp/vellum-test-ingress",
-  getWorkspaceDir: () => "/tmp/vellum-test-ingress/workspace",
-}));
-
 import { resetAllowlist } from "../security/secret-allowlist.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 

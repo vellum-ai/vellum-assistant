@@ -294,7 +294,7 @@ public enum GatewayHTTPClient {
     /// for non-managed (bearer token) connections.
     ///
     /// On a 401 response, drains the response stream, attempts to refresh
-    /// credentials via `ActorCredentialRefresher`, and retries the request once
+    /// credentials via `TokenRefreshCoordinator`, and retries the request once
     /// with fresh auth headers.
     ///
     /// - Parameters:
@@ -391,7 +391,6 @@ public enum GatewayHTTPClient {
                 // `AuthService.shared.baseURL` is @MainActor-isolated and
                 // cannot be read from a nonisolated synchronous context.
                 baseURL = AuthService.resolveBaseURL(
-                    configuredBaseURL: AuthService.currentConfiguredBaseURL,
                     environment: ProcessInfo.processInfo.environment,
                     userDefaults: .standard
                 )
@@ -594,10 +593,25 @@ public enum GatewayHTTPClient {
         return DownloadResponse(fileURL: tempURL, statusCode: statusCode)
     }
 
+    // MARK: - Direct (Non-Retrying) API
+
+    /// Performs a POST request that bypasses the 401 retry interceptor.
+    ///
+    /// Use this exclusively for the credential refresh endpoint itself
+    /// (`guardian/refresh`) to prevent recursive refresh loops where
+    /// a 401 on the refresh call would trigger another refresh attempt.
+    static func postDirect(path: String, json: [String: Any], timeout: TimeInterval = 15) async throws -> Response {
+        let connection = try resolveConnection()
+        let body = try JSONSerialization.data(withJSONObject: json)
+        var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
+        request.httpBody = body
+        return try await execute(request)
+    }
+
     // MARK: - Auth Retry
 
     /// Executes a request with automatic 401 retry for non-managed (bearer token) connections.
-    /// On a 401 response, attempts to refresh credentials via `ActorCredentialRefresher`
+    /// On a 401 response, attempts to refresh credentials via `TokenRefreshCoordinator`
     /// and retries the request once with fresh auth headers.
     private static func executeWithRetry(
         path: String,
@@ -627,7 +641,12 @@ public enum GatewayHTTPClient {
         return try await execute(retryRequest, quiet: quiet)
     }
 
-    /// Attempts a bearer-token credential refresh.
+    /// Attempts a bearer-token credential refresh via the shared coordinator.
+    ///
+    /// The coordinator coalesces concurrent refresh attempts so that only one
+    /// network call is in-flight at a time — preventing the thundering-herd
+    /// problem when multiple requests receive 401 simultaneously.
+    ///
     /// Returns `true` when the refresh succeeds and the request should be retried.
     private static func refreshBearerCredentials(connection: ConnectionInfo) async -> Bool {
         #if os(macOS)
@@ -640,7 +659,7 @@ public enum GatewayHTTPClient {
         return false
         #endif
 
-        let result = await ActorCredentialRefresher.refresh(
+        let result = await TokenRefreshCoordinator.shared.refreshIfNeeded(
             platform: platform,
             deviceId: deviceId
         )

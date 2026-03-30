@@ -55,6 +55,7 @@ const MIME_MAP: Record<string, string> = {
   ".tiff": "image/tiff",
   ".svg": "image/svg+xml",
   ".heic": "image/heic",
+  ".heif": "image/heif",
 };
 
 function detectMimeType(filePath: string): string | null {

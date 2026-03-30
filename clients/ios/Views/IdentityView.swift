@@ -24,7 +24,7 @@ final class IdentityViewModel {
         contactsStore?.contacts.count ?? 0
     }
     var memoriesCount: Int {
-        memoriesStore?.items.count ?? 0
+        memoriesStore?.total ?? 0
     }
 
     @ObservationIgnored private var cancellables: Set<AnyCancellable> = []

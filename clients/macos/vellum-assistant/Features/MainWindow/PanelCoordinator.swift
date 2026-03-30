@@ -110,8 +110,9 @@ extension MainWindowView {
                 store: settingsStore,
                 conversationManager: conversationManager,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
-                initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
-                pendingMemoryId: $windowState.pendingMemoryId
+                initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
+                pendingMemoryId: $windowState.pendingMemoryId,
+                pendingSkillId: $windowState.pendingSkillId
             )
         case .usageDashboard:
             UsageDashboardPanel(
@@ -408,6 +409,7 @@ extension MainWindowView {
                 conversationManager: conversationManager,
                 onMicrophoneToggle: onMicrophoneToggle,
                 isTemporaryChat: activeConversation?.kind == .private,
+                isReadonly: activeConversation?.isChannelConversation ?? false,
                 voiceModeManager: voiceModeManager,
                 voiceService: voiceModeManager.openAIVoiceService,
                 onEndVoiceMode: {
@@ -504,10 +506,10 @@ extension MainWindowView {
                 store: settingsStore,
                 conversationManager: conversationManager,
                 showToast: { msg, style in windowState.showToast(message: msg, style: style) },
-                initialTab: windowState.pendingMemoryId != nil ? "Memories" : nil,
-                pendingMemoryId: $windowState.pendingMemoryId
+                initialTab: windowState.pendingMemoryId != nil ? "Memories" : windowState.pendingSkillId != nil ? "Skills" : nil,
+                pendingMemoryId: $windowState.pendingMemoryId,
+                pendingSkillId: $windowState.pendingSkillId
             )
-            .background(VColor.surfaceOverlay)
         case .usageDashboard:
             UsageDashboardPanel(
                 store: usageDashboardStore,
@@ -604,7 +606,7 @@ func openFilePicker(viewModel: ChatViewModel) {
 
 /// Observes the active ChatViewModel and renders the chat interface.
 struct ActiveChatViewWrapper: View {
-    @ObservedObject var viewModel: ChatViewModel
+    var viewModel: ChatViewModel
     @ObservedObject var windowState: MainWindowState
     let conversationStartersEnabled: Bool
     var showInspectButton: Bool = false
@@ -615,6 +617,7 @@ struct ActiveChatViewWrapper: View {
     let conversationManager: ConversationManager
     let onMicrophoneToggle: () -> Void
     var isTemporaryChat: Bool = false
+    var isReadonly: Bool = false
     var voiceModeManager: VoiceModeManager? = nil
     var voiceService: OpenAIVoiceService? = nil
     var onEndVoiceMode: (() -> Void)? = nil
@@ -762,7 +765,11 @@ struct ActiveChatViewWrapper: View {
             },
             onFetchConversationStarters: { [weak viewModel] in viewModel?.fetchConversationStarters() },
             activePendingRequestId: viewModel.activePendingRequestId,
-            isInteractionEnabled: inspectorMessageId == nil,
+            isInteractionEnabled: inspectorMessageId == nil && !isReadonly,
+            isReadonly: isReadonly,
+            contextWindowFillRatio: viewModel.contextWindowFillRatio,
+            contextWindowTokens: viewModel.contextWindowTokens,
+            contextWindowMaxTokens: viewModel.contextWindowMaxTokens,
             anchorMessageId: $anchorMessageId,
             highlightedMessageId: $highlightedMessageId,
             btwResponse: viewModel.btwResponse,
@@ -808,7 +815,7 @@ struct ActiveChatViewWrapper: View {
 
 /// Observes the active ChatViewModel and renders the dynamic workspace overlays.
 struct DynamicWorkspaceWrapper: View {
-    @ObservedObject var viewModel: ChatViewModel
+    var viewModel: ChatViewModel
     let surface: Surface
     let data: DynamicPageSurfaceData
     @ObservedObject var windowState: MainWindowState

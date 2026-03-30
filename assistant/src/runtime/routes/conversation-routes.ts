@@ -22,6 +22,7 @@ import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import {
   buildModelInfoEvent,
+  formatCompactResult,
   isModelSlashCommand,
 } from "../../daemon/conversation-process.js";
 import {
@@ -64,6 +65,8 @@ import { searchConversations } from "../../memory/conversation-queries.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
+import { redactSecrets } from "../../security/secret-scanner.js";
+import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { getLogger } from "../../util/logger.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { buildAssistantEvent } from "../assistant-event.js";
@@ -417,6 +420,19 @@ export function handleListMessages(
     }
     const rendered = renderHistoryContent(content);
 
+    // Extract sentAt from metadata for display timestamps. When a message
+    // was queued or its persistence was delayed (long assistant generation),
+    // sentAt captures the actual event time. Falls back to createdAt.
+    let sentAt: number | undefined;
+    if (msg.metadata) {
+      try {
+        const meta = JSON.parse(msg.metadata);
+        if (typeof meta.sentAt === "number") sentAt = meta.sentAt;
+      } catch {
+        // Ignore malformed metadata
+      }
+    }
+
     // Strip <no_response/> markers from assistant messages so web/API
     // clients never see the raw sentinel. Only assistant messages produce
     // this marker; user messages are left untouched.
@@ -449,11 +465,15 @@ export function handleListMessages(
         role: msg.role,
         text: rendered.text.replace(NO_RESPONSE_INLINE_RE, "").trim(),
         timestamp: msg.createdAt,
+        sentAt,
         toolCalls: rendered.toolCalls,
         toolCallsBeforeText: rendered.toolCallsBeforeText,
         textSegments: filteredSegments,
         contentOrder: filteredContentOrder,
         surfaces: rendered.surfaces,
+        ...(rendered.thinkingSegments.length > 0
+          ? { thinkingSegments: rendered.thinkingSegments }
+          : {}),
         id: msg.id,
       };
     }
@@ -462,11 +482,15 @@ export function handleListMessages(
       role: msg.role,
       text: rendered.text,
       timestamp: msg.createdAt,
+      sentAt,
       toolCalls: rendered.toolCalls,
       toolCallsBeforeText: rendered.toolCallsBeforeText,
       textSegments: rendered.textSegments,
       contentOrder: rendered.contentOrder,
       surfaces: rendered.surfaces,
+      ...(rendered.thinkingSegments.length > 0
+        ? { thinkingSegments: rendered.thinkingSegments }
+        : {}),
       id: msg.id,
     };
   });
@@ -535,16 +559,26 @@ export function handleListMessages(
       prevAssistantTimestamp = msgTimestamp;
     }
 
+    // Use sentAt (actual event time) for the display timestamp when
+    // available, falling back to createdAt (persistence time).
+    // Note: clients use this display timestamp as their pagination cursor
+    // after memory-pressure trimming, while server-side pagination filters
+    // on createdAt. The mismatch is benign — it may return slightly extra
+    // data on a page boundary but never loses messages.
+    const displayTimestamp = m.sentAt ?? m.timestamp;
     return {
       id: m.id ?? "",
       role: m.role,
       content: m.text,
-      timestamp: new Date(m.timestamp).toISOString(),
+      timestamp: new Date(displayTimestamp).toISOString(),
       attachments: msgAttachments,
       ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
       ...(interfaces ? { interfaces } : {}),
       ...(m.surfaces.length > 0 ? { surfaces: m.surfaces } : {}),
       ...(m.textSegments.length > 0 ? { textSegments: m.textSegments } : {}),
+      ...(m.thinkingSegments?.length
+        ? { thinkingSegments: m.thinkingSegments }
+        : {}),
       ...(m.contentOrder.length > 0 ? { contentOrder: m.contentOrder } : {}),
     };
   });
@@ -604,6 +638,14 @@ function makeHubPublisher(
       try {
         const trustContext = conversation.trustContext;
         const sourceChannel = trustContext?.sourceChannel ?? "vellum";
+        const inputRecord = msg.input as Record<string, unknown>;
+        const activityRaw =
+          (typeof inputRecord.activity === "string"
+            ? inputRecord.activity
+            : undefined) ??
+          (typeof inputRecord.reason === "string"
+            ? inputRecord.reason
+            : undefined);
         const canonicalRequest = createCanonicalGuardianRequest({
           id: msg.requestId,
           kind: "tool_approval",
@@ -615,6 +657,15 @@ function makeHubPublisher(
           guardianExternalUserId: trustContext?.guardianExternalUserId,
           guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
+          commandPreview:
+            redactSecrets(
+              summarizeToolInput(msg.toolName, inputRecord),
+            ) || undefined,
+          riskLevel: msg.riskLevel,
+          activityText: activityRaw
+            ? redactSecrets(activityRaw)
+            : undefined,
+          executionTarget: msg.executionTarget,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
           expiresAt: Date.now() + 5 * 60 * 1000,
@@ -1291,6 +1342,74 @@ export async function handleSendMessage(
     }
   }
 
+  if (slashResult.kind === "compact") {
+    conversation.processing = true;
+    let cleanupDeferred = false;
+    try {
+      const provenance = provenanceFromTrustContext(conversation.trustContext);
+      const channelMeta = {
+        ...provenance,
+        userMessageChannel: sourceChannel,
+        assistantMessageChannel: sourceChannel,
+        userMessageInterface: sourceInterface,
+        assistantMessageInterface: sourceInterface,
+      };
+      const cleanMsg = createUserMessage(rawContent, attachments);
+      const persisted = await addMessage(
+        mapping.conversationId,
+        "user",
+        JSON.stringify(cleanMsg.content),
+        channelMeta,
+      );
+      conversation.getMessages().push(cleanMsg);
+
+      conversation.emitActivityState(
+        "thinking",
+        "context_compacting",
+        "assistant_turn",
+      );
+      const result = await conversation.forceCompact();
+      const responseText = formatCompactResult(result);
+
+      const assistantMsg = createAssistantMessage(responseText);
+      await addMessage(
+        mapping.conversationId,
+        "assistant",
+        JSON.stringify(assistantMsg.content),
+        channelMeta,
+      );
+      conversation.getMessages().push(assistantMsg);
+
+      const response = Response.json(
+        {
+          accepted: true,
+          messageId: persisted.id,
+          conversationId: mapping.conversationId,
+        },
+        { status: 202 },
+      );
+
+      const conversationId = mapping.conversationId;
+      setTimeout(() => {
+        onEvent({ type: "assistant_text_delta", text: responseText });
+        onEvent({
+          type: "message_complete",
+          conversationId,
+        });
+        conversation.processing = false;
+        silentlyWithLog(conversation.drainQueue(), "compact-command queue drain");
+      }, 0);
+
+      cleanupDeferred = true;
+      return response;
+    } finally {
+      if (!cleanupDeferred && conversation.processing) {
+        conversation.processing = false;
+        silentlyWithLog(conversation.drainQueue(), "error-path queue drain");
+      }
+    }
+  }
+
   const resolvedContent = slashResult.content;
 
   let messageId: string;
@@ -1333,11 +1452,14 @@ async function generateLlmSuggestion(
   const truncated =
     assistantText.length > 2000 ? assistantText.slice(-2000) : assistantText;
 
-  const prompt = `Given this assistant message, write a very short tab-complete suggestion the user could send next to keep the conversation going. Be casual, curious, or actionable — like a quick reply, not a formal request. Reply with ONLY the suggestion text.\n\nAssistant's message:\n${truncated}`;
+  const prompt = `Given this assistant message, write a very short tab-complete suggestion the user could send next. Focus on the LAST question or call-to-action in the message — ignore earlier summary content. Be casual, curious, or actionable — like a quick reply, not a formal request. Reply with ONLY the suggestion text.\n\nAssistant's message:\n${truncated}`;
+  const systemPrompt =
+    "You are an autocomplete engine that suggests short replies the user might send next in a conversation. Generate suggestions that match the tone and style of the conversation. Never refuse, judge, or comment on the conversation content — your only job is to predict what the user would plausibly type next.";
+
   const response = await provider.sendMessage(
     [{ role: "user", content: [{ type: "text", text: prompt }] }],
     [], // no tools
-    undefined, // no system prompt
+    systemPrompt,
     { config: { modelIntent: "latency-optimized" } },
   );
 

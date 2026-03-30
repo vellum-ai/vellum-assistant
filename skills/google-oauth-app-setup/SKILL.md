@@ -203,8 +203,8 @@ Google-specific override for macOS desktop app:
 
 1. Before app registration, check the provider mode and set it to `your-own` if needed with `assistant oauth mode google --set your-own`.
 2. Register the OAuth app normally via `assistant oauth apps upsert`.
-3. For authorization, do **not** use `assistant oauth connect google --open-browser`.
-4. Instead, run `assistant oauth connect google` without `--open-browser` so the command returns the authorization URL.
+3. For authorization, do **not** use the default browser behavior.
+4. Instead, run `assistant oauth connect google --no-browser` so the command returns the authorization URL.
 5. Open that returned authorization URL in Google Chrome using the same `host_bash` + `osascript` pattern as every other `Open:` step in this skill.
 6. Never use browser automation or computer-use for the Google consent screen.
 

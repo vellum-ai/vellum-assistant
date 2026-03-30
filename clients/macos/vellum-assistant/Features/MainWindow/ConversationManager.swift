@@ -866,7 +866,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
 
         let recentConversations = response.conversations.filter {
-            $0.conversationType != "private" && $0.channelBinding?.sourceChannel == nil
+            $0.conversationType != "private"
         }
 
         for conversation in recentConversations {
@@ -925,9 +925,16 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
         touchVMAccessOrder(id)
         activeConversationId = id
-        // Switching conversations is a natural point to shed cached render
-        // artefacts from the previous conversation.
-        Self.clearRenderCaches()
+        // Render caches are keyed by content + appearance (text hash +
+        // color descriptions), not by conversation — entries from one
+        // conversation are valid for any conversation with the same text.
+        // Clearing them here caused every visible message to re-parse and
+        // re-build AttributedStrings synchronously, and the height
+        // mismatch between placeholder and proper renders triggered a
+        // LazyVStack re-estimation cascade that froze the app.
+        // NSCache handles memory pressure automatically; explicit clears
+        // are kept on close/archive/delete where freeing memory for
+        // discarded conversations is appropriate.
 
         // Emit explicit seen signal for user-initiated conversation selection.
         // Skip if this conversation was already active to avoid duplicate signals
@@ -1028,8 +1035,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             return true
         }
 
-        // Don't insert external-channel or private conversations into the main sidebar
-        if conversation.conversationType == "private" || conversation.channelBinding?.sourceChannel != nil {
+        // Don't insert private conversations into the main sidebar
+        if conversation.conversationType == "private" {
             return false
         }
 
@@ -1062,8 +1069,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
 
     @discardableResult
     private func upsertConversation(from item: ConversationListResponseItem, isArchived: Bool) -> UUID? {
-        guard item.conversationType != "private",
-              item.channelBinding?.sourceChannel == nil else { return nil }
+        guard item.conversationType != "private" else { return nil }
 
         if !isArchived && isConversationArchived(item.id) {
             var archived = archivedConversationIds
@@ -1149,7 +1155,8 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             lastSeenAssistantMessageAt: item.assistantAttention?.lastSeenAssistantMessageAt.map {
                 Date(timeIntervalSince1970: TimeInterval($0) / 1000.0)
             },
-            forkParent: item.forkParent
+            forkParent: item.forkParent,
+            originChannel: item.channelBinding?.sourceChannel ?? item.conversationOriginChannel
         )
     }
 
@@ -1341,13 +1348,15 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled, let self else { return }
 
-            let visible = self.visibleConversations
+            let visible = self.visibleConversations.filter { !$0.isChannelConversation }
             var updates: [ReorderConversationsRequestUpdate] = []
             for conversation in visible {
                 guard let conversationId = conversation.conversationId else { continue }
+                let order: Double?
+                order = conversation.displayOrder.map { Double($0) }
                 updates.append(ReorderConversationsRequestUpdate(
                     conversationId: conversationId,
-                    displayOrder: conversation.displayOrder.map { Double($0) },
+                    displayOrder: order,
                     isPinned: conversation.isPinned,
                     groupId: conversation.groupId
                 ))
@@ -2241,9 +2250,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         let mgr = viewModel.messageManager
         // Combine the three relevant publishers into a single derived boolean.
         Publishers.CombineLatest3(
-            mgr.$isSending,
-            mgr.$isThinking,
-            mgr.$pendingQueuedCount
+            mgr.isSendingPublisher,
+            mgr.isThinkingPublisher,
+            mgr.pendingQueuedCountPublisher
         )
         .map { isSending, isThinking, pendingQueuedCount in
             isSending || isThinking || pendingQueuedCount > 0
@@ -2284,7 +2293,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
         }
 
-        assistantActivityCancellables[conversationId] = viewModel.messageManager.$messages
+        assistantActivityCancellables[conversationId] = viewModel.messageManager.messagesPublisher
             .map { [weak self] messages in
                 self?.latestAssistantActivitySnapshot(in: messages)
             }
@@ -2405,10 +2414,10 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // WaitingForInput: hasPendingConfirmation (derived from messages).
         // Processing: isSending || isThinking || pendingQueuedCount > 0.
         Publishers.CombineLatest4(
-            msgMgr.$isSending,
-            msgMgr.$isThinking,
-            msgMgr.$pendingQueuedCount,
-            msgMgr.$messages
+            msgMgr.isSendingPublisher,
+            msgMgr.isThinkingPublisher,
+            msgMgr.pendingQueuedCountPublisher,
+            msgMgr.messagesPublisher
         )
         .combineLatest(
             errorSubject
@@ -2480,7 +2489,7 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         // Subscribe to the new active view model if one exists
         guard let viewModel = activeViewModel else { return }
 
-        activeViewModelCancellable = viewModel.messageManager.$messages
+        activeViewModelCancellable = viewModel.messageManager.messagesPublisher
             .map { $0.count }
             .removeDuplicates()
             .sink { [weak self] count in
@@ -2508,7 +2517,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             return
         }
         guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
-        updateLastInteracted(conversationId: conversationId)
+        // Don't bump background conversations to the top — they receive frequent
+        // automated messages (heartbeats) that would constantly re-sort them,
+        // especially when an LRU-evicted ViewModel is recreated on click.
+        if !conversations[index].isBackgroundConversation {
+            updateLastInteracted(conversationId: conversationId)
+        }
         let isNewMessage = previousSnapshot?.messageId != currentSnapshot.messageId
         // Keep the local attention timestamp current for live assistant replies
         // so unread eligibility survives until the next conversation-list refresh.

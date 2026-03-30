@@ -37,9 +37,9 @@ const PROVIDER_MODEL_INTENTS: Record<string, Record<ModelIntent, string>> = {
     "vision-optimized": "accounts/fireworks/models/kimi-k2p5",
   },
   openrouter: {
-    "latency-optimized": "x-ai/grok-4",
+    "latency-optimized": "qwen/qwen3.5-flash-02-23",
     "quality-optimized": "x-ai/grok-4.20-beta",
-    "vision-optimized": "x-ai/grok-4",
+    "vision-optimized": "x-ai/grok-4.20-beta",
   },
 };
 

@@ -6,6 +6,7 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import { Minimatch } from "minimatch";
@@ -13,7 +14,6 @@ import { v4 as uuid } from "uuid";
 
 import { getIsContainerized } from "../config/env-registry.js";
 import { getLogger } from "../util/logger.js";
-import { getRootDir } from "../util/platform.js";
 import { getDefaultRuleTemplates } from "./defaults.js";
 import * as trustClient from "./trust-client.js";
 import type {
@@ -128,7 +128,19 @@ function rebuildPatternCache(rules: TrustRule[]): void {
 }
 
 function getTrustPath(): string {
-  return join(getRootDir(), "protected", "trust.json");
+  return join(getGatewaySecurityDir(), "trust.json");
+}
+
+/**
+ * Resolve the gateway security directory.
+ *
+ * Docker: `GATEWAY_SECURITY_DIR` env var.
+ * Local:  falls back to `~/.vellum/` + `protected/`.
+ */
+function getGatewaySecurityDir(): string {
+  const securityDir = process.env.GATEWAY_SECURITY_DIR;
+  if (securityDir) return securityDir;
+  return join(homedir(), ".vellum", "protected");
 }
 
 /**
@@ -1103,11 +1115,9 @@ function getGatewayTrustStore(): GatewayTrustStoreAdapter {
  * Returns the active trust store backend.
  *
  * When `IS_CONTAINERIZED=true`, returns a gateway-backed adapter that
- * proxies all trust operations through the gateway HTTP API. The daemon
- * never reads or writes `protected/trust.json` directly in Docker.
+ * proxies all trust operations through the gateway HTTP API.
  *
- * When `IS_CONTAINERIZED=false`, returns the file-based implementation
- * (no change from previous behavior).
+ * When `IS_CONTAINERIZED=false`, returns the file-based implementation.
  */
 export function getTrustStore(): TrustStoreBackend {
   if (getIsContainerized()) {
@@ -1133,7 +1143,14 @@ export function addRule(
     executionTarget?: string;
   },
 ): TrustRule {
-  return getTrustStore().addRule(tool, pattern, scope, decision, priority, options);
+  return getTrustStore().addRule(
+    tool,
+    pattern,
+    scope,
+    decision,
+    priority,
+    options,
+  );
 }
 
 export function updateRule(

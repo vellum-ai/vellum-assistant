@@ -96,4 +96,20 @@ extension View {
     func plainTextCopy() -> some View {
         modifier(PlainTextCopyModifier())
     }
+
+    /// Conditionally applies `.textSelection(.enabled)` or `.textSelection(.disabled)`.
+    ///
+    /// `EnabledTextSelectability` and `DisabledTextSelectability` are different
+    /// concrete types conforming to `TextSelectability`, so a ternary expression
+    /// cannot return both. This extension uses `@ViewBuilder` branching instead.
+    ///
+    /// - SeeAlso: https://developer.apple.com/documentation/swiftui/textselectability
+    @ViewBuilder
+    func textSelection(enabled: Bool) -> some View {
+        if enabled {
+            self.textSelection(.enabled)
+        } else {
+            self.textSelection(.disabled)
+        }
+    }
 }

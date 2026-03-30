@@ -170,7 +170,7 @@ final class ThreadWindow: NSObject, NSWindowDelegate {
 /// Avoids observing `ConversationManager` directly — only the specific callbacks
 /// and data needed are passed in to prevent broad re-renders.
 private struct ThreadWindowContentView: View {
-    @ObservedObject var viewModel: ChatViewModel
+    var viewModel: ChatViewModel
     let conversationLocalId: UUID
     @ObservedObject var conversationManager: ConversationManager
     @ObservedObject var settingsStore: SettingsStore
@@ -252,10 +252,12 @@ private struct ThreadWindowContentView: View {
                     showTitleActions = false
                 }
             )
-            SidebarPrimaryRow(icon: VIcon.archive.rawValue, label: "Archive", action: {
-                conversationManager.archiveConversation(id: conversationLocalId)
-                showTitleActions = false
-            })
+            if !(conversation?.isChannelConversation ?? false) {
+                SidebarPrimaryRow(icon: VIcon.archive.rawValue, label: "Archive", action: {
+                    conversationManager.archiveConversation(id: conversationLocalId)
+                    showTitleActions = false
+                })
+            }
         }
         .padding(VSpacing.sm)
         .background(VColor.surfaceLift)
@@ -325,6 +327,11 @@ private struct ThreadWindowContentView: View {
             subagentDetailStore: viewModel.subagentDetailStore,
             isHistoryLoaded: viewModel.isHistoryLoaded,
             activePendingRequestId: viewModel.activePendingRequestId,
+            isInteractionEnabled: !(conversation?.isChannelConversation ?? false),
+            isReadonly: conversation?.isChannelConversation ?? false,
+            contextWindowFillRatio: viewModel.contextWindowFillRatio,
+            contextWindowTokens: viewModel.contextWindowTokens,
+            contextWindowMaxTokens: viewModel.contextWindowMaxTokens,
             anchorMessageId: $anchorMessageId,
             highlightedMessageId: $highlightedMessageId,
             creditsExhaustedError: viewModel.errorManager.conversationError?.isCreditsExhausted == true ? viewModel.errorManager.conversationError : nil,

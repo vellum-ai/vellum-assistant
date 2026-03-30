@@ -10,6 +10,7 @@ import {
 } from "../memory/conversation-crud.js";
 import { isLastUserMessageToolResult } from "../memory/conversation-queries.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
+import { relinkLlmRequestLogs } from "../memory/llm-request-log-store.js";
 import { withQdrantBreaker } from "../memory/qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../memory/qdrant-client.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -295,9 +296,10 @@ export function consolidateAssistantMessages(
     JSON.stringify(consolidatedContent),
   );
 
-  // Re-link attachments from messages about to be deleted to the consolidated
-  // message. Without this, ON DELETE CASCADE on message_attachments destroys
-  // the attachment links, and deleteOrphanAttachments removes the data.
+  // Re-link attachments and LLM request logs from messages about to be
+  // deleted to the consolidated message. Without this, ON DELETE CASCADE on
+  // message_attachments destroys the attachment links, and LLM call logs
+  // become orphaned (invisible in the context inspector).
   const messageIdsToDelete = [
     ...messagesToConsolidate.slice(1).map((m) => m.id),
     ...messagesToDelete,
@@ -313,6 +315,8 @@ export function consolidateAssistantMessages(
         "Re-linked attachments to consolidated message",
       );
     }
+
+    relinkLlmRequestLogs(messageIdsToDelete, firstAssistantMsg.id);
   }
 
   // Delete the other assistant messages and internal tool_result messages,

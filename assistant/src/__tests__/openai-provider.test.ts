@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { RetryProvider } from "../providers/retry.js";
 import type {
   ContentBlock,
   Message,
+  Provider,
   ProviderEvent,
+  ProviderResponse,
+  SendMessageOptions,
   ToolDefinition,
 } from "../providers/types.js";
 
@@ -28,6 +32,9 @@ interface FakeChunk {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    };
   } | null;
   model: string;
 }
@@ -149,6 +156,25 @@ function usageChunk(prompt: number, completion: number): FakeChunk {
       prompt_tokens: prompt,
       completion_tokens: completion,
       total_tokens: prompt + completion,
+    },
+    model: "gpt-5.2",
+  };
+}
+
+function reasoningUsageChunk(
+  prompt: number,
+  completion: number,
+  reasoning: number,
+): FakeChunk {
+  return {
+    choices: [{ delta: {}, finish_reason: "stop" }],
+    usage: {
+      prompt_tokens: prompt,
+      completion_tokens: completion,
+      total_tokens: prompt + completion,
+      completion_tokens_details: {
+        reasoning_tokens: reasoning,
+      },
     },
     model: "gpt-5.2",
   };
@@ -808,6 +834,47 @@ describe("OpenAIProvider", () => {
   });
 
   // -----------------------------------------------------------------------
+  // Reasoning tokens
+  // -----------------------------------------------------------------------
+  test("includes reasoningTokens in usage when present in completion_tokens_details", async () => {
+    fakeChunks = [
+      textChunk("Reasoning result"),
+      reasoningUsageChunk(50, 120, 80),
+    ];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Think carefully" }] },
+    ]);
+
+    expect(result.usage).toEqual({
+      inputTokens: 50,
+      outputTokens: 120,
+      reasoningTokens: 80,
+    });
+
+    // Also check rawResponse diagnostics include reasoning tokens
+    const rawUsage = (result.rawResponse as any).usage;
+    expect(rawUsage.completion_tokens_details).toEqual({
+      reasoning_tokens: 80,
+    });
+  });
+
+  test("omits reasoningTokens from usage when not present", async () => {
+    fakeChunks = [textChunk("Simple reply"), usageChunk(10, 5)];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Hi" }] },
+    ]);
+
+    expect(result.usage).toEqual({ inputTokens: 10, outputTokens: 5 });
+    expect(result.usage).not.toHaveProperty("reasoningTokens");
+
+    // rawResponse should not include completion_tokens_details
+    const rawUsage = (result.rawResponse as any).usage;
+    expect(rawUsage).not.toHaveProperty("completion_tokens_details");
+  });
+
+  // -----------------------------------------------------------------------
   // Assistant message with text preserves content
   // -----------------------------------------------------------------------
   test("preserves assistant text + tool_use in message conversion", async () => {
@@ -924,5 +991,199 @@ describe("custom baseURL initialization", () => {
       apiKey: "or-user-key",
       baseURL: "https://openrouter.ai/api/v1",
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Effort config passthrough via RetryProvider
+// ---------------------------------------------------------------------------
+
+describe("effort config passthrough", () => {
+  const DUMMY_MESSAGES: Message[] = [
+    { role: "user", content: [{ type: "text", text: "hello" }] },
+  ];
+
+  function makeResponse(): ProviderResponse {
+    return {
+      content: [{ type: "text", text: "ok" }],
+      model: "gpt-5.4-mini",
+      usage: { inputTokens: 1, outputTokens: 1 },
+      stopReason: "end_turn",
+    };
+  }
+
+  function makeProvider(
+    name: string,
+    onCall: (options: SendMessageOptions | undefined) => void,
+  ): Provider {
+    return {
+      name,
+      async sendMessage(_messages, _tools, _systemPrompt, options) {
+        onCall(options);
+        return makeResponse();
+      },
+    };
+  }
+
+  test("effort is preserved when passed to an OpenAI provider", async () => {
+    let capturedOptions: SendMessageOptions | undefined;
+    const inner = makeProvider("openai", (opts) => {
+      capturedOptions = opts;
+    });
+    const retry = new RetryProvider(inner);
+
+    await retry.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { effort: "high" },
+    });
+
+    const config = capturedOptions?.config as Record<string, unknown>;
+    expect(config.effort).toBe("high");
+  });
+
+  test("effort is stripped for unsupported providers (e.g. ollama)", async () => {
+    let capturedOptions: SendMessageOptions | undefined;
+    const inner = makeProvider("ollama", (opts) => {
+      capturedOptions = opts;
+    });
+    const retry = new RetryProvider(inner);
+
+    await retry.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { effort: "medium" },
+    });
+
+    const config = capturedOptions?.config as Record<string, unknown>;
+    expect(config.effort).toBeUndefined();
+  });
+
+  test("effort is preserved for fireworks provider", async () => {
+    let capturedOptions: SendMessageOptions | undefined;
+    const inner = makeProvider("fireworks", (opts) => {
+      capturedOptions = opts;
+    });
+    const retry = new RetryProvider(inner);
+
+    await retry.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { effort: "low" },
+    });
+
+    const config = capturedOptions?.config as Record<string, unknown>;
+    expect(config.effort).toBe("low");
+  });
+
+  test("effort is preserved for openrouter provider", async () => {
+    let capturedOptions: SendMessageOptions | undefined;
+    const inner = makeProvider("openrouter", (opts) => {
+      capturedOptions = opts;
+    });
+    const retry = new RetryProvider(inner);
+
+    await retry.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { effort: "high" },
+    });
+
+    const config = capturedOptions?.config as Record<string, unknown>;
+    expect(config.effort).toBe("high");
+  });
+
+  test("effort is preserved for anthropic provider", async () => {
+    let capturedOptions: SendMessageOptions | undefined;
+    const inner = makeProvider("anthropic", (opts) => {
+      capturedOptions = opts;
+    });
+    const retry = new RetryProvider(inner);
+
+    await retry.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: { effort: "high" },
+    });
+
+    const config = capturedOptions?.config as Record<string, unknown>;
+    expect(config.effort).toBe("high");
+  });
+
+  test("thinking is still stripped for OpenAI provider", async () => {
+    let capturedOptions: SendMessageOptions | undefined;
+    const inner = makeProvider("openai", (opts) => {
+      capturedOptions = opts;
+    });
+    const retry = new RetryProvider(inner);
+
+    await retry.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      config: {
+        thinking: { enabled: true, budgetTokens: 10000 },
+        effort: "high",
+      },
+    });
+
+    const config = capturedOptions?.config as Record<string, unknown>;
+    expect(config.thinking).toBeUndefined();
+    expect(config.effort).toBe("high");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reasoning effort → OpenAI reasoning_effort mapping
+// ---------------------------------------------------------------------------
+
+describe("OpenAIProvider reasoning_effort", () => {
+  let provider: OpenAIProvider;
+
+  function userMsg(text: string): Message {
+    return { role: "user", content: [{ type: "text", text }] };
+  }
+
+  beforeEach(() => {
+    fakeChunks = [textChunk("OK"), usageChunk(10, 2)];
+    lastCreateParams = null;
+    lastCreateOptions = null;
+    lastConstructorOptions = null;
+    shouldThrow = null;
+    provider = new OpenAIProvider("test-key", "gpt-5");
+  });
+
+  test('effort: "low" maps to reasoning_effort: "low"', async () => {
+    await provider.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "low" },
+    });
+    expect(lastCreateParams).toBeTruthy();
+    expect(lastCreateParams!.reasoning_effort).toBe("low");
+  });
+
+  test('effort: "medium" maps to reasoning_effort: "medium"', async () => {
+    await provider.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "medium" },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("medium");
+  });
+
+  test('effort: "high" maps to reasoning_effort: "high"', async () => {
+    await provider.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "high" },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("high");
+  });
+
+  test('effort: "max" maps to reasoning_effort: "high"', async () => {
+    await provider.sendMessage([userMsg("hi")], undefined, "system", {
+      config: { effort: "max" },
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("high");
+  });
+
+  test("no effort config means no reasoning_effort in params", async () => {
+    await provider.sendMessage([userMsg("hi")], undefined, "system", {
+      config: {},
+    });
+    expect(lastCreateParams).toBeTruthy();
+    expect(lastCreateParams!.reasoning_effort).toBeUndefined();
+  });
+
+  test("extraCreateParams reasoning_effort is not clobbered when no effort is set", async () => {
+    const providerWithExtra = new OpenAIProvider("test-key", "gpt-5", {
+      extraCreateParams: { reasoning_effort: "medium" },
+    });
+    await providerWithExtra.sendMessage([userMsg("hi")], undefined, "system", {
+      config: {},
+    });
+    expect(lastCreateParams!.reasoning_effort).toBe("medium");
   });
 });

@@ -226,6 +226,10 @@ public final class SettingsStore: ObservableObject {
     @Published var managedOAuthIsConnecting: [String: Bool] = [:]
     /// Managed OAuth errors per provider (keyed by managedServiceConfigKey).
     @Published var managedOAuthError: [String: String] = [:]
+    /// Providers that support managed mode, fetched from the API.
+    @Published var managedOAuthProviders: [OAuthProviderMetadata] = []
+    /// Whether the managed OAuth providers list is currently loading.
+    @Published var managedOAuthProvidersLoading: Bool = false
     /// Strong reference to prevent the auth session from being deallocated mid-flow.
     private var managedOAuthWebAuthSession: ASWebAuthenticationSession?
 
@@ -2045,7 +2049,6 @@ public final class SettingsStore: ObservableObject {
             guard let response = await settingsClient.fetchPlatformConfig() else { return }
             if response.success {
                 self.platformBaseUrl = response.baseUrl
-                AuthService.shared.configuredBaseURL = response.baseUrl
             }
         }
     }
@@ -2054,16 +2057,13 @@ public final class SettingsStore: ObservableObject {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         let previous = platformBaseUrl
         platformBaseUrl = trimmed
-        AuthService.shared.configuredBaseURL = trimmed
         Task {
             guard let response = await settingsClient.setPlatformConfig(baseUrl: trimmed) else {
                 self.platformBaseUrl = previous
-                AuthService.shared.configuredBaseURL = previous
                 return
             }
             if !response.success {
                 self.platformBaseUrl = previous
-                AuthService.shared.configuredBaseURL = previous
                 if let error = response.error {
                     log.error("Platform config update failed: \(error)")
                 }
@@ -2195,6 +2195,28 @@ public final class SettingsStore: ObservableObject {
             }
         }
         scheduleRoutingSourceRefresh()
+    }
+
+    // MARK: - Managed OAuth Provider List
+
+    func fetchManagedOAuthProviders() {
+        managedOAuthProvidersLoading = true
+        Task {
+            do {
+                let (decoded, response): (OAuthProvidersListResponse?, _) =
+                    try await GatewayHTTPClient.get(
+                        path: "oauth/providers",
+                        params: ["supports_managed_mode": "true"],
+                        timeout: 10
+                    )
+                if response.isSuccess, let decoded {
+                    self.managedOAuthProviders = decoded.providers
+                }
+            } catch {
+                log.error("Failed to fetch managed OAuth providers: \(error)")
+            }
+            managedOAuthProvidersLoading = false
+        }
     }
 
     // MARK: - Google OAuth Connections
@@ -3131,12 +3153,16 @@ struct OAuthProviderMetadata: Codable, Sendable {
     let description: String?
     let dashboard_url: String?
     let client_id_placeholder: String?
-    let requires_client_secret: Int
+    let requires_client_secret: Bool
 
     /// The platform OAuth slug is the provider_key itself (bare name, e.g. "google").
     var platformOAuthSlug: String {
         return provider_key
     }
+}
+
+struct OAuthProvidersListResponse: Codable, Sendable {
+    let providers: [OAuthProviderMetadata]
 }
 
 struct YourOwnOAuthAppsResponse: Codable, Sendable {

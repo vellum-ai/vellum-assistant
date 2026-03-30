@@ -506,16 +506,16 @@ public final class GatewayConnectionManager: ObservableObject {
             let deviceId = APIKeyManager.shared.getAPIKey(provider: "pairing-device-id") ?? ""
             #endif
 
-            let result = await ActorCredentialRefresher.refresh(
+            let result = await TokenRefreshCoordinator.shared.refreshIfNeeded(
                 platform: platform,
                 deviceId: deviceId
             )
 
             switch result {
             case .success:
-                log.info("Token refresh succeeded")
+                break // Coordinator already logs success
             case .terminalError(let reason):
-                log.error("Token refresh failed terminally: \(reason) — re-pair required")
+                log.error("Token refresh failed terminally: \(reason, privacy: .public) — re-pair required")
                 self.eventStreamClient.broadcastMessage(.conversationError(ConversationErrorMessage(
                     conversationId: "",
                     code: .authenticationRequired,
@@ -523,7 +523,7 @@ public final class GatewayConnectionManager: ObservableObject {
                     retryable: false
                 )))
             case .transientError:
-                log.warning("Token refresh encountered transient error — will retry on next 401")
+                break // Coordinator already logs warning
             }
         }
     }

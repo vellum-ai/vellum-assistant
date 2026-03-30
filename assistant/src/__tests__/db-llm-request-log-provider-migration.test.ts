@@ -1,25 +1,17 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import { Database } from "bun:sqlite";
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
-
-const testDir = mkdtempSync(join(tmpdir(), "llm-request-log-provider-"));
-const dbPath = join(testDir, "test.db");
 const originalBunTest = process.env.BUN_TEST;
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => dbPath,
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -32,6 +24,7 @@ import { initializeDb, resetDb } from "../memory/db.js";
 import { getSqliteFrom } from "../memory/db-connection.js";
 import { migrateLlmRequestLogProvider } from "../memory/migrations/184-llm-request-log-provider.js";
 import * as schema from "../memory/schema.js";
+import { getDbPath } from "../util/platform.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
@@ -40,7 +33,9 @@ function createTestDb() {
   return drizzle(sqlite, { schema });
 }
 
-function getColumnInfo(raw: Database): Array<{ name: string; notnull: number }> {
+function getColumnInfo(
+  raw: Database,
+): Array<{ name: string; notnull: number }> {
   return raw.query(`PRAGMA table_info(llm_request_logs)`).all() as Array<{
     name: string;
     notnull: number;
@@ -61,6 +56,7 @@ function bootstrapPreProviderLlmRequestLogs(raw: Database): void {
 }
 
 function removeTestDbFiles(): void {
+  const dbPath = getDbPath();
   rmSync(dbPath, { force: true });
   rmSync(`${dbPath}-shm`, { force: true });
   rmSync(`${dbPath}-wal`, { force: true });
@@ -86,17 +82,12 @@ describe("llm_request_logs provider migration", () => {
     }
     resetDb();
     removeTestDbFiles();
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      /* best effort */
-    }
   });
 
   test("fresh DB initialization includes llm_request_logs.provider", () => {
     initializeDb();
 
-    const raw = new Database(dbPath);
+    const raw = new Database(getDbPath());
     const columns = getColumnInfo(raw);
 
     expect(columns.some((column) => column.name === "provider")).toBe(true);
@@ -132,9 +123,9 @@ describe("llm_request_logs provider migration", () => {
 
     migrateLlmRequestLogProvider(db);
 
-    expect(getColumnInfo(raw).some((column) => column.name === "provider")).toBe(
-      true,
-    );
+    expect(
+      getColumnInfo(raw).some((column) => column.name === "provider"),
+    ).toBe(true);
 
     const row = raw
       .query(
@@ -142,17 +133,15 @@ describe("llm_request_logs provider migration", () => {
          FROM llm_request_logs
          WHERE id = 'log-upgrade'`,
       )
-      .get() as
-      | {
-          id: string;
-          conversation_id: string;
-          message_id: string | null;
-          provider: string | null;
-          request_payload: string;
-          response_payload: string;
-          created_at: number;
-        }
-      | null;
+      .get() as {
+      id: string;
+      conversation_id: string;
+      message_id: string | null;
+      provider: string | null;
+      request_payload: string;
+      response_payload: string;
+      created_at: number;
+    } | null;
 
     expect(row).toEqual({
       id: "log-upgrade",
@@ -200,9 +189,7 @@ describe("llm_request_logs provider migration", () => {
     expect(() => migrateLlmRequestLogProvider(db)).not.toThrow();
 
     const row = raw
-      .query(
-        `SELECT provider FROM llm_request_logs WHERE id = 'log-rerun'`,
-      )
+      .query(`SELECT provider FROM llm_request_logs WHERE id = 'log-rerun'`)
       .get() as { provider: string | null } | null;
 
     expect(row).toEqual({

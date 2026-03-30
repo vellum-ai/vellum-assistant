@@ -382,8 +382,6 @@ public struct ToolConfirmationData: Equatable {
         let service = (input["service"]?.value as? String) ?? ""
 
         switch action {
-        case "oauth2_connect":
-            return service.isEmpty ? "Connect account" : "Connect \(service) account"
         case "store":
             return service.isEmpty ? "Save credential" : "Save \(service) credential"
         case "delete":
@@ -685,10 +683,6 @@ public func confirmationHumanDescription(
         let action = (input["action"]?.value as? String) ?? ""
         let service = (input["service"]?.value as? String) ?? ""
         switch action {
-        case "oauth2_connect":
-            return service.isEmpty
-                ? "Allow connecting an account?"
-                : "Allow connecting your \(service.capitalized) account?"
         case "store":
             return service.isEmpty
                 ? "Allow saving a credential securely?"
@@ -1453,11 +1447,15 @@ public struct GuardianDecisionData: Equatable {
     /// Canonical request kind (e.g. "tool_approval", "pending_question").
     /// Determines UI treatment: header text, available actions, and styling.
     public let kind: String?
+    public let commandPreview: String?
+    public let riskLevel: String?
+    public let activityText: String?
+    public let executionTarget: String?
     public var state: GuardianDecisionState = .pending
     /// True while waiting for the server to acknowledge a button click.
     public var isSubmitting: Bool = false
 
-    public init(requestId: String, requestCode: String, questionText: String, toolName: String?, actions: [GuardianActionOption], conversationId: String, kind: String? = nil, state: GuardianDecisionState = .pending) {
+    public init(requestId: String, requestCode: String, questionText: String, toolName: String?, actions: [GuardianActionOption], conversationId: String, kind: String? = nil, commandPreview: String? = nil, riskLevel: String? = nil, activityText: String? = nil, executionTarget: String? = nil, state: GuardianDecisionState = .pending) {
         self.requestId = requestId
         self.requestCode = requestCode
         self.questionText = questionText
@@ -1465,6 +1463,10 @@ public struct GuardianDecisionData: Equatable {
         self.actions = actions
         self.conversationId = conversationId
         self.kind = kind
+        self.commandPreview = commandPreview
+        self.riskLevel = riskLevel
+        self.activityText = activityText
+        self.executionTarget = executionTarget
         self.state = state
     }
 
@@ -1477,6 +1479,10 @@ public struct GuardianDecisionData: Equatable {
         self.actions = wire.actions
         self.conversationId = wire.conversationId
         self.kind = wire.kind
+        self.commandPreview = wire.commandPreview
+        self.riskLevel = wire.riskLevel
+        self.activityText = wire.activityText
+        self.executionTarget = wire.executionTarget
         self.state = wire.state == "resolved" ? .stale() : .pending
     }
 }
@@ -1549,6 +1555,7 @@ public enum ContentBlockRef: Hashable {
     case text(Int)
     case toolCall(Int)
     case surface(Int)
+    case thinking(Int)
 }
 
 public struct ChatMessage: Identifiable, Equatable {
@@ -1559,6 +1566,7 @@ public struct ChatMessage: Identifiable, Equatable {
         lhs.id == rhs.id
         && lhs.role == rhs.role
         && lhs.textSegments == rhs.textSegments
+        && lhs.thinkingSegments == rhs.thinkingSegments
         && lhs.isStreaming == rhs.isStreaming
         && lhs.status == rhs.status
         && lhs.isError == rhs.isError
@@ -1577,6 +1585,7 @@ public struct ChatMessage: Identifiable, Equatable {
     public let id: UUID
     public let role: ChatRole
     public var textSegments: [String]
+    public var thinkingSegments: [String] = []
     public var contentOrder: [ContentBlockRef]
     public var timestamp: Date
     public var isStreaming: Bool
@@ -1620,6 +1629,7 @@ public struct ChatMessage: Identifiable, Equatable {
     /// like duplicate timestamp dividers.
     public var hasRenderableContent: Bool {
         !textSegments.isEmpty
+            || !thinkingSegments.isEmpty
             || !toolCalls.isEmpty
             || !attachments.isEmpty
             || !inlineSurfaces.isEmpty

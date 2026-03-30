@@ -252,7 +252,7 @@ export interface MemoryRecallToolResult {
   text: string;
   resultCount: number;
   degraded: boolean;
-  items: Array<{ id: string; type: string; kind: string }>;
+  items: Array<{ id: string; type: string; kind: string; sourceConversationTitle?: string }>;
   sources: {
     semantic: number;
     recency: number;
@@ -298,6 +298,7 @@ export async function handleMemoryRecall(
       {
         scopeId,
         scopePolicyOverride,
+        hydeEnabled: true,
       },
     );
 
@@ -328,6 +329,7 @@ export async function handleMemoryRecall(
         id: c.key,
         type: c.type,
         kind: c.kind,
+        ...(c.sourceLabel ? { sourceConversationTitle: c.sourceLabel } : {}),
       })),
       sources: {
         semantic: recall.semanticHits,

@@ -13,8 +13,6 @@ import {
   captureImageRefs,
   GATEWAY_INTERNAL_PORT,
   dockerResourceNames,
-  migrateCesSecurityFiles,
-  migrateGatewaySecurityFiles,
   startContainers,
   stopContainers,
 } from "../lib/docker";
@@ -417,12 +415,6 @@ async function upgradeDocker(
     }
   }
 
-  console.log("🔄 Migrating security files to gateway volume...");
-  await migrateGatewaySecurityFiles(res, (msg) => console.log(msg));
-
-  console.log("🔄 Migrating credential files to CES security volume...");
-  await migrateCesSecurityFiles(res, (msg) => console.log(msg));
-
   console.log("🚀 Starting upgraded containers...");
   await startContainers(
     {
@@ -521,9 +513,6 @@ async function upgradeDocker(
         }
 
         await stopContainers(res);
-
-        await migrateGatewaySecurityFiles(res, (msg) => console.log(msg));
-        await migrateCesSecurityFiles(res, (msg) => console.log(msg));
 
         await startContainers(
           {

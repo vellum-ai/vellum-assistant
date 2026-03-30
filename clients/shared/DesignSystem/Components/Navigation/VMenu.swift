@@ -72,7 +72,7 @@ public struct VMenu<Content: View>: View {
     }
 
     public var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
             content
         }
         .padding(VSpacing.sm)

@@ -63,16 +63,20 @@ struct SidebarConversationItem: View, Equatable {
         VMenuItem(icon: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue, label: conversation.isPinned ? "Unpin" : "Pin") {
             onTogglePin()
         }
+
         VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") {
             onStartRename()
         }
-        VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {
-            onArchive()
+
+        if !conversation.isChannelConversation {
+            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {
+                onArchive()
+            }
+            VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {
+                onMarkUnread()
+            }
+            .disabled(!canMarkUnread)
         }
-        VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {
-            onMarkUnread()
-        }
-        .disabled(!canMarkUnread)
 
         if !moveToGroups.isEmpty, let onMoveToGroup {
             VSubMenuItem(icon: VIcon.folder.rawValue, label: "Move to") {
@@ -251,6 +255,9 @@ struct SidebarConversationItem: View, Equatable {
             }
         }
         .onDrag {
+            guard !conversation.isChannelConversation else {
+                return NSItemProvider()
+            }
             onDragStart()
             return NSItemProvider(object: conversation.id.uuidString as NSString)
         } preview: {

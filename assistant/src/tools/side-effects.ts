@@ -47,12 +47,7 @@ export function isSideEffectTool(
   // Action-aware checks for mixed-action tools
   if (toolName === "credential_store") {
     const action = input?.action;
-    return (
-      action === "store" ||
-      action === "delete" ||
-      action === "prompt" ||
-      action === "oauth2_connect"
-    );
+    return action === "store" || action === "delete" || action === "prompt";
   }
 
   return false;

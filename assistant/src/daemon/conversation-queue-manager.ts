@@ -31,6 +31,8 @@ export interface QueuedMessage {
   isInteractive?: boolean;
   /** Original user message text to persist to DB when recording intent stripping produced a different `content`. */
   displayContent?: string;
+  /** Wall-clock time (ms since epoch) when the message was enqueued, used as the display timestamp. */
+  sentAt: number;
 }
 
 /**

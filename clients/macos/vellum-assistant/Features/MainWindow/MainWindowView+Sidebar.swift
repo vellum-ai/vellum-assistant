@@ -48,7 +48,7 @@ extension MainWindowView {
     /// All non-schedule/non-background conversations for the collapsed sidebar switcher.
     /// Flat count regardless of custom group membership.
     var regularConversations: [ConversationModel] {
-        conversationManager.visibleConversations.filter { !$0.isScheduleConversation && !$0.isBackgroundConversation }
+        conversationManager.visibleConversations.filter { !$0.isScheduleConversation && !$0.isBackgroundConversation && !$0.isChannelConversation }
     }
 
     /// Unread count in the Scheduled section, used to trigger auto-expand.

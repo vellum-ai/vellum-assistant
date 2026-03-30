@@ -272,5 +272,6 @@ export interface RuntimeMessagePayload {
     display?: string;
   }>;
   textSegments?: string[];
+  thinkingSegments?: string[];
   contentOrder?: string[];
 }

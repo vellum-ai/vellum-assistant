@@ -73,6 +73,19 @@ final class SidebarInteractionState {
     /// Group ID currently targeted during a drag-and-drop operation.
     var dropTargetSectionId: String?
 
+    /// Set of channel names whose sidebar sections are currently collapsed.
+    /// Persisted to UserDefaults so collapse state survives app restart.
+    var collapsedChannelSections: Set<String> = {
+        let saved = UserDefaults.standard.stringArray(forKey: "collapsedChannelSections") ?? []
+        return Set(saved)
+    }() {
+        didSet {
+            UserDefaults.standard.set(Array(collapsedChannelSections), forKey: "collapsedChannelSections")
+        }
+    }
+
+    /// Per-channel "show all" toggle (default: show first 3).
+    var showAllChannelConversations: [String: Bool] = [:]
     /// Set of schedule group keys (scheduleJobId values) that are currently expanded.
     var expandedScheduleGroups: Set<String> = []
     var showAllApps: Bool = false

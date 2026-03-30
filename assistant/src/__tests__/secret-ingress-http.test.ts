@@ -32,11 +32,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => "/tmp/vellum-test-secret-ingress-http",
-  getWorkspaceDir: () => "/tmp/vellum-test-secret-ingress-http/workspace",
-}));
-
 mock.module("../memory/conversation-key-store.js", () => ({
   getOrCreateConversation: () => ({ conversationId: "conv-test" }),
   getConversationByKey: () => null,

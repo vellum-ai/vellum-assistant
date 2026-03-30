@@ -2,21 +2,23 @@ import { execSync, spawn } from "node:child_process";
 import {
   closeSync,
   existsSync,
-  mkdirSync,
   openSync,
   readFileSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import { getRuntimeHttpHost, getRuntimeHttpPort } from "../config/env.js";
 import { getIsContainerized } from "../config/env-registry.js";
+import { loadOrCreateSigningKey } from "../runtime/auth/token-service.js";
 import { DaemonError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import {
+  ensureDataDir,
+  getDaemonStartupLockPath,
+  getDaemonStderrLogPath,
   getPidPath,
-  getRootDir,
   getWorkspaceConfigPath,
 } from "../util/platform.js";
 
@@ -66,7 +68,7 @@ function readDaemonTimeouts(): typeof DAEMON_TIMEOUT_DEFAULTS {
 /**
  * Kill the stale daemon recorded in this workspace's PID file, if any.
  * Only targets the exact PID from our PID file — never scans globally —
- * so isolated daemons (e.g., dev instances with a different BASE_DATA_DIR)
+ * so isolated daemons (e.g., dev instances with a different VELLUM_WORKSPACE_DIR)
  * are never affected.
  */
 function killStaleDaemon(): void {
@@ -240,7 +242,7 @@ export async function getDaemonStatus(): Promise<{
 }
 
 function getStartupLockPath(): string {
-  return join(getRootDir(), "daemon-startup.lock");
+  return getDaemonStartupLockPath();
 }
 
 /** Attempt to acquire a startup lock. Returns true on success. Stale locks
@@ -253,7 +255,7 @@ function acquireStartupLock(): boolean {
     // On a first-time run, getRootDir() may not exist yet, and writeFileSync
     // with 'wx' would throw ENOENT — which the catch block misinterprets as
     // "lock already held."
-    mkdirSync(getRootDir(), { recursive: true });
+    ensureDataDir();
     // O_CREAT | O_EXCL — fails atomically if the file already exists.
     writeFileSync(lockPath, String(Date.now()), { flag: "wx" });
     return true;
@@ -343,29 +345,43 @@ async function startDaemonLocked(): Promise<{
   // a crash where the process is alive but non-responsive).
   killStaleDaemon();
 
-  // Only create the root dir for PID files — the daemon process itself
-  // handles migration + full ensureDataDir() in runDaemon(). Calling
-  // ensureDataDir() here would pre-create workspace destination dirs
-  // and cause migration moves to no-op.
-  const rootDir = getRootDir();
-  if (!existsSync(rootDir)) {
-    mkdirSync(rootDir, { recursive: true });
-  }
+  // Ensure root + workspace dirs exist before spawning. The daemon itself
+  // handles full ensureDataDir() during runDaemon(), but we need at least
+  // the root dir for the PID file and stderr log.
+  ensureDataDir();
 
   // Spawn the daemon as a detached child process
   const mainPath = resolve(import.meta.dirname ?? __dirname, "main.ts");
+
+  // Pre-load the signing key so the daemon receives it via env var and
+  // never needs to access the protected directory for key material.
+  // Done before opening stderrFd to avoid leaking the file descriptor if
+  // loadOrCreateSigningKey throws.
+  const spawnEnv = { ...process.env };
+  if (!spawnEnv.ACTOR_TOKEN_SIGNING_KEY) {
+    try {
+      const key = loadOrCreateSigningKey();
+      spawnEnv.ACTOR_TOKEN_SIGNING_KEY = key.toString("hex");
+    } catch (err) {
+      throw new DaemonError(
+        `Failed to pre-load signing key for daemon: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+  }
 
   // Redirect the child's stderr to a file instead of piping it back to the
   // parent. A pipe's read end is destroyed when the parent exits, leaving
   // fd 2 broken in the child. Bun (unlike Node.js) does not ignore SIGPIPE,
   // so any later stderr write would silently kill the daemon.
-  const stderrPath = join(rootDir, "daemon-stderr.log");
+  const stderrPath = getDaemonStderrLogPath();
   const stderrFd = openSync(stderrPath, "w");
 
   const child = spawn("bun", ["run", mainPath], {
     detached: true,
     stdio: ["ignore", "ignore", stderrFd],
-    env: { ...process.env },
+    env: spawnEnv,
   });
 
   // The child inherited the fd; close the parent's copy.

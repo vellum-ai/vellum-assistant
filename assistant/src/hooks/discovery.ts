@@ -3,7 +3,7 @@ import { join, relative, resolve } from "node:path";
 
 import { pathExists } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
-import { getHooksDir } from "../util/platform.js";
+import { getWorkspaceHooksDir } from "../util/platform.js";
 import { loadHooksConfig } from "./config.js";
 import type { DiscoveredHook, HookManifest } from "./types.js";
 
@@ -64,7 +64,7 @@ export function isValidInstallManifest(
 }
 
 export function discoverHooks(hooksDir?: string): DiscoveredHook[] {
-  const dir = hooksDir ?? getHooksDir();
+  const dir = hooksDir ?? getWorkspaceHooksDir();
   if (!pathExists(dir)) return [];
 
   const config = loadHooksConfig();

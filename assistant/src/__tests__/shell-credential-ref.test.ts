@@ -45,11 +45,6 @@ mock.module("../tools/terminal/safe-env.js", () => ({
   buildSanitizedEnv: () => ({ PATH: "/usr/bin" }),
 }));
 
-// Mock platform
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => "/tmp/test-data",
-}));
-
 // Mock proxy session manager
 const mockGetOrStartSession = mock((_convId: string, _credIds: string[]) =>
   Promise.resolve({

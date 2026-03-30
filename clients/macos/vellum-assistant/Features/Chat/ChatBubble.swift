@@ -1,4 +1,5 @@
 import os
+import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
@@ -307,8 +308,10 @@ struct ChatBubble: View {
     }
 
     var body: some View {
+        #if DEBUG
         let _ = os_signpost(.event, log: PerfSignposts.log, name: "chatBubbleBody",
                             "id=%{public}s streaming=%d", message.id.uuidString, message.isStreaming ? 1 : 0)
+        #endif
         // Outer HStack: Spacer pushes the content group to the correct side.
         HStack(alignment: .top, spacing: 0) {
             if isUser { Spacer(minLength: 0) }
@@ -701,28 +704,14 @@ struct ChatBubble: View {
                 }
             }
         }
-        .task(id: "\(message.text)|\(message.isStreaming)") {
-            // Async-parse large messages that missed the synchronous cache
-            let text = message.text
-            guard !message.isStreaming,
-                  text.count > Self.asyncParseThreshold,
-                  Self.segmentCache.object(forKey: text as NSString) == nil,
-                  asyncSegments[text] == nil else { return }
-            let result = await MarkdownParseActor.shared.parse(text)
-            guard !Task.isCancelled else { return }
-            asyncSegments[text] = result
-            // Backfill synchronous cache with cost tracking.
-            // Re-check cache after await to avoid double-inserting when
-            // multiple bubbles parse the same text concurrently.
-            if text.count <= Self.maxCacheableTextLength,
-               Self.segmentCache.object(forKey: text as NSString) == nil {
-                Self.segmentCache.setObject(
-                    SegmentCacheEntry(result),
-                    forKey: text as NSString,
-                    cost: text.utf8.count * 10
-                )
-            }
-        }
+        .textSelection(enabled: !message.isStreaming)
+        // NOTE: The per-segment .task(id:) in ChatBubbleTextContent handles
+        // async parsing for each individual text segment. A prior whole-message
+        // .task(id:) here parsed message.text (all segments joined), but
+        // resolveSegments looks up individual segment text — so the whole-message
+        // result was cached under a key never queried, producing only a wasted
+        // @State update and re-render per message. Removed to eliminate the
+        // redundant re-render cycle.
     }
 
     // MARK: - Document Widget
@@ -784,6 +773,19 @@ struct ChatBubble: View {
     // redundant reevaluations return instantly without re-parsing.
 
     @MainActor static var lastStreamingSegments: (text: String, value: [MarkdownSegment])?
+
+    /// Timestamp of the last streaming markdown parse. Used with
+    /// `streamingParseThrottleInterval` to throttle O(n) re-parsing
+    /// during streaming of large messages with tables.
+    @MainActor static var lastStreamingParseTime: TimeInterval = 0
+
+    /// Streaming text length above which markdown parsing is throttled.
+    static let streamingParseThrottleThreshold = 2000
+
+    /// Minimum interval between streaming markdown parses for large text.
+    /// 150ms allows ~7 updates/sec — visually smooth while preventing
+    /// CPU saturation from synchronous O(n) table parsing on every chunk.
+    static let streamingParseThrottleInterval: TimeInterval = 0.15
 }
 
 /// NSObject wrapper for `[MarkdownSegment]` to satisfy NSCache's NSObject value requirement.

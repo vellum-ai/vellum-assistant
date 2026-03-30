@@ -68,6 +68,11 @@ enum SkillCategory: String, CaseIterable {
 
 // MARK: - Data Models
 
+private enum OrbitItemKind {
+    case skill
+    case workspaceFile
+}
+
 private struct OrbitItem: Identifiable {
     let id: String
     let label: String
@@ -77,6 +82,23 @@ private struct OrbitItem: Identifiable {
     let filePath: String?
     let description: String?
     let category: SkillCategory?
+    let kind: OrbitItemKind
+
+    init(
+        id: String, label: String, icon: VIcon, emoji: String? = nil,
+        color: Color, filePath: String? = nil, description: String? = nil,
+        category: SkillCategory? = nil, kind: OrbitItemKind = .skill
+    ) {
+        self.id = id
+        self.label = label
+        self.icon = icon
+        self.emoji = emoji
+        self.color = color
+        self.filePath = filePath
+        self.description = description
+        self.category = category
+        self.kind = kind
+    }
 }
 
 private struct CategoryGroup: Identifiable {
@@ -306,38 +328,64 @@ private struct SkillNodeView: View {
 
     private var isTappable: Bool { onTap != nil }
 
+    private var isDiamond: Bool { item.kind == .skill }
+
     var body: some View {
-        VStack(spacing: 3) {
+        let content = VStack(spacing: 3) {
             if let emoji = item.emoji, !emoji.isEmpty {
                 Text(emoji)
-                    .font(.system(size: 22))
+                    .font(.system(size: isDiamond ? 18 : 22))
             } else {
-                VIconView(item.icon, size: 18)
+                VIconView(item.icon, size: isDiamond ? 14 : 18)
                     .foregroundStyle(item.color)
             }
 
             Text(item.label)
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentDefault)
-                .lineLimit(2)
+                .lineLimit(isDiamond ? 1 : 2)
                 .truncationMode(.tail)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: size * 0.82)
+                .frame(maxWidth: size * (isDiamond ? 0.62 : 0.82))
         }
         .frame(width: size, height: size)
-        .background(
-            ZStack {
-                RoundedRectangle(cornerRadius: VRadius.lg).fill(VColor.surfaceOverlay)
-                RoundedRectangle(cornerRadius: VRadius.lg).fill(item.color.opacity(isHovered ? 0.20 : 0.10))
+
+        Group {
+            if isDiamond {
+                // Skills: diamond (rotated square) shape
+                content
+                    .rotationEffect(.degrees(-45)) // counter-rotate content upright
+                    .background(
+                        ZStack {
+                            RoundedRectangle(cornerRadius: VRadius.sm).fill(VColor.surfaceOverlay)
+                            RoundedRectangle(cornerRadius: VRadius.sm).fill(item.color.opacity(isHovered ? 0.20 : 0.10))
+                        }
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.sm)
+                            .stroke(item.color.opacity(isHovered ? 0.70 : 0.40), lineWidth: isHovered ? 2 : 1.5)
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .contentShape(RoundedRectangle(cornerRadius: VRadius.sm))
+                    .rotationEffect(.degrees(45)) // rotate the whole node to diamond
+            } else {
+                // Files: circle shape
+                content
+                    .background(
+                        ZStack {
+                            Circle().fill(VColor.surfaceOverlay)
+                            Circle().fill(item.color.opacity(isHovered ? 0.20 : 0.10))
+                        }
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(item.color.opacity(isHovered ? 0.70 : 0.40), lineWidth: isHovered ? 2 : 1.5)
+                    )
+                    .clipShape(Circle())
+                    .contentShape(Circle())
             }
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(item.color.opacity(isHovered ? 0.70 : 0.40), lineWidth: isHovered ? 2 : 1.5)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .contentShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .nativeTooltip(item.label)
+        }
+        .nativeTooltip(item.kind == .workspaceFile ? "File: \(item.label)" : "Skill: \(item.label)")
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHovered = hovering
@@ -352,6 +400,85 @@ private struct SkillNodeView: View {
         .onTapGesture {
             onTap?()
         }
+    }
+}
+
+// MARK: - Node Popover View (Unified)
+
+private struct NodePopoverView: View {
+    let item: OrbitItem
+    var onViewDetails: (() -> Void)?
+
+    /// Icon for the header based on the item's kind.
+    private var headerIcon: VIcon {
+        switch item.kind {
+        case .skill: return item.icon
+        case .workspaceFile: return .file
+        }
+    }
+
+    private var tagLabel: String {
+        switch item.kind {
+        case .skill: return "Skill"
+        case .workspaceFile: return "Workspace"
+        }
+    }
+
+    private var tagIcon: VIcon {
+        switch item.kind {
+        case .skill: return .zap
+        case .workspaceFile: return .file
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: VSpacing.sm) {
+            // Type tag + View Details on same line
+            HStack {
+                VTag(tagLabel, color: VColor.primaryBase, icon: tagIcon)
+                Spacer()
+                if let onViewDetails {
+                    VButton(label: "View Details", style: .ghost, size: .compact) {
+                        onViewDetails()
+                    }
+                }
+            }
+
+            // Name/title with icon or emoji
+            HStack(spacing: VSpacing.sm) {
+                if item.kind == .skill, let emoji = item.emoji, !emoji.isEmpty {
+                    Text(emoji)
+                        .font(.system(size: 20))
+                } else {
+                    VIconView(headerIcon, size: 14)
+                        .foregroundStyle(item.color)
+                }
+
+                Text(item.label)
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                    .lineLimit(2)
+            }
+
+            // Description
+            if let description = item.description, !description.isEmpty {
+                Text(description)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentSecondary)
+                    .lineLimit(4)
+            }
+        }
+        .padding(VSpacing.md)
+        .frame(maxWidth: 260, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .fill(VColor.surfaceBase)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.lg)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
+        .vShadow(VShadow.md)
     }
 }
 
@@ -374,60 +501,6 @@ private enum AnimationPhase: Equatable {
     var skillsVisible: Bool { self == .complete }
 }
 
-// MARK: - Skill Popover View
-
-private struct SkillPopoverView: View {
-    let item: OrbitItem
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.sm) {
-            HStack(spacing: VSpacing.sm) {
-                if let emoji = item.emoji, !emoji.isEmpty {
-                    Text(emoji)
-                        .font(.system(size: 20))
-                } else {
-                    VIconView(item.icon, size: 14)
-                        .foregroundStyle(item.color)
-                }
-
-                Text(item.label)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentDefault)
-                    .lineLimit(2)
-            }
-
-            if let description = item.description, !description.isEmpty {
-                Text(description)
-                    .font(VFont.labelDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .lineLimit(4)
-            }
-
-            if let category = item.category {
-                Text(category.displayName)
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(category.color)
-                    .padding(.horizontal, VSpacing.sm)
-                    .padding(.vertical, VSpacing.xxs)
-                    .background(
-                        Capsule()
-                            .fill(category.color.opacity(0.15))
-                    )
-            }
-        }
-        .padding(VSpacing.md)
-        .frame(maxWidth: 250, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .fill(VColor.surfaceBase)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
-        .vShadow(VShadow.md)
-    }
-}
 
 // MARK: - Overlap Resolution
 
@@ -691,7 +764,10 @@ struct ConstellationView: View {
     let identity: IdentityInfo?
     let skills: [SkillInfo]
     let workspaceFiles: [WorkspaceFileNode]
-    var onFileSelected: ((String) -> Void)?
+    /// Pre-computed skill-id → category map for O(1) lookups during view body evaluation.
+    var categoryLookup: [String: SkillCategory] = [:]
+    var onNavigateToSkill: ((String) -> Void)?
+    var onNavigateToFile: ((String) -> Void)?
     @Binding var isFullscreen: Bool
     @State private var appearance = AvatarAppearanceManager.shared
 
@@ -700,8 +776,9 @@ struct ConstellationView: View {
     @State private var dragOffset: CGSize = .zero
     @State private var zoomScale: CGFloat = 1.0
     @State private var baseZoomScale: CGFloat = 1.0
-    @State private var selectedSkillItem: OrbitItem?
-    @State private var selectedNodeId: String?
+    @State private var selectedPopoverItem: OrbitItem?
+    @State private var selectedPopoverNodeId: String?
+    @State private var popoverSize: CGSize = CGSize(width: 250, height: 120)
     @State private var zoomedNodeId: String?
 
     // Node sizes
@@ -726,6 +803,7 @@ struct ConstellationView: View {
     /// Accumulated drag offset for the node currently being dragged.
     @State private var activeNodeDrag: (id: String, offset: CGSize)?
 
+
     private var existingFiles: [WorkspaceFileNode] {
         workspaceFiles.filter { $0.exists }
     }
@@ -736,13 +814,13 @@ struct ConstellationView: View {
             return OrbitItem(
                 id: "workspace-\(idx)", label: node.label, icon: SkillCategory.knowledge.icon,
                 emoji: nil, color: SkillCategory.knowledge.color, filePath: path,
-                description: nil, category: .knowledge
+                description: nil, category: .knowledge, kind: .workspaceFile
             )
         }
 
-        var categoryMap: [SkillCategory: [OrbitItem]] = [.knowledge: fileItems]
+        var buckets: [SkillCategory: [OrbitItem]] = [.knowledge: fileItems]
         for skill in skills {
-            let cat = inferCategory(skill)
+            let cat = categoryLookup[skill.id] ?? .knowledge
             let item = OrbitItem(
                 id: skill.id,
                 label: skill.name,
@@ -753,12 +831,12 @@ struct ConstellationView: View {
                 description: skill.description,
                 category: cat
             )
-            categoryMap[cat, default: []].append(item)
+            buckets[cat, default: []].append(item)
         }
 
         var result: [CategoryGroup] = []
         for cat in SkillCategory.allCases {
-            if let items = categoryMap[cat], !items.isEmpty {
+            if let items = buckets[cat], !items.isEmpty {
                 result.append(CategoryGroup(category: cat, items: items))
             }
         }
@@ -934,6 +1012,47 @@ struct ConstellationView: View {
             }
     }
 
+    /// Toggles the unified popover for a given item and node.
+    private func togglePopover(item: OrbitItem, nodeId: String) {
+        withAnimation(VAnimation.fast) {
+            if selectedPopoverItem?.id == item.id {
+                selectedPopoverItem = nil
+                selectedPopoverNodeId = nil
+            } else {
+                selectedPopoverItem = item
+                selectedPopoverNodeId = nodeId
+            }
+        }
+    }
+
+    /// Returns the appropriate "View Details" navigation action for a popover item,
+    /// or nil if no deep-link is available for that item type.
+    private func viewDetailsAction(for item: OrbitItem) -> (() -> Void)? {
+        switch item.kind {
+        case .skill:
+            // Workspace file items stored as skills have filePath set — they don't deep-link to skill detail
+            guard item.filePath == nil else { return nil }
+            return {
+                withAnimation(VAnimation.fast) {
+                    selectedPopoverItem = nil
+                    selectedPopoverNodeId = nil
+                }
+                onNavigateToSkill?(item.id)
+            }
+        case .workspaceFile:
+            guard onNavigateToFile != nil else { return nil }
+            return {
+                withAnimation(VAnimation.fast) {
+                    selectedPopoverItem = nil
+                    selectedPopoverNodeId = nil
+                }
+                // Use filePath for files, fall back to label for directories (e.g. "skills/")
+                let path = item.filePath ?? item.label
+                onNavigateToFile?(path)
+            }
+        }
+    }
+
     var body: some View {
         GeometryReader { proxy in
             let totalOffset = CGSize(
@@ -948,38 +1067,59 @@ struct ConstellationView: View {
                 canvas(size: proxy.size)
                     .scaleEffect(zoomScale)
                     .offset(totalOffset)
-
-                // Dismiss layer for popover
-                if selectedSkillItem != nil {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            withAnimation(VAnimation.fast) {
-                                selectedSkillItem = nil
-                                selectedNodeId = nil
-                            }
-                        }
-                }
-
-                // Skill popover overlay
-                if let selected = selectedSkillItem, let nodeId = selectedNodeId {
-                    let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let nodePos = effectivePosition(forId: nodeId)
-                    let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
-                    let scaledX = viewCenter.x + (nodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
-                    let scaledY = viewCenter.y + (nodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
-
-                    SkillPopoverView(item: selected)
-                        .position(x: scaledX, y: scaledY)
-                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
-                }
             }
                 .frame(width: proxy.size.width, height: proxy.size.height)
                 .clipped()
                 .contentShape(Rectangle())
+                .overlay {
+                    // Dismiss layer for popover
+                    if selectedPopoverItem != nil {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                withAnimation(VAnimation.fast) {
+                                    selectedPopoverItem = nil
+                                    selectedPopoverNodeId = nil
+                                }
+                            }
+                    }
+                }
+                .overlay {
+                    // Popover overlay (outside clipped area so it doesn't get cut off)
+                    if let popoverItem = selectedPopoverItem, let popoverNodeId = selectedPopoverNodeId {
+                        let canvasCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                        let nodePos = effectivePosition(forId: popoverNodeId)
+                        let viewCenter = CGPoint(x: proxy.size.width / 2, y: proxy.size.height / 2)
+                        let rawX = viewCenter.x + (nodePos.x - canvasCenter.x) * zoomScale + totalOffset.width
+                        let rawY = viewCenter.y + (nodePos.y - canvasCenter.y) * zoomScale + totalOffset.height - 60
+
+                        // Clamp so the popover stays within visible bounds
+                        let margin: CGFloat = VSpacing.sm
+                        let clampedX = min(max(rawX, popoverSize.width / 2 + margin), proxy.size.width - popoverSize.width / 2 - margin)
+                        let clampedY = min(max(rawY, popoverSize.height / 2 + margin), proxy.size.height - popoverSize.height / 2 - margin)
+
+                        NodePopoverView(
+                            item: popoverItem,
+                            onViewDetails: viewDetailsAction(for: popoverItem)
+                        )
+                        .onGeometryChange(for: CGSize.self) { proxy in
+                            proxy.size
+                        } action: { size in
+                            popoverSize = size
+                        }
+                        .position(x: clampedX, y: clampedY)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                    }
+                }
                 .overlay(alignment: .topLeading) {
                     fullscreenToggle
                         .padding(VSpacing.lg)
+                }
+                .overlay(alignment: .bottomLeading) {
+                    shapeLegend
+                        .padding(VSpacing.lg)
+                        .opacity(phase.skillsVisible ? 1 : 0)
+                        .animation(VAnimation.standard, value: phase)
                 }
                 .overlay(alignment: .bottomTrailing) {
                     viewportControls(viewSize: proxy.size)
@@ -1010,6 +1150,16 @@ struct ConstellationView: View {
                             zoomedNodeId = nil
                         }
                 )
+                .background {
+                    ScrollWheelZoomHelper { delta in
+                        let newScale = max(0.4, min(3.0, zoomScale * (1 + delta)))
+                        withAnimation(VAnimation.snappy) {
+                            zoomScale = newScale
+                            baseZoomScale = newScale
+                            zoomedNodeId = nil
+                        }
+                    }
+                }
                 .onAppear {
                     layoutAndAnimate(viewSize: proxy.size)
                 }
@@ -1018,10 +1168,10 @@ struct ConstellationView: View {
                 }
                 #if os(macOS)
                 .onKeyPress(.escape) {
-                    if selectedSkillItem != nil {
+                    if selectedPopoverItem != nil {
                         withAnimation(VAnimation.fast) {
-                            selectedSkillItem = nil
-                            selectedNodeId = nil
+                            selectedPopoverItem = nil
+                            selectedPopoverNodeId = nil
                         }
                         return .handled
                     }
@@ -1045,6 +1195,57 @@ struct ConstellationView: View {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                 isFullscreen.toggle()
             }
+        }
+    }
+
+    // MARK: - Shape Legend (bottom-left)
+
+    private var shapeLegend: some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            legendRow(shape: AnyView(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(VColor.contentTertiary, lineWidth: 2)
+                    .frame(width: 14, height: 14)
+            ), label: "Category")
+
+            legendRow(shape: AnyView(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(VColor.contentTertiary, style: StrokeStyle(lineWidth: 1.5, dash: [3, 2]))
+                    .frame(width: 12, height: 12)
+            ), label: "Subcategory")
+
+            legendRow(shape: AnyView(
+                RoundedRectangle(cornerRadius: 3)
+                    .stroke(VColor.contentTertiary, lineWidth: 1.5)
+                    .frame(width: 12, height: 12)
+                    .rotationEffect(.degrees(45))
+            ), label: "Skill")
+
+            legendRow(shape: AnyView(
+                Circle()
+                    .stroke(VColor.contentTertiary, lineWidth: 1.5)
+                    .frame(width: 12, height: 12)
+            ), label: "Workspace")
+        }
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.sm)
+        .background(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(VColor.surfaceOverlay)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .stroke(VColor.borderBase, lineWidth: 1)
+        )
+    }
+
+    private func legendRow(shape: AnyView, label: String) -> some View {
+        HStack(spacing: VSpacing.sm) {
+            shape
+                .frame(width: 16, height: 16)
+            Text(label)
+                .font(VFont.labelSmall)
+                .foregroundStyle(VColor.contentSecondary)
         }
     }
 
@@ -1208,21 +1409,7 @@ struct ConstellationView: View {
                         item: item,
                         size: skillNodeSize,
                         onDoubleTap: { zoomToNode(nodeId, viewSize: size) },
-                        onTap: item.filePath != nil
-                            ? { onFileSelected?(item.filePath!) }
-                            : item.description != nil
-                                ? {
-                                    withAnimation(VAnimation.fast) {
-                                        if selectedSkillItem?.id == item.id {
-                                            selectedSkillItem = nil
-                                            selectedNodeId = nil
-                                        } else {
-                                            selectedSkillItem = item
-                                            selectedNodeId = node.id
-                                        }
-                                    }
-                                }
-                                : nil
+                        onTap: { togglePopover(item: item, nodeId: node.id) }
                     )
                     .position(effPos)
                     .gesture(nodeDragGesture(nodeId: nodeId))
@@ -1233,6 +1420,7 @@ struct ConstellationView: View {
                             .delay(0.08 + Double(idx) * 0.02),
                         value: phase
                     )
+
                 }
             }
 
@@ -1268,6 +1456,62 @@ private struct DottedGridBackground: View {
                     )
                 }
             }
+        }
+    }
+}
+
+// MARK: - Scroll Wheel Zoom Helper
+
+/// Transparent NSViewRepresentable that intercepts discrete mouse-wheel scroll
+/// events over this view's bounds and converts them into zoom deltas.
+/// Trackpad (precise) scrolling is left untouched for `MagnifyGesture`.
+private struct ScrollWheelZoomHelper: NSViewRepresentable {
+    var onZoomDelta: (CGFloat) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onZoomDelta: onZoomDelta) }
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        let coordinator = context.coordinator
+        coordinator.view = view
+        coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak coordinator] event in
+            guard let coordinator,
+                  let v = coordinator.view,
+                  let window = v.window,
+                  event.window == window else { return event }
+            let location = v.convert(event.locationInWindow, from: nil)
+            guard v.bounds.width > 0, v.bounds.contains(location) else { return event }
+
+            // Only handle discrete mouse-wheel scrolling.
+            guard !event.hasPreciseScrollingDeltas else { return event }
+
+            let delta = event.scrollingDeltaY / 10
+            guard abs(delta) > 0.001 else { return event }
+
+            coordinator.onZoomDelta(delta)
+            return nil
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.onZoomDelta = onZoomDelta
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        if let monitor = coordinator.monitor {
+            NSEvent.removeMonitor(monitor)
+            coordinator.monitor = nil
+        }
+    }
+
+    class Coordinator {
+        weak var view: NSView?
+        var monitor: Any?
+        var onZoomDelta: (CGFloat) -> Void
+
+        init(onZoomDelta: @escaping (CGFloat) -> Void) {
+            self.onZoomDelta = onZoomDelta
         }
     }
 }

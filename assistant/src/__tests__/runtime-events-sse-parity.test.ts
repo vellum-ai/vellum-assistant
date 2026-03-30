@@ -15,26 +15,7 @@
  *   - generation_handoff (terminal)
  *   - generation_cancelled (terminal)
  */
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "runtime-events-sse-parity-")),
-);
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -66,11 +47,6 @@ initializeDb();
 
 afterAll(() => {
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // ---------------------------------------------------------------------------
@@ -165,12 +141,14 @@ describe("SSE HTTP parity — streaming/delta message types", () => {
     const msg = {
       type: "assistant_thinking_delta" as const,
       thinking: "Let me reason through this...",
+      conversationId: "conv-thinking-test",
     };
     const event = await publishAndReadFrame("parity-thinking-delta", msg);
 
     expect(event.message.type).toBe("assistant_thinking_delta");
     const m = event.message as typeof msg;
     expect(m.thinking).toBe("Let me reason through this...");
+    expect(m.conversationId).toBe("conv-thinking-test");
   });
 
   // ── tool_input_delta ─────────────────────────────────────────────────────

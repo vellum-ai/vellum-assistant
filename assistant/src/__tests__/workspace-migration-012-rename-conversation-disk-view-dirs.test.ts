@@ -37,7 +37,7 @@ describe("012-rename-conversation-disk-view-dirs migration", () => {
       const legacyName = legacyConversationDirName("conv-123", createdAt);
       const legacyDir = join(conversationsDir, legacyName);
       mkdirSync(legacyDir, { recursive: true });
-      writeFileSync(join(legacyDir, "meta.json"), "{\"ok\":true}\n", "utf-8");
+      writeFileSync(join(legacyDir, "meta.json"), '{"ok":true}\n', "utf-8");
 
       renameConversationDiskViewDirsMigration.run(workspaceDir);
 
@@ -46,7 +46,7 @@ describe("012-rename-conversation-disk-view-dirs migration", () => {
       expect(existsSync(legacyDir)).toBe(false);
       expect(existsSync(newDir)).toBe(true);
       expect(readFileSync(join(newDir, "meta.json"), "utf-8")).toContain(
-        "\"ok\":true",
+        '"ok":true',
       );
     } finally {
       rmSync(workspaceDir, { recursive: true, force: true });

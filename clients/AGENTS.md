@@ -73,9 +73,9 @@ For new view models and state objects targeting macOS 15+ / iOS 17+, prefer the 
 
 The following classes have been migrated from `ObservableObject` to `@Observable`:
 
-**macOS-only:** QuickInputTextModel, DevModeManager, RecordingHUDViewModel, NavigationHistory, AmbientAgent, DocumentManager, E2EStatusOverlayViewModel, WatchSession, SurfaceViewModel, SurfaceManager, AppListManager, TerminalSessionManager, MessageAudioPlayer, ContactsViewModel, OpenAIVoiceService, SkillsManager
+**macOS-only:** QuickInputTextModel, DevModeManager, RecordingHUDViewModel, NavigationHistory, AmbientAgent, DocumentManager, E2EStatusOverlayViewModel, WatchSession, SurfaceViewModel, SurfaceManager, AppListManager, TerminalSessionManager, MessageAudioPlayer, ContactsViewModel, OpenAIVoiceService, SkillsManager, MessageListScrollState
 
-**Shared (macOS + iOS):** InlineVideoEmbedStateManager, ContactsStore, MemoryItemsStore, ChannelTrustStore, ChatErrorManager, TaskProgressOverlayManager
+**Shared (macOS + iOS):** InlineVideoEmbedStateManager, ContactsStore, MemoryItemsStore, ChannelTrustStore, ChatErrorManager, ChatGreetingState, TaskProgressOverlayManager, ChatAttachmentManager, ChatMessageManager, ChatViewModel
 
 </details>
 
@@ -90,20 +90,25 @@ These classes stay `ObservableObject` because they have deep Combine integration
 | `MainWindowState` | Bridges `@Observable` NavigationHistory via `withObservationTracking`; uses `objectWillChange` forwarding |
 | `VoiceModeManager` | Complex Combine pipelines (audio streams, state machine transitions) |
 | `ConversationManager` | Hub object subscribing to many child `objectWillChange` publishers; complex lifecycle |
-| `ChatViewModel` | Extensive Combine pipelines (SSE streaming, message coalescing, debounce); bridges `@Observable` ChatErrorManager via `withObservationTracking` |
-| `ChatMessageManager` | Tightly coupled to ChatViewModel's Combine publish pipeline |
 | `GatewayConnectionManager` | Combine-based SSE event stream processing |
 | `RecordingManager` | Audio capture Combine pipelines |
 | `RecordingSourcePickerViewModel` | ScreenCaptureKit async sequences + Combine |
 | `HostCuSessionProxy` | Conforms to `SessionOverlayProviding` protocol requiring `ObservableObject` |
 | `ToolPermissionTesterModel` | Combine-based test execution pipeline |
-| `MessageListScrollCoordinator` | Intentional `@Published` / non-reactive split for scroll performance; `isAtBottom` is deliberately non-reactive to prevent scroll-loop feedback |
 
 </details>
 
 #### @Observable migration patterns
 
 **`@ObservationIgnored` for non-reactive bookkeeping.** Mark stored properties that should not trigger view updates with `@ObservationIgnored`. Use this for: Combine cancellables (`Set<AnyCancellable>`), background `Task` handles, delegate/callback closures, internal caches, and constants. Example: `@ObservationIgnored private var cancellables = Set<AnyCancellable>()`.
+
+**`@ObservationIgnored` enables deinit access on `@MainActor @Observable` classes.** The `@Observable` macro synthesizes getter/setter pairs that create actor isolation conflicts in `deinit` ([swift#79551](https://github.com/swiftlang/swift/issues/79551)). To cancel owned tasks in `deinit`, mark them `@ObservationIgnored` so they remain plain stored properties that `deinit` can access. Always explicitly cancel unstructured `Task {}` in `deinit` — do not rely solely on `[weak self]` cleanup, as the task continues running until its next cancellation check ([WWDC23 — Beyond the basics of structured concurrency](https://developer.apple.com/videos/play/wwdc2023/10170/)).
+```swift
+@MainActor @Observable final class MyState {
+    @ObservationIgnored var myTask: Task<Void, Never>?
+    deinit { myTask?.cancel() }
+}
+```
 
 **`withObservationTracking` bridge for `@Observable` → `ObservableObject`.** When an `@Observable` class is owned by an `ObservableObject` parent, bridge changes using a recursive `withObservationTracking` loop that calls `objectWillChange.send()` (or a coalesced publish) on change:
 ```swift
@@ -119,7 +124,7 @@ private func observeChild() {
     }
 }
 ```
-See `ChatViewModel.observeErrorManager()` and `MainWindowState.observeNavigationHistory()` for production examples.
+See `MainWindowState.observeNavigationHistory()` for a production example.
 
 **Computed property forwarding.** When both source and target are `@Observable`, computed properties that read from an `@Observable` dependency automatically participate in observation tracking — no manual bridging needed.
 
@@ -209,7 +214,7 @@ For current best practices on Swift concurrency, actor isolation, and executor s
   - [Apple — CGImageDestination](https://developer.apple.com/documentation/imageio/cgimagedestination) (thread-safe JPEG/PNG encoding)
 - **Profile before optimizing, but follow known patterns.** Use Instruments to validate — specifically Time Profiler for main-thread spikes, Core Animation instrument for frame drops, and Allocations for memory. Launch Instruments directly from `/Applications/Instruments.app` or via `xcrun instruments`. However, the patterns above are established project standards — follow them proactively rather than waiting for a performance regression.
 - **(macOS only) Background timers: gate on display state and use long polling intervals.** Set background polling intervals to at least 300 s (5 min). Before running expensive evaluation, call `CGDisplayIsAsleep(CGMainDisplayID())` and skip if the display is off. Do **not** use `NSApplication.didBecomeActiveNotification` as an activity gate for LSUIElement / accessory-mode apps — this notification never fires when the app has no dock icon, permanently disabling the feature after first use.
-- **AVAudio teardown order.** Always tear down AVAudio resources in the order `removeTap` → `stop` → `reset`. Calling `stop` before `removeTap` leaves the tap dangling and causes a retain cycle that prevents `AVAudioEngine` from being deallocated.
+- **AVAudio teardown order.** Tear down AVAudio resources in the order `stop` → `removeTap` → `reset`, matching [Apple's SpokenWord sample](https://developer.apple.com/documentation/speech/recognizing-speech-in-live-audio). Always call `removeTap(onBus:)` — even when the engine is already stopped — to prevent `NSInternalInconsistencyException` on the next `installTap`.
 - **Preserve sidebar↔content animation pairing in `MainWindowView`.** The sidebar and content container in `coreLayout` must both carry `.animation(VAnimation.panel, value: sidebarExpanded)` so they transition in sync when the sidebar collapses or expands. Removing the modifier from either side causes the other to snap instantly, producing a jarring layout jump. This has regressed before — when refactoring `MainWindowView` layout, verify that both the sidebar column and `chatContentView` retain their `sidebarExpanded` animation modifiers.
 
 ---
@@ -218,21 +223,19 @@ For current best practices on Swift concurrency, actor isolation, and executor s
 
 > These rules exist because competing `proxy.scrollTo` calls have caused repeated freezes and crashes in the chat view. Follow them any time you touch scroll-position logic.
 
-### Architecture: MessageListScrollCoordinator
+### Architecture: MessageListScrollState
 
-All scroll state and reactions for the message list live in `MessageListScrollCoordinator` (`Features/Chat/`), split across two files with a supporting diagnostics type:
+All scroll state for the message list lives in `MessageListScrollState` (`Features/Chat/MessageListScrollState.swift`), an `@Observable @MainActor` class owned by `MessageListView` via `@State`. Scroll behavior methods (state reactions, scroll restore, pagination trigger/execution) are implemented inline in `MessageListView.swift` as private methods on the view body.
 
-- **`MessageListScrollCoordinator.swift`** — Core state declarations (`@Published` reactive state, non-reactive bookkeeping, per-reason suppression boolean flags with begin/end helpers, follow/detach state, diagnostics forwarding, cleanup).
-- **`MessageListScrollCoordinator+ScrollBehavior.swift`** — All scroll behavior: state reactions (`sendingStateChanged`, `messagesChanged`, `containerResized`, `conversationSwitched`, `anchorMessageIdChanged`), pin requests (`requestBottomPin`, `configureScrollCallbacks`), scroll restore, user scroll actions (`handleScrollUp`, `handleScrollToBottom`), suppress-auto-scroll, resize task, pagination trigger/execution.
-- **`ScrollDiagnosticsRecorder.swift`** — Owns all diagnostic recording: `ChatScrollLoopGuard` (loop detection), transcript snapshot capture, and non-finite geometry logging. Extracted from the coordinator to keep it focused on scroll mechanics.
+- **`MessageListScrollState.swift`** — Core state: a single observed property (`uiVersion`) that drives all SwiftUI view updates, plus `@ObservationIgnored` snapshot values (`showScrollToLatest`, `showTailSpacer`, `scrollIndicatorsHidden`) and `@ObservationIgnored` bookkeeping (scroll geometry, layout cache, task references, `pushToTopMessageId`, `isPaginationInFlight`, `hideScrollIndicators`), `SuppressionReasons` OptionSet with `beginSuppression`/`endSuppression`/`clearSuppression`, follow/detach via `pinToBottom()`/`detach()`/`reattach()`, and lifecycle methods (`reset(for:)`, `cancelAll()`).
 
-Bottom detection uses `.onScrollGeometryChange` (macOS 15+) to compute the distance from the bottom of the content. The handler computes `effectiveContentHeight - contentOffsetY - visibleRectHeight` and uses asymmetric hysteresis to set the coordinator's `isAtBottom` property: when already at bottom, `isAtBottom` stays `true` until `distanceFromBottom` exceeds 30pt (leave threshold); when not at bottom, `isAtBottom` becomes `true` only when `distanceFromBottom` is within 10pt (enter threshold). This prevents oscillation during streaming where content-height growth transiently exceeds a single threshold. This approach is reliable because it uses continuous geometry measurements rather than `ScrollPosition.viewID`, which per Apple documentation becomes `nil` on any user-initiated scroll and is therefore unsuitable for continuous bottom-detection. The reattach-on-idle logic in `onScrollPhaseChange` is the primary consumer of `isAtBottom`. The "Scroll to latest" CTA button depends solely on `isNearBottom` (the follow/detach state managed by the coordinator).
+**Why `@Observable` with single `uiVersion`:** All scroll-frequency state is `@ObservationIgnored` — geometry, phases, layout cache, suppression flags, and the backing stores for all UI-facing values (`_isFollowingBottom`, `_pushToTopMessageId`, `_isPaginationInFlight`, `_hideScrollIndicators`). The debounced `scheduleUISync()` calls `syncUISnapshots()`, which atomically computes snapshot values (`showScrollToLatest`, `showTailSpacer`, `scrollIndicatorsHidden`) from internal state and bumps the single observed property `uiVersion` only if anything changed. This guarantees at most 1 SwiftUI body re-evaluation per 16ms frame from scroll state, preventing the cascading re-render feedback loops that caused the old `ObservableObject` coordinator to freeze the app. `isFollowingBottom` is a computed property reading the `@ObservationIgnored` `_isFollowingBottom` flag; its changes propagate to the view only through `showScrollToLatest` via `syncUISnapshots()`.
 
-Follow/detach state for bottom-pin logic is managed directly on `MessageListScrollCoordinator` via `isFollowingBottom`, `detachFromBottom()`, and `reattachToBottom()`. When detached (user scrolled up), background pin requests are suppressed. Reattachment occurs when the user explicitly scrolls to bottom or a conversation switch resets state.
+Bottom detection uses `.onScrollGeometryChange` (macOS 15+) to compute the distance from the bottom of the content. The handler computes `effectiveContentHeight - contentOffsetY - visibleRectHeight` and uses asymmetric hysteresis to set `isAtBottom`: when already at bottom, `isAtBottom` stays `true` until `distanceFromBottom` exceeds 30pt (leave threshold); when not at bottom, `isAtBottom` becomes `true` only when `distanceFromBottom` is within 10pt (enter threshold). This prevents oscillation during streaming where content-height growth transiently exceeds a single threshold. This approach is reliable because it uses continuous geometry measurements rather than `ScrollPosition.viewID`, which per Apple documentation becomes `nil` on any user-initiated scroll and is therefore unsuitable for continuous bottom-detection. The reattach-on-idle logic in `onScrollPhaseChange` is the primary consumer of `isAtBottom`. The "Scroll to latest" CTA button reads the `showScrollToLatest` snapshot value (`@ObservationIgnored`, synced to the view through `uiVersion`).
 
-Programmatic scrolling uses `scrollPosition.scrollTo(id:anchor:)` instead of `ScrollViewReader` + `proxy.scrollTo()`. The coordinator stores a `scrollTo: (any Hashable, UnitPoint?) -> Void` closure configured during setup that captures the view-owned `scrollPosition`.
+Follow/detach state for bottom-pin logic is managed on `MessageListScrollState` via `isFollowingBottom`, `detach()`, and `reattach()`. The internal `_isFollowingBottom` flag is `@ObservationIgnored` and written at scroll frequency; the `showScrollToLatest` snapshot value (also `@ObservationIgnored`) is synced through `syncUISnapshots()` and propagated to the view via `uiVersion`. The `pinToBottom(animated:userInitiated:)` method handles scroll-to-bottom requests: user-initiated calls bypass follow-state and suppression checks; non-user-initiated calls are gated on both `isFollowingBottom` and `!isSuppressed`. Reattachment occurs when the user explicitly scrolls to bottom or a conversation switch calls `reset(for:)`.
 
-The coordinator is an `ObservableObject` owned by `MessageListView` via `@StateObject`. It separates reactive state (`@Published` properties that drive view updates) from non-reactive bookkeeping (plain stored properties that update on every scroll tick without triggering `objectWillChange`).
+Programmatic scrolling uses `scrollPosition.scrollTo(id:anchor:)` instead of `ScrollViewReader` + `proxy.scrollTo()`. The scroll state stores `scrollTo: (any Hashable, UnitPoint?) -> Void` and `scrollToEdge: (Edge) -> Void` closures configured during view setup that capture the view-owned `ScrollPosition`.
 
 ### Scroll Event Detection
 
@@ -240,24 +243,24 @@ The coordinator is an `ObservableObject` owned by `MessageListView` via `@StateO
 - **Bottom detection:** Use `.onScrollGeometryChange(for:of:action:)` to compute `effectiveContentHeight - contentOffsetY - visibleRectHeight` and set `isAtBottom` using asymmetric hysteresis (10pt enter threshold, 30pt leave threshold) to prevent oscillation during streaming. Do not use `ScrollPosition.viewID` for bottom detection — `viewID` becomes `nil` on user-initiated scroll, making it unreliable for continuous tracking.
 - **Scroll geometry tracking:** Use `.onScrollGeometryChange(for:of:action:)` (macOS 15+) to observe scroll direction, viewport height changes, and bottom detection in a single handler.
 
-### Scroll Suppression (Per-Reason Boolean Flags)
+### Scroll Suppression (SuppressionReasons OptionSet)
 
-Three plain stored boolean flags (`isResizeSuppressed`, `isPaginationSuppressed`, `isExpansionSuppressed`) manage reasons for temporarily suppressing auto-scroll-to-bottom. These are NOT `@Published` — the view never reads suppression state directly for rendering; making them `@Published` would trigger unnecessary `objectWillChange` on every suppression flip. Multiple reasons can be active concurrently; `isSuppressed` is true when any flag is set. Manage flags via per-reason helpers (`beginResizeSuppression`/`endResizeSuppression`, `beginPaginationSuppression`/`endPaginationSuppression`, `beginExpansionSuppression`/`endExpansionSuppression`). Only expansion uses a 200ms auto-timeout Task; resize and pagination manage their lifecycle manually within their task bodies. The `activeSuppressionReasons` computed property provides diagnostic strings for logs and transcript snapshots. Check `scrollCoordinator.isSuppressed` before issuing any automatic scroll-to-bottom call.
+A `SuppressionReasons` OptionSet (`.resize`, `.pagination`, `.expansion`) manages reasons for temporarily suppressing auto-scroll-to-bottom. The `suppressionReasons` property and the derived `isSuppressed` flag are both `@ObservationIgnored` — the view never reads suppression state directly for rendering. Multiple reasons can be active concurrently; `isSuppressed` is true when any reason is set. Manage flags via `beginSuppression(_:)` and `endSuppression(_:)`. Only `.expansion` uses a 200ms auto-timeout Task; `.resize` and `.pagination` manage their lifecycle manually within their task bodies. Check `scrollState.isSuppressed` before issuing any automatic scroll-to-bottom call.
 
 ### Rules
 
-- **Cancel auto-scroll tasks immediately on user-initiated scroll.** When the user manually scrolls (up, pagination pull, etc.), cancel the debounce/auto-scroll `Task` synchronously inside the scroll callback — before any `await`. Do not rely on the task noticing cancellation at its next sleep boundary; by then the trailing `proxy.scrollTo` may already have been scheduled, starting a fight with the user's scroll position.
-- **Guard scroll `onChange` handlers with the suppression flags.** Any `onChange(of: messages.count)` that calls `proxy.scrollTo` must check `scrollCoordinator.isSuppressed`. Suppression reasons (resize, pagination, expansion) are managed via per-reason `begin`/`end` helpers on `MessageListScrollCoordinator`. Only expansion has an auto-timeout; resize and pagination are managed manually within their task bodies. This prevents auto-scroll from racing pagination scroll or other competing operations.
-- **Use an in-flight guard to prevent stacking concurrent pagination loads.** The coordinator's `isPaginationInFlight` flag gates the pagination sentinel. Without it, rapid scroll-to-top can enqueue multiple concurrent loads before `isLoadingMoreMessages` is set by the async response, duplicating content and corrupting the history cursor.
-- **Route all scroll reactions through coordinator methods.** Do not add inline `onChange` handlers that call `proxy.scrollTo` directly in `MessageListView`. Instead, add a new method on the coordinator (in the appropriate extension file) and call it from the view. This keeps scroll logic centralized and testable.
-- **`ChatScrollLoopGuard` is diagnostic-only.** The guard monitors `scrollToRequested` (15 per 2s window) and `bodyEvaluation` (40 per 2s window) events. When thresholds are exceeded, it emits aggregate warnings via `os.Logger` and records events to `ChatDiagnosticsStore` — but it does not circuit-break or suppress scroll operations. The `scrollLoopGuardCounts` field is preserved in `ChatTranscriptSnapshot` for diagnostics.
+- **Cancel auto-scroll tasks immediately on user-initiated scroll.** When the user manually scrolls (up, pagination pull, etc.), cancel the debounce/auto-scroll `Task` synchronously inside the scroll callback — before any `await`. Do not rely on the task noticing cancellation at its next sleep boundary; by then the trailing scroll may already have been scheduled, starting a fight with the user's scroll position.
+- **Guard scroll `onChange` handlers with the suppression flag.** Any `onChange(of: messages.count)` that triggers a scroll-to-bottom must check `scrollState.isSuppressed`. Suppression reasons (resize, pagination, expansion) are managed via `beginSuppression`/`endSuppression` on `MessageListScrollState`. Only expansion has an auto-timeout; resize and pagination are managed manually within their task bodies. This prevents auto-scroll from racing pagination scroll or other competing operations.
+- **Use an in-flight guard to prevent stacking concurrent pagination loads.** The `isPaginationInFlight` flag on `MessageListScrollState` gates the pagination sentinel. Without it, rapid scroll-to-top can enqueue multiple concurrent loads before `isLoadingMoreMessages` is set by the async response, duplicating content and corrupting the history cursor.
+- **Route all scroll reactions through dedicated methods.** Do not add inline `onChange` handlers that call `scrollTo` directly in `MessageListView`. Instead, add a new method on the scroll state or behavior extension and call it from the view. This keeps scroll logic centralized and testable.
+- **Loop guard monitoring was removed.** The former `ChatScrollLoopGuard` diagnostic type was removed as unnecessary under the `@Observable` architecture — property-level tracking eliminates the cascading re-render feedback loops that the guard was designed to detect.
 <details>
 <summary><strong>Layout timing, scroll forwarding, and .scrollPosition caveats</strong></summary>
 
-- **Allow a layout settle delay before restoring scroll position.** After inserting new messages (pagination prepend), wait at least **32 ms** before calling `proxy.scrollTo(anchor)` so SwiftUI can finish its layout pass. If any inserted content performs an animated height change (e.g., `InlineVideoEmbedCard` at 0.25 s), increase the delay to at least the animation duration (100 ms minimum) — restoring scroll mid-animation lands at the wrong position.
+- **Allow a layout settle delay before restoring scroll position.** After inserting new messages (pagination prepend), wait at least **32 ms** before calling `scrollTo(anchor)` so SwiftUI can finish its layout pass. If any inserted content performs an animated height change (e.g., `InlineVideoEmbedCard` at 0.25 s), increase the delay to at least the animation duration (100 ms minimum) — restoring scroll mid-animation lands at the wrong position.
 - **Forward scroll/wheel events from gesture-capturing subviews.** `WKWebView` (and other `NSResponder`/`UIResponder` subclasses that capture scroll events) swallow all scroll-wheel input, preventing the enclosing `ScrollView` from scrolling. Subclass the view and override `scrollWheel(_:)` (macOS) / `gestureRecognizerShouldBegin(_:)` (iOS) to forward the event to `nextResponder` / the parent scroll view instead of consuming it.
-- **`ScrollPosition` is the project standard for programmatic scroll tracking.** The message list uses `@State private var scrollPosition = ScrollPosition()` with `.scrollPosition($scrollPosition)` on the ScrollView. Programmatic scrolling uses `scrollPosition.scrollTo(id:anchor:)` via a closure on the coordinator. Do not reintroduce `ScrollViewReader` — it was removed in favor of `ScrollPosition`.
-- **Add `os.Logger` diagnostics to complex scroll paths.** Pagination, suppression flag transitions, and scroll position restoration are hard to debug from a crash report alone. Log key events (`[pagination] sentinel appeared`, `[scroll] suppression on/off`, `[scroll] restoring to anchor`) via `os.Logger` with subsystem `com.vellum.vellum-assistant` so they are visible in Console.app without Xcode attached.
+- **`ScrollPosition` is the project standard for programmatic scroll tracking.** The message list uses `@State private var scrollPosition = ScrollPosition()` with `.scrollPosition($scrollPosition)` on the ScrollView. Programmatic scrolling uses `scrollPosition.scrollTo(id:anchor:)` via closures on `MessageListScrollState`. Do not reintroduce `ScrollViewReader` — it was removed in favor of `ScrollPosition`.
+- **Add `os.Logger` diagnostics to complex scroll paths.** Pagination, suppression transitions, and scroll position restoration are hard to debug from a crash report alone. Log key events (`[pagination] sentinel appeared`, `[scroll] suppression on/off`, `[scroll] restoring to anchor`) via `os.Logger` with subsystem `com.vellum.vellum-assistant` so they are visible in Console.app without Xcode attached.
 
 </details>
 

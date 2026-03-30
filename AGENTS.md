@@ -71,6 +71,14 @@ The full test suite is large and will hang or timeout if run unscoped. **Never r
 - **Architecture**: When introducing, removing, or significantly modifying a service/module/data flow, update `ARCHITECTURE.md` and impacted domain docs. Mermaid diagrams must reflect current architecture.
 - **AGENTS.md**: When a PR establishes a new mandatory pattern or architectural constraint, update `AGENTS.md`. Only for project-wide rules — use code comments for module-scoped patterns.
 
+## Worktrees & Source Control
+
+Never commit worktree directories or worktree artifacts to the repository. Git worktrees (created by `git worktree add`, Codex, or similar tools) are local working copies and must remain local. The `.gitignore` already excludes common worktree directory patterns (`worktrees/`, `.worktrees/`, `.codex-worktrees/`, `*-worktrees/`), but be vigilant about new naming conventions. If a tool creates worktree directories under a new prefix, add the pattern to `.gitignore` before committing.
+
+**References:**
+- [Git Worktree documentation](https://git-scm.com/docs/git-worktree) — worktrees are meant to be local, ephemeral working directories
+- [gitignore documentation](https://git-scm.com/docs/gitignore) — patterns for excluding generated/local files
+
 ## Dead Code Removal
 
 Proactively remove unused code during every change. Remove code your change makes unused, clean up adjacent dead code, delete rather than comment out, check for orphaned files. Ask: "After my change, is there any code that nothing calls, imports, or references?" If yes, delete it.
@@ -132,9 +140,11 @@ CES tools are the only approved exception — see `assistant/src/tools/AGENTS.md
 
 ## Multi-Instance Path Invariant
 
-When the daemon runs with `BASE_DATA_DIR` set to an instance directory (e.g. `~/.vellum/instances/alice/`), `getRootDir()` resolves to `join(BASE_DATA_DIR, ".vellum")`. All CLI and daemon code that references instance-scoped files must use `join(instanceDir, ".vellum", ...)` — never assume the root is `~/.vellum/` directly. This ensures PID files, tokens, and config are correctly scoped per instance.
+The assistant daemon resolves its root directory as `join(homedir(), ".vellum")` via the internal `vellumRoot()` helper. Root-level paths (PID file, platform token, daemon stderr log, protected directory) always resolve under `~/.vellum/`. Remaining root-level files are being migrated to the workspace directory or removed entirely — see the phase plan in the repo for details.
 
-In Docker mode, `VELLUM_WORKSPACE_DIR` overrides the workspace location (e.g. `/workspace`). Code that needs the workspace path must use the resolved workspace directory rather than assuming it lives under `getRootDir()`. The workspace volume is shared between the assistant and gateway containers.
+The CLI (`cli/src/lib/local.ts`) still sets `BASE_DATA_DIR` when spawning named local instances. This is a legacy mechanism slated for removal — the CLI should be migrated to pass `VELLUM_WORKSPACE_DIR` (and any future per-instance env vars) instead of `BASE_DATA_DIR`. Until that migration is complete, the CLI constructs instance-scoped paths directly (e.g. `join(instanceDir, ".vellum", ...)`) rather than relying on the daemon's path helpers.
+
+In Docker mode, `VELLUM_WORKSPACE_DIR` overrides the workspace location (e.g. `/workspace`). Code that needs the workspace path must use the resolved workspace directory rather than assuming it lives under `vellumRoot()`. The workspace volume is shared between the assistant and gateway containers.
 
 ## Qdrant Port Override
 
@@ -181,19 +191,9 @@ When making changes that could affect the cloud platform, review the sibling `..
 
 ## Sentry & Linear Integration
 
-The Sentry organization is `vellum` (region: `us.sentry.io`, URL: `vellum.sentry.io`). Two projects exist: `vellum-assistant-brain` (daemon/runtime) and `vellum-assistant-macos` (desktop app).
+Error reporting uses Sentry. Two projects exist: one for the daemon/runtime (Node) and one for the macOS app (Swift). DSNs are configured via environment variables (`SENTRY_DSN_ASSISTANT`, `SENTRY_DSN_MACOS`) — see `.env.example`.
 
-**Sentry CLI**: Use the newer `sentry` CLI (not the legacy `sentry-cli`). Install from `https://cli.sentry.dev/install`. Authenticate with `sentry auth login`. The [sentry-cli skill](https://github.com/vellum-ai/claude-skills/tree/main/skills/sentry-cli) documents all available commands. Use `sentry api` for raw API calls.
-
-**Linking Sentry ↔ Linear**: Linear is installed as a Sentry App (third-party), not a first-party integration. It lives under `/sentry-app-installations/` (UUID: `d72b980e-5340-4284-a381-095feeb37905`), not `/integrations/`. To link a Sentry issue to a Linear issue:
-
-```bash
-sentry api '/sentry-app-installations/d72b980e-5340-4284-a381-095feeb37905/external-issues/' \
-  --method POST \
-  -d '{"issueId": "<sentry_issue_id>", "webUrl": "<linear_issue_url>", "displayName": "<linear_identifier>", "identifier": "<linear_identifier>", "project": "<sentry_project_slug>"}'
-```
-
-For the reverse direction (Linear → Sentry), use `mcp__linear-server__save_issue` with a `links` attachment containing the Sentry issue URL.
+**Sentry CLI**: Use the newer `sentry` CLI (not the legacy `sentry-cli`). Install from `https://cli.sentry.dev/install`. Authenticate with `sentry auth login`.
 
 ## See Also
 

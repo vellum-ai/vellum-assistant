@@ -63,7 +63,7 @@ struct ConversationActionsDrawer: View {
                 VMenuItem(icon: VIcon.copy.rawValue, label: "Copy full conversation", action: onCopy)
             }
 
-            if presentation.showsForkConversationAction {
+            if presentation.showsForkConversationAction && !presentation.isChannelConversation {
                 VMenuItem(icon: VIcon.gitBranch.rawValue, label: "Fork conversation", action: onForkConversation)
             }
 
@@ -79,7 +79,9 @@ struct ConversationActionsDrawer: View {
 
             VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename", action: onRename)
 
-            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive", action: onArchive)
+            if !presentation.isChannelConversation {
+                VMenuItem(icon: VIcon.archive.rawValue, label: "Archive", action: onArchive)
+            }
         }
         .transition(.identity)
     }

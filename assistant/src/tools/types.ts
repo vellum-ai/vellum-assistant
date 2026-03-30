@@ -169,6 +169,10 @@ export interface ToolContext {
   requesterExternalUserId?: string;
   /** Chat ID of the requester (non-guardian actor). Used for tool grant request escalation notifications. */
   requesterChatId?: string;
+  /** Human-readable identifier for the requester (e.g., @username). */
+  requesterIdentifier?: string;
+  /** Preferred display name for the requester. */
+  requesterDisplayName?: string;
   /** Slack channel ID for channel-scoped permission enforcement. When set, tools are checked against the channel's permission profile. */
   channelPermissionChannelId?: string;
   /** The tool_use block ID from the LLM response, used to correlate confirmation prompts with specific tool invocations. */

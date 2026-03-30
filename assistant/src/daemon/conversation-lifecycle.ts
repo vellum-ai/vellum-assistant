@@ -9,11 +9,13 @@ import type { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { getHookManager } from "../hooks/manager.js";
+import { getMemoryCheckpoint } from "../memory/checkpoints.js";
 import {
   getConversation,
   getMessages,
   type MessageRow,
 } from "../memory/conversation-crud.js";
+import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -266,6 +268,20 @@ export function disposeConversation(ctx: DisposeContext): void {
   void getHookManager().trigger("conversation-end", {
     conversationId: ctx.conversationId,
   });
+
+  // Trigger batch extraction for any remaining unextracted messages
+  try {
+    const pendingKey = `batch_extract:${ctx.conversationId}:pending_count`;
+    const pending = getMemoryCheckpoint(pendingKey);
+    if (pending && parseInt(pending, 10) > 0) {
+      enqueueMemoryJob("batch_extract", {
+        conversationId: ctx.conversationId,
+      });
+    }
+  } catch {
+    // Best-effort — don't block conversation disposal
+  }
+
   ctx.abort();
   unregisterCallNotifiers(ctx.conversationId);
   unregisterConversationSender(ctx.conversationId);

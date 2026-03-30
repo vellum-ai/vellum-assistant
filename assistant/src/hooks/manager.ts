@@ -4,7 +4,7 @@ import { getIsContainerized } from "../config/env-registry.js";
 import { Debouncer } from "../util/debounce.js";
 import { pathExists } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
-import { getHooksDir } from "../util/platform.js";
+import { getWorkspaceHooksDir } from "../util/platform.js";
 import { discoverHooks } from "./discovery.js";
 import { runHookScript } from "./runner.js";
 import type {
@@ -121,7 +121,7 @@ export class HookManager {
 
   watch(): void {
     if (getIsContainerized()) return;
-    const hooksDir = getHooksDir();
+    const hooksDir = getWorkspaceHooksDir();
     if (!pathExists(hooksDir)) return;
 
     this.stopWatching();

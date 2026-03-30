@@ -48,9 +48,13 @@ import { deleteQueuedMessage } from "../../daemon/handlers/conversations.js";
 import { getAssistantMessageIdsInTurn } from "../../memory/conversation-crud.js";
 import { getRequestLogsByMessageId } from "../../memory/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
+import { resolvePricingForUsage } from "../../util/pricing.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
-import { normalizeLlmContextPayloads } from "./llm-context-normalization.js";
+import {
+  type LlmContextSummary,
+  normalizeLlmContextPayloads,
+} from "./llm-context-normalization.js";
 
 const validProviderSet = new Set<string>(VALID_INFERENCE_PROVIDERS);
 const validEmbeddingProviderSet = new Set<string>(
@@ -71,20 +75,48 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
   summary?: LlmContextSummaryResponse;
 };
 
+function attachEstimatedCost(summary: LlmContextSummary): LlmContextSummary {
+  const { provider, model, inputTokens, outputTokens } = summary;
+  if (!model || inputTokens == null || outputTokens == null) {
+    return summary;
+  }
+
+  const cacheCreation = summary.cacheCreationInputTokens ?? 0;
+  const cacheRead = summary.cacheReadInputTokens ?? 0;
+  const directInputTokens = Math.max(
+    inputTokens - cacheCreation - cacheRead,
+    0,
+  );
+
+  const result = resolvePricingForUsage(provider, model, {
+    directInputTokens,
+    outputTokens,
+    cacheCreationInputTokens: cacheCreation,
+    cacheReadInputTokens: cacheRead,
+    anthropicCacheCreation: null,
+  });
+
+  return { ...summary, estimatedCostUsd: result.estimatedCostUsd };
+}
+
 function applyStoredProviderToLlmContextResult(
   normalized: LlmContextNormalizationResult,
   provider: string | null,
 ): LlmContextRouteResult {
   if (!provider) {
-    return normalized as LlmContextRouteResult;
+    const summary = normalized.summary
+      ? attachEstimatedCost(normalized.summary)
+      : undefined;
+    return { ...normalized, summary } as LlmContextRouteResult;
   }
 
-  return {
-    ...normalized,
-    summary: normalized.summary
-      ? { ...normalized.summary, provider }
-      : { provider },
-  };
+  const mergedSummary = normalized.summary
+    ? { ...normalized.summary, provider }
+    : { provider };
+  const summary = attachEstimatedCost(
+    mergedSummary as LlmContextSummary,
+  );
+  return { ...normalized, summary };
 }
 
 // ---------------------------------------------------------------------------

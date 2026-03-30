@@ -1209,12 +1209,6 @@ describe("isSideEffectTool", () => {
       );
     });
 
-    test("credential_store oauth2_connect is a side-effect", () => {
-      expect(
-        isSideEffectTool("credential_store", { action: "oauth2_connect" }),
-      ).toBe(true);
-    });
-
     test("credential_store list is NOT a side-effect", () => {
       expect(isSideEffectTool("credential_store", { action: "list" })).toBe(
         false,
@@ -1724,20 +1718,6 @@ describe("ToolExecutor forcePromptSideEffects enforcement", () => {
     const result = await executor.execute(
       "credential_store",
       { action: "delete", name: "api-key" },
-      makeContext({ forcePromptSideEffects: true }),
-    );
-
-    expect(result.isError).toBe(false);
-    expect(promptCalled).toBe(true);
-  });
-
-  test("credential_store oauth2_connect forces prompt in private conversation", async () => {
-    checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
-
-    const executor = new ToolExecutor(makeTrackingPrompter());
-    const result = await executor.execute(
-      "credential_store",
-      { action: "oauth2_connect", provider: "google" },
       makeContext({ forcePromptSideEffects: true }),
     );
 

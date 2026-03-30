@@ -80,6 +80,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     let computerUseClient: any ComputerUseClientProtocol = ComputerUseClient()
     let appsClient: any AppsClientProtocol = AppsClient()
     let toolConfirmationNotificationService = ToolConfirmationNotificationService()
+    /// Shared feature flag store — caches resolved flags in memory so that
+    /// hot paths (e.g. `SoundManager.play()`) avoid synchronous file I/O on
+    /// the main thread.
+    let featureFlagStore = AssistantFeatureFlagStore()
+
     lazy var recordingManager: RecordingManager = RecordingManager(connectionManager: connectionManager)
     var recordingPickerWindow: RecordingSourcePickerWindow?
     var recordingHUDWindow: RecordingHUDWindow?
@@ -566,7 +571,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         setupNotifications()
         setupAutoUpdate()
 
-        SoundManager.shared.start()
+        SoundManager.shared.start(featureFlagStore: featureFlagStore)
         RandomSoundTimer.shared.start()
         if !hasPlayedAppOpenSound {
             hasPlayedAppOpenSound = true

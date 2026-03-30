@@ -24,11 +24,6 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => "/tmp/vellum-test-secret-ingress-channel",
-  getWorkspaceDir: () => "/tmp/vellum-test-secret-ingress-channel/workspace",
-}));
-
 const storePayloadMock = mock((_eventId: string, _payload: unknown) => {});
 const clearPayloadMock = mock((_eventId: string) => {});
 

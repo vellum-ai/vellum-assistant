@@ -1,22 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(mkdtempSync(join(tmpdir(), "auth-token-test-")));
-
-mock.module("../../../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => testDir,
-  getDbPath: () => join(testDir, "test.db"),
-  normalizeAssistantId: (id: string) => (id === "self" ? "self" : id),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
@@ -37,12 +19,6 @@ const TEST_KEY = Buffer.from("test-signing-key-32-bytes-long!!");
 
 beforeEach(() => {
   initAuthSigningKey(TEST_KEY);
-});
-
-afterAll(() => {
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {}
 });
 
 describe("mintToken / verifyToken round-trip", () => {

@@ -1,6 +1,10 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
 import type { Command } from "commander";
 
 import { credentialKey } from "../../../security/credential-key.js";
+import { getSignalsDir } from "../../../util/platform.js";
 import { getSecureKeyViaDaemon } from "../../lib/daemon-credential-client.js";
 import { getCliLogger } from "../../logger.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
@@ -32,8 +36,8 @@ export function registerPlatformConnectCommand(platform: Command): void {
     .addHelpText(
       "after",
       `
-Initiates a platform connection flow. Credentials are collected via a secure
-UI component rendered by the assistant client.
+Initiates a platform connection flow. Emits a signal for connected clients
+to show a platform login UI where the user can sign in and store credentials.
 
 Use 'assistant platform status' to check the current connection state and
 'assistant platform disconnect' to remove stored credentials.
@@ -83,15 +87,21 @@ Examples:
           return;
         }
 
-        // TODO: Send a UI component to collect credentials from the user
-        writeError(
-          "Platform connect UI component not yet implemented. " +
-            "Credentials will be collected via a secure client-side flow.",
+        // Emit a signal for the daemon to show the platform login UI
+        // on connected clients.
+        const signalsDir = getSignalsDir();
+        mkdirSync(signalsDir, { recursive: true });
+        writeFileSync(
+          join(signalsDir, "emit-event"),
+          JSON.stringify({ type: "show_platform_login" }),
         );
+
+        writeOutput(cmd, { ok: true, showPlatformLogin: true });
 
         if (!jsonMode) {
           log.info(
-            "Platform connect will be available once the client-side credential flow is implemented.",
+            "Showing the platform login screen on connected clients. " +
+              "Please complete the sign-in flow in the app.",
           );
         }
       } catch (err) {

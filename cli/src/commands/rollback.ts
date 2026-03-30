@@ -11,8 +11,6 @@ import {
   captureImageRefs,
   GATEWAY_INTERNAL_PORT,
   dockerResourceNames,
-  migrateCesSecurityFiles,
-  migrateGatewaySecurityFiles,
   startContainers,
   stopContainers,
 } from "../lib/docker";
@@ -427,13 +425,6 @@ export async function rollback(): Promise<void> {
     console.log("🛑 Stopping existing containers...");
     await stopContainers(res);
     console.log("✅ Containers stopped\n");
-
-    // Run security file migrations and signing key cleanup
-    console.log("🔄 Migrating security files to gateway volume...");
-    await migrateGatewaySecurityFiles(res, (msg) => console.log(msg));
-
-    console.log("🔄 Migrating credential files to CES security volume...");
-    await migrateCesSecurityFiles(res, (msg) => console.log(msg));
 
     console.log("🚀 Starting containers with previous version...");
     await startContainers(

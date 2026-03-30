@@ -23,10 +23,6 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import {
-  getBaseDataDir,
-  getWorkspaceDirOverride,
-} from "../../config/env-registry.js";
 import type { WorkspaceMigration } from "./types.js";
 
 const SENTINEL_FILENAME = ".workspace-volume-migrated";
@@ -53,7 +49,8 @@ export const migrateToWorkspaceVolumeMigration: WorkspaceMigration = {
   },
 
   run(workspaceDir: string): void {
-    const workspaceDirOverride = getWorkspaceDirOverride();
+    const workspaceDirOverride =
+      process.env.VELLUM_WORKSPACE_DIR?.trim() || undefined;
 
     // Only relevant when VELLUM_WORKSPACE_DIR is explicitly set (Docker with separate volume)
     if (!workspaceDirOverride) return;
@@ -72,7 +69,7 @@ export const migrateToWorkspaceVolumeMigration: WorkspaceMigration = {
     }
 
     // Resolve the old workspace location: $BASE_DATA_DIR/.vellum/workspace
-    const baseDataDir = getBaseDataDir();
+    const baseDataDir = process.env.BASE_DATA_DIR?.trim() || undefined;
     if (!baseDataDir) {
       // No BASE_DATA_DIR means there's no old location to migrate from
       writeSentinel(sentinelPath);

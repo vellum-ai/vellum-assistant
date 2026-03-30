@@ -547,7 +547,13 @@ export async function forwardTwilioConnectActionWebhook(
 export async function uploadAttachment(
   config: GatewayConfig,
   input: UploadAttachmentInput,
+  opts?: { skipCircuitBreaker?: boolean },
 ): Promise<UploadAttachmentResponse> {
+  const skipCb = opts?.skipCircuitBreaker === true;
+
+  // Always check the breaker for fail-fast (OPEN/HALF_OPEN rejection).
+  // skipCb only suppresses success/failure accounting so attachment errors
+  // don't trip the breaker.
   cbBeforeRequest();
 
   const url = `${config.assistantRuntimeBaseUrl}/v1/attachments`;
@@ -563,7 +569,7 @@ export async function uploadAttachment(
       signal: AbortSignal.timeout(config.runtimeTimeoutMs),
     });
   } catch (err) {
-    cbOnFailure();
+    if (!skipCb) cbOnFailure();
     throw err;
   }
 
@@ -573,16 +579,16 @@ export async function uploadAttachment(
     // extension, missing fields). Distinguish from transient 5xx/network errors
     // so callers can decide whether to skip or propagate.
     if (response.status >= 400 && response.status < 500) {
-      cbOnSuccess();
+      if (!skipCb) cbOnSuccess();
       throw new AttachmentValidationError(
         `Attachment rejected (${response.status}): ${body}`,
       );
     }
-    cbOnFailure();
+    if (!skipCb) cbOnFailure();
     throw new Error(`Attachment upload failed (${response.status}): ${body}`);
   }
 
-  cbOnSuccess();
+  if (!skipCb) cbOnSuccess();
   return (await response.json()) as UploadAttachmentResponse;
 }
 

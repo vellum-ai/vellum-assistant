@@ -1,19 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { Database } from "bun:sqlite";
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
-// Test setup — temp directory and mock modules
+// Test setup — mock modules
 // ---------------------------------------------------------------------------
-
-const TEST_DIR = join(
-  tmpdir(),
-  `vellum-rotation-test-${randomBytes(4).toString("hex")}`,
-);
-const DB_PATH = join(TEST_DIR, "assistant.db");
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -22,19 +12,8 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => TEST_DIR,
-  getDbPath: () => DB_PATH,
-  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
-  ensureDataDir: () => {
-    if (!existsSync(TEST_DIR)) mkdirSync(TEST_DIR, { recursive: true });
-  },
-  isMacOS: () => false,
-  isLinux: () => false,
-  isWindows: () => false,
-}));
-
 import { initializeDb, resetDb } from "../memory/db.js";
+import { getSqlite } from "../memory/db-connection.js";
 import {
   getRecentInvocations,
   rotateToolInvocations,
@@ -46,7 +25,7 @@ import {
 
 function addInvocation(ageMs: number): void {
   // Insert directly with a specific timestamp in the past
-  const db = new Database(DB_PATH);
+  const db = getSqlite();
   const id = randomBytes(8).toString("hex");
   const createdAt = Date.now() - ageMs;
   db.prepare(
@@ -63,13 +42,10 @@ function addInvocation(ageMs: number): void {
     100,
     createdAt,
   );
-  db.close();
 }
 
 function clearTable(): void {
-  const db = new Database(DB_PATH);
-  db.run("DELETE FROM tool_invocations");
-  db.close();
+  getSqlite().run("DELETE FROM tool_invocations");
 }
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -80,24 +56,17 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 describe("audit log rotation", () => {
   beforeAll(() => {
-    mkdirSync(join(TEST_DIR, "logs"), { recursive: true });
     resetDb();
     initializeDb();
     // Insert a conversations row so FK-enforced ORM inserts succeed
-    const db = new Database(DB_PATH);
-    db.run(
+    getSqlite().run(
       `INSERT INTO conversations (id, title, created_at, updated_at) VALUES ('conv-1', 'test', ${Date.now()}, ${Date.now()})`,
     );
-    db.close();
   });
 
   beforeEach(() => {
     clearTable();
   });
-
-  // TEST_DIR is in os.tmpdir() — let the OS handle cleanup.
-  // Deleting it here would trigger ENOENT in other test files because
-  // the platform.js mock leaks getDataDir() → TEST_DIR globally.
 
   test("returns 0 when retentionDays is 0 (retain forever)", () => {
     addInvocation(100 * ONE_DAY_MS); // 100 days old

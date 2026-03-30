@@ -28,15 +28,6 @@ function flag(name: string): boolean {
 // Each entry documents the env var name, type, default, and purpose.
 
 /**
- * BASE_DATA_DIR — string, default: os.homedir()
- * Overrides the home directory used as the base for ~/.vellum and lockfiles.
- * Primarily used in tests to isolate filesystem state.
- */
-export function getBaseDataDir(): string | undefined {
-  return str("BASE_DATA_DIR");
-}
-
-/**
  * DEBUG_STDOUT_LOGS — boolean, default: false
  * Enables additional log output to stdout (alongside file logging).
  */
@@ -47,11 +38,24 @@ export function getDebugStdoutLogs(): boolean {
 /**
  * IS_CONTAINERIZED — boolean, default: false
  * When true, indicates the assistant is running inside a container (e.g. Docker).
- * Any new data that needs to survive restarts must be written to BASE_DATA_DIR,
- * which is mapped to a persistent volume.
+ * Persistent data is stored in VELLUM_WORKSPACE_DIR (mapped to a dedicated volume).
  */
 export function getIsContainerized(): boolean {
   return flag("IS_CONTAINERIZED");
+}
+
+/**
+ * Whether this assistant is running as a platform-managed remote instance.
+ *
+ * Currently this is determined solely by the IS_CONTAINERIZED env var, which
+ * the platform sets when provisioning assistant containers. This is not ideal
+ * because any Docker environment could set it. We plan to replace this with a
+ * less spoof-able mechanism in the future — e.g. a signed platform token
+ * verified via asymmetric cryptography or an authenticated attestation
+ * endpoint on the platform.
+ */
+export function isPlatformRemote(): boolean {
+  return getIsContainerized();
 }
 
 /**

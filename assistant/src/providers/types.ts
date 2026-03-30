@@ -101,6 +101,7 @@ export interface ProviderResponse {
     outputTokens: number;
     cacheCreationInputTokens?: number;
     cacheReadInputTokens?: number;
+    reasoningTokens?: number;
   };
   stopReason: string;
   /** Raw JSON request body sent to the provider (for diagnostics logging). */
@@ -131,6 +132,7 @@ export interface SendMessageConfig {
   model?: string;
   modelIntent?: ModelIntent;
   effort?: "low" | "medium" | "high" | "max";
+  speed?: "standard" | "fast";
   [key: string]: unknown;
 }
 

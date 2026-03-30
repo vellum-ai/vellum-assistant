@@ -1,7 +1,15 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
+import { getMemoryCheckpoint } from "../memory/checkpoints.js";
+import {
+  enqueueMemoryJob,
+  hasActiveCarryForwardJob,
+} from "../memory/jobs-store.js";
+import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
+
+const log = getLogger("journal-context");
 
 /**
  * Format a Unix-epoch millisecond value as "MM/DD/YY HH:MM".
@@ -14,35 +22,6 @@ export function formatJournalAbsoluteTime(mtime: number): string {
   const hh = String(d.getHours()).padStart(2, "0");
   const min = String(d.getMinutes()).padStart(2, "0");
   return `${mm}/${dd}/${yy} ${hh}:${min}`;
-}
-
-/**
- * Return a human-readable relative timestamp from a Unix-epoch millisecond
- * value to "now".
- */
-export function formatJournalRelativeTime(mtime: number): string {
-  const diffMs = Date.now() - mtime;
-  const diffSec = Math.floor(diffMs / 1000);
-
-  if (diffSec < 60) return "just now";
-
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) {
-    return diffMin === 1 ? "1 minute ago" : `${diffMin} minutes ago`;
-  }
-
-  const diffHours = Math.floor(diffMin / 60);
-  if (diffHours < 24) {
-    return diffHours === 1 ? "1 hour ago" : `${diffHours} hours ago`;
-  }
-
-  const diffDays = Math.floor(diffHours / 24);
-  if (diffDays < 7) {
-    return diffDays === 1 ? "1 day ago" : `${diffDays} days ago`;
-  }
-
-  const diffWeeks = Math.floor(diffDays / 7);
-  return diffWeeks === 1 ? "1 week ago" : `${diffWeeks} weeks ago`;
 }
 
 /**
@@ -59,14 +38,13 @@ export function buildJournalContext(
   if (maxEntries <= 0) return null;
 
   // When no user is identified, skip journal entirely
-  let journalDir: string;
-  if (userSlug != null) {
-    // Sanitize slug to prevent path traversal
-    const safeSlug = basename(userSlug);
-    journalDir = join(getWorkspaceDir(), "journal", safeSlug);
-  } else {
-    return null;
-  }
+  if (userSlug == null) return null;
+
+  // Sanitize slug once and reuse everywhere — prevents path traversal and
+  // normalizes empty strings to "unknown" so directory reads and carry-forward
+  // dedup keys always agree.
+  const safeSlug = basename(userSlug) || "unknown";
+  const journalDir = join(getWorkspaceDir(), "journal", safeSlug);
 
   let files: string[];
   try {
@@ -85,7 +63,7 @@ export function buildJournalContext(
   );
 
   // Collect file info with birthtime (creation time), skipping unreadable entries
-  const entries = mdFiles
+  const allEntries = mdFiles
     .flatMap((f) => {
       try {
         const filepath = join(journalDir, f);
@@ -98,13 +76,50 @@ export function buildJournalContext(
         return [];
       }
     })
-    .sort((a, b) => b.birthtimeMs - a.birthtimeMs)
-    .slice(0, maxEntries);
+    .sort((a, b) => b.birthtimeMs - a.birthtimeMs);
+
+  const entries = allEntries.slice(0, maxEntries);
+  const rotatingOut = allEntries.slice(maxEntries);
+
+  // Enqueue carry-forward jobs for entries rotating out of the context window.
+  // Wrapped in try-catch so DB errors never break journal context rendering.
+  if (rotatingOut.length > 0) {
+    try {
+      for (const entry of rotatingOut) {
+        const checkpointKey = `journal_carry_forward:${safeSlug}:${entry.filename}`;
+        if (getMemoryCheckpoint(checkpointKey) != null) continue;
+        if (hasActiveCarryForwardJob(entry.filename, safeSlug)) continue;
+
+        let content: string;
+        try {
+          content = readFileSync(entry.filepath, "utf-8");
+        } catch {
+          continue;
+        }
+
+        enqueueMemoryJob("journal_carry_forward", {
+          journalContent: content,
+          userSlug: safeSlug,
+          filename: entry.filename,
+          scopeId: "default",
+        });
+        log.info(
+          { filename: entry.filename, userSlug: safeSlug },
+          "Enqueued journal carry-forward job for rotating-out entry",
+        );
+      }
+    } catch (err) {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "Failed to enqueue journal carry-forward jobs",
+      );
+    }
+  }
 
   if (entries.length === 0) return null;
 
   const sections: string[] = [
-    `# Journal\n\nYour journal entries, most recent first. These are YOUR words from past conversations.\n**Write new entries to:** \`journal/${basename(userSlug!)}/\``,
+    `# Journal\n\nYour journal entries, most recent first. These are YOUR words from past conversations.\n**Write new entries to:** \`journal/${safeSlug}/\``,
   ];
 
   for (let i = 0; i < entries.length; i++) {
@@ -115,9 +130,7 @@ export function buildJournalContext(
     } catch {
       continue;
     }
-    const relativeTime = formatJournalRelativeTime(entry.birthtimeMs);
-    const absoluteTime = formatJournalAbsoluteTime(entry.birthtimeMs);
-    const timestamp = `${absoluteTime}, ${relativeTime}`;
+    const timestamp = formatJournalAbsoluteTime(entry.birthtimeMs);
 
     let header: string;
     if (i === 0) {

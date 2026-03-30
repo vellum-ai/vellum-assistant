@@ -277,7 +277,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 if ActorTokenManager.needsProactiveRefresh {
                     guard self.clientProvider.client.isConnected else { continue }
 
-                    let result = await ActorCredentialRefresher.refresh(
+                    let result = await TokenRefreshCoordinator.shared.refreshIfNeeded(
                         platform: "ios",
                         deviceId: Self.getOrCreateDeviceId()
                     )

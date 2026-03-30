@@ -92,6 +92,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("vSkeletonBone", "VSkeletonBone", keywords: ["skeleton", "placeholder"], description: "Placeholder bone with shimmer animation for loading skeletons. Compose multiple bones to match the target layout."),
                 GalleryComponent("vSkillTypePill", "VSkillTypePill", keywords: ["skill type", "pill"], description: "Colored pill showing a skill type category."),
                 GalleryComponent("vInfoTooltip", "VInfoTooltip", keywords: ["info", "tooltip"], description: "Info icon with hover tooltip for contextual help text."),
+                GalleryComponent("vContextWindowIndicator", "VContextWindowIndicator", keywords: ["context window", "progress", "ring"], description: "Circular ring showing context window fill level with hover popover."),
             ]
         case .icons:
             return [
@@ -111,6 +112,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
             return [
                 GalleryComponent("vModal", "VModal", keywords: ["modal", "dialog"], description: "Standardized modal container with title, optional subtitle, scrollable content, and optional footer with navigation actions."),
                 GalleryComponent("vAdaptiveStack", "VAdaptiveStack", keywords: ["adaptive stack", "responsive"], description: "Arranges content horizontally when space allows, falling back to vertical stacking via ViewThatFits.", useInsteadOf: "Raw ViewThatFits { HStack { } VStack { } } in feature code"),
+                GalleryComponent("vPageContainer", "VPageContainer", keywords: ["page container", "panel layout"], description: "Standard page container with title, consistent spacing, surfaceOverlay background, and rounded corners. Use for full-width panel pages."),
                 GalleryComponent("vSidePanel", "VSidePanel", keywords: ["side panel", "drawer"], description: "Side panel with title header, close button, optional pinned content, and scrollable body."),
                 GalleryComponent("vSplitView", "VSplitView", keywords: ["split view", "resizable"], description: "Split layout with main content and a togglable, resizable side panel."),
                 GalleryComponent("vAppWorkspaceDockLayout", "VAppWorkspaceDockLayout", keywords: ["dock", "workspace", "layout"], description: "Workspace layout with a togglable, resizable dock panel and draggable divider."),

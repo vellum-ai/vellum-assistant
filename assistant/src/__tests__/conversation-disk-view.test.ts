@@ -14,24 +14,9 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks — must come before any imports that depend on them
 // ---------------------------------------------------------------------------
 
-const testDir = mkdtempSync(join(tmpdir(), "conv-disk-view-test-"));
-const workspaceDir = join(testDir, "workspace");
+const workspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 const conversationsDir = join(workspaceDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => join(workspaceDir, "data"),
-  getWorkspaceDir: () => workspaceDir,
-  getConversationsDir: () => conversationsDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-  getRootDir: () => testDir,
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -82,11 +67,6 @@ initializeDb();
 
 afterAll(() => {
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 function resetTables() {
@@ -555,9 +535,7 @@ describe("syncMessageToDisk", () => {
 
     syncMessageToDisk(conv.id, msg.id, createdAt);
 
-    expect(
-      existsSync(join(legacyDirPath, "messages.jsonl")),
-    ).toBe(true);
+    expect(existsSync(join(legacyDirPath, "messages.jsonl"))).toBe(true);
     expect(existsSync(join(newDirPath, "messages.jsonl"))).toBe(false);
     expect(existsSync(join(legacyDirPath, "attachments", "legacy.png"))).toBe(
       true,
@@ -611,9 +589,9 @@ describe("syncMessageToDisk", () => {
     const record = JSON.parse(lines[0]);
     expect(record.content).toBe("Disk repair");
     expect(record.attachments).toHaveLength(1);
-    expect(existsSync(join(dirPath, "attachments", record.attachments[0]))).toBe(
-      true,
-    );
+    expect(
+      existsSync(join(dirPath, "attachments", record.attachments[0])),
+    ).toBe(true);
 
     rmSync(dirPath, { recursive: true, force: true });
   });

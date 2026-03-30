@@ -31,6 +31,14 @@ export interface GuardianDecisionPrompt {
    * store. Absent for legacy-only prompts.
    */
   kind?: string;
+  /** Human-readable preview of the command being approved (e.g. shell command). */
+  commandPreview?: string;
+  /** Risk level label for the request (e.g. 'low', 'medium', 'high'). */
+  riskLevel?: string;
+  /** Short activity description for richer prompt display. */
+  activityText?: string;
+  /** Where the tool will execute — sandbox or host. */
+  executionTarget?: "sandbox" | "host";
 }
 
 export interface GuardianDecisionAction {
@@ -55,12 +63,12 @@ export const GUARDIAN_DECISION_ACTIONS = {
   },
   approve_10m: {
     action: "approve_10m",
-    label: "Allow 10 min",
+    label: "Allow all, 10 min",
     description: "All tools for 10 minutes",
   },
   approve_conversation: {
     action: "approve_conversation",
-    label: "Allow conversation",
+    label: "Allow all, convo",
     description: "All tools for this conversation",
   },
   approve_always: {
@@ -76,12 +84,11 @@ export const GUARDIAN_DECISION_ACTIONS = {
  * respecting whether persistent decisions (approve_always) are allowed.
  *
  * When `persistentDecisionsAllowed` is `false`, the `approve_always` action
- * is excluded. When `forGuardianOnBehalf` is `true` (guardian acting on behalf
- * of a requester), both `approve_always` and the temporary modes are excluded
- * since guardians cannot grant broad delegated allow modes on behalf of others.
- *
- * Temporary modes (`approve_10m`, `approve_conversation`) are included for
- * requester-side standard approval flows when persistent decisions are allowed.
+ * and temporary modes are excluded. When `forGuardianOnBehalf` is `true`
+ * (guardian acting on behalf of a requester), only `approve_always` is excluded
+ * — temporary modes (`approve_10m`, `approve_conversation`) are permitted
+ * because grants are scoped to the tool+input signature via scopeMode:
+ * "tool_signature".
  */
 export function buildDecisionActions(opts?: {
   persistentDecisionsAllowed?: boolean;
@@ -89,8 +96,7 @@ export function buildDecisionActions(opts?: {
 }): GuardianDecisionAction[] {
   const showAlways =
     opts?.persistentDecisionsAllowed !== false && !opts?.forGuardianOnBehalf;
-  const showTemporary =
-    opts?.persistentDecisionsAllowed !== false && !opts?.forGuardianOnBehalf;
+  const showTemporary = opts?.persistentDecisionsAllowed !== false;
   return [
     GUARDIAN_DECISION_ACTIONS.approve_once,
     ...(showTemporary

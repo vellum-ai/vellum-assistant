@@ -177,6 +177,8 @@ export function createToolExecutor(
         ctx.surfaceActionRequestIds?.has(ctx.currentRequestId ?? "") ?? false,
       requesterExternalUserId: ctx.trustContext?.requesterExternalUserId,
       requesterChatId: ctx.trustContext?.requesterChatId,
+      requesterIdentifier: ctx.trustContext?.requesterIdentifier,
+      requesterDisplayName: ctx.trustContext?.requesterDisplayName,
       channelPermissionChannelId:
         ctx.trustContext?.sourceChannel === "slack"
           ? getBindingByConversation(ctx.conversationId)?.externalChatId

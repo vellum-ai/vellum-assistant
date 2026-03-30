@@ -32,6 +32,7 @@ let renderedHistoryContent: {
   toolCallsBeforeText: boolean;
   contentOrder: string[];
   surfaces: unknown[];
+  thinkingSegments: string[];
 } = {
   text: "",
   textSegments: [],
@@ -39,6 +40,7 @@ let renderedHistoryContent: {
   toolCallsBeforeText: false,
   contentOrder: [],
   surfaces: [],
+  thinkingSegments: [],
 };
 
 let deliveryFailAtIndex = -1;
@@ -111,6 +113,7 @@ describe("channel-reply-delivery", () => {
       toolCallsBeforeText: false,
       contentOrder: [],
       surfaces: [],
+      thinkingSegments: [],
     };
   });
 
@@ -197,6 +200,7 @@ describe("channel-reply-delivery", () => {
       toolCallsBeforeText: false,
       contentOrder: ["text:0", "tool:0", "text:1"],
       surfaces: [],
+      thinkingSegments: [],
     };
 
     await deliverReplyViaCallback(
@@ -432,6 +436,7 @@ describe("channel-reply-delivery", () => {
       toolCallsBeforeText: false,
       contentOrder: ["text:0", "tool:0", "text:1", "tool:1", "text:2"],
       surfaces: [],
+      thinkingSegments: [],
     };
 
     const delivered: number[] = [];

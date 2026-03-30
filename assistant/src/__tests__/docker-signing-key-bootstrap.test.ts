@@ -3,25 +3,8 @@
  * and file-based load/create (local mode).
  */
 
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = realpathSync(mkdtempSync(join(tmpdir(), "signing-key-test-")));
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => testDir,
-  getDbPath: () => join(testDir, "test.db"),
-  normalizeAssistantId: (id: string) => (id === "self" ? "self" : id),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+import { existsSync, rmSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -31,6 +14,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const { resolveSigningKey } = await import("../runtime/auth/token-service.js");
+const { getDeprecatedDir } = await import("../util/platform.js");
 
 const VALID_HEX_KEY = "ab".repeat(32); // 64 hex chars = 32 bytes
 
@@ -38,7 +22,10 @@ const savedEnv: Record<string, string | undefined> = {};
 
 beforeEach(() => {
   savedEnv.ACTOR_TOKEN_SIGNING_KEY = process.env.ACTOR_TOKEN_SIGNING_KEY;
-  mkdirSync(join(testDir, "protected"), { recursive: true });
+  // Clean up key files from previous tests so they don't leak between cases.
+  const deprecatedDir = getDeprecatedDir();
+  if (existsSync(deprecatedDir))
+    rmSync(deprecatedDir, { recursive: true, force: true });
 });
 
 afterEach(() => {
@@ -47,12 +34,6 @@ afterEach(() => {
   } else {
     process.env.ACTOR_TOKEN_SIGNING_KEY = savedEnv.ACTOR_TOKEN_SIGNING_KEY;
   }
-});
-
-afterAll(() => {
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {}
 });
 
 describe("resolveSigningKey", () => {
@@ -69,30 +50,29 @@ describe("resolveSigningKey", () => {
   test("rejects invalid ACTOR_TOKEN_SIGNING_KEY", () => {
     process.env.ACTOR_TOKEN_SIGNING_KEY = "tooshort";
 
-    expect(() => resolveSigningKey()).toThrow("Invalid ACTOR_TOKEN_SIGNING_KEY");
+    expect(() => resolveSigningKey()).toThrow(
+      "Invalid ACTOR_TOKEN_SIGNING_KEY",
+    );
   });
 
-  test("falls back to file-based load/create when env var is not set", () => {
+  test("falls back to disk when env var is not set", () => {
     delete process.env.ACTOR_TOKEN_SIGNING_KEY;
 
+    // resolveSigningKey now falls back to loadOrCreateSigningKey()
+    // which will generate a new key under getDeprecatedDir().
     const key = resolveSigningKey();
-
     expect(key).toBeInstanceOf(Buffer);
     expect(key.length).toBe(32);
   });
 
-  test("env var takes priority over file on disk", () => {
+  test("different env var values produce different keys", () => {
     process.env.ACTOR_TOKEN_SIGNING_KEY = VALID_HEX_KEY;
+    const key1 = resolveSigningKey();
 
-    // First call creates a file-based key
-    delete process.env.ACTOR_TOKEN_SIGNING_KEY;
-    const fileKey = resolveSigningKey();
-
-    // Second call with env var should use the env var, not the file
     process.env.ACTOR_TOKEN_SIGNING_KEY = "cd".repeat(32);
-    const envKey = resolveSigningKey();
+    const key2 = resolveSigningKey();
 
-    expect(envKey.toString("hex")).toBe("cd".repeat(32));
-    expect(envKey.toString("hex")).not.toBe(fileKey.toString("hex"));
+    expect(key2.toString("hex")).toBe("cd".repeat(32));
+    expect(key2.toString("hex")).not.toBe(key1.toString("hex"));
   });
 });

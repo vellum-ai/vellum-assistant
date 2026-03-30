@@ -37,25 +37,37 @@ mock.module("@anthropic-ai/sdk", () => ({
     constructor(args: Record<string, unknown>) {
       lastConstructorArgs = { ...args };
     }
+    #streamImpl = (
+      params: Record<string, unknown>,
+      options?: Record<string, unknown>,
+    ) => {
+      lastStreamParams = JSON.parse(JSON.stringify(params));
+      _lastStreamOptions = options ?? null;
+      const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
+      return {
+        on(event: string, cb: (...args: unknown[]) => void) {
+          (handlers[event] ??= []).push(cb);
+          return this;
+        },
+        async finalMessage() {
+          // Fire text events
+          for (const cb of handlers["text"] ?? []) cb("Hello");
+          return fakeResponse;
+        },
+      };
+    };
     messages = {
       stream: (
         params: Record<string, unknown>,
         options?: Record<string, unknown>,
-      ) => {
-        lastStreamParams = JSON.parse(JSON.stringify(params));
-        _lastStreamOptions = options ?? null;
-        const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
-        return {
-          on(event: string, cb: (...args: unknown[]) => void) {
-            (handlers[event] ??= []).push(cb);
-            return this;
-          },
-          async finalMessage() {
-            // Fire text events
-            for (const cb of handlers["text"] ?? []) cb("Hello");
-            return fakeResponse;
-          },
-        };
+      ) => this.#streamImpl(params, options),
+    };
+    beta = {
+      messages: {
+        stream: (
+          params: Record<string, unknown>,
+          options?: Record<string, unknown>,
+        ) => this.#streamImpl(params, options),
       },
     };
   },
@@ -138,16 +150,16 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   // -----------------------------------------------------------------------
   // System prompt cache control
   // -----------------------------------------------------------------------
-  test("system prompt has cache_control ephemeral", async () => {
+  test("system prompt has cache_control ephemeral with 1h TTL", async () => {
     await provider.sendMessage([userMsg("Hi")], undefined, "You are helpful.");
 
     const system = lastStreamParams!.system as Array<{
       type: string;
       text: string;
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
     expect(system).toHaveLength(1);
-    expect(system[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(system[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   test("no system param when system prompt is omitted", async () => {
@@ -166,13 +178,13 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const system = lastStreamParams!.system as Array<{
       type: string;
       text: string;
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
     expect(system).toHaveLength(2);
     expect(system[0].text).toBe(staticBlock);
-    expect(system[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(system[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
     expect(system[1].text).toBe(dynamicBlock);
-    expect(system[1].cache_control).toEqual({ type: "ephemeral" });
+    expect(system[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   // -----------------------------------------------------------------------
@@ -183,7 +195,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     const tools = lastStreamParams!.tools as Array<{
       name: string;
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
     expect(tools).toHaveLength(3);
 
@@ -192,7 +204,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(tools[1].cache_control).toBeUndefined();
 
     // Last tool: cache_control ephemeral
-    expect(tools[2].cache_control).toEqual({ type: "ephemeral" });
+    expect(tools[2].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   test("single tool gets cache_control", async () => {
@@ -200,10 +212,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     const tools = lastStreamParams!.tools as Array<{
       name: string;
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
     expect(tools).toHaveLength(1);
-    expect(tools[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(tools[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
   });
 
   test("no tools param when tools are omitted", async () => {
@@ -223,7 +235,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{
         type: string;
         text: string;
-        cache_control?: { type: string };
+        cache_control?: { type: string; ttl?: string };
       }>;
     }>;
     const lastUser = messages[messages.length - 1];
@@ -248,7 +260,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{
         type: string;
         text: string;
-        cache_control?: { type: string };
+        cache_control?: { type: string; ttl?: string };
       }>;
     }>;
 
@@ -264,7 +276,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // Second user turn (second-to-last): cache_control ephemeral
     const secondUserLastBlock =
       userMessages[1].content[userMessages[1].content.length - 1];
-    expect(secondUserLastBlock.cache_control).toEqual({ type: "ephemeral" });
+    expect(secondUserLastBlock.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 
     // Third user turn (last): no cache_control
     const thirdUserLastBlock =
@@ -280,7 +292,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{
         type: string;
         text: string;
-        cache_control?: { type: string };
+        cache_control?: { type: string; ttl?: string };
       }>;
     }>;
     const userMessages = sent.filter((m) => m.role === "user");
@@ -303,12 +315,12 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     const sent = lastStreamParams!.messages as Array<{
       role: string;
-      content: Array<{ type: string; cache_control?: { type: string } }>;
+      content: Array<{ type: string; cache_control?: { type: string; ttl?: string } }>;
     }>;
     const userMsgs = sent.filter((m) => m.role === "user");
     // First user msg (second-to-last) should get cache
     const firstLast = userMsgs[0].content[userMsgs[0].content.length - 1];
-    expect(firstLast.cache_control).toEqual({ type: "ephemeral" });
+    expect(firstLast.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
     // tool_result msg (last) should NOT get cache
     const secondLast = userMsgs[1].content[userMsgs[1].content.length - 1];
     expect(secondLast.cache_control).toBeUndefined();
@@ -330,7 +342,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{
         type: string;
         text: string;
-        cache_control?: { type: string };
+        cache_control?: { type: string; ttl?: string };
       }>;
     }>;
     const assistantMsgs = sent.filter((m) => m.role === "assistant");
@@ -361,7 +373,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{
         type: string;
         text: string;
-        cache_control?: { type: string };
+        cache_control?: { type: string; ttl?: string };
       }>;
     }>;
     const user = sent[0];
@@ -402,7 +414,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{
         type: string;
         text: string;
-        cache_control?: { type: string };
+        cache_control?: { type: string; ttl?: string };
       }>;
     }>;
     const user = sent[0];
@@ -436,7 +448,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{
         type: string;
         text: string;
-        cache_control?: { type: string };
+        cache_control?: { type: string; ttl?: string };
       }>;
     }>;
     const user = sent[0];
@@ -1309,7 +1321,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{
         type: string;
         text: string;
-        cache_control?: { type: string };
+        cache_control?: { type: string; ttl?: string };
       }>;
     }>;
     const userMsgs = sent.filter((m) => m.role === "user");
@@ -1321,7 +1333,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     // Turn 2 (second-to-last): cache on last block only
     expect(userMsgs[1].content[0].cache_control).toBeUndefined();
-    expect(userMsgs[1].content[1].cache_control).toEqual({ type: "ephemeral" });
+    expect(userMsgs[1].content[1].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 
     // Turn 3 (last): no cache
     expect(userMsgs[2].content[0].cache_control).toBeUndefined();
@@ -1548,16 +1560,17 @@ describe("AnthropicProvider — Managed Proxy Fallback", () => {
 
     // System prompt cache control
     const system = lastStreamParams!.system as Array<{
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
-    expect(system[0].cache_control).toEqual({ type: "ephemeral" });
+    expect(system[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
 
     // Last tool cache control
     const tools = lastStreamParams!.tools as Array<{
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
     expect(tools[tools.length - 1].cache_control).toEqual({
       type: "ephemeral",
+      ttl: "1h",
     });
   });
 });

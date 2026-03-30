@@ -20,7 +20,7 @@ struct InputBarView: View {
     let onSend: () -> Void
     let onStop: () -> Void
     var onVoiceResult: ((String) -> Void)?
-    @ObservedObject var viewModel: ChatViewModel
+    var viewModel: ChatViewModel
 
     @State private var isRecording = false
     /// True after the audio engine and tap have been torn down (set by finishRecordingForAutoStop

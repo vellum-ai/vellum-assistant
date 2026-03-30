@@ -128,7 +128,7 @@ private struct PillSegment: View {
             Group {
                 if let icon {
                     VIconView(.resolve(icon), size: size == .compact ? 10 : 12)
-                        .foregroundStyle(isSelected ? VColor.contentDefault : VColor.contentTertiary)
+                        .foregroundStyle(VColor.contentDefault)
                 } else {
                     Text(label)
                         .font(size == .compact ? VFont.labelDefault : VFont.bodyMediumLighter)

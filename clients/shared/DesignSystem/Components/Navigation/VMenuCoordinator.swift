@@ -20,6 +20,8 @@ public final class VMenuCoordinator {
     private var windowObserver: Any?
     private var graceTimer: DispatchWorkItem?
     private var rootDismissHandler: (() -> Void)?
+    /// Screen rect to exclude from click-outside dismiss (e.g., the trigger button).
+    private var excludeRect: CGRect?
 
     /// Max depth: root + one submenu.
     static let maxDepth = 2
@@ -37,9 +39,10 @@ public final class VMenuCoordinator {
     // MARK: - Panel Lifecycle
 
     /// Register the root panel and install the unified click monitor.
-    func registerRootPanel(_ panel: NSPanel, sourceWindow: NSWindow?, onDismiss: (() -> Void)?) {
+    func registerRootPanel(_ panel: NSPanel, sourceWindow: NSWindow?, excludeRect: CGRect? = nil, onDismiss: (() -> Void)?) {
         panels = [panel]
         rootDismissHandler = onDismiss
+        self.excludeRect = excludeRect
         focusedIndex = [:]
         itemCounts = [:]
         installClickMonitor()
@@ -233,6 +236,12 @@ public final class VMenuCoordinator {
                     if panelBounds.contains(locationInPanel) {
                         return event
                     }
+                }
+
+                // Skip dismiss if click is in the trigger's excluded rect — let the
+                // trigger button handle closing so it doesn't immediately reopen.
+                if let excludeRect = self.excludeRect, excludeRect.contains(mouseLocation) {
+                    return event
                 }
 
                 self.dismissAll()

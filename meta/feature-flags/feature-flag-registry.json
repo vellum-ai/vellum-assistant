@@ -290,6 +290,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "show-thinking-blocks",
+      "scope": "macos",
+      "key": "show-thinking-blocks",
+      "label": "Show Thinking Blocks",
+      "description": "Display the assistant's thinking/reasoning inline in chat messages as collapsible blocks",
+      "defaultEnabled": false
+    },
+    {
       "id": "inline-skill-commands",
       "scope": "assistant",
       "key": "inline-skill-commands",
@@ -343,6 +351,14 @@
       "key": "voice-mode",
       "label": "Voice Mode",
       "description": "Show the live voice conversation button in the composer",
+      "defaultEnabled": false
+    },
+    {
+      "id": "fast-mode",
+      "scope": "assistant",
+      "key": "fast-mode",
+      "label": "Fast Mode",
+      "description": "Enable Anthropic fast mode for Opus 4.6, delivering up to 2.5x higher output tokens per second at premium pricing",
       "defaultEnabled": false
     }
   ]

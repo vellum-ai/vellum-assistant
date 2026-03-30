@@ -28,6 +28,8 @@ gateway/src/feature-flag-registry.json
 # misc
 worktrees/
 .worktrees/
+.codex-worktrees/
+*-worktrees/
 .DS_Store
 .githooks/.githooks
 *.pem
@@ -107,3 +109,4 @@ vellum-assistant-safe-do-permissions
 
 # macOS binary
 clients/macos/assistant-bin/vellum-assistant
+vellum-assistant-do-fix-retriever-null-check

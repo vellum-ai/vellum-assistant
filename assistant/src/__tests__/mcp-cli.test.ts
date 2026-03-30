@@ -93,7 +93,7 @@ async function runMcp(
   }) as typeof process.exit;
 
   // Point config loader at the test data dir
-  process.env.BASE_DATA_DIR = testDataDir;
+  process.env.VELLUM_WORKSPACE_DIR = testDataDir;
 
   try {
     const program = new Command();
@@ -137,9 +137,8 @@ describe("assistant mcp list", () => {
       tmpdir(),
       `vellum-mcp-cli-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
-    const workspaceDir = join(testDataDir, ".vellum", "workspace");
-    mkdirSync(workspaceDir, { recursive: true });
-    configPath = join(workspaceDir, "config.json");
+    mkdirSync(testDataDir, { recursive: true });
+    configPath = join(testDataDir, "config.json");
     writeConfig({});
   });
 
@@ -264,9 +263,8 @@ describe("assistant mcp add", () => {
       tmpdir(),
       `vellum-mcp-add-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
-    const workspaceDir = join(testDataDir, ".vellum", "workspace");
-    mkdirSync(workspaceDir, { recursive: true });
-    configPath = join(workspaceDir, "config.json");
+    mkdirSync(testDataDir, { recursive: true });
+    configPath = join(testDataDir, "config.json");
     writeConfig({});
   });
 
@@ -404,9 +402,8 @@ describe("assistant mcp remove", () => {
         .toString(36)
         .slice(2)}`,
     );
-    const workspaceDir = join(testDataDir, ".vellum", "workspace");
-    mkdirSync(workspaceDir, { recursive: true });
-    configPath = join(workspaceDir, "config.json");
+    mkdirSync(testDataDir, { recursive: true });
+    configPath = join(testDataDir, "config.json");
     writeConfig({});
   });
 

@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // ---------------------------------------------------------------------------
 
 let mockGeminiKey: string | undefined = "test-gemini-key";
-let mockWorkspaceDir = "/tmp/test-workspace-e2e";
 
 const mkdirSyncFn = mock(() => {});
 const writeFileSyncFn = mock(() => {});
@@ -49,10 +48,6 @@ mock.module("../security/secure-keys.js", () => ({
     name === "gemini" ? mockGeminiKey : null,
   getProviderKeyAsync: async (provider: string) =>
     provider === "gemini" ? mockGeminiKey : undefined,
-}));
-
-mock.module("../util/platform.js", () => ({
-  getWorkspaceDir: () => mockWorkspaceDir,
 }));
 
 mock.module("pino", () => {
@@ -140,8 +135,7 @@ function geminiContentResponse() {
   };
 }
 
-const expectedAvatarPath =
-  "/tmp/test-workspace-e2e/data/avatar/avatar-image.png";
+const expectedAvatarPath = `${process.env.VELLUM_WORKSPACE_DIR}/data/avatar/avatar-image.png`;
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -153,8 +147,6 @@ describe("avatar E2E integration", () => {
 
   beforeEach(() => {
     mockGeminiKey = "test-gemini-key";
-    mockWorkspaceDir = "/tmp/test-workspace-e2e";
-
     mkdirSyncFn.mockClear();
     writeFileSyncFn.mockClear();
     renameSyncFn.mockClear();

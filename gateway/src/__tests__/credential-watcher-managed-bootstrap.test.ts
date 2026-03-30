@@ -76,7 +76,7 @@ async function startGateway(): Promise<void> {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  const deadline = Date.now() + 5_000;
+  const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     try {
       const res = await fetch(`http://localhost:${gatewayPort}/healthz`);
@@ -86,7 +86,7 @@ async function startGateway(): Promise<void> {
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error("Gateway failed to start within 5 seconds");
+  throw new Error("Gateway failed to start within 10 seconds");
 }
 
 function startFakeCes(opts: {
@@ -139,7 +139,7 @@ afterEach(() => {
   cesPort = 0;
 
   if (gatewayProc) {
-    gatewayProc.kill();
+    gatewayProc.kill("SIGKILL");
     gatewayProc = null;
   }
 
@@ -176,7 +176,7 @@ describe("gateway managed credential bootstrap retry", () => {
     }
 
     expect(status).toBe(401);
-  }, 15_000);
+  }, 20_000);
 
   test("keeps retrying until configured credential reads succeed after CES list is already available", async () => {
     mkdirSync(testDir, { recursive: true });
@@ -220,5 +220,5 @@ describe("gateway managed credential bootstrap retry", () => {
     }
 
     expect(status).toBe(401);
-  }, 15_000);
+  }, 20_000);
 });

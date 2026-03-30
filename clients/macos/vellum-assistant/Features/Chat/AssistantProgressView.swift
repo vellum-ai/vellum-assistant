@@ -536,6 +536,7 @@ struct AssistantProgressView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .environment(\.isEnabled, true)
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -857,6 +858,7 @@ private struct StepDetailRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .environment(\.isEnabled, true)
             .padding(.leading, VSpacing.sm)
             .padding(.trailing, VSpacing.xs)
             .padding(.vertical, VSpacing.xs)

@@ -6,7 +6,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import type { ServerWebSocket } from "bun";
 
@@ -62,7 +62,6 @@ import {
 } from "../security/oauth-callback-registry.js";
 import { UserError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import { getRootDir } from "../util/platform.js";
 import { buildAssistantEvent } from "./assistant-event.js";
 import { assistantEventHub } from "./assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
@@ -165,6 +164,7 @@ import { migrationRollbackRouteDefinitions } from "./routes/migration-rollback-r
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { notificationRouteDefinitions } from "./routes/notification-routes.js";
 import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
+import { oauthProvidersRouteDefinitions } from "./routes/oauth-providers.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
 import {
   handlePairingRequest,
@@ -295,23 +295,11 @@ export class RuntimeHttpServer {
     this.pairingBroadcast = fn;
   }
 
-  /** Read the feature-flag client token from disk so it can be included in pairing approval responses. */
-  private readFeatureFlagToken(): string | undefined {
-    try {
-      const tokenPath = join(getRootDir(), "feature-flag-token");
-      const token = readFileSync(tokenPath, "utf-8").trim();
-      return token || undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
   private get pairingContext(): PairingHandlerContext {
     const broadcast = this.pairingBroadcast;
     return {
       pairingStore: this.pairingStore,
       bearerToken: this.bearerToken,
-      featureFlagToken: this.readFeatureFlagToken(),
       pairingBroadcast: broadcast
         ? (msg) => {
             // Broadcast to all clients via the event hub so HTTP/SSE clients
@@ -1224,6 +1212,7 @@ export class RuntimeHttpServer {
       ...twilioRouteDefinitions(),
       ...vercelRouteDefinitions(),
       ...channelReadinessRouteDefinitions(),
+      ...oauthProvidersRouteDefinitions(),
       ...oauthAppsRouteDefinitions(),
       ...attachmentRouteDefinitions(),
 

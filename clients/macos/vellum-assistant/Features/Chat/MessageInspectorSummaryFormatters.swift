@@ -52,6 +52,7 @@ struct MessageInspectorOverviewContent: Equatable {
                 created: summary.cacheCreationInputTokens,
                 read: summary.cacheReadInputTokens
             )),
+            .init(label: "Estimated cost", value: MessageInspectorSummaryFormatters.formatCost(summary.estimatedCostUsd)),
             .init(label: "Request messages", value: MessageInspectorSummaryFormatters.formatCount(summary.requestMessageCount)),
             .init(label: "Tool count", value: MessageInspectorSummaryFormatters.formatCount(summary.requestToolCount)),
         ]
@@ -68,6 +69,11 @@ enum MessageInspectorSummaryFormatters {
     static func formatCount(_ value: Int?) -> String {
         guard let value else { return missingValue }
         return Self.numberFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+
+    static func formatCost(_ value: Double?) -> String {
+        guard let value else { return missingValue }
+        return costFormatter.string(from: NSNumber(value: value)) ?? String(format: "$%.4f", value)
     }
 
     static func formatCacheTokens(created: Int?, read: Int?) -> String {
@@ -158,7 +164,7 @@ enum MessageInspectorSummaryFormatters {
 
     static func formattedCreatedAt(_ epochMs: Int) -> String {
         Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
-            .formatted(date: .abbreviated, time: .shortened)
+            .formatted(date: .abbreviated, time: .standard)
     }
 
     static func isProviderOnlySummary(_ summary: LLMCallSummary) -> Bool {
@@ -200,6 +206,15 @@ enum MessageInspectorSummaryFormatters {
     private static let numberFormatter: NumberFormatter = {
         let formatter = NumberFormatter()
         formatter.numberStyle = .decimal
+        return formatter
+    }()
+
+    private static let costFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 4
         return formatter
     }()
 }

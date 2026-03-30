@@ -1,3 +1,4 @@
+import { recordRequestLog } from "../memory/llm-request-log-store.js";
 import {
   extractText,
   getConfiguredProvider,
@@ -20,11 +21,16 @@ import type { WatchObservation } from "./message-protocol.js";
 const log = getLogger("watch-handler");
 
 /**
- * Module-level maps to store commentary/summary text so that session
- * notifier callbacks can retrieve it from the WatchSession's conversationId.
+ * Module-level maps to store commentary/summary text (and associated LLM log
+ * IDs) so that session notifier callbacks can retrieve them from the
+ * WatchSession's conversationId and link logs to the persisted message.
  */
-export const lastCommentaryByConversation = new Map<string, string>();
-export const lastSummaryByConversation = new Map<string, string>();
+export interface WatchResult {
+  text: string;
+  logIds: string[];
+}
+export const lastCommentaryByConversation = new Map<string, WatchResult>();
+export const lastSummaryByConversation = new Map<string, WatchResult>();
 
 export async function handleWatchObservation(
   msg: WatchObservation,
@@ -116,15 +122,15 @@ async function generateCommentary(session: WatchSession): Promise<void> {
       return;
     }
     const lastThree = session.observations.slice(-3);
-    const previousCommentary = lastCommentaryByConversation.get(
+    const previousResult = lastCommentaryByConversation.get(
       session.conversationId,
     );
 
     const userContent = [
       `Focus area: ${session.focusArea}`,
       "",
-      previousCommentary
-        ? `Previous commentary: "${previousCommentary}"`
+      previousResult
+        ? `Previous commentary: "${previousResult.text}"`
         : "No previous commentary yet.",
       "",
       ...lastThree.map(
@@ -164,10 +170,29 @@ async function generateCommentary(session: WatchSession): Promise<void> {
       },
     );
 
+    const logIds: string[] = [];
+    if (response.rawRequest && response.rawResponse) {
+      try {
+        const logId = recordRequestLog(
+          session.conversationId,
+          JSON.stringify(response.rawRequest),
+          JSON.stringify(response.rawResponse),
+          undefined,
+          response.actualProvider ?? provider.name,
+        );
+        logIds.push(logId);
+      } catch (err) {
+        log.warn({ err }, "Failed to persist watch commentary LLM log");
+      }
+    }
+
     const commentaryText = extractText(response);
 
     if (commentaryText && commentaryText !== "SKIP") {
-      lastCommentaryByConversation.set(session.conversationId, commentaryText);
+      lastCommentaryByConversation.set(session.conversationId, {
+        text: commentaryText,
+        logIds,
+      });
       fireWatchCommentaryNotifier(session.conversationId, session);
       session.commentaryCount++;
     }
@@ -206,10 +231,10 @@ export async function generateSummary(session: WatchSession): Promise<void> {
         { watchId: session.watchId },
         "Configured provider unavailable for summary generation",
       );
-      lastSummaryByConversation.set(
-        session.conversationId,
-        "[error] Configured provider unavailable. Check your settings.",
-      );
+      lastSummaryByConversation.set(session.conversationId, {
+        text: "[error] Configured provider unavailable. Check your settings.",
+        logIds: [],
+      });
       fireWatchCompletionNotifier(session.conversationId, session);
       return;
     }
@@ -310,6 +335,22 @@ export async function generateSummary(session: WatchSession): Promise<void> {
       },
     );
 
+    const logIds: string[] = [];
+    if (response.rawRequest && response.rawResponse) {
+      try {
+        const logId = recordRequestLog(
+          session.conversationId,
+          JSON.stringify(response.rawRequest),
+          JSON.stringify(response.rawResponse),
+          undefined,
+          response.actualProvider ?? provider.name,
+        );
+        logIds.push(logId);
+      } catch (err) {
+        log.warn({ err }, "Failed to persist watch summary LLM log");
+      }
+    }
+
     log.debug(
       { watchId: session.watchId },
       "LLM API call completed successfully",
@@ -323,7 +364,10 @@ export async function generateSummary(session: WatchSession): Promise<void> {
     );
 
     if (summaryText) {
-      lastSummaryByConversation.set(session.conversationId, summaryText);
+      lastSummaryByConversation.set(session.conversationId, {
+        text: summaryText,
+        logIds,
+      });
       log.debug(
         { watchId: session.watchId, conversationId: session.conversationId },
         "Firing completion notifier with summary",
@@ -334,10 +378,10 @@ export async function generateSummary(session: WatchSession): Promise<void> {
         { watchId: session.watchId },
         "Summary was empty from API response",
       );
-      lastSummaryByConversation.set(
-        session.conversationId,
-        "[error] The API returned an empty summary. This may indicate a service issue.",
-      );
+      lastSummaryByConversation.set(session.conversationId, {
+        text: "[error] The API returned an empty summary. This may indicate a service issue.",
+        logIds,
+      });
       fireWatchCompletionNotifier(session.conversationId, session);
     }
   } catch (err) {
@@ -346,10 +390,10 @@ export async function generateSummary(session: WatchSession): Promise<void> {
       "Error generating watch summary — LLM API call failed",
     );
     const message = err instanceof Error ? err.message : String(err);
-    lastSummaryByConversation.set(
-      session.conversationId,
-      `[error] Summary generation failed: ${message}`,
-    );
+    lastSummaryByConversation.set(session.conversationId, {
+      text: `[error] Summary generation failed: ${message}`,
+      logIds: [],
+    });
     fireWatchCompletionNotifier(session.conversationId, session);
   }
 }

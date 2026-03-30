@@ -1,9 +1,4 @@
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "platform-status-test-"));
 
 // ---------------------------------------------------------------------------
 // Mock state
@@ -66,43 +61,6 @@ mock.module("../../../../util/logger.js", () => ({
   truncateForLog: (value: string, maxLen = 500) =>
     value.length > maxLen ? value.slice(0, maxLen) + "..." : value,
   pruneOldLogFiles: () => 0,
-}));
-
-mock.module("../../../../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => join(testDir, "data"),
-  getWorkspaceSkillsDir: () => join(testDir, "skills"),
-  getWorkspaceDir: () => join(testDir, "workspace"),
-  getWorkspaceHooksDir: () => join(testDir, "workspace", "hooks"),
-  getWorkspaceConfigPath: () => join(testDir, "workspace", "config.json"),
-  getHooksDir: () => join(testDir, "hooks"),
-  getSignalsDir: () => join(testDir, "signals"),
-  getConversationsDir: () => join(testDir, "conversations"),
-  getEmbeddingModelsDir: () => join(testDir, "models"),
-  getSandboxRootDir: () => join(testDir, "sandbox"),
-  getSandboxWorkingDir: () => join(testDir, "sandbox", "work"),
-  getInterfacesDir: () => join(testDir, "interfaces"),
-  getSoundsDir: () => join(testDir, "sounds"),
-  getHistoryPath: () => join(testDir, "history"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPlatformName: () => "linux",
-  getClipboardCommand: () => null,
-  resolveInstanceDataDir: () => undefined,
-  normalizeAssistantId: (id: string) => id,
-  getTCPPort: () => 0,
-  isTCPEnabled: () => false,
-  getTCPHost: () => "127.0.0.1",
-  isIOSPairingEnabled: () => false,
-  getPlatformTokenPath: () => join(testDir, "token"),
-  readPlatformToken: () => null,
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  getWorkspaceDirDisplay: () => testDir,
-  getWorkspacePromptPath: (file: string) => join(testDir, file),
-  ensureDataDir: () => {},
 }));
 
 mock.module("../../../../config/loader.js", () => ({
@@ -242,5 +200,33 @@ describe("assistant platform status", () => {
     expect(parsed.connected).toBe(true);
     expect(parsed.organizationId).toBe("org-456");
     expect(parsed.userId).toBe("user-789");
+  });
+
+  test("plain text mode does not emit JSON to stdout", async () => {
+    /**
+     * Without --json, the status command should only produce log output
+     * (via the CLI logger) and NOT write JSON to stdout. Previously both
+     * JSON and plain text were emitted, duplicating the information.
+     */
+
+    // GIVEN a disconnected environment with no stored credentials
+    mockResolvePlatformCallbackRegistrationContext = async () => ({
+      containerized: false,
+      platformBaseUrl: "",
+      assistantId: "",
+      hasInternalApiKey: false,
+      hasAssistantApiKey: false,
+      authHeader: null,
+      enabled: false,
+    });
+
+    // WHEN the status command is run without --json
+    const { exitCode, stdout } = await runCommand(["platform", "status"]);
+
+    // THEN the command succeeds
+    expect(exitCode).toBe(0);
+
+    // AND stdout contains no JSON (writeOutput is skipped in plain text mode)
+    expect(stdout.trim()).toBe("");
   });
 });

@@ -6,15 +6,15 @@
  *
  * Two auth modes:
  * - Authenticated: Api-Key header via managed proxy context
- * - Anonymous: X-Telemetry-Token static token from env
+ * - Anonymous: unauthenticated POST (telemetry endpoints are public)
  */
 
 import {
+  getPlatformBaseUrl,
   getPlatformOrganizationId,
   getPlatformUserId,
-  getTelemetryAppToken,
-  getTelemetryPlatformUrl,
 } from "../config/env.js";
+import { getConfig } from "../config/loader.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
@@ -93,6 +93,22 @@ export class UsageTelemetryReporter {
     try {
       if (batchCount >= MAX_CONSECUTIVE_BATCHES) return;
 
+      // Respect runtime opt-out: if the user has disabled usage data collection,
+      // skip the flush and advance watermarks so events recorded during the
+      // opt-out window are never sent retroactively.
+      if (!getConfig().collectUsageData) {
+        // Advance only the timestamp watermarks. Leave the ID watermarks
+        // untouched so the compound-cursor branch stays active — setting them
+        // to "" would make the truthy check fail, falling back to a
+        // timestamp-only `gt(createdAt, watermark)` query that silently drops
+        // events created in the same millisecond as the opt-out watermark.
+        const now = String(Date.now());
+        setMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK, now);
+        setMemoryCheckpoint(CHECKPOINT_KEY_TURN_WATERMARK, now);
+        setMemoryCheckpoint(CHECKPOINT_KEY_LIFECYCLE_WATERMARK, now);
+        return;
+      }
+
       // Read usage watermark (compound cursor: createdAt + id)
       const watermark = Number(
         getMemoryCheckpoint(CHECKPOINT_KEY_WATERMARK) ?? "0",
@@ -138,11 +154,9 @@ export class UsageTelemetryReporter {
       )
         return;
 
-      // Resolve auth context — skip flush when neither auth mode is viable
+      // Resolve auth context — authenticated path uses client, anonymous path
+      // sends unauthenticated (telemetry endpoints are public).
       const client = await VellumPlatformClient.create();
-      if (!client && (!getTelemetryAppToken() || !getTelemetryPlatformUrl())) {
-        return;
-      }
 
       // Build payload
       const typedEvents: TelemetryEvent[] = [
@@ -203,16 +217,8 @@ export class UsageTelemetryReporter {
       if (client) {
         resp = await client.fetch(TELEMETRY_PATH, fetchInit);
       } else {
-        const platformUrl = getTelemetryPlatformUrl();
-        if (!platformUrl) return;
-        const url = `${platformUrl}${TELEMETRY_PATH}`;
-        resp = await fetch(url, {
-          ...fetchInit,
-          headers: {
-            "Content-Type": "application/json",
-            "X-Telemetry-Token": getTelemetryAppToken(),
-          },
-        });
+        const url = `${getPlatformBaseUrl()}${TELEMETRY_PATH}`;
+        resp = await fetch(url, fetchInit);
       }
 
       if (!resp.ok) {
