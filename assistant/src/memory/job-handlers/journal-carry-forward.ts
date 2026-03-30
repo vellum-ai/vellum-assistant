@@ -15,6 +15,7 @@ import {
 } from "../../providers/provider-send-message.js";
 import { BackendUnavailableError, ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { setMemoryCheckpoint } from "../checkpoints.js";
 import { getDb } from "../db.js";
 import { computeMemoryFingerprint } from "../fingerprint.js";
 import { asString } from "../job-utils.js";
@@ -229,6 +230,11 @@ export async function journalCarryForwardJob(job: MemoryJob): Promise<void> {
     enqueueMemoryJob("embed_item", { itemId });
     inserted += 1;
   }
+
+  // Write checkpoint only after successful completion so failed jobs can be
+  // re-enqueued on the next prompt render cycle.
+  const checkpointKey = `journal_carry_forward:${userSlug || "unknown"}:${filename}`;
+  setMemoryCheckpoint(checkpointKey, String(Date.now()));
 
   log.info(
     {

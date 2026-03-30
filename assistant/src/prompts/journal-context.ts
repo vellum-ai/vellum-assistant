@@ -1,10 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 
-import {
-  getMemoryCheckpoint,
-  setMemoryCheckpoint,
-} from "../memory/checkpoints.js";
+import { getMemoryCheckpoint } from "../memory/checkpoints.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
@@ -117,7 +114,7 @@ export function buildJournalContext(
     try {
       const safeSlug = basename(userSlug);
       for (const entry of rotatingOut) {
-        const checkpointKey = `journal_carry_forward:${entry.filename}`;
+        const checkpointKey = `journal_carry_forward:${safeSlug}:${entry.filename}`;
         if (getMemoryCheckpoint(checkpointKey) != null) continue;
 
         let content: string;
@@ -133,7 +130,6 @@ export function buildJournalContext(
           filename: entry.filename,
           scopeId: "default",
         });
-        setMemoryCheckpoint(checkpointKey, String(Date.now()));
         log.info(
           { filename: entry.filename, userSlug: safeSlug },
           "Enqueued journal carry-forward job for rotating-out entry",
