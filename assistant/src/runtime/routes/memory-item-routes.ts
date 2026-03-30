@@ -235,62 +235,64 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
 
   const db = getDb();
 
-  // ── Kind counts (shared across all code paths) ─────────────────────
-  // Respects status/search filters but NOT kind filter, so the sidebar
-  // can show totals for every kind simultaneously.
-  const kindCountConditions = [];
-  if (statusParam && statusParam !== "all") {
-    kindCountConditions.push(eq(memoryItems.status, statusParam));
-  }
-  if (searchParam) {
-    kindCountConditions.push(
-      or(
-        like(memoryItems.subject, `%${searchParam}%`),
-        like(memoryItems.statement, `%${searchParam}%`),
-      )!,
-    );
-  }
-  const kindCountWhere =
-    kindCountConditions.length > 0 ? and(...kindCountConditions) : undefined;
-  const kindCountRows = db
-    .select({ kind: memoryItems.kind, count: count() })
-    .from(memoryItems)
-    .where(kindCountWhere)
-    .groupBy(memoryItems.kind)
-    .all();
-  const kindCounts: Record<string, number> = {};
-  for (const row of kindCountRows) {
-    kindCounts[row.kind] = row.count;
-  }
-
   // ── Semantic search path ────────────────────────────────────────────
   // When a search query is present, try Qdrant hybrid search first.
   // Falls back to SQL LIKE when embeddings / Qdrant are unavailable.
   if (searchParam) {
+    // Search WITHOUT kind filter so we can compute cross-kind counts.
+    // Kind filtering is applied post-hoc while preserving relevance order.
     const semanticResult = await searchItemsSemantic(
       searchParam,
-      limitParam + offsetParam,
-      kindParam,
+      10_000,
+      null,
       statusParam,
     );
 
     if (semanticResult && semanticResult.ids.length > 0) {
-      // Slice for pagination
-      const pageIds = semanticResult.ids.slice(
-        offsetParam,
-        offsetParam + limitParam,
-      );
+      // Compute kindCounts from all semantic matches (no kind filter)
+      const kindCountRows = db
+        .select({ kind: memoryItems.kind, count: count() })
+        .from(memoryItems)
+        .where(inArray(memoryItems.id, semanticResult.ids))
+        .groupBy(memoryItems.kind)
+        .all();
+      const semanticKindCounts: Record<string, number> = {};
+      for (const row of kindCountRows) {
+        semanticKindCounts[row.kind] = row.count;
+      }
+
+      // Apply kind filter while preserving semantic relevance ordering
+      let filteredIds = semanticResult.ids;
+      if (kindParam) {
+        const kindIdSet = new Set(
+          db
+            .select({ id: memoryItems.id })
+            .from(memoryItems)
+            .where(
+              and(
+                inArray(memoryItems.id, semanticResult.ids),
+                eq(memoryItems.kind, kindParam),
+              ),
+            )
+            .all()
+            .map((r) => r.id),
+        );
+        filteredIds = semanticResult.ids.filter((id) => kindIdSet.has(id));
+      }
+
+      const total = filteredIds.length;
+      const pageIds = filteredIds.slice(offsetParam, offsetParam + limitParam);
 
       if (pageIds.length === 0) {
         return Response.json({
           items: [],
-          total: semanticResult.total,
-          kindCounts,
+          total,
+          kindCounts: semanticKindCounts,
         });
       }
 
-      // Re-apply the same DB-side filters used in the SQL path as defense-
-      // in-depth against stale Qdrant payloads leaking deleted/mismatched rows.
+      // Re-apply DB-side filters as defense-in-depth against stale Qdrant
+      // payloads leaking deleted/mismatched rows.
       const hydrationConditions = [inArray(memoryItems.id, pageIds)];
       if (statusParam && statusParam !== "all") {
         hydrationConditions.push(eq(memoryItems.status, statusParam));
@@ -320,11 +322,39 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
 
       return Response.json({
         items: enrichedItems,
-        total: semanticResult.total,
-        kindCounts,
+        total,
+        kindCounts: semanticKindCounts,
       });
     }
     // semanticResult was null (Qdrant unavailable) or empty — fall through to SQL
+  }
+
+  // ── Kind counts for SQL path ───────────────────────────────────────
+  // Respects status/search filters but NOT kind filter, so the sidebar
+  // can show totals for every kind simultaneously.
+  const kindCountConditions = [];
+  if (statusParam && statusParam !== "all") {
+    kindCountConditions.push(eq(memoryItems.status, statusParam));
+  }
+  if (searchParam) {
+    kindCountConditions.push(
+      or(
+        like(memoryItems.subject, `%${searchParam}%`),
+        like(memoryItems.statement, `%${searchParam}%`),
+      )!,
+    );
+  }
+  const kindCountWhere =
+    kindCountConditions.length > 0 ? and(...kindCountConditions) : undefined;
+  const sqlKindCountRows = db
+    .select({ kind: memoryItems.kind, count: count() })
+    .from(memoryItems)
+    .where(kindCountWhere)
+    .groupBy(memoryItems.kind)
+    .all();
+  const kindCounts: Record<string, number> = {};
+  for (const row of sqlKindCountRows) {
+    kindCounts[row.kind] = row.count;
   }
 
   // ── SQL path (default or fallback) ──────────────────────────────────

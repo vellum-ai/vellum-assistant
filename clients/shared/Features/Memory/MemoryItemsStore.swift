@@ -37,7 +37,17 @@ public final class MemoryItemsStore {
         if let response {
             items = response.items
             total = response.total
-            kindCounts = response.kindCounts ?? [:]
+            if let serverCounts = response.kindCounts {
+                kindCounts = serverCounts
+            } else {
+                // Backwards compat: derive counts from loaded items when
+                // the server doesn't return kindCounts (older versions).
+                var derived: [String: Int] = [:]
+                for item in response.items {
+                    derived[item.kind, default: 0] += 1
+                }
+                kindCounts = derived
+            }
         }
         isLoading = false
     }
