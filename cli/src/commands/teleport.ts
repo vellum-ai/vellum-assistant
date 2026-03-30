@@ -1,4 +1,7 @@
-import { findAssistantByName } from "../lib/assistant-config.js";
+import {
+  findAssistantByName,
+  saveAssistantEntry,
+} from "../lib/assistant-config.js";
 import type { AssistantEntry } from "../lib/assistant-config.js";
 import {
   loadGuardianToken,
@@ -7,47 +10,127 @@ import {
 import {
   readPlatformToken,
   fetchOrganizationId,
+  getPlatformUrl,
+  hatchAssistant,
   platformInitiateExport,
   platformPollExportStatus,
   platformDownloadExport,
   platformImportPreflight,
   platformImportBundle,
 } from "../lib/platform-client.js";
+import { hatchLocal } from "./hatch.js";
+import { hatchDocker, retireDocker } from "../lib/docker.js";
+import { retireLocal } from "./retire.js";
 
 function printHelp(): void {
   console.log(
-    "Usage: vellum teleport --from <assistant> --to <assistant> [options]",
+    "Usage: vellum teleport --from <assistant> <--local | --docker | --platform> [name] [options]",
   );
   console.log("");
   console.log(
     "Transfer assistant data between local, docker, and platform environments.",
   );
   console.log("");
-  console.log("Options:");
-  console.log("  --from <name>   Source assistant to export data from");
-  console.log("  --to <name>     Target assistant to import data into");
   console.log(
-    "  --dry-run       Preview the transfer without applying changes",
+    "The --from flag specifies the source assistant to export data from.",
   );
-  console.log("  --help, -h      Show this help");
+  console.log(
+    "Exactly one environment flag (--local, --docker, --platform) specifies",
+  );
+  console.log(
+    "the target environment. An optional name after the environment flag",
+  );
+  console.log(
+    "targets an existing assistant (overwriting its data) or names a newly",
+  );
+  console.log(
+    "hatched one. If no name is given, a new assistant is hatched with an",
+  );
+  console.log("auto-generated name.");
+  console.log("");
+  console.log(
+    "The source and target must be different environments. Same-environment",
+  );
+  console.log("transfers (e.g. local to local) are not supported.");
+  console.log("");
+  console.log(
+    "For local-to-docker and docker-to-local transfers, the source assistant",
+  );
+  console.log(
+    "is automatically retired after a successful import to free up ports and",
+  );
+  console.log("avoid resource conflicts. Use --keep-source to skip this.");
+  console.log("");
+  console.log("Environment flags:");
+  console.log("  --local [name]      Target a local bare-metal assistant");
+  console.log("  --docker [name]     Target a docker assistant");
+  console.log("  --platform [name]   Target a platform-hosted assistant");
+  console.log("");
+  console.log("Options:");
+  console.log(
+    "  --from <name>       Source assistant to export data from (required)",
+  );
+  console.log(
+    "  --keep-source       Do not retire the source after local/docker transfers",
+  );
+  console.log(
+    "  --dry-run           Preview the transfer without applying changes",
+  );
+  console.log("  --help, -h          Show this help");
   console.log("");
   console.log("Examples:");
-  console.log("  vellum teleport --from my-local --to my-cloud");
-  console.log("  vellum teleport --from my-cloud --to my-local --dry-run");
-  console.log("  vellum teleport --from my-docker --to my-local");
-  console.log("  vellum teleport --from staging --to production --dry-run");
+  console.log("  vellum teleport --from my-local --docker");
+  console.log(
+    "      Hatch a new docker assistant, import data, and retire my-local",
+  );
+  console.log("");
+  console.log("  vellum teleport --from my-local --docker my-docker");
+  console.log(
+    "      Import data from my-local into existing docker assistant my-docker",
+  );
+  console.log(
+    "      (or hatch a new docker assistant named my-docker if it doesn't exist)",
+  );
+  console.log("");
+  console.log("  vellum teleport --from my-local --platform");
+  console.log(
+    "      Hatch a new platform assistant and import data from my-local",
+  );
+  console.log("");
+  console.log("  vellum teleport --from my-cloud --local my-new-local");
+  console.log(
+    "      Import data from platform assistant my-cloud into local assistant",
+  );
+  console.log("");
+  console.log("  vellum teleport --from my-docker --local --keep-source");
+  console.log(
+    "      Transfer to a new local assistant but keep the docker source running",
+  );
+  console.log("");
+  console.log(
+    "  vellum teleport --from staging --docker staging-copy --dry-run",
+  );
+  console.log("      Preview what would be imported without applying changes");
 }
 
-function parseArgs(argv: string[]): {
+export function parseArgs(argv: string[]): {
   from: string | undefined;
   to: string | undefined;
+  targetEnv: "local" | "docker" | "platform" | undefined;
+  targetName: string | undefined;
+  keepSource: boolean;
   dryRun: boolean;
   help: boolean;
 } {
   let from: string | undefined;
   let to: string | undefined;
+  let targetEnv: "local" | "docker" | "platform" | undefined;
+  let targetName: string | undefined;
+  let keepSource = false;
   let dryRun = false;
   let help = false;
+
+  const envFlags: string[] = [];
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -61,6 +144,20 @@ function parseArgs(argv: string[]): {
         continue;
       }
       to = argv[++i];
+    } else if (
+      arg === "--local" ||
+      arg === "--docker" ||
+      arg === "--platform"
+    ) {
+      const env = arg.slice(2) as "local" | "docker" | "platform";
+      envFlags.push(env);
+      targetEnv = env;
+      // Peek at next arg for optional target name
+      if (i + 1 < argv.length && !argv[i + 1].startsWith("--")) {
+        targetName = argv[++i];
+      }
+    } else if (arg === "--keep-source") {
+      keepSource = true;
     } else if (arg === "--dry-run") {
       dryRun = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -68,7 +165,14 @@ function parseArgs(argv: string[]): {
     }
   }
 
-  return { from, to, dryRun, help };
+  if (envFlags.length > 1) {
+    console.error(
+      "Error: Only one environment flag (--local, --docker, --platform) may be specified.",
+    );
+    process.exit(1);
+  }
+
+  return { from, to, targetEnv, targetName, keepSource, dryRun, help };
 }
 
 function resolveCloud(entry: AssistantEntry): string {
@@ -623,6 +727,74 @@ async function importToAssistant(
 }
 
 // ---------------------------------------------------------------------------
+// Resolve or hatch target assistant
+// ---------------------------------------------------------------------------
+
+export async function resolveOrHatchTarget(
+  targetEnv: "local" | "docker" | "platform",
+  targetName?: string,
+): Promise<AssistantEntry> {
+  // If a name is provided, try to find an existing assistant
+  if (targetName) {
+    const existing = findAssistantByName(targetName);
+    if (existing) {
+      console.log(`Target: ${targetName} (${targetEnv})`);
+      return existing;
+    }
+  }
+
+  // Hatch a new assistant in the target environment
+  if (targetEnv === "local") {
+    await hatchLocal("vellum", targetName ?? null, false, false, false, {});
+    const entry = findAssistantByName(targetName ?? "");
+    if (!entry) {
+      // If no targetName was provided, find the most recently hatched local assistant
+      // by looking up what hatchLocal created
+      console.error("Error: Could not find the newly hatched local assistant.");
+      process.exit(1);
+    }
+    console.log(`Hatched new local assistant: ${entry.assistantId}`);
+    return entry;
+  }
+
+  if (targetEnv === "docker") {
+    await hatchDocker("vellum", true, targetName ?? null, false, {});
+    const entry = findAssistantByName(targetName ?? "");
+    if (!entry) {
+      console.error(
+        "Error: Could not find the newly hatched docker assistant.",
+      );
+      process.exit(1);
+    }
+    console.log(`Hatched new docker assistant: ${entry.assistantId}`);
+    return entry;
+  }
+
+  if (targetEnv === "platform") {
+    const token = readPlatformToken();
+    if (!token) {
+      console.error("Not logged in. Run 'vellum login' first.");
+      process.exit(1);
+    }
+
+    const result = await hatchAssistant(token);
+    const entry: AssistantEntry = {
+      assistantId: result.id,
+      runtimeUrl: getPlatformUrl(),
+      cloud: "vellum",
+      species: "vellum",
+      hatchedAt: new Date().toISOString(),
+    };
+    saveAssistantEntry(entry);
+    console.log(`Hatched new platform assistant: ${result.id}`);
+    return entry;
+  }
+
+  console.error(`Error: Unknown target environment '${targetEnv}'.`);
+  process.exit(1);
+}
+
+// ---------------------------------------------------------------------------
 // Error handling helpers
 // ---------------------------------------------------------------------------
 
@@ -773,19 +945,36 @@ function printImportSummary(result: ImportResponse): void {
 
 export async function teleport(): Promise<void> {
   const args = process.argv.slice(3);
-  const { from, to, dryRun, help } = parseArgs(args);
+  const { from, to, targetEnv, targetName, keepSource, dryRun, help } =
+    parseArgs(args);
 
   if (help) {
     printHelp();
     process.exit(0);
   }
 
-  if (!from || !to) {
+  // Legacy --to flag deprecation
+  if (to) {
+    console.error("Error: --to is deprecated. Use environment flags instead:");
+    console.error(
+      "  vellum teleport --from <source> --local|--docker|--platform [name]",
+    );
+    console.error("");
+    console.error("Run 'vellum teleport --help' for details.");
+    process.exit(1);
+  }
+
+  if (!from) {
     printHelp();
     process.exit(1);
   }
 
-  // Look up both assistants
+  if (!targetEnv) {
+    printHelp();
+    process.exit(1);
+  }
+
+  // Look up source assistant
   const fromEntry = findAssistantByName(from);
   if (!fromEntry) {
     console.error(
@@ -794,25 +983,51 @@ export async function teleport(): Promise<void> {
     process.exit(1);
   }
 
-  const toEntry = findAssistantByName(to);
-  if (!toEntry) {
+  const fromCloud = resolveCloud(fromEntry);
+
+  // Same-environment rejection
+  const normalizedSourceEnv = fromCloud === "vellum" ? "platform" : fromCloud;
+  if (normalizedSourceEnv === targetEnv) {
     console.error(
-      `Assistant '${to}' not found in lockfile. Run \`vellum ps\` to see available assistants.`,
+      `Cannot teleport between two ${targetEnv} assistants. Teleport transfers data across different environments.`,
     );
     process.exit(1);
   }
-
-  const fromCloud = resolveCloud(fromEntry);
-  const toCloud = resolveCloud(toEntry);
 
   // Export from source
   console.log(`Exporting from ${from} (${fromCloud})...`);
   const bundleData = await exportFromAssistant(fromEntry, fromCloud);
 
+  // Resolve or hatch target
+  const toEntry = await resolveOrHatchTarget(targetEnv, targetName);
+  const toCloud = resolveCloud(toEntry);
+
   // Import to target
-  console.log(`Importing to ${to} (${toCloud})...`);
+  console.log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
   await importToAssistant(toEntry, toCloud, bundleData, dryRun);
 
+  // Auto-retire source if applicable (local<->docker, not dry-run, not --keep-source)
+  if (!dryRun) {
+    const sourceIsLocalOrDocker =
+      fromCloud === "local" || fromCloud === "docker";
+    const targetIsLocalOrDocker =
+      targetEnv === "local" || targetEnv === "docker";
+
+    if (sourceIsLocalOrDocker && targetIsLocalOrDocker) {
+      if (!keepSource) {
+        console.log(`Retiring source assistant '${from}'...`);
+        if (fromCloud === "docker") {
+          await retireDocker(fromEntry.assistantId);
+        } else {
+          await retireLocal(fromEntry.assistantId, fromEntry);
+        }
+        console.log(`Source assistant '${from}' retired.`);
+      } else {
+        console.log(`Source assistant '${from}' kept (--keep-source).`);
+      }
+    }
+  }
+
   // Success summary
-  console.log(`Teleport complete: ${from} → ${to}`);
+  console.log(`Teleport complete: ${from} → ${toEntry.assistantId}`);
 }
