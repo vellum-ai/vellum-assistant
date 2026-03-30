@@ -8,7 +8,7 @@ import SwiftUI
 /// proposed space.
 ///
 /// Ref: https://developer.apple.com/documentation/appkit/nsview/intrinsiccontentsize
-fileprivate final class IntrinsicScrollView: NSScrollView {
+final class IntrinsicScrollView: NSScrollView {
     var contentHeight: CGFloat = 0 {
         didSet {
             if abs(contentHeight - oldValue) > 0.5 {
