@@ -754,6 +754,7 @@ const EXPLICIT_REJECT_PHRASES: ReadonlySet<string> = new Set([
 
 function normalizeDecisionPhrase(text: string): string {
   return text
+    .replace(/[`*_~]/g, "")
     .trim()
     .toLowerCase()
     .replace(/[.!?]+$/g, "")
