@@ -96,7 +96,12 @@ extension ChatViewModel {
         guard !text.isEmpty else { return }
         if let existingId = currentAssistantMessageId,
            let index = messages.firstIndex(where: { $0.id == existingId }) {
-            if lastContentWasToolCall || messages[index].textSegments.isEmpty {
+            let lastWasNonText: Bool = {
+                guard let last = messages[index].contentOrder.last else { return false }
+                if case .text = last { return false }
+                return true  // .toolCall or .thinking
+            }()
+            if lastWasNonText || messages[index].textSegments.isEmpty {
                 let segIdx = messages[index].textSegments.count
                 messages[index].textSegments.append(text)
                 messages[index].contentOrder.append(.text(segIdx))
