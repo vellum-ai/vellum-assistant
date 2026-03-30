@@ -995,8 +995,18 @@ struct MessageListView: View {
                             scrollState.syncUIImmediately()
                             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                                         "target=userMessage reason=pushToTop")
-                            withAnimation(VAnimation.fast) {
-                                scrollState.performScrollTo(lastUserMsg.id, anchor: .top)
+                            // Defer the scroll so SwiftUI processes the
+                            // uiVersion bump first (rendering the tail
+                            // spacer and switching defaultScrollAnchor
+                            // to nil). Without the spacer, there isn't
+                            // enough content below the message for .top
+                            // to be satisfied.
+                            let targetId = lastUserMsg.id
+                            Task { @MainActor in
+                                guard scrollState.pushToTopMessageId != nil else { return }
+                                withAnimation(VAnimation.fast) {
+                                    scrollState.performScrollTo(targetId, anchor: .top)
+                                }
                             }
                         } else {
                             scrollState.pinToBottom(animated: true)
