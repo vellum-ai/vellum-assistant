@@ -14,6 +14,7 @@ struct ChatBubble: View, Equatable {
         lhs.message == rhs.message
             && lhs.decidedConfirmation == rhs.decidedConfirmation
             && lhs.dismissedDocumentSurfaceIds == rhs.dismissedDocumentSurfaceIds
+            && (lhs.onForkFromMessage != nil) == (rhs.onForkFromMessage != nil)
             && lhs.showInspectButton == rhs.showInspectButton
             && lhs.mediaEmbedSettings == rhs.mediaEmbedSettings
             && lhs.activeConfirmationRequestId == rhs.activeConfirmationRequestId
