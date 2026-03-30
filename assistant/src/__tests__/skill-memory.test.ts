@@ -427,6 +427,40 @@ describe("seedCatalogSkillMemories", () => {
     expect(afterItems[0].status).toBe("deleted");
   });
 
+  test("does not prune non-skill capability memories", async () => {
+    // Pre-insert a non-skill capability memory directly into the DB
+    const db = getDb();
+    const now = Date.now();
+    db.insert(memoryItems)
+      .values({
+        id: "cli-doctor-item",
+        kind: "capability",
+        subject: "cli:doctor",
+        statement: "The doctor command diagnoses issues.",
+        status: "active",
+        confidence: 1.0,
+        importance: 0.7,
+        fingerprint: "cli-doctor-fp",
+        sourceType: "extraction",
+        scopeId: "default",
+        firstSeenAt: now,
+        lastSeenAt: now,
+      })
+      .run();
+
+    // Seed with empty catalog — skill pruner runs but should skip cli:* items
+    mockResolveCatalog = async () => [];
+    await seedCatalogSkillMemories();
+
+    const item = db
+      .select()
+      .from(memoryItems)
+      .where(eq(memoryItems.subject, "cli:doctor"))
+      .get();
+    expect(item).toBeDefined();
+    expect(item!.status).toBe("active");
+  });
+
   test("does not throw when resolveCatalog rejects", async () => {
     mockResolveCatalog = async () => {
       throw new Error("Network failure");
