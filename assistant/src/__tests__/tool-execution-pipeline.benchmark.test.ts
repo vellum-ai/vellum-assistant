@@ -21,7 +21,6 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "tool-pipeline-bench-"));
-process.env.VELLUM_HOME = testDir;
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // Local registry for ToolExecutor tests — the mock delegates to this map
@@ -183,7 +182,6 @@ describe("Tool execution pipeline benchmark", () => {
   });
 
   afterAll(() => {
-    delete process.env.VELLUM_HOME;
     delete process.env.VELLUM_WORKSPACE_DIR;
     try {
       rmSync(testDir, { recursive: true });

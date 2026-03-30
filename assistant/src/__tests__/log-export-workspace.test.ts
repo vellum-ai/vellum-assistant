@@ -28,7 +28,6 @@ import { afterAll, describe, expect, mock, test } from "bun:test";
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "log-export-workspace-test-")),
 );
-process.env.VELLUM_HOME = testDir;
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 const testWorkspaceDir = testDir;
 mkdirSync(testWorkspaceDir, { recursive: true });
@@ -51,7 +50,6 @@ import { logExportRouteDefinitions } from "../runtime/routes/log-export-routes.j
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
   delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
   try {

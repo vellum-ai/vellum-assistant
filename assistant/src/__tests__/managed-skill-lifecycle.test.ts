@@ -81,13 +81,11 @@ function makeContext(): ToolContext {
 
 beforeEach(() => {
   TEST_DIR = mkdtempSync(join(tmpdir(), "lifecycle-test-"));
-  process.env.VELLUM_HOME = TEST_DIR;
   process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
   mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
 });
 
 afterEach(() => {
-  delete process.env.VELLUM_HOME;
   delete process.env.VELLUM_WORKSPACE_DIR;
   rmSync(TEST_DIR, { recursive: true, force: true });
 });

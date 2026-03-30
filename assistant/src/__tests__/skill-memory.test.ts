@@ -6,7 +6,6 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { eq } from "drizzle-orm";
 
 const testDir = mkdtempSync(join(tmpdir(), "skill-memory-"));
-process.env.VELLUM_HOME = testDir;
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
@@ -81,7 +80,6 @@ ensureDataDir();
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
   delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
   try {
@@ -338,7 +336,6 @@ describe("deleteSkillCapabilityMemory", () => {
 
 describe("seedCatalogSkillMemories", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
     process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     // Reset mocks to defaults

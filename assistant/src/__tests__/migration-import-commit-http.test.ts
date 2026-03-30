@@ -48,7 +48,6 @@ function toArrayBuffer(data: Uint8Array): ArrayBuffer {
 const testDir = realpathSync(
   mkdtempSync(join(tmpdir(), "migration-import-commit-http-test-")),
 );
-process.env.VELLUM_HOME = testDir;
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 const testDbDir = join(testDir, "data", "db");
 const testDbPath = join(testDbDir, "assistant.db");
@@ -108,7 +107,6 @@ beforeAll(() => {
 });
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
   delete process.env.VELLUM_WORKSPACE_DIR;
   try {
     rmSync(testDir, { recursive: true });
@@ -120,7 +118,6 @@ afterAll(() => {
 // Restore test files before each test so mutations from previous tests
 // do not leak across test cases.
 beforeEach(() => {
-  process.env.VELLUM_HOME = testDir;
   process.env.VELLUM_WORKSPACE_DIR = testDir;
   mkdirSync(testDbDir, { recursive: true });
   writeFileSync(testDbPath, EXISTING_DB_DATA);

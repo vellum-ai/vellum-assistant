@@ -11,7 +11,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 // Mock platform to use a temp directory
 const TEST_DIR = join(tmpdir(), `vellum-sysprompt-test-${crypto.randomUUID()}`);
-process.env.VELLUM_HOME = TEST_DIR;
 process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
 
 import { mock } from "bun:test";
@@ -112,13 +111,11 @@ function basePrompt(result: string): string {
 
 describe("buildSystemPrompt", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
     process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(TEST_DIR, { recursive: true });
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_HOME;
     delete process.env.VELLUM_WORKSPACE_DIR;
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true });
@@ -464,7 +461,6 @@ describe("stripCommentLines", () => {
 
 describe("ensurePromptFiles", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
     process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(TEST_DIR, { recursive: true });
   });

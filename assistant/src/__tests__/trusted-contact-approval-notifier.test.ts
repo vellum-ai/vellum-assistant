@@ -15,7 +15,6 @@ import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "tc-approval-notifier-test-"));
-process.env.VELLUM_HOME = testDir;
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // ── Platform mock ──
@@ -235,7 +234,6 @@ async function simulateNotifierPoll(params: {
 
 describe("trusted-contact pending-approval notifier", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
     process.env.VELLUM_WORKSPACE_DIR = testDir;
     deliveredReplies.length = 0;
     deliverShouldFail = false;
@@ -244,7 +242,6 @@ describe("trusted-contact pending-approval notifier", () => {
   });
 
   afterAll(() => {
-    delete process.env.VELLUM_HOME;
     delete process.env.VELLUM_WORKSPACE_DIR;
     try {
       rmSync(testDir, { recursive: true });

@@ -11,7 +11,6 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Create a temp directory for the trust file
 const testDir = mkdtempSync(join(tmpdir(), "trust-store-test-"));
-process.env.VELLUM_HOME = testDir;
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // Point the file-based trust backend at the test temp dir so

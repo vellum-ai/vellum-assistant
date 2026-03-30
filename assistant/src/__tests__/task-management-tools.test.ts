@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "task-mgmt-test-"));
-process.env.VELLUM_HOME = testDir;
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
@@ -66,7 +65,6 @@ import {
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
   delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
   try {

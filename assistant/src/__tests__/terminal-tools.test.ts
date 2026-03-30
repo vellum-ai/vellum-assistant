@@ -17,7 +17,6 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const testTmpDir = mkdtempSync(join(tmpdir(), "terminal-test-"));
-process.env.VELLUM_HOME = testTmpDir;
 process.env.VELLUM_WORKSPACE_DIR = testTmpDir;
 
 mock.module("../config/loader.js", () => ({
@@ -383,7 +382,6 @@ describe("buildSanitizedEnv", () => {
   const originalEnv = { ...process.env };
 
   afterEach(() => {
-    delete process.env.VELLUM_HOME;
     delete process.env.VELLUM_WORKSPACE_DIR;
     // Restore env
     for (const key of Object.keys(process.env)) {
@@ -527,7 +525,6 @@ describe("Native sandbox backend", () => {
   let NativeBackend: new () => SandboxBackend;
 
   beforeEach(async () => {
-    process.env.VELLUM_HOME = testTmpDir;
     process.env.VELLUM_WORKSPACE_DIR = testTmpDir;
     const mod = await import("../tools/terminal/backends/native.js");
     NativeBackend = mod.NativeBackend;
@@ -573,7 +570,6 @@ describe("Shell tool input validation", () => {
   let shellTool: Tool;
 
   beforeEach(async () => {
-    process.env.VELLUM_HOME = testTmpDir;
     process.env.VELLUM_WORKSPACE_DIR = testTmpDir;
     const mod = await import("../tools/terminal/shell.js");
     shellTool = mod.shellTool;
@@ -679,7 +675,6 @@ describe("formatShellOutput", () => {
   ) => ShellOutputResult;
 
   beforeEach(async () => {
-    process.env.VELLUM_HOME = testTmpDir;
     process.env.VELLUM_WORKSPACE_DIR = testTmpDir;
     const mod = await import("../tools/shared/shell-output.js");
     formatShellOutput = mod.formatShellOutput;

@@ -16,7 +16,6 @@ import { eq } from "drizzle-orm";
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 
 const testDir = mkdtempSync(join(tmpdir(), "task-memory-cleanup-"));
-process.env.VELLUM_HOME = testDir;
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
@@ -82,7 +81,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
   });
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
     process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM memory_item_sources");
@@ -97,7 +95,6 @@ describe("invalidateAssistantInferredItemsForConversation", () => {
   });
 
   afterAll(() => {
-    delete process.env.VELLUM_HOME;
     delete process.env.VELLUM_WORKSPACE_DIR;
     resetDb();
     try {

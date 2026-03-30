@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "task-runner-test-"));
-process.env.VELLUM_HOME = testDir;
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
@@ -22,7 +21,6 @@ import { createTask } from "../tasks/task-store.js";
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
   delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
   try {
@@ -80,7 +78,6 @@ describe("renderTemplate", () => {
 
 describe("runTask", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
     process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM task_runs");

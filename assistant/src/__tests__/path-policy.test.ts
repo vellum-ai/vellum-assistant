@@ -24,7 +24,6 @@ import {
 const CLASSIFIER_TEST_ROOT = realpathSync(
   mkdtempSync(join(tmpdir(), "path-classifier-")),
 );
-process.env.VELLUM_HOME = CLASSIFIER_TEST_ROOT;
 process.env.VELLUM_WORKSPACE_DIR = CLASSIFIER_TEST_ROOT;
 const MOCK_MANAGED_DIR = join(CLASSIFIER_TEST_ROOT, "skills");
 const MOCK_BUNDLED_DIR = join(CLASSIFIER_TEST_ROOT, "bundled-skills");
@@ -52,12 +51,10 @@ const {
 const testDirs: string[] = [];
 
 beforeEach(() => {
-  process.env.VELLUM_HOME = CLASSIFIER_TEST_ROOT;
   process.env.VELLUM_WORKSPACE_DIR = CLASSIFIER_TEST_ROOT;
 });
 
 afterEach(() => {
-  delete process.env.VELLUM_HOME;
   delete process.env.VELLUM_WORKSPACE_DIR;
   for (const dir of testDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });

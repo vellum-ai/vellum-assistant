@@ -13,7 +13,6 @@ const TEST_DIR = join(
   tmpdir(),
   `vellum-skill-load-flag-test-${crypto.randomUUID()}`,
 );
-process.env.VELLUM_HOME = TEST_DIR;
 process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
 
 let currentConfig: Record<string, unknown> = {};
@@ -80,7 +79,6 @@ async function executeSkillLoad(
 
 describe("skill_load feature flag enforcement", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
     process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
     currentConfig = {};
@@ -88,7 +86,6 @@ describe("skill_load feature flag enforcement", () => {
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_HOME;
     delete process.env.VELLUM_WORKSPACE_DIR;
     _setOverridesForTesting({});
     if (existsSync(TEST_DIR)) {

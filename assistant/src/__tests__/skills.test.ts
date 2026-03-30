@@ -11,7 +11,6 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const TEST_DIR = join(tmpdir(), `vellum-skills-test-${crypto.randomUUID()}`);
-process.env.VELLUM_HOME = TEST_DIR;
 process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
 
 const noopLogger = {
@@ -59,13 +58,11 @@ function writeSkill(
 
 describe("skills catalog loading", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
     process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_HOME;
     delete process.env.VELLUM_WORKSPACE_DIR;
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true });
@@ -192,7 +189,6 @@ describe("workspace skills", () => {
   }
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
     process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
     mkdirSync(workspaceSkillsDir, { recursive: true });
@@ -256,7 +252,6 @@ describe("workspace skills", () => {
 
 describe("tool manifest detection", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
     process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });
@@ -431,7 +426,6 @@ describe("tool manifest detection", () => {
 
 describe("includes frontmatter parsing", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
     process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });
@@ -531,7 +525,6 @@ describe("includes frontmatter parsing", () => {
 
 describe("bundled browser skill", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
     process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });
@@ -659,7 +652,6 @@ describe("ingress-dependent setup skills declare public-ingress intentionally", 
 
 describe("bundled computer-use skill", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
     process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
   });

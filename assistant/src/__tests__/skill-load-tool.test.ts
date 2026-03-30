@@ -13,7 +13,6 @@ const TEST_DIR = join(
   tmpdir(),
   `vellum-skill-load-tool-test-${crypto.randomUUID()}`,
 );
-process.env.VELLUM_HOME = TEST_DIR;
 process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
 
 // Build a mock that covers every export from platform.ts — any function not
@@ -113,7 +112,6 @@ async function executeSkillLoad(
 
 describe("skill_load tool", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
     process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
     mockAutoInstall.mockReset();
@@ -123,7 +121,6 @@ describe("skill_load tool", () => {
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_HOME;
     delete process.env.VELLUM_WORKSPACE_DIR;
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true });

@@ -20,7 +20,6 @@ import {
 } from "bun:test";
 
 const testDataDir = "/tmp/qdrant-manager-test-" + process.pid;
-process.env.VELLUM_HOME = testDataDir;
 process.env.VELLUM_WORKSPACE_DIR = testDataDir;
 
 mock.module("../util/logger.js", () => ({
@@ -59,7 +58,6 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  process.env.VELLUM_HOME = testDataDir;
   process.env.VELLUM_WORKSPACE_DIR = testDataDir;
   // Clear content files but preserve the directory structure
   for (const entry of readdirSync(qdrantDir)) {
@@ -76,7 +74,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete process.env.VELLUM_HOME;
   delete process.env.VELLUM_WORKSPACE_DIR;
   delete process.env.QDRANT_URL;
 });

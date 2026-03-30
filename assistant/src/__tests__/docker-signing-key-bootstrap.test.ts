@@ -23,7 +23,6 @@ import {
 } from "bun:test";
 
 const testDir = realpathSync(mkdtempSync(join(tmpdir(), "signing-key-test-")));
-process.env.VELLUM_HOME = testDir;
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // Mock homedir() so the hardcoded LEGACY_SIGNING_KEY_PATH resolves inside
@@ -47,7 +46,6 @@ const VALID_HEX_KEY = "ab".repeat(32); // 64 hex chars = 32 bytes
 const savedEnv: Record<string, string | undefined> = {};
 
 beforeEach(() => {
-  process.env.VELLUM_HOME = testDir;
   process.env.VELLUM_WORKSPACE_DIR = testDir;
   savedEnv.ACTOR_TOKEN_SIGNING_KEY = process.env.ACTOR_TOKEN_SIGNING_KEY;
   // Clean up key files from previous tests so they don't leak between cases.
@@ -57,7 +55,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete process.env.VELLUM_HOME;
   delete process.env.VELLUM_WORKSPACE_DIR;
   if (savedEnv.ACTOR_TOKEN_SIGNING_KEY === undefined) {
     delete process.env.ACTOR_TOKEN_SIGNING_KEY;

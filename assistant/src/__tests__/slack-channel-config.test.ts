@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "slack-channel-cfg-test-"));
-process.env.VELLUM_HOME = testDir;
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 const secureStorePath = join(testDir, "keys.enc");
 const metadataPath = join(testDir, "metadata.json");
@@ -162,7 +161,6 @@ import {
 } from "../tools/credentials/metadata-store.js";
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
   delete process.env.VELLUM_WORKSPACE_DIR;
   globalThis.fetch = originalFetch;
   _setMetadataPath(null);
@@ -182,7 +180,6 @@ afterAll(() => {
 
 describe("Slack channel config handler", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
     process.env.VELLUM_WORKSPACE_DIR = testDir;
     oauthConnectionStore = {};
     configStore = {};

@@ -30,7 +30,6 @@ import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 const TEST_DIR = mkdtempSync(
   join(tmpdir(), "vellum-skill-load-inline-includes-test-"),
 );
-process.env.VELLUM_HOME = TEST_DIR;
 process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
 
 // ── Mocks (must be declared before any imports from the project) ─────────────
@@ -161,7 +160,6 @@ async function executeSkillLoad(
 
 describe("skill_load inline command expansion for included skills", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
     process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
     runInlineCommandCalls.length = 0;
@@ -194,7 +192,6 @@ describe("skill_load inline command expansion for included skills", () => {
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_HOME;
     delete process.env.VELLUM_WORKSPACE_DIR;
     if (existsSync(TEST_DIR)) {
       rmSync(TEST_DIR, { recursive: true, force: true });

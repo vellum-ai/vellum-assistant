@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "tool-approval-handler-test-"));
-process.env.VELLUM_HOME = testDir;
 process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
@@ -62,7 +61,6 @@ function clearTables(): void {
 }
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
   delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
   try {
@@ -110,7 +108,6 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
   };
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
     process.env.VELLUM_WORKSPACE_DIR = testDir;
     clearTables();
     events.length = 0;
