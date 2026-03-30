@@ -67,8 +67,8 @@ import {
   DEFAULT_MEMORY_POLICY,
 } from "./conversation.js";
 import { ConversationEvictor } from "./conversation-evictor.js";
-import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import { formatCompactResult } from "./conversation-process.js";
+import { resolveChannelCapabilities } from "./conversation-runtime-assembly.js";
 import { resolveSlash, type SlashContext } from "./conversation-slash.js";
 import { undoLastMessage } from "./handlers/conversations.js";
 import { parseIdentityFields } from "./handlers/identity.js";
