@@ -35,7 +35,7 @@ export interface OutlookMessage {
   subject: string;
   bodyPreview: string;
   body: OutlookItemBody;
-  from: OutlookRecipient;
+  from?: OutlookRecipient;
   toRecipients: OutlookRecipient[];
   ccRecipients: OutlookRecipient[];
   receivedDateTime: string; // ISO 8601
