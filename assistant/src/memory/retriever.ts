@@ -18,6 +18,7 @@ import {
   logMemoryEmbeddingWarning,
 } from "./embedding-backend.js";
 import { isQdrantBreakerOpen } from "./qdrant-circuit-breaker.js";
+import { expandQueryWithHyDE } from "./query-expansion.js";
 import {
   conversations,
   memoryItems,
@@ -231,6 +232,124 @@ async function generateQueryEmbedding(
   return { queryVector, provider, model, degraded, degradation, reason };
 }
 
+/** Result from HyDE-expanded search. */
+interface HyDESearchResult {
+  candidates: Candidate[];
+  hydeExpanded: boolean;
+  hydeDocCount: number;
+}
+
+/**
+ * Run HyDE-expanded search: generate hypothetical documents, embed them
+ * alongside the raw query in parallel, run parallel semantic searches,
+ * and merge all candidate arrays.
+ *
+ * Falls back to raw-query-only search on any HyDE failure (expansion
+ * error, embedding error for hypothetical docs). The raw query search
+ * always runs regardless of HyDE success.
+ */
+async function runHyDESearch(
+  query: string,
+  rawQueryVector: number[],
+  config: AssistantConfig,
+  signal: AbortSignal | undefined,
+  provider: string,
+  model: string,
+  limit: number,
+  excludeMessageIds: string[],
+  scopeIds: string[] | undefined,
+  sparseVector: { indices: number[]; values: number[] } | undefined,
+): Promise<HyDESearchResult> {
+  // Always search with the raw query — this is our baseline
+  const rawSearchPromise = semanticSearch(
+    rawQueryVector,
+    provider,
+    model,
+    limit,
+    excludeMessageIds,
+    scopeIds,
+    sparseVector,
+  );
+
+  // Attempt HyDE expansion — returns [] on any failure
+  let hypotheticalDocs: string[];
+  try {
+    hypotheticalDocs = await expandQueryWithHyDE(query, config, signal);
+  } catch {
+    // expandQueryWithHyDE already catches internally, but be defensive
+    hypotheticalDocs = [];
+  }
+
+  if (hypotheticalDocs.length === 0) {
+    // No hypothetical docs — fall back to raw query only
+    const rawResults = await rawSearchPromise;
+    return {
+      candidates: rawResults,
+      hydeExpanded: false,
+      hydeDocCount: 0,
+    };
+  }
+
+  log.debug(
+    { hydeDocCount: hypotheticalDocs.length },
+    "HyDE expansion produced hypothetical documents",
+  );
+
+  // Embed all hypothetical docs in parallel with the raw search
+  let hydeVectors: number[][] = [];
+  try {
+    const hydeEmbedResult = await embedWithRetry(config, hypotheticalDocs, {
+      signal,
+    });
+    hydeVectors = hydeEmbedResult.vectors;
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "Failed to embed HyDE hypothetical docs; falling back to raw query",
+    );
+    const rawResults = await rawSearchPromise;
+    return {
+      candidates: rawResults,
+      hydeExpanded: false,
+      hydeDocCount: 0,
+    };
+  }
+
+  // Run parallel semantic searches for each hypothetical doc embedding
+  const hydeSearchPromises = hydeVectors.map((vector) =>
+    semanticSearch(
+      vector,
+      provider,
+      model,
+      limit,
+      excludeMessageIds,
+      scopeIds,
+      sparseVector,
+    ).catch((err) => {
+      log.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        "HyDE hypothetical doc search failed; skipping",
+      );
+      return [] as Candidate[];
+    }),
+  );
+
+  // Await all searches in parallel (raw + hypothetical)
+  const [rawResults, ...hydeResults] = await Promise.all([
+    rawSearchPromise,
+    ...hydeSearchPromises,
+  ]);
+
+  // Merge all candidate arrays into a single flat array
+  const allCandidates = [rawResults, ...hydeResults].flat();
+
+  return {
+    candidates: allCandidates,
+    hydeExpanded: true,
+    hydeDocCount: hypotheticalDocs.length,
+  };
+}
+
 /**
  * Memory recall pipeline: hybrid search → score filtering →
  * staleness annotation → unified XML injection.
@@ -301,21 +420,44 @@ export async function buildMemoryRecall(
   let hybridCandidates: Candidate[] = [];
   let semanticSearchFailed = false;
   let sparseVectorUsed = false;
+  let hydeExpanded = false;
+  let hydeDocCount = 0;
   const hybridSearchStart = Date.now();
 
   const qdrantBreakerOpen = isQdrantBreakerOpen();
   if (queryVector && !qdrantBreakerOpen) {
     try {
-      hybridCandidates = await semanticSearch(
-        queryVector,
-        provider ?? "unknown",
-        model ?? "unknown",
-        HYBRID_LIMIT,
-        excludeMessageIds,
-        scopeIds,
-        sparseVectorAvailable ? sparseVector : undefined,
-      );
-      sparseVectorUsed = sparseVectorAvailable;
+      if (options?.hydeEnabled) {
+        // ── HyDE path: expand query into hypothetical docs and search in parallel ──
+        const hydeCandidates = await runHyDESearch(
+          query,
+          queryVector,
+          config,
+          signal,
+          provider ?? "unknown",
+          model ?? "unknown",
+          HYBRID_LIMIT,
+          excludeMessageIds,
+          scopeIds,
+          sparseVectorAvailable ? sparseVector : undefined,
+        );
+        hybridCandidates = hydeCandidates.candidates;
+        hydeExpanded = hydeCandidates.hydeExpanded;
+        hydeDocCount = hydeCandidates.hydeDocCount;
+        sparseVectorUsed = sparseVectorAvailable;
+      } else {
+        // ── Standard path: single raw query search ──
+        hybridCandidates = await semanticSearch(
+          queryVector,
+          provider ?? "unknown",
+          model ?? "unknown",
+          HYBRID_LIMIT,
+          excludeMessageIds,
+          scopeIds,
+          sparseVectorAvailable ? sparseVector : undefined,
+        );
+        sparseVectorUsed = sparseVectorAvailable;
+      }
     } catch (err) {
       semanticSearchFailed = true;
       if (isQdrantConnectionError(err)) {
@@ -574,6 +716,7 @@ export async function buildMemoryRecall(
       maxInjectTokens,
       injectedTokens: estimateTextTokens(injectedText),
       latencyMs,
+      ...(hydeExpanded ? { hydeExpanded, hydeDocCount } : {}),
     },
     "Memory recall completed",
   );
@@ -596,6 +739,8 @@ export async function buildMemoryRecall(
     tier2Count: 0,
     hybridSearchMs,
     sparseVectorUsed,
+    hydeExpanded,
+    hydeDocCount,
   };
 
   return result;
