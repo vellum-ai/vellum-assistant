@@ -1,4 +1,5 @@
 import { z } from "zod";
+
 import { SpeedSchema } from "./inference.js";
 
 export const HeartbeatConfigSchema = z
