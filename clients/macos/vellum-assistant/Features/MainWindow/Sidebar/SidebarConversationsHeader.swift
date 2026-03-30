@@ -22,19 +22,21 @@ struct SidebarConversationsHeader: View {
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(VColor.contentDefault)
             Spacer()
-            if hasUnseenConversations {
-                VButton(
-                    label: "Mark all as seen",
-                    iconOnly: VIcon.circleCheck.rawValue,
-                    style: .ghost,
-                    tooltip: "Mark all as seen",
-                    action: onMarkAllSeen
-                )
-                .disabled(isLoading)
+            HStack(spacing: VSpacing.xs) {
+                if hasUnseenConversations {
+                    VButton(
+                        label: "Mark all as seen",
+                        iconOnly: VIcon.circleCheck.rawValue,
+                        style: .ghost,
+                        tooltip: "Mark all as seen",
+                        action: onMarkAllSeen
+                    )
+                    .disabled(isLoading)
+                }
+                VButton(label: "New conversation", iconOnly: VIcon.squarePen.rawValue, style: .ghost, tooltip: newChatTooltip, action: onNewConversation)
+                    .disabled(isLoading)
+                    .opacity(isLoading ? 0.4 : 1)
             }
-            VButton(label: "New conversation", iconOnly: VIcon.squarePen.rawValue, style: .ghost, tooltip: newChatTooltip, action: onNewConversation)
-                .disabled(isLoading)
-                .opacity(isLoading ? 0.4 : 1)
         }
         .padding(.leading, 0)
         .padding(.trailing, 0)
