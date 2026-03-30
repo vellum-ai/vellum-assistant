@@ -247,6 +247,7 @@ struct UsageDashboardPanel: View {
     private static let shortHourFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "ha"
+        f.locale = Locale(identifier: "en_US_POSIX")
         f.timeZone = TimeZone(identifier: "UTC")!
         return f
     }()

@@ -117,7 +117,14 @@ export function usageRouteDefinitions(): RouteDefinition[] {
       handler: ({ url }) => {
         const range = parseTimeRange(url);
         if (range instanceof Response) return range;
-        const granularity = url.searchParams.get("granularity");
+        const granularity = url.searchParams.get("granularity") ?? "daily";
+        if (granularity !== "daily" && granularity !== "hourly") {
+          return httpError(
+            "BAD_REQUEST",
+            `Invalid "granularity" value: "${granularity}". Must be one of: daily, hourly`,
+            400,
+          );
+        }
         const buckets =
           granularity === "hourly"
             ? getUsageHourBuckets(range)
