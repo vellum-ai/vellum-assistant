@@ -114,7 +114,30 @@ export async function wake(): Promise<void> {
   // daemon/gateway restarts. Generate and persist a new one only on first wake.
   let signingKey = resources.signingKey;
   if (!signingKey) {
-    signingKey = generateLocalSigningKey();
+    // Migration: users upgrading from pre-v0.5.14 never had signingKey in the
+    // lockfile. The gateway persisted its own key to disk at
+    // <instanceDir>/.vellum/protected/actor-token-signing-key. Read it so
+    // existing client actor tokens remain valid after the upgrade.
+    const legacyKeyPath = join(
+      resources.instanceDir,
+      ".vellum",
+      "protected",
+      "actor-token-signing-key",
+    );
+    if (existsSync(legacyKeyPath)) {
+      try {
+        const raw = readFileSync(legacyKeyPath);
+        if (raw.length === 32) {
+          signingKey = raw.toString("hex");
+          console.log("Migrated signing key from gateway disk to lockfile.");
+        }
+      } catch {
+        // Fall through to generate a new key.
+      }
+    }
+    if (!signingKey) {
+      signingKey = generateLocalSigningKey();
+    }
     entry.resources = { ...resources, signingKey };
     saveAssistantEntry(entry);
   }
