@@ -6759,7 +6759,7 @@ paths:
                   buckets:
                     type: array
                     items: {}
-                    description: Daily usage bucket objects
+                    description: Usage bucket objects
                 required:
                   - buckets
                 additionalProperties: false
@@ -6776,6 +6776,15 @@ paths:
           schema:
             type: integer
           description: End epoch millis (required)
+        - name: granularity
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - daily
+              - hourly
+          description: 'Bucket granularity: "daily" (default) or "hourly"'
   /v1/usage/totals:
     get:
       operationId: usage_totals_get
