@@ -4,6 +4,7 @@ import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { readTextFileSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
+import { stripCommentLines } from "../util/strip-comment-lines.js";
 
 const log = getLogger("heartbeat-check");
 
