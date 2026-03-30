@@ -171,6 +171,44 @@ final class MessageListScrollStateTests: XCTestCase {
         XCTAssertFalse(state.isFollowingBottom)
     }
 
+    func testOverlappingStabilizationWaitsForAllWindows() {
+        state.transition(to: .followingBottom)
+
+        // Window 1: resize
+        state.beginStabilization(.resize)
+        XCTAssertTrue(state.isSuppressed)
+
+        // Window 2: expansion (overlapping)
+        state.beginStabilization(.expansion)
+        XCTAssertTrue(state.isSuppressed)
+
+        // Window 1 completes — should still be stabilizing
+        state.endStabilization()
+        XCTAssertTrue(state.isSuppressed,
+                      "Should remain stabilizing while overlapping windows are active")
+
+        // Window 2 completes — now should exit
+        state.endStabilization()
+        XCTAssertFalse(state.isSuppressed,
+                       "Should exit stabilization after all windows complete")
+        XCTAssertTrue(state.isFollowingBottom,
+                      "Should restore followingBottom after overlapping stabilization")
+    }
+
+    func testOverlappingStabilizationPreservesOriginalMode() {
+        state.transition(to: .freeBrowsing)
+
+        state.beginStabilization(.resize)
+        state.beginStabilization(.pagination)
+        state.endStabilization()
+        XCTAssertTrue(state.isSuppressed)
+
+        state.endStabilization()
+        XCTAssertFalse(state.isSuppressed)
+        XCTAssertFalse(state.isFollowingBottom,
+                       "Should restore freeBrowsing (original mode before any stabilization)")
+    }
+
     // MARK: - Stabilization: Expansion 200ms Auto-Clear
 
     func testExpansionAutoClears() async throws {

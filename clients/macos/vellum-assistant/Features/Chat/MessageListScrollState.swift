@@ -349,6 +349,11 @@ final class MessageListScrollState {
     /// Task for resize stabilization — auto-ends after 100ms.
     @ObservationIgnored private var resizeStabilizationTask: Task<Void, Never>?
 
+    /// Tracks overlapping stabilization windows. Stabilization only ends
+    /// when all active windows have completed, matching the old
+    /// SuppressionReasons OptionSet behavior.
+    @ObservationIgnored private var activeStabilizationCount = 0
+
     // MARK: - Deep-Link Anchor Tracking
 
     @ObservationIgnored var anchorSetTime: Date?
@@ -397,7 +402,7 @@ final class MessageListScrollState {
     }
 
     /// Enters stabilizing mode, remembering the previous mode to restore
-    /// after the stabilization window ends.
+    /// after all stabilization windows have ended.
     func beginStabilization(_ reason: StabilizationReason) {
         let previousMode: StabilizedMode
         switch mode {
@@ -411,6 +416,7 @@ final class MessageListScrollState {
             return
         }
 
+        activeStabilizationCount += 1
         transition(to: .stabilizing(previousMode: previousMode, reason: reason))
 
         if reason == .expansion {
@@ -423,9 +429,12 @@ final class MessageListScrollState {
         }
     }
 
-    /// Ends stabilization and restores the previous mode.
+    /// Ends one stabilization window. Only restores the previous mode
+    /// when all overlapping windows have completed.
     func endStabilization() {
         guard case .stabilizing(let previousMode, _) = mode else { return }
+        activeStabilizationCount = max(0, activeStabilizationCount - 1)
+        guard activeStabilizationCount == 0 else { return }
         cancelStabilizationTasks()
         switch previousMode {
         case .followingBottom:
@@ -557,6 +566,7 @@ final class MessageListScrollState {
         lastKnownVisibleIdFingerprint = 0
         currentConversationId = newConversationId
         mode = .initialLoad
+        activeStabilizationCount = 0
         pendingPushToTopTarget = nil
         isAtBottom = true
         lastContentOffsetY = 0
@@ -599,6 +609,7 @@ final class MessageListScrollState {
         pendingPushToTopTarget = nil
         if _isPaginationInFlight { _isPaginationInFlight = false }
         mode = .initialLoad
+        activeStabilizationCount = 0
         cachedDerivedStateBox = nil
         lastPaginationCompletedAt = .distantPast
         syncUIImmediately()
