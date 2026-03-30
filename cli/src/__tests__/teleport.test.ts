@@ -130,9 +130,25 @@ mock.module("../lib/hatch-local.js", () => ({
 const hatchDockerMock = mock(async () => {});
 const retireDockerMock = mock(async () => {});
 
+const sleepContainersMock = mock(async () => {});
+const dockerResourceNamesMock = mock((name: string) => ({
+  assistantContainer: `${name}-assistant`,
+  gatewayContainer: `${name}-gateway`,
+  cesContainer: `${name}-ces`,
+  network: `${name}-net`,
+}));
+
 mock.module("../lib/docker.js", () => ({
   hatchDocker: hatchDockerMock,
   retireDocker: retireDockerMock,
+  sleepContainers: sleepContainersMock,
+  dockerResourceNames: dockerResourceNamesMock,
+}));
+
+const stopProcessByPidFileMock = mock(async () => true);
+
+mock.module("../lib/process.js", () => ({
+  stopProcessByPidFile: stopProcessByPidFileMock,
 }));
 
 const retireLocalMock = mock(async () => {});
@@ -249,6 +265,10 @@ beforeEach(() => {
   retireDockerMock.mockResolvedValue(undefined);
   retireLocalMock.mockReset();
   retireLocalMock.mockResolvedValue(undefined);
+  sleepContainersMock.mockReset();
+  sleepContainersMock.mockResolvedValue(undefined);
+  stopProcessByPidFileMock.mockReset();
+  stopProcessByPidFileMock.mockResolvedValue(true);
 
   // Mock process.exit to throw so we can catch it
   exitMock = mock((code?: number) => {
@@ -710,10 +730,17 @@ describe("resolveOrHatchTarget", () => {
 // ---------------------------------------------------------------------------
 
 describe("auto-retire", () => {
-  test("local -> docker: retireLocal called before hatch, removeAssistantEntry called", async () => {
+  test("local -> docker: stops source before hatch, retires after import", async () => {
     setArgv("--from", "my-local", "--docker");
 
-    const localEntry = makeEntry("my-local", { cloud: "local" });
+    const localEntry = makeEntry("my-local", {
+      cloud: "local",
+      resources: {
+        instanceDir: "/home/test",
+        pidFile: "/home/test/.vellum/assistant.pid",
+        signingKey: "key",
+      },
+    });
     const dockerEntry = makeEntry("new-docker", { cloud: "docker" });
 
     findAssistantByNameMock.mockImplementation((name: string) => {
@@ -734,6 +761,9 @@ describe("auto-retire", () => {
 
     try {
       await teleport();
+      // Source should be stopped (slept) before hatch
+      expect(stopProcessByPidFileMock).toHaveBeenCalled();
+      // Retire happens after successful import
       expect(retireLocalMock).toHaveBeenCalledWith("my-local", localEntry);
       expect(removeAssistantEntryMock).toHaveBeenCalledWith("my-local");
     } finally {
@@ -741,7 +771,7 @@ describe("auto-retire", () => {
     }
   });
 
-  test("docker -> local: retireDocker called before hatch, removeAssistantEntry called", async () => {
+  test("docker -> local: sleeps containers before hatch, retires after import", async () => {
     setArgv("--from", "my-docker", "--local");
 
     const dockerEntry = makeEntry("my-docker", { cloud: "docker" });
@@ -764,6 +794,9 @@ describe("auto-retire", () => {
 
     try {
       await teleport();
+      // Docker source should be slept (containers stopped) before hatch
+      expect(sleepContainersMock).toHaveBeenCalled();
+      // Retire happens after successful import
       expect(retireDockerMock).toHaveBeenCalledWith("my-docker");
       expect(removeAssistantEntryMock).toHaveBeenCalledWith("my-docker");
     } finally {

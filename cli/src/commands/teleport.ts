@@ -21,10 +21,17 @@ import {
   platformImportPreflight,
   platformImportBundle,
 } from "../lib/platform-client.js";
-import { hatchDocker, retireDocker } from "../lib/docker.js";
+import {
+  hatchDocker,
+  retireDocker,
+  sleepContainers,
+  dockerResourceNames,
+} from "../lib/docker.js";
 import { hatchLocal } from "../lib/hatch-local.js";
 import { retireLocal } from "../lib/retire-local.js";
 import { validateAssistantName } from "../lib/retire-archive.js";
+import { stopProcessByPidFile } from "../lib/process.js";
+import { join } from "node:path";
 
 function printHelp(): void {
   console.log(
@@ -1087,28 +1094,27 @@ export async function teleport(): Promise<void> {
   console.log(`Exporting from ${from} (${fromCloud})...`);
   const bundleData = await exportFromAssistant(fromEntry, fromCloud);
 
-  // Auto-retire source BEFORE hatching target to free up ports.
-  // For local<->docker transfers, both bind the same default ports (7830, etc.),
-  // so the source must be retired first to avoid "address already in use" errors.
+  // For local<->docker transfers, stop (sleep) the source to free up ports
+  // before hatching the target. We do NOT retire yet — if hatch or import
+  // fails, the user can recover by running `vellum wake <source>`.
   const sourceIsLocalOrDocker = fromCloud === "local" || fromCloud === "docker";
   const targetIsLocalOrDocker = targetEnv === "local" || targetEnv === "docker";
-
-  if (sourceIsLocalOrDocker && targetIsLocalOrDocker) {
-    if (!keepSource) {
-      console.log(`Retiring source assistant '${from}'...`);
-      if (fromCloud === "docker") {
-        await retireDocker(fromEntry.assistantId);
-      } else {
-        await retireLocal(fromEntry.assistantId, fromEntry);
-      }
-      removeAssistantEntry(fromEntry.assistantId);
-      console.log(`Source assistant '${from}' retired.`);
-    } else {
-      console.log(`Source assistant '${from}' kept (--keep-source).`);
+  if (sourceIsLocalOrDocker && targetIsLocalOrDocker && !keepSource) {
+    console.log(`Stopping source assistant '${from}' to free ports...`);
+    if (fromCloud === "docker") {
+      const res = dockerResourceNames(fromEntry.assistantId);
+      await sleepContainers(res);
+    } else if (fromEntry.resources) {
+      const pidFile = fromEntry.resources.pidFile;
+      const vellumDir = join(fromEntry.resources.instanceDir, ".vellum");
+      const gatewayPidFile = join(vellumDir, "gateway.pid");
+      await stopProcessByPidFile(pidFile, "assistant");
+      await stopProcessByPidFile(gatewayPidFile, "gateway", undefined, 7000);
     }
+    console.log(`Source assistant '${from}' stopped.`);
   }
 
-  // Resolve or hatch target (after source is retired to avoid port conflicts)
+  // Resolve or hatch target (after source is stopped to avoid port conflicts)
   const toEntry = await resolveOrHatchTarget(targetEnv, targetName);
   const toCloud = resolveCloud(toEntry);
 
@@ -1126,6 +1132,22 @@ export async function teleport(): Promise<void> {
   // Import to target
   console.log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
   await importToAssistant(toEntry, toCloud, bundleData, false);
+
+  // Retire source after successful import
+  if (sourceIsLocalOrDocker && targetIsLocalOrDocker) {
+    if (!keepSource) {
+      console.log(`Retiring source assistant '${from}'...`);
+      if (fromCloud === "docker") {
+        await retireDocker(fromEntry.assistantId);
+      } else {
+        await retireLocal(fromEntry.assistantId, fromEntry);
+      }
+      removeAssistantEntry(fromEntry.assistantId);
+      console.log(`Source assistant '${from}' retired.`);
+    } else {
+      console.log(`Source assistant '${from}' kept (--keep-source).`);
+    }
+  }
 
   // Success summary
   console.log(`Teleport complete: ${from} → ${toEntry.assistantId}`);
