@@ -796,7 +796,7 @@ final class SegmentCacheEntry: NSObject {
 
 /// Applies `.textSelection(.enabled)` only when active, to avoid creating
 /// SelectionOverlay backing views during streaming.
-private struct ConditionalTextSelection: ViewModifier {
+struct ConditionalTextSelection: ViewModifier {
     let isEnabled: Bool
 
     func body(content: Content) -> some View {
