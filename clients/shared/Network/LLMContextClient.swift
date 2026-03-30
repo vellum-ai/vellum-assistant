@@ -25,6 +25,7 @@ public struct LLMCallSummary: Codable, Sendable, Equatable {
     public let responsePreview: String?
     public let toolCallNames: [String]?
     public let durationMs: Int?
+    public let estimatedCostUsd: Double?
 
     public init(
         title: String? = nil,
@@ -44,7 +45,8 @@ public struct LLMCallSummary: Codable, Sendable, Equatable {
         responseToolCallCount: Int? = nil,
         responsePreview: String? = nil,
         toolCallNames: [String]? = nil,
-        durationMs: Int? = nil
+        durationMs: Int? = nil,
+        estimatedCostUsd: Double? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -64,6 +66,7 @@ public struct LLMCallSummary: Codable, Sendable, Equatable {
         self.responsePreview = responsePreview
         self.toolCallNames = toolCallNames
         self.durationMs = durationMs
+        self.estimatedCostUsd = estimatedCostUsd
     }
 
     /// String form of the normalized summary when the payload uses text.
