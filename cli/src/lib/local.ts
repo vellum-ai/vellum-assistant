@@ -474,107 +474,6 @@ function resolveGatewayDir(): string {
   }
 }
 
-function normalizeIngressUrl(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const normalized = value.trim().replace(/\/+$/, "");
-  return normalized || undefined;
-}
-
-// ── Workspace config helpers ──
-
-function getWorkspaceConfigPath(instanceDir?: string): string {
-  // When VELLUM_WORKSPACE_DIR is set, the gateway reads its config from
-  // join(VELLUM_WORKSPACE_DIR, "config.json"). The CLI must write to the
-  // same location so the gateway sees the settings at startup.
-  const workspaceDirOverride = process.env.VELLUM_WORKSPACE_DIR?.trim();
-  if (!instanceDir && workspaceDirOverride) {
-    return join(workspaceDirOverride, "config.json");
-  }
-  const baseDataDir =
-    instanceDir ??
-    (process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir()));
-  return join(baseDataDir, ".vellum", "workspace", "config.json");
-}
-
-function loadWorkspaceConfig(instanceDir?: string): Record<string, unknown> {
-  const configPath = getWorkspaceConfigPath(instanceDir);
-  try {
-    if (!existsSync(configPath)) return {};
-    return JSON.parse(readFileSync(configPath, "utf-8")) as Record<
-      string,
-      unknown
-    >;
-  } catch {
-    return {};
-  }
-}
-
-function saveWorkspaceConfig(
-  config: Record<string, unknown>,
-  instanceDir?: string,
-): void {
-  const configPath = getWorkspaceConfigPath(instanceDir);
-  const dir = dirname(configPath);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-}
-
-/**
- * Write gateway operational settings to the workspace config file so the
- * gateway reads them at startup via its config.ts readWorkspaceConfig().
- */
-function writeGatewayConfig(
-  instanceDir?: string,
-  opts?: {
-    runtimeProxyEnabled?: boolean;
-    runtimeProxyRequireAuth?: boolean;
-    unmappedPolicy?: "reject" | "default";
-    defaultAssistantId?: string;
-    routingEntries?: Array<{
-      type: "conversation_id" | "actor_id";
-      key: string;
-      assistantId: string;
-    }>;
-  },
-): void {
-  const config = loadWorkspaceConfig(instanceDir);
-  const gateway = (config.gateway ?? {}) as Record<string, unknown>;
-
-  if (opts?.runtimeProxyEnabled !== undefined) {
-    gateway.runtimeProxyEnabled = opts.runtimeProxyEnabled;
-  }
-  if (opts?.runtimeProxyRequireAuth !== undefined) {
-    gateway.runtimeProxyRequireAuth = opts.runtimeProxyRequireAuth;
-  }
-  if (opts?.unmappedPolicy !== undefined) {
-    gateway.unmappedPolicy = opts.unmappedPolicy;
-  }
-  if (opts?.defaultAssistantId !== undefined) {
-    gateway.defaultAssistantId = opts.defaultAssistantId;
-  }
-  if (opts?.routingEntries !== undefined) {
-    gateway.routingEntries = opts.routingEntries;
-  }
-
-  config.gateway = gateway;
-  saveWorkspaceConfig(config, instanceDir);
-}
-
-function readWorkspaceIngressPublicBaseUrl(
-  instanceDir?: string,
-): string | undefined {
-  const workspaceConfigPath = getWorkspaceConfigPath(instanceDir);
-  try {
-    const raw = JSON.parse(
-      readFileSync(workspaceConfigPath, "utf-8"),
-    ) as Record<string, unknown>;
-    const ingress = raw.ingress as Record<string, unknown> | undefined;
-    return normalizeIngressUrl(ingress?.publicBaseUrl);
-  } catch {
-    return undefined;
-  }
-}
-
 /**
  * Check if the daemon is responsive by hitting its HTTP `/healthz` endpoint.
  * This replaces the socket-based `isSocketResponsive()` check.
@@ -1131,19 +1030,16 @@ export async function startGateway(
   const effectiveDaemonPort =
     resources?.daemonPort ?? Number(process.env.RUNTIME_HTTP_PORT || "7821");
 
-  // Write gateway operational settings to workspace config before starting
-  // the gateway process. The gateway reads these at startup from config.json.
-  writeGatewayConfig(resources?.instanceDir, {
-    runtimeProxyEnabled: true,
-    runtimeProxyRequireAuth: true,
-    unmappedPolicy: "default",
-    defaultAssistantId: "self",
-  });
-
   const gatewayEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),
     RUNTIME_HTTP_PORT: String(effectiveDaemonPort),
     GATEWAY_PORT: String(effectiveGatewayPort),
+    // Pass gateway operational settings via env vars so the CLI does not
+    // need direct access to the workspace config file.
+    RUNTIME_PROXY_ENABLED: "true",
+    RUNTIME_PROXY_REQUIRE_AUTH: "true",
+    UNMAPPED_POLICY: "default",
+    DEFAULT_ASSISTANT_ID: "self",
     ...(options?.signingKey
       ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
       : {}),
@@ -1152,15 +1048,8 @@ export async function startGateway(
     // workspace config for this instance (mirrors the daemon env setup).
     ...(resources ? { BASE_DATA_DIR: resources.instanceDir } : {}),
   };
-  // The gateway reads the ingress URL from the workspace config file via
-  // ConfigFileCache — no env var passthrough needed. Log the resolved value
-  // for diagnostic visibility during startup.
-  const workspaceIngressPublicBaseUrl = readWorkspaceIngressPublicBaseUrl(
-    resources?.instanceDir,
-  );
-  const ingressPublicBaseUrl = workspaceIngressPublicBaseUrl ?? publicUrl;
-  if (ingressPublicBaseUrl) {
-    console.log(`   Ingress URL: ${ingressPublicBaseUrl}`);
+  if (publicUrl) {
+    console.log(`   Ingress URL: ${publicUrl}`);
   }
 
   let gateway;
