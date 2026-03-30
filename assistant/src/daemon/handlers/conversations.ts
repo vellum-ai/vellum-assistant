@@ -24,8 +24,8 @@ import {
   UNTITLED_FALLBACK,
 } from "../../memory/conversation-title-service.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
-import { getSubagentManager } from "../../subagent/index.js";
 import { redactSecrets } from "../../security/secret-scanner.js";
+import { getSubagentManager } from "../../subagent/index.js";
 import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { truncate } from "../../util/truncate.js";
 import type { Conversation } from "../conversation.js";
