@@ -126,6 +126,7 @@ export function recordUsage(
   cacheReadInputTokens = 0,
   rawResponse?: unknown,
   llmCallCount = 1,
+  contextWindow?: { tokens: number; maxTokens: number },
 ): void {
   if (inputTokens <= 0 && outputTokens <= 0) return;
 
@@ -180,6 +181,10 @@ export function recordUsage(
     totalOutputTokens: ctx.usageStats.outputTokens,
     estimatedCost,
     model,
+    ...(contextWindow && {
+      contextWindowTokens: contextWindow.tokens,
+      contextWindowMaxTokens: contextWindow.maxTokens,
+    }),
   });
 
   // Dual-write: persist per-turn usage event to the new ledger table
