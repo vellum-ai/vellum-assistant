@@ -23,6 +23,7 @@ import {
 import { hatchDocker, retireDocker } from "../lib/docker.js";
 import { hatchLocal } from "../lib/hatch-local.js";
 import { retireLocal } from "../lib/retire-local.js";
+import { validateAssistantName } from "../lib/retire-archive.js";
 
 function printHelp(): void {
   console.log(
@@ -747,8 +748,29 @@ export async function resolveOrHatchTarget(
   if (targetName) {
     const existing = findAssistantByName(targetName);
     if (existing) {
+      // Validate the existing assistant's cloud matches the requested env
+      const existingCloud = resolveCloud(existing);
+      const normalizedExisting =
+        existingCloud === "vellum" ? "platform" : existingCloud;
+      if (normalizedExisting !== targetEnv) {
+        console.error(
+          `Error: Assistant '${targetName}' is a ${normalizedExisting} assistant, not ${targetEnv}. ` +
+            `Use --${normalizedExisting} to target it.`,
+        );
+        process.exit(1);
+      }
       console.log(`Target: ${targetName} (${targetEnv})`);
       return existing;
+    }
+
+    // Name not found — will hatch. Validate the name first.
+    try {
+      validateAssistantName(targetName);
+    } catch {
+      console.error(
+        "Error: Target name contains invalid characters (path separators or traversal segments are not allowed).",
+      );
+      process.exit(1);
     }
   }
 
@@ -1016,9 +1038,16 @@ export async function teleport(): Promise<void> {
     const existingTarget = targetName ? findAssistantByName(targetName) : null;
 
     if (existingTarget) {
-      // Target exists — export and run preflight against it
+      // Target exists — validate cloud matches the flag, then run preflight
       const toCloud = resolveCloud(existingTarget);
       const normalizedTargetEnv = toCloud === "vellum" ? "platform" : toCloud;
+      if (normalizedTargetEnv !== targetEnv) {
+        console.error(
+          `Error: Assistant '${targetName}' is a ${normalizedTargetEnv} assistant, not ${targetEnv}. ` +
+            `Use --${normalizedTargetEnv} to target it.`,
+        );
+        process.exit(1);
+      }
       if (normalizedSourceEnv === normalizedTargetEnv) {
         console.error(
           `Cannot teleport between two ${normalizedTargetEnv} assistants. Teleport transfers data across different environments.`,
