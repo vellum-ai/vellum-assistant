@@ -688,7 +688,8 @@ export async function buildMemoryRecall(
     very_stale: diversified.filter((c) => c.staleness === "very_stale").length,
   };
 
-  const topCandidates: MemoryRecallCandiateDebug[] = diversified
+  const topCandidates: MemoryRecallCandiateDebug[] = [...diversified]
+    .sort((a, b) => b.finalScore - a.finalScore)
     .slice(0, 10)
     .map((c) => ({
       key: c.key,
