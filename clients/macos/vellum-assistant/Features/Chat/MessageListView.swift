@@ -739,11 +739,10 @@ struct MessageListView: View {
                         }
 
                     // Viewport-height spacer that allows the last message
-                    // to scroll to the top. Only rendered during push-to-top
-                    // to avoid empty scrollable space in idle state.
+                    // to scroll to the top during push-to-top.
                     if scrollState.showTailSpacer {
                         Color.clear
-                            .frame(height: scrollState.viewportHeight.isFinite ? max(0, scrollState.viewportHeight) : 0)
+                            .frame(height: scrollState.tailSpacerHeight)
                             .allowsHitTesting(false)
                             .accessibilityHidden(true)
                     }
@@ -759,7 +758,7 @@ struct MessageListView: View {
             .plainTextCopy()
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
-            .defaultScrollAnchor(.bottom)
+            .defaultScrollAnchor(.bottom, for: .initialOffset)
             .scrollPosition($scrollPosition)
             .environment(\.suppressAutoScroll, { [self] in
                 // Cancel any pending expansion timeout before re-evaluating.
@@ -781,6 +780,7 @@ struct MessageListView: View {
                     if oldPhase == .interacting || oldPhase == .decelerating,
                        scrollState.pushToTopMessageId != nil {
                         scrollState.pushToTopMessageId = nil
+                        scrollState.pendingPushToTopTarget = nil
                     }
                     scrollState.reattach()
                     scrollState.scrollRestoreTask?.cancel()
@@ -870,6 +870,7 @@ struct MessageListView: View {
                     let pinned = scrollState.pinToBottom(animated: true)
                     if pinned {
                         scrollState.pushToTopMessageId = nil
+                        scrollState.pendingPushToTopTarget = nil
                     }
                 }
 
@@ -990,11 +991,13 @@ struct MessageListView: View {
                         // response. Daemon confirmation resumes stay bottom-pinned.
                         if !isDaemonConfirmationResume, let lastUserMsg = messages.last(where: { $0.role == .user }) {
                             scrollState.pushToTopMessageId = lastUserMsg.id
+                            // Defer the actual scroll until the next
+                            // uiVersion change so the tail spacer is
+                            // rendered before scrollTo executes.
+                            scrollState.pendingPushToTopTarget = lastUserMsg.id
+                            scrollState.syncUIImmediately()
                             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                                         "target=userMessage reason=pushToTop")
-                            withAnimation(VAnimation.fast) {
-                                scrollState.performScrollTo(lastUserMsg.id, anchor: .top)
-                            }
                         } else {
                             scrollState.pinToBottom(animated: true)
                         }
@@ -1006,6 +1009,7 @@ struct MessageListView: View {
                     // sees the complete response.
                     let wasPushToTop = scrollState.pushToTopMessageId != nil
                     if wasPushToTop { scrollState.pushToTopMessageId = nil }
+                    scrollState.pendingPushToTopTarget = nil
                     if wasPushToTop && scrollState.isFollowingBottom {
                         scrollState.pinToBottom(animated: true)
                     }
@@ -1013,6 +1017,15 @@ struct MessageListView: View {
                     if !hasEverSentMessage && messages.contains(where: { $0.role == .user }) {
                         hasEverSentMessage = true
                     }
+                }
+            }
+            .onChange(of: scrollState.uiVersion) { _, _ in
+                // Consume any pending push-to-top target now that the
+                // body has re-evaluated with the tail spacer rendered.
+                guard let targetId = scrollState.pendingPushToTopTarget else { return }
+                scrollState.pendingPushToTopTarget = nil
+                withAnimation(VAnimation.fast) {
+                    scrollState.performScrollTo(targetId, anchor: .top)
                 }
             }
             .onChange(of: messages.count) {

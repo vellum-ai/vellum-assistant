@@ -324,6 +324,11 @@ final class MessageListScrollState {
     /// regardless of whether messages.count changes.
     @ObservationIgnored var anchorTimeoutTask: Task<Void, Never>?
 
+    /// The message ID awaiting a deferred scroll-to-top. Set when sending
+    /// begins and consumed after the next `uiVersion` bump, which guarantees
+    /// the tail spacer has rendered before the scroll executes.
+    @ObservationIgnored var pendingPushToTopTarget: UUID?
+
     // MARK: - Deep-Link Anchor Tracking
 
     /// Timestamp when anchorMessageId was set. Used together with pagination
@@ -409,6 +414,7 @@ final class MessageListScrollState {
         // Reset follow state for the new conversation.
         if !_isFollowingBottom { _isFollowingBottom = true }
         if _pushToTopMessageId != nil { _pushToTopMessageId = nil }
+        pendingPushToTopTarget = nil
         isAtBottom = true
         hasReceivedScrollEvent = false
         lastContentOffsetY = 0
@@ -453,6 +459,7 @@ final class MessageListScrollState {
         isThrottled = false
         bodyEvalTimestamps.removeAll()
         if _hideScrollIndicators { _hideScrollIndicators = false }
+        pendingPushToTopTarget = nil
         if _isPaginationInFlight { _isPaginationInFlight = false }
         syncUIImmediately()
     }
