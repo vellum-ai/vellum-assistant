@@ -11,9 +11,9 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Actor
 /// Alamofire's `AuthenticationInterceptor` and recommended in
 /// [Building a token refresh flow with async/await](https://www.donnywals.com/building-a-token-refresh-flow-with-async-await-and-swift-concurrency/).
 ///
-/// The request carries only the refresh token in the JSON body — no
-/// `Authorization` header — so an expired access token cannot cause a
-/// spurious rejection.
+/// The request includes the current access token (which may be expired)
+/// as a Bearer header — the gateway's refresh route validates signature
+/// and policy but relaxes the expiration check (`allowExpired: true`).
 public class ActorCredentialRefresher {
 
     public enum RefreshResult {
@@ -69,6 +69,14 @@ public class ActorCredentialRefresher {
             request.httpMethod = "POST"
             request.timeoutInterval = 15
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+            // The gateway requires a Bearer token on the refresh route, but
+            // validates it with `allowExpired: true` — so an expired JWT is
+            // accepted. Send whatever access token we currently have.
+            if let accessToken = ActorTokenManager.getToken(), !accessToken.isEmpty {
+                request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            }
+
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
             let (data, response) = try await URLSession.shared.data(for: request)
