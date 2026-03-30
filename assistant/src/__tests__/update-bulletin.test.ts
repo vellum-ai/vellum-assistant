@@ -38,9 +38,40 @@ let tempDir: string;
 // if the test process crashes.
 let tempTemplateDir: string;
 
-// Mock platform to avoid env-registry transitive imports.
-// All needed exports are stubbed; getWorkspacePromptPath is the only one
-// exercised by update-bulletin.ts.
+// Mock platform so getWorkspacePromptPath resolves to the per-test tempDir
+// rather than the preload's per-file workspace directory.
+mock.module("../util/platform.js", () => ({
+  getWorkspacePromptPath: (file: string) => join(tempDir, file),
+  getWorkspaceDir: () => tempDir,
+  getProtectedDir: () => join(tempDir, "protected"),
+  getDataDir: () => join(tempDir, "data"),
+  getPlatformName: () => "darwin",
+  isMacOS: () => false,
+  isLinux: () => false,
+  isWindows: () => false,
+  ensureDataDir: () => {},
+  getDbPath: () => "",
+  getLogPath: () => "",
+  getHistoryPath: () => "",
+  getHooksDir: () => "",
+  getSessionTokenPath: () => "",
+  getPlatformTokenPath: () => "",
+  getPidPath: () => "",
+  getWorkspaceConfigPath: () => "",
+  getWorkspaceSkillsDir: () => "",
+  getWorkspaceHooksDir: () => "",
+  getSandboxRootDir: () => "",
+  getSandboxWorkingDir: () => "",
+  getInterfacesDir: () => "",
+  getClipboardCommand: () => null,
+  readPlatformToken: () => null,
+  readSessionToken: () => null,
+  getTCPPort: () => 8765,
+  isTCPEnabled: () => false,
+  getTCPHost: () => "127.0.0.1",
+  isIOSPairingEnabled: () => false,
+}));
+
 // Mock system-prompt to provide only stripCommentLines without pulling in
 // the rest of the system-prompt transitive dependency tree.
 mock.module("../prompts/system-prompt.js", () => {
