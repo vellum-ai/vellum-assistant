@@ -72,9 +72,8 @@ struct ComposerView: View {
     #endif
     @FocusState private var composerFocus: Bool
     @State private var isComposerFocused = false
-    /// Incremented when inputText is cleared externally (e.g. after send) to force
-    /// the TextField to rebuild, clearing its stale field editor buffer.
-    @State private var composerResetId = 0
+    @State private var measuredTextHeight: CGFloat = 32
+    @State private var textViewIsFocused: Bool = false
 
     @State var showSlashMenu = false
     @State var slashFilter = ""
@@ -212,84 +211,56 @@ struct ComposerView: View {
         }
     }
 
-    /// The native TextField with keyboard handlers. Extracted so the compiler
-    /// can type-check each builder method independently.
-    @ViewBuilder
-    private func composerInputField(font: Font, hasSlashHighlight: Bool) -> some View {
-        TextField(
-            ghostSuffix == nil ? placeholderText : "",
-            text: $inputText,
-            axis: .vertical
-        )
-        .lineLimit(1...)
-        .textFieldStyle(.plain)
-        .font(font)
-        .lineSpacing(4)
-        .foregroundStyle(hasSlashHighlight ? .clear : VColor.contentDefault)
-        .tint(VColor.primaryBase)
-        .id(composerResetId)
-        .focused($composerFocus)
-        .onSubmit { handleComposerSubmit() }
-        .onKeyPress(.tab, phases: .down) { press in
-            if !press.modifiers.contains(.shift), showSlashMenu {
-                handleSlashNavigation(.tab)
-                return .handled
-            }
-            if !press.modifiers.contains(.shift), ghostSuffix != nil {
-                onAcceptSuggestion()
-                return .handled
-            }
-            return .ignored
-        }
-        .onKeyPress(.upArrow) {
-            if showSlashMenu {
-                handleSlashNavigation(.up)
-                return .handled
-            }
-            return .ignored
-        }
-        .onKeyPress(.downArrow) {
-            if showSlashMenu {
-                handleSlashNavigation(.down)
-                return .handled
-            }
-            return .ignored
-        }
-        .onKeyPress(.escape) {
-            if showSlashMenu {
-                handleSlashNavigation(.dismiss)
-                return .handled
-            }
-            return .ignored
-        }
-    }
 
     private var composerTextField: some View {
         let scaledBody = VFont.chat
         let hasSlashHighlight = slashCommandRange != nil
+        let nsFont = NSFont(name: "DMSans-Regular", size: 16) ?? .systemFont(ofSize: 16)
 
-        return ScrollView(.vertical, showsIndicators: false) {
-            ZStack(alignment: .topLeading) {
-                composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
-                composerInputField(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
-            }
-            .padding(.vertical, VSpacing.xs)
-            .frame(maxWidth: .infinity, minHeight: composerActionButtonSize, alignment: .leading)
+        return ZStack(alignment: .topLeading) {
+            composerTextOverlays(font: scaledBody, hasSlashHighlight: hasSlashHighlight)
+            ComposerTextEditor(
+                text: $inputText,
+                measuredHeight: $measuredTextHeight,
+                isFocused: $textViewIsFocused,
+                font: nsFont,
+                lineSpacing: 4,
+                insertionPointColor: NSColor(VColor.primaryBase),
+                minHeight: composerActionButtonSize,
+                maxHeight: composerMaxHeight,
+                placeholder: ghostSuffix == nil ? placeholderText : "",
+                isEditable: isInteractionEnabled,
+                cmdEnterToSend: cmdEnterToSend,
+                textColorOverride: hasSlashHighlight
+                    ? NSColor(VColor.contentDefault).withAlphaComponent(0) : nil,
+                onSubmit: { performSendAction() },
+                onTab: {
+                    if showSlashMenu { handleSlashNavigation(.tab); return true }
+                    if ghostSuffix != nil { onAcceptSuggestion(); return true }
+                    return false
+                },
+                onUpArrow: {
+                    if showSlashMenu { handleSlashNavigation(.up); return true }
+                    return false
+                },
+                onDownArrow: {
+                    if showSlashMenu { handleSlashNavigation(.down); return true }
+                    return false
+                },
+                onEscape: {
+                    if showSlashMenu { handleSlashNavigation(.dismiss); return true }
+                    return false
+                },
+                onPasteImage: onPaste
+            )
         }
-        .scrollBounceBehavior(.basedOnSize)
-        .defaultScrollAnchor(.bottom)
-        .frame(minHeight: composerActionButtonSize, maxHeight: inputText.isEmpty && ghostSuffix == nil ? composerActionButtonSize : composerMaxHeight)
+        .padding(.vertical, VSpacing.xs)
+        .frame(height: measuredTextHeight)
         .accessibilityLabel("Message")
         .frame(maxWidth: .infinity)
         .background(
             ComposerFocusBridge(
                 isFocused: composerFocus,
-                cmdEnterToSend: cmdEnterToSend,
-                isInteractionEnabled: isInteractionEnabled,
-                onImagePaste: onPaste,
-                onSend: {
-                    performSendAction()
-                },
                 onRedirectKeystroke: { chars in
                     inputText += chars
                     composerFocus = true
@@ -297,11 +268,19 @@ struct ComposerView: View {
             )
         )
         .onChange(of: composerFocus) {
+            if textViewIsFocused != composerFocus {
+                textViewIsFocused = composerFocus
+            }
             isComposerFocused = composerFocus
             if composerFocus {
                 if let window = NSApp.keyWindow as? TitleBarZoomableWindow {
                     window.clearComposerDismissed()
                 }
+            }
+        }
+        .onChange(of: textViewIsFocused) {
+            if composerFocus != textViewIsFocused {
+                composerFocus = textViewIsFocused
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -317,13 +296,6 @@ struct ComposerView: View {
         .onChange(of: inputText) {
             if inputText.isEmpty {
                 withAnimation(VAnimation.fast) { showSlashMenu = false }
-                // Force TextField rebuild to clear its stale field editor buffer.
-                // On macOS, TextField(axis: .vertical) can desync when the binding
-                // is cleared externally — the field editor writes stale text back.
-                composerResetId += 1
-                DispatchQueue.main.async {
-                    composerFocus = true
-                }
             } else {
                 updateSlashState()
             }
@@ -352,14 +324,6 @@ struct ComposerView: View {
         }
 
         composerLog.debug("[Send] path=\(sendPath) attachmentCount=\(pendingAttachments.count) isLoadingAttachment=\(isLoadingAttachment)")
-    }
-
-    private func handleComposerSubmit() {
-        // On macOS, the bridge consumes all Return variants that should insert
-        // a newline (cmd-enter mode) or trigger a bridge-level send. The only
-        // Return events that reach `.onSubmit` are plain Return in default mode,
-        // which always means "send".
-        performSendAction()
     }
 
     // MARK: - Text Entry Mode
