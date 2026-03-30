@@ -124,8 +124,8 @@ struct MessageListView: View {
     var taskProgressManager = TaskProgressOverlayManager.shared
     /// Consolidates all scroll-related state with @Observable fine-grained tracking.
     /// Only 1 property triggers view re-evaluations: `uiVersion`.
-    /// Snapshot values (scrollIndicatorsHidden, showScrollToLatest) are
-    /// @ObservationIgnored and synced via the uiVersion counter.
+    /// Snapshot values (showTailSpacer, scrollIndicatorsHidden, showScrollToLatest)
+    /// are @ObservationIgnored and synced via the uiVersion counter.
     @State private var scrollState = MessageListScrollState()
     /// In-flight resize scroll stabilization task; cancelled on each new resize.
     @State private var resizeScrollTask: Task<Void, Never>?
@@ -739,15 +739,13 @@ struct MessageListView: View {
                         }
 
                     // Viewport-height spacer that allows the last message
-                    // to scroll to the top during push-to-top. Height is 0
-                    // when inactive; kept in the hierarchy unconditionally
-                    // because inserting/removing a LazyVStack child causes
-                    // a content-height discontinuity that makes the scroll
-                    // position jump.
-                    Color.clear
-                        .frame(height: scrollState.tailSpacerHeight)
-                        .allowsHitTesting(false)
-                        .accessibilityHidden(true)
+                    // to scroll to the top during push-to-top.
+                    if scrollState.showTailSpacer {
+                        Color.clear
+                            .frame(height: scrollState.tailSpacerHeight)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
                 }
                 .disabled(!isInteractionEnabled)
                 .padding(.horizontal, VSpacing.xl)
@@ -760,7 +758,7 @@ struct MessageListView: View {
             .plainTextCopy()
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
-            .defaultScrollAnchor(.bottom)
+            .defaultScrollAnchor(scrollState.showTailSpacer ? nil : .bottom)
             .scrollPosition($scrollPosition)
             .environment(\.suppressAutoScroll, { [self] in
                 // Cancel any pending expansion timeout before re-evaluating.
@@ -992,17 +990,13 @@ struct MessageListView: View {
                         if !isDaemonConfirmationResume, let lastUserMsg = messages.last(where: { $0.role == .user }) {
                             scrollState.pushToTopMessageId = lastUserMsg.id
                             // Flush the debounced UI sync so the tail
-                            // spacer height is current before scrolling.
+                            // spacer and defaultScrollAnchor are current
+                            // in the next layout pass.
                             scrollState.syncUIImmediately()
                             os_signpost(.event, log: PerfSignposts.log, name: "scrollToRequested",
                                         "target=userMessage reason=pushToTop")
-                            // Yield one run-loop iteration so SwiftUI lays
-                            // out the updated tail spacer before executing
-                            // the scroll.
-                            Task { @MainActor in
-                                withAnimation(VAnimation.fast) {
-                                    scrollState.performScrollTo(lastUserMsg.id, anchor: .top)
-                                }
+                            withAnimation(VAnimation.fast) {
+                                scrollState.performScrollTo(lastUserMsg.id, anchor: .top)
                             }
                         } else {
                             scrollState.pinToBottom(animated: true)
