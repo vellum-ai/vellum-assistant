@@ -70,6 +70,7 @@ final class MessageListScrollStateTests: XCTestCase {
         // Wait for the debounced UI sync to fire.
         try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertTrue(state.showScrollToLatest)
+        XCTAssertEqual(state.uiVersion, 1, "Only one uiVersion bump despite 100 detach calls")
     }
 
     // MARK: - Pin Gating
@@ -234,6 +235,9 @@ final class MessageListScrollStateTests: XCTestCase {
         XCTAssertNil(state.pushToTopMessageId, "Should clear pushToTopMessageId")
         XCTAssertTrue(state.hideScrollIndicators,
                       "Should hide scroll indicators during conversation switch")
+        XCTAssertFalse(state.showTailSpacer)
+        XCTAssertTrue(state.scrollIndicatorsHidden)
+        XCTAssertFalse(state.showScrollToLatest)
     }
 
     func testResetClearsLayoutCache() {
@@ -284,6 +288,7 @@ final class MessageListScrollStateTests: XCTestCase {
         try await Task.sleep(nanoseconds: 50_000_000)
         XCTAssertTrue(state.showScrollToLatest,
                       "Should be true when not following bottom")
+        XCTAssertGreaterThan(state.uiVersion, 0)
 
         state.reattach()
         // Wait for debounced UI sync.
@@ -316,6 +321,31 @@ final class MessageListScrollStateTests: XCTestCase {
 
         XCTAssertEqual(state.tailSpacerHeight, 0,
                        "Should be 0 when viewport height is not finite")
+    }
+
+    // MARK: - uiVersion Coalescing
+
+    func testUIVersionCoalescesMultipleChanges() async throws {
+        let vBefore = state.uiVersion
+        state.detach()  // schedules UI sync
+        state.pushToTopMessageId = UUID()  // schedules UI sync (coalesced)
+        state.hideScrollIndicators = true  // schedules UI sync (coalesced)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertEqual(state.uiVersion, vBefore + 1,
+                       "Multiple changes coalesce into one uiVersion bump")
+        XCTAssertTrue(state.showScrollToLatest)
+        XCTAssertTrue(state.showTailSpacer)
+        XCTAssertTrue(state.scrollIndicatorsHidden)
+    }
+
+    func testSyncUIImmediately() {
+        state.detach()
+        state.pushToTopMessageId = UUID()
+        // Don't await debounce — call immediate sync
+        state.syncUIImmediately()
+        XCTAssertTrue(state.showScrollToLatest)
+        XCTAssertTrue(state.showTailSpacer)
+        XCTAssertGreaterThan(state.uiVersion, 0)
     }
 
     // MARK: - Circuit Breaker

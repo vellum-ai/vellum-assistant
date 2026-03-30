@@ -53,7 +53,17 @@ final class MessageListScrollState {
 
     /// Whether the "Scroll to latest" CTA should be visible.
     /// Updated via debounced `scheduleUISync()` — at most once per frame.
-    private(set) var showScrollToLatest = false
+    @ObservationIgnored private(set) var showScrollToLatest = false
+
+    /// Single observed property — the ONLY thing that triggers SwiftUI view
+    /// re-evaluation from scroll state. Bumped at most once per 16ms frame.
+    private(set) var uiVersion: UInt64 = 0
+
+    /// Snapshot: whether the tail spacer should render.
+    @ObservationIgnored private(set) var showTailSpacer = false
+
+    /// Snapshot: whether scroll indicators should be hidden.
+    @ObservationIgnored private(set) var scrollIndicatorsHidden = false
 
     // MARK: - Computed Properties
 
@@ -262,12 +272,37 @@ final class MessageListScrollState {
         uiSyncTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 16_000_000) // ~1 frame at 60Hz
             guard let self, !Task.isCancelled else { return }
-            let newValue = !self._isFollowingBottom
-            if self.showScrollToLatest != newValue {
-                self.showScrollToLatest = newValue
-            }
+            self.syncUISnapshots()
             self.uiSyncTask = nil
         }
+    }
+
+    /// Computes all snapshot values from internal state and bumps uiVersion
+    /// only if something actually changed.
+    private func syncUISnapshots() {
+        let newShowScrollToLatest = !_isFollowingBottom
+        let newShowTailSpacer = _pushToTopMessageId != nil
+        let newScrollIndicatorsHidden = _hideScrollIndicators
+
+        var changed = false
+        if showScrollToLatest != newShowScrollToLatest {
+            showScrollToLatest = newShowScrollToLatest; changed = true
+        }
+        if showTailSpacer != newShowTailSpacer {
+            showTailSpacer = newShowTailSpacer; changed = true
+        }
+        if scrollIndicatorsHidden != newScrollIndicatorsHidden {
+            scrollIndicatorsHidden = newScrollIndicatorsHidden; changed = true
+        }
+        if changed { uiVersion &+= 1 }
+    }
+
+    /// Synchronous UI sync — bypasses debounce for instant state transitions
+    /// like conversation switches.
+    func syncUIImmediately() {
+        uiSyncTask?.cancel()
+        uiSyncTask = nil
+        syncUISnapshots()
     }
 
     // MARK: - Task References
@@ -373,9 +408,6 @@ final class MessageListScrollState {
         currentConversationId = newConversationId
         // Reset follow state for the new conversation.
         if !_isFollowingBottom { _isFollowingBottom = true }
-        // Sync UI immediately for conversation switch (no debounce delay).
-        uiSyncTask?.cancel()
-        if showScrollToLatest { showScrollToLatest = false }
         if _pushToTopMessageId != nil { _pushToTopMessageId = nil }
         isAtBottom = true
         hasReceivedScrollEvent = false
@@ -390,10 +422,13 @@ final class MessageListScrollState {
         // to mask LazyVStack content size estimation changes.
         scrollIndicatorRestoreTask?.cancel()
         if !_hideScrollIndicators { _hideScrollIndicators = true }
+        // Sync UI immediately for conversation switch (no debounce delay).
+        syncUIImmediately()
         scrollIndicatorRestoreTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
             guard !Task.isCancelled, let self else { return }
             if self._hideScrollIndicators { self._hideScrollIndicators = false }
+            self.syncUIImmediately()
             self.scrollIndicatorRestoreTask = nil
         }
     }
@@ -419,5 +454,6 @@ final class MessageListScrollState {
         bodyEvalTimestamps.removeAll()
         if _hideScrollIndicators { _hideScrollIndicators = false }
         if _isPaginationInFlight { _isPaginationInFlight = false }
+        syncUIImmediately()
     }
 }
