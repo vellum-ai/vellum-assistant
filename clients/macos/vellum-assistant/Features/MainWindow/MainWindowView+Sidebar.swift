@@ -186,8 +186,11 @@ extension MainWindowView {
         }
     }
 
-    /// Builds a `SidebarConversationItem` with all state pre-resolved and closures wired,
-    /// so each row is a pure value view that can be skipped via `Equatable`.
+    /// Builds a `SidebarConversationItem` with closures wired and value-type
+    /// state pre-resolved. Hover state is NOT pre-computed here — the row
+    /// observes `sidebarInteraction.isHoveredConversation` in its own `body`,
+    /// keeping the `@Observable` dependency scoped to each row and preventing
+    /// hover changes from invalidating MainWindowView.
     private func makeSidebarRow(
         conversation: ConversationModel,
         onSelect: (() -> Void)? = nil
@@ -196,7 +199,7 @@ extension MainWindowView {
             conversation: conversation,
             isSelected: isConversationSelected(conversation),
             interactionState: conversationManager.interactionState(for: conversation.id),
-            isHovered: sidebar.isHoveredConversation == conversation.id,
+            sidebarInteraction: sidebar,
             selectConversation: { selectConversation(conversation) },
             onSelect: onSelect,
             onTogglePin: {
