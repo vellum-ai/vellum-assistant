@@ -270,7 +270,7 @@ export function handleThinkingDelta(
   }
   if (!deps.ctx.streamThinking) return;
   emitLlmCallStartedIfNeeded(state, deps);
-  deps.onEvent({ type: "assistant_thinking_delta", thinking: event.thinking });
+  deps.onEvent({ type: "assistant_thinking_delta", thinking: event.thinking, conversationId: deps.ctx.conversationId });
 }
 
 export function handleToolUse(

@@ -107,6 +107,7 @@ final class ChatActionHandler {
             vm.isThinking = true
 
         case .assistantThinkingDelta(let delta):
+            guard belongsToConversation(delta.conversationId) else { return }
             guard !vm.isCancelling else { break }
             guard !vm.isLoadingHistory else { break }
             guard MacOSClientFeatureFlagManager.shared.isEnabled("show-thinking-blocks") else { break }

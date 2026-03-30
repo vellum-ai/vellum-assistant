@@ -532,10 +532,12 @@ public struct AssistantTextDelta: Codable, Sendable {
 public struct AssistantThinkingDelta: Codable, Sendable {
     public let type: String
     public let thinking: String
+    public let conversationId: String?
 
-    public init(type: String, thinking: String) {
+    public init(type: String, thinking: String, conversationId: String? = nil) {
         self.type = type
         self.thinking = thinking
+        self.conversationId = conversationId
     }
 }
 
