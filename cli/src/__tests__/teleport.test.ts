@@ -39,6 +39,16 @@ const saveAssistantEntryMock = spyOn(
   "saveAssistantEntry",
 ).mockImplementation(() => {});
 
+const loadAllAssistantsMock = spyOn(
+  assistantConfig,
+  "loadAllAssistants",
+).mockReturnValue([]);
+
+const removeAssistantEntryMock = spyOn(
+  assistantConfig,
+  "removeAssistantEntry",
+).mockImplementation(() => {});
+
 const loadGuardianTokenMock = mock((_id: string) => ({
   accessToken: "local-token",
   accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -145,6 +155,8 @@ import type { AssistantEntry } from "../lib/assistant-config.js";
 afterAll(() => {
   findAssistantByNameMock.mockRestore();
   saveAssistantEntryMock.mockRestore();
+  loadAllAssistantsMock.mockRestore();
+  removeAssistantEntryMock.mockRestore();
   rmSync(testDir, { recursive: true, force: true });
   delete process.env.VELLUM_LOCKFILE_DIR;
 });
@@ -163,6 +175,10 @@ beforeEach(() => {
   findAssistantByNameMock.mockReturnValue(null);
   saveAssistantEntryMock.mockReset();
   saveAssistantEntryMock.mockImplementation(() => {});
+  loadAllAssistantsMock.mockReset();
+  loadAllAssistantsMock.mockReturnValue([]);
+  removeAssistantEntryMock.mockReset();
+  removeAssistantEntryMock.mockImplementation(() => {});
 
   loadGuardianTokenMock.mockReset();
   loadGuardianTokenMock.mockReturnValue({
@@ -399,49 +415,116 @@ describe("teleport arg parsing", () => {
 // ---------------------------------------------------------------------------
 
 describe("same-environment rejection", () => {
-  test("source local, target local -> error", async () => {
-    setArgv("--from", "src", "--local");
+  test("source local, target local -> error (after resolving target)", async () => {
+    setArgv("--from", "src", "--local", "dst");
+
+    const srcEntry = makeEntry("src", { cloud: "local" });
+    const dstEntry = makeEntry("dst", { cloud: "local" });
+
     findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "src") return makeEntry("src", { cloud: "local" });
+      if (name === "src") return srcEntry;
+      if (name === "dst") return dstEntry;
       return null;
     });
 
-    await expect(teleport()).rejects.toThrow("process.exit:1");
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Cannot teleport between two local assistants"),
-    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Cannot teleport between two local assistants"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
-  test("source docker, target docker -> error", async () => {
-    setArgv("--from", "src", "--docker");
+  test("source docker, target docker -> error (after resolving target)", async () => {
+    setArgv("--from", "src", "--docker", "dst");
+
+    const srcEntry = makeEntry("src", { cloud: "docker" });
+    const dstEntry = makeEntry("dst", { cloud: "docker" });
+
     findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "src") return makeEntry("src", { cloud: "docker" });
+      if (name === "src") return srcEntry;
+      if (name === "dst") return dstEntry;
       return null;
     });
 
-    await expect(teleport()).rejects.toThrow("process.exit:1");
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Cannot teleport between two docker assistants"),
-    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "Cannot teleport between two docker assistants",
+        ),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
-  test("source vellum, target platform -> error", async () => {
-    setArgv("--from", "src", "--platform");
+  test("source vellum, target platform -> error (after resolving target)", async () => {
+    setArgv("--from", "src", "--platform", "dst");
+
+    const srcEntry = makeEntry("src", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+    const dstEntry = makeEntry("dst", {
+      cloud: "vellum",
+      runtimeUrl: "https://platform.vellum.ai",
+    });
+
     findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "src")
-        return makeEntry("src", {
-          cloud: "vellum",
-          runtimeUrl: "https://platform.vellum.ai",
-        });
+      if (name === "src") return srcEntry;
+      if (name === "dst") return dstEntry;
       return null;
     });
 
-    await expect(teleport()).rejects.toThrow("process.exit:1");
-    expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        "Cannot teleport between two platform assistants",
-      ),
-    );
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "Cannot teleport between two platform assistants",
+        ),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("flag says docker but resolved target is local -> uses resolved cloud", async () => {
+    // User passes --docker but the named target is actually a local assistant
+    setArgv("--from", "src", "--docker", "misidentified");
+
+    const srcEntry = makeEntry("src", { cloud: "local" });
+    // Target is actually local despite the --docker flag
+    const dstEntry = makeEntry("misidentified", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "src") return srcEntry;
+      if (name === "misidentified") return dstEntry;
+      return null;
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await expect(teleport()).rejects.toThrow("process.exit:1");
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Cannot teleport between two local assistants"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 
@@ -487,13 +570,17 @@ describe("resolveOrHatchTarget", () => {
     expect(result).toBe(newEntry);
   });
 
-  test("no name -> hatch local with null name", async () => {
+  test("no name -> hatch local with null name, discovers via diff", async () => {
+    const existingEntry = makeEntry("existing-local", { cloud: "local" });
     const newEntry = makeEntry("auto-generated", { cloud: "local" });
-    findAssistantByNameMock.mockImplementation((name: string) => {
-      if (name === "" && hatchLocalMock.mock.calls.length > 0) {
-        return newEntry;
+
+    // Before hatch: only the existing entry
+    // After hatch: existing + new entry
+    loadAllAssistantsMock.mockImplementation(() => {
+      if (hatchLocalMock.mock.calls.length > 0) {
+        return [existingEntry, newEntry];
       }
-      return null;
+      return [existingEntry];
     });
 
     const result = await resolveOrHatchTarget("local");
@@ -543,7 +630,7 @@ describe("resolveOrHatchTarget", () => {
 // ---------------------------------------------------------------------------
 
 describe("auto-retire", () => {
-  test("local -> docker: retireLocal is called on source after import", async () => {
+  test("local -> docker: retireLocal and removeAssistantEntry called on source after import", async () => {
     setArgv("--from", "my-local", "--docker");
 
     const localEntry = makeEntry("my-local", { cloud: "local" });
@@ -551,10 +638,15 @@ describe("auto-retire", () => {
 
     findAssistantByNameMock.mockImplementation((name: string) => {
       if (name === "my-local") return localEntry;
-      // After hatch, find the new docker entry
-      if (name === "" && hatchDockerMock.mock.calls.length > 0)
-        return dockerEntry;
       return null;
+    });
+
+    // Simulate hatch creating a new docker entry
+    loadAllAssistantsMock.mockImplementation(() => {
+      if (hatchDockerMock.mock.calls.length > 0) {
+        return [localEntry, dockerEntry];
+      }
+      return [localEntry];
     });
 
     const originalFetch = globalThis.fetch;
@@ -563,12 +655,13 @@ describe("auto-retire", () => {
     try {
       await teleport();
       expect(retireLocalMock).toHaveBeenCalledWith("my-local", localEntry);
+      expect(removeAssistantEntryMock).toHaveBeenCalledWith("my-local");
     } finally {
       globalThis.fetch = originalFetch;
     }
   });
 
-  test("docker -> local: retireDocker is called on source after import", async () => {
+  test("docker -> local: retireDocker and removeAssistantEntry called on source after import", async () => {
     setArgv("--from", "my-docker", "--local");
 
     const dockerEntry = makeEntry("my-docker", { cloud: "docker" });
@@ -576,9 +669,14 @@ describe("auto-retire", () => {
 
     findAssistantByNameMock.mockImplementation((name: string) => {
       if (name === "my-docker") return dockerEntry;
-      if (name === "" && hatchLocalMock.mock.calls.length > 0)
-        return localEntry;
       return null;
+    });
+
+    loadAllAssistantsMock.mockImplementation(() => {
+      if (hatchLocalMock.mock.calls.length > 0) {
+        return [dockerEntry, localEntry];
+      }
+      return [dockerEntry];
     });
 
     const originalFetch = globalThis.fetch;
@@ -587,12 +685,13 @@ describe("auto-retire", () => {
     try {
       await teleport();
       expect(retireDockerMock).toHaveBeenCalledWith("my-docker");
+      expect(removeAssistantEntryMock).toHaveBeenCalledWith("my-docker");
     } finally {
       globalThis.fetch = originalFetch;
     }
   });
 
-  test("--keep-source skips retire", async () => {
+  test("--keep-source skips retire and removeAssistantEntry", async () => {
     setArgv("--from", "my-local", "--docker", "--keep-source");
 
     const localEntry = makeEntry("my-local", { cloud: "local" });
@@ -600,9 +699,14 @@ describe("auto-retire", () => {
 
     findAssistantByNameMock.mockImplementation((name: string) => {
       if (name === "my-local") return localEntry;
-      if (name === "" && hatchDockerMock.mock.calls.length > 0)
-        return dockerEntry;
       return null;
+    });
+
+    loadAllAssistantsMock.mockImplementation(() => {
+      if (hatchDockerMock.mock.calls.length > 0) {
+        return [localEntry, dockerEntry];
+      }
+      return [localEntry];
     });
 
     const originalFetch = globalThis.fetch;
@@ -612,6 +716,7 @@ describe("auto-retire", () => {
       await teleport();
       expect(retireLocalMock).not.toHaveBeenCalled();
       expect(retireDockerMock).not.toHaveBeenCalled();
+      expect(removeAssistantEntryMock).not.toHaveBeenCalled();
       expect(consoleLogSpy).toHaveBeenCalledWith(
         expect.stringContaining("kept (--keep-source)"),
       );
@@ -637,6 +742,7 @@ describe("auto-retire", () => {
       await teleport();
       expect(retireLocalMock).not.toHaveBeenCalled();
       expect(retireDockerMock).not.toHaveBeenCalled();
+      expect(removeAssistantEntryMock).not.toHaveBeenCalled();
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -650,9 +756,14 @@ describe("auto-retire", () => {
 
     findAssistantByNameMock.mockImplementation((name: string) => {
       if (name === "my-local") return localEntry;
-      if (name === "" && hatchDockerMock.mock.calls.length > 0)
-        return dockerEntry;
       return null;
+    });
+
+    loadAllAssistantsMock.mockImplementation(() => {
+      if (hatchDockerMock.mock.calls.length > 0) {
+        return [localEntry, dockerEntry];
+      }
+      return [localEntry];
     });
 
     const originalFetch = globalThis.fetch;
@@ -662,6 +773,7 @@ describe("auto-retire", () => {
       await teleport();
       expect(retireLocalMock).not.toHaveBeenCalled();
       expect(retireDockerMock).not.toHaveBeenCalled();
+      expect(removeAssistantEntryMock).not.toHaveBeenCalled();
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -681,9 +793,14 @@ describe("teleport full flow", () => {
 
     findAssistantByNameMock.mockImplementation((name: string) => {
       if (name === "my-local") return localEntry;
-      if (name === "" && hatchDockerMock.mock.calls.length > 0)
-        return dockerEntry;
       return null;
+    });
+
+    loadAllAssistantsMock.mockImplementation(() => {
+      if (hatchDockerMock.mock.calls.length > 0) {
+        return [localEntry, dockerEntry];
+      }
+      return [localEntry];
     });
 
     const originalFetch = globalThis.fetch;
@@ -696,6 +813,7 @@ describe("teleport full flow", () => {
       // Verify sequence: export, hatch, import, retire
       expect(hatchDockerMock).toHaveBeenCalled();
       expect(retireLocalMock).toHaveBeenCalledWith("my-local", localEntry);
+      expect(removeAssistantEntryMock).toHaveBeenCalledWith("my-local");
       expect(consoleLogSpy).toHaveBeenCalledWith(
         expect.stringContaining("Teleport complete"),
       );
