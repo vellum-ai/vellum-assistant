@@ -5,6 +5,7 @@ import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
 import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
 import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
+import { seedCliCommandMemories } from "../cli/cli-memory.js";
 import {
   getPlatformAssistantId,
   getQdrantHttpPortEnv,
@@ -81,7 +82,6 @@ import {
   setCesClient,
   setCesReconnect,
 } from "../security/secure-keys.js";
-import { seedCliCommandMemories } from "../cli/cli-memory.js";
 import { seedCatalogSkillMemories } from "../skills/skill-memory.js";
 import { UsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { getDeviceId } from "../util/device-id.js";
