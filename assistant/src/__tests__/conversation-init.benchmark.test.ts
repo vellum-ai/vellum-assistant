@@ -18,8 +18,7 @@
  * - Conversation creation (3 preactivated skills): < 300ms
  * - Conversation constructor (sync, no loadFromDb): < 10ms
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, describe, expect, mock, test } from "bun:test";
 
@@ -31,9 +30,7 @@ function median(sorted: number[]): number {
     : sorted[mid];
 }
 
-const testDir = mkdtempSync(join(tmpdir(), "session-init-bench-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Create subdirectories expected by platform helpers
 mkdirSync(join(testDir, "data"), { recursive: true });
@@ -284,14 +281,7 @@ const { projectSkillTools, resetSkillToolProjection } =
 import type { Provider } from "../providers/types.js";
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   __resetRegistryForTesting();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    // best-effort cleanup
-  }
 });
 
 describe("Conversation initialization benchmark", () => {

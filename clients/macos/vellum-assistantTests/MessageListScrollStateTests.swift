@@ -42,6 +42,32 @@ final class MessageListScrollStateTests: XCTestCase {
         XCTAssertTrue(state.isFollowingBottom)
     }
 
+    func testDetachWhenAlreadyDetachedIsNoop() {
+        state.detach()
+        XCTAssertFalse(state.isFollowingBottom)
+
+        // Second detach should be a no-op (no crash, no state change).
+        state.detach()
+        XCTAssertFalse(state.isFollowingBottom)
+    }
+
+    func testReattachWhenAlreadyAttachedIsNoop() {
+        // Initial state is already following bottom.
+        XCTAssertTrue(state.isFollowingBottom)
+
+        // Reattach when already attached should be a no-op.
+        state.reattach()
+        XCTAssertTrue(state.isFollowingBottom)
+    }
+
+    func testRapidDetachCallsDoNotAccumulate() {
+        for _ in 0..<100 {
+            state.detach()
+        }
+        XCTAssertFalse(state.isFollowingBottom)
+        XCTAssertTrue(state.showScrollToLatest)
+    }
+
     // MARK: - Pin Gating
 
     func testPinSuppressedWhileDetached() {

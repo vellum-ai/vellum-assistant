@@ -9,6 +9,7 @@ let mockConfig = {
   heartbeat: {
     enabled: true,
     intervalMs: 60_000,
+    speed: "standard" as "standard" | "fast",
     activeHoursStart: undefined as number | undefined,
     activeHoursEnd: undefined as number | undefined,
   },
@@ -74,7 +75,11 @@ mock.module("../memory/conversation-title-service.js", () => ({
 const { HeartbeatService } = await import("../heartbeat/heartbeat-service.js");
 
 describe("HeartbeatService", () => {
-  let processMessageCalls: Array<{ conversationId: string; content: string }>;
+  let processMessageCalls: Array<{
+    conversationId: string;
+    content: string;
+    options?: { speed?: string };
+  }>;
   let alerterCalls: Array<{ type: string; title: string; body: string }>;
 
   afterEach(() => {
@@ -92,6 +97,7 @@ describe("HeartbeatService", () => {
       heartbeat: {
         enabled: true,
         intervalMs: 60_000,
+        speed: "standard",
         activeHoursStart: undefined,
         activeHoursEnd: undefined,
       },
@@ -102,14 +108,19 @@ describe("HeartbeatService", () => {
     processMessage?: (
       id: string,
       content: string,
+      options?: { speed?: string },
     ) => Promise<{ messageId: string }>;
     getCurrentHour?: () => number;
   }) {
     return new HeartbeatService({
       processMessage:
         overrides?.processMessage ??
-        (async (conversationId: string, content: string) => {
-          processMessageCalls.push({ conversationId, content });
+        (async (
+          conversationId: string,
+          content: string,
+          options?: { speed?: string },
+        ) => {
+          processMessageCalls.push({ conversationId, content, options });
           return { messageId: "msg-1" };
         }),
       alerter: (alert: { type: string; title: string; body: string }) => {
@@ -402,5 +413,33 @@ describe("HeartbeatService", () => {
     expect(service.nextRunAt).toBeNull();
     service.resetTimer();
     expect(service.nextRunAt).toBeNull();
+  });
+
+  test("passes heartbeat config speed to processMessage", async () => {
+    mockConfig.heartbeat.speed = "standard";
+    const service = createService();
+    await service.runOnce();
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].options).toEqual({ speed: "standard" });
+  });
+
+  test("heartbeat uses its own speed even when global config differs", async () => {
+    // Simulate: global config has fast, but heartbeat config has standard
+    mockConfig.heartbeat.speed = "standard";
+    const service = createService();
+    await service.runOnce();
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].options?.speed).toBe("standard");
+  });
+
+  test("heartbeat passes fast speed when explicitly configured", async () => {
+    mockConfig.heartbeat.speed = "fast";
+    const service = createService();
+    await service.runOnce();
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].options?.speed).toBe("fast");
   });
 });

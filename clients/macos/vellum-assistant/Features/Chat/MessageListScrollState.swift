@@ -257,11 +257,13 @@ final class MessageListScrollState {
 
     /// Transitions to the detached state, suppressing all background pin requests.
     func detach() {
+        guard isFollowingBottom else { return }
         isFollowingBottom = false
     }
 
     /// Transitions to the following state, allowing pin requests to proceed.
     func reattach() {
+        guard !isFollowingBottom else { return }
         isFollowingBottom = true
     }
 
@@ -279,7 +281,7 @@ final class MessageListScrollState {
         clearSuppression()
         paginationTask?.cancel()
         paginationTask = nil
-        isPaginationInFlight = false
+        if isPaginationInFlight { isPaginationInFlight = false }
         wasPaginationTriggerInRange = false
         // Invalidate the layout cache so the new conversation doesn't
         // hit a stale cache from the previous conversation.
@@ -294,7 +296,7 @@ final class MessageListScrollState {
         // Update the live conversation ID so closures read the new value.
         currentConversationId = newConversationId
         // Reset follow state for the new conversation.
-        isFollowingBottom = true
+        if !isFollowingBottom { isFollowingBottom = true }
         if pushToTopMessageId != nil { pushToTopMessageId = nil }
         isAtBottom = true
         hasReceivedScrollEvent = false
@@ -302,11 +304,11 @@ final class MessageListScrollState {
         // Hide scroll indicators during the conversation switch grace period
         // to mask LazyVStack content size estimation changes.
         scrollIndicatorRestoreTask?.cancel()
-        hideScrollIndicators = true
+        if !hideScrollIndicators { hideScrollIndicators = true }
         scrollIndicatorRestoreTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
             guard !Task.isCancelled, let self else { return }
-            self.hideScrollIndicators = false
+            if self.hideScrollIndicators { self.hideScrollIndicators = false }
             self.scrollIndicatorRestoreTask = nil
         }
     }
@@ -324,7 +326,7 @@ final class MessageListScrollState {
         highlightDismissTask = nil
         scrollIndicatorRestoreTask?.cancel()
         scrollIndicatorRestoreTask = nil
-        hideScrollIndicators = false
-        isPaginationInFlight = false
+        if hideScrollIndicators { hideScrollIndicators = false }
+        if isPaginationInFlight { isPaginationInFlight = false }
     }
 }

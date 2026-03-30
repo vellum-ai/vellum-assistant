@@ -972,6 +972,13 @@ export class AnthropicProvider implements Provider {
       const useFastMode =
         speed === "fast" && effectiveModel.includes("opus");
 
+      // Collect required betas: extended cache TTL for 1h system prompt caching,
+      // and fast-mode when applicable.
+      const betas: string[] = ["extended-cache-ttl-2025-04-11"];
+      if (useFastMode) {
+        betas.push("fast-mode-2026-02-01");
+      }
+
       let response: Anthropic.Message;
       try {
         const stream: UnifiedStream = useFastMode
@@ -979,14 +986,19 @@ export class AnthropicProvider implements Provider {
               {
                 ...(params as Record<string, unknown>),
                 speed: "fast" as const,
-                betas: ["fast-mode-2026-02-01" as const],
+                betas,
               } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming &
                 Anthropic.Beta.Messages.MessageCreateParamsStreaming,
               { signal: timeoutSignal },
             ) as unknown as UnifiedStream)
-          : (this.client.messages.stream(params, {
-              signal: timeoutSignal,
-            }) as unknown as UnifiedStream);
+          : (this.client.beta.messages.stream(
+              {
+                ...(params as Record<string, unknown>),
+                betas,
+              } as Anthropic.Beta.Messages.MessageCreateParamsNonStreaming &
+                Anthropic.Beta.Messages.MessageCreateParamsStreaming,
+              { signal: timeoutSignal },
+            ) as unknown as UnifiedStream);
 
         stream.on("text", (text) => {
           onEvent?.({ type: "text_delta", text });
