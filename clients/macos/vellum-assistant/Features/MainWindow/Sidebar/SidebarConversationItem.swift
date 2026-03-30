@@ -75,19 +75,17 @@ struct SidebarConversationItem: View, Equatable {
         .disabled(!canMarkUnread)
 
         if !moveToGroups.isEmpty, let onMoveToGroup {
-            Menu("Move to") {
+            VSubMenuItem(icon: VIcon.folder.rawValue, label: "Move to") {
                 ForEach(moveToGroups) { group in
-                    Button(group.name) {
+                    VMenuItem(label: group.name) {
                         onMoveToGroup(group.id)
                     }
                 }
-                // "Remove from group" only for custom groups — system groups have dedicated
-                // actions (Pin/Unpin for Pinned; Scheduled/Background are provenance-assigned).
                 if conversation.groupId != nil,
                    let currentGroup = moveToCurrentGroup,
                    !currentGroup.isSystemGroup {
-                    Divider()
-                    Button("Remove from group") {
+                    VMenuDivider()
+                    VMenuItem(label: "Remove from group") {
                         onMoveToGroup(nil)
                     }
                 }

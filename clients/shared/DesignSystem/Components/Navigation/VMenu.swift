@@ -16,6 +16,35 @@ public extension EnvironmentValues {
     }
 }
 
+// MARK: - VMenu Coordinator Environment
+
+#if os(macOS)
+private struct VMenuCoordinatorKey: EnvironmentKey {
+    static let defaultValue: VMenuCoordinator? = nil
+}
+
+public extension EnvironmentValues {
+    var vMenuCoordinator: VMenuCoordinator? {
+        get { self[VMenuCoordinatorKey.self] }
+        set { self[VMenuCoordinatorKey.self] = newValue }
+    }
+}
+#endif
+
+// MARK: - VMenu Parent Width Environment
+
+/// Injected by `VMenu` so `VSubMenuItem` can inherit the parent menu's width.
+private struct VMenuParentWidthKey: EnvironmentKey {
+    static let defaultValue: CGFloat? = nil
+}
+
+public extension EnvironmentValues {
+    var vMenuParentWidth: CGFloat? {
+        get { self[VMenuParentWidthKey.self] }
+        set { self[VMenuParentWidthKey.self] = newValue }
+    }
+}
+
 // MARK: - VMenu
 
 /// A reusable popover container that provides consistent chrome (background, corner radius, shadow)
@@ -48,6 +77,7 @@ public struct VMenu<Content: View>: View {
         }
         .padding(VSpacing.sm)
         .frame(width: width)
+        .environment(\.vMenuParentWidth, width)
         .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 1.5, x: 0, y: 1)
@@ -209,6 +239,180 @@ public extension VMenuItem where Trailing == EmptyView {
         }
     }
 }
+
+// MARK: - VSubMenuItem
+
+#if os(macOS)
+/// A menu item that opens a cascading submenu panel on hover or click.
+///
+/// Renders identically to `VMenuItem` but with a trailing chevron indicator.
+/// On hover (after 150ms) or click, opens a child `VMenuPanel` anchored to
+/// the item's trailing edge. Requires a `VMenuCoordinator` in the environment
+/// (automatically provided by `VMenuPanel.show()` and `.vContextMenu`).
+///
+/// Usage:
+/// ```swift
+/// VSubMenuItem(icon: VIcon.folder.rawValue, label: "Move to") {
+///     VMenuItem(label: "Work") { moveToWork() }
+///     VMenuItem(label: "Personal") { moveToPersonal() }
+/// }
+/// ```
+public struct VSubMenuItem<Content: View>: View {
+    public let icon: String?
+    public let label: String
+    public let width: CGFloat?
+    public let content: () -> Content
+
+    @Environment(\.vMenuCoordinator) private var coordinator
+    @Environment(\.vMenuParentWidth) private var parentWidth
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovered = false
+    @State private var hoverTimer: DispatchWorkItem?
+
+    public init(
+        icon: String? = nil,
+        label: String,
+        width: CGFloat? = nil,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.icon = icon
+        self.label = label
+        self.width = width
+        self.content = content
+    }
+
+    private var effectiveWidth: CGFloat? {
+        width ?? parentWidth
+    }
+
+    public var body: some View {
+        HStack(spacing: VSpacing.xs) {
+            if let icon {
+                VIconView(.resolve(icon), size: VSize.iconDefault)
+                    .foregroundStyle(VColor.primaryBase)
+                    .frame(width: VSize.iconSlot, height: VSize.iconSlot)
+            }
+            Text(label)
+                .font(VFont.menuCompact)
+                .foregroundStyle(isEnabled ? VColor.contentSecondary : VColor.contentDisabled)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .allowsHitTesting(false)
+            Spacer()
+            VIconView(.chevronRight, size: 10)
+                .foregroundStyle(VColor.contentTertiary)
+        }
+        .padding(.leading, VSpacing.xs)
+        .padding(.trailing, VSpacing.sm)
+        .padding(.vertical, VSpacing.xs)
+        .frame(minHeight: VSize.rowMinHeight)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(isHovered && isEnabled ? VColor.surfaceBase : Color.clear)
+        .animation(VAnimation.fast, value: isHovered)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .contentShape(Rectangle())
+        .background(GeometryReader { geo in
+            Color.clear.preference(key: ScreenRectPreferenceKey.self, value: geo.frame(in: .global))
+        })
+        .onPreferenceChange(ScreenRectPreferenceKey.self) { rect in
+            // Store for use when opening the child panel
+            lastKnownRect = rect
+        }
+        .onHover { hovering in
+            isHovered = hovering
+            guard isEnabled else { return }
+            if hovering {
+                hoverTimer?.cancel()
+                let work = DispatchWorkItem { [weak coordinator] in
+                    showChild(coordinator: coordinator)
+                }
+                hoverTimer = work
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+            } else {
+                hoverTimer?.cancel()
+                hoverTimer = nil
+                coordinator?.startGraceTimer()
+            }
+        }
+        .onTapGesture {
+            guard isEnabled else { return }
+            hoverTimer?.cancel()
+            showChild(coordinator: coordinator)
+        }
+        .pointerCursor()
+        .accessibilityElement()
+        .accessibilityLabel(label)
+        .accessibilityHint("Opens submenu")
+        .accessibilityAddTraits(.isButton)
+    }
+
+    @State private var lastKnownRect: CGRect?
+
+    private func showChild(coordinator: VMenuCoordinator?) {
+        guard let coordinator else { return }
+
+        // Convert global SwiftUI rect to screen coordinates.
+        // SwiftUI's .global coordinate space has origin at top-left with y-down.
+        // macOS screen coordinates have origin at bottom-left with y-up.
+        guard let globalRect = lastKnownRect,
+              let screen = NSScreen.main else { return }
+
+        let screenHeight = screen.frame.height
+        let screenRect = CGRect(
+            x: globalRect.origin.x,
+            y: screenHeight - globalRect.origin.y - globalRect.height,
+            width: globalRect.width,
+            height: globalRect.height
+        )
+
+        let menuWidth = effectiveWidth
+        let contentBuilder = content
+        coordinator.showChild(
+            anchoredTo: screenRect,
+            width: menuWidth,
+            sourceAppearance: NSApp.keyWindow?.effectiveAppearance
+        ) {
+            VMenu(width: menuWidth) {
+                contentBuilder()
+            }
+        }
+    }
+}
+
+/// Preference key to read a view's frame in global coordinates.
+private struct ScreenRectPreferenceKey: PreferenceKey {
+    static let defaultValue: CGRect? = nil
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        value = nextValue() ?? value
+    }
+}
+#else
+/// iOS fallback: delegates to SwiftUI's native `Menu` for submenu behavior.
+public struct VSubMenuItem<Content: View>: View {
+    public let icon: String?
+    public let label: String
+    public let width: CGFloat?
+    public let content: () -> Content
+
+    public init(
+        icon: String? = nil,
+        label: String,
+        width: CGFloat? = nil,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.icon = icon
+        self.label = label
+        self.width = width
+        self.content = content
+    }
+
+    public var body: some View {
+        Menu(label) {
+            content()
+        }
+    }
+}
+#endif
 
 // MARK: - VMenuSection
 
