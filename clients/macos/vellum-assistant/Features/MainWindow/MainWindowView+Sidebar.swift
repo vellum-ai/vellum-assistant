@@ -614,19 +614,13 @@ extension MainWindowView {
                         .pointerCursor()
 
                         if !isCollapsed {
-                            let showAll = sidebar.showAllChannelConversations[group.channel] ?? false
-                            let displayed: [ConversationModel] = {
-                                if showAll {
-                                    return group.conversations
-                                }
-                                // Auto-expand if any hidden conversation has unread messages.
-                                let visible = Array(group.conversations.prefix(3))
-                                let hidden = group.conversations.dropFirst(3)
-                                if hidden.contains(where: { $0.hasUnseenLatestAssistantMessage }) {
-                                    return group.conversations
-                                }
-                                return visible
-                            }()
+                            let explicitShowAll = sidebar.showAllChannelConversations[group.channel] ?? false
+                            // Auto-expand when any hidden conversation has unread messages.
+                            let hasHiddenUnread = !explicitShowAll
+                                && group.conversations.count > 3
+                                && group.conversations.dropFirst(3).contains(where: { $0.hasUnseenLatestAssistantMessage })
+                            let showAll = explicitShowAll || hasHiddenUnread
+                            let displayed = showAll ? group.conversations : Array(group.conversations.prefix(3))
 
                             ForEach(displayed) { conversation in
                                 makeSidebarRow(conversation: conversation)
