@@ -3,17 +3,13 @@ import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ActorCredentialRefresher")
 
-/// Performs credential refresh by calling POST /v1/guardian/refresh directly
-/// via `URLSession`, bypassing `GatewayHTTPClient` entirely.
+/// Performs credential refresh by calling `POST /v1/guardian/refresh` directly
+/// via `URLSession`, bypassing `GatewayHTTPClient` entirely to avoid recursive
+/// 401 retry loops.
 ///
-/// The refresh endpoint is intentionally not routed through the authenticated
-/// HTTP client to avoid recursive 401 retry loops — the same pattern used by
-/// Alamofire's `AuthenticationInterceptor` and recommended in
-/// [Building a token refresh flow with async/await](https://www.donnywals.com/building-a-token-refresh-flow-with-async-await-and-swift-concurrency/).
-///
-/// The request includes the current access token (which may be expired)
-/// as a Bearer header — the gateway's refresh route validates signature
-/// and policy but relaxes the expiration check (`allowExpired: true`).
+/// The request includes the current access token (which may be expired) as a
+/// Bearer header — the gateway validates signature and policy but relaxes the
+/// expiration check (`allowExpired: true`).
 public class ActorCredentialRefresher {
 
     public enum RefreshResult {
