@@ -38,11 +38,15 @@ private final class MaintenanceModeURLProtocol: URLProtocol {
 @MainActor
 final class PlatformAssistantMaintenanceDecodingTests: XCTestCase {
     private let decoder = JSONDecoder()
+    private var previousToken: String?
 
     override func setUp() {
         super.setUp()
         MaintenanceModeURLProtocol.requestHandler = nil
         URLProtocol.registerClass(MaintenanceModeURLProtocol.self)
+        // Save any existing token so we can restore it in tearDown, preventing
+        // a test-abort from leaving a bogus token in the real credential store.
+        previousToken = SessionTokenManager.getToken()
         // Provide a token so network-path tests reach the stub handler rather than
         // short-circuiting with authenticationRequired before any request is made.
         SessionTokenManager.setToken("test-session-token")
@@ -51,7 +55,13 @@ final class PlatformAssistantMaintenanceDecodingTests: XCTestCase {
     override func tearDown() {
         URLProtocol.unregisterClass(MaintenanceModeURLProtocol.self)
         MaintenanceModeURLProtocol.requestHandler = nil
-        SessionTokenManager.deleteToken()
+        // Restore the credential store to its pre-test state.
+        if let token = previousToken {
+            SessionTokenManager.setToken(token)
+        } else {
+            SessionTokenManager.deleteToken()
+        }
+        previousToken = nil
         super.tearDown()
     }
 
