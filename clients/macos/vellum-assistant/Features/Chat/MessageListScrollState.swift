@@ -108,6 +108,10 @@ final class MessageListScrollState {
     /// Tracks whether the pagination sentinel was previously inside the trigger band.
     @ObservationIgnored var wasPaginationTriggerInRange: Bool = false
 
+    /// Timestamp of the last pagination completion, used to enforce a 500ms
+    /// cooldown between successive pagination fires.
+    @ObservationIgnored var lastPaginationCompletedAt: Date = .distantPast
+
     /// The conversation ID currently being displayed. Updated in `reset(for:)`
     /// so closures always read the live value.
     @ObservationIgnored var currentConversationId: UUID?
@@ -395,6 +399,7 @@ final class MessageListScrollState {
         paginationTask = nil
         if _isPaginationInFlight { _isPaginationInFlight = false }
         wasPaginationTriggerInRange = false
+        lastPaginationCompletedAt = .distantPast
         // Invalidate the layout cache so the new conversation doesn't
         // hit a stale cache from the previous conversation.
         cachedLayoutKey = nil

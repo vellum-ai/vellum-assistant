@@ -519,6 +519,8 @@ struct MessageListView: View {
               !scrollState.isPaginationInFlight
         else { return }
 
+        guard Date().timeIntervalSince(scrollState.lastPaginationCompletedAt) > 0.5 else { return }
+
         // Fire pagination
         scrollState.isPaginationInFlight = true
         let anchorId = scrollState.cachedFirstVisibleMessageId
@@ -526,9 +528,11 @@ struct MessageListView: View {
         scrollState.paginationTask = Task { [scrollState] in
             defer {
                 if !Task.isCancelled {
+                    scrollState.lastPaginationCompletedAt = Date()
                     scrollState.isPaginationInFlight = false
                     scrollState.paginationTask = nil
                 } else if scrollState.paginationTask == nil {
+                    scrollState.lastPaginationCompletedAt = Date()
                     scrollState.isPaginationInFlight = false
                 }
             }

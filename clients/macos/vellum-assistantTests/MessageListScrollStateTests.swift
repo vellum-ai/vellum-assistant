@@ -366,6 +366,14 @@ final class MessageListScrollStateTests: XCTestCase {
         XCTAssertFalse(state.isThrottled, "Circuit breaker should auto-recover")
     }
 
+    // MARK: - Pagination Cooldown
+
+    func testPaginationCooldownResetOnConversationSwitch() {
+        state.lastPaginationCompletedAt = Date()
+        state.reset(for: UUID())
+        XCTAssertEqual(state.lastPaginationCompletedAt, .distantPast)
+    }
+
     func testScheduleUISyncSuppressedWhenThrottled() async throws {
         for _ in 0...100 {
             state.recordBodyEvaluation()
