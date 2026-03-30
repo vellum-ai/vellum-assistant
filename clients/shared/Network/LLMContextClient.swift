@@ -94,6 +94,7 @@ public struct LLMCallSummary: Codable, Sendable, Equatable {
         responsePreview = container.decodeString(for: ["responsePreview", "responseTextPreview", "response_preview"])
         toolCallNames = container.decodeStringArray(for: ["toolCallNames", "tool_call_names"])
         durationMs = container.decodeInt(for: ["durationMs", "duration_ms", "elapsedMs"])
+        estimatedCostUsd = container.decodeDouble(for: ["estimatedCostUsd", "estimated_cost_usd"])
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -116,6 +117,7 @@ public struct LLMCallSummary: Codable, Sendable, Equatable {
         try container.encodeIfPresent(responsePreview, forKey: "responsePreview")
         try container.encodeIfPresent(toolCallNames, forKey: "toolCallNames")
         try container.encodeIfPresent(durationMs, forKey: "durationMs")
+        try container.encodeIfPresent(estimatedCostUsd, forKey: "estimatedCostUsd")
     }
 }
 
@@ -408,6 +410,16 @@ private extension KeyedDecodingContainer where Key == LLMContextCodingKey {
         return nil
     }
 
+    func decodeDouble(for keys: [String]) -> Double? {
+        for key in keys {
+            guard let codingKey = Key(stringValue: key) else { continue }
+            if let value = try? decodeIfPresent(Double.self, forKey: codingKey) {
+                return value
+            }
+        }
+        return nil
+    }
+
     func decodeBool(for keys: [String]) -> Bool? {
         for key in keys {
             guard let codingKey = Key(stringValue: key) else { continue }
@@ -446,6 +458,11 @@ private extension KeyedEncodingContainer where Key == LLMContextCodingKey {
     }
 
     mutating func encodeIfPresent(_ value: Int?, forKey key: String) throws {
+        guard let value, let codingKey = Key(stringValue: key) else { return }
+        try encode(value, forKey: codingKey)
+    }
+
+    mutating func encodeIfPresent(_ value: Double?, forKey key: String) throws {
         guard let value, let codingKey = Key(stringValue: key) else { return }
         try encode(value, forKey: codingKey)
     }
