@@ -13,8 +13,7 @@
  * 5. Continue matching the existing skill_load:* flow for non-dynamic skills.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -22,9 +21,7 @@ import { _setOverridesForTesting } from "../config/assistant-feature-flags.js";
 
 // ── Mock setup (must be before any imports from the project) ──────────────
 
-const testDir = mkdtempSync(join(tmpdir(), "inline-skill-perm-test-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Point the file-based trust backend at the test temp dir.
 process.env.GATEWAY_SECURITY_DIR = join(testDir, "protected");

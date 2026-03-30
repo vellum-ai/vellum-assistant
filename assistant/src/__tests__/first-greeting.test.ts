@@ -1,27 +1,13 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
 
-let tempDir: string;
+const tempDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 const { isWakeUpGreeting, getCannedFirstGreeting, CANNED_FIRST_GREETING } =
   await import("../daemon/first-greeting.js");
 
 describe("first-greeting", () => {
-  beforeEach(() => {
-    tempDir = join(tmpdir(), `first-greeting-test-${Date.now()}`);
-    process.env.VELLUM_HOME = tempDir;
-    process.env.VELLUM_WORKSPACE_DIR = tempDir;
-    mkdirSync(tempDir, { recursive: true });
-  });
-
-  afterEach(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
-    rmSync(tempDir, { recursive: true, force: true });
-  });
-
   describe("isWakeUpGreeting", () => {
     it("returns true for wake-up greeting with 0 messages and BOOTSTRAP.md present", () => {
       writeFileSync(join(tempDir, "BOOTSTRAP.md"), "bootstrap content");
@@ -56,6 +42,7 @@ describe("first-greeting", () => {
     });
 
     it("returns false when BOOTSTRAP.md doesn't exist", () => {
+      rmSync(join(tempDir, "BOOTSTRAP.md"), { force: true });
       expect(existsSync(join(tempDir, "BOOTSTRAP.md"))).toBe(false);
       expect(isWakeUpGreeting("Wake up, my friend.", 0)).toBe(false);
     });

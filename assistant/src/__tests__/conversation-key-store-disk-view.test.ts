@@ -1,25 +1,17 @@
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "conversation-key-store-disk-view-")),
-);
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
-const workspaceDir = testDir;
-const conversationsDir = join(workspaceDir, "conversations");
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
+const conversationsDir = join(testDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
 
 mock.module("../util/logger.js", () => ({
@@ -55,31 +47,18 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { conversationKeys, conversations } from "../memory/schema.js";
 
 initializeDb();
 
 beforeEach(() => {
-  process.env.VELLUM_HOME = testDir;
-  process.env.VELLUM_WORKSPACE_DIR = testDir;
   const db = getDb();
   db.delete(conversationKeys).run();
   db.delete(conversations).run();
 
   rmSync(conversationsDir, { recursive: true, force: true });
   mkdirSync(conversationsDir, { recursive: true });
-});
-
-afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 describe("conversation-key-store disk view", () => {

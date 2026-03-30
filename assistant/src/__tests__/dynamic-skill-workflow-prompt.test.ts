@@ -1,11 +1,8 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-const TEST_DIR = join(tmpdir(), `vellum-dyn-skill-test-${crypto.randomUUID()}`);
-process.env.VELLUM_HOME = TEST_DIR;
-process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 import { mock } from "bun:test";
 
@@ -55,21 +52,13 @@ const { _setOverridesForTesting } =
 
 describe("Dynamic Skill Authoring Workflow moved to tool descriptions", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
-    mkdirSync(TEST_DIR, { recursive: true });
     _setOverridesForTesting({
       browser: true,
     });
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
     _setOverridesForTesting({});
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
   });
 
   test("system prompt no longer contains Dynamic Skill Authoring section", () => {

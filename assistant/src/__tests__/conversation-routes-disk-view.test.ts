@@ -1,14 +1,6 @@
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { createAssistantMessage } from "../agent/message-types.js";
 import type { Conversation } from "../daemon/conversation.js";
@@ -26,18 +18,13 @@ import {
   getConversationByKey,
   getOrCreateConversation as getOrCreateConversationMapping,
 } from "../memory/conversation-key-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { AssistantEventHub } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import { handleSendMessage } from "../runtime/routes/conversation-routes.js";
 
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "conversation-routes-disk-view-test-")),
-);
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
-const workspaceDir = testDir;
-const conversationsDir = join(workspaceDir, "conversations");
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
+const conversationsDir = join(testDir, "conversations");
 mkdirSync(conversationsDir, { recursive: true });
 
 mock.module("../util/logger.js", () => ({
@@ -334,22 +321,9 @@ async function waitFor<T>(
 }
 
 beforeEach(() => {
-  process.env.VELLUM_HOME = testDir;
-  process.env.VELLUM_WORKSPACE_DIR = testDir;
   resetTables();
   resetConversationsDir();
   conversationInstances.clear();
-});
-
-afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 describe("conversationKey send path disk-view regression", () => {
