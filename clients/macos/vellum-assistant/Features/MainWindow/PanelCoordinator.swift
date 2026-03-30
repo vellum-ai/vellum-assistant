@@ -776,6 +776,7 @@ struct ActiveChatViewWrapper: View {
             activePendingRequestId: viewModel.activePendingRequestId,
             isInteractionEnabled: inspectorMessageId == nil && !isReadonly,
             isReadonly: isReadonly,
+            contextWindowFillRatio: viewModel.contextWindowFillRatio,
             anchorMessageId: $anchorMessageId,
             highlightedMessageId: $highlightedMessageId,
             btwResponse: viewModel.btwResponse,
