@@ -5,17 +5,8 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { mock } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "task-compiler-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -48,6 +39,8 @@ import { getTask } from "../tasks/task-store.js";
 initializeDb();
 
 afterAll(() => {
+  delete process.env.VELLUM_HOME;
+  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
   try {
     rmSync(testDir, { recursive: true });
@@ -92,6 +85,8 @@ function addTestMessage(
 
 describe("compileTaskFromConversation", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const raw = getRawDb();
     raw.run("DELETE FROM task_runs");
     raw.run("DELETE FROM tasks");
@@ -296,6 +291,8 @@ describe("compileTaskFromConversation", () => {
 
 describe("saveCompiledTask", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const raw = getRawDb();
     raw.run("DELETE FROM task_runs");
     raw.run("DELETE FROM tasks");

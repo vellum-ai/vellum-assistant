@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "slack-channel-cfg-test-"));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 const secureStorePath = join(testDir, "keys.enc");
 const metadataPath = join(testDir, "metadata.json");
 const originalVellumDev = process.env.VELLUM_DEV;
@@ -57,19 +59,6 @@ mock.module("../config/loader.js", () => ({
   saveConfig: () => {},
   invalidateConfigCache: () => {},
   setNestedValue,
-}));
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => testDir,
-
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -173,6 +162,8 @@ import {
 } from "../tools/credentials/metadata-store.js";
 
 afterAll(() => {
+  delete process.env.VELLUM_HOME;
+  delete process.env.VELLUM_WORKSPACE_DIR;
   globalThis.fetch = originalFetch;
   _setMetadataPath(null);
   _setStorePath(null);
@@ -191,6 +182,8 @@ afterAll(() => {
 
 describe("Slack channel config handler", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     oauthConnectionStore = {};
     configStore = {};
     globalThis.fetch = originalFetch;

@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   hostPolicy,
@@ -24,20 +24,10 @@ import {
 const CLASSIFIER_TEST_ROOT = realpathSync(
   mkdtempSync(join(tmpdir(), "path-classifier-")),
 );
-const MOCK_MANAGED_DIR = join(CLASSIFIER_TEST_ROOT, "workspace", "skills");
+process.env.VELLUM_HOME = CLASSIFIER_TEST_ROOT;
+process.env.VELLUM_WORKSPACE_DIR = CLASSIFIER_TEST_ROOT;
+const MOCK_MANAGED_DIR = join(CLASSIFIER_TEST_ROOT, "skills");
 const MOCK_BUNDLED_DIR = join(CLASSIFIER_TEST_ROOT, "bundled-skills");
-
-mock.module("../util/platform.js", () => ({
-  getWorkspaceSkillsDir: () => MOCK_MANAGED_DIR,
-  getProtectedDir: () => join(CLASSIFIER_TEST_ROOT, "protected"),
-  getWorkspaceDir: () => join(CLASSIFIER_TEST_ROOT, "workspace"),
-  getDataDir: () => join(CLASSIFIER_TEST_ROOT, "data"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPlatformName: () => process.platform,
-  ensureDataDir: () => {},
-}));
 
 mock.module("../config/skills.js", () => ({
   getBundledSkillsDir: () => MOCK_BUNDLED_DIR,
@@ -61,7 +51,14 @@ const {
 
 const testDirs: string[] = [];
 
+beforeEach(() => {
+  process.env.VELLUM_HOME = CLASSIFIER_TEST_ROOT;
+  process.env.VELLUM_WORKSPACE_DIR = CLASSIFIER_TEST_ROOT;
+});
+
 afterEach(() => {
+  delete process.env.VELLUM_HOME;
+  delete process.env.VELLUM_WORKSPACE_DIR;
   for (const dir of testDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -350,7 +347,6 @@ describe("getManagedSkillsRoot / getBundledSkillsRoot", () => {
   test("returns managed skills dir with trailing separator", () => {
     const root = getManagedSkillsRoot();
     expect(root.endsWith(sep)).toBe(true);
-    expect(root).toContain("workspace");
     expect(root).toContain("skills");
   });
 

@@ -38,22 +38,6 @@ const mockConfig = {
   },
 };
 
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(TEST_DIR, "protected"),
-  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
-  getDataDir: () => TEST_DIR,
-  ensureDataDir: () => {},
-  getPidPath: () => join(TEST_DIR, "vellum.pid"),
-  getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
-  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
-  getHistoryPath: () => join(TEST_DIR, "history"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPlatformName: () => process.platform,
-  getClipboardCommand: () => null,
-}));
-
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
@@ -97,10 +81,14 @@ function makeContext(): ToolContext {
 
 beforeEach(() => {
   TEST_DIR = mkdtempSync(join(tmpdir(), "lifecycle-test-"));
+  process.env.VELLUM_HOME = TEST_DIR;
+  process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
   mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
 });
 
 afterEach(() => {
+  delete process.env.VELLUM_HOME;
+  delete process.env.VELLUM_WORKSPACE_DIR;
   rmSync(TEST_DIR, { recursive: true, force: true });
 });
 

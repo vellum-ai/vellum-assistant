@@ -14,17 +14,8 @@ import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "tool-grant-escalation-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -145,6 +136,8 @@ function resetTables(): void {
 }
 
 afterAll(() => {
+  delete process.env.VELLUM_HOME;
+  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
   try {
     rmSync(testDir, { recursive: true });
@@ -215,6 +208,8 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
   };
 
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     events.length = 0;
     emittedSignals.length = 0;
@@ -406,6 +401,8 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
 
 describe("applyCanonicalGuardianDecision / tool_grant_request", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     deliveredReplies.length = 0;
   });
@@ -514,6 +511,8 @@ describe("end-to-end: tool grant escalation -> approval -> consume", () => {
   };
 
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     events.length = 0;
     emittedSignals.length = 0;
@@ -643,6 +642,8 @@ describe("inline wait-and-resume", () => {
   };
 
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
     events.length = 0;
     emittedSignals.length = 0;

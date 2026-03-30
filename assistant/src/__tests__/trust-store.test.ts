@@ -11,6 +11,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // Create a temp directory for the trust file
 const testDir = mkdtempSync(join(tmpdir(), "trust-store-test-"));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // Point the file-based trust backend at the test temp dir so
 // getGatewaySecurityDir() (which checks this env var first) writes
@@ -18,19 +20,6 @@ const testDir = mkdtempSync(join(tmpdir(), "trust-store-test-"));
 process.env.GATEWAY_SECURITY_DIR = join(testDir, "protected");
 
 // Mock platform module so trust-store writes to temp dir instead of ~/.vellum
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getWorkspaceDir: () => join(testDir, "workspace"),
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
-
 // Mock logger to suppress output during tests
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
@@ -744,7 +733,7 @@ describe("Trust Store", () => {
           rule.id === "default:allow-bash-rm-bootstrap" ||
           rule.id === "default:allow-bash-rm-updates"
         ) {
-          expect(rule.scope).toBe(join(testDir, "workspace"));
+          expect(rule.scope).toBe(testDir);
         } else {
           expect(rule.scope).toBe("everywhere");
         }
@@ -917,7 +906,7 @@ describe("Trust Store", () => {
     });
 
     test("bootstrap delete rule matches only when workingDir is the workspace dir", () => {
-      const workspaceDir = join(testDir, "workspace");
+      const workspaceDir = testDir;
       // Should match when workingDir is the workspace directory — the bootstrap
       // rule (priority 100) outranks the global default allow (priority 50).
       const match = findHighestPriorityRule(
@@ -940,7 +929,7 @@ describe("Trust Store", () => {
     });
 
     test("updates delete rule matches only when workingDir is the workspace dir", () => {
-      const workspaceDir = join(testDir, "workspace");
+      const workspaceDir = testDir;
       const match = findHighestPriorityRule(
         "bash",
         ["rm UPDATES.md"],
@@ -1028,7 +1017,7 @@ describe("Trust Store", () => {
       expect(managed!.tool).toBe("file_write");
       expect(managed!.decision).toBe("ask");
       expect(managed!.priority).toBe(50);
-      expect(managed!.pattern).toContain("workspace/skills/**");
+      expect(managed!.pattern).toContain("skills/**");
 
       const bundled = rules.find(
         (r) => r.id === "default:ask-file_write-bundled-skills",
@@ -1048,7 +1037,7 @@ describe("Trust Store", () => {
       expect(managed!.tool).toBe("file_edit");
       expect(managed!.decision).toBe("ask");
       expect(managed!.priority).toBe(50);
-      expect(managed!.pattern).toContain("workspace/skills/**");
+      expect(managed!.pattern).toContain("skills/**");
 
       const bundled = rules.find(
         (r) => r.id === "default:ask-file_edit-bundled-skills",
@@ -1159,13 +1148,7 @@ describe("Trust Store", () => {
     });
 
     test("findHighestPriorityRule matches default ask for file_write on managed skill path", () => {
-      const skillFile = join(
-        testDir,
-        "workspace",
-        "skills",
-        "my-skill",
-        "SKILL.md",
-      );
+      const skillFile = join(testDir, "skills", "my-skill", "SKILL.md");
       const match = findHighestPriorityRule(
         "file_write",
         [`file_write:${skillFile}`],
@@ -1177,13 +1160,7 @@ describe("Trust Store", () => {
     });
 
     test("findHighestPriorityRule matches default ask for file_edit on managed skill path", () => {
-      const skillFile = join(
-        testDir,
-        "workspace",
-        "skills",
-        "my-skill",
-        "tools.ts",
-      );
+      const skillFile = join(testDir, "skills", "my-skill", "tools.ts");
       const match = findHighestPriorityRule(
         "file_edit",
         [`file_edit:${skillFile}`],

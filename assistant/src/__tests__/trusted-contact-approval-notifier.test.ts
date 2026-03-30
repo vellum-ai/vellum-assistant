@@ -15,24 +15,10 @@ import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const testDir = mkdtempSync(join(tmpdir(), "tc-approval-notifier-test-"));
+process.env.VELLUM_HOME = testDir;
+process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // ── Platform mock ──
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const realPlatform = require("../util/platform.js");
-mock.module("../util/platform.js", () => ({
-  ...realPlatform,
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-  normalizeAssistantId: (id: string) =>
-    id === "self" || id === "" ? "self" : id,
-}));
-
 // ── Logger mock ──
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const realLogger = require("../util/logger.js");
@@ -249,6 +235,8 @@ async function simulateNotifierPoll(params: {
 
 describe("trusted-contact pending-approval notifier", () => {
   beforeEach(() => {
+    process.env.VELLUM_HOME = testDir;
+    process.env.VELLUM_WORKSPACE_DIR = testDir;
     deliveredReplies.length = 0;
     deliverShouldFail = false;
     mockPendingApprovals = [];
@@ -256,6 +244,8 @@ describe("trusted-contact pending-approval notifier", () => {
   });
 
   afterAll(() => {
+    delete process.env.VELLUM_HOME;
+    delete process.env.VELLUM_WORKSPACE_DIR;
     try {
       rmSync(testDir, { recursive: true });
     } catch {
