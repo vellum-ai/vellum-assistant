@@ -1,7 +1,5 @@
 import * as realChildProcess from "node:child_process";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-
-import { isLinux, isMacOS } from "../util/platform.js";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 const execSyncMock = mock(
   (_command: string, _opts?: unknown): unknown => undefined,
@@ -40,6 +38,15 @@ mock.module("../util/logger.js", () => ({
 const { runSandboxDiagnostics } =
   await import("../tools/terminal/sandbox-diagnostics.js");
 
+// ---------------------------------------------------------------------------
+// Helper: temporarily override process.platform for a test
+// ---------------------------------------------------------------------------
+const originalPlatform = process.platform;
+
+function setPlatform(platform: string): void {
+  Object.defineProperty(process, "platform", { value: platform });
+}
+
 beforeEach(() => {
   execSyncMock.mockReset();
   mockSandboxConfig = {
@@ -47,6 +54,11 @@ beforeEach(() => {
   };
   // Default: all commands succeed.
   execSyncMock.mockImplementation(() => undefined);
+});
+
+afterEach(() => {
+  // Restore the real platform after every test
+  setPlatform(originalPlatform);
 });
 
 describe("runSandboxDiagnostics — config reporting", () => {
@@ -75,25 +87,25 @@ describe("runSandboxDiagnostics — active backend reason", () => {
   });
 });
 
-describe("runSandboxDiagnostics — native backend check", () => {
-  test("passes when native sandbox command succeeds", () => {
+describe("runSandboxDiagnostics — native backend check (macOS)", () => {
+  test("passes when sandbox-exec works on macOS", () => {
+    setPlatform("darwin");
     const result = runSandboxDiagnostics();
     const nativeCheck = result.checks.find((c) =>
       c.label.includes("Native sandbox"),
     );
     expect(nativeCheck).toBeDefined();
     expect(nativeCheck!.ok).toBe(true);
-    // Verify the label matches the real platform
-    if (isMacOS()) {
-      expect(nativeCheck!.label).toContain("macOS");
-    } else if (isLinux()) {
-      expect(nativeCheck!.label).toContain("Linux");
-    }
+    expect(nativeCheck!.label).toContain("macOS");
   });
 
-  test("fails when native sandbox command does not work", () => {
-    execSyncMock.mockImplementation(() => {
-      throw new Error("not available");
+  test("fails when sandbox-exec does not work on macOS", () => {
+    setPlatform("darwin");
+    execSyncMock.mockImplementation((cmd: string) => {
+      if (typeof cmd === "string" && cmd.includes("sandbox-exec")) {
+        throw new Error("not available");
+      }
+      return "Docker version 24.0.7";
     });
     const result = runSandboxDiagnostics();
     const nativeCheck = result.checks.find((c) =>
@@ -101,6 +113,49 @@ describe("runSandboxDiagnostics — native backend check", () => {
     );
     expect(nativeCheck).toBeDefined();
     expect(nativeCheck!.ok).toBe(false);
+  });
+});
+
+describe("runSandboxDiagnostics — native backend check (Linux)", () => {
+  test("passes when bwrap works on Linux", () => {
+    setPlatform("linux");
+    const result = runSandboxDiagnostics();
+    const nativeCheck = result.checks.find((c) =>
+      c.label.includes("Native sandbox"),
+    );
+    expect(nativeCheck).toBeDefined();
+    expect(nativeCheck!.ok).toBe(true);
+    expect(nativeCheck!.label).toContain("Linux");
+  });
+
+  test("fails when bwrap is not available on Linux", () => {
+    setPlatform("linux");
+    execSyncMock.mockImplementation((cmd: string) => {
+      if (typeof cmd === "string" && cmd.includes("bwrap")) {
+        throw new Error("not found");
+      }
+      return "Docker version 24.0.7";
+    });
+    const result = runSandboxDiagnostics();
+    const nativeCheck = result.checks.find((c) =>
+      c.label.includes("Native sandbox"),
+    );
+    expect(nativeCheck).toBeDefined();
+    expect(nativeCheck!.ok).toBe(false);
+    expect(nativeCheck!.detail).toContain("bubblewrap");
+  });
+});
+
+describe("runSandboxDiagnostics — native backend check (unsupported OS)", () => {
+  test("reports unsupported when neither macOS nor Linux", () => {
+    setPlatform("win32");
+    const result = runSandboxDiagnostics();
+    const nativeCheck = result.checks.find((c) =>
+      c.label.includes("Native sandbox"),
+    );
+    expect(nativeCheck).toBeDefined();
+    expect(nativeCheck!.ok).toBe(false);
+    expect(nativeCheck!.detail).toContain("not supported");
   });
 });
 
