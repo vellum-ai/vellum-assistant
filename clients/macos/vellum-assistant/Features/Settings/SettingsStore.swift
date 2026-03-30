@@ -2488,6 +2488,13 @@ public final class SettingsStore: ObservableObject {
                 id: assistant.assistantId,
                 organizationId: orgId
             )
+            // Guard against stale responses: only apply the result if the connected
+            // assistant hasn't changed while the request was in flight.
+            let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+            guard currentConnectedId == connectedId else {
+                log.info("Discarding stale maintenance-mode response for assistant \(assistant.assistantId, privacy: .public): assistant changed to '\(currentConnectedId, privacy: .public)' while request was in flight")
+                return
+            }
             managedAssistantMaintenanceMode = updated.maintenance_mode
             log.info("Refreshed maintenance mode for assistant \(assistant.assistantId, privacy: .public): enabled=\(updated.maintenance_mode?.enabled ?? false)")
         } catch {
