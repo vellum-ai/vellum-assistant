@@ -565,6 +565,28 @@ export class DaemonServer {
         params.conversationKey,
       );
       const conversation = await this.getOrCreateConversation(conversationId);
+
+      // Build a hub-publishing sender so events reach SSE clients.
+      const hubSender = (msg: ServerMessage) => {
+        const msgConversationId =
+          "conversationId" in msg &&
+          typeof (msg as { conversationId?: unknown }).conversationId ===
+            "string"
+            ? (msg as { conversationId: string }).conversationId
+            : undefined;
+        const event = buildAssistantEvent(
+          DAEMON_INTERNAL_ASSISTANT_ID,
+          msg,
+          msgConversationId ?? conversationId,
+        );
+        assistantEventHub.publish(event).catch((err) => {
+          log.warn(
+            { err },
+            "assistant-events hub subscriber threw during signal user-message",
+          );
+        });
+      };
+
       if (conversation.isProcessing()) {
         const requestId = crypto.randomUUID();
         const resolvedChannel = resolveTurnChannel(params.sourceChannel);
@@ -572,7 +594,7 @@ export class DaemonServer {
         const result = conversation.enqueueMessage(
           params.content,
           [],
-          () => {},
+          hubSender,
           requestId,
           undefined,
           undefined,
@@ -589,7 +611,7 @@ export class DaemonServer {
         conversationId,
         params.content,
         undefined,
-        undefined,
+        { onEvent: hubSender },
         params.sourceChannel,
         params.sourceInterface,
       );
