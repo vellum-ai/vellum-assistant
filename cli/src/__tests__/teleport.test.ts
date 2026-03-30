@@ -461,6 +461,56 @@ describe("teleport cloud resolution", () => {
     }
   });
 
+  test("entry with cloud: 'docker' resolves to docker", async () => {
+    setArgv("--from", "src", "--to", "dst");
+
+    const srcEntry = makeEntry("src", {
+      cloud: "docker",
+      runtimeUrl: "http://localhost:7830",
+    });
+    const dstEntry = makeEntry("dst", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "src") return srcEntry;
+      if (name === "dst") return dstEntry;
+      return null;
+    });
+
+    const originalFetch = globalThis.fetch;
+    const fetchMock = mock(async (url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      if (urlStr.includes("/export")) {
+        return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+      }
+      // import endpoint
+      return new Response(
+        JSON.stringify({
+          success: true,
+          summary: {
+            total_files: 1,
+            files_created: 1,
+            files_overwritten: 0,
+            files_skipped: 0,
+            backups_created: 0,
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+      // Docker export uses fetch to /v1/migrations/export (same as local)
+      const exportCalls = filterFetchCalls(fetchMock, "/v1/migrations/export");
+      expect(exportCalls.length).toBe(1);
+      // Verify the export URL uses the docker entry's runtimeUrl
+      expect(extractUrl(exportCalls[0][0])).toContain("localhost:7830");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("entry with no cloud but project set resolves to gcp (unsupported)", async () => {
     setArgv("--from", "src", "--to", "dst");
 
@@ -480,7 +530,7 @@ describe("teleport cloud resolution", () => {
     // GCP is unsupported, should print error and exit
     await expect(teleport()).rejects.toThrow("process.exit:1");
     expect(consoleErrorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("only supports local and platform"),
+      expect.stringContaining("only supports local, docker, and platform"),
     );
   });
 
@@ -825,5 +875,334 @@ describe("teleport malformed flag usage", () => {
     expect(consoleLogSpy).toHaveBeenCalledWith(
       expect.stringContaining("Usage:"),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Docker transfer routing tests
+// ---------------------------------------------------------------------------
+
+describe("teleport docker transfers", () => {
+  test("export from docker source calls HTTP export endpoint on entry.runtimeUrl", async () => {
+    setArgv("--from", "docker-src", "--to", "local-dst");
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "docker-src")
+        return makeEntry("docker-src", {
+          cloud: "docker",
+          runtimeUrl: "http://localhost:7830",
+        });
+      if (name === "local-dst")
+        return makeEntry("local-dst", { cloud: "local" });
+      return null;
+    });
+
+    const originalFetch = globalThis.fetch;
+    const fetchMock = mock(async (url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      if (urlStr.includes("/export")) {
+        return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({
+          success: true,
+          summary: {
+            total_files: 1,
+            files_created: 1,
+            files_overwritten: 0,
+            files_skipped: 0,
+            backups_created: 0,
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+
+      // Docker export: should call fetch to /v1/migrations/export on the docker runtimeUrl
+      const exportCalls = filterFetchCalls(fetchMock, "/v1/migrations/export");
+      expect(exportCalls.length).toBe(1);
+      expect(extractUrl(exportCalls[0][0])).toContain("localhost:7830");
+
+      // Should NOT call platform export functions
+      expect(platformInitiateExportMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("import to docker target calls HTTP import endpoint on entry.runtimeUrl", async () => {
+    setArgv("--from", "local-src", "--to", "docker-dst");
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "local-src")
+        return makeEntry("local-src", { cloud: "local" });
+      if (name === "docker-dst")
+        return makeEntry("docker-dst", {
+          cloud: "docker",
+          runtimeUrl: "http://localhost:7830",
+        });
+      return null;
+    });
+
+    const originalFetch = globalThis.fetch;
+    const fetchMock = mock(async (url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      if (urlStr.includes("/export")) {
+        return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({
+          success: true,
+          summary: {
+            total_files: 1,
+            files_created: 1,
+            files_overwritten: 0,
+            files_skipped: 0,
+            backups_created: 0,
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+
+      // Docker import: should call fetch to /v1/migrations/import on the docker runtimeUrl
+      const importCalls = filterFetchCalls(
+        fetchMock,
+        "/v1/migrations/import",
+      ).filter((call) => !extractUrl(call[0]).includes("/import-preflight"));
+      expect(importCalls.length).toBe(1);
+      expect(extractUrl(importCalls[0][0])).toContain("localhost:7830");
+
+      // Should NOT call platform import functions
+      expect(platformImportBundleMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("dry-run import to docker target calls preflight endpoint", async () => {
+    setArgv("--from", "local-src", "--to", "docker-dst", "--dry-run");
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "local-src")
+        return makeEntry("local-src", { cloud: "local" });
+      if (name === "docker-dst")
+        return makeEntry("docker-dst", {
+          cloud: "docker",
+          runtimeUrl: "http://localhost:7830",
+        });
+      return null;
+    });
+
+    const originalFetch = globalThis.fetch;
+    const fetchMock = mock(async (url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      if (urlStr.includes("/export")) {
+        return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+      }
+      if (urlStr.includes("/import-preflight")) {
+        return new Response(
+          JSON.stringify({
+            can_import: true,
+            summary: {
+              files_to_create: 1,
+              files_to_overwrite: 0,
+              files_unchanged: 0,
+              total_files: 1,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+
+      // Should call preflight endpoint on docker runtimeUrl
+      const preflightCalls = filterFetchCalls(fetchMock, "import-preflight");
+      expect(preflightCalls.length).toBe(1);
+      expect(extractUrl(preflightCalls[0][0])).toContain("localhost:7830");
+
+      // Should NOT call the actual import endpoint
+      const importCalls = filterFetchCalls(fetchMock, "/import").filter(
+        (call) => !extractUrl(call[0]).includes("preflight"),
+      );
+      expect(importCalls.length).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("docker → platform calls HTTP export and platform import", async () => {
+    setArgv("--from", "docker-src", "--to", "platform-dst");
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "docker-src")
+        return makeEntry("docker-src", {
+          cloud: "docker",
+          runtimeUrl: "http://localhost:7830",
+        });
+      if (name === "platform-dst")
+        return makeEntry("platform-dst", {
+          cloud: "vellum",
+          runtimeUrl: "https://platform.vellum.ai",
+        });
+      return null;
+    });
+
+    const originalFetch = globalThis.fetch;
+    const fetchMock = mock(async () => {
+      return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+
+      // Docker export: should call fetch to /v1/migrations/export
+      const exportCalls = filterFetchCalls(fetchMock, "/v1/migrations/export");
+      expect(exportCalls.length).toBe(1);
+      expect(extractUrl(exportCalls[0][0])).toContain("localhost:7830");
+
+      // Platform import: should call platformImportBundle
+      expect(platformImportBundleMock).toHaveBeenCalled();
+
+      // Should NOT call platform export functions
+      expect(platformInitiateExportMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("platform → docker calls platform export and HTTP import", async () => {
+    setArgv("--from", "platform-src", "--to", "docker-dst");
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "platform-src")
+        return makeEntry("platform-src", {
+          cloud: "vellum",
+          runtimeUrl: "https://platform.vellum.ai",
+        });
+      if (name === "docker-dst")
+        return makeEntry("docker-dst", {
+          cloud: "docker",
+          runtimeUrl: "http://localhost:7830",
+        });
+      return null;
+    });
+
+    const originalFetch = globalThis.fetch;
+    const fetchMock = mock(async () => {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          summary: {
+            total_files: 3,
+            files_created: 2,
+            files_overwritten: 1,
+            files_skipped: 0,
+            backups_created: 1,
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+
+      // Platform export: should call all three platform export functions
+      expect(platformInitiateExportMock).toHaveBeenCalled();
+      expect(platformPollExportStatusMock).toHaveBeenCalled();
+      expect(platformDownloadExportMock).toHaveBeenCalled();
+
+      // Docker import: should call fetch to /v1/migrations/import on docker runtimeUrl
+      const importCalls = filterFetchCalls(
+        fetchMock,
+        "/v1/migrations/import",
+      ).filter((call) => !extractUrl(call[0]).includes("/import-preflight"));
+      expect(importCalls.length).toBe(1);
+      expect(extractUrl(importCalls[0][0])).toContain("localhost:7830");
+
+      // Should NOT call platformImportBundle
+      expect(platformImportBundleMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("docker → docker calls HTTP export and HTTP import", async () => {
+    setArgv("--from", "docker-src", "--to", "docker-dst");
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "docker-src")
+        return makeEntry("docker-src", {
+          cloud: "docker",
+          runtimeUrl: "http://localhost:7830",
+        });
+      if (name === "docker-dst")
+        return makeEntry("docker-dst", {
+          cloud: "docker",
+          runtimeUrl: "http://localhost:7840",
+        });
+      return null;
+    });
+
+    const originalFetch = globalThis.fetch;
+    const fetchMock = mock(async (url: string | URL | Request) => {
+      const urlStr = typeof url === "string" ? url : url.toString();
+      if (urlStr.includes("/export")) {
+        return new Response(new Uint8Array([1, 2, 3]), { status: 200 });
+      }
+      return new Response(
+        JSON.stringify({
+          success: true,
+          summary: {
+            total_files: 1,
+            files_created: 1,
+            files_overwritten: 0,
+            files_skipped: 0,
+            backups_created: 0,
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+
+      // Docker export: fetch to /v1/migrations/export on source runtimeUrl
+      const exportCalls = filterFetchCalls(fetchMock, "/v1/migrations/export");
+      expect(exportCalls.length).toBe(1);
+      expect(extractUrl(exportCalls[0][0])).toContain("localhost:7830");
+
+      // Docker import: fetch to /v1/migrations/import on target runtimeUrl
+      const importCalls = filterFetchCalls(
+        fetchMock,
+        "/v1/migrations/import",
+      ).filter((call) => !extractUrl(call[0]).includes("/import-preflight"));
+      expect(importCalls.length).toBe(1);
+      expect(extractUrl(importCalls[0][0])).toContain("localhost:7840");
+
+      // Should NOT call any platform functions
+      expect(platformInitiateExportMock).not.toHaveBeenCalled();
+      expect(platformImportBundleMock).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

@@ -20,7 +20,7 @@ function printHelp(): void {
   );
   console.log("");
   console.log(
-    "Transfer assistant data between local and platform environments.",
+    "Transfer assistant data between local, docker, and platform environments.",
   );
   console.log("");
   console.log("Options:");
@@ -34,6 +34,7 @@ function printHelp(): void {
   console.log("Examples:");
   console.log("  vellum teleport --from my-local --to my-cloud");
   console.log("  vellum teleport --from my-cloud --to my-local --dry-run");
+  console.log("  vellum teleport --from my-docker --to my-local");
   console.log("  vellum teleport --from staging --to production --dry-run");
 }
 
@@ -105,6 +106,245 @@ async function getAccessToken(
     }
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// HTTP-based export/import helpers (shared by local and docker)
+// ---------------------------------------------------------------------------
+
+async function exportViaHttp(
+  entry: AssistantEntry,
+): Promise<Uint8Array<ArrayBuffer>> {
+  let accessToken = await getAccessToken(
+    entry.runtimeUrl,
+    entry.assistantId,
+    entry.assistantId,
+  );
+
+  let response: Response;
+  try {
+    response = await fetch(`${entry.runtimeUrl}/v1/migrations/export`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ description: "teleport export" }),
+      signal: AbortSignal.timeout(120_000),
+    });
+
+    // Retry once with a fresh token on 401
+    if (response.status === 401) {
+      let refreshedToken: string | null = null;
+      try {
+        const freshToken = await leaseGuardianToken(
+          entry.runtimeUrl,
+          entry.assistantId,
+        );
+        refreshedToken = freshToken.accessToken;
+      } catch {
+        // If token refresh fails, fall through to the error handler below
+      }
+      if (refreshedToken) {
+        accessToken = refreshedToken;
+        response = await fetch(`${entry.runtimeUrl}/v1/migrations/export`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ description: "teleport export" }),
+          signal: AbortSignal.timeout(120_000),
+        });
+      }
+    }
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      console.error("Error: Export request timed out after 2 minutes.");
+      process.exit(1);
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
+      console.error(
+        `Error: Could not connect to assistant '${entry.assistantId}'. Is it running?`,
+      );
+      console.error(`Try: vellum wake ${entry.assistantId}`);
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    console.error("Authentication failed.");
+    process.exit(1);
+  }
+
+  if (response.status === 404) {
+    console.error("Assistant not found or not running.");
+    process.exit(1);
+  }
+
+  if (
+    response.status === 502 ||
+    response.status === 503 ||
+    response.status === 504
+  ) {
+    console.error(
+      `Assistant is unreachable. Try 'vellum wake ${entry.assistantId}'.`,
+    );
+    process.exit(1);
+  }
+
+  if (!response.ok) {
+    const body = await response.text();
+    console.error(`Error: Export failed (${response.status}): ${body}`);
+    process.exit(1);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return new Uint8Array(arrayBuffer);
+}
+
+async function importViaHttp(
+  entry: AssistantEntry,
+  bundleData: Uint8Array<ArrayBuffer>,
+  dryRun: boolean,
+): Promise<void> {
+  let accessToken = await getAccessToken(
+    entry.runtimeUrl,
+    entry.assistantId,
+    entry.assistantId,
+  );
+
+  if (dryRun) {
+    console.log("Running preflight analysis...\n");
+
+    let response: Response;
+    try {
+      response = await fetch(
+        `${entry.runtimeUrl}/v1/migrations/import-preflight`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/octet-stream",
+          },
+          body: new Blob([bundleData]),
+          signal: AbortSignal.timeout(120_000),
+        },
+      );
+
+      // Retry once with a fresh token on 401
+      if (response.status === 401) {
+        let refreshedToken: string | null = null;
+        try {
+          const freshToken = await leaseGuardianToken(
+            entry.runtimeUrl,
+            entry.assistantId,
+          );
+          refreshedToken = freshToken.accessToken;
+        } catch {
+          // If token refresh fails, fall through to the error handler below
+        }
+        if (refreshedToken) {
+          accessToken = refreshedToken;
+          response = await fetch(
+            `${entry.runtimeUrl}/v1/migrations/import-preflight`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/octet-stream",
+              },
+              body: new Blob([bundleData]),
+              signal: AbortSignal.timeout(120_000),
+            },
+          );
+        }
+      }
+    } catch (err) {
+      if (err instanceof Error && err.name === "TimeoutError") {
+        console.error("Error: Preflight request timed out after 2 minutes.");
+        process.exit(1);
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
+        console.error(
+          `Error: Could not connect to assistant '${entry.assistantId}'. Is it running?`,
+        );
+        console.error(`Try: vellum wake ${entry.assistantId}`);
+        process.exit(1);
+      }
+      throw err;
+    }
+
+    handleLocalResponseErrors(response, entry.assistantId);
+
+    const result = (await response.json()) as PreflightResponse;
+    printPreflightSummary(result);
+    return;
+  }
+
+  // Actual import
+  console.log("Importing data...");
+
+  let response: Response;
+  try {
+    response = await fetch(`${entry.runtimeUrl}/v1/migrations/import`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/octet-stream",
+      },
+      body: new Blob([bundleData]),
+      signal: AbortSignal.timeout(120_000),
+    });
+
+    // Retry once with a fresh token on 401
+    if (response.status === 401) {
+      let refreshedToken: string | null = null;
+      try {
+        const freshToken = await leaseGuardianToken(
+          entry.runtimeUrl,
+          entry.assistantId,
+        );
+        refreshedToken = freshToken.accessToken;
+      } catch {
+        // If token refresh fails, fall through to the error handler below
+      }
+      if (refreshedToken) {
+        accessToken = refreshedToken;
+        response = await fetch(`${entry.runtimeUrl}/v1/migrations/import`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/octet-stream",
+          },
+          body: new Blob([bundleData]),
+          signal: AbortSignal.timeout(120_000),
+        });
+      }
+    }
+  } catch (err) {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      console.error("Error: Import request timed out after 2 minutes.");
+      process.exit(1);
+    }
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
+      console.error(
+        `Error: Could not connect to assistant '${entry.assistantId}'. Is it running?`,
+      );
+      console.error(`Try: vellum wake ${entry.assistantId}`);
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  handleLocalResponseErrors(response, entry.assistantId);
+
+  const result = (await response.json()) as ImportResponse;
+  printImportSummary(result);
 }
 
 // ---------------------------------------------------------------------------
@@ -205,100 +445,12 @@ async function exportFromAssistant(
     return new Uint8Array(arrayBuffer);
   }
 
-  if (cloud === "local") {
-    // Local source — direct export endpoint
-    let accessToken = await getAccessToken(
-      entry.runtimeUrl,
-      entry.assistantId,
-      entry.assistantId,
-    );
-
-    let response: Response;
-    try {
-      response = await fetch(`${entry.runtimeUrl}/v1/migrations/export`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ description: "teleport export" }),
-        signal: AbortSignal.timeout(120_000),
-      });
-
-      // Retry once with a fresh token on 401
-      if (response.status === 401) {
-        let refreshedToken: string | null = null;
-        try {
-          const freshToken = await leaseGuardianToken(
-            entry.runtimeUrl,
-            entry.assistantId,
-          );
-          refreshedToken = freshToken.accessToken;
-        } catch {
-          // If token refresh fails, fall through to the error handler below
-        }
-        if (refreshedToken) {
-          accessToken = refreshedToken;
-          response = await fetch(`${entry.runtimeUrl}/v1/migrations/export`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ description: "teleport export" }),
-            signal: AbortSignal.timeout(120_000),
-          });
-        }
-      }
-    } catch (err) {
-      if (err instanceof Error && err.name === "TimeoutError") {
-        console.error("Error: Export request timed out after 2 minutes.");
-        process.exit(1);
-      }
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
-        console.error(
-          `Error: Could not connect to assistant '${entry.assistantId}'. Is it running?`,
-        );
-        console.error(`Try: vellum wake ${entry.assistantId}`);
-        process.exit(1);
-      }
-      throw err;
-    }
-
-    if (response.status === 401 || response.status === 403) {
-      console.error("Authentication failed.");
-      process.exit(1);
-    }
-
-    if (response.status === 404) {
-      console.error("Assistant not found or not running.");
-      process.exit(1);
-    }
-
-    if (
-      response.status === 502 ||
-      response.status === 503 ||
-      response.status === 504
-    ) {
-      console.error(
-        `Assistant is unreachable. Try 'vellum wake ${entry.assistantId}'.`,
-      );
-      process.exit(1);
-    }
-
-    if (!response.ok) {
-      const body = await response.text();
-      console.error(`Error: Export failed (${response.status}): ${body}`);
-      process.exit(1);
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    return new Uint8Array(arrayBuffer);
+  if (cloud === "local" || cloud === "docker") {
+    return exportViaHttp(entry);
   }
 
   console.error(
-    "Teleport only supports local and platform assistants as source.",
+    "Teleport only supports local, docker, and platform assistants as source.",
   );
   process.exit(1);
 }
@@ -459,148 +611,13 @@ async function importToAssistant(
     return;
   }
 
-  if (cloud === "local") {
-    // Local target
-    let accessToken = await getAccessToken(
-      entry.runtimeUrl,
-      entry.assistantId,
-      entry.assistantId,
-    );
-
-    if (dryRun) {
-      console.log("Running preflight analysis...\n");
-
-      let response: Response;
-      try {
-        response = await fetch(
-          `${entry.runtimeUrl}/v1/migrations/import-preflight`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/octet-stream",
-            },
-            body: new Blob([bundleData]),
-            signal: AbortSignal.timeout(120_000),
-          },
-        );
-
-        // Retry once with a fresh token on 401
-        if (response.status === 401) {
-          let refreshedToken: string | null = null;
-          try {
-            const freshToken = await leaseGuardianToken(
-              entry.runtimeUrl,
-              entry.assistantId,
-            );
-            refreshedToken = freshToken.accessToken;
-          } catch {
-            // If token refresh fails, fall through to the error handler below
-          }
-          if (refreshedToken) {
-            accessToken = refreshedToken;
-            response = await fetch(
-              `${entry.runtimeUrl}/v1/migrations/import-preflight`,
-              {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${accessToken}`,
-                  "Content-Type": "application/octet-stream",
-                },
-                body: new Blob([bundleData]),
-                signal: AbortSignal.timeout(120_000),
-              },
-            );
-          }
-        }
-      } catch (err) {
-        if (err instanceof Error && err.name === "TimeoutError") {
-          console.error("Error: Preflight request timed out after 2 minutes.");
-          process.exit(1);
-        }
-        const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
-          console.error(
-            `Error: Could not connect to assistant '${entry.assistantId}'. Is it running?`,
-          );
-          console.error(`Try: vellum wake ${entry.assistantId}`);
-          process.exit(1);
-        }
-        throw err;
-      }
-
-      handleLocalResponseErrors(response, entry.assistantId);
-
-      const result = (await response.json()) as PreflightResponse;
-      printPreflightSummary(result);
-      return;
-    }
-
-    // Actual import
-    console.log("Importing data...");
-
-    let response: Response;
-    try {
-      response = await fetch(`${entry.runtimeUrl}/v1/migrations/import`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/octet-stream",
-        },
-        body: new Blob([bundleData]),
-        signal: AbortSignal.timeout(120_000),
-      });
-
-      // Retry once with a fresh token on 401
-      if (response.status === 401) {
-        let refreshedToken: string | null = null;
-        try {
-          const freshToken = await leaseGuardianToken(
-            entry.runtimeUrl,
-            entry.assistantId,
-          );
-          refreshedToken = freshToken.accessToken;
-        } catch {
-          // If token refresh fails, fall through to the error handler below
-        }
-        if (refreshedToken) {
-          accessToken = refreshedToken;
-          response = await fetch(`${entry.runtimeUrl}/v1/migrations/import`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/octet-stream",
-            },
-            body: new Blob([bundleData]),
-            signal: AbortSignal.timeout(120_000),
-          });
-        }
-      }
-    } catch (err) {
-      if (err instanceof Error && err.name === "TimeoutError") {
-        console.error("Error: Import request timed out after 2 minutes.");
-        process.exit(1);
-      }
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
-        console.error(
-          `Error: Could not connect to assistant '${entry.assistantId}'. Is it running?`,
-        );
-        console.error(`Try: vellum wake ${entry.assistantId}`);
-        process.exit(1);
-      }
-      throw err;
-    }
-
-    handleLocalResponseErrors(response, entry.assistantId);
-
-    const result = (await response.json()) as ImportResponse;
-    printImportSummary(result);
+  if (cloud === "local" || cloud === "docker") {
+    await importViaHttp(entry, bundleData, dryRun);
     return;
   }
 
   console.error(
-    "Teleport only supports local and platform assistants as target.",
+    "Teleport only supports local, docker, and platform assistants as target.",
   );
   process.exit(1);
 }
