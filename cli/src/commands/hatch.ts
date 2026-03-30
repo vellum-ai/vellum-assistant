@@ -829,7 +829,7 @@ async function hatchLocal(
     species,
     hatchedAt: new Date().toISOString(),
     serviceGroupVersion: cliPkg.version ? `v${cliPkg.version}` : undefined,
-    resources,
+    resources: { ...resources, signingKey },
   };
   emitProgress(7, 7, "Saving configuration...");
   if (!restart) {
