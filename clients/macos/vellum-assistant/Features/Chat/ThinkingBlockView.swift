@@ -57,6 +57,7 @@ struct ThinkingBlockView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .environment(\.isEnabled, true)
         .pointerCursor()
     }
 }
