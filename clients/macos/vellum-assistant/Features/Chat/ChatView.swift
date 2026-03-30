@@ -43,6 +43,22 @@ struct ChatView: View {
     var onOpenModelsAndServices: (() -> Void)? = nil
     var onBootstrapSendLogs: (() -> Void)?
 
+    // MARK: - Maintenance Mode (managed assistants only)
+
+    /// Non-nil when the connected managed assistant is in maintenance mode.
+    /// When set and `enabled == true`, a `MaintenanceModeBanner` is rendered
+    /// between the message list and the composer.
+    var maintenanceMode: PlatformAssistantMaintenanceMode? = nil
+
+    /// `true` while an exit-maintenance-mode request is in flight.
+    var isMaintenanceModeExiting: Bool = false
+
+    /// Invoked when the user taps "Resume Assistant" in the maintenance banner.
+    var onResumeAssistant: (() -> Void)? = nil
+
+    /// Invoked when the user taps "Open SSH Settings" in the maintenance banner.
+    var onOpenSSHSettings: (() -> Void)? = nil
+
     // MARK: - Parent Bindings
 
     /// When set, scroll to this message ID and clear the binding.
@@ -341,6 +357,19 @@ struct ChatView: View {
                 .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, -VSpacing.sm)
+            }
+
+            if let mode = maintenanceMode, mode.enabled {
+                MaintenanceModeBanner(
+                    maintenanceMode: mode,
+                    onResumeAssistant: { onResumeAssistant?() },
+                    onOpenSSHSettings: { onOpenSSHSettings?() },
+                    isExiting: isMaintenanceModeExiting
+                )
+                .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, -VSpacing.sm)
+                .animation(VAnimation.fast, value: mode.enabled)
             }
 
             if isReadonly {
