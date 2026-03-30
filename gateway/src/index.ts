@@ -1287,7 +1287,9 @@ async function main() {
                       slackFile,
                       botToken,
                     );
-                    return uploadAttachment(config, downloaded);
+                    return uploadAttachment(config, downloaded, {
+                      skipCircuitBreaker: true,
+                    });
                   }),
                 );
                 for (const result of results) {
@@ -1333,10 +1335,22 @@ async function main() {
 
         if (isThreadReply && botToken) {
           fetchThreadContext(channel, threadTs, messageTs, botToken)
-            .then((context) => forward(context ?? undefined))
-            .catch(() => forward());
+            .then((context) => context ?? undefined)
+            .catch(() => undefined)
+            .then((context) => forward(context))
+            .catch((err) => {
+              log.error(
+                { err, channel, threadTs },
+                "Unhandled error in Slack forward (thread reply)",
+              );
+            });
         } else {
-          forward();
+          forward().catch((err) => {
+            log.error(
+              { err, channel, threadTs },
+              "Unhandled error in Slack forward",
+            );
+          });
         }
 
         // When an approval button is clicked, store the approval message ts
