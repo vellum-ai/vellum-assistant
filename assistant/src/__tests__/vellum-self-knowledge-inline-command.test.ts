@@ -188,8 +188,6 @@ describe("vellum-self-knowledge inline command expansion", () => {
 
   afterEach(() => {
     _setOverridesForTesting({});
-    if (existsSync(TEST_DIR)) {
-    }
   });
 
   // ── Inline token replacement ─────────────────────────────────────────
