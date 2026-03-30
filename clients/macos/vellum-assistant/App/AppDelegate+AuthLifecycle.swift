@@ -750,30 +750,4 @@ extension AppDelegate {
         tearDownQuickInputMonitors()
     }
 
-    // MARK: - Process identity validation
-
-    /// Verify that a PID belongs to a vellum-related process by inspecting its
-    /// command line via `ps`. Prevents killing unrelated processes when a PID
-    /// file is stale and the OS has reused the PID.
-    private static func isVellumProcess(pid: pid_t) -> Bool {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/ps")
-        process.arguments = ["-p", "\(pid)", "-o", "command="]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return false
-        }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        guard let command = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !command.isEmpty else {
-            return false
-        }
-        let vellumPatterns = ["vellum-daemon", "vellum-cli", "vellum-gateway", "@vellumai", "/.vellum/", "/vellum/", "/daemon/main"]
-        return vellumPatterns.contains { command.contains($0) }
-    }
 }
