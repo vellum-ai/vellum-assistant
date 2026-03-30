@@ -33,6 +33,7 @@ const mockListProviders = mock(() => [
     identityFormat: null,
     identityOkField: null,
     identityResponsePaths: null,
+    featureFlag: null,
     createdAt: 1735689500000,
     updatedAt: 1735689550000,
   },
@@ -68,6 +69,7 @@ const mockListProviders = mock(() => [
     identityFormat: null,
     identityOkField: null,
     identityResponsePaths: null,
+    featureFlag: null,
     createdAt: 1735689600000,
     updatedAt: 1735689650000,
   },
@@ -148,6 +150,7 @@ describe("GET /v1/oauth/providers", () => {
       "client_id_placeholder",
       "requires_client_secret",
       "supports_managed_mode",
+      "feature_flag",
     ];
 
     for (const provider of body.providers) {
