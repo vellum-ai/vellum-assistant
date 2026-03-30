@@ -65,6 +65,7 @@ import { searchConversations } from "../../memory/conversation-queries.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
+import { redactSecrets } from "../../security/secret-scanner.js";
 import { summarizeToolInput } from "../../tools/tool-input-summary.js";
 import { getLogger } from "../../util/logger.js";
 import { silentlyWithLog } from "../../util/silently.js";
@@ -653,9 +654,13 @@ function makeHubPublisher(
           guardianPrincipalId: trustContext?.guardianPrincipalId ?? undefined,
           toolName: msg.toolName,
           commandPreview:
-            summarizeToolInput(msg.toolName, inputRecord) || undefined,
+            redactSecrets(
+              summarizeToolInput(msg.toolName, inputRecord),
+            ) || undefined,
           riskLevel: msg.riskLevel,
-          activityText: activityRaw,
+          activityText: activityRaw
+            ? redactSecrets(activityRaw)
+            : undefined,
           executionTarget: msg.executionTarget,
           status: "pending",
           requestCode: generateCanonicalRequestCode(),
