@@ -197,7 +197,10 @@ extension MainWindowView {
             onShowFeedback: conversation.conversationId != nil && !LogExporter.isManagedAssistant ? {
                 AppDelegate.shared?.showLogReportWindow(scope: .conversation(conversationId: conversation.conversationId!, conversationTitle: conversation.title))
             } : nil,
-            moveToGroups: conversationManager.groups.filter { $0.id != conversation.groupId },
+            moveToGroups: conversationManager.groups.filter { group in
+                group.id != conversation.groupId &&
+                (assistantFeatureFlagStore.isEnabled("conversation-groups-ui") || group.isSystemGroup)
+            },
             onMoveToGroup: { targetGroupId in
                 if let targetGroupId, targetGroupId == ConversationGroup.pinned.id {
                     // Route through pinConversation to get correct bottom-append ordering.
@@ -220,14 +223,30 @@ extension MainWindowView {
                 DaemonLoadingConversationsSkeleton()
             }
 
-            let groupEntries = conversationManager.groupedConversations
-                .map { entry in
-                    SidebarGroupEntry(
-                        id: entry.group?.id ?? "ungrouped",
-                        group: entry.group,
-                        conversations: entry.conversations
-                    )
+            let customGroupsEnabled = assistantFeatureFlagStore.isEnabled("conversation-groups-ui")
+            let backgroundEnabled = assistantFeatureFlagStore.isEnabled("show-background-conversations")
+            let groupEntries: [SidebarGroupEntry] = {
+                let raw = conversationManager.groupedConversations
+                var entries: [SidebarGroupEntry] = []
+                var extraUngrouped: [ConversationModel] = []
+                for entry in raw {
+                    if let group = entry.group {
+                        // Hide Background group when its flag is off
+                        if group.id == ConversationGroup.background.id && !backgroundEnabled {
+                            extraUngrouped.append(contentsOf: entry.conversations)
+                        // Hide custom groups when custom groups flag is off
+                        } else if !group.isSystemGroup && !customGroupsEnabled {
+                            extraUngrouped.append(contentsOf: entry.conversations)
+                        } else {
+                            entries.append(SidebarGroupEntry(id: group.id, group: group, conversations: entry.conversations))
+                        }
+                    } else {
+                        extraUngrouped.append(contentsOf: entry.conversations)
+                    }
                 }
+                entries.append(SidebarGroupEntry(id: "ungrouped", group: nil, conversations: extraUngrouped))
+                return entries
+            }()
             ForEach(groupEntries) { entry in
                 if let group = entry.group {
                     makeSectionView(group: group, conversations: entry.conversations)
@@ -385,7 +404,7 @@ extension MainWindowView {
                     }
                 },
                 onNewConversation: { startNewConversation() },
-                onCreateGroup: {
+                onCreateGroup: assistantFeatureFlagStore.isEnabled("conversation-groups-ui") ? {
                     Task<Void, Never> {
                         if let group = await conversationManager.createGroup(name: "New Group") {
                             sidebar.expandedSections.insert(group.id)
@@ -393,7 +412,7 @@ extension MainWindowView {
                             sidebar.renamingGroupName = group.name
                         }
                     }
-                }
+                } : nil
             )
 
             ScrollView(.vertical, showsIndicators: false) {

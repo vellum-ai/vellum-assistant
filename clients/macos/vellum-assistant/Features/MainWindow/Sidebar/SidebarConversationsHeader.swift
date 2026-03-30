@@ -6,7 +6,7 @@ struct SidebarConversationsHeader: View {
     var isLoading: Bool = false
     let onMarkAllSeen: () -> Void
     let onNewConversation: () -> Void
-    let onCreateGroup: () -> Void
+    var onCreateGroup: (() -> Void)? = nil
 
     @AppStorage("newChatShortcut") private var newChatShortcut: String = "cmd+n"
 
@@ -34,13 +34,15 @@ struct SidebarConversationsHeader: View {
                     .disabled(isLoading)
                     .vTooltip("Mark all as seen")
                 }
-                VButton(
-                    label: "New group",
-                    iconOnly: VIcon.folderPlus.rawValue,
-                    style: .ghost,
-                    action: onCreateGroup
-                )
-                .vTooltip("New group")
+                if let onCreateGroup {
+                    VButton(
+                        label: "New group",
+                        iconOnly: VIcon.folderPlus.rawValue,
+                        style: .ghost,
+                        action: onCreateGroup
+                    )
+                    .vTooltip("New group")
+                }
                 VButton(label: "New conversation", iconOnly: VIcon.squarePen.rawValue, style: .ghost, action: onNewConversation)
                     .disabled(isLoading)
                     .opacity(isLoading ? 0.4 : 1)

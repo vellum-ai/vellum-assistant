@@ -5,6 +5,8 @@ struct ConversationSwitcherDrawer: View {
     @ObservedObject var conversationManager: ConversationManager
     @ObservedObject var windowState: MainWindowState
     var sidebar: SidebarInteractionState
+    var customGroupsEnabled: Bool = false
+    var backgroundEnabled: Bool = false
     let selectConversation: (ConversationModel) -> Void
     let onDismiss: () -> Void
 
@@ -13,6 +15,28 @@ struct ConversationSwitcherDrawer: View {
 
     /// Tracks which sections have been expanded via "Show more".
     @State private var expandedSections: Set<String> = []
+
+    /// Group entries filtered by flags: custom groups and Background merged into ungrouped when their flags are off.
+    private var drawerEntries: [(group: ConversationGroup?, conversations: [ConversationModel])] {
+        let raw = conversationManager.groupedConversations
+        var entries: [(ConversationGroup?, [ConversationModel])] = []
+        var extraUngrouped: [ConversationModel] = []
+        for entry in raw {
+            if let group = entry.group {
+                if group.id == ConversationGroup.background.id && !backgroundEnabled {
+                    extraUngrouped.append(contentsOf: entry.conversations)
+                } else if !group.isSystemGroup && !customGroupsEnabled {
+                    extraUngrouped.append(contentsOf: entry.conversations)
+                } else {
+                    entries.append(entry)
+                }
+            } else {
+                extraUngrouped.append(contentsOf: entry.conversations)
+            }
+        }
+        entries.append((nil, extraUngrouped))
+        return entries
+    }
     /// Measured content height for size-to-fit behavior.
     @State private var contentHeight: CGFloat = 0
 
@@ -73,8 +97,8 @@ struct ConversationSwitcherDrawer: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(conversationManager.groupedConversations.indices, id: \.self) { index in
-                        let entry = conversationManager.groupedConversations[index]
+                    ForEach(drawerEntries.indices, id: \.self) { index in
+                        let entry = drawerEntries[index]
                         let sectionId = entry.group?.id ?? "ungrouped"
                         let conversations = entry.conversations
                         let isExpanded = expandedSections.contains(sectionId)
