@@ -3,13 +3,12 @@
  * to disk so the DoorDash client can use real, captured queries instead
  * of stale static fallbacks.
  *
- * Captured queries are saved to ~/.vellum/workspace/data/doordash/captured-queries.json
+ * Captured queries are saved to $VELLUM_WORKSPACE_DIR/data/doordash/captured-queries.json
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { getDataDir } from "./shared/platform.js";
 import type { SessionRecording } from "./shared/recording-types.js";
 
 export interface CapturedQuery {
@@ -20,7 +19,7 @@ export interface CapturedQuery {
 }
 
 function getCapturedQueriesPath(): string {
-  return join(getDataDir(), "doordash", "captured-queries.json");
+  return join(process.env.VELLUM_WORKSPACE_DIR!, "data", "doordash", "captured-queries.json");
 }
 
 /**
