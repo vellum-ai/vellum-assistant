@@ -483,6 +483,13 @@ function normalizeIngressUrl(value: unknown): string | undefined {
 // ── Workspace config helpers ──
 
 function getWorkspaceConfigPath(instanceDir?: string): string {
+  // When VELLUM_WORKSPACE_DIR is set, the gateway reads its config from
+  // join(VELLUM_WORKSPACE_DIR, "config.json"). The CLI must write to the
+  // same location so the gateway sees the settings at startup.
+  const workspaceDirOverride = process.env.VELLUM_WORKSPACE_DIR?.trim();
+  if (!instanceDir && workspaceDirOverride) {
+    return join(workspaceDirOverride, "config.json");
+  }
   const baseDataDir =
     instanceDir ??
     (process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir()));
@@ -556,15 +563,7 @@ function writeGatewayConfig(
 function readWorkspaceIngressPublicBaseUrl(
   instanceDir?: string,
 ): string | undefined {
-  const baseDataDir =
-    instanceDir ??
-    (process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir()));
-  const workspaceConfigPath = join(
-    baseDataDir,
-    ".vellum",
-    "workspace",
-    "config.json",
-  );
+  const workspaceConfigPath = getWorkspaceConfigPath(instanceDir);
   try {
     const raw = JSON.parse(
       readFileSync(workspaceConfigPath, "utf-8"),
@@ -973,6 +972,7 @@ export async function startLocalDaemon(
         "VELLUM_DEBUG",
         "VELLUM_DEV",
         "VELLUM_DESKTOP_APP",
+        "VELLUM_WORKSPACE_DIR",
       ]) {
         if (process.env[key]) {
           daemonEnv[key] = process.env[key]!;
