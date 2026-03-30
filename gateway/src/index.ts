@@ -1208,7 +1208,9 @@ async function main() {
       { appToken, botToken, gatewayConfig: config },
       (normalized) => {
         const { threadTs, channel } = normalized;
-        const replyCallbackUrl = `${config.gatewayInternalBaseUrl}/deliver/slack?threadTs=${encodeURIComponent(threadTs)}&channel=${encodeURIComponent(channel)}`;
+        const params = new URLSearchParams({ channel });
+        if (threadTs) params.set("threadTs", threadTs);
+        const replyCallbackUrl = `${config.gatewayInternalBaseUrl}/deliver/slack?${params}`;
 
         // Check if this is a regular thread reply (not an edit or callback action).
         // Edits and callbacks don't benefit from thread context and would just add
@@ -1345,7 +1347,7 @@ async function main() {
           }
         };
 
-        if (isThreadReply && botToken) {
+        if (isThreadReply && botToken && threadTs) {
           fetchThreadContext(channel, threadTs, messageTs, botToken)
             .then((context) => context ?? undefined)
             .catch(() => undefined)
