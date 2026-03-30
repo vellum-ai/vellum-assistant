@@ -739,6 +739,10 @@ describe("auto-retire", () => {
         instanceDir: "/home/test",
         pidFile: "/home/test/.vellum/assistant.pid",
         signingKey: "key",
+        daemonPort: 7821,
+        gatewayPort: 7830,
+        qdrantPort: 6333,
+        cesPort: 8090,
       },
     });
     const dockerEntry = makeEntry("new-docker", { cloud: "docker" });
