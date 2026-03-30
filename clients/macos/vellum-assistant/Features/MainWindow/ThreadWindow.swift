@@ -192,13 +192,18 @@ private struct ThreadWindowContentView: View {
         ZStack(alignment: .top) {
             VStack(spacing: 0) {
                 threadTitleBar
-                ThreadChatContentView(
+                ChatView(
                     viewModel: viewModel,
-                    settingsStore: settingsStore,
-                    ambientAgent: ambientAgent,
-                    onFork: onFork,
-                    isInteractionEnabled: !(conversation?.isChannelConversation ?? false),
-                    isReadonly: conversation?.isChannelConversation ?? false,
+                    selectedModel: settingsStore.selectedModel,
+                    configuredProviders: settingsStore.configuredProviders,
+                    providerCatalog: settingsStore.providerCatalog,
+                    mediaEmbedSettings: MediaEmbedResolverSettings(
+                        enabled: settingsStore.mediaEmbedsEnabled,
+                        enabledSince: settingsStore.mediaEmbedsEnabledSince,
+                        allowedDomains: settingsStore.mediaEmbedVideoAllowlistDomains
+                    ),
+                    onMicrophoneToggle: {},
+                    onForkFromMessage: { daemonMessageId in onFork(daemonMessageId) },
                     onAddFunds: {
                         settingsStore.pendingSettingsTab = .billing
                     },
@@ -206,7 +211,10 @@ private struct ThreadWindowContentView: View {
                         settingsStore.pendingSettingsTab = .modelsAndServices
                     },
                     anchorMessageId: $anchorMessageId,
-                    highlightedMessageId: $highlightedMessageId
+                    highlightedMessageId: $highlightedMessageId,
+                    isInteractionEnabled: !(conversation?.isChannelConversation ?? false),
+                    isReadonly: conversation?.isChannelConversation ?? false,
+                    watchSession: ambientAgent.activeWatchSession
                 )
                 .environment(\.cmdEnterToSend, settingsStore.cmdEnterToSend)
                 .padding(.bottom, VSpacing.md)
@@ -282,96 +290,5 @@ private struct ThreadWindowContentView: View {
         .shadow(color: VColor.auxBlack.opacity(0.1), radius: 6, x: 0, y: 4)
         .frame(width: 200)
         .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
-    }
-}
-
-/// Isolates ChatViewModel property reads into its own observation scope,
-/// preventing viewModel changes from invalidating ThreadWindowContentView.
-private struct ThreadChatContentView: View {
-    @Bindable var viewModel: ChatViewModel
-    @ObservedObject var settingsStore: SettingsStore
-    var ambientAgent: AmbientAgent
-    let onFork: (String) -> Void
-    var isInteractionEnabled: Bool = true
-    var isReadonly: Bool = false
-    let onAddFunds: () -> Void
-    let onOpenModelsAndServices: () -> Void
-    @Binding var anchorMessageId: UUID?
-    @Binding var highlightedMessageId: UUID?
-
-    var body: some View {
-        ChatView(
-            messages: viewModel.messages,
-            inputText: $viewModel.inputText,
-            isThinking: viewModel.isThinking,
-            isCompacting: viewModel.isCompacting,
-            isSending: viewModel.isSending,
-            isAssistantBusy: viewModel.isAssistantBusy,
-            suggestion: viewModel.suggestion,
-            pendingAttachments: viewModel.pendingAttachments,
-            isLoadingAttachment: viewModel.isLoadingAttachment,
-            isRecording: viewModel.isRecording,
-            onSend: { viewModel.sendMessage() },
-            onStop: viewModel.stopGenerating,
-            onAcceptSuggestion: viewModel.acceptSuggestion,
-            onAttach: { openFilePicker(viewModel: viewModel) },
-            onRemoveAttachment: { viewModel.removeAttachment(id: $0) },
-            onDropFiles: { urls in urls.forEach { viewModel.addAttachment(url: $0) } },
-            onDropImageData: { data, name in
-                let filename: String
-                if let name {
-                    let basename = (name as NSString).lastPathComponent
-                    let base = (basename as NSString).deletingPathExtension
-                    filename = base.isEmpty ? "Dropped Image.png" : "\(base).png"
-                } else {
-                    filename = "Dropped Image.png"
-                }
-                viewModel.addAttachment(imageData: data, filename: filename)
-            },
-            onPaste: { viewModel.addAttachmentFromPasteboard() },
-            onMicrophoneToggle: {},
-            selectedModel: settingsStore.selectedModel,
-            configuredProviders: settingsStore.configuredProviders,
-            providerCatalog: settingsStore.providerCatalog,
-            assistantActivityPhase: viewModel.assistantActivityPhase,
-            assistantActivityAnchor: viewModel.assistantActivityAnchor,
-            assistantActivityReason: viewModel.assistantActivityReason,
-            assistantStatusText: viewModel.assistantStatusText,
-            onConfirmationAllow: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "allow") },
-            onConfirmationDeny: { requestId in viewModel.respondToConfirmation(requestId: requestId, decision: "deny") },
-            onAlwaysAllow: { requestId, selectedPattern, selectedScope, decision in viewModel.respondToAlwaysAllow(requestId: requestId, selectedPattern: selectedPattern, selectedScope: selectedScope, decision: decision) },
-            onTemporaryAllow: { requestId, decision in viewModel.respondToConfirmation(requestId: requestId, decision: decision) },
-            onGuardianAction: { requestId, action in viewModel.submitGuardianDecision(requestId: requestId, action: action) },
-            onSurfaceAction: { surfaceId, actionId, data in viewModel.sendSurfaceAction(surfaceId: surfaceId, actionId: actionId, data: data) },
-            watchSession: ambientAgent.activeWatchSession,
-            onStopWatch: { viewModel.stopWatchSession() },
-            onForkFromMessage: { daemonMessageId in onFork(daemonMessageId) },
-            onRetryFailedMessage: { messageId in
-                viewModel.retryFailedMessage(id: messageId)
-            },
-            onRetryConversationError: { messageId in
-                viewModel.retryAfterConversationError(messageId: messageId)
-            },
-            subagentDetailStore: viewModel.subagentDetailStore,
-            isHistoryLoaded: viewModel.isHistoryLoaded,
-            activePendingRequestId: viewModel.activePendingRequestId,
-            isInteractionEnabled: isInteractionEnabled,
-            isReadonly: isReadonly,
-            contextWindowFillRatio: viewModel.contextWindowFillRatio,
-            contextWindowTokens: viewModel.contextWindowTokens,
-            contextWindowMaxTokens: viewModel.contextWindowMaxTokens,
-            anchorMessageId: $anchorMessageId,
-            highlightedMessageId: $highlightedMessageId,
-            creditsExhaustedError: viewModel.errorManager.conversationError?.isCreditsExhausted == true ? viewModel.errorManager.conversationError : nil,
-            onAddFunds: onAddFunds,
-            onDismissCreditsExhausted: { viewModel.dismissConversationError() },
-            providerNotConfiguredError: viewModel.errorManager.conversationError?.isProviderNotConfigured == true ? viewModel.errorManager.conversationError : nil,
-            onOpenModelsAndServices: onOpenModelsAndServices,
-            onDismissProviderNotConfigured: { viewModel.dismissConversationError() },
-            displayedMessageCount: viewModel.displayedMessageCount,
-            hasMoreMessages: viewModel.hasMoreMessages,
-            isLoadingMoreMessages: viewModel.isLoadingMoreMessages,
-            loadPreviousMessagePage: { await viewModel.loadPreviousMessagePage() }
-        )
     }
 }
