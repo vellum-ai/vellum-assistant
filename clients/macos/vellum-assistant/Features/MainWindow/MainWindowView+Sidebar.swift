@@ -421,6 +421,31 @@ extension MainWindowView {
 
             ScrollView(.vertical, showsIndicators: false) {
                 conversationGroupsList
+                    .background(GeometryReader { contentGeo in
+                        Color.clear.preference(
+                            key: SidebarContentHeightKey.self,
+                            value: contentGeo.size.height
+                        )
+                    })
+            }
+            .background(GeometryReader { scrollGeo in
+                Color.clear.preference(
+                    key: SidebarFrameHeightKey.self,
+                    value: scrollGeo.size.height
+                )
+            })
+            .onPreferenceChange(SidebarContentHeightKey.self) { sidebarContentHeight = $0 }
+            .onPreferenceChange(SidebarFrameHeightKey.self) { sidebarFrameHeight = $0 }
+            .overlay(alignment: .bottom) {
+                if sidebarContentHeight > sidebarFrameHeight {
+                    LinearGradient(
+                        colors: [VColor.surfaceOverlay.opacity(0), VColor.surfaceOverlay],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 24)
+                    .allowsHitTesting(false)
+                }
             }
             .onChange(of: scheduledUnreadCount) { _, newCount in
                 // Auto-expand the Scheduled section when new unread arrives
@@ -570,5 +595,21 @@ extension MainWindowView {
             appType: app.appType
         )
         Task { await AppsClient.openAppAndDispatchSurface(id: app.id, connectionManager: connectionManager, eventStreamClient: eventStreamClient) }
+    }
+}
+
+// MARK: - Sidebar Scroll Overflow Detection
+
+private struct SidebarContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+private struct SidebarFrameHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
