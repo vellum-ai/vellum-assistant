@@ -37,25 +37,37 @@ mock.module("@anthropic-ai/sdk", () => ({
     constructor(args: Record<string, unknown>) {
       lastConstructorArgs = { ...args };
     }
+    #streamImpl = (
+      params: Record<string, unknown>,
+      options?: Record<string, unknown>,
+    ) => {
+      lastStreamParams = JSON.parse(JSON.stringify(params));
+      _lastStreamOptions = options ?? null;
+      const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
+      return {
+        on(event: string, cb: (...args: unknown[]) => void) {
+          (handlers[event] ??= []).push(cb);
+          return this;
+        },
+        async finalMessage() {
+          // Fire text events
+          for (const cb of handlers["text"] ?? []) cb("Hello");
+          return fakeResponse;
+        },
+      };
+    };
     messages = {
       stream: (
         params: Record<string, unknown>,
         options?: Record<string, unknown>,
-      ) => {
-        lastStreamParams = JSON.parse(JSON.stringify(params));
-        _lastStreamOptions = options ?? null;
-        const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
-        return {
-          on(event: string, cb: (...args: unknown[]) => void) {
-            (handlers[event] ??= []).push(cb);
-            return this;
-          },
-          async finalMessage() {
-            // Fire text events
-            for (const cb of handlers["text"] ?? []) cb("Hello");
-            return fakeResponse;
-          },
-        };
+      ) => this.#streamImpl(params, options),
+    };
+    beta = {
+      messages: {
+        stream: (
+          params: Record<string, unknown>,
+          options?: Record<string, unknown>,
+        ) => this.#streamImpl(params, options),
       },
     };
   },
