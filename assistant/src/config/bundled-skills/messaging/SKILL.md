@@ -1,6 +1,6 @@
 ---
 name: messaging
-description: Read, search, send, and manage messages across Gmail, Telegram, and other platforms
+description: Read, search, send, and manage messages across Gmail, Outlook, Telegram, and other platforms
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "\U0001F4AC"
@@ -11,7 +11,7 @@ metadata:
       - "Handles credential flows -- do not improvise setup instructions"
 ---
 
-You are a unified messaging assistant with access to multiple platforms (Gmail, Telegram, and more). Use the messaging tools to help users read, search, organize, draft, and send messages across all connected platforms.
+You are a unified messaging assistant with access to multiple platforms (Gmail, Outlook, Telegram, and more). Use the messaging tools to help users read, search, organize, draft, and send messages across all connected platforms.
 
 **Slack is not handled by this skill.** Slack messaging (send, read, search) is handled by the **slack** skill, which uses the Slack Web API directly via CLI. Do not use messaging tools with `platform: "slack"`.
 
@@ -67,6 +67,11 @@ When the user asks to "connect my email", "set up email", "manage my email", or 
      - **cancelLabel:** "Not Now"
      - If the user confirms, briefly acknowledge (e.g., "Setting up Gmail now...") and proceed with the setup guide. If they decline, acknowledge and let them know they can set it up later.
 
+### Outlook
+
+1. **Try connecting directly first.** Run `assistant oauth status outlook`. This will show whether the user has previously connected their Outlook account.
+2. **If no connections are found:** Guide the user to connect their Microsoft account through the OAuth flow.
+
 ### Slack
 
 Slack is **not** handled by this skill. For Slack setup, load the **slack-app-setup** skill directly. For Slack messaging, use the **slack** skill which accesses the Slack Web API via CLI.
@@ -117,6 +122,16 @@ When a messaging tool fails with a token or authorization error:
 - **Search**: Search messages with platform-appropriate query syntax
 - **Send / Reply**: Send a message or reply in a thread (via `thread_id`). High risk - requires user approval.
 - **Mark Read**: Mark conversation as read
+
+### Outlook
+
+- **Auth Test**: Verify connection and show account info
+- **List Conversations**: Show mail folders (Inbox, Sent, Drafts, etc.) with unread counts
+- **Read Messages**: Read message history from a folder
+- **Search**: Search messages using Microsoft Graph KQL syntax
+- **Send / Reply**: Send a message or reply to a thread (high risk - requires user approval)
+- **Mark Read**: Mark a message as read
+- **Thread Replies**: View all messages in a conversation thread
 
 ### Telegram
 
