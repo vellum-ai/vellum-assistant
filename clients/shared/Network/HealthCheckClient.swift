@@ -11,7 +11,19 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Healt
 public enum HealthCheckClient {
 
     /// Check whether the currently connected assistant is reachable.
+    ///
+    /// For local assistants, hits the unauthenticated `/readyz` endpoint so that
+    /// an auth-broken gateway is correctly identified as "reachable" rather than
+    /// "down". Remote/managed assistants still route through `GatewayHTTPClient`.
     public static func isReachable(timeout: TimeInterval = 3) async -> Bool {
+        #if os(macOS)
+        if let id = UserDefaults.standard.string(forKey: "connectedAssistantId"),
+           let assistant = LockfileAssistant.loadByName(id),
+           !assistant.isRemote {
+            return await isReachable(for: assistant, timeout: timeout)
+        }
+        #endif
+
         do {
             let response = try await GatewayHTTPClient.get(
                 path: "health",

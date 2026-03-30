@@ -516,6 +516,17 @@ public final class GatewayConnectionManager: ObservableObject {
                 break // Coordinator already logs success
             case .terminalError(let reason):
                 log.error("Token refresh failed terminally: \(reason, privacy: .public) — re-pair required")
+
+                // For local assistants, clear the stale actor token so the
+                // next connection attempt triggers a fresh bootstrap rather
+                // than looping on an irrecoverable 401.
+                #if os(macOS)
+                if self.isLocal {
+                    ActorTokenManager.deleteToken()
+                    log.info("Cleared actor token for local assistant to force re-bootstrap")
+                }
+                #endif
+
                 self.eventStreamClient.broadcastMessage(.conversationError(ConversationErrorMessage(
                     conversationId: "",
                     code: .authenticationRequired,
