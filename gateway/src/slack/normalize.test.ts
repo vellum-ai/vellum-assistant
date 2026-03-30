@@ -260,6 +260,26 @@ describe("normalizeSlackReactionAdded", () => {
   });
 });
 
+describe("DM threading", () => {
+  it("non-threaded DM has no threadTs", () => {
+    const config = makeConfig();
+    const event = makeDmEvent();
+    const result = normalizeSlackDirectMessage(event, "evt-dm-1", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.threadTs).toBeUndefined();
+  });
+
+  it("threaded DM preserves threadTs", () => {
+    const config = makeConfig();
+    const event = makeDmEvent({ thread_ts: "1700000000.000050" });
+    const result = normalizeSlackDirectMessage(event, "evt-dm-2", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.threadTs).toBe("1700000000.000050");
+  });
+});
+
 // --- Attachment extraction tests ---
 
 function makeSlackFile(overrides?: Partial<SlackFile>): SlackFile {
