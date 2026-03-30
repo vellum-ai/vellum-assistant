@@ -195,7 +195,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     const tools = lastStreamParams!.tools as Array<{
       name: string;
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
     expect(tools).toHaveLength(3);
 
@@ -212,7 +212,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     const tools = lastStreamParams!.tools as Array<{
       name: string;
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
     expect(tools).toHaveLength(1);
     expect(tools[0].cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
@@ -235,7 +235,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{
         type: string;
         text: string;
-        cache_control?: { type: string };
+        cache_control?: { type: string; ttl?: string };
       }>;
     }>;
     const lastUser = messages[messages.length - 1];
@@ -260,7 +260,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{
         type: string;
         text: string;
-        cache_control?: { type: string };
+        cache_control?: { type: string; ttl?: string };
       }>;
     }>;
 
@@ -292,7 +292,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{
         type: string;
         text: string;
-        cache_control?: { type: string };
+        cache_control?: { type: string; ttl?: string };
       }>;
     }>;
     const userMessages = sent.filter((m) => m.role === "user");
@@ -315,7 +315,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
 
     const sent = lastStreamParams!.messages as Array<{
       role: string;
-      content: Array<{ type: string; cache_control?: { type: string } }>;
+      content: Array<{ type: string; cache_control?: { type: string; ttl?: string } }>;
     }>;
     const userMsgs = sent.filter((m) => m.role === "user");
     // First user msg (second-to-last) should get cache
@@ -342,7 +342,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{
         type: string;
         text: string;
-        cache_control?: { type: string };
+        cache_control?: { type: string; ttl?: string };
       }>;
     }>;
     const assistantMsgs = sent.filter((m) => m.role === "assistant");
@@ -373,7 +373,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{
         type: string;
         text: string;
-        cache_control?: { type: string };
+        cache_control?: { type: string; ttl?: string };
       }>;
     }>;
     const user = sent[0];
@@ -414,7 +414,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{
         type: string;
         text: string;
-        cache_control?: { type: string };
+        cache_control?: { type: string; ttl?: string };
       }>;
     }>;
     const user = sent[0];
@@ -448,7 +448,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{
         type: string;
         text: string;
-        cache_control?: { type: string };
+        cache_control?: { type: string; ttl?: string };
       }>;
     }>;
     const user = sent[0];
@@ -1321,7 +1321,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       content: Array<{
         type: string;
         text: string;
-        cache_control?: { type: string };
+        cache_control?: { type: string; ttl?: string };
       }>;
     }>;
     const userMsgs = sent.filter((m) => m.role === "user");
@@ -1566,7 +1566,7 @@ describe("AnthropicProvider — Managed Proxy Fallback", () => {
 
     // Last tool cache control
     const tools = lastStreamParams!.tools as Array<{
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
     expect(tools[tools.length - 1].cache_control).toEqual({
       type: "ephemeral",
