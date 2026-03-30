@@ -462,10 +462,10 @@ export async function batchExtractJob(job: MemoryJob): Promise<void> {
             ? "journal_carry_forward"
             : "extraction";
       const effectiveVerificationState =
-        itemRole === "user" || existing.verificationState === "user_reported"
-          ? "user_reported"
-          : existing.verificationState === "user_confirmed"
-            ? "user_confirmed"
+        existing.verificationState === "user_confirmed"
+          ? "user_confirmed"
+          : itemRole === "user" || existing.verificationState === "user_reported"
+            ? "user_reported"
             : "assistant_inferred";
 
       db.update(memoryItems)
