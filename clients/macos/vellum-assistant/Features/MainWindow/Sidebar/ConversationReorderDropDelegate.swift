@@ -2,9 +2,10 @@ import SwiftUI
 import VellumAssistantShared
 
 /// Drop delegate for reordering regular (non-schedule) conversations in the sidebar.
-/// Uses `DropDelegate` with `NSItemProvider` to avoid the eager `Transferable` witness
+/// Paired with `.onDrop(of:delegate:)` to avoid the eager `Transferable` witness
 /// resolution overhead that `.dropDestination(for:)` incurs on every view graph update.
-/// Returns `.move` operation to show the correct reorder cursor.
+/// Identifies the drag source via `sidebar.draggingConversationId` (set by the drag
+/// source's `onDragStart` callback) and returns `.move` to show the reorder cursor.
 struct ConversationReorderDropDelegate: DropDelegate {
     let targetConversation: ConversationModel
     let sidebar: SidebarInteractionState
