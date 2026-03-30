@@ -593,21 +593,6 @@ public enum GatewayHTTPClient {
         return DownloadResponse(fileURL: tempURL, statusCode: statusCode)
     }
 
-    // MARK: - Direct (Non-Retrying) API
-
-    /// Performs a POST request that bypasses the 401 retry interceptor.
-    ///
-    /// Use this exclusively for the credential refresh endpoint itself
-    /// (`guardian/refresh`) to prevent recursive refresh loops where
-    /// a 401 on the refresh call would trigger another refresh attempt.
-    static func postDirect(path: String, json: [String: Any], timeout: TimeInterval = 15) async throws -> Response {
-        let connection = try resolveConnection()
-        let body = try JSONSerialization.data(withJSONObject: json)
-        var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
-        request.httpBody = body
-        return try await execute(request)
-    }
-
     // MARK: - Auth Retry
 
     /// Executes a request with automatic 401 retry for non-managed (bearer token) connections.

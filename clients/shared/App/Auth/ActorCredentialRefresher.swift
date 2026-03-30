@@ -1,19 +1,40 @@
 import Foundation
+import os
 
-/// Shared credential refresher. Calls POST /v1/guardian/refresh
-/// through the gateway via `GatewayHTTPClient.postDirect`, updates credential
-/// storage via ActorTokenManager, and handles terminal errors that require
-/// re-pairing.
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ActorCredentialRefresher")
+
+/// Performs credential refresh by calling POST /v1/guardian/refresh directly
+/// via `URLSession`, bypassing `GatewayHTTPClient` entirely.
 ///
-/// **Important:** Uses `postDirect` (not `post`) to bypass the 401 retry
-/// interceptor. Routing through `post` → `executeWithRetry` would cause
-/// recursive refresh attempts when the refresh endpoint itself returns 401.
+/// The refresh endpoint is intentionally not routed through the authenticated
+/// HTTP client to avoid recursive 401 retry loops — the same pattern used by
+/// Alamofire's `AuthenticationInterceptor` and recommended in
+/// [Building a token refresh flow with async/await](https://www.donnywals.com/building-a-token-refresh-flow-with-async-await-and-swift-concurrency/).
+///
+/// The request carries only the refresh token in the JSON body — no
+/// `Authorization` header — so an expired access token cannot cause a
+/// spurious rejection.
 public class ActorCredentialRefresher {
 
     public enum RefreshResult {
         case success
         case terminalError(reason: String) // requires re-pair
         case transientError // retry later
+    }
+
+    /// Resolves the gateway base URL for the current connection.
+    ///
+    /// - macOS: Reads from the lockfile via `LockfilePaths.resolveGatewayUrl()`.
+    /// - iOS: Reads from UserDefaults (`gateway_base_url`).
+    private static func resolveGatewayBaseURL() -> String? {
+        #if os(macOS)
+        let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        return LockfilePaths.resolveGatewayUrl(connectedAssistantId: connectedId)
+        #elseif os(iOS)
+        return UserDefaults.standard.string(forKey: "gateway_base_url")
+        #else
+        return nil
+        #endif
     }
 
     /// Attempts a single credential refresh via the gateway.
@@ -31,17 +52,30 @@ public class ActorCredentialRefresher {
             return .terminalError(reason: "refresh_token_expired")
         }
 
+        guard let baseURL = resolveGatewayBaseURL() else {
+            log.error("Cannot resolve gateway base URL for credential refresh")
+            return .transientError
+        }
+
+        guard let url = URL(string: "\(baseURL)/v1/guardian/refresh/") else {
+            log.error("Invalid refresh URL from base: \(baseURL, privacy: .public)")
+            return .transientError
+        }
+
         let body: [String: Any] = ["refreshToken": refreshToken, "platform": platform, "deviceId": deviceId]
 
         do {
-            let response = try await GatewayHTTPClient.postDirect(
-                path: "guardian/refresh",
-                json: body,
-                timeout: 15
-            )
+            var request = URLRequest(url: url)
+            request.httpMethod = "POST"
+            request.timeoutInterval = 15
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-            if response.isSuccess {
-                guard let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+
+            if (200..<300).contains(statusCode) {
+                guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let newRefreshToken = json["refreshToken"] as? String,
                       let refreshTokenExpiresAt = json["refreshTokenExpiresAt"] as? Int,
                       let refreshAfter = json["refreshAfter"] as? Int else {
@@ -74,7 +108,7 @@ public class ActorCredentialRefresher {
             // so specific reasons (e.g. "refresh_reuse_detected") are
             // preserved in logs rather than being shadowed by the generic
             // "refresh_unauthorized" from the 401 status check below.
-            if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let error = json["error"] as? String {
                 let terminalErrors = ["refresh_reuse_detected", "revoked", "device_binding_mismatch", "refresh_invalid", "refresh_expired"]
                 if terminalErrors.contains(error) {
@@ -84,12 +118,13 @@ public class ActorCredentialRefresher {
 
             // A 401 on the refresh endpoint means the refresh token itself
             // is rejected — retrying with the same token will never succeed.
-            if response.statusCode == 401 {
+            if statusCode == 401 {
                 return .terminalError(reason: "refresh_unauthorized")
             }
 
             return .transientError
         } catch {
+            log.warning("Credential refresh network error: \(error.localizedDescription, privacy: .public)")
             return .transientError
         }
     }
