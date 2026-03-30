@@ -808,22 +808,37 @@ describe("auto-retire", () => {
     }
   });
 
-  test("dry-run skips retire", async () => {
+  test("dry-run without existing target does not hatch or export", async () => {
     setArgv("--from", "my-local", "--docker", "--dry-run");
 
     const localEntry = makeEntry("my-local", { cloud: "local" });
-    const dockerEntry = makeEntry("new-docker", { cloud: "docker" });
 
     findAssistantByNameMock.mockImplementation((name: string) => {
       if (name === "my-local") return localEntry;
       return null;
     });
 
-    loadAllAssistantsMock.mockImplementation(() => {
-      if (hatchDockerMock.mock.calls.length > 0) {
-        return [localEntry, dockerEntry];
-      }
-      return [localEntry];
+    await teleport();
+
+    // Should NOT hatch, export, import, or retire
+    expect(hatchDockerMock).not.toHaveBeenCalled();
+    expect(hatchLocalMock).not.toHaveBeenCalled();
+    expect(hatchAssistantMock).not.toHaveBeenCalled();
+    expect(retireLocalMock).not.toHaveBeenCalled();
+    expect(retireDockerMock).not.toHaveBeenCalled();
+    expect(removeAssistantEntryMock).not.toHaveBeenCalled();
+  });
+
+  test("dry-run with existing target runs preflight without hatching", async () => {
+    setArgv("--from", "my-local", "--docker", "my-docker", "--dry-run");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+    const dockerEntry = makeEntry("my-docker", { cloud: "docker" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      if (name === "my-docker") return dockerEntry;
+      return null;
     });
 
     const originalFetch = globalThis.fetch;
@@ -831,6 +846,10 @@ describe("auto-retire", () => {
 
     try {
       await teleport();
+
+      // Should NOT hatch or retire
+      expect(hatchDockerMock).not.toHaveBeenCalled();
+      expect(hatchLocalMock).not.toHaveBeenCalled();
       expect(retireLocalMock).not.toHaveBeenCalled();
       expect(retireDockerMock).not.toHaveBeenCalled();
       expect(removeAssistantEntryMock).not.toHaveBeenCalled();
