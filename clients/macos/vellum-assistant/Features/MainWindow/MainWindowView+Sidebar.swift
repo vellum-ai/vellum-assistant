@@ -335,26 +335,11 @@ extension MainWindowView {
                                         .transition(.opacity)
                                 }
                             }
-                            .dropDestination(for: String.self) { items, _ in
-                                sidebar.dropTargetConversationId = nil
-                                sidebar.draggingConversationId = nil
-                                guard let droppedId = items.first,
-                                      let sourceUUID = UUID(uuidString: droppedId),
-                                      sourceUUID != conversation.id else { return false }
-                                return conversationManager.moveConversation(sourceId: sourceUUID, targetId: conversation.id)
-                            } isTargeted: { isTargeted in
-                                if isTargeted && conversation.id != sidebar.draggingConversationId {
-                                    sidebar.dropTargetConversationId = conversation.id
-                                    if let dragId = sidebar.draggingConversationId {
-                                        let visible = conversationManager.visibleConversations
-                                        let sIdx = visible.firstIndex(where: { $0.id == dragId }) ?? 0
-                                        let tIdx = visible.firstIndex(where: { $0.id == conversation.id }) ?? 0
-                                        sidebar.dropIndicatorAtBottom = sIdx < tIdx
-                                    }
-                                } else if !isTargeted && sidebar.dropTargetConversationId == conversation.id {
-                                    sidebar.dropTargetConversationId = nil
-                                }
-                            }
+                            .onDrop(of: [.plainText], delegate: ConversationReorderDropDelegate(
+                                targetConversation: conversation,
+                                sidebar: sidebar,
+                                conversationManager: conversationManager
+                            ))
                     }
 
                     if regularConversations.count > 10 {
