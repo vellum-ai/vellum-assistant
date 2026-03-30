@@ -240,6 +240,8 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
                     self.assistantActivityReason = nil
                     self.assistantStatusText = nil
                     self.isCompacting = false
+                    self.contextWindowTokens = nil
+                    self.contextWindowMaxTokens = nil
                     // Streaming message state
                     if let existingId = self.currentAssistantMessageId,
                        let index = self.messages.firstIndex(where: { $0.id == existingId }) {
@@ -315,6 +317,20 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     public var isCompacting: Bool {
         get { messageManager.isCompacting }
         set { messageManager.isCompacting = newValue }
+    }
+    public var contextWindowTokens: Int? {
+        get { messageManager.contextWindowTokens }
+        set { messageManager.contextWindowTokens = newValue }
+    }
+    public var contextWindowMaxTokens: Int? {
+        get { messageManager.contextWindowMaxTokens }
+        set { messageManager.contextWindowMaxTokens = newValue }
+    }
+    public var contextWindowFillRatio: Double? {
+        guard let tokens = contextWindowTokens,
+              let max = contextWindowMaxTokens,
+              max > 0 else { return nil }
+        return min(Double(tokens) / Double(max), 1.0)
     }
     public var activePendingRequestId: String? {
         messageManager.activePendingRequestId

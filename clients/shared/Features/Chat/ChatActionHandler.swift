@@ -244,6 +244,14 @@ final class ChatActionHandler {
         case .guardianActionDecisionResponse(let response):
             vm.handleGuardianActionDecisionResponse(response)
 
+        case .usageUpdate(let update):
+            if let tokens = update.contextWindowTokens {
+                vm.contextWindowTokens = tokens
+            }
+            if let max = update.contextWindowMaxTokens {
+                vm.contextWindowMaxTokens = max
+            }
+
         default:
             break
         }
