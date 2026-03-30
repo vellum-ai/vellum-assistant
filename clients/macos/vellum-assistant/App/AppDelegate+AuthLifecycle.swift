@@ -470,6 +470,12 @@ extension AppDelegate {
         //    UserDefaults so the assistant can initialize its LLM providers.
         syncApiKeysToAssistant(assistant)
 
+        // Reload cached feature flags so SoundManager reads the new
+        // assistant's resolved values instead of stale ones from the
+        // previous assistant (the resolver reads instance-aware paths
+        // that depend on connectedAssistantId).
+        featureFlagStore.reloadFromDisk()
+
         // Reload avatar for the new assistant (customAvatarURL now resolves
         // to the new assistant's path after connectedAssistantId was updated).
         AvatarAppearanceManager.shared.reloadAvatar()
