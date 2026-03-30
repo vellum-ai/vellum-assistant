@@ -6,12 +6,23 @@ import VellumAssistantShared
 /// All interaction state is passed via callbacks/bindings -- no direct reference
 /// to SidebarInteractionState or ConversationManager. Matches the callback-based
 /// API style used by onToggleExpand.
+/// Aggregate state of conversations within a collapsed group, shown as an
+/// indicator dot on the section header. Priority matches the individual
+/// conversation row indicators (highest wins).
+enum SectionAggregateState {
+    case idle
+    case unread
+    case processing
+    case waitingForInput
+    case error
+}
+
 struct SidebarSectionHeader: View {
     let group: ConversationGroup
     let conversationCount: Int
     let isExpanded: Bool
     let isDropTarget: Bool
-    let unreadCount: Int
+    let aggregateState: SectionAggregateState
     let isRenaming: Bool                       // M5: inline rename active
     @Binding var renamingName: String           // M5: bound to rename text field
     var onToggleExpand: () -> Void
@@ -52,11 +63,23 @@ struct SidebarSectionHeader: View {
 
             Spacer()
             if !isExpanded {
-                if unreadCount > 0 {
-                    Circle()
-                        .fill(VColor.systemNegativeStrong)
-                        .frame(width: 6, height: 6)
+                switch aggregateState {
+                case .error:
+                    VIconView(.circleAlert, size: 10)
+                        .foregroundStyle(VColor.systemNegativeStrong)
                         .transition(.opacity)
+                case .waitingForInput:
+                    VIconView(.circleAlert, size: 10)
+                        .foregroundStyle(VColor.systemMidStrong)
+                        .transition(.opacity)
+                case .processing:
+                    VBusyIndicator(size: 6)
+                        .transition(.opacity)
+                case .unread:
+                    VBadge(style: .dot, color: VColor.systemMidStrong)
+                        .transition(.opacity)
+                case .idle:
+                    EmptyView()
                 }
                 if conversationCount > 0 {
                     Text("\(conversationCount)")

@@ -74,6 +74,38 @@ struct SidebarSectionView: View {
         conversations.filter(\.hasUnseenLatestAssistantMessage).count
     }
 
+    /// Highest-priority interaction state across all conversations in this section.
+    /// Used to show a summary indicator on the collapsed section header.
+    /// Guarded by `isExpanded` to skip the iteration when the indicator isn't visible.
+    private var aggregateState: SectionAggregateState {
+        if isExpanded { return .idle }
+        guard let conversationManager else {
+            return unreadCount > 0 ? .unread : .idle
+        }
+        var hasProcessing = false
+        var hasWaitingForInput = false
+        var hasUnread = false
+        for conversation in conversations {
+            switch conversationManager.interactionState(for: conversation.id) {
+            case .error:
+                return .error
+            case .waitingForInput:
+                hasWaitingForInput = true
+            case .processing:
+                hasProcessing = true
+            case .idle:
+                break
+            }
+            if conversation.hasUnseenLatestAssistantMessage {
+                hasUnread = true
+            }
+        }
+        if hasWaitingForInput { return .waitingForInput }
+        if hasProcessing { return .processing }
+        if hasUnread { return .unread }
+        return .idle
+    }
+
     private var displayCount: Int {
         switch countMode {
         case .items:
@@ -98,7 +130,7 @@ struct SidebarSectionView: View {
                 conversationCount: displayCount,
                 isExpanded: isExpanded,
                 isDropTarget: isDropTarget,
-                unreadCount: unreadCount,
+                aggregateState: aggregateState,
                 isRenaming: isRenaming,
                 renamingName: $renamingName,
                 onToggleExpand: onToggleExpand,
