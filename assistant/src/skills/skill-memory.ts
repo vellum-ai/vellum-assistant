@@ -3,7 +3,7 @@ import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
 import { resolveSkillStates } from "../config/skill-state.js";
-import { type SkillSummary, loadSkillCatalog } from "../config/skills.js";
+import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
 import { getDb } from "../memory/db.js";
 import { computeMemoryFingerprint } from "../memory/fingerprint.js";
 import { enqueueMemoryJob } from "../memory/jobs-store.js";
