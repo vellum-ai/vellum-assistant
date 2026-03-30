@@ -255,10 +255,10 @@ struct ComposerView: View {
                 },
                 onPasteImage: onPaste
             )
-            .frame(height: measuredTextHeight)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .padding(.vertical, VSpacing.xs)
-        .frame(height: measuredTextHeight + 2 * VSpacing.xs)
+        .fixedSize(horizontal: false, vertical: true)
         .accessibilityLabel("Message")
         .frame(maxWidth: .infinity)
         .background(

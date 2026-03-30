@@ -2,6 +2,26 @@
 import AppKit
 import SwiftUI
 
+/// NSScrollView subclass that reports intrinsic content size based on
+/// its document view's text layout height. This lets SwiftUI size the
+/// view correctly without the scroll view expanding to fill all
+/// proposed space.
+///
+/// Ref: https://developer.apple.com/documentation/appkit/nsview/intrinsiccontentsize
+private final class IntrinsicScrollView: NSScrollView {
+    var contentHeight: CGFloat = 0 {
+        didSet {
+            if abs(contentHeight - oldValue) > 0.5 {
+                invalidateIntrinsicContentSize()
+            }
+        }
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: contentHeight)
+    }
+}
+
 /// NSViewRepresentable wrapper for `ComposerTextView`, replacing SwiftUI's
 /// `TextField(axis: .vertical)` which suffers from O(n) performance
 /// degradation in `SelectionOverlay.updateNSView` when text contains many
@@ -39,8 +59,8 @@ struct ComposerTextEditor: NSViewRepresentable {
         Coordinator(parent: self)
     }
 
-    func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSScrollView()
+    func makeNSView(context: Context) -> IntrinsicScrollView {
+        let scrollView = IntrinsicScrollView()
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = false
@@ -79,6 +99,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         // SwiftUI's .onDrop modifier on the composer container.
         textView.unregisterDraggedTypes()
 
+        scrollView.contentHeight = minHeight
         scrollView.documentView = textView
         textView.delegate = context.coordinator
 
@@ -109,7 +130,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         return scrollView
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    func updateNSView(_ scrollView: IntrinsicScrollView, context: Context) {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? ComposerTextView else { return }
 
@@ -164,7 +185,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         context.coordinator.measureHeight(textView)
     }
 
-    static func dismantleNSView(_ scrollView: NSScrollView, coordinator: Coordinator) {
+    static func dismantleNSView(_ scrollView: IntrinsicScrollView, coordinator: Coordinator) {
         if let frameObserver = coordinator.frameObserver {
             NotificationCenter.default.removeObserver(frameObserver)
             coordinator.frameObserver = nil
@@ -214,10 +235,16 @@ struct ComposerTextEditor: NSViewRepresentable {
         func measureHeight(_ textView: NSTextView) {
             guard let lm = textView.layoutManager, let tc = textView.textContainer else { return }
             lm.ensureLayout(for: tc)
-            let contentHeight = ceil(lm.usedRect(for: tc).height + textView.textContainerInset.height * 2)
+            let usedHeight = ceil(lm.usedRect(for: tc).height)
+            let contentHeight = usedHeight + textView.textContainerInset.height * 2
             let clamped = max(parent.minHeight, min(contentHeight, parent.maxHeight))
             if abs(parent.measuredHeight - clamped) > 0.5 {
                 parent.measuredHeight = clamped
+            }
+            // Update the scroll view's intrinsic content size so SwiftUI
+            // sizes the NSViewRepresentable correctly.
+            if let scrollView = textView.enclosingScrollView as? IntrinsicScrollView {
+                scrollView.contentHeight = clamped
             }
         }
     }
