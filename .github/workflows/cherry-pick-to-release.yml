@@ -66,9 +66,15 @@ jobs:
           git checkout "$RELEASE_BRANCH"
           git checkout -b "$CHERRY_PICK_BRANCH"
 
-          # Attempt the cherry-pick. Use -m 1 for merge commits (no-op for
-          # non-merge commits since git ignores -m when there's only one parent).
-          if git cherry-pick -m 1 --no-edit "$MERGE_SHA"; then
+          # Detect whether the merge commit has multiple parents (true merge)
+          # or a single parent (squash merge). Only pass -m 1 for true merges.
+          PARENT_COUNT=$(git cat-file -p "$MERGE_SHA" | grep -c '^parent')
+          CHERRY_PICK_ARGS="--no-edit"
+          if [ "$PARENT_COUNT" -gt 1 ]; then
+            CHERRY_PICK_ARGS="-m 1 $CHERRY_PICK_ARGS"
+          fi
+
+          if git cherry-pick $CHERRY_PICK_ARGS "$MERGE_SHA"; then
             git push origin "$CHERRY_PICK_BRANCH"
 
             PR_URL=$(gh pr create \
@@ -87,7 +93,7 @@ jobs:
             BODY="${BODY}"$'\n'"\`\`\`bash"
             BODY="${BODY}"$'\n'"git fetch origin"
             BODY="${BODY}"$'\n'"git checkout -b ${CHERRY_PICK_BRANCH} origin/${RELEASE_BRANCH}"
-            BODY="${BODY}"$'\n'"git cherry-pick -m 1 ${MERGE_SHA}"
+            BODY="${BODY}"$'\n'"git cherry-pick ${CHERRY_PICK_ARGS} ${MERGE_SHA}"
             BODY="${BODY}"$'\n'"# resolve conflicts, then:"
             BODY="${BODY}"$'\n'"git push origin ${CHERRY_PICK_BRANCH}"
             BODY="${BODY}"$'\n'"\`\`\`"
