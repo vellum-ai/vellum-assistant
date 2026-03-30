@@ -26,6 +26,7 @@ import {
 import { addRule } from "../permissions/trust-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { mintDaemonDeliveryToken } from "../runtime/auth/token-service.js";
+import type { UserDecision } from "../permissions/types.js";
 import type { ApprovalAction } from "../runtime/channel-approval-types.js";
 import { createOutboundSession } from "../runtime/channel-verification-service.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
@@ -231,8 +232,24 @@ const pendingInteractionResolver: GuardianRequestResolver = {
     }
 
     // Map action to the permission system's UserDecision type and notify session.
-    const userDecision =
-      decision.action === "reject" ? ("deny" as const) : ("allow" as const);
+    // Mirrors mapApprovalActionToUserDecision from channel-approvals.ts so
+    // temporal modes (approve_10m, approve_conversation) reach the session with
+    // the correct UserDecision instead of collapsing to plain "allow".
+    let userDecision: UserDecision;
+    switch (decision.action) {
+      case "reject":
+        userDecision = "deny";
+        break;
+      case "approve_10m":
+        userDecision = "allow_10m";
+        break;
+      case "approve_conversation":
+        userDecision = "allow_conversation";
+        break;
+      default:
+        userDecision = "allow";
+        break;
+    }
     resolved.conversation!.handleConfirmationResponse(
       request.id,
       userDecision,
