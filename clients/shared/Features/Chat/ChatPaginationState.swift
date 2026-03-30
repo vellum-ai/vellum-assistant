@@ -25,11 +25,10 @@ public final class ChatPaginationState {
     /// True while a previous-page load is in progress (brief async delay for UX).
     public var isLoadingMoreMessages: Bool = false
 
-    /// The subset of messages that are actually displayed (excludes subagent notifications
-    /// and other UI-only messages that the view filters before rendering).
-    /// Computed from the message manager's `messages` so that the Observation
-    /// framework traces through to the single stored property, avoiding a
-    /// redundant invalidation from a separate stored copy.
+    /// The subset of messages visible to the user (excludes subagent notifications,
+    /// hidden messages, and messages without renderable content).
+    /// Computed from `messageManager.messages` so the Observation framework
+    /// tracks the single underlying stored property.
     public var displayedMessages: [ChatMessage] {
         ChatVisibleMessageFilter.visibleMessages(from: messageManager.messages)
     }
