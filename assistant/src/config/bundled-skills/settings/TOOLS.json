@@ -108,7 +108,7 @@
         "required": ["image_path"]
       },
       "executor": "tools/avatar-update.ts",
-      "execution_target": "sandbox"
+      "execution_target": "host"
     },
     {
       "name": "remove_avatar",
@@ -125,7 +125,7 @@
         }
       },
       "executor": "tools/avatar-remove.ts",
-      "execution_target": "sandbox"
+      "execution_target": "host"
     },
     {
       "name": "get_avatar",
@@ -142,7 +142,7 @@
         }
       },
       "executor": "tools/avatar-get.ts",
-      "execution_target": "sandbox"
+      "execution_target": "host"
     }
   ]
 }

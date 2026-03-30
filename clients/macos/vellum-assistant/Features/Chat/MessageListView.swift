@@ -222,6 +222,11 @@ struct MessageListView: View {
         os_signpost(.begin, log: stallLog, name: "DerivedState.resolve")
         scrollState.recordBodyEvaluation()
 
+        if scrollState.isThrottled, let cached = scrollState.cachedDerivedStateBox as? MessageListDerivedState {
+            os_signpost(.end, log: stallLog, name: "DerivedState.resolve")
+            return cached
+        }
+
         // Compute visible messages first so version tracking and layout
         // both operate on the same filtered set.
         let liveMessages = visibleMessages
@@ -380,6 +385,7 @@ struct MessageListView: View {
             hasMessages: !liveMessages.isEmpty
         )
 
+        scrollState.cachedDerivedStateBox = result
         os_signpost(.end, log: stallLog, name: "DerivedState.resolve")
         return result
     }
@@ -506,24 +512,28 @@ struct MessageListView: View {
             viewportHeight: scrollState.viewportHeight,
             wasInRange: scrollState.wasPaginationTriggerInRange
         )
-        scrollState.wasPaginationTriggerInRange = isInRange
-
         guard shouldFire,
               hasMoreMessages,
               !isLoadingMoreMessages,
               !scrollState.isPaginationInFlight
         else { return }
 
-        // Fire pagination
+        guard Date().timeIntervalSince(scrollState.lastPaginationCompletedAt) > 0.5 else { return }
+
+        // Fire pagination — update edge state only now so guard rejections
+        // (including cooldown) don't consume the one-shot rising edge.
+        scrollState.wasPaginationTriggerInRange = isInRange
         scrollState.isPaginationInFlight = true
         let anchorId = scrollState.cachedFirstVisibleMessageId
         os_signpost(.event, log: PerfSignposts.log, name: "paginationSentinelFired")
         scrollState.paginationTask = Task { [scrollState] in
             defer {
                 if !Task.isCancelled {
+                    scrollState.lastPaginationCompletedAt = Date()
                     scrollState.isPaginationInFlight = false
                     scrollState.paginationTask = nil
                 } else if scrollState.paginationTask == nil {
+                    scrollState.lastPaginationCompletedAt = Date()
                     scrollState.isPaginationInFlight = false
                 }
             }
@@ -756,7 +766,6 @@ struct MessageListView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollContentBackground(.hidden)
-            .plainTextCopy()
             .coordinateSpace(name: "chatScrollView")
             .scrollDisabled(messages.isEmpty && !isSending)
             .defaultScrollAnchor(.bottom, for: .initialOffset)

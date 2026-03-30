@@ -1211,6 +1211,10 @@ async function main() {
         const { threadTs, channel } = normalized;
         const params = new URLSearchParams({ channel });
         if (threadTs) params.set("threadTs", threadTs);
+        // For non-threaded DMs, pass the original message ts so the runtime
+        // can target it for emoji-based thinking indicators.
+        const origMessageTs = normalized.event.source.messageId;
+        if (!threadTs && origMessageTs) params.set("messageTs", origMessageTs);
         const replyCallbackUrl = `${config.gatewayInternalBaseUrl}/deliver/slack?${params}`;
 
         // Check if this is a regular thread reply (not an edit or callback action).

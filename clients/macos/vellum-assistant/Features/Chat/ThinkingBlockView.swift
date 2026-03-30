@@ -21,7 +21,7 @@ struct ThinkingBlockView: View {
                 Text(content)
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentSecondary)
-                    .textSelection(.enabled)
+                    .textSelection(.disabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(VSpacing.sm)
                     .transition(.opacity)

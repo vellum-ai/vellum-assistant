@@ -206,6 +206,10 @@ final class MessageListScrollState {
     /// Tracks whether the pagination sentinel was previously inside the trigger band.
     @ObservationIgnored var wasPaginationTriggerInRange: Bool = false
 
+    /// Timestamp of the last pagination completion, used to enforce a 500ms
+    /// cooldown between successive pagination fires.
+    @ObservationIgnored var lastPaginationCompletedAt: Date = .distantPast
+
     /// The conversation ID currently being displayed.
     @ObservationIgnored var currentConversationId: UUID?
 
@@ -251,6 +255,7 @@ final class MessageListScrollState {
 
     @ObservationIgnored private var bodyEvalTimestamps: [CFAbsoluteTime] = []
     @ObservationIgnored private(set) var isThrottled = false
+    @ObservationIgnored var cachedDerivedStateBox: Any?
     @ObservationIgnored private var throttleRecoveryTask: Task<Void, Never>?
 
     /// Called once per MessageListView body evaluation. Trips the circuit
@@ -540,8 +545,10 @@ final class MessageListScrollState {
         paginationTask = nil
         if _isPaginationInFlight { _isPaginationInFlight = false }
         wasPaginationTriggerInRange = false
+        lastPaginationCompletedAt = .distantPast
         cachedLayoutKey = nil
         cachedLayoutMetadata = nil
+        cachedDerivedStateBox = nil
         messageListVersion = 0
         lastKnownRawMessageCount = 0
         lastKnownVisibleMessageCount = 0
@@ -592,6 +599,8 @@ final class MessageListScrollState {
         pendingPushToTopTarget = nil
         if _isPaginationInFlight { _isPaginationInFlight = false }
         mode = .initialLoad
+        cachedDerivedStateBox = nil
+        lastPaginationCompletedAt = .distantPast
         syncUIImmediately()
     }
 }

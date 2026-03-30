@@ -50,6 +50,14 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         let completedToolCallCount: Int
         let surfaceCount: Int
         let isStreaming: Bool
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.messageId == rhs.messageId
+                && lhs.toolCallCount == rhs.toolCallCount
+                && lhs.completedToolCallCount == rhs.completedToolCallCount
+                && lhs.surfaceCount == rhs.surfaceCount
+                && lhs.isStreaming == rhs.isStreaming
+        }
     }
     /// Tracks the number of rows already fetched from the daemon so pagination
     /// offsets stay correct even when the client filters out some conversations.

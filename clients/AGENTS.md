@@ -248,6 +248,16 @@ Programmatic scrolling uses `scrollPosition.scrollTo(id:anchor:)` instead of `Sc
 
 A `SuppressionReasons` OptionSet (`.resize`, `.pagination`, `.expansion`) manages reasons for temporarily suppressing auto-scroll-to-bottom. The `suppressionReasons` property and the derived `isSuppressed` flag are both `@ObservationIgnored` — the view never reads suppression state directly for rendering. Multiple reasons can be active concurrently; `isSuppressed` is true when any reason is set. Manage flags via `beginSuppression(_:)` and `endSuppression(_:)`. Only `.expansion` uses a 200ms auto-timeout Task; `.resize` and `.pagination` manage their lifecycle manually within their task bodies. Check `scrollState.isSuppressed` before issuing any automatic scroll-to-bottom call.
 
+### Upstream Observation Fixes
+
+Three fixes outside the scroll subsystem prevent observation feedback loops that drive excessive scroll-state and body re-evaluation:
+
+- **Pagination cooldown.** The pagination sentinel enforces a 500ms cooldown between completions via `lastPaginationCompletedAt` on `MessageListScrollState`. This prevents a feedback loop where scroll triggers pagination, `displayedMessageCount` changes cause body re-evaluation, content/geometry changes fire the sentinel again, and pagination re-enters. The cooldown ensures rapid pagination completions cannot cascade.
+
+- **Body-level circuit breaker.** When `isThrottled` is true (more than 100 body evaluations in 2 seconds), `derivedState` returns a cached `MessageListDerivedState` instead of recomputing O(n) derived properties. This makes body re-evaluation cheap during any loop regardless of its source — scroll state changes, pagination, or parent cascade (e.g., `ConversationManager` `objectWillChange`). The circuit breaker is a safety net that caps the cost of body evaluations even when the root-cause loop is not scroll-related.
+
+- **AssistantActivitySnapshot equality.** `textLength` is excluded from the `Equatable` conformance of `AssistantActivitySnapshot` so that `.removeDuplicates()` in the assistant activity Combine pipeline filters out per-token streaming deltas. As a result, `handleAssistantMessageArrival` only fires on structural message changes (new message, role change, completion) rather than on every token append. This prevents per-token `objectWillChange` emissions from `ConversationManager`, which would otherwise cascade into `MessageListBody` re-evaluation and scroll-state recomputation on every streamed token.
+
 ### Rules
 
 - **Cancel auto-scroll tasks immediately on user-initiated scroll.** When the user manually scrolls (up, pagination pull, etc.), cancel the debounce/auto-scroll `Task` synchronously inside the scroll callback — before any `await`. Do not rely on the task noticing cancellation at its next sleep boundary; by then the trailing scroll may already have been scheduled, starting a fight with the user's scroll position.
@@ -277,12 +287,12 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 | Need | Use this | Not this |
 |------|----------|----------|
 | Multi-line text input (short/medium) | `TextField(axis: .vertical)` + `.lineLimit(1...N)` | Custom `NSTextView` in `NSScrollView` |
-| Multi-line text input (scrollable) | `TextField(axis: .vertical)` inside `ScrollView` with `.onGeometryChange` height measurement (see chat composer). Fall back to `GeometryReader` in `.background()` if needed | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
+| Multi-line text input (scrollable) | `TextField(axis: .vertical)` inside `ScrollView` with `.onGeometryChange` height measurement. Fall back to `GeometryReader` in `.background()` if needed | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
+| Chat composer (arbitrary-length input) | Custom `NSTextView` via `NSViewRepresentable` (see `ComposerTextView` + `ComposerTextEditor`). `TextField(axis: .vertical)` has [O(n) performance degradation](https://justdoswift.substack.com/p/choosing-a-text-editor-in-swiftui) in `SelectionOverlay.updateNSView` with large text — Apple's own apps use [NSTextView](https://developer.apple.com/documentation/appkit/nstextview) for composers | `TextField(axis: .vertical)` for inputs that accept arbitrary-length paste |
 | Long-form text editing | `TextEditor` (acceptable for editor-like surfaces where the user expects a full text-editing experience, e.g., contact notes, skill editing, tool permission tester). Editable code views use `HighlightedTextView` with `CodeTextView` (`NSViewRepresentable`). Read-only code views use `VCodeView` (design system), which wraps a non-editable `NSTextView` for native text selection and copy | Custom AppKit `NSScrollView` + `NSClipView` + `NSTextView` stack |
 | Vertical centering in text field | Native `TextField` behavior | Custom `NSClipView` subclass |
 | Auto-growing height | `ScrollView` + `.onGeometryChange` on inner content + `.frame(height: clamp(measured, min, max))`. Fall back to `GeometryReader` in `.background()` if needed | Custom AppKit height sync. Note: `.lineLimit(1...N)` truncates instead of scrolling on macOS when content exceeds N lines — only use it for short-form inputs where truncation is acceptable (e.g., `VTextEditor`) |
-| Return-to-send in chat input | `.onSubmit { sendAction() }` (native SwiftUI) | `.onKeyPress(.return)` (returning `.ignored` doesn't fall back to TextField's newline behavior) |
-| Newline in chat input | Shift+Return via AppKit bridge (intercepts before `.onSubmit`); treat default-mode Option+Return as send, not newline | Relying solely on `.onSubmit` modifier detection (SwiftUI's `.onSubmit` cannot distinguish Shift+Return from plain Return) |
+| Return-to-send in chat input | `ComposerTextView.keyDown(with:)` using `ComposerReturnKeyRouting` — handles Return/Shift+Return/Cmd+Return directly in the NSTextView subclass | `.onKeyPress(.return)` (returning `.ignored` doesn't fall back to TextField's newline behavior) |
 | Keyboard shortcuts | `.onKeyPress()` modifiers | `keyDown(with:)` / `performKeyEquivalent` overrides |
 | Attributed/colored text display | `AttributedString` + `Text` overlay | `layoutManager.addTemporaryAttributes` |
 | File drag-drop | `.onDrop(of: [.fileURL])` | `performDragOperation` override |
@@ -292,9 +302,8 @@ Prefer built-in SwiftUI primitives over custom `NSViewRepresentable` / AppKit wr
 </details>
 
 **When AppKit bridges are still needed** (keep them minimal — only AppKit-specific logic, no business logic or layout):
+- Chat composer text input (`ComposerTextView` + `ComposerTextEditor`) — justified by `TextField(axis: .vertical)` [O(n) performance issue](https://justdoswift.substack.com/p/choosing-a-text-editor-in-swiftui)
 - Intercepting `Cmd+V` for image paste detection (pasteboard inspection not available in SwiftUI)
-- Intercepting return-key shortcuts that SwiftUI cannot route precisely before `.onSubmit` fires, including `Cmd+Enter` send, `Shift+Return` newline, and default-mode `Option+Return` send
-- Registering window-level event monitors (`NSEvent.addLocalMonitorForEvents`)
 - Accessing `NSWindow` properties (e.g., typing redirect handlers, container view registration)
 
 ---
