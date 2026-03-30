@@ -1328,8 +1328,20 @@ async function main() {
           } catch (err) {
             log.error(
               { err, channel, threadTs },
-              "Failed to process Slack event",
+              "Failed to process Slack event — delivering message without attachments",
             );
+            handleInbound(config, normalized.event, {
+              replyCallbackUrl,
+              routingOverride: normalized.routing,
+              ...(threadContextHint
+                ? { transportMetadata: { hints: [threadContextHint] } }
+                : {}),
+            }).catch((fwdErr) => {
+              log.error(
+                { err: fwdErr, channel, threadTs },
+                "Failed to forward Slack event to runtime (fallback)",
+              );
+            });
           }
         };
 
