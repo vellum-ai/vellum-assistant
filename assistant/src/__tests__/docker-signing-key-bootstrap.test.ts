@@ -3,19 +3,8 @@
  * and file-based load/create (local mode).
  */
 
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { existsSync, rmSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = process.env.VELLUM_WORKSPACE_DIR!;
-
-// Mock homedir() so the hardcoded LEGACY_SIGNING_KEY_PATH resolves inside
-// the temp test directory instead of the real ~/.vellum/protected/.
-mock.module("node:os", () => ({
-  homedir: () => testDir,
-  tmpdir,
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -25,6 +14,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 const { resolveSigningKey } = await import("../runtime/auth/token-service.js");
+const { getDeprecatedDir } = await import("../util/platform.js");
 
 const VALID_HEX_KEY = "ab".repeat(32); // 64 hex chars = 32 bytes
 
@@ -33,9 +23,9 @@ const savedEnv: Record<string, string | undefined> = {};
 beforeEach(() => {
   savedEnv.ACTOR_TOKEN_SIGNING_KEY = process.env.ACTOR_TOKEN_SIGNING_KEY;
   // Clean up key files from previous tests so they don't leak between cases.
-  rmSync(join(testDir, ".vellum"), { recursive: true, force: true });
-  rmSync(join(testDir, "deprecated"), { recursive: true, force: true });
-  mkdirSync(join(testDir, ".vellum", "protected"), { recursive: true });
+  const deprecatedDir = getDeprecatedDir();
+  if (existsSync(deprecatedDir))
+    rmSync(deprecatedDir, { recursive: true, force: true });
 });
 
 afterEach(() => {
@@ -69,32 +59,10 @@ describe("resolveSigningKey", () => {
     delete process.env.ACTOR_TOKEN_SIGNING_KEY;
 
     // resolveSigningKey now falls back to loadOrCreateSigningKey()
-    // which will generate a new key on disk.
+    // which will generate a new key under getDeprecatedDir().
     const key = resolveSigningKey();
     expect(key).toBeInstanceOf(Buffer);
     expect(key.length).toBe(32);
-  });
-
-  test("reads existing key from legacy protected/ path when env var is not set", () => {
-    delete process.env.ACTOR_TOKEN_SIGNING_KEY;
-
-    // Write a known key to the legacy protected/ location
-    const legacyKey = Buffer.alloc(32, 0xaa);
-    // LEGACY_SIGNING_KEY_PATH = join(homedir(), ".vellum", "protected", "actor-token-signing-key")
-    // homedir() is mocked to testDir
-    const legacyPath = join(
-      testDir,
-      ".vellum",
-      "protected",
-      "actor-token-signing-key",
-    );
-    mkdirSync(join(testDir, ".vellum", "protected"), { recursive: true });
-    writeFileSync(legacyPath, legacyKey, { mode: 0o600 });
-
-    const key = resolveSigningKey();
-    expect(key).toBeInstanceOf(Buffer);
-    expect(key.length).toBe(32);
-    expect(key.toString("hex")).toBe(legacyKey.toString("hex"));
   });
 
   test("different env var values produce different keys", () => {

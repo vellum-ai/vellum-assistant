@@ -8,7 +8,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import {
   hostPolicy,
@@ -46,8 +46,6 @@ const {
 } = await import("../skills/path-classifier.js");
 
 const testDirs: string[] = [];
-
-beforeEach(() => {});
 
 afterEach(() => {
   for (const dir of testDirs.splice(0)) {
