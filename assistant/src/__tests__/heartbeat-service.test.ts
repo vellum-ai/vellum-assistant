@@ -150,6 +150,53 @@ describe("HeartbeatService", () => {
     expect(processMessageCalls[0].content).toContain("Water the plants");
   });
 
+  test("comment lines in HEARTBEAT.md are stripped from prompt", async () => {
+    const checklist = [
+      "_ This is a comment that should be stripped",
+      "_ Another comment line",
+      "- Do the real task",
+      "- Check on something important",
+    ].join("\n");
+    writeFileSync(join(testWorkspaceDir, "HEARTBEAT.md"), checklist);
+
+    const service = createService();
+    await service.runOnce();
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].content).toContain("Do the real task");
+    expect(processMessageCalls[0].content).toContain(
+      "Check on something important",
+    );
+    expect(processMessageCalls[0].content).not.toContain(
+      "This is a comment that should be stripped",
+    );
+    expect(processMessageCalls[0].content).not.toContain(
+      "Another comment line",
+    );
+  });
+
+  test("comment lines inside fenced code blocks are preserved", async () => {
+    const checklist = [
+      "_ This comment should be stripped",
+      "- Check the Python snippet below still works:",
+      "```python",
+      "_instance = None",
+      "_private_var = 42",
+      "```",
+    ].join("\n");
+    writeFileSync(join(testWorkspaceDir, "HEARTBEAT.md"), checklist);
+
+    const service = createService();
+    await service.runOnce();
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].content).toContain("_instance = None");
+    expect(processMessageCalls[0].content).toContain("_private_var = 42");
+    expect(processMessageCalls[0].content).not.toContain(
+      "This comment should be stripped",
+    );
+  });
+
   test("default checklist used when no HEARTBEAT.md", async () => {
     const service = createService();
     await service.runOnce();

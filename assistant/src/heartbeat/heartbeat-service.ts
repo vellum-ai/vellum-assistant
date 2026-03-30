@@ -202,13 +202,7 @@ export class HeartbeatService {
     const raw =
       readTextFileSync(getWorkspacePromptPath("HEARTBEAT.md")) ??
       DEFAULT_CHECKLIST;
-    // Strip _-prefixed comment lines (same convention as system prompt),
-    // inlined here to avoid pulling in the heavy system-prompt module.
-    return raw
-      .replace(/\r\n/g, "\n")
-      .split("\n")
-      .filter((line) => !line.trimStart().startsWith("_"))
-      .join("\n");
+    return stripCommentLines(raw);
   }
 
   /** @internal Exposed for testing. */
