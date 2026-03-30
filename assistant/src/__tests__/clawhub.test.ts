@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { mock } from "bun:test";
 
-let TEST_DIR = "";
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -18,15 +18,6 @@ import {
   loadIntegrityManifest,
   verifyAndRecordSkillHash,
 } from "../skills/clawhub.js";
-
-beforeEach(() => {
-  TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
-  mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
-});
-
-afterEach(() => {
-  rmSync(join(TEST_DIR, "skills"), { recursive: true, force: true });
-});
 
 // ---------------------------------------------------------------------------
 // Slug validation (exercised through public API)
@@ -113,6 +104,7 @@ describe("integrity manifest", () => {
   }
 
   test("malformed integrity JSON is handled gracefully", () => {
+    mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
     const integrityPath = join(TEST_DIR, "skills", ".integrity.json");
     writeFileSync(integrityPath, "{not valid json!!!", "utf-8");
     createSkillFiles("valid-slug");
@@ -127,7 +119,11 @@ describe("integrity manifest", () => {
   });
 
   test("missing integrity manifest is created on first install", () => {
-    const integrityPath = join(TEST_DIR, "skills", ".integrity.json");
+    const skillsDir = join(TEST_DIR, "skills");
+    mkdirSync(skillsDir, { recursive: true });
+    const integrityPath = join(skillsDir, ".integrity.json");
+    // Remove any manifest left by earlier tests so we test the fresh-creation path
+    rmSync(integrityPath, { force: true });
     expect(existsSync(integrityPath)).toBe(false);
     createSkillFiles("new-skill");
 
