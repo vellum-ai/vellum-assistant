@@ -210,10 +210,10 @@ struct CreditsExhaustedBanner: View {
     var body: some View {
         HStack(spacing: VSpacing.xl) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("💰  Your balance appears depleted")
+                Text("💰  Your balance has run out")
                     .font(VFont.bodySmallEmphasised)
                     .foregroundStyle(VColor.contentEmphasized)
-                Text("Add funds to continue. If you just topped up, it may take a minute to update — try again shortly.")
+                Text("Add funds to pick up where you left off. If you recently topped up, it may take a minute to update.")
                     .font(VFont.bodyMediumDefault)
                     .foregroundStyle(VColor.contentSecondary)
             }

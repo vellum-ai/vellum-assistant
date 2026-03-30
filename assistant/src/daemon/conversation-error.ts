@@ -241,7 +241,7 @@ function classifyCore(
       return {
         code: "PROVIDER_BILLING",
         userMessage:
-          "Your balance appears depleted. If you recently added funds, wait a minute and retry.",
+          "You've run out of credits. Add funds to continue using the assistant. If you recently topped up, it may take a minute to update.",
         retryable: true,
         errorCategory: "credits_exhausted",
       };

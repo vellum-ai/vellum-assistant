@@ -60,7 +60,7 @@ public enum ConversationErrorCategory: Equatable, Sendable {
         case .providerApi:
             return "This is usually temporary — click Retry, or check your API key in Settings if it persists."
         case .providerBilling:
-            return "If you recently added funds, it may take a minute to update. Try again shortly, or add credits."
+            return "Please add credits to your account. If you recently topped up, it may take a minute to update — try again shortly."
         case .providerOrdering:
             return "This is usually temporary — click Retry to continue."
         case .providerWebSearch:
