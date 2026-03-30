@@ -615,7 +615,7 @@ describe("resolveOrHatchTarget", () => {
     const result = await resolveOrHatchTarget("docker", "new-one");
     expect(hatchDockerMock).toHaveBeenCalledWith(
       "vellum",
-      true,
+      false,
       "new-one",
       false,
       {},
@@ -710,7 +710,7 @@ describe("resolveOrHatchTarget", () => {
 // ---------------------------------------------------------------------------
 
 describe("auto-retire", () => {
-  test("local -> docker: retireLocal and removeAssistantEntry called on source after import", async () => {
+  test("local -> docker: retireLocal called before hatch, removeAssistantEntry called", async () => {
     setArgv("--from", "my-local", "--docker");
 
     const localEntry = makeEntry("my-local", { cloud: "local" });
@@ -741,7 +741,7 @@ describe("auto-retire", () => {
     }
   });
 
-  test("docker -> local: retireDocker and removeAssistantEntry called on source after import", async () => {
+  test("docker -> local: retireDocker called before hatch, removeAssistantEntry called", async () => {
     setArgv("--from", "my-docker", "--local");
 
     const dockerEntry = makeEntry("my-docker", { cloud: "docker" });
