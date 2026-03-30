@@ -1009,6 +1009,7 @@ struct MessageListView: View {
                     // sees the complete response.
                     let wasPushToTop = scrollState.pushToTopMessageId != nil
                     if wasPushToTop { scrollState.pushToTopMessageId = nil }
+                    scrollState.pendingPushToTopTarget = nil
                     if wasPushToTop && scrollState.isFollowingBottom {
                         scrollState.pinToBottom(animated: true)
                     }
