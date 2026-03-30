@@ -76,8 +76,15 @@ function printHelp(): void {
     "  --keep-source       Do not retire the source after local/docker transfers",
   );
   console.log(
-    "  --dry-run           Preview the transfer without applying changes",
+    "  --dry-run           Preview the transfer without applying changes.",
   );
+  console.log(
+    "                      If the target exists, runs preflight analysis.",
+  );
+  console.log(
+    "                      If the target would be hatched, shows what would happen",
+  );
+  console.log("                      without creating anything.");
   console.log("  --help, -h          Show this help");
   console.log("");
   console.log("Examples:");
@@ -1003,6 +1010,40 @@ export async function teleport(): Promise<void> {
     process.exit(1);
   }
 
+  // Dry-run without an existing target: skip export, hatch, and import —
+  // just report what would happen.
+  if (dryRun) {
+    const existingTarget = targetName ? findAssistantByName(targetName) : null;
+
+    if (existingTarget) {
+      // Target exists — export and run preflight against it
+      const toCloud = resolveCloud(existingTarget);
+      const normalizedTargetEnv = toCloud === "vellum" ? "platform" : toCloud;
+      if (normalizedSourceEnv === normalizedTargetEnv) {
+        console.error(
+          `Cannot teleport between two ${normalizedTargetEnv} assistants. Teleport transfers data across different environments.`,
+        );
+        process.exit(1);
+      }
+
+      console.log(`Exporting from ${from} (${fromCloud})...`);
+      const bundleData = await exportFromAssistant(fromEntry, fromCloud);
+      console.log(`Importing to ${existingTarget.assistantId} (${toCloud})...`);
+      await importToAssistant(existingTarget, toCloud, bundleData, true);
+    } else {
+      // No existing target — just describe what would happen
+      console.log("Dry run summary:");
+      console.log(`  Would export data from: ${from} (${fromCloud})`);
+      console.log(
+        `  Would hatch a new ${targetEnv} assistant${targetName ? ` named '${targetName}'` : ""}`,
+      );
+      console.log(`  Would import data into the new assistant`);
+    }
+
+    console.log(`Dry run complete — no changes were made.`);
+    return;
+  }
+
   // Export from source
   console.log(`Exporting from ${from} (${fromCloud})...`);
   const bundleData = await exportFromAssistant(fromEntry, fromCloud);
@@ -1024,7 +1065,7 @@ export async function teleport(): Promise<void> {
 
   // Import to target
   console.log(`Importing to ${toEntry.assistantId} (${toCloud})...`);
-  await importToAssistant(toEntry, toCloud, bundleData, dryRun);
+  await importToAssistant(toEntry, toCloud, bundleData, false);
 
   // Auto-retire source if applicable (local<->docker, not dry-run, not --keep-source)
   if (!dryRun) {
