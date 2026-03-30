@@ -787,6 +787,7 @@ export class DaemonServer {
           (msg) => this.broadcast(msg),
           memoryPolicy,
           sharedCesClient,
+          storedOptions?.speed,
         );
         newConversation.updateClient(sendToClient, true);
         await newConversation.loadFromDb();

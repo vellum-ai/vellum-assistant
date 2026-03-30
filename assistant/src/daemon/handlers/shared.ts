@@ -1,6 +1,7 @@
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../../config/loader.js";
+import type { Speed } from "../../config/schemas/inference.js";
 import type { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
@@ -101,6 +102,7 @@ export interface RenderedHistoryContent {
 export interface ConversationCreateOptions {
   systemPromptOverride?: string;
   maxResponseTokens?: number;
+  speed?: Speed;
   transport?: ConversationTransportMetadata;
   assistantId?: string;
   trustContext?: TrustContext;
