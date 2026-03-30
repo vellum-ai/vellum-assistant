@@ -113,6 +113,14 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// Conversation local IDs whose ViewModels are pinned by open pop-out windows.
     /// Pinned VMs are exempt from LRU eviction.
     private var pinnedViewModelIds: Set<UUID> = []
+    /// Background queue for Combine subscription teardown. AnyCancellable.cancel()
+    /// is thread-safe per Apple docs, but tearing down deep operator chains
+    /// (CombineLatest3/4, scan, removeDuplicates, etc.) synchronously on main
+    /// blocks the UI. Moving dealloc off-main eliminates the hang.
+    private static let cancellableTeardownQueue = DispatchQueue(
+        label: "com.vellum.assistant.cancellable-teardown",
+        qos: .utility
+    )
     private let connectionManager: GatewayConnectionManager
     private let eventStreamClient: EventStreamClient
     private let conversationClient: ConversationClientProtocol
@@ -2264,6 +2272,16 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         )
     }
 
+    /// Move cancellable teardown off the main thread. The Set<AnyCancellable> is
+    /// captured into a background closure so dealloc (and thus cancel()) happens
+    /// on `cancellableTeardownQueue` instead of blocking the caller.
+    private func tearDownCancellables(_ cancellables: Set<AnyCancellable>) {
+        guard !cancellables.isEmpty else { return }
+        Self.cancellableTeardownQueue.async {
+            withExtendedLifetime(cancellables) {}
+        }
+    }
+
     /// Remove busy-state and interaction-state subscriptions for a conversation.
     ///
     /// Does NOT clear `conversationInteractionStates` — the last known interaction
@@ -2271,12 +2289,17 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// showing the correct sidebar cue.  Callers that permanently remove a
     /// conversation (close / archive) should use `unsubscribeAllForConversation(id:)` instead.
     private func unsubscribeFromBusyState(for conversationId: UUID) {
-        busyStateCancellables.removeValue(forKey: conversationId)
-        assistantActivityCancellables[conversationId]?.cancel()
-        assistantActivityCancellables.removeValue(forKey: conversationId)
+        if let subs = busyStateCancellables.removeValue(forKey: conversationId) {
+            tearDownCancellables(subs)
+        }
+        if let sub = assistantActivityCancellables.removeValue(forKey: conversationId) {
+            tearDownCancellables([sub])
+        }
         latestAssistantActivitySnapshots.removeValue(forKey: conversationId)
         busyConversationIds.remove(conversationId)
-        interactionStateCancellables.removeValue(forKey: conversationId)
+        if let subs = interactionStateCancellables.removeValue(forKey: conversationId) {
+            tearDownCancellables(subs)
+        }
         // Invalidate any in-flight withObservationTracking loop for error bridging.
         if let gen = errorObservationGenerations[conversationId] {
             errorObservationGenerations[conversationId] = gen + 1
@@ -2288,12 +2311,17 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// conversation-backfilled-then-discarded). Unlike `unsubscribeFromBusyState`,
     /// this also clears `conversationInteractionStates` so stale sidebar cues don't linger.
     private func unsubscribeAllForConversation(id: UUID) {
-        busyStateCancellables[id] = nil
-        assistantActivityCancellables[id]?.cancel()
-        assistantActivityCancellables[id] = nil
+        if let subs = busyStateCancellables.removeValue(forKey: id) {
+            tearDownCancellables(subs)
+        }
+        if let sub = assistantActivityCancellables.removeValue(forKey: id) {
+            tearDownCancellables([sub])
+        }
         latestAssistantActivitySnapshots.removeValue(forKey: id)
         busyConversationIds.remove(id)
-        interactionStateCancellables[id] = nil
+        if let subs = interactionStateCancellables.removeValue(forKey: id) {
+            tearDownCancellables(subs)
+        }
         conversationInteractionStates.removeValue(forKey: id)
         // Invalidate any in-flight withObservationTracking loop for error bridging.
         if let gen = errorObservationGenerations[id] {
