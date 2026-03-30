@@ -374,7 +374,7 @@ describe("Native Web Search — Tool Filtering", () => {
 
     const tools = lastStreamParams!.tools as Array<{
       name: string;
-      cache_control?: { type: string };
+      cache_control?: { type: string; ttl?: string };
     }>;
 
     // file_read is the last custom tool (only custom tool in this case)
