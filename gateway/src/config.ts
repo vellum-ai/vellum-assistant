@@ -134,9 +134,18 @@ export function loadConfig(): GatewayConfig {
     (typeof gw.defaultAssistantId === "string" && gw.defaultAssistantId
       ? gw.defaultAssistantId
       : undefined);
-  const routingEntries = process.env.ROUTING_ENTRIES
-    ? parseRoutingEntries(JSON.parse(process.env.ROUTING_ENTRIES))
-    : parseRoutingEntries(gw.routingEntries);
+  let routingEntries: RoutingEntry[] = [];
+  if (process.env.ROUTING_ENTRIES) {
+    try {
+      routingEntries = parseRoutingEntries(
+        JSON.parse(process.env.ROUTING_ENTRIES),
+      );
+    } catch {
+      log.warn("Invalid JSON in ROUTING_ENTRIES env var — ignoring");
+    }
+  } else {
+    routingEntries = parseRoutingEntries(gw.routingEntries);
+  }
 
   const logFile: LogFileConfig = {
     dir: undefined,
