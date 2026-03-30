@@ -993,6 +993,16 @@ export async function teleport(): Promise<void> {
 
   const fromCloud = resolveCloud(fromEntry);
 
+  // Early same-environment guard — compare source cloud against the CLI flag
+  // BEFORE exporting or hatching, to avoid creating orphaned assistants.
+  const normalizedSourceEnv = fromCloud === "vellum" ? "platform" : fromCloud;
+  if (normalizedSourceEnv === targetEnv) {
+    console.error(
+      `Cannot teleport between two ${targetEnv} assistants. Teleport transfers data across different environments.`,
+    );
+    process.exit(1);
+  }
+
   // Export from source
   console.log(`Exporting from ${from} (${fromCloud})...`);
   const bundleData = await exportFromAssistant(fromEntry, fromCloud);
@@ -1001,8 +1011,9 @@ export async function teleport(): Promise<void> {
   const toEntry = await resolveOrHatchTarget(targetEnv, targetName);
   const toCloud = resolveCloud(toEntry);
 
-  // Same-environment rejection — uses resolved clouds, not CLI flag
-  const normalizedSourceEnv = fromCloud === "vellum" ? "platform" : fromCloud;
+  // Post-hatch same-environment safety net — uses resolved clouds in case
+  // the resolved target cloud differs from the CLI flag (e.g., --docker
+  // targeting a name that is actually a local entry).
   const normalizedTargetEnv = toCloud === "vellum" ? "platform" : toCloud;
   if (normalizedSourceEnv === normalizedTargetEnv) {
     console.error(
