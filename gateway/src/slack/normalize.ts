@@ -291,7 +291,7 @@ export type NormalizedSlackEvent = {
   event: GatewayInboundEvent;
   routing: RouteResult;
   /** Thread timestamp for reply threading. */
-  threadTs: string;
+  threadTs?: string;
   /** Slack channel ID. */
   channel: string;
   /** Original Slack file objects keyed by file ID, for download in the I/O layer. */
