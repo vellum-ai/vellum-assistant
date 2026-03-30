@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
@@ -31,12 +30,6 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
-}));
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () =>
-    join("/tmp/vellum-test-secret-ingress-http", "protected"),
-  getWorkspaceDir: () => "/tmp/vellum-test-secret-ingress-http/workspace",
 }));
 
 mock.module("../memory/conversation-key-store.js", () => ({

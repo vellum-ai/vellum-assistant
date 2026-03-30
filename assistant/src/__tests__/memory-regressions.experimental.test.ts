@@ -1,6 +1,3 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeAll,
@@ -10,21 +7,6 @@ import {
   mock,
   test,
 } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "memory-regressions-exp-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  getWorkspaceDir: () => testDir,
-  getProtectedDir: () => join(testDir, "protected"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../security/secure-keys.js", () => ({
   getProviderKeyAsync: async () => undefined,
@@ -125,11 +107,6 @@ describe("Memory regressions (experimental)", () => {
 
   afterAll(() => {
     resetDb();
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      // best effort cleanup
-    }
   });
 
   async function withMockOllamaQueryEmbedding<T>(
