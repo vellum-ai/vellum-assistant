@@ -22,14 +22,17 @@ struct SidebarSectionHeader: View {
     let conversationCount: Int
     let isExpanded: Bool
     let isDropTarget: Bool
+    let isGroupReorderTarget: Bool
+    let groupDropIndicatorAtBottom: Bool
     let aggregateState: SectionAggregateState
     let isRenaming: Bool                       // M5: inline rename active
     @Binding var renamingName: String           // M5: bound to rename text field
     var onToggleExpand: () -> Void
-    var onRename: ((String) -> Void)?           // M5: enters rename mode (nil for system groups)
-    var onCommitRename: ((String) -> Void)?     // M5: commits the rename (nil for system groups)
-    var onCancelRename: (() -> Void)?           // M5: cancels rename without persisting (Escape key)
-    var onDelete: (() -> Void)?                 // M5: nil for system groups
+    var onRename: ((String) -> Void)?
+    var onCommitRename: ((String) -> Void)?
+    var onCancelRename: (() -> Void)?
+    var onDelete: (() -> Void)?
+    var sidebar: SidebarInteractionState?
 
     @FocusState private var isRenameFocused: Bool
     @State private var isHeaderHovered: Bool = false
@@ -97,14 +100,23 @@ struct SidebarSectionHeader: View {
         .pointerCursor(onHover: { hovering in
             isHeaderHovered = hovering
         })
-        .background(isDropTarget ? VColor.systemPositiveWeak : .clear)
+        .background(isDropTarget && !isGroupReorderTarget ? VColor.systemPositiveWeak : .clear)
         .cornerRadius(4)
+        .overlay(alignment: groupDropIndicatorAtBottom ? .bottom : .top) {
+            if isGroupReorderTarget {
+                Rectangle()
+                    .fill(VColor.systemPositiveStrong)
+                    .frame(height: 2)
+                    .transition(.opacity)
+            }
+        }
         .modifier(ConditionalGroupContextMenu(
             onRename: onRename.map { rename in { rename(group.name) } },
             onDelete: onDelete
         ))
         .conditionalOnDrag(enabled: !group.isSystemGroup) {
-            NSItemProvider(object: "group:\(group.id)" as NSString)
+            sidebar?.draggingGroupId = group.id
+            return NSItemProvider(object: "group:\(group.id)" as NSString)
         }
     }
 }

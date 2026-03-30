@@ -130,6 +130,8 @@ struct SidebarSectionView: View {
                 conversationCount: displayCount,
                 isExpanded: isExpanded,
                 isDropTarget: isDropTarget,
+                isGroupReorderTarget: !group.isSystemGroup && sidebar?.dropTargetSectionId == group.id && sidebar?.draggingConversationId == nil,
+                groupDropIndicatorAtBottom: sidebar?.groupDropIndicatorAtBottom ?? false,
                 aggregateState: aggregateState,
                 isRenaming: isRenaming,
                 renamingName: $renamingName,
@@ -137,7 +139,8 @@ struct SidebarSectionView: View {
                 onRename: onRename,
                 onCommitRename: onCommitRename,
                 onCancelRename: onCancelRename,
-                onDelete: onDelete
+                onDelete: onDelete,
+                sidebar: sidebar
             )
             .modifier(SectionHeaderDropModifier(
                 group: group,

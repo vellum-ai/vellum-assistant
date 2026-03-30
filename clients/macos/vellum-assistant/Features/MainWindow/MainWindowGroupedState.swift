@@ -72,6 +72,10 @@ final class SidebarInteractionState {
 
     /// Group ID currently targeted during a drag-and-drop operation.
     var dropTargetSectionId: String?
+    /// Group ID currently being dragged (set on drag start via .onDrag).
+    var draggingGroupId: String?
+    /// Whether the group drop indicator should appear at the bottom (true) or top (false).
+    var groupDropIndicatorAtBottom: Bool = false
 
     /// Set of channel names whose sidebar sections are currently collapsed.
     /// Persisted to UserDefaults so collapse state survives app restart.

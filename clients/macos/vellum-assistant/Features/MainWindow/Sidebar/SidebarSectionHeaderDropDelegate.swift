@@ -3,30 +3,26 @@ import UniformTypeIdentifiers
 import VellumAssistantShared
 
 /// Drop delegate for sidebar section headers.
-/// Handles conversation drops (M4) and group reorder drops (M5).
+/// Handles conversation drops (move to group) and group reorder drops.
 struct SidebarSectionHeaderDropDelegate: DropDelegate {
     let groupId: String?
     let group: ConversationGroup?
     let sidebar: SidebarInteractionState
     let conversationManager: ConversationManager
 
-    func validateDrop(info: DropInfo) -> Bool {
-        // Check if this is a group reorder drop first (M5).
-        // Group drops come through as NSItemProvider with "group:" prefix.
-        // We detect them by checking if there's NO draggingConversationId set
-        // (group drags don't set draggingConversationId) AND the info contains items.
-        if sidebar.draggingConversationId == nil {
-            // Could be a group drag OR a conversation drag where source tracking
-            // is temporarily unavailable. Accept plain-text payloads and let
-            // performDrop parse/route the payload safely.
-            return info.hasItemsConforming(to: [.plainText])
-        }
+    /// Whether this drop is a conversation being dragged (vs a group being dragged).
+    private var isConversationDrag: Bool { sidebar.draggingConversationId != nil }
 
-        // M4: conversation drop path
-        guard let sourceId = sidebar.draggingConversationId,
-              let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
-              source.groupId != groupId else { return false }
-        return true
+    func validateDrop(info: DropInfo) -> Bool {
+        if isConversationDrag {
+            // Conversation drag: allow if the conversation isn't already in this group
+            guard let sourceId = sidebar.draggingConversationId,
+                  let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
+                  source.groupId != groupId else { return false }
+            return true
+        }
+        // Group drag: accept plain-text payloads; performDrop parses the payload
+        return info.hasItemsConforming(to: [.plainText])
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
@@ -34,8 +30,20 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
     }
 
     func dropEntered(info: DropInfo) {
-        if let groupId {
+        guard let groupId else { return }
+        if isConversationDrag {
+            // Conversation drag: highlight the group background
             sidebar.dropTargetSectionId = groupId
+        } else if let targetGroup = group, !targetGroup.isSystemGroup {
+            // Group drag: show the horizontal divider, not the highlight
+            sidebar.dropTargetSectionId = groupId
+            // Determine indicator direction from sort positions
+            if let sourceId = sidebar.draggingGroupId,
+               let sourceGroup = conversationManager.groups.first(where: { $0.id == sourceId }) {
+                // Dragging down → indicator at bottom (insert after target)
+                // Dragging up → indicator at top (insert before target)
+                sidebar.groupDropIndicatorAtBottom = sourceGroup.sortPosition < targetGroup.sortPosition
+            }
         }
     }
 
@@ -47,27 +55,25 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         sidebar.dropTargetSectionId = nil
+        sidebar.draggingGroupId = nil
 
-        // Try to load dropped items to detect group vs conversation payload
+        // If we know it's a conversation drag, handle immediately
+        if isConversationDrag {
+            return performConversationDrop()
+        }
+
+        // Otherwise, load the payload to determine type
         let providers = info.itemProviders(for: [.plainText])
         guard let provider = providers.first else {
-            // Fallback to conversation drag path (M4)
             return performConversationDrop()
         }
 
-        // Check for draggingConversationId first — if set, this is a conversation drag
-        if sidebar.draggingConversationId != nil {
-            return performConversationDrop()
-        }
-
-        // Async load the payload string for group reorder
         provider.loadObject(ofClass: NSString.self) { item, _ in
             guard let string = item as? String else { return }
             Task { @MainActor in
                 guard let payload = SidebarDropPayload.parse(from: string) else { return }
                 switch payload {
                 case .conversation(let uuid):
-                    // Late-arriving conversation drop
                     if let source = self.conversationManager.conversations.first(where: { $0.id == uuid }),
                        source.groupId != self.groupId {
                         self.conversationManager.moveConversationToGroup(uuid, groupId: self.groupId)
@@ -81,37 +87,43 @@ struct SidebarSectionHeaderDropDelegate: DropDelegate {
         return true
     }
 
-    // MARK: - Conversation Drop (M4)
+    // MARK: - Conversation Drop
 
     private func performConversationDrop() -> Bool {
         let sourceId = sidebar.draggingConversationId
         sidebar.endConversationDrag()
         guard let sourceId else { return false }
-        // No-op if the conversation is already in this group (prevents clearing displayOrder)
         if let source = conversationManager.conversations.first(where: { $0.id == sourceId }),
            source.groupId == groupId { return false }
         conversationManager.moveConversationToGroup(sourceId, groupId: groupId)
         return true
     }
 
-    // MARK: - Group Reorder (M5)
+    // MARK: - Group Reorder
 
     private func performGroupReorder(sourceId: String) {
-        // Source must be a custom group (system groups can't be dragged)
         guard let source = conversationManager.groups.first(where: { $0.id == sourceId }),
               !source.isSystemGroup else { return }
-        // Target must also be a custom group header
         guard let targetGroup = group, !targetGroup.isSystemGroup else { return }
-        // No-op if dropping onto self
         guard sourceId != targetGroup.id else { return }
 
-        // Reindex all custom groups to clean integer positions starting at 3.
         var customGroups = conversationManager.groups
             .filter { !$0.isSystemGroup }
             .sorted { $0.sortPosition < $1.sortPosition }
-        customGroups.removeAll { $0.id == sourceId }
-        let insertIdx = customGroups.firstIndex(where: { $0.id == targetGroup.id }) ?? customGroups.endIndex
-        customGroups.insert(source, at: insertIdx)
+
+        guard let sourceIdx = customGroups.firstIndex(where: { $0.id == sourceId }),
+              let targetIdx = customGroups.firstIndex(where: { $0.id == targetGroup.id }) else { return }
+
+        // Remove source from its current position
+        customGroups.remove(at: sourceIdx)
+
+        // Find target's new index after removal
+        let newTargetIdx = customGroups.firstIndex(where: { $0.id == targetGroup.id }) ?? customGroups.endIndex
+
+        // Insert after target when dragging down, before target when dragging up
+        let insertIdx = sourceIdx < targetIdx ? newTargetIdx + 1 : newTargetIdx
+        customGroups.insert(source, at: min(insertIdx, customGroups.count))
+
         let updates = customGroups.enumerated().map { (i, g) in
             (groupId: g.id, sortPosition: Double(3 + i))
         }
