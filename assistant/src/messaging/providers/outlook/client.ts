@@ -29,7 +29,14 @@ function isRetryable(status: number): boolean {
   return status === 429 || (status >= 500 && status < 600);
 }
 
-const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "PUT", "DELETE", "OPTIONS"]);
+const IDEMPOTENT_METHODS = new Set([
+  "GET",
+  "HEAD",
+  "PUT",
+  "DELETE",
+  "OPTIONS",
+  "PATCH",
+]);
 
 function isIdempotent(method: string): boolean {
   return IDEMPOTENT_METHODS.has(method.toUpperCase());
@@ -165,7 +172,7 @@ export async function searchMessages(
   },
 ): Promise<OutlookMessageListResponse> {
   const query: Record<string, string> = {
-    $search: `"${searchQuery}"`,
+    $search: `"${searchQuery.replace(/"/g, '\\"')}"`,
   };
   if (options?.top !== undefined) query["$top"] = String(options.top);
   if (options?.skip !== undefined) query["$skip"] = String(options.skip);
