@@ -7,6 +7,10 @@ on:
     types:
       - closed
 
+concurrency:
+  group: cherry-pick-to-release
+  cancel-in-progress: false
+
 jobs:
   cherry-pick:
     if: >-
@@ -54,7 +58,6 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           RELEASE_BRANCH: ${{ steps.release.outputs.branch }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
           git config user.name "vellum-automation[bot]"
@@ -73,15 +76,36 @@ jobs:
             git checkout -b "$CHERRY_PICK_BRANCH"
           fi
 
-          # Detect whether the merge commit has multiple parents (true merge)
-          # or a single parent (squash merge). Only pass -m 1 for true merges.
+          # Detect the merge strategy:
+          # - True merge (2 parents): cherry-pick with -m 1
+          # - Squash merge (1 parent): cherry-pick the single commit
+          # - Rebase merge (1 parent, multiple PR commits): cherry-pick each
+          #   commit individually so no work is silently dropped
           PARENT_COUNT=$(git cat-file -p "$MERGE_SHA" | grep -c '^parent')
-          CHERRY_PICK_ARGS="--no-edit"
+
+          COMMITS_TO_PICK=()
           if [ "$PARENT_COUNT" -gt 1 ]; then
-            CHERRY_PICK_ARGS="-m 1 $CHERRY_PICK_ARGS"
+            # True merge — cherry-pick the merge commit itself
+            CHERRY_PICK_ARGS="-m 1 --no-edit"
+            COMMITS_TO_PICK=("$MERGE_SHA")
+          else
+            # Squash or rebase merge — list all commits from the PR.
+            # For squash merges this returns just the one squashed commit.
+            # For rebase merges this returns each rebased commit in order.
+            MERGE_BASE=$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq '.base.sha')
+            mapfile -t COMMITS_TO_PICK < <(git rev-list --reverse "${MERGE_BASE}..${MERGE_SHA}")
+            CHERRY_PICK_ARGS="--no-edit"
           fi
 
-          if git cherry-pick $CHERRY_PICK_ARGS "$MERGE_SHA"; then
+          CHERRY_PICK_OK=true
+          for COMMIT in "${COMMITS_TO_PICK[@]}"; do
+            if ! git cherry-pick $CHERRY_PICK_ARGS "$COMMIT"; then
+              CHERRY_PICK_OK=false
+              break
+            fi
+          done
+
+          if [ "$CHERRY_PICK_OK" = true ]; then
             git push origin "$CHERRY_PICK_BRANCH"
 
             # Create a PR only if one doesn't already exist for this branch
@@ -106,7 +130,7 @@ jobs:
             BODY="${BODY}"$'\n'"\`\`\`bash"
             BODY="${BODY}"$'\n'"git fetch origin"
             BODY="${BODY}"$'\n'"git checkout ${CHERRY_PICK_BRANCH} 2>/dev/null || git checkout -b ${CHERRY_PICK_BRANCH} origin/${RELEASE_BRANCH}"
-            BODY="${BODY}"$'\n'"git cherry-pick ${CHERRY_PICK_ARGS} ${MERGE_SHA}"
+            BODY="${BODY}"$'\n'"git cherry-pick ${CHERRY_PICK_ARGS} ${COMMITS_TO_PICK[*]}"
             BODY="${BODY}"$'\n'"# resolve conflicts, then:"
             BODY="${BODY}"$'\n'"git push origin ${CHERRY_PICK_BRANCH}"
             BODY="${BODY}"$'\n'"\`\`\`"
