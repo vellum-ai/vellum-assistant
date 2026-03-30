@@ -1176,6 +1176,7 @@ function sampleSerendipityItems(
           .select(columns)
           .from(memoryItems)
           .where(and(baseConditions, sql`rowid >= ${randomRowid}`))
+          .orderBy(sql`rowid`)
           .limit(1)
           .get();
         if (row && !seen.has(row.id)) {
