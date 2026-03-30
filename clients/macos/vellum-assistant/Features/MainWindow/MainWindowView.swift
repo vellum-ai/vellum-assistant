@@ -598,8 +598,6 @@ struct MainWindowView: View {
         }
     }
 
-    // MARK: - Lifecycle & notification handlers are in MainWindowView+Lifecycle.swift
-
     @ViewBuilder
     private func coreLayoutContent(geometry: GeometryProxy) -> some View {
         coreLayoutBase(geometry: geometry)
@@ -646,7 +644,6 @@ struct MainWindowView: View {
         .coordinateSpace(name: "coreLayout")
     }
 
-    // MARK: - Drawer layers are in MainWindowView+Drawers.swift
 }
 
 // MARK: - Error Toast Overlay

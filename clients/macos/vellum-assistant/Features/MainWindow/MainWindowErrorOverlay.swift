@@ -5,7 +5,7 @@ import VellumAssistantShared
 /// invalidation boundary so changes to unrelated `@ObservedObject`s on
 /// `MainWindowView` don't force this overlay to re-evaluate.
 ///
-/// Accepts callback closures instead of the full manager objects, keeping
+/// Accepts the active view model and settings store directly, keeping
 /// the dependency surface minimal.
 struct MainWindowErrorOverlay: View {
     let activeViewModel: ChatViewModel?
