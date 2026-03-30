@@ -19,6 +19,8 @@ import {
   spyOn,
 } from "bun:test";
 
+import { getWorkspacePromptPath } from "../util/platform.js";
+
 // --- In-memory checkpoint store ---
 const store = new Map<string, string>();
 
@@ -29,76 +31,11 @@ mock.module("../memory/checkpoints.js", () => ({
   ),
 }));
 
-// --- Temp directory for workspace paths ---
-let tempDir: string;
-
 // --- Temp directory for template files ---
 // Avoids mutating the real source-controlled UPDATES.md template, preventing
 // race conditions with parallel test execution and working tree corruption
 // if the test process crashes.
 let tempTemplateDir: string;
-
-// Mock platform so getWorkspacePromptPath resolves to the per-test tempDir
-// rather than the preload's per-file workspace directory.
-mock.module("../util/platform.js", () => ({
-  getWorkspacePromptPath: (file: string) => join(tempDir, file),
-  getWorkspaceDir: () => tempDir,
-  getProtectedDir: () => join(tempDir, "protected"),
-  getDataDir: () => join(tempDir, "data"),
-  getPlatformName: () => "darwin",
-  isMacOS: () => false,
-  isLinux: () => false,
-  isWindows: () => false,
-  ensureDataDir: () => {},
-  getDbPath: () => "",
-  getLogPath: () => "",
-  getHistoryPath: () => "",
-  getHooksDir: () => "",
-  getSessionTokenPath: () => "",
-  getPlatformTokenPath: () => "",
-  getPidPath: () => "",
-  getWorkspaceConfigPath: () => "",
-  getWorkspaceSkillsDir: () => "",
-  getWorkspaceHooksDir: () => "",
-  getSandboxRootDir: () => "",
-  getSandboxWorkingDir: () => "",
-  getInterfacesDir: () => "",
-  getClipboardCommand: () => null,
-  readPlatformToken: () => null,
-  readSessionToken: () => null,
-  getTCPPort: () => 8765,
-  isTCPEnabled: () => false,
-  getTCPHost: () => "127.0.0.1",
-  isIOSPairingEnabled: () => false,
-}));
-
-// Mock system-prompt to provide only stripCommentLines without pulling in
-// the rest of the system-prompt transitive dependency tree.
-mock.module("../prompts/system-prompt.js", () => {
-  // Inline a minimal implementation of stripCommentLines matching production behavior.
-  function stripCommentLines(content: string): string {
-    const normalized = content.replace(/\r\n/g, "\n");
-    let openFenceChar: string | null = null;
-    const filtered = normalized.split("\n").filter((line) => {
-      const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
-      if (fenceMatch) {
-        const char = fenceMatch[1][0];
-        if (!openFenceChar) {
-          openFenceChar = char;
-        } else if (char === openFenceChar) {
-          openFenceChar = null;
-        }
-      }
-      if (openFenceChar) return true;
-      return !line.trimStart().startsWith("_");
-    });
-    return filtered
-      .join("\n")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-  }
-  return { stripCommentLines };
-});
 
 mock.module("../version.js", () => ({
   APP_VERSION: "1.0.0",
@@ -113,6 +50,9 @@ mock.module("../prompts/update-bulletin-template-path.js", () => ({
 const { syncUpdateBulletinOnStartup } =
   await import("../prompts/update-bulletin.js");
 
+// Workspace path used by all tests — resolved via the preload's VELLUM_WORKSPACE_DIR.
+const workspacePath = getWorkspacePromptPath("UPDATES.md");
+
 const TEST_TEMPLATE = "## What's New\n\nTest release notes.\n";
 const COMMENT_ONLY_TEMPLATE =
   "_ This is a comment-only template.\n_ No real content here.\n";
@@ -120,13 +60,10 @@ const COMMENT_ONLY_TEMPLATE =
 describe("syncUpdateBulletinOnStartup", () => {
   beforeEach(() => {
     store.clear();
-    tempDir = join(
-      tmpdir(),
-      `update-bulletin-test-${Date.now()}-${Math.random()
-        .toString(36)
-        .slice(2)}`,
-    );
-    mkdirSync(tempDir, { recursive: true });
+    // Remove any leftover workspace UPDATES.md from a previous test
+    if (existsSync(workspacePath)) {
+      rmSync(workspacePath);
+    }
     tempTemplateDir = join(
       tmpdir(),
       `update-bulletin-tpl-${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -137,12 +74,14 @@ describe("syncUpdateBulletinOnStartup", () => {
   });
 
   afterEach(() => {
-    rmSync(tempDir, { recursive: true, force: true });
+    // Clean up the workspace UPDATES.md so tests don't leak into each other
+    if (existsSync(workspacePath)) {
+      rmSync(workspacePath);
+    }
     rmSync(tempTemplateDir, { recursive: true, force: true });
   });
 
   it("creates workspace file on first eligible run", () => {
-    const workspacePath = join(tempDir, "UPDATES.md");
     expect(existsSync(workspacePath)).toBe(false);
 
     syncUpdateBulletinOnStartup();
@@ -154,7 +93,6 @@ describe("syncUpdateBulletinOnStartup", () => {
   });
 
   it("appends release block when workspace file exists without current marker", () => {
-    const workspacePath = join(tempDir, "UPDATES.md");
     const preExisting =
       "<!-- vellum-update-release:0.9.0 -->\nOld release notes.\n";
     writeFileSync(workspacePath, preExisting, "utf-8");
@@ -169,7 +107,6 @@ describe("syncUpdateBulletinOnStartup", () => {
 
   it("does not duplicate same marker on repeated runs", () => {
     syncUpdateBulletinOnStartup();
-    const workspacePath = join(tempDir, "UPDATES.md");
     const afterFirst = readFileSync(workspacePath, "utf-8");
 
     syncUpdateBulletinOnStartup();
@@ -180,7 +117,6 @@ describe("syncUpdateBulletinOnStartup", () => {
 
   it("skips completed release", () => {
     store.set("updates:completed_releases", JSON.stringify(["1.0.0"]));
-    const workspacePath = join(tempDir, "UPDATES.md");
 
     syncUpdateBulletinOnStartup();
 
@@ -201,7 +137,6 @@ describe("syncUpdateBulletinOnStartup", () => {
     store.set("updates:active_releases", JSON.stringify(["0.8.0", "0.9.0"]));
 
     // Workspace file does not exist — simulates the assistant having deleted it
-    const workspacePath = join(tempDir, "UPDATES.md");
     expect(existsSync(workspacePath)).toBe(false);
 
     syncUpdateBulletinOnStartup();
@@ -225,7 +160,6 @@ describe("syncUpdateBulletinOnStartup", () => {
   it("does not recreate completed release after deletion", () => {
     // First run — creates the workspace file and marks 1.0.0 active
     syncUpdateBulletinOnStartup();
-    const workspacePath = join(tempDir, "UPDATES.md");
     expect(existsSync(workspacePath)).toBe(true);
 
     // Simulate assistant deleting the file to signal completion
@@ -240,7 +174,6 @@ describe("syncUpdateBulletinOnStartup", () => {
   });
 
   it("merges pending old block with new release block", () => {
-    const workspacePath = join(tempDir, "UPDATES.md");
     // Pre-create workspace file with an old release block
     const oldContent =
       "<!-- vellum-update-release:0.9.0 -->\nOld release notes for 0.9.0.\n<!-- /vellum-update-release:0.9.0 -->\n";
@@ -258,7 +191,6 @@ describe("syncUpdateBulletinOnStartup", () => {
   it("idempotent on repeated sync calls", () => {
     // First call
     syncUpdateBulletinOnStartup();
-    const workspacePath = join(tempDir, "UPDATES.md");
     const afterFirst = readFileSync(workspacePath, "utf-8");
 
     // Second call
@@ -276,7 +208,6 @@ describe("syncUpdateBulletinOnStartup", () => {
 
   it("write path produces valid UTF-8 with trailing newline", () => {
     syncUpdateBulletinOnStartup();
-    const workspacePath = join(tempDir, "UPDATES.md");
     const content = readFileSync(workspacePath, "utf-8");
 
     expect(content.length).toBeGreaterThan(0);
@@ -290,7 +221,8 @@ describe("syncUpdateBulletinOnStartup", () => {
   it("no temp file leftovers after successful write", () => {
     syncUpdateBulletinOnStartup();
 
-    const entries = readdirSync(tempDir);
+    const wsDir = process.env.VELLUM_WORKSPACE_DIR!;
+    const entries = readdirSync(wsDir);
     const tmpFiles = entries.filter((e) => e.includes(".tmp."));
     expect(tmpFiles).toHaveLength(0);
   });
@@ -302,15 +234,12 @@ describe("syncUpdateBulletinOnStartup", () => {
       COMMENT_ONLY_TEMPLATE,
       "utf-8",
     );
-
-    const workspacePath = join(tempDir, "UPDATES.md");
     syncUpdateBulletinOnStartup();
 
     expect(existsSync(workspacePath)).toBe(false);
   });
 
   it("preserves existing file when atomic write fails", () => {
-    const workspacePath = join(tempDir, "UPDATES.md");
     const originalContent =
       "<!-- vellum-update-release:0.9.0 -->\nOriginal content.\n";
     writeFileSync(workspacePath, originalContent, "utf-8");
@@ -340,7 +269,8 @@ describe("syncUpdateBulletinOnStartup", () => {
     expect(content).toBe(originalContent);
 
     // No temp file leftovers
-    const entries = readdirSync(tempDir);
+    const wsDir = process.env.VELLUM_WORKSPACE_DIR!;
+    const entries = readdirSync(wsDir);
     const tmpFiles = entries.filter((e: string) => e.includes(".tmp."));
     expect(tmpFiles).toHaveLength(0);
   });
