@@ -1587,13 +1587,14 @@ export async function runAgentLoopImpl(
     }
 
     const restoredHistory = [...preRepairMessages, ...newMessages];
-    ctx.messages = stripInjectedContext(restoredHistory);
 
     const postLoopContextEstimate = estimatePromptTokens(
-      ctx.messages,
+      restoredHistory,
       ctx.systemPrompt,
       { providerName: ctx.provider.name, toolTokenBudget },
     );
+
+    ctx.messages = stripInjectedContext(restoredHistory);
 
     emitUsage(
       ctx,
