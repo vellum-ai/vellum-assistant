@@ -9,9 +9,6 @@
  * no candidates are found and injectedText is empty. The tests verify
  * pipeline completion, latency bounds, and token budget enforcement.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeAll,
@@ -21,10 +18,6 @@ import {
   mock,
   test,
 } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "mem-retrieval-bench-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -149,8 +142,6 @@ describe("Memory retrieval benchmark", () => {
   });
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     const db = getDb();
     db.run("DELETE FROM memory_item_sources");
     db.run("DELETE FROM memory_embeddings");
@@ -164,14 +155,7 @@ describe("Memory retrieval benchmark", () => {
   });
 
   afterAll(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
     resetDb();
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      // best effort cleanup
-    }
   });
 
   test("retrieval completes under 500ms for 100 items", async () => {

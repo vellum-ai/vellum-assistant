@@ -123,6 +123,7 @@ import {
   migrateSchemaIndexesAndColumns,
   migrateStripIntegrationPrefixFromProviderKeys,
   migrateUsageDashboardIndexes,
+  migrateUsageLlmCallCount,
   migrateVoiceInviteColumns,
   migrateVoiceInviteDisplayMetadata,
   recoverCrashedMigrations,
@@ -535,6 +536,9 @@ export function initializeDb(): void {
 
   // 97. Add enrichment columns to canonical_guardian_requests for guardian approval UX
   migrateGuardianRequestEnrichmentColumns(database);
+
+  // 98. Add llm_call_count column to llm_usage_events for accurate LLM call counting
+  migrateUsageLlmCallCount(database);
 
   validateMigrationState(database);
 

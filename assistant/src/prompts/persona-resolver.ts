@@ -12,7 +12,7 @@ import type {
 } from "../daemon/conversation-runtime-assembly.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
-import { stripCommentLines } from "./system-prompt.js";
+import { stripCommentLines } from "../util/strip-comment-lines.js";
 
 const log = getLogger("persona-resolver");
 

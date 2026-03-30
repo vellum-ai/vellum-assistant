@@ -1,12 +1,8 @@
 import { mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-const TEST_DIR = join(tmpdir(), `vellum-journal-test-${crypto.randomUUID()}`);
-process.env.VELLUM_HOME = TEST_DIR;
-process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
-
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 const {
   buildJournalContext,
   formatJournalRelativeTime,
@@ -90,14 +86,10 @@ describe("buildJournalContext", () => {
   const journalDir = join(TEST_DIR, "journal");
 
   beforeEach(() => {
-    process.env.VELLUM_HOME = TEST_DIR;
-    process.env.VELLUM_WORKSPACE_DIR = TEST_DIR;
     mkdirSync(journalDir, { recursive: true });
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
     rmSync(TEST_DIR, { recursive: true, force: true });
   });
 

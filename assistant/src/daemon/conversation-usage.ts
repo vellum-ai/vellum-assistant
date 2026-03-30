@@ -124,6 +124,7 @@ export function recordUsage(
   cacheCreationInputTokens = 0,
   cacheReadInputTokens = 0,
   rawResponse?: unknown,
+  llmCallCount = 1,
 ): void {
   if (inputTokens <= 0 && outputTokens <= 0) return;
 
@@ -194,6 +195,7 @@ export function recordUsage(
         conversationId: ctx.conversationId,
         runId: null,
         requestId,
+        llmCallCount,
       },
       pricing,
     );

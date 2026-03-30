@@ -150,10 +150,6 @@ struct ChatView: View {
     @State private var dragEndGlobalMonitor: Any?
     @State private var containerWidth: CGFloat = 0
 
-    private var responsiveColumnWidth: CGFloat {
-        ChatColumnLayout.responsiveColumnWidth(for: containerWidth)
-    }
-
     // MARK: - In-Chat Search (Cmd+F)
     @State private var isSearchActive = false
     @State private var searchText = ""
@@ -192,7 +188,6 @@ struct ChatView: View {
                     }
                 )
                 .onPreferenceChange(ChatContainerWidthKey.self) { containerWidth = $0 }
-                .environment(\.chatColumnWidth, responsiveColumnWidth)
                 .overlay(alignment: .bottom) {
                     btwOverlay
                 }
@@ -398,7 +393,7 @@ struct ChatView: View {
                 CreditsExhaustedBanner(
                     onAddFunds: { onAddFunds?() }
                 )
-                .frame(maxWidth: responsiveColumnWidth - 2 * VSpacing.xl)
+                .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, -VSpacing.sm)
             }
@@ -408,7 +403,7 @@ struct ChatView: View {
                     onOpenSettings: { onOpenModelsAndServices?() },
                     onDismiss: { onDismissProviderNotConfigured?() }
                 )
-                .frame(maxWidth: responsiveColumnWidth - 2 * VSpacing.xl)
+                .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, -VSpacing.sm)
             }

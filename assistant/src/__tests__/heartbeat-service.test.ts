@@ -1,10 +1,8 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Mock platform to use a temp workspace dir
-let testWorkspaceDir: string;
+const testWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Mock config loader
 let mockConfig = {
@@ -79,15 +77,12 @@ describe("HeartbeatService", () => {
   let processMessageCalls: Array<{ conversationId: string; content: string }>;
   let alerterCalls: Array<{ type: string; title: string; body: string }>;
 
-  beforeEach(() => {
-    testWorkspaceDir = join(
-      tmpdir(),
-      `vellum-hb-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    );
-    process.env.VELLUM_HOME = testWorkspaceDir;
-    process.env.VELLUM_WORKSPACE_DIR = testWorkspaceDir;
-    mkdirSync(testWorkspaceDir, { recursive: true });
+  afterEach(() => {
+    // Clean up HEARTBEAT.md between tests so file-existence tests don't leak
+    rmSync(join(testWorkspaceDir, "HEARTBEAT.md"), { force: true });
+  });
 
+  beforeEach(() => {
     processMessageCalls = [];
     alerterCalls = [];
     createdConversations.length = 0;
@@ -148,14 +143,59 @@ describe("HeartbeatService", () => {
     expect(processMessageCalls[0].content).toContain("Water the plants");
   });
 
+  test("comment lines in HEARTBEAT.md are stripped from prompt", async () => {
+    const checklist = [
+      "_ This is a comment that should be stripped",
+      "_ Another comment line",
+      "- Do the real task",
+      "- Check on something important",
+    ].join("\n");
+    writeFileSync(join(testWorkspaceDir, "HEARTBEAT.md"), checklist);
+
+    const service = createService();
+    await service.runOnce();
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].content).toContain("Do the real task");
+    expect(processMessageCalls[0].content).toContain(
+      "Check on something important",
+    );
+    expect(processMessageCalls[0].content).not.toContain(
+      "This is a comment that should be stripped",
+    );
+    expect(processMessageCalls[0].content).not.toContain(
+      "Another comment line",
+    );
+  });
+
+  test("comment lines inside fenced code blocks are preserved", async () => {
+    const checklist = [
+      "_ This comment should be stripped",
+      "- Check the Python snippet below still works:",
+      "```python",
+      "_instance = None",
+      "_private_var = 42",
+      "```",
+    ].join("\n");
+    writeFileSync(join(testWorkspaceDir, "HEARTBEAT.md"), checklist);
+
+    const service = createService();
+    await service.runOnce();
+
+    expect(processMessageCalls).toHaveLength(1);
+    expect(processMessageCalls[0].content).toContain("_instance = None");
+    expect(processMessageCalls[0].content).toContain("_private_var = 42");
+    expect(processMessageCalls[0].content).not.toContain(
+      "This comment should be stripped",
+    );
+  });
+
   test("default checklist used when no HEARTBEAT.md", async () => {
     const service = createService();
     await service.runOnce();
 
     expect(processMessageCalls).toHaveLength(1);
-    expect(processMessageCalls[0].content).toContain(
-      "Check the current weather",
-    );
+    expect(processMessageCalls[0].content).toContain("Check in with yourself");
   });
 
   test("creates background conversation with generating title placeholder", async () => {
@@ -362,13 +402,5 @@ describe("HeartbeatService", () => {
     expect(service.nextRunAt).toBeNull();
     service.resetTimer();
     expect(service.nextRunAt).toBeNull();
-  });
-
-  test("cleanup", () => {
-    try {
-      rmSync(testWorkspaceDir, { recursive: true, force: true });
-    } catch {
-      /* ignore */
-    }
   });
 });

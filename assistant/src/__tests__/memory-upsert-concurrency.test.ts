@@ -16,16 +16,9 @@
  * processes and is not tested here.
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
-
-const testDir = mkdtempSync(join(tmpdir(), "memory-upsert-concurrency-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -79,14 +72,7 @@ import {
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    // best effort cleanup
-  }
 });
 
 function resetTables() {
@@ -140,8 +126,6 @@ function seedConversationAndMessage(
 
 describe("segment UPSERT atomicity under repeated indexer invocations", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -431,8 +415,6 @@ describe("segment UPSERT atomicity under repeated indexer invocations", () => {
 
 describe("memory segment job atomicity under repeated indexer invocations", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 
@@ -583,8 +565,6 @@ describe("memory segment job atomicity under repeated indexer invocations", () =
 
 describe("memory_items fingerprint uniqueness under race conditions", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     resetTables();
   });
 

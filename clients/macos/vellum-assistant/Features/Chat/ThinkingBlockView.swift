@@ -26,7 +26,7 @@ struct ThinkingBlockView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(VSpacing.sm)
                 }
-                .frame(maxHeight: 300)
+                .frame(maxHeight: 600)
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }

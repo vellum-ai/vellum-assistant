@@ -9,8 +9,8 @@ import {
 } from "node:fs";
 
 import { getWorkspacePromptPath } from "../util/platform.js";
+import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { APP_VERSION } from "../version.js";
-import { stripCommentLines } from "./system-prompt.js";
 import {
   appendReleaseBlock,
   extractContentMarkers,

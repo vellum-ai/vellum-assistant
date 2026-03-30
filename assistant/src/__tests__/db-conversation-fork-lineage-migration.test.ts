@@ -1,15 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
-
-const testDir = mkdtempSync(join(tmpdir(), "conversation-fork-lineage-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
-const dbPath = join(testDir, "data", "db", "assistant.db");
 const originalBunTest = process.env.BUN_TEST;
 
 mock.module("../util/logger.js", () => ({
@@ -23,6 +16,7 @@ import { initializeDb, resetDb } from "../memory/db.js";
 import { getSqliteFrom } from "../memory/db-connection.js";
 import { migrateConversationForkLineage } from "../memory/migrations/183-add-conversation-fork-lineage.js";
 import * as schema from "../memory/schema.js";
+import { getDbPath } from "../util/platform.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
@@ -72,6 +66,7 @@ function bootstrapPreLineageConversations(raw: Database): void {
 
 function removeTestDbFiles(): void {
   resetDb();
+  const dbPath = getDbPath();
   rmSync(dbPath, { force: true });
   rmSync(`${dbPath}-shm`, { force: true });
   rmSync(`${dbPath}-wal`, { force: true });
@@ -79,28 +74,19 @@ function removeTestDbFiles(): void {
 
 describe("conversation fork lineage migration", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     process.env.BUN_TEST = "0";
     removeTestDbFiles();
   });
 
   afterAll(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
     process.env.BUN_TEST = originalBunTest;
     removeTestDbFiles();
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      /* best effort */
-    }
   });
 
   test("fresh DB initialization includes nullable lineage columns and parent lookup index", () => {
     initializeDb();
 
-    const raw = new Database(dbPath);
+    const raw = new Database(getDbPath());
     const columns = getColumnNames(raw);
 
     expect(columns).toContain("fork_parent_conversation_id");

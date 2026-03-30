@@ -10,14 +10,7 @@
  *   5. Second consume attempt is denied (one-time use)
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "guardian-action-grant-e2e-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
 
 // ── Platform + logger mocks ─────────────────────────────────────────
 
@@ -51,14 +44,7 @@ import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 initializeDb();
 
 afterAll(() => {
-  delete process.env.VELLUM_HOME;
-  delete process.env.VELLUM_WORKSPACE_DIR;
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // ── Constants ───────────────────────────────────────────────────────
@@ -169,8 +155,6 @@ const keepPendingGenerator: ApprovalConversationGenerator = async () => ({
 
 describe("guardian-action grant mint -> voice consume integration", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     clearTables();
     ensureFkParents();
   });
@@ -407,8 +391,6 @@ describe("guardian-action grant mint -> voice consume integration", () => {
 
 describe("guardian-action grant minter: conversational engine classification", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     clearTables();
     ensureFkParents();
   });

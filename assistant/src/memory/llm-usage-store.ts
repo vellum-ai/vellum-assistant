@@ -42,6 +42,7 @@ export function recordUsageEvent(
       cacheReadInputTokens: event.cacheReadInputTokens,
       estimatedCostUsd: event.estimatedCostUsd,
       pricingStatus: event.pricingStatus,
+      llmCallCount: event.llmCallCount ?? 1,
       metadataJson: null,
     })
     .run();
@@ -213,7 +214,7 @@ export function getUsageTotals(range: UsageTimeRange): UsageTotals {
       COALESCE(SUM(cache_creation_input_tokens), 0)               AS total_cache_creation_tokens,
       COALESCE(SUM(cache_read_input_tokens), 0)                   AS total_cache_read_tokens,
       COALESCE(SUM(estimated_cost_usd), 0)                        AS total_estimated_cost_usd,
-      COUNT(*)                                                     AS event_count,
+      COALESCE(SUM(COALESCE(llm_call_count, 1)), 0)               AS event_count,
       COUNT(CASE WHEN pricing_status = 'priced' THEN 1 END)       AS priced_event_count,
       COUNT(CASE WHEN pricing_status = 'unpriced' THEN 1 END)     AS unpriced_event_count
     FROM llm_usage_events
@@ -249,7 +250,7 @@ export function getUsageDayBuckets(range: UsageTimeRange): UsageDayBucket[] {
       COALESCE(SUM(input_tokens), 0)                         AS total_input_tokens,
       COALESCE(SUM(output_tokens), 0)                        AS total_output_tokens,
       COALESCE(SUM(estimated_cost_usd), 0)                   AS total_estimated_cost_usd,
-      COUNT(*)                                                AS event_count
+      COALESCE(SUM(COALESCE(llm_call_count, 1)), 0)          AS event_count
     FROM llm_usage_events
     WHERE created_at >= ?1 AND created_at <= ?2
     GROUP BY date
@@ -292,7 +293,7 @@ export function getUsageGroupBreakdown(
       COALESCE(SUM(cache_creation_input_tokens), 0)  AS total_cache_creation_tokens,
       COALESCE(SUM(cache_read_input_tokens), 0)      AS total_cache_read_tokens,
       COALESCE(SUM(estimated_cost_usd), 0)           AS total_estimated_cost_usd,
-      COUNT(*)                                        AS event_count
+      COALESCE(SUM(COALESCE(llm_call_count, 1)), 0)  AS event_count
     FROM llm_usage_events
     WHERE created_at >= ?1 AND created_at <= ?2
     GROUP BY ${column}

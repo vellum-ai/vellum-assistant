@@ -4,12 +4,14 @@ import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { readTextFileSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
+import { stripCommentLines } from "../util/strip-comment-lines.js";
 
 const log = getLogger("heartbeat-check");
 
-const DEFAULT_CHECKLIST = `- Check the current weather and note anything notable
-- Review any recent news headlines worth flagging
-- Look for calendar events or reminders coming up soon`;
+const DEFAULT_CHECKLIST = `- Check in with yourself. Read NOW.md. Is it still accurate? Update it if anything has changed.
+- Think about your user. Is there anything from recent conversations you should follow up on? Anything you noticed that you should bring up?
+- Check if there's anything on the horizon — events, deadlines, things they mentioned wanting to do.
+- If you have a thought worth sharing, send it. A follow-up, a useful find, a check-in. Not every beat, but when it feels right.`;
 
 export interface HeartbeatDeps {
   processMessage: (
@@ -199,10 +201,10 @@ export class HeartbeatService {
   }
 
   private readChecklist(): string {
-    return (
+    const raw =
       readTextFileSync(getWorkspacePromptPath("HEARTBEAT.md")) ??
-      DEFAULT_CHECKLIST
-    );
+      DEFAULT_CHECKLIST;
+    return stripCommentLines(raw);
   }
 
   /** @internal Exposed for testing. */

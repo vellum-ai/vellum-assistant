@@ -1601,6 +1601,7 @@ export async function runAgentLoopImpl(
       state.exchangeCacheReadInputTokens,
       collapseRawResponses(state.exchangeRawResponses),
       state.exchangeProviderName,
+      state.exchangeLlmCallCount,
     );
 
     void getHookManager().trigger("post-message", {
@@ -1868,6 +1869,7 @@ function emitUsage(
   cacheReadInputTokens = 0,
   rawResponse?: unknown,
   providerName?: string,
+  llmCallCount = 1,
 ): void {
   recordUsage(
     {
@@ -1884,6 +1886,7 @@ function emitUsage(
     cacheCreationInputTokens,
     cacheReadInputTokens,
     rawResponse,
+    llmCallCount,
   );
 }
 

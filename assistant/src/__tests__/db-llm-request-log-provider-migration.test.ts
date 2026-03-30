@@ -1,6 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { rmSync } from "node:fs";
 import { Database } from "bun:sqlite";
 import {
   afterAll,
@@ -13,11 +11,6 @@ import {
 } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
-
-const testDir = mkdtempSync(join(tmpdir(), "llm-request-log-provider-"));
-process.env.VELLUM_HOME = testDir;
-process.env.VELLUM_WORKSPACE_DIR = testDir;
-const dbPath = join(testDir, "data", "db", "assistant.db");
 const originalBunTest = process.env.BUN_TEST;
 
 mock.module("../util/logger.js", () => ({
@@ -31,6 +24,7 @@ import { initializeDb, resetDb } from "../memory/db.js";
 import { getSqliteFrom } from "../memory/db-connection.js";
 import { migrateLlmRequestLogProvider } from "../memory/migrations/184-llm-request-log-provider.js";
 import * as schema from "../memory/schema.js";
+import { getDbPath } from "../util/platform.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
@@ -62,6 +56,7 @@ function bootstrapPreProviderLlmRequestLogs(raw: Database): void {
 }
 
 function removeTestDbFiles(): void {
+  const dbPath = getDbPath();
   rmSync(dbPath, { force: true });
   rmSync(`${dbPath}-shm`, { force: true });
   rmSync(`${dbPath}-wal`, { force: true });
@@ -69,16 +64,12 @@ function removeTestDbFiles(): void {
 
 describe("llm_request_logs provider migration", () => {
   beforeEach(() => {
-    process.env.VELLUM_HOME = testDir;
-    process.env.VELLUM_WORKSPACE_DIR = testDir;
     process.env.BUN_TEST = "0";
     resetDb();
     removeTestDbFiles();
   });
 
   afterEach(() => {
-    delete process.env.VELLUM_HOME;
-    delete process.env.VELLUM_WORKSPACE_DIR;
     resetDb();
     removeTestDbFiles();
   });
@@ -91,17 +82,12 @@ describe("llm_request_logs provider migration", () => {
     }
     resetDb();
     removeTestDbFiles();
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      /* best effort */
-    }
   });
 
   test("fresh DB initialization includes llm_request_logs.provider", () => {
     initializeDb();
 
-    const raw = new Database(dbPath);
+    const raw = new Database(getDbPath());
     const columns = getColumnInfo(raw);
 
     expect(columns.some((column) => column.name === "provider")).toBe(true);

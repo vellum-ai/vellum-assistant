@@ -60,6 +60,8 @@ export interface EventHandlerState {
   exchangeCacheCreationInputTokens: number;
   exchangeCacheReadInputTokens: number;
   exchangeOutputTokens: number;
+  /** Number of actual LLM API calls within this exchange. */
+  exchangeLlmCallCount: number;
   readonly exchangeRawResponses: unknown[];
   model: string;
   orderingErrorDetected: boolean;
@@ -127,6 +129,7 @@ export function createEventHandlerState(): EventHandlerState {
     exchangeCacheCreationInputTokens: 0,
     exchangeCacheReadInputTokens: 0,
     exchangeOutputTokens: 0,
+    exchangeLlmCallCount: 0,
     exchangeRawResponses: [],
     model: "",
     orderingErrorDetected: false,
@@ -778,6 +781,7 @@ export function handleUsage(
 ): void {
   const providerName = event.actualProvider ?? deps.ctx.provider.name;
   state.exchangeProviderName = providerName;
+  state.exchangeLlmCallCount += 1;
   state.exchangeInputTokens += event.inputTokens;
   state.exchangeCacheCreationInputTokens += event.cacheCreationInputTokens ?? 0;
   state.exchangeCacheReadInputTokens += event.cacheReadInputTokens ?? 0;
