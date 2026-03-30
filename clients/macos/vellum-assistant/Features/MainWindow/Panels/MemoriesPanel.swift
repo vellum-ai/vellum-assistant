@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VellumAssistantShared
 
@@ -72,6 +73,7 @@ struct MemoriesPanel: View {
     @State private var statusFilter: MemoryStatusFilter = .active
     @State private var sortOption: MemorySortOption = .newest
     @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var escapeMonitor: Any?
 
     init(connectionManager: GatewayConnectionManager, focusedMemoryId: Binding<String?> = .constant(nil)) {
         self.connectionManager = connectionManager
@@ -120,8 +122,11 @@ struct MemoriesPanel: View {
                         store: store,
                         onDismiss: { withAnimation(VAnimation.fast) { selectedItem = nil } }
                     )
+                    .id(selectedItem?.id)
                 }
                 .transition(.opacity)
+                .onAppear { installEscapeMonitor() }
+                .onDisappear { removeEscapeMonitor() }
             }
         }
         .sheet(isPresented: $showCreateSheet) {
@@ -217,6 +222,22 @@ struct MemoriesPanel: View {
         return store.items.filter { $0.kind == kind.rawValue }
     }
 
+    // MARK: - Escape Key
+
+    private func installEscapeMonitor() {
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 53 else { return event } // 53 = Escape
+            withAnimation(VAnimation.fast) { selectedItem = nil }
+            return nil
+        }
+    }
+
+    private func removeEscapeMonitor() {
+        if let monitor = escapeMonitor {
+            NSEvent.removeMonitor(monitor)
+            escapeMonitor = nil
+        }
+    }
 
     // MARK: - Content View
 
