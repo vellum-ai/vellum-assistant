@@ -6,11 +6,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { getDataDir } from "./platform.js";
 import type { SessionRecording } from "./recording-types.js";
 
 function getRecordingsDir(): string {
-  return join(getDataDir(), "recordings");
+  return join(process.env.VELLUM_WORKSPACE_DIR!, "data", "recordings");
 }
 
 export function saveRecording(recording: SessionRecording): string {
