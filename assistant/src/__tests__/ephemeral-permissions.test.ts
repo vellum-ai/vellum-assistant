@@ -1,5 +1,4 @@
-import { mkdirSync, mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   afterEach,
@@ -11,24 +10,10 @@ import {
   test,
 } from "bun:test";
 
-// Use a temp directory so trust-store doesn't touch ~/.vellum
-const testDir = mkdtempSync(join(tmpdir(), "ephemeral-perm-test-"));
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 
 // Point the file-based trust backend at the test temp dir.
 process.env.GATEWAY_SECURITY_DIR = join(testDir, "protected");
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(testDir, "protected"),
-  getDataDir: () => join(testDir, "data"),
-  getWorkspaceSkillsDir: () => join(testDir, "skills"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>

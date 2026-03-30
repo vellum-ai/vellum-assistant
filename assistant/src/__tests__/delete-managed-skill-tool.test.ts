@@ -5,17 +5,10 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-let TEST_DIR = "";
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(TEST_DIR, "protected"),
-  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
-}));
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -51,12 +44,11 @@ function createSkill(id: string): void {
 }
 
 beforeEach(() => {
-  TEST_DIR = mkdtempSync(join(tmpdir(), "delete-tool-test-"));
   mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
 });
 
 afterEach(() => {
-  rmSync(TEST_DIR, { recursive: true, force: true });
+  rmSync(join(TEST_DIR, "skills"), { recursive: true, force: true });
 });
 
 describe("delete_managed_skill tool", () => {

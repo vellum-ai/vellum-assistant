@@ -1,40 +1,10 @@
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-const TEST_DIR = join(tmpdir(), `vellum-dyn-skill-test-${crypto.randomUUID()}`);
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 import { mock } from "bun:test";
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const realPlatform = require("../util/platform.js");
-mock.module("../util/platform.js", () => ({
-  ...realPlatform,
-  getProtectedDir: () => join(TEST_DIR, "protected"),
-  getDataDir: () => TEST_DIR,
-  getWorkspaceDir: () => TEST_DIR,
-  getWorkspaceConfigPath: () => join(TEST_DIR, "config.json"),
-  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
-  getWorkspaceHooksDir: () => join(TEST_DIR, "hooks"),
-  getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
-  ensureDataDir: () => {},
-  getPidPath: () => join(TEST_DIR, "vellum.pid"),
-  getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
-  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
-  getHistoryPath: () => join(TEST_DIR, "history"),
-  getHooksDir: () => join(TEST_DIR, "hooks"),
-
-  getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
-  getSandboxWorkingDir: () => TEST_DIR,
-  getInterfacesDir: () => join(TEST_DIR, "interfaces"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPlatformName: () => process.platform,
-  getClipboardCommand: () => null,
-  readSessionToken: () => null,
-}));
 
 const noopLogger = new Proxy({} as Record<string, unknown>, {
   get: (_target, prop) => (prop === "child" ? () => noopLogger : () => {}),
@@ -82,7 +52,6 @@ const { _setOverridesForTesting } =
 
 describe("Dynamic Skill Authoring Workflow moved to tool descriptions", () => {
   beforeEach(() => {
-    mkdirSync(TEST_DIR, { recursive: true });
     _setOverridesForTesting({
       browser: true,
     });
@@ -90,9 +59,6 @@ describe("Dynamic Skill Authoring Workflow moved to tool descriptions", () => {
 
   afterEach(() => {
     _setOverridesForTesting({});
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
   });
 
   test("system prompt no longer contains Dynamic Skill Authoring section", () => {
