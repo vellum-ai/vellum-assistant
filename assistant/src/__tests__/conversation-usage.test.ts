@@ -202,6 +202,7 @@ describe("recordUsage", () => {
     expect(onEventMessages).toEqual([
       {
         type: "usage_update",
+        conversationId: "conv-usage-1",
         inputTokens: 3_420_218,
         outputTokens: 11_768,
         totalInputTokens: 3_420_218,

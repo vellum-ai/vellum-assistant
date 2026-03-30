@@ -4862,6 +4862,7 @@ public struct UsageStats: Codable, Sendable {
 
 public struct UsageUpdate: Codable, Sendable {
     public let type: String
+    public let conversationId: String?
     public let inputTokens: Int
     public let outputTokens: Int
     public let totalInputTokens: Int
@@ -4871,12 +4872,13 @@ public struct UsageUpdate: Codable, Sendable {
     public let contextWindowTokens: Int?
     public let contextWindowMaxTokens: Int?
 
-    public init(type: String, inputTokens: Int, outputTokens: Int,
+    public init(type: String, conversationId: String? = nil, inputTokens: Int, outputTokens: Int,
                 totalInputTokens: Int, totalOutputTokens: Int,
                 estimatedCost: Double, model: String,
                 contextWindowTokens: Int? = nil,
                 contextWindowMaxTokens: Int? = nil) {
         self.type = type
+        self.conversationId = conversationId
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
         self.totalInputTokens = totalInputTokens

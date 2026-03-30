@@ -335,6 +335,7 @@ export interface UndoComplete {
 
 export interface UsageUpdate {
   type: "usage_update";
+  conversationId: string;
   inputTokens: number;
   outputTokens: number;
   totalInputTokens: number;

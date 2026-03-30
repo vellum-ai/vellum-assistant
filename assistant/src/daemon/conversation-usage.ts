@@ -175,6 +175,7 @@ export function recordUsage(
   );
   onEvent({
     type: "usage_update",
+    conversationId: ctx.conversationId,
     inputTokens,
     outputTokens,
     totalInputTokens: ctx.usageStats.inputTokens,
