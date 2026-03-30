@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -81,7 +81,10 @@ import type { SkillOperationContext } from "./handlers/skills.js";
 import { HostBashProxy } from "./host-bash-proxy.js";
 import { HostCuProxy } from "./host-cu-proxy.js";
 import { HostFileProxy } from "./host-file-proxy.js";
-import type { ServerMessage } from "./message-protocol.js";
+import type {
+  ServerMessage,
+  UserMessageAttachment,
+} from "./message-protocol.js";
 
 const log = getLogger("server");
 
@@ -566,6 +569,37 @@ export class DaemonServer {
       );
       const conversation = await this.getOrCreateConversation(conversationId);
 
+      // Register file-backed attachments so they flow through the send
+      // pipeline as images the LLM can see directly.
+      const attachmentIds: string[] = [];
+      const resolvedAttachments: UserMessageAttachment[] = [];
+      if (params.attachments && params.attachments.length > 0) {
+        for (const a of params.attachments) {
+          try {
+            const size = statSync(a.path).size;
+            const stored = attachmentsStore.uploadFileBackedAttachment(
+              a.filename,
+              a.mimeType,
+              a.path,
+              size,
+            );
+            attachmentIds.push(stored.id);
+            resolvedAttachments.push({
+              id: stored.id,
+              filename: a.filename,
+              mimeType: a.mimeType,
+              data: "",
+              filePath: a.path,
+            });
+          } catch (err) {
+            log.warn(
+              { err, path: a.path },
+              "Failed to register signal attachment",
+            );
+          }
+        }
+      }
+
       // Build a hub-publishing sender so events reach SSE clients.
       const hubSender = (msg: ServerMessage) => {
         const msgConversationId =
@@ -593,7 +627,7 @@ export class DaemonServer {
         const resolvedInterface = resolveTurnInterface(params.sourceInterface);
         const result = conversation.enqueueMessage(
           params.content,
-          [],
+          resolvedAttachments,
           hubSender,
           requestId,
           undefined,
@@ -610,7 +644,7 @@ export class DaemonServer {
       await this.persistAndProcessMessage(
         conversationId,
         params.content,
-        undefined,
+        attachmentIds.length > 0 ? attachmentIds : undefined,
         { onEvent: hubSender },
         params.sourceChannel,
         params.sourceInterface,
