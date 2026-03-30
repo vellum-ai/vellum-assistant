@@ -20,9 +20,9 @@ import {
   platformImportPreflight,
   platformImportBundle,
 } from "../lib/platform-client.js";
-import { hatchLocal } from "./hatch.js";
 import { hatchDocker, retireDocker } from "../lib/docker.js";
-import { retireLocal } from "./retire.js";
+import { hatchLocal } from "../lib/hatch-local.js";
+import { retireLocal } from "../lib/retire-local.js";
 
 function printHelp(): void {
   console.log(
