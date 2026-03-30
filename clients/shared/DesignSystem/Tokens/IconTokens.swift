@@ -88,6 +88,7 @@ public enum VIcon: String, CaseIterable, Sendable {
     case folder = "lucide-folder"
     case folderClosed = "lucide-folder-closed"
     case folderOpen = "lucide-folder-open"
+    case folderPlus = "lucide-folder-plus"
     case folderSearch = "lucide-folder-search"
     case clipboard = "lucide-clipboard"
     case clipboardList = "lucide-clipboard-list"

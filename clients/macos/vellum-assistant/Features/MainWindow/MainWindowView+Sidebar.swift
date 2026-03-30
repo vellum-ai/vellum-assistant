@@ -241,24 +241,6 @@ extension MainWindowView {
                 }
             }
 
-            Button {
-                Task<Void, Never> {
-                    if let group = await conversationManager.createGroup(name: "New Group") {
-                        sidebar.expandedSections.insert(group.id)
-                        sidebar.renamingGroupId = group.id
-                        sidebar.renamingGroupName = group.name
-                    }
-                }
-            } label: {
-                HStack {
-                    VIconView(.plus, size: 12)
-                    Text("New Group")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .padding(.top, VSpacing.xs)
         }
     }
 
@@ -407,7 +389,16 @@ extension MainWindowView {
                         windowState.dismissToast(id: toastId)
                     }
                 },
-                onNewConversation: { startNewConversation() }
+                onNewConversation: { startNewConversation() },
+                onCreateGroup: {
+                    Task<Void, Never> {
+                        if let group = await conversationManager.createGroup(name: "New Group") {
+                            sidebar.expandedSections.insert(group.id)
+                            sidebar.renamingGroupId = group.id
+                            sidebar.renamingGroupName = group.name
+                        }
+                    }
+                }
             )
 
             ScrollView(.vertical, showsIndicators: false) {

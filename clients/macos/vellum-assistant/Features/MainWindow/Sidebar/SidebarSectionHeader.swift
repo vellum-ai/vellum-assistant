@@ -98,10 +98,10 @@ private struct ConditionalGroupContextMenu: ViewModifier {
         if onRename != nil || onDelete != nil {
             content.vContextMenu {
                 if let onRename {
-                    Button("Rename") { onRename() }
+                    VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") { onRename() }
                 }
                 if let onDelete {
-                    Button("Delete") { onDelete() }
+                    VMenuItem(icon: VIcon.trash.rawValue, label: "Delete") { onDelete() }
                 }
             }
         } else {
