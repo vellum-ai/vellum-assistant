@@ -453,7 +453,7 @@ export async function buildMemoryRecall(
         hybridCandidates = hydeCandidates.candidates;
         hydeExpanded = hydeCandidates.hydeExpanded;
         hydeDocCount = hydeCandidates.hydeDocCount;
-        sparseVectorUsed = sparseVectorAvailable;
+        sparseVectorUsed = sparseVectorAvailable || hydeExpanded;
       } else {
         // ── Standard path: single raw query search ──
         hybridCandidates = await semanticSearch(
