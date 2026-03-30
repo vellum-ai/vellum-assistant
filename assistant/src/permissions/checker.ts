@@ -233,10 +233,55 @@ function classifyAssistantSubcommand(args: string[]): RiskLevel {
   if (sub === "credentials") {
     const credSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
     if (credSub === "reveal") return RiskLevel.High;
+    if (credSub === "set" || credSub === "delete") return RiskLevel.High;
     return RiskLevel.Low;
   }
 
-  return RiskLevel.Low;
+  if (sub === "keys") {
+    const keysSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
+    if (keysSub === "set" || keysSub === "delete") return RiskLevel.High;
+    return RiskLevel.Low;
+  }
+
+  if (sub === "trust") {
+    const trustSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
+    if (trustSub === "remove" || trustSub === "clear") return RiskLevel.High;
+    return RiskLevel.Low;
+  }
+
+  if (sub === "config") {
+    const configSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
+    if (configSub === "set") return RiskLevel.High;
+    return RiskLevel.Low;
+  }
+
+  if (sub === "memory") {
+    const memorySub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
+    if (
+      memorySub === "backfill" ||
+      memorySub === "cleanup" ||
+      memorySub === "cleanup-segments" ||
+      memorySub === "rebuild-index" ||
+      memorySub === "re-extract"
+    )
+      return RiskLevel.Medium;
+    return RiskLevel.Low;
+  }
+
+  if (sub === "skills") {
+    const skillsSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
+    if (
+      skillsSub === "install" ||
+      skillsSub === "uninstall" ||
+      skillsSub === "add"
+    )
+      return RiskLevel.Medium;
+    return RiskLevel.Low;
+  }
+
+  // Unrecognized subcommands default to Medium so new mutating commands
+  // cannot bypass the permission prompt until explicitly classified.
+  return RiskLevel.Medium;
 }
 
 // Commands that wrap another program — the real program appears as the first
