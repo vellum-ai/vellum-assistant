@@ -986,8 +986,11 @@ export class AnthropicProvider implements Provider {
         speed === "fast" && effectiveModel.includes("opus");
 
       // Collect required betas: extended cache TTL for 1h system prompt caching,
-      // and fast-mode when applicable.
-      const betas: string[] = ["extended-cache-ttl-2025-04-11"];
+      // 1M context window, and fast-mode when applicable.
+      const betas: string[] = [
+        "extended-cache-ttl-2025-04-11",
+        "context-1m-2025-08-07",
+      ];
       if (useFastMode) {
         betas.push("fast-mode-2026-02-01");
       }
