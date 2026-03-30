@@ -38,8 +38,8 @@ function isIdempotent(method: string): boolean {
 /**
  * Make an authenticated request to the Microsoft Graph API with retry logic.
  *
- * The OAuth provider's baseUrl is already configured to `https://graph.microsoft.com/v1.0/me`,
- * so paths are relative to `/me` (e.g. `/messages`, `/mailFolders`).
+ * The OAuth provider's baseUrl is `https://graph.microsoft.com`, so all paths
+ * must include the full API version and resource prefix (e.g. `/v1.0/me/messages`).
  */
 async function request<T>(
   connection: OAuthConnection,
@@ -104,8 +104,7 @@ async function request<T>(
 export async function getProfile(
   connection: OAuthConnection,
 ): Promise<OutlookUserProfile> {
-  // The baseUrl already points to /me, so an empty path returns the user profile.
-  return request<OutlookUserProfile>(connection, "");
+  return request<OutlookUserProfile>(connection, "/v1.0/me");
 }
 
 /** List messages, optionally within a specific folder. */
@@ -121,8 +120,8 @@ export async function listMessages(
   },
 ): Promise<OutlookMessageListResponse> {
   const path = options?.folderId
-    ? `/mailFolders/${options.folderId}/messages`
-    : "/messages";
+    ? `/v1.0/me/mailFolders/${options.folderId}/messages`
+    : "/v1.0/me/messages";
 
   const query: Record<string, string> = {};
   if (options?.top !== undefined) query["$top"] = String(options.top);
@@ -150,7 +149,7 @@ export async function getMessage(
 
   return request<OutlookMessage>(
     connection,
-    `/messages/${messageId}`,
+    `/v1.0/me/messages/${messageId}`,
     undefined,
     Object.keys(query).length > 0 ? query : undefined,
   );
@@ -173,7 +172,7 @@ export async function searchMessages(
 
   return request<OutlookMessageListResponse>(
     connection,
-    "/messages",
+    "/v1.0/me/messages",
     undefined,
     query,
   );
@@ -184,7 +183,7 @@ export async function sendMessage(
   connection: OAuthConnection,
   message: OutlookSendMessagePayload,
 ): Promise<void> {
-  await request<void>(connection, "/sendMail", {
+  await request<void>(connection, "/v1.0/me/sendMail", {
     method: "POST",
     body: JSON.stringify(message),
   });
@@ -196,7 +195,7 @@ export async function replyToMessage(
   messageId: string,
   comment: string,
 ): Promise<void> {
-  await request<void>(connection, `/messages/${messageId}/reply`, {
+  await request<void>(connection, `/v1.0/me/messages/${messageId}/reply`, {
     method: "POST",
     body: JSON.stringify({ comment }),
   });
@@ -208,7 +207,7 @@ export async function listMailFolders(
 ): Promise<OutlookMailFolder[]> {
   const resp = await request<OutlookMailFolderListResponse>(
     connection,
-    "/mailFolders",
+    "/v1.0/me/mailFolders",
     undefined,
     { $top: "100" },
   );
@@ -220,7 +219,7 @@ export async function markMessageRead(
   connection: OAuthConnection,
   messageId: string,
 ): Promise<void> {
-  await request<void>(connection, `/messages/${messageId}`, {
+  await request<void>(connection, `/v1.0/me/messages/${messageId}`, {
     method: "PATCH",
     body: JSON.stringify({ isRead: true }),
   });
@@ -232,10 +231,14 @@ export async function moveMessage(
   messageId: string,
   destinationFolderId: string,
 ): Promise<OutlookMessage> {
-  return request<OutlookMessage>(connection, `/messages/${messageId}/move`, {
-    method: "POST",
-    body: JSON.stringify({ destinationId: destinationFolderId }),
-  });
+  return request<OutlookMessage>(
+    connection,
+    `/v1.0/me/messages/${messageId}/move`,
+    {
+      method: "POST",
+      body: JSON.stringify({ destinationId: destinationFolderId }),
+    },
+  );
 }
 
 /** Max concurrent individual getMessage requests for batch fetching. */
