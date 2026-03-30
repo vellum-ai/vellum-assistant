@@ -369,7 +369,6 @@ struct ChatView: View {
                 .frame(maxWidth: VSpacing.chatColumnMaxWidth - 2 * VSpacing.xl)
                 .frame(maxWidth: .infinity)
                 .padding(.bottom, -VSpacing.sm)
-                .animation(VAnimation.fast, value: mode.enabled)
             }
 
             if isReadonly {
