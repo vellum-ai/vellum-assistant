@@ -129,7 +129,16 @@ class TitleBarZoomableWindow: NSWindow {
     }
 
     deinit {
-        removeObservers()
+        // Inline cleanup instead of calling removeObservers() because deinit
+        // is nonisolated and cannot call @MainActor-isolated methods (SE-0371).
+        // Stored property access is allowed in deinit. If removeObservers()
+        // was already called by detachWindow(), these arrays are empty.
+        for observer in notificationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        for monitor in eventMonitors {
+            NSEvent.removeMonitor(monitor)
+        }
     }
 
     override func keyDown(with event: NSEvent) {
