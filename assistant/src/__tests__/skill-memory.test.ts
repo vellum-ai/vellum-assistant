@@ -130,6 +130,32 @@ describe("buildCapabilityStatement", () => {
     expect(result).toContain("needs web data");
   });
 
+  test("includes avoidWhen routing cues when present", () => {
+    const input: SkillCapabilityInput = {
+      id: "test-skill",
+      displayName: "My Skill",
+      description: "A skill for testing",
+      avoidWhen: ["user wants local files only", "offline mode"],
+    };
+    const result = buildCapabilityStatement(input);
+    expect(result).toContain("Avoid when:");
+    expect(result).toContain("user wants local files only");
+    expect(result).toContain("offline mode");
+  });
+
+  test("includes both activationHints and avoidWhen when present", () => {
+    const input: SkillCapabilityInput = {
+      id: "test-skill",
+      displayName: "My Skill",
+      description: "A skill for testing",
+      activationHints: ["user asks to search"],
+      avoidWhen: ["offline mode"],
+    };
+    const result = buildCapabilityStatement(input);
+    expect(result).toContain("Use when: user asks to search.");
+    expect(result).toContain("Avoid when: offline mode.");
+  });
+
   test("works with just name as displayName", () => {
     const input: SkillCapabilityInput = {
       id: "test-skill",
@@ -174,6 +200,19 @@ describe("fromSkillSummary", () => {
     const entry = makeSkillSummary({ activationHints: undefined });
     const input = fromSkillSummary(entry);
     expect(input.activationHints).toBeUndefined();
+  });
+
+  test("maps avoidWhen from SkillSummary", () => {
+    const cues = ["offline mode", "user wants local files only"];
+    const entry = makeSkillSummary({ avoidWhen: cues });
+    const input = fromSkillSummary(entry);
+    expect(input.avoidWhen).toEqual(cues);
+  });
+
+  test("leaves avoidWhen undefined when not present", () => {
+    const entry = makeSkillSummary({ avoidWhen: undefined });
+    const input = fromSkillSummary(entry);
+    expect(input.avoidWhen).toBeUndefined();
   });
 
   test("copies id and description directly", () => {
