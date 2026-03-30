@@ -1,35 +1,8 @@
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq, like } from "drizzle-orm";
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "conversation-fork-crud-test-")),
-);
-const workspaceDir = join(testDir, ".vellum", "workspace");
-const conversationsDir = join(workspaceDir, "conversations");
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join(join(testDir, ".vellum"), "protected"),
-  getDataDir: () => join(workspaceDir, "data"),
-  getWorkspaceDir: () => workspaceDir,
-  getConversationsDir: () => conversationsDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -100,11 +73,6 @@ function parseMetadata(metadata: string | null): unknown {
 
 afterAll(() => {
   resetDb();
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 describe("forkConversation", () => {

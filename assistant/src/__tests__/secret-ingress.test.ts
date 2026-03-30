@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
@@ -31,11 +30,6 @@ mock.module("../util/logger.js", () => ({
       return this;
     },
   }),
-}));
-
-mock.module("../util/platform.js", () => ({
-  getProtectedDir: () => join("/tmp/vellum-test-ingress", "protected"),
-  getWorkspaceDir: () => "/tmp/vellum-test-ingress/workspace",
 }));
 
 import { resetAllowlist } from "../security/secret-allowlist.js";
