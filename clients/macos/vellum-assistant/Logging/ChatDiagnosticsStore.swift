@@ -183,12 +183,12 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
 
     /// Whether the transcript scroll position is near the bottom.
     let isNearBottom: Bool?
-    /// Whether any scroll event has been received since the last reset.
-    let hasReceivedScrollEvent: Bool?
+    /// Whether the scroll system has received initial interaction (not in initialLoad mode).
+    let hasBeenInteracted: Bool?
     /// Whether a pagination load is currently in flight.
     let isPaginationInFlight: Bool?
-    /// Human-readable reason the bottom-scroll suppression flag is active, if any.
-    let suppressionReason: String?
+    /// The current scroll mode (e.g. "followingBottom", "freeBrowsing", "pushToTop").
+    let scrollMode: String?
     /// The message ID the scroll view is anchored to, if any.
     let anchorMessageId: String?
     /// The message ID currently highlighted (e.g. from search), if any.
@@ -229,9 +229,9 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
         contentHeight: Double? = nil,
         viewportHeight: Double? = nil,
         isNearBottom: Bool? = nil,
-        hasReceivedScrollEvent: Bool? = nil,
+        hasBeenInteracted: Bool? = nil,
         isPaginationInFlight: Bool? = nil,
-        suppressionReason: String? = nil,
+        scrollMode: String? = nil,
         anchorMessageId: String? = nil,
         highlightedMessageId: String? = nil,
         anchorMinY: Double? = nil,
@@ -253,9 +253,9 @@ struct ChatTranscriptSnapshot: Codable, Sendable {
         self.contentHeight = contentHeight
         self.viewportHeight = viewportHeight
         self.isNearBottom = isNearBottom
-        self.hasReceivedScrollEvent = hasReceivedScrollEvent
+        self.hasBeenInteracted = hasBeenInteracted
         self.isPaginationInFlight = isPaginationInFlight
-        self.suppressionReason = suppressionReason
+        self.scrollMode = scrollMode
         self.anchorMessageId = anchorMessageId
         self.highlightedMessageId = highlightedMessageId
         self.anchorMinY = anchorMinY
