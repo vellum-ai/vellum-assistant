@@ -967,15 +967,12 @@ export class DaemonServer {
     // Persist the conversation's current trust/auth context so it survives
     // eviction and recreation. The restore path in getOrCreateConversation
     // reads from storedOptions.trustContext / storedOptions.authContext.
-    const currentTrust = conversation.trustContext;
-    const currentAuth = conversation.authContext;
-    if (currentTrust || currentAuth) {
-      this.conversationOptions.set(conversationId, {
-        ...this.conversationOptions.get(conversationId),
-        ...(currentTrust ? { trustContext: currentTrust } : {}),
-        ...(currentAuth ? { authContext: currentAuth } : {}),
-      });
-    }
+    // Always write — including null — so explicit clearing isn't lost.
+    this.conversationOptions.set(conversationId, {
+      ...this.conversationOptions.get(conversationId),
+      trustContext: conversation.trustContext,
+      authContext: conversation.authContext,
+    });
     conversation.setChannelCapabilities(
       resolveChannelCapabilities(
         sourceChannel,
