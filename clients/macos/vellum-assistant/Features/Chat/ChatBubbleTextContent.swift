@@ -102,7 +102,8 @@ extension ChatBubble {
         // large messages with tables.
         if isStreaming,
            text.count > streamingParseThrottleThreshold,
-           let last = lastStreamingSegments {
+           let last = lastStreamingSegments,
+           text.hasPrefix(last.text) {
             let now = ProcessInfo.processInfo.systemUptime
             if now - lastStreamingParseTime < streamingParseThrottleInterval {
                 return last.value
