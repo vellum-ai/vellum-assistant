@@ -109,7 +109,7 @@ struct MemoriesPanel: View {
         .overlay {
             if let item = selectedItem {
                 ZStack {
-                    Color.black.opacity(0.4)
+                    VColor.auxBlack.opacity(0.4)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .contentShape(Rectangle())
                         .onTapGesture {
