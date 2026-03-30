@@ -134,6 +134,23 @@ public enum VFont {
     // MARK: - NSFont (AppKit — for NSTextView and TextKit 1)
 
     #if os(macOS)
+    /// DM Sans 400 at 16pt — NSFont equivalent of `VFont.chat` for use in
+    /// NSTextView-based components (e.g. ComposerTextEditor).
+    public static let nsChat: NSFont = {
+        let baseName = "DMSans-Regular" as CFString
+        let baseFont = CTFontCreateWithName(baseName, 16, nil)
+        let variations: [CFNumber: CFNumber] = [
+            wghtTag as CFNumber: 400 as CFNumber,
+        ]
+        let variantFont = CTFontCreateCopyWithAttributes(
+            baseFont, 16, nil,
+            CTFontDescriptorCreateWithAttributes([
+                kCTFontVariationAttribute: variations,
+            ] as CFDictionary)
+        )
+        return variantFont as NSFont
+    }()
+
     public static let nsMono: NSFont = {
         let base = NSFont(name: "DMMono-Regular", size: 13)
             ?? NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)

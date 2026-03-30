@@ -21,7 +21,7 @@ extension ChatBubble {
             MarkdownSegmentView(segments: segments, isStreaming: streaming)
                 .equatable()
         }
-        .textSelection(enabled: !streaming)
+        .textSelection(.disabled)
         .task(id: "\(segmentText)|\(streaming)") {
             // Fallback async parsing for text exceeding maxCacheableTextLength
             // (10K+ chars) that can't be stored in segmentCache. Most text is
