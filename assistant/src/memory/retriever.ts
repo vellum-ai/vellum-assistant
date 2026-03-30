@@ -1098,7 +1098,6 @@ function sampleSerendipityItems(
       .filter((c) => c.type === "item")
       .map((c) => c.id);
 
-    // Query random active items not already in the candidate pool
     const RANDOM_POOL_SIZE = 10;
 
     // Build scope condition: match allowed scopes, or default to 'default'
@@ -1107,52 +1106,76 @@ function sampleSerendipityItems(
       ? inArray(memoryItems.scopeId, scopeIds)
       : eq(memoryItems.scopeId, "default");
 
-    let rows;
     const importanceFloor = sql`COALESCE(${memoryItems.importance}, 0.5) >= ${MIN_SERENDIPITY_IMPORTANCE}`;
 
-    if (existingItemIds.length > 0) {
-      rows = db
-        .select({
-          id: memoryItems.id,
-          kind: memoryItems.kind,
-          subject: memoryItems.subject,
-          statement: memoryItems.statement,
-          importance: memoryItems.importance,
-          firstSeenAt: memoryItems.firstSeenAt,
-        })
-        .from(memoryItems)
-        .where(
-          and(
+    const baseConditions =
+      existingItemIds.length > 0
+        ? and(
             eq(memoryItems.status, "active"),
             scopeCondition,
             importanceFloor,
             notInArray(memoryItems.id, existingItemIds),
-          ),
-        )
-        .orderBy(sql`RANDOM()`)
-        .limit(RANDOM_POOL_SIZE)
-        .all();
-    } else {
-      rows = db
-        .select({
-          id: memoryItems.id,
-          kind: memoryItems.kind,
-          subject: memoryItems.subject,
-          statement: memoryItems.statement,
-          importance: memoryItems.importance,
-          firstSeenAt: memoryItems.firstSeenAt,
-        })
-        .from(memoryItems)
-        .where(
-          and(
+          )
+        : and(
             eq(memoryItems.status, "active"),
             scopeCondition,
             importanceFloor,
-          ),
-        )
-        .orderBy(sql`RANDOM()`)
-        .limit(RANDOM_POOL_SIZE)
+          );
+
+    // Use rowid-probe sampling instead of ORDER BY RANDOM() to avoid a
+    // full-table sort whose cost grows linearly with memory_items size.
+    // Strategy: get the rowid range, generate random rowids, and probe for
+    // the nearest eligible row with `rowid >= ?`. Each probe is O(log n)
+    // via B-tree lookup, so total cost is O(k·log n) instead of O(n·log n).
+    const range = db
+      .select({
+        minRowid: sql<number>`MIN(rowid)`,
+        maxRowid: sql<number>`MAX(rowid)`,
+        total: sql<number>`COUNT(*)`,
+      })
+      .from(memoryItems)
+      .where(baseConditions)
+      .get();
+
+    if (!range || range.total === 0) return [];
+
+    const columns = {
+      id: memoryItems.id,
+      kind: memoryItems.kind,
+      subject: memoryItems.subject,
+      statement: memoryItems.statement,
+      importance: memoryItems.importance,
+      firstSeenAt: memoryItems.firstSeenAt,
+    };
+
+    let rows;
+    if (range.total <= RANDOM_POOL_SIZE) {
+      // Few enough eligible rows — fetch all, no randomness needed at DB level
+      rows = db
+        .select(columns)
+        .from(memoryItems)
+        .where(baseConditions)
         .all();
+    } else {
+      // Probe random rowids in the eligible range
+      const seen = new Set<string>();
+      rows = [];
+      const rowidSpan = range.maxRowid - range.minRowid + 1;
+      const maxAttempts = RANDOM_POOL_SIZE * 5;
+      for (let i = 0; i < maxAttempts && rows.length < RANDOM_POOL_SIZE; i++) {
+        const randomRowid =
+          range.minRowid + Math.floor(Math.random() * rowidSpan);
+        const row = db
+          .select(columns)
+          .from(memoryItems)
+          .where(and(baseConditions, sql`rowid >= ${randomRowid}`))
+          .limit(1)
+          .get();
+        if (row && !seen.has(row.id)) {
+          seen.add(row.id);
+          rows.push(row);
+        }
+      }
     }
 
     if (rows.length === 0) return [];
