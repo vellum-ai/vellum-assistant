@@ -72,8 +72,6 @@ struct MemoriesPanel: View {
     @State private var statusFilter: MemoryStatusFilter = .active
     @State private var sortOption: MemorySortOption = .newest
     @State private var searchDebounceTask: Task<Void, Never>?
-    @State private var showStatusFilterPopover = false
-    @State private var showSortPopover = false
 
     init(connectionManager: GatewayConnectionManager, focusedMemoryId: Binding<String?> = .constant(nil)) {
         self.connectionManager = connectionManager
@@ -138,11 +136,26 @@ struct MemoriesPanel: View {
                     }
                 }
 
-            statusFilterDropdown
-                .frame(width: 158)
+            VFilterDropdown(
+                options: MemoryStatusFilter.allCases.map { VFilterOption(label: $0.rawValue, value: $0, icon: $0.icon) },
+                selection: $statusFilter,
+                width: 158,
+                onChange: { newStatus in
+                    store.statusFilter = newStatus.apiValue
+                    Task { await store.loadItems() }
+                }
+            )
 
-            sortFilterDropdown
-                .frame(width: 158)
+            VFilterDropdown(
+                options: MemorySortOption.allCases.map { VFilterOption(label: $0.rawValue, value: $0, icon: $0.icon) },
+                selection: $sortOption,
+                width: 158,
+                onChange: { newSort in
+                    store.sortField = newSort.sortField
+                    store.sortOrder = newSort.sortOrder
+                    Task { await store.loadItems() }
+                }
+            )
 
             VButton(label: "New", icon: VIcon.plus.rawValue, style: .primary) {
                 showCreateSheet = true
@@ -191,124 +204,6 @@ struct MemoriesPanel: View {
         return store.items.filter { $0.kind == kind.rawValue }
     }
 
-    // MARK: - Status Filter Dropdown
-
-    private var statusFilterDropdown: some View {
-        Button {
-            showStatusFilterPopover.toggle()
-        } label: {
-            HStack(spacing: VSpacing.md) {
-                Text(statusFilter.rawValue)
-                    .foregroundStyle(VColor.contentDefault)
-                    .font(VFont.bodyMediumLighter)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                VIconView(.chevronDown, size: 13)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .accessibilityHidden(true)
-            }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .frame(height: 32)
-            .vInputChrome()
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Status filter: \(statusFilter.rawValue)")
-        .popover(isPresented: $showStatusFilterPopover, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(MemoryStatusFilter.allCases, id: \.self) { status in
-                    Button {
-                        statusFilter = status
-                        store.statusFilter = status.apiValue
-                        showStatusFilterPopover = false
-                        Task { await store.loadItems() }
-                    } label: {
-                        HStack(spacing: VSpacing.sm) {
-                            VIconView(status.icon, size: 14)
-                                .foregroundStyle(VColor.contentDefault)
-                                .frame(width: 20)
-                            Text(status.rawValue)
-                                .font(VFont.bodyMediumLighter)
-                                .foregroundStyle(VColor.contentDefault)
-                            Spacer()
-                            if statusFilter == status {
-                                VIconView(.check, size: 12)
-                                    .foregroundStyle(VColor.primaryBase)
-                            }
-                        }
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.sm)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(status.rawValue) status")
-                    .accessibilityAddTraits(statusFilter == status ? .isSelected : [])
-                }
-            }
-            .padding(.vertical, VSpacing.sm)
-            .frame(width: 180)
-        }
-    }
-
-    // MARK: - Sort Filter Dropdown
-
-    private var sortFilterDropdown: some View {
-        Button {
-            showSortPopover.toggle()
-        } label: {
-            HStack(spacing: VSpacing.md) {
-                Text(sortOption.rawValue)
-                    .foregroundStyle(VColor.contentDefault)
-                    .font(VFont.bodyMediumLighter)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                VIconView(.chevronDown, size: 13)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .accessibilityHidden(true)
-            }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .frame(height: 32)
-            .vInputChrome()
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Sort by: \(sortOption.rawValue)")
-        .popover(isPresented: $showSortPopover, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(MemorySortOption.allCases, id: \.self) { option in
-                    Button {
-                        sortOption = option
-                        store.sortField = option.sortField
-                        store.sortOrder = option.sortOrder
-                        showSortPopover = false
-                        Task { await store.loadItems() }
-                    } label: {
-                        HStack(spacing: VSpacing.sm) {
-                            VIconView(option.icon, size: 14)
-                                .foregroundStyle(VColor.contentDefault)
-                                .frame(width: 20)
-                            Text(option.rawValue)
-                                .font(VFont.bodyMediumLighter)
-                                .foregroundStyle(VColor.contentDefault)
-                            Spacer()
-                            if sortOption == option {
-                                VIconView(.check, size: 12)
-                                    .foregroundStyle(VColor.primaryBase)
-                            }
-                        }
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.sm)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Sort by \(option.rawValue)")
-                    .accessibilityAddTraits(sortOption == option ? .isSelected : [])
-                }
-            }
-            .padding(.vertical, VSpacing.sm)
-            .frame(width: 200)
-        }
-    }
 
     // MARK: - Content View
 
