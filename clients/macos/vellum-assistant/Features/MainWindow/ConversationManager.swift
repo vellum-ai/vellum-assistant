@@ -2272,11 +2272,19 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         )
     }
 
-    /// Move cancellable teardown off the main thread. The Set<AnyCancellable> is
-    /// captured into a background closure so dealloc (and thus cancel()) happens
-    /// on `cancellableTeardownQueue` instead of blocking the caller.
+    /// Cancel subscriptions synchronously on main, then move the expensive
+    /// dealloc (operator chain teardown) off the main thread.
+    ///
+    /// `cancel()` is a lightweight flag-set that stops value delivery immediately.
+    /// The costly work is the subsequent dealloc of the deep Combine operator tree
+    /// (CombineLatest3/4, scan, removeDuplicates, etc.), which we defer to a
+    /// background queue by preventing the `Set<AnyCancellable>` from deallocating
+    /// until the async closure runs.
     private func tearDownCancellables(_ cancellables: Set<AnyCancellable>) {
         guard !cancellables.isEmpty else { return }
+        for cancellable in cancellables {
+            cancellable.cancel()
+        }
         Self.cancellableTeardownQueue.async {
             withExtendedLifetime(cancellables) {}
         }
