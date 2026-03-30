@@ -570,7 +570,7 @@ describe("Outlook messaging provider", () => {
     test("has correct capabilities", () => {
       expect(outlookMessagingProvider.capabilities.has("threads")).toBe(true);
       expect(outlookMessagingProvider.capabilities.has("folders")).toBe(true);
-      expect(outlookMessagingProvider.capabilities.has("archive")).toBe(true);
+      expect(outlookMessagingProvider.capabilities.has("archive")).toBe(false);
     });
   });
 });
