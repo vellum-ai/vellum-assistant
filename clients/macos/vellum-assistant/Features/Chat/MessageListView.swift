@@ -216,6 +216,7 @@ struct MessageListView: View {
     /// SwiftUI's `.equatable()` diffing sees every mutation.
     private var derivedState: MessageListDerivedState {
         os_signpost(.begin, log: stallLog, name: "DerivedState.resolve")
+        scrollState.recordBodyEvaluation()
 
         // Compute visible messages first so version tracking and layout
         // both operate on the same filtered set.

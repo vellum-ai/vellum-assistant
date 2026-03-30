@@ -198,6 +198,41 @@ final class MessageListScrollState {
     /// without relying on `.defaultScrollAnchor`.
     @ObservationIgnored var scrollToEdge: ((_ edge: Edge) -> Void)?
 
+    // MARK: - Circuit Breaker
+
+    /// Rolling window of body evaluation timestamps for loop detection.
+    @ObservationIgnored private var bodyEvalTimestamps: [CFAbsoluteTime] = []
+    /// When true, scheduleUISync() is suppressed to break a runaway re-evaluation loop.
+    @ObservationIgnored private(set) var isThrottled = false
+    @ObservationIgnored private var throttleRecoveryTask: Task<Void, Never>?
+
+    /// Called once per MessageListView body evaluation. Trips the circuit
+    /// breaker when >100 evaluations occur in 2 seconds, suppressing
+    /// `scheduleUISync()` for 500ms to break the loop.
+    func recordBodyEvaluation() {
+        let now = CFAbsoluteTimeGetCurrent()
+        bodyEvalTimestamps.append(now)
+        // Trim entries older than 2 seconds.
+        let cutoff = now - 2.0
+        if let firstValid = bodyEvalTimestamps.firstIndex(where: { $0 >= cutoff }) {
+            bodyEvalTimestamps.removeFirst(firstValid)
+        }
+
+        if bodyEvalTimestamps.count > 100 && !isThrottled {
+            isThrottled = true
+            os_log(.fault, "Scroll re-evaluation loop detected: %d evals in 2s — throttling for 500ms",
+                   bodyEvalTimestamps.count)
+            throttleRecoveryTask?.cancel()
+            throttleRecoveryTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 500_000_000)
+                guard let self, !Task.isCancelled else { return }
+                self.isThrottled = false
+                self.bodyEvalTimestamps.removeAll()
+                self.throttleRecoveryTask = nil
+            }
+        }
+    }
+
     // MARK: - Debounced UI Sync
 
     @ObservationIgnored private var uiSyncTask: Task<Void, Never>?
@@ -206,6 +241,7 @@ final class MessageListScrollState {
     /// (e.g. during rapid scrolling near bottom) coalesces into at most one
     /// view re-evaluation per frame instead of one per scroll event.
     private func scheduleUISync() {
+        guard !isThrottled else { return }
         uiSyncTask?.cancel()
         uiSyncTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 16_000_000) // ~1 frame at 60Hz
@@ -355,6 +391,10 @@ final class MessageListScrollState {
         highlightDismissTask = nil
         scrollIndicatorRestoreTask?.cancel()
         scrollIndicatorRestoreTask = nil
+        throttleRecoveryTask?.cancel()
+        throttleRecoveryTask = nil
+        isThrottled = false
+        bodyEvalTimestamps.removeAll()
         if hideScrollIndicators { hideScrollIndicators = false }
         if isPaginationInFlight { isPaginationInFlight = false }
     }

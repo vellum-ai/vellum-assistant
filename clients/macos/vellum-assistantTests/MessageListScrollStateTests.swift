@@ -317,4 +317,34 @@ final class MessageListScrollStateTests: XCTestCase {
         XCTAssertEqual(state.tailSpacerHeight, 0,
                        "Should be 0 when viewport height is not finite")
     }
+
+    // MARK: - Circuit Breaker
+
+    func testCircuitBreakerTripsAfterRapidEvaluations() {
+        for _ in 0...100 {
+            state.recordBodyEvaluation()
+        }
+        XCTAssertTrue(state.isThrottled, "Circuit breaker should be active")
+    }
+
+    func testCircuitBreakerRecovery() async throws {
+        for _ in 0...100 {
+            state.recordBodyEvaluation()
+        }
+        XCTAssertTrue(state.isThrottled)
+        try await Task.sleep(nanoseconds: 600_000_000)
+        XCTAssertFalse(state.isThrottled, "Circuit breaker should auto-recover")
+    }
+
+    func testScheduleUISyncSuppressedWhenThrottled() async throws {
+        for _ in 0...100 {
+            state.recordBodyEvaluation()
+        }
+        XCTAssertTrue(state.isThrottled)
+        state.detach()
+        XCTAssertFalse(state.isFollowingBottom)
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertFalse(state.showScrollToLatest,
+                       "showScrollToLatest should NOT update while throttled")
+    }
 }
