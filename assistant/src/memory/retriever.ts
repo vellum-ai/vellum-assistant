@@ -25,6 +25,7 @@ import {
   messages,
 } from "./schema.js";
 import { buildMemoryInjection } from "./search/formatting.js";
+import { applyMMR } from "./search/mmr.js";
 import { isQdrantConnectionError, semanticSearch } from "./search/semantic.js";
 import { computeStaleness } from "./search/staleness.js";
 import {
@@ -60,6 +61,10 @@ const log = getLogger("memory-retriever");
 
 const EMBED_MAX_RETRIES = 3;
 const EMBED_BASE_DELAY_MS = 500;
+
+/** MMR diversity penalty applied to near-duplicate items after score filtering.
+ *  0 = no penalty, 1 = maximum penalty. */
+const MMR_PENALTY = 0.6;
 
 /**
  * Wrap embedWithBackend with retry + exponential backoff for transient failures
@@ -444,13 +449,16 @@ export async function buildMemoryRecall(
   // ── Step 5: Filter by minimum score threshold ───────────────────
   const filtered = filterByMinScore(allCandidates);
 
-  // ── Step 5b: Enrich candidates with source labels ──────────────
-  enrichSourceLabels(filtered);
+  // ── Step 5b: MMR diversity ranking ─────────────────────────────
+  const diversified = applyMMR(filtered, MMR_PENALTY);
+
+  // ── Step 5c: Enrich candidates with source labels ──────────────
+  enrichSourceLabels(diversified);
 
   // ── Serendipity: sample random memories for unexpected connections ──
   const SERENDIPITY_COUNT = 3;
   const serendipityCandidates = sampleSerendipityItems(
-    filtered,
+    diversified,
     SERENDIPITY_COUNT,
     scopeIds,
   );
@@ -464,11 +472,11 @@ export async function buildMemoryRecall(
   enrichSourceLabels(serendipityCandidates);
 
   // ── Step 6: Enrich with item metadata for staleness ─────────────
-  const itemIds = filtered.filter((c) => c.type === "item").map((c) => c.id);
+  const itemIds = diversified.filter((c) => c.type === "item").map((c) => c.id);
   const itemMetadataMap = enrichItemMetadata(itemIds);
 
   // ── Step 6b: Enrich item candidates with supersedes data ────────
-  const itemCandidatesForSupersedes = filtered.filter((c) => c.type === "item");
+  const itemCandidatesForSupersedes = diversified.filter((c) => c.type === "item");
   if (itemCandidatesForSupersedes.length > 0) {
     try {
       const db = getDb();
@@ -496,7 +504,7 @@ export async function buildMemoryRecall(
 
   // ── Step 7: Compute staleness per item (for debugging/logging) ─
   const now = Date.now();
-  for (const c of filtered) {
+  for (const c of diversified) {
     if (c.type !== "item") continue;
     const meta = itemMetadataMap.get(c.id);
     if (!meta) continue;
@@ -521,22 +529,22 @@ export async function buildMemoryRecall(
   );
 
   const injectedText = buildMemoryInjection({
-    candidates: filtered,
+    candidates: diversified,
     serendipityItems: serendipityCandidates,
     totalBudgetTokens: maxInjectTokens,
   });
 
   // ── Assemble result ─────────────────────────────────────────────
-  const selectedCount = filtered.length + serendipityCandidates.length;
+  const selectedCount = diversified.length + serendipityCandidates.length;
 
   const stalenessStats = {
-    fresh: filtered.filter((c) => c.staleness === "fresh").length,
-    aging: filtered.filter((c) => c.staleness === "aging").length,
-    stale: filtered.filter((c) => c.staleness === "stale").length,
-    very_stale: filtered.filter((c) => c.staleness === "very_stale").length,
+    fresh: diversified.filter((c) => c.staleness === "fresh").length,
+    aging: diversified.filter((c) => c.staleness === "aging").length,
+    stale: diversified.filter((c) => c.staleness === "stale").length,
+    very_stale: diversified.filter((c) => c.staleness === "very_stale").length,
   };
 
-  const topCandidates: MemoryRecallCandiateDebug[] = filtered
+  const topCandidates: MemoryRecallCandiateDebug[] = diversified
     .slice(0, 10)
     .map((c) => ({
       key: c.key,
@@ -596,6 +604,7 @@ export async function buildMemoryRecall(
     tier2Count: 0,
     hybridSearchMs,
     sparseVectorUsed,
+    mmrApplied: true,
   };
 
   return result;
