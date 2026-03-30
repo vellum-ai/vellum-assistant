@@ -33,13 +33,16 @@ function requireConnection(
 }
 
 function mapOutlookMessage(msg: OutlookMessage): Message {
+  const senderEmail = msg.from?.emailAddress?.address ?? "";
+  const senderName = msg.from?.emailAddress?.name || senderEmail || "Unknown";
+
   return {
     id: msg.id,
     conversationId: msg.conversationId,
     sender: {
-      id: msg.from.emailAddress.address,
-      name: msg.from.emailAddress.name || msg.from.emailAddress.address,
-      email: msg.from.emailAddress.address,
+      id: senderEmail,
+      name: senderName,
+      email: senderEmail,
     },
     text: msg.body.contentType === "text" ? msg.body.content : msg.bodyPreview,
     timestamp: new Date(msg.receivedDateTime).getTime(),
@@ -169,7 +172,7 @@ export const outlookMessagingProvider: MessagingProvider = {
   ): Promise<Message[]> {
     const conn = requireConnection(connection);
     const result = await outlook.listMessages(conn, {
-      filter: `conversationId eq '${threadId}'`,
+      filter: `conversationId eq '${threadId.replace(/'/g, "''")}'`,
       top: options?.limit ?? 50,
       orderby: "receivedDateTime asc",
       select: MESSAGE_SELECT_FIELDS,
