@@ -584,11 +584,12 @@ export class DaemonServer {
               size,
             );
             attachmentIds.push(stored.id);
+            const fileData = readFileSync(a.path).toString("base64");
             resolvedAttachments.push({
               id: stored.id,
               filename: a.filename,
               mimeType: a.mimeType,
-              data: "",
+              data: fileData,
               filePath: a.path,
             });
           } catch (err) {
