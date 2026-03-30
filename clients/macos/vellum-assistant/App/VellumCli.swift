@@ -317,8 +317,17 @@ final class VellumCli {
     ///
     /// Uses `--force` to bypass the phone-call keepalive lease check so
     /// the app can always shut down cleanly.
-    func stop(name: String? = nil) async {
-        guard let binaryURL = cliBinaryURL else {
+    ///
+    /// Marked `nonisolated` so callers can await this without holding the
+    /// main actor — important for `applicationWillTerminate` where the main
+    /// thread blocks on a semaphore while waiting for this to complete.
+    nonisolated func stop(name: String? = nil) async {
+        guard let execURL = Bundle.main.executableURL else {
+            log.info("No bundled CLI binary found — skipping stop (dev mode)")
+            return
+        }
+        let binaryURL = execURL.deletingLastPathComponent().appendingPathComponent("vellum-cli")
+        guard FileManager.default.fileExists(atPath: binaryURL.path) else {
             log.info("No bundled CLI binary found — skipping stop (dev mode)")
             return
         }
