@@ -1,4 +1,5 @@
 import { getConfig } from "../config/loader.js";
+import type { Speed } from "../config/schemas/inference.js";
 import type { HeartbeatAlert } from "../daemon/message-protocol.js";
 import { bootstrapConversation } from "../memory/conversation-bootstrap.js";
 import { readTextFileSync } from "../util/fs.js";
@@ -17,6 +18,7 @@ export interface HeartbeatDeps {
   processMessage: (
     conversationId: string,
     content: string,
+    options?: { speed?: Speed },
   ) => Promise<{ messageId: string }>;
   alerter: (alert: HeartbeatAlert) => void;
   onConversationCreated?: (info: {
@@ -169,6 +171,7 @@ export class HeartbeatService {
     log.info("Running heartbeat");
 
     try {
+      const config = getConfig().heartbeat;
       const checklist = this.readChecklist();
       const prompt = this.buildPrompt(checklist);
 
@@ -184,7 +187,9 @@ export class HeartbeatService {
         title: "Heartbeat",
       });
 
-      await this.deps.processMessage(conversation.id, prompt);
+      await this.deps.processMessage(conversation.id, prompt, {
+        speed: config.speed,
+      });
       log.info({ conversationId: conversation.id }, "Heartbeat completed");
     } catch (err) {
       log.error({ err }, "Heartbeat failed");
