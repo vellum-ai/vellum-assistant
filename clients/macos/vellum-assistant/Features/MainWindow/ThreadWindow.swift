@@ -210,6 +210,14 @@ private struct ThreadWindowContentView: View {
                     onOpenModelsAndServices: {
                         settingsStore.pendingSettingsTab = .modelsAndServices
                     },
+                    maintenanceMode: settingsStore.managedAssistantMaintenanceMode,
+                    isMaintenanceModeExiting: settingsStore.maintenanceModeExiting,
+                    onResumeAssistant: {
+                        settingsStore.exitManagedAssistantMaintenanceMode()
+                    },
+                    onOpenSSHSettings: {
+                        settingsStore.pendingSettingsTab = .developer
+                    },
                     anchorMessageId: $anchorMessageId,
                     highlightedMessageId: $highlightedMessageId,
                     isInteractionEnabled: true,
