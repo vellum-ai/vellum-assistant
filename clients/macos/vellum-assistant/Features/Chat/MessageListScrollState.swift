@@ -24,17 +24,32 @@ final class MessageListScrollState {
     /// The message ID whose top edge should be pinned to the viewport top
     /// after the user sends a message (push-to-top pattern). `nil` when
     /// push-to-top is inactive.
-    var pushToTopMessageId: (any Hashable)? = nil
+    @ObservationIgnored private var _pushToTopMessageId: (any Hashable)? = nil
+
+    var pushToTopMessageId: (any Hashable)? {
+        get { _pushToTopMessageId }
+        set { _pushToTopMessageId = newValue; scheduleUISync() }
+    }
 
     /// Guards the pagination sentinel against re-entry during the brief window
     /// between Task launch and the first `await`.
-    var isPaginationInFlight = false
+    @ObservationIgnored private var _isPaginationInFlight = false
+
+    var isPaginationInFlight: Bool {
+        get { _isPaginationInFlight }
+        set { _isPaginationInFlight = newValue }
+    }
 
     /// Whether scroll indicators should be temporarily hidden during a
     /// conversation switch. LazyVStack content size estimation causes the
     /// scrollbar to visibly resize as views materialize with varying heights;
     /// hiding the indicators during the initial layout window masks this.
-    var hideScrollIndicators = false
+    @ObservationIgnored private var _hideScrollIndicators = false
+
+    var hideScrollIndicators: Bool {
+        get { _hideScrollIndicators }
+        set { _hideScrollIndicators = newValue; scheduleUISync() }
+    }
 
     /// Whether the "Scroll to latest" CTA should be visible.
     /// Updated via debounced `scheduleUISync()` — at most once per frame.
@@ -46,7 +61,7 @@ final class MessageListScrollState {
     /// Subtracted from content height for overflow and bottom detection
     /// so those computations operate on effective content height.
     var tailSpacerHeight: CGFloat {
-        guard pushToTopMessageId != nil else { return 0 }
+        guard _pushToTopMessageId != nil else { return 0 }
         let h = viewportHeight
         // Account for LazyVStack inter-item spacing so the spacer
         // doesn't overshoot by one spacing unit.
@@ -342,7 +357,7 @@ final class MessageListScrollState {
         clearSuppression()
         paginationTask?.cancel()
         paginationTask = nil
-        if isPaginationInFlight { isPaginationInFlight = false }
+        if _isPaginationInFlight { _isPaginationInFlight = false }
         wasPaginationTriggerInRange = false
         // Invalidate the layout cache so the new conversation doesn't
         // hit a stale cache from the previous conversation.
@@ -361,7 +376,7 @@ final class MessageListScrollState {
         // Sync UI immediately for conversation switch (no debounce delay).
         uiSyncTask?.cancel()
         if showScrollToLatest { showScrollToLatest = false }
-        if pushToTopMessageId != nil { pushToTopMessageId = nil }
+        if _pushToTopMessageId != nil { _pushToTopMessageId = nil }
         isAtBottom = true
         hasReceivedScrollEvent = false
         lastContentOffsetY = 0
@@ -374,11 +389,11 @@ final class MessageListScrollState {
         // Hide scroll indicators during the conversation switch grace period
         // to mask LazyVStack content size estimation changes.
         scrollIndicatorRestoreTask?.cancel()
-        if !hideScrollIndicators { hideScrollIndicators = true }
+        if !_hideScrollIndicators { _hideScrollIndicators = true }
         scrollIndicatorRestoreTask = Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
             guard !Task.isCancelled, let self else { return }
-            if self.hideScrollIndicators { self.hideScrollIndicators = false }
+            if self._hideScrollIndicators { self._hideScrollIndicators = false }
             self.scrollIndicatorRestoreTask = nil
         }
     }
@@ -402,7 +417,7 @@ final class MessageListScrollState {
         throttleRecoveryTask = nil
         isThrottled = false
         bodyEvalTimestamps.removeAll()
-        if hideScrollIndicators { hideScrollIndicators = false }
-        if isPaginationInFlight { isPaginationInFlight = false }
+        if _hideScrollIndicators { _hideScrollIndicators = false }
+        if _isPaginationInFlight { _isPaginationInFlight = false }
     }
 }
