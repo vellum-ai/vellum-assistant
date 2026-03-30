@@ -637,6 +637,15 @@ Examples:
             return;
           }
 
+          if (!isProviderVisible(existing, loadConfig())) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `Provider "${providerKey}" not found. Run 'assistant oauth providers list' to see all registered providers.`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+
           // Block updates to built-in providers
           if (SEEDED_PROVIDER_KEYS.has(providerKey)) {
             writeOutput(cmd, {
@@ -768,6 +777,15 @@ Examples:
         try {
           const provider = getProvider(providerKey);
           if (!provider) {
+            writeOutput(cmd, {
+              ok: false,
+              error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers.`,
+            });
+            process.exitCode = 1;
+            return;
+          }
+
+          if (!isProviderVisible(provider, loadConfig())) {
             writeOutput(cmd, {
               ok: false,
               error: `Provider not found: "${providerKey}". Run 'assistant oauth providers list' to see all registered providers.`,
