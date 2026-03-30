@@ -204,7 +204,7 @@ extension AppDelegate {
                 if ActorTokenManager.needsProactiveRefresh {
                     guard self.connectionManager.isConnected else { continue }
 
-                    let result = await ActorCredentialRefresher.refresh(
+                    let result = await TokenRefreshCoordinator.shared.refreshIfNeeded(
                         platform: "macos",
                         deviceId: PairingQRCodeSheet.computeHostId()
                     )
