@@ -782,7 +782,7 @@ async function main() {
       path: "/v1/admin/upgrade-broadcast",
       method: "POST",
       auth: "edge-scoped",
-      scope: "internal.write",
+      scope: "admin.write",
       handler: (req) => upgradeBroadcastProxy(req),
     },
 
@@ -805,7 +805,7 @@ async function main() {
       path: "/v1/admin/workspace-commit",
       method: "POST",
       auth: "edge-scoped",
-      scope: "internal.write",
+      scope: "admin.write",
       handler: (req) => workspaceCommitProxy(req),
     },
 
@@ -814,7 +814,7 @@ async function main() {
       path: "/v1/admin/rollback-migrations",
       method: "POST",
       auth: "edge-scoped",
-      scope: "internal.write",
+      scope: "admin.write",
       handler: (req) => migrationRollbackProxy(req),
     },
 
