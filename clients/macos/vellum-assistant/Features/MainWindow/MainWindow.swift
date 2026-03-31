@@ -142,8 +142,11 @@ class TitleBarZoomableWindow: NSWindow {
     }
 
     override func keyDown(with event: NSEvent) {
-        // If a text view is already focused, let it handle the event normally.
-        if firstResponder is NSTextView {
+        // If an editable text view (the composer) is focused, let it handle
+        // the event normally. Read-only NSTextViews (e.g. VSelectableTextView
+        // in message bubbles) fall through to the redirect logic so keystrokes
+        // still reach the composer.
+        if let textView = firstResponder as? NSTextView, textView.isEditable {
             super.keyDown(with: event)
             return
         }

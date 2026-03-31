@@ -70,7 +70,7 @@ struct ComposerView: View {
     #if os(macOS)
     @Environment(\.dropActions) private var dropActions
     #endif
-    @FocusState private var composerFocus: Bool
+    @State private var composerFocus: Bool = false
     @State private var isComposerFocused = false
     @State private var measuredTextHeight: CGFloat = 32
     @State private var textViewIsFocused: Bool = false
@@ -137,9 +137,7 @@ struct ComposerView: View {
         .task {
             // Delay focus slightly so the NSTextView is fully installed
             // in the view hierarchy before requesting first-responder
-            // status. Setting @FocusState synchronously during an animated
-            // layout pass (e.g. the empty-state fade-in) can give logical
-            // focus without rendering the blinking caret.
+            // status via the textViewIsFocused → updateNSView bridge.
             try? await Task.sleep(nanoseconds: 50_000_000)
             guard !Task.isCancelled else { return }
             composerFocus = isInteractionEnabled
