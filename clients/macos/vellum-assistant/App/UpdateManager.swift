@@ -28,6 +28,11 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
     /// The version string of the available service group update, if any.
     @Published public private(set) var serviceGroupUpdateVersion: String?
 
+    /// Weak reference to the SSE connection manager, used to read the current
+    /// service group version for periodic update checks on managed topologies
+    /// (where the platform proxy has no `/v1/health/` route).
+    weak var connectionManager: GatewayConnectionManager?
+
     /// Called before the app is replaced — stop the daemon so the new version
     /// can launch its own bundled daemon cleanly.  Async to allow best-effort
     /// backup and progress broadcasts before shutdown.
@@ -63,11 +68,17 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
 
         // Run an initial service group update check and schedule periodic re-checks
         // every hour (matching Sparkle's default automatic check interval).
-        Task { await checkServiceGroupUpdate() }
+        Task { [weak self] in
+            await self?.checkServiceGroupUpdate(
+                knownVersion: self?.connectionManager?.assistantVersion
+            )
+        }
         serviceGroupCheckTimer?.invalidate()
         serviceGroupCheckTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                await self?.checkServiceGroupUpdate()
+                await self?.checkServiceGroupUpdate(
+                    knownVersion: self?.connectionManager?.assistantVersion
+                )
             }
         }
     }
@@ -207,16 +218,11 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
 
             // Resolve the current service group version — prefer the caller-supplied
             // value (from the SSE connection) over an independent health fetch.
-            let currentVersion: String? = {
-                if let known = knownVersion, !known.isEmpty { return known }
-                // Fallback: attempt a direct health-endpoint fetch (works for Docker
-                // topologies where the gateway is on localhost).
-                return nil
-            }()
-
+            // The health fetch is kept as a fallback for Docker topologies where the
+            // gateway runs on localhost.
             let resolvedVersion: String
-            if let v = currentVersion {
-                resolvedVersion = v
+            if let known = knownVersion, !known.isEmpty {
+                resolvedVersion = known
             } else {
                 let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
                     path: "health",

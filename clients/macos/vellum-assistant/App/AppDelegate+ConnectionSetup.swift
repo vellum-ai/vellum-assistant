@@ -568,6 +568,7 @@ extension AppDelegate {
             // Stop daemon before app replacement
             await self.vellumCli.stop()
         }
+        updateManager.connectionManager = connectionManager
         updateManager.startAutomaticChecks()
     }
 
