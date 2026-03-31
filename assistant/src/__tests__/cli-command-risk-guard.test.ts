@@ -157,6 +157,24 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
     expect(risk).toBe(RiskLevel.Medium);
   });
 
+  test("--help on non-elevated subcommands remains Low risk", async () => {
+    // GIVEN non-elevated subcommands with --help / -h flags
+    const lowRiskWithHelp = [
+      "assistant oauth --help",
+      "assistant credentials --help",
+      "assistant trust -h",
+      "assistant keys --help",
+      "assistant config --help",
+    ];
+
+    // WHEN classifying risk
+    // THEN they remain Low since the subcommand itself is Low
+    for (const command of lowRiskWithHelp) {
+      const risk = await classifyRisk("bash", { command });
+      expectLowRisk(command, risk);
+    }
+  });
+
   test("--help does not downgrade risk on elevated subcommands", async () => {
     // GIVEN elevated subcommands with --help / -h flags appended
     const highRiskWithHelp = [
