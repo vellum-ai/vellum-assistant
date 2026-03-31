@@ -424,8 +424,11 @@ struct MessageListView: View {
     }
 
     /// Restores scroll-to-bottom after a conversation load or app restart.
-    /// Issues a delayed fallback pin that catches cases where the preceding
-    /// `scrollToEdge(.bottom)` fires before SwiftUI has fully laid out content.
+    /// Issues a delayed fallback pin that catches cases where the declarative
+    /// `ScrollPosition(edge: .bottom)` hasn't fully resolved for the new content.
+    /// The `isAtBottom` guard is intentionally omitted: during a conversation
+    /// switch, `isAtBottom` is unreliable because scroll geometry hasn't updated
+    /// yet for the new content. An extra pin when already at bottom is a no-op.
     private func restoreScrollToBottom() {
         scrollState.scrollRestoreTask?.cancel()
         scrollState.scrollRestoreTask = Task { @MainActor [scrollState] in
@@ -433,7 +436,6 @@ struct MessageListView: View {
             guard !Task.isCancelled else { return }
             if anchorMessageId == nil
                 && !scrollState.hasBeenInteracted
-                && !scrollState.isAtBottom
             {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=fallback")
                 scrollState.transition(to: .followingBottom)
@@ -1073,9 +1075,13 @@ struct MessageListView: View {
             scrollState.transition(to: .followingBottom)
         }
         // Scroll to bottom for the new conversation.
+        // Use declarative ScrollPosition(edge:) instead of imperative scrollToEdge()
+        // so SwiftUI processes the position in the same layout pass as new content,
+        // avoiding a race where the scroll target resolves before content is laid out.
+        // https://developer.apple.com/documentation/swiftui/scrollposition
         scrollState.scrollRestoreTask?.cancel()
         if anchorMessageId == nil {
-            scrollState.scrollToEdge?(.bottom)
+            scrollPosition = ScrollPosition(edge: .bottom)
         }
         restoreScrollToBottom()
     }
