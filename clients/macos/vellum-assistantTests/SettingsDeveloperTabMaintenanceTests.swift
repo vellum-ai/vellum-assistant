@@ -66,6 +66,7 @@ final class SettingsDeveloperTabMaintenanceTests: XCTestCase {
 
     private var lockfileBackup: Data?
     private var primaryLockfilePath: String { LockfilePaths.primaryPath }
+    private var previousToken: String?
 
     override func setUp() {
         super.setUp()
@@ -92,13 +93,21 @@ final class SettingsDeveloperTabMaintenanceTests: XCTestCase {
 
         URLProtocol.registerClass(DevTabMaintenanceURLProtocol.self)
         DevTabMaintenanceURLProtocol.requestHandler = nil
+        // Save any existing token so we can restore it in tearDown, preventing
+        // the test run from destroying the developer's real session token.
+        previousToken = SessionTokenManager.getToken()
         SessionTokenManager.setToken("stub-session-token")
     }
 
     override func tearDown() {
         URLProtocol.unregisterClass(DevTabMaintenanceURLProtocol.self)
         DevTabMaintenanceURLProtocol.requestHandler = nil
-        SessionTokenManager.deleteToken()
+        if let token = previousToken {
+            SessionTokenManager.setToken(token)
+        } else {
+            SessionTokenManager.deleteToken()
+        }
+        previousToken = nil
 
         let primaryURL = URL(fileURLWithPath: primaryLockfilePath)
         if let backup = lockfileBackup {
