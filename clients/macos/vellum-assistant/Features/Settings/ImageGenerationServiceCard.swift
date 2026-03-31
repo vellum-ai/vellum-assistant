@@ -144,11 +144,6 @@ struct ImageGenerationServiceCard: View {
     // MARK: - Save
 
     private func save() {
-        // Persist mode if changed
-        if draftMode != store.imageGenMode {
-            store.setImageGenMode(draftMode)
-        }
-
         // Persist API key if entered and in your-own mode
         let trimmedKey = apiKeyText.trimmingCharacters(in: .whitespacesAndNewlines)
         if draftMode == "your-own" && !trimmedKey.isEmpty {
@@ -156,8 +151,16 @@ struct ImageGenerationServiceCard: View {
             apiKeyText = ""
         }
 
-        // Persist model selection
-        store.setImageGenModel(draftModel)
+        let modeChanged = draftMode != store.imageGenMode
+        let pendingMode = modeChanged ? store.setImageGenMode(draftMode) : nil
+
+        // Await the mode patch before writing the model so the daemon's
+        // read-modify-write cycle for the model doesn't overwrite the mode.
+        let capturedModel = draftModel
+        Task {
+            if let pendingMode { _ = await pendingMode.value }
+            store.setImageGenModel(capturedModel)
+        }
         initialModel = draftModel
     }
 }

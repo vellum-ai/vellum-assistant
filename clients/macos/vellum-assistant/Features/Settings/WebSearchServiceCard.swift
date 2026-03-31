@@ -220,14 +220,18 @@ struct WebSearchServiceCard: View {
     // MARK: - Save
 
     private func save() {
-        // Persist mode if changed
-        if draftMode != store.webSearchMode {
-            store.setWebSearchMode(draftMode)
-        }
+        let modeChanged = draftMode != store.webSearchMode
+        let pendingMode = modeChanged ? store.setWebSearchMode(draftMode) : nil
 
         // In your-own mode, persist provider and API keys.
         if draftMode == "your-own" {
-            store.setWebSearchProvider(draftProvider)
+            // Await the mode patch before writing the provider so the
+            // daemon's read-modify-write cycle doesn't overwrite the mode.
+            let capturedProvider = draftProvider
+            Task {
+                if let pendingMode { _ = await pendingMode.value }
+                store.setWebSearchProvider(capturedProvider)
+            }
 
             if isPerplexity && !perplexityKeyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 store.savePerplexityKey(perplexityKeyText)

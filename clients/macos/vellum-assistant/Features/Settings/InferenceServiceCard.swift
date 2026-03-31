@@ -384,17 +384,16 @@ struct InferenceServiceCard: View {
         let modeChanged = draftMode != store.inferenceMode
 
         // Persist mode if changed
-        if modeChanged {
-            store.setInferenceMode(draftMode)
-        }
+        let pendingMode = modeChanged ? store.setInferenceMode(draftMode) : nil
 
         // Persist provider if changed. Also re-persist when the mode
         // changed — switching between managed and your-own implies a
         // provider change even if the resolved provider ID happens to
         // match initialProvider (ensures config stays consistent).
         let persistProvider = draftMode == "managed" ? "anthropic" : draftProvider
-        if persistProvider != initialProvider || modeChanged {
-            store.setInferenceProvider(persistProvider)
+        let providerChanged = persistProvider != initialProvider || modeChanged
+        let pendingProvider = providerChanged ? store.setInferenceProvider(persistProvider) : nil
+        if providerChanged {
             initialProvider = persistProvider
         }
         // Normalize draftProvider to match what was persisted so hasChanges
@@ -416,12 +415,17 @@ struct InferenceServiceCard: View {
             })
         }
 
-        // Persist model selection. Force-send to daemon when the mode
-        // changed so the model+provider pair is always re-persisted,
-        // even if IDs happen to match the daemon's cached state.
+        // Await the mode and provider patches before writing the model so the
+        // daemon's read-modify-write cycle for the model doesn't overwrite them.
         store.selectedModel = draftModel
+        let capturedModel = draftModel
         let saveProvider = draftMode == "managed" ? "anthropic" : draftProvider
-        store.setModel(draftModel, provider: saveProvider, force: modeChanged)
+        let forceSend = modeChanged
+        Task {
+            if let pendingMode { _ = await pendingMode.value }
+            if let pendingProvider { _ = await pendingProvider.value }
+            store.setModel(capturedModel, provider: saveProvider, force: forceSend)
+        }
         initialModel = draftModel
     }
 }
