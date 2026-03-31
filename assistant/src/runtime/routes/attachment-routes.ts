@@ -1,7 +1,8 @@
 /**
  * Route handlers for attachment upload, download, and deletion.
  */
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 
 import { z } from "zod";
 
@@ -11,11 +12,53 @@ import {
   getFilePathForAttachment,
   validateAttachmentUpload,
 } from "../../memory/attachments-store.js";
+import { getWorkspaceDir } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
 /** 150 MB — base64-encoded 100 MB attachment ≈ 134 MB plus JSON wrapper overhead. */
 const MAX_UPLOAD_BODY_BYTES = 150 * 1024 * 1024;
+
+function resolveCanonicalPath(filePath: string): string {
+  try {
+    return realpathSync(filePath);
+  } catch {
+    return resolve(filePath);
+  }
+}
+
+function isPathWithinDirectory(filePath: string, allowedDir: string): boolean {
+  return filePath === allowedDir || filePath.startsWith(allowedDir + sep);
+}
+
+function resolveAllowedAttachmentDirectories(): string[] {
+  const workspaceAttachmentsDir = join(
+    getWorkspaceDir(),
+    "data",
+    "attachments",
+  );
+  const recordingsDir = join(
+    process.env.HOME ?? "",
+    "Library/Application Support/vellum-assistant/recordings",
+  );
+  return [workspaceAttachmentsDir, recordingsDir].map((dir) => {
+    try {
+      return realpathSync(dir);
+    } catch {
+      return resolve(dir);
+    }
+  });
+}
+
+export function resolveAllowedFileBackedAttachmentPath(
+  filePath: string,
+): string | null {
+  const resolvedPath = resolveCanonicalPath(filePath);
+  const allowedDirs = resolveAllowedAttachmentDirectories();
+  return allowedDirs.some((dir) => isPathWithinDirectory(resolvedPath, dir))
+    ? resolvedPath
+    : null;
+}
 
 export async function handleUploadAttachment(req: Request): Promise<Response> {
   const rawBody = await req.arrayBuffer();
@@ -56,14 +99,22 @@ export async function handleUploadAttachment(req: Request): Promise<Response> {
   // This supports retry of file-backed attachments (e.g. recordings) where the
   // client no longer holds the inline data but the file still exists on disk.
   if (filePath && typeof filePath === "string" && (!data || data === "")) {
-    if (!existsSync(filePath)) {
+    const resolvedPath = resolveAllowedFileBackedAttachmentPath(filePath);
+    if (!resolvedPath) {
+      return httpError(
+        "BAD_REQUEST",
+        "filePath is outside allowed upload directories",
+        400,
+      );
+    }
+    if (!existsSync(resolvedPath)) {
       return httpError("BAD_REQUEST", "filePath does not exist on disk", 400);
     }
-    const sizeBytes = statSync(filePath).size;
+    const sizeBytes = statSync(resolvedPath).size;
     attachment = attachmentsStore.uploadFileBackedAttachment(
       filename,
       mimeType,
-      filePath,
+      resolvedPath,
       sizeBytes,
     );
   } else {
@@ -172,11 +223,15 @@ export function handleGetAttachmentContent(
   // Check for file-backed attachment
   const filePath = getFilePathForAttachment(attachmentId);
   if (filePath) {
-    if (!existsSync(filePath)) {
+    const resolvedPath = resolveAllowedFileBackedAttachmentPath(filePath);
+    if (!resolvedPath) {
+      return httpError("NOT_FOUND", "Attachment content not found", 404);
+    }
+    if (!existsSync(resolvedPath)) {
       return httpError("NOT_FOUND", "Recording file not found on disk", 404);
     }
 
-    const file = Bun.file(filePath);
+    const file = Bun.file(resolvedPath);
     const rangeHeader = req.headers.get("Range");
 
     if (rangeHeader) {

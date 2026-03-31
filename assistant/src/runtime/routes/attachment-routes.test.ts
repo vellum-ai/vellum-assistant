@@ -1,0 +1,64 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+
+const testWorkspaceDir = mkdtempSync(
+  join(tmpdir(), "attachment-routes-workspace-"),
+);
+const testHomeDir = mkdtempSync(join(tmpdir(), "attachment-routes-home-"));
+
+const attachmentsDir = join(testWorkspaceDir, "data", "attachments");
+const recordingsDir = join(
+  testHomeDir,
+  "Library/Application Support/vellum-assistant/recordings",
+);
+const outsideDir = mkdtempSync(join(tmpdir(), "attachment-routes-outside-"));
+
+const originalHome = process.env.HOME;
+process.env.HOME = testHomeDir;
+
+mock.module("../../util/platform.js", () => ({
+  getWorkspaceDir: () => testWorkspaceDir,
+}));
+
+import { resolveAllowedFileBackedAttachmentPath } from "./attachment-routes.js";
+
+beforeAll(() => {
+  mkdirSync(attachmentsDir, { recursive: true });
+  mkdirSync(recordingsDir, { recursive: true });
+});
+
+afterAll(() => {
+  process.env.HOME = originalHome;
+  rmSync(testWorkspaceDir, { recursive: true, force: true });
+  rmSync(testHomeDir, { recursive: true, force: true });
+  rmSync(outsideDir, { recursive: true, force: true });
+});
+
+describe("resolveAllowedFileBackedAttachmentPath", () => {
+  test("allows files in workspace attachments directory", () => {
+    const attachmentFile = join(attachmentsDir, "sample.txt");
+    writeFileSync(attachmentFile, "ok");
+
+    expect(resolveAllowedFileBackedAttachmentPath(attachmentFile)).toBe(
+      attachmentFile,
+    );
+  });
+
+  test("allows files in recordings directory", () => {
+    const recordingFile = join(recordingsDir, "recording.mov");
+    writeFileSync(recordingFile, "ok");
+
+    expect(resolveAllowedFileBackedAttachmentPath(recordingFile)).toBe(
+      recordingFile,
+    );
+  });
+
+  test("rejects files outside allowed directories", () => {
+    const outsideFile = join(outsideDir, "secret.txt");
+    writeFileSync(outsideFile, "secret");
+
+    expect(resolveAllowedFileBackedAttachmentPath(outsideFile)).toBeNull();
+  });
+});
