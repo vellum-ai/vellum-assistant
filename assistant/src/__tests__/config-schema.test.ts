@@ -1084,7 +1084,7 @@ describe("loadConfig with schema validation", () => {
   test("falls back for invalid sandbox.enabled", () => {
     writeConfig({ sandbox: { enabled: "yes" } });
     const config = loadConfig();
-    expect(config.sandbox.enabled).toBe(false);
+    expect(config.sandbox.enabled).toBe(true);
   });
 
   test("loads sandbox with only enabled field", () => {
