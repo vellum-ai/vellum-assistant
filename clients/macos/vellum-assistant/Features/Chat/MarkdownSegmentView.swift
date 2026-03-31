@@ -51,7 +51,7 @@ struct MarkdownSegmentView: View, Equatable {
                         font: VFont.nsChat,
                         textColor: NSColor(textColor)
                     )
-                    SelectableTextView(
+                    VSelectableTextView(
                         attributedString: nsAttributed,
                         maxWidth: maxContentWidth,
                         lineSpacing: 4,

@@ -22,7 +22,7 @@ struct ThinkingBlockView: View {
                     .padding(.horizontal, VSpacing.sm)
 
                 #if os(macOS)
-                SelectableTextView(
+                VSelectableTextView(
                     attributedString: NSAttributedString(
                         string: content,
                         attributes: [
