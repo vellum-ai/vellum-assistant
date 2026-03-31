@@ -121,8 +121,10 @@ public final class ChatPaginationState {
 
     /// Recomputes `displayedMessages` and `paginatedVisibleMessages` from a
     /// snapshot of the raw message array. Called by the Combine subscription
-    /// when messages change and by mutation sites that alter the display window.
-    private func recomputeVisibleMessages(from messages: [ChatMessage]) {
+    /// when messages change, and by mutation sites that alter both `messages`
+    /// and `displayedMessageCount` in the same synchronous block (where the
+    /// async Combine bridge hasn't delivered the new messages yet).
+    func recomputeVisibleMessages(from messages: [ChatMessage]) {
         displayedMessages = ChatVisibleMessageFilter.visibleMessages(from: messages)
         recomputePaginatedSuffix()
     }
@@ -206,7 +208,7 @@ public final class ChatPaginationState {
         loadMoreTimeoutTask?.cancel()
         loadMoreTimeoutTask = nil
         isLoadingMoreMessages = false
-        recomputePaginatedSuffix()
+        recomputeVisibleMessages(from: messageManager.messages)
     }
 
 }
