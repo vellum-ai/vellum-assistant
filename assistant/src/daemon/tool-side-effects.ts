@@ -10,7 +10,7 @@
 import { compileApp } from "../bundler/app-compiler.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
 import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
-import { findActiveSession } from "../memory/channel-verification-sessions.js";
+import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
