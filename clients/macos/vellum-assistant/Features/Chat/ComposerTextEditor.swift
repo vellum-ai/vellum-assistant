@@ -157,19 +157,40 @@ struct ComposerTextEditor: NSViewRepresentable {
 
         textView.isEditable = isEditable
 
+        // Guard attribute updates behind change checks to avoid triggering
+        // redundant TextKit re-layouts during the SwiftUI render cycle.
+        // Each keystroke fires textDidChange → binding update → updateNSView;
+        // unconditionally re-stamping font/color/typingAttributes here would
+        // cause a layout pass on every character, which can leave glyphs
+        // un-drawn until the *next* display cycle (appearing invisible).
+        // Ref: WWDC 2022 "Use SwiftUI with AppKit" — only update changed props.
+        let coordinator = context.coordinator
         let textColor = textColorOverride ?? NSColor(VColor.contentDefault)
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = lineSpacing
-        textView.font = font
-        textView.defaultParagraphStyle = paragraphStyle
-        textView.typingAttributes = [
-            .font: font,
-            .paragraphStyle: paragraphStyle,
-            .foregroundColor: textColor,
-        ]
+
+        let fontChanged = coordinator.lastAppliedFont != font
+            || coordinator.lastAppliedLineSpacing != lineSpacing
+        let colorChanged = coordinator.lastAppliedTextColor !== textColor
+
+        if fontChanged {
+            coordinator.lastAppliedFont = font
+            coordinator.lastAppliedLineSpacing = lineSpacing
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.lineSpacing = lineSpacing
+            textView.font = font
+            textView.defaultParagraphStyle = paragraphStyle
+        }
+
+        if fontChanged || colorChanged {
+            coordinator.lastAppliedTextColor = textColor
+            textView.textColor = textColor
+            textView.typingAttributes = [
+                .font: font,
+                .paragraphStyle: textView.defaultParagraphStyle ?? NSParagraphStyle.default,
+                .foregroundColor: textColor,
+            ]
+        }
 
         textView.placeholderString = placeholder
-        textView.textColor = textColor
 
         textView.cmdEnterToSend = cmdEnterToSend
         textView.onSubmit = onSubmit
@@ -215,6 +236,12 @@ struct ComposerTextEditor: NSViewRepresentable {
         var parent: ComposerTextEditor
         var frameObserver: NSObjectProtocol?
         var boundsObserver: NSObjectProtocol?
+
+        // Track last-applied values so updateNSView only touches the text
+        // storage when something actually changed.
+        var lastAppliedFont: NSFont?
+        var lastAppliedLineSpacing: CGFloat?
+        var lastAppliedTextColor: NSColor?
 
         init(parent: ComposerTextEditor) {
             self.parent = parent
