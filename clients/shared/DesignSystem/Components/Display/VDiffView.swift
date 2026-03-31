@@ -45,22 +45,31 @@ public struct VDiffView: View {
     public var body: some View {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         if let maxHeight {
-            diffScrollView(lines: lines, axes: [.horizontal, .vertical])
+            diffScrollView(lines: lines, axes: [.horizontal, .vertical], lazy: true)
                 .frame(maxHeight: maxHeight)
         } else {
-            diffScrollView(lines: lines, axes: .horizontal)
+            diffScrollView(lines: lines, axes: .horizontal, lazy: false)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func diffScrollView(lines: [Substring], axes: Axis.Set) -> some View {
+    private func diffScrollView(lines: [Substring], axes: Axis.Set, lazy: Bool) -> some View {
         ScrollView(axes, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    diffLine(line)
+            if lazy {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                        diffLine(line)
+                    }
                 }
+                .fixedSize(horizontal: true, vertical: true)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                        diffLine(line)
+                    }
+                }
+                .fixedSize(horizontal: true, vertical: true)
             }
-            .fixedSize(horizontal: true, vertical: true)
         }
         .textSelection(.enabled)
     }
