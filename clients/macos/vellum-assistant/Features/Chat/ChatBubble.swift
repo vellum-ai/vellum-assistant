@@ -3,6 +3,22 @@ import os.signpost
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - Bubble Max Width Environment
+
+/// The effective maximum width for chat bubble content, accounting for
+/// the actual container width. Defaults to the static cap when the
+/// container is wide enough.
+private struct BubbleMaxWidthKey: EnvironmentKey {
+    static let defaultValue: CGFloat = VSpacing.chatBubbleMaxWidth
+}
+
+extension EnvironmentValues {
+    var bubbleMaxWidth: CGFloat {
+        get { self[BubbleMaxWidthKey.self] }
+        set { self[BubbleMaxWidthKey.self] = newValue }
+    }
+}
+
 // MARK: - Chat Bubble
 
 struct ChatBubble: View, Equatable {
@@ -65,6 +81,7 @@ struct ChatBubble: View, Equatable {
     /// Owned but never read in this body — only ChatBubbleOverflowMenu reads it,
     /// so hover changes invalidate only the overflow menu, not this view.
     @State private var hoverState = ChatBubbleHoverState()
+    @Environment(\.bubbleMaxWidth) private var bubbleMaxWidth
     /// Stores async-parsed segments for large messages (>500 chars) that missed the
     /// synchronous cache. Keyed by text content so multiple segments can be in flight.
     @State var asyncSegments: [String: [MarkdownSegment]] = [:]
@@ -239,7 +256,7 @@ struct ChatBubble: View, Equatable {
                 bubbleBorderOverlay
             }
             // Outer frame: cap the maximum width and position the bubble.
-            .frame(maxWidth: message.isError ? .infinity : VSpacing.chatBubbleMaxWidth, alignment: isUser ? .trailing : .leading)
+            .frame(maxWidth: message.isError ? .infinity : bubbleMaxWidth, alignment: isUser ? .trailing : .leading)
     }
 
     /// Surfaces not currently shown in the floating overlay, computed once per body evaluation.
@@ -463,7 +480,7 @@ struct ChatBubble: View, Equatable {
                     MarkdownSegmentView(
                         segments: segments,
                         isStreaming: message.isStreaming,
-                        maxContentWidth: isUser ? nil : VSpacing.chatBubbleMaxWidth,
+                        maxContentWidth: isUser ? max(bubbleMaxWidth - 2 * VSpacing.lg, 0) : bubbleMaxWidth,
                         textColor: isUser ? VColor.contentDefault : VColor.contentDefault,
                         secondaryTextColor: isUser ? VColor.contentSecondary : VColor.contentSecondary,
                         mutedTextColor: isUser ? VColor.contentSecondary : VColor.contentTertiary,
