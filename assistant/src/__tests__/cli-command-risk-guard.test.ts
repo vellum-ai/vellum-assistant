@@ -198,6 +198,20 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
     expect(risk).toBe(RiskLevel.High);
   });
 
+  test("--help used as option value does not downgrade credentials reveal risk", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant credentials reveal 123 --service --help",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("-h used as option value does not downgrade oauth mode --set risk", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant oauth mode --set -h",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
   test("non-sensitive oauth subcommands remain Low risk", async () => {
     const lowRiskOauthCommands = [
       "assistant oauth apps",

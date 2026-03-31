@@ -205,11 +205,9 @@ const LOW_RISK_GIT_SUBCOMMANDS = new Set([
  */
 function classifyAssistantSubcommand(args: string[]): RiskLevel {
   // `--help` on any subcommand is read-only, always Low risk.
-  // Only check args before `--` (option terminator) — after `--`, tokens
-  // are positional arguments, not flags.
-  const ddIndex = args.indexOf("--");
-  const flagArgs = ddIndex === -1 ? args : args.slice(0, ddIndex);
-  if (flagArgs.some((a) => a === "--help" || a === "-h")) return RiskLevel.Low;
+  // Only treat `--help` / `-h` as help flags when they are actual flags,
+  // not values consumed by other options (e.g. `--service --help`).
+  if (hasAssistantHelpFlag(args)) return RiskLevel.Low;
 
   const sub = firstPositionalArg(args);
   if (!sub) return RiskLevel.Low;
@@ -237,6 +235,30 @@ function classifyAssistantSubcommand(args: string[]): RiskLevel {
   }
 
   return RiskLevel.Low;
+}
+
+// Assistant options that consume the next token as a value. Include elevated
+// subcommand flags so help-token lookalikes in value position don't downgrade
+// risk (e.g. `assistant credentials reveal <id> --service --help`).
+const ASSISTANT_VALUE_FLAGS = new Set(["--service", "--field", "--set"]);
+
+function hasAssistantHelpFlag(args: string[]): boolean {
+  // Stop option parsing at `--`; tokens after are positional args.
+  const ddIndex = args.indexOf("--");
+  const flagArgs = ddIndex === -1 ? args : args.slice(0, ddIndex);
+
+  for (let i = 0; i < flagArgs.length; i++) {
+    const arg = flagArgs[i];
+
+    if (arg === "--help" || arg === "-h") return true;
+
+    // `--flag=value` already contains its value in the same token.
+    if (arg.startsWith("--") && arg.includes("=")) continue;
+
+    if (ASSISTANT_VALUE_FLAGS.has(arg)) i++;
+  }
+
+  return false;
 }
 
 // Commands that wrap another program — the real program appears as the first
