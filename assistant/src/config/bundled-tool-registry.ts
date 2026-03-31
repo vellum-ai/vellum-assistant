@@ -108,9 +108,11 @@ import * as messagingSenderDigest from "./bundled-skills/messaging/tools/messagi
 // ── notifications ──────────────────────────────────────────────────────────────
 import * as sendNotification from "./bundled-skills/notifications/tools/send-notification.js";
 // ── outlook ───────────────────────────────────────────────────────────────────
+import * as outlookAttachments from "./bundled-skills/outlook/tools/outlook-attachments.js";
 import * as outlookCategories from "./bundled-skills/outlook/tools/outlook-categories.js";
 import * as outlookFollowUp from "./bundled-skills/outlook/tools/outlook-follow-up.js";
 import * as outlookTrash from "./bundled-skills/outlook/tools/outlook-trash.js";
+import * as outlookUnsubscribe from "./bundled-skills/outlook/tools/outlook-unsubscribe.js";
 // ── phone-calls ────────────────────────────────────────────────────────────────
 import * as callEnd from "./bundled-skills/phone-calls/tools/call-end.js";
 import * as callStart from "./bundled-skills/phone-calls/tools/call-start.js";
@@ -255,11 +257,6 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
   ["gmail:tools/gmail-sender-digest.ts", gmailSenderDigest],
   ["gmail:tools/gmail-outreach-scan.ts", gmailOutreachScan],
 
-  // outlook
-  ["outlook:tools/outlook-trash.ts", outlookTrash],
-  ["outlook:tools/outlook-categories.ts", outlookCategories],
-  ["outlook:tools/outlook-follow-up.ts", outlookFollowUp],
-
   // google-calendar
   ["google-calendar:tools/calendar-list-events.ts", calendarListEvents],
   ["google-calendar:tools/calendar-get-event.ts", calendarGetEvent],
@@ -298,6 +295,13 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // notifications
   ["notifications:tools/send-notification.ts", sendNotification],
+
+  // outlook
+  ["outlook:tools/outlook-attachments.ts", outlookAttachments],
+  ["outlook:tools/outlook-categories.ts", outlookCategories],
+  ["outlook:tools/outlook-follow-up.ts", outlookFollowUp],
+  ["outlook:tools/outlook-trash.ts", outlookTrash],
+  ["outlook:tools/outlook-unsubscribe.ts", outlookUnsubscribe],
 
   // phone-calls
   ["phone-calls:tools/call-start.ts", callStart],

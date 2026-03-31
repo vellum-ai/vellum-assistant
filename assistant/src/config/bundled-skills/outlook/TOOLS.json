@@ -107,6 +107,71 @@
       },
       "executor": "tools/outlook-follow-up.ts",
       "execution_target": "host"
+    },
+    {
+      "name": "outlook_unsubscribe",
+      "description": "Unsubscribe from a mailing list by following the List-Unsubscribe header on an Outlook message. Include a confidence score (0-1).",
+      "category": "outlook",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "description": "An Outlook message ID from the mailing list to unsubscribe from"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Outlook account to use. Required when multiple Outlook accounts are connected. If omitted, uses the most recently connected account."
+          }
+        },
+        "required": ["message_id", "confidence"]
+      },
+      "executor": "tools/outlook-unsubscribe.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "outlook_attachments",
+      "description": "List or download Outlook email attachments. Use action 'list' to enumerate attachments on a message, then 'download' to save a specific attachment to disk.",
+      "category": "outlook",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": ["list", "download"],
+            "description": "List attachments on a message, or download a specific attachment"
+          },
+          "message_id": {
+            "type": "string",
+            "description": "Outlook message ID"
+          },
+          "attachment_id": {
+            "type": "string",
+            "description": "Attachment ID (required for download, from a prior list call)"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Outlook account to use. Required when multiple Outlook accounts are connected. If omitted, uses the most recently connected account."
+          }
+        },
+        "required": ["action", "message_id"]
+      },
+      "executor": "tools/outlook-attachments.ts",
+      "execution_target": "host"
     }
   ]
 }
