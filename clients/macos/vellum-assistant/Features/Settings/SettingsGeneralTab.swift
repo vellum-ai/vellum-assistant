@@ -169,9 +169,12 @@ struct SettingsGeneralTab: View {
 
     private func fetchHealthz() async {
         guard !selectedAssistantId.isEmpty else { return }
+        let healthPath = topology == .managed
+            ? "assistants/{assistantId}/healthz"
+            : "health"
         do {
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: "health",
+                path: healthPath,
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
             healthz = decoded ?? DaemonHealthz()
