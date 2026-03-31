@@ -40,6 +40,9 @@ struct AssistantUpgradeSection: View {
     /// Whether the healthz fetch has completed (regardless of success/failure).
     var healthzLoaded: Bool = false
 
+    /// The update manager to observe for reactive Sparkle status updates.
+    @ObservedObject var updateManager: UpdateManager
+
     @State private var availableReleases: [AssistantRelease] = []
     @State private var selectedVersion: String?
     @State private var isLoadingReleases = false
@@ -56,6 +59,10 @@ struct AssistantUpgradeSection: View {
     @State private var escalationTask: Task<Void, Never>?
     @State private var dockerUpgradeTask: Task<Void, Never>?
     @State private var backwardReleasesEnabled = false
+    /// Whether a Sparkle check was triggered as part of the coordinated upgrade flow.
+    @State private var sparkleCheckTriggered = false
+    /// Whether the triggered Sparkle check has actually finished resolving.
+    @State private var sparkleCheckCompleted = false
     private let featureFlagClient = FeatureFlagClient()
 
     private var latestRelease: AssistantRelease? {
@@ -132,6 +139,18 @@ struct AssistantUpgradeSection: View {
         guard let sgVersion = currentVersion, !sgVersion.isEmpty,
               let clientVersion = appVersion else { return false }
         return !VersionCompat.isCompatible(clientVersion: clientVersion, serviceGroupVersion: sgVersion)
+    }
+
+    /// Whether the app version is older than the selected target version.
+    /// Used to determine if Sparkle should be triggered after a service group upgrade.
+    private var isAppBehindTarget: Bool {
+        guard let target = effectiveSelectedVersion,
+              let clientVersion = appVersion,
+              let targetParsed = VersionCompat.parse(target),
+              let clientParsed = VersionCompat.parse(clientVersion) else { return false }
+        if targetParsed.major != clientParsed.major { return targetParsed.major > clientParsed.major }
+        if targetParsed.minor != clientParsed.minor { return targetParsed.minor > clientParsed.minor }
+        return targetParsed.patch > clientParsed.patch
     }
 
     /// Whether the service group version is older than the client version.
@@ -353,6 +372,20 @@ struct AssistantUpgradeSection: View {
                     .foregroundStyle(VColor.systemPositiveStrong)
             }
 
+            if sparkleCheckTriggered && sparkleCheckCompleted && successMessage != nil {
+                if updateManager.isUpdateAvailable {
+                    VInlineMessage(
+                        "An app update is available. Follow the Sparkle dialog to install it, or use Check for Updates in the menu bar.",
+                        tone: .info
+                    )
+                } else {
+                    VInlineMessage(
+                        "App update check complete. If the update dialog was dismissed, use Check for Updates in the menu bar to try again.",
+                        tone: .info
+                    )
+                }
+            }
+
             if isServiceGroupUpdateInProgress && !isUpgrading && (topology == .managed || topology == .docker) {
                 HStack(spacing: VSpacing.sm) {
                     ProgressView()
@@ -403,6 +436,8 @@ struct AssistantUpgradeSection: View {
         } message: {
             if isRollback {
                 Text("Rollback to version \(effectiveSelectedVersion ?? "unknown")? The assistant will be briefly unavailable.")
+            } else if isAppBehindTarget {
+                Text("Upgrade to version \(effectiveSelectedVersion ?? "latest")? Both the assistant and the app will be updated. The assistant will be briefly unavailable during the upgrade.")
             } else {
                 Text("Upgrade to version \(effectiveSelectedVersion ?? "latest")? The assistant will be briefly unavailable during the upgrade.")
             }
@@ -503,6 +538,14 @@ struct AssistantUpgradeSection: View {
                 try await cli.upgrade(name: name, version: version)
             }
             successMessage = isRollback ? "Rollback complete." : "Upgrade complete."
+            if !isRollback && isAppBehindTarget {
+                successMessage! += " Checking for app update…"
+                sparkleCheckTriggered = true
+                Task {
+                    _ = await AppDelegate.shared?.updateManager.checkForUpdatesAsync()
+                    sparkleCheckCompleted = true
+                }
+            }
             AppDelegate.shared?.updateManager.clearServiceGroupFlags()
             showFeedbackOption = false
             await loadReleasesQuietly()
@@ -540,6 +583,17 @@ struct AssistantUpgradeSection: View {
             successMessage = isRollback
                 ? "Rollback initiated. The assistant may be briefly unavailable."
                 : "Upgrade initiated. The assistant may be briefly unavailable."
+            if !isRollback && isAppBehindTarget {
+                successMessage! += " Checking for app update in the background…"
+                sparkleCheckTriggered = true
+                // Use background check (no modal) — the managed upgrade only means
+                // the platform accepted the request, not that the service group has
+                // restarted. A modal Sparkle dialog would be premature here.
+                Task {
+                    _ = await AppDelegate.shared?.updateManager.checkForUpdatesAsync()
+                    sparkleCheckCompleted = true
+                }
+            }
             AppDelegate.shared?.updateManager.clearServiceGroupFlags()
             showFeedbackOption = false
             // Refresh releases to update UI without clearing success message
@@ -589,6 +643,8 @@ struct AssistantUpgradeSection: View {
         errorMessage = nil
         successMessage = nil
         showFeedbackOption = false
+        sparkleCheckTriggered = false
+        sparkleCheckCompleted = false
     }
 
     private func guidanceForError(_ error: VellumCli.CliError) -> String {

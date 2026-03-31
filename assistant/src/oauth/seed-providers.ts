@@ -90,6 +90,7 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     extraParams: { access_type: "offline", prompt: "consent" },
+    loopbackPort: 17321,
     managedServiceConfigKey: "google-oauth",
     injectionTemplates: [
       {
@@ -619,6 +620,7 @@ const PROVIDER_SEED_DATA: Record<
       "Mail.Send",
       "Calendars.Read",
       "Calendars.ReadWrite",
+      "MailboxSettings.ReadWrite",
     ],
     scopePolicy: {
       allowAdditionalScopes: true,
@@ -640,7 +642,6 @@ const PROVIDER_SEED_DATA: Record<
     appType: "App registration",
     identityUrl: "https://graph.microsoft.com/v1.0/me",
     identityResponsePaths: ["mail", "userPrincipalName"],
-    featureFlag: "outlook-oauth-integration",
   },
 
   // Manual-token providers: these don't use OAuth2 flows but need provider

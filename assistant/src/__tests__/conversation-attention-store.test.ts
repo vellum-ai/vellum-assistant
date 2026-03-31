@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -17,7 +17,7 @@ import {
   projectAssistantMessage,
   recordConversationSeenSignal,
 } from "../memory/conversation-attention-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   conversationAssistantAttentionState,
   conversationAttentionEvents,
@@ -65,10 +65,6 @@ function insertAssistantMessage(
     })
     .run();
 }
-
-afterAll(() => {
-  resetDb();
-});
 
 describe("conversation-attention-store", () => {
   beforeEach(() => {

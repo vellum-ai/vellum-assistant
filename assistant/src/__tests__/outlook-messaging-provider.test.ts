@@ -1,7 +1,20 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { OutlookMailFolder } from "../messaging/providers/outlook/types.js";
-import type { OutlookMessage } from "../messaging/providers/outlook/types.js";
+// Import client functions directly before mock.module so we get the real implementations
+import {
+  getAttachment,
+  getMessageWithHeaders,
+  listAttachments,
+  listMasterCategories,
+  trashMessage,
+  updateMessageCategories,
+  updateMessageFlag,
+} from "../messaging/providers/outlook/client.js";
+import type {
+  OutlookDraftMessage,
+  OutlookMailFolder,
+  OutlookMessage,
+} from "../messaging/providers/outlook/types.js";
 import type { OAuthConnection } from "../oauth/connection.js";
 
 // ── Mocks ───────────────────────────────────────────────────────────────────
@@ -40,6 +53,81 @@ const mockSearchMessages = mock(() =>
 const mockSendMessage = mock(() => Promise.resolve(undefined));
 const mockMarkMessageRead = mock(() => Promise.resolve(undefined));
 const mockReplyToMessage = mock(() => Promise.resolve(undefined));
+const mockCreateDraft = mock(() =>
+  Promise.resolve({
+    id: "draft-1",
+    conversationId: "conv-draft",
+    subject: "Draft Subject",
+    bodyPreview: "Draft preview",
+    body: { contentType: "text" as const, content: "Draft body" },
+    toRecipients: [],
+    ccRecipients: [],
+    receivedDateTime: "2024-06-15T10:30:00Z",
+    isRead: true,
+    hasAttachments: false,
+    parentFolderId: "drafts-id",
+    categories: [],
+    flag: { flagStatus: "notFlagged" as const },
+  } satisfies OutlookMessage),
+);
+const mockSendDraft = mock(() => Promise.resolve(undefined));
+const mockCreateReplyDraft = mock(() =>
+  Promise.resolve({
+    id: "reply-draft-1",
+    conversationId: "conv-reply",
+    subject: "Re: Original",
+    bodyPreview: "",
+    body: { contentType: "text" as const, content: "" },
+    toRecipients: [],
+    ccRecipients: [],
+    receivedDateTime: "2024-06-15T10:30:00Z",
+    isRead: true,
+    hasAttachments: false,
+    parentFolderId: "drafts-id",
+    categories: [],
+    flag: { flagStatus: "notFlagged" as const },
+  } satisfies OutlookMessage),
+);
+const mockCreateReplyAllDraft = mock(() =>
+  Promise.resolve({
+    id: "reply-all-draft-1",
+    conversationId: "conv-reply-all",
+    subject: "Re: Original",
+    bodyPreview: "",
+    body: { contentType: "text" as const, content: "" },
+    toRecipients: [],
+    ccRecipients: [],
+    receivedDateTime: "2024-06-15T10:30:00Z",
+    isRead: true,
+    hasAttachments: false,
+    parentFolderId: "drafts-id",
+    categories: [],
+    flag: { flagStatus: "notFlagged" as const },
+  } satisfies OutlookMessage),
+);
+const mockCreateForwardDraft = mock(() =>
+  Promise.resolve({
+    id: "forward-draft-1",
+    conversationId: "conv-fwd",
+    subject: "Fw: Original",
+    bodyPreview: "",
+    body: { contentType: "text" as const, content: "" },
+    toRecipients: [],
+    ccRecipients: [],
+    receivedDateTime: "2024-06-15T10:30:00Z",
+    isRead: true,
+    hasAttachments: false,
+    parentFolderId: "drafts-id",
+    categories: [],
+    flag: { flagStatus: "notFlagged" as const },
+  } satisfies OutlookMessage),
+);
+const mockListMailRules = mock(() => Promise.resolve({ value: [] }));
+const mockCreateMailRule = mock(() => Promise.resolve({}));
+const mockDeleteMailRule = mock(() => Promise.resolve(undefined));
+const mockGetAutoReplySettings = mock(() => Promise.resolve({}));
+const mockUpdateAutoReplySettings = mock(() => Promise.resolve(undefined));
+const mockListMessagesDelta = mock(() => Promise.resolve({ value: [] }));
 
 mock.module("../messaging/providers/outlook/client.js", () => ({
   getProfile: mockGetProfile,
@@ -49,9 +137,27 @@ mock.module("../messaging/providers/outlook/client.js", () => ({
   sendMessage: mockSendMessage,
   markMessageRead: mockMarkMessageRead,
   replyToMessage: mockReplyToMessage,
+  createDraft: mockCreateDraft,
+  sendDraft: mockSendDraft,
+  createReplyDraft: mockCreateReplyDraft,
+  createReplyAllDraft: mockCreateReplyAllDraft,
+  createForwardDraft: mockCreateForwardDraft,
+  listMailRules: mockListMailRules,
+  createMailRule: mockCreateMailRule,
+  deleteMailRule: mockDeleteMailRule,
+  getAutoReplySettings: mockGetAutoReplySettings,
+  updateAutoReplySettings: mockUpdateAutoReplySettings,
+  listMessagesDelta: mockListMessagesDelta,
 }));
 
 import { outlookMessagingProvider } from "../messaging/providers/outlook/adapter.js";
+import {
+  createDraft,
+  createForwardDraft,
+  createReplyAllDraft,
+  createReplyDraft,
+  sendDraft,
+} from "../messaging/providers/outlook/client.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -110,6 +216,11 @@ describe("Outlook messaging provider", () => {
     mockSendMessage.mockClear();
     mockMarkMessageRead.mockClear();
     mockReplyToMessage.mockClear();
+    mockCreateDraft.mockClear();
+    mockSendDraft.mockClear();
+    mockCreateReplyDraft.mockClear();
+    mockCreateReplyAllDraft.mockClear();
+    mockCreateForwardDraft.mockClear();
   });
 
   // ── testConnection ──────────────────────────────────────────────────────
@@ -570,7 +681,391 @@ describe("Outlook messaging provider", () => {
     test("has correct capabilities", () => {
       expect(outlookMessagingProvider.capabilities.has("threads")).toBe(true);
       expect(outlookMessagingProvider.capabilities.has("folders")).toBe(true);
-      expect(outlookMessagingProvider.capabilities.has("archive")).toBe(false);
+      expect(outlookMessagingProvider.capabilities.has("archive")).toBe(true);
+      expect(outlookMessagingProvider.capabilities.has("categories")).toBe(
+        true,
+      );
+      expect(outlookMessagingProvider.capabilities.has("drafts_native")).toBe(
+        true,
+      );
+      expect(outlookMessagingProvider.capabilities.has("unsubscribe")).toBe(
+        true,
+      );
+    });
+  });
+
+  // ── createDraft ──────────────────────────────────────────────────────
+
+  describe("createDraft", () => {
+    test("sends POST to /v1.0/me/messages with correct body", async () => {
+      const conn = createMockConnection();
+      const draft: OutlookDraftMessage = {
+        subject: "Draft Subject",
+        body: { contentType: "text", content: "Draft body" },
+        toRecipients: [{ emailAddress: { address: "to@example.com" } }],
+        ccRecipients: [{ emailAddress: { address: "cc@example.com" } }],
+        bccRecipients: [{ emailAddress: { address: "bcc@example.com" } }],
+      };
+
+      const result = await createDraft(conn, draft);
+
+      expect(mockCreateDraft).toHaveBeenCalledWith(conn, draft);
+      expect(result).toMatchObject({
+        id: "draft-1",
+        subject: "Draft Subject",
+      });
+    });
+
+    test("returns the created OutlookMessage with id and subject", async () => {
+      const conn = createMockConnection();
+      const draft: OutlookDraftMessage = {
+        subject: "Test",
+        body: { contentType: "text", content: "Test body" },
+      };
+
+      const result = await createDraft(conn, draft);
+
+      expect(result.id).toBe("draft-1");
+      expect(result.subject).toBe("Draft Subject");
+      expect(result.parentFolderId).toBe("drafts-id");
+    });
+  });
+
+  // ── sendDraft ────────────────────────────────────────────────────────
+
+  describe("sendDraft", () => {
+    test("sends POST to /v1.0/me/messages/{id}/send", async () => {
+      const conn = createMockConnection();
+
+      await sendDraft(conn, "draft-msg-123");
+
+      expect(mockSendDraft).toHaveBeenCalledWith(conn, "draft-msg-123");
+    });
+
+    test("returns void on success", async () => {
+      const conn = createMockConnection();
+
+      const result = await sendDraft(conn, "draft-msg-123");
+
+      expect(result).toBeUndefined();
+    });
+  });
+
+  // ── createReplyDraft ─────────────────────────────────────────────────
+
+  describe("createReplyDraft", () => {
+    test("sends POST to /v1.0/me/messages/{id}/createReply with comment", async () => {
+      const conn = createMockConnection();
+
+      const result = await createReplyDraft(conn, "orig-msg-1", "My reply");
+
+      expect(mockCreateReplyDraft).toHaveBeenCalledWith(
+        conn,
+        "orig-msg-1",
+        "My reply",
+      );
+      expect(result).toMatchObject({
+        id: "reply-draft-1",
+        subject: "Re: Original",
+      });
+    });
+
+    test("sends POST without comment when not provided", async () => {
+      const conn = createMockConnection();
+
+      await createReplyDraft(conn, "orig-msg-1");
+
+      expect(mockCreateReplyDraft).toHaveBeenCalledWith(conn, "orig-msg-1");
+    });
+
+    test("returns OutlookMessage for the reply draft", async () => {
+      const conn = createMockConnection();
+
+      const result = await createReplyDraft(conn, "orig-msg-1");
+
+      expect(result.id).toBe("reply-draft-1");
+      expect(result.conversationId).toBe("conv-reply");
+    });
+  });
+
+  // ── createReplyAllDraft ──────────────────────────────────────────────
+
+  describe("createReplyAllDraft", () => {
+    test("sends POST to /v1.0/me/messages/{id}/createReplyAll with comment", async () => {
+      const conn = createMockConnection();
+
+      const result = await createReplyAllDraft(
+        conn,
+        "orig-msg-2",
+        "Reply all text",
+      );
+
+      expect(mockCreateReplyAllDraft).toHaveBeenCalledWith(
+        conn,
+        "orig-msg-2",
+        "Reply all text",
+      );
+      expect(result).toMatchObject({
+        id: "reply-all-draft-1",
+      });
+    });
+
+    test("sends POST without comment when not provided", async () => {
+      const conn = createMockConnection();
+
+      await createReplyAllDraft(conn, "orig-msg-2");
+
+      expect(mockCreateReplyAllDraft).toHaveBeenCalledWith(conn, "orig-msg-2");
+    });
+
+    test("returns OutlookMessage for the reply-all draft", async () => {
+      const conn = createMockConnection();
+
+      const result = await createReplyAllDraft(conn, "orig-msg-2");
+
+      expect(result.id).toBe("reply-all-draft-1");
+      expect(result.conversationId).toBe("conv-reply-all");
+    });
+  });
+
+  // ── createForwardDraft ───────────────────────────────────────────────
+
+  describe("createForwardDraft", () => {
+    test("sends POST to /v1.0/me/messages/{id}/createForward with recipients and comment", async () => {
+      const conn = createMockConnection();
+      const recipients = [
+        { emailAddress: { address: "forward-to@example.com" } },
+      ];
+
+      const result = await createForwardDraft(
+        conn,
+        "orig-msg-3",
+        recipients,
+        "FYI",
+      );
+
+      expect(mockCreateForwardDraft).toHaveBeenCalledWith(
+        conn,
+        "orig-msg-3",
+        recipients,
+        "FYI",
+      );
+      expect(result).toMatchObject({
+        id: "forward-draft-1",
+        subject: "Fw: Original",
+      });
+    });
+
+    test("sends POST without recipients or comment when not provided", async () => {
+      const conn = createMockConnection();
+
+      await createForwardDraft(conn, "orig-msg-3");
+
+      expect(mockCreateForwardDraft).toHaveBeenCalledWith(conn, "orig-msg-3");
+    });
+
+    test("returns OutlookMessage for the forward draft", async () => {
+      const conn = createMockConnection();
+
+      const result = await createForwardDraft(conn, "orig-msg-3");
+
+      expect(result.id).toBe("forward-draft-1");
+      expect(result.conversationId).toBe("conv-fwd");
+    });
+  });
+});
+
+// ── Outlook client function tests ──────────────────────────────────────────
+
+describe("Outlook client functions", () => {
+  function createClientMockConnection(
+    responseBody: unknown = {},
+    status = 200,
+  ): OAuthConnection {
+    return {
+      id: "outlook-conn-1",
+      providerKey: "outlook",
+      accountInfo: "test@outlook.com",
+      request: mock(() =>
+        Promise.resolve({ status, headers: {}, body: responseBody }),
+      ),
+      withToken: <T>(fn: (token: string) => Promise<T>) =>
+        fn("mock-access-token"),
+    };
+  }
+
+  // ── listAttachments ──────────────────────────────────────────────────
+
+  describe("listAttachments", () => {
+    test("returns attachment metadata", async () => {
+      const attachments = {
+        value: [
+          {
+            id: "att-1",
+            name: "file.pdf",
+            contentType: "application/pdf",
+            size: 12345,
+            isInline: false,
+          },
+        ],
+      };
+      const conn = createClientMockConnection(attachments);
+      const result = await listAttachments(conn, "msg-1");
+
+      expect(conn.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "GET",
+          path: "/v1.0/me/messages/msg-1/attachments",
+          query: { $select: "id,name,contentType,size,isInline" },
+        }),
+      );
+      expect(result.value).toHaveLength(1);
+      expect(result.value![0].name).toBe("file.pdf");
+    });
+  });
+
+  // ── getAttachment ────────────────────────────────────────────────────
+
+  describe("getAttachment", () => {
+    test("returns file content with contentBytes", async () => {
+      const attachment = {
+        id: "att-1",
+        name: "file.pdf",
+        contentType: "application/pdf",
+        size: 12345,
+        isInline: false,
+        contentBytes: "dGVzdCBjb250ZW50",
+      };
+      const conn = createClientMockConnection(attachment);
+      const result = await getAttachment(conn, "msg-1", "att-1");
+
+      expect(conn.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "GET",
+          path: "/v1.0/me/messages/msg-1/attachments/att-1",
+        }),
+      );
+      expect(result.contentBytes).toBe("dGVzdCBjb250ZW50");
+      expect(result.name).toBe("file.pdf");
+    });
+  });
+
+  // ── trashMessage ─────────────────────────────────────────────────────
+
+  describe("trashMessage", () => {
+    test("calls move with destinationId deleteditems", async () => {
+      const movedMessage = {
+        id: "msg-1",
+        conversationId: "conv-1",
+        subject: "Test",
+        parentFolderId: "deleteditems",
+      };
+      const conn = createClientMockConnection(movedMessage);
+      const result = await trashMessage(conn, "msg-1");
+
+      expect(conn.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "POST",
+          path: "/v1.0/me/messages/msg-1/move",
+          body: { destinationId: "deleteditems" },
+        }),
+      );
+      expect(result.id).toBe("msg-1");
+    });
+  });
+
+  // ── updateMessageCategories ──────────────────────────────────────────
+
+  describe("updateMessageCategories", () => {
+    test("sends PATCH with categories array", async () => {
+      const conn = createClientMockConnection(undefined, 204);
+      await updateMessageCategories(conn, "msg-1", ["important", "work"]);
+
+      expect(conn.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "PATCH",
+          path: "/v1.0/me/messages/msg-1",
+          body: { categories: ["important", "work"] },
+        }),
+      );
+    });
+  });
+
+  // ── updateMessageFlag ────────────────────────────────────────────────
+
+  describe("updateMessageFlag", () => {
+    test("sends PATCH with flag object", async () => {
+      const flag = {
+        flagStatus: "flagged" as const,
+        dueDateTime: {
+          dateTime: "2024-12-31T23:59:59",
+          timeZone: "UTC",
+        },
+      };
+      const conn = createClientMockConnection(undefined, 204);
+      await updateMessageFlag(conn, "msg-1", flag);
+
+      expect(conn.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "PATCH",
+          path: "/v1.0/me/messages/msg-1",
+          body: { flag },
+        }),
+      );
+    });
+  });
+
+  // ── listMasterCategories ─────────────────────────────────────────────
+
+  describe("listMasterCategories", () => {
+    test("returns category list", async () => {
+      const categories = {
+        value: [
+          { displayName: "Red Category", color: "preset0" },
+          { displayName: "Blue Category", color: "preset7" },
+        ],
+      };
+      const conn = createClientMockConnection(categories);
+      const result = await listMasterCategories(conn);
+
+      expect(conn.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "GET",
+          path: "/v1.0/me/outlook/masterCategories",
+        }),
+      );
+      expect(result.value).toHaveLength(2);
+      expect(result.value![0].displayName).toBe("Red Category");
+    });
+  });
+
+  // ── getMessageWithHeaders ────────────────────────────────────────────
+
+  describe("getMessageWithHeaders", () => {
+    test("includes internetMessageHeaders in select", async () => {
+      const message = {
+        id: "msg-1",
+        subject: "Test",
+        internetMessageHeaders: [
+          { name: "X-Mailer", value: "TestMailer" },
+          { name: "List-Unsubscribe", value: "<mailto:unsub@example.com>" },
+        ],
+      };
+      const conn = createClientMockConnection(message);
+      const result = await getMessageWithHeaders(conn, "msg-1");
+
+      expect(conn.request).toHaveBeenCalledWith(
+        expect.objectContaining({
+          method: "GET",
+          path: "/v1.0/me/messages/msg-1",
+          query: {
+            $select:
+              "id,subject,from,internetMessageHeaders,bodyPreview,body,hasAttachments,receivedDateTime",
+          },
+        }),
+      );
+      expect(result.internetMessageHeaders).toHaveLength(2);
+      expect(result.internetMessageHeaders![0].name).toBe("X-Mailer");
     });
   });
 });

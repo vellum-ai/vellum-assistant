@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
@@ -9,16 +9,12 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import * as deliveryCrud from "../memory/delivery-crud.js";
 import { channelInboundEvents, messages } from "../memory/schema.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 function resetTables(): void {
   const db = getDb();

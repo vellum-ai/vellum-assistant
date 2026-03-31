@@ -134,22 +134,28 @@ public enum VFont {
     // MARK: - NSFont (AppKit — for NSTextView and TextKit 1)
 
     #if os(macOS)
-    /// DM Sans 400 at 16pt — NSFont equivalent of `VFont.chat` for use in
-    /// NSTextView-based components (e.g. ComposerTextEditor).
-    public static let nsChat: NSFont = {
+    /// Creates a DM Sans `NSFont` at the given CSS weight and size.
+    /// AppKit equivalent of the SwiftUI `dmSans(weight:size:)` helper.
+    private static func nsDmSans(weight: Int, size: CGFloat) -> NSFont {
         let baseName = "DMSans-Regular" as CFString
-        let baseFont = CTFontCreateWithName(baseName, 16, nil)
+        let baseFont = CTFontCreateWithName(baseName, size, nil)
         let variations: [CFNumber: CFNumber] = [
-            wghtTag as CFNumber: 400 as CFNumber,
+            wghtTag as CFNumber: weight as CFNumber,
         ]
         let variantFont = CTFontCreateCopyWithAttributes(
-            baseFont, 16, nil,
+            baseFont, size, nil,
             CTFontDescriptorCreateWithAttributes([
                 kCTFontVariationAttribute: variations,
             ] as CFDictionary)
         )
         return variantFont as NSFont
-    }()
+    }
+
+    /// DM Sans 400 at 16pt — NSFont equivalent of `VFont.chat`.
+    public static let nsChat: NSFont = nsDmSans(weight: 400, size: 16)
+
+    /// DM Sans 400 at 14pt — NSFont equivalent of `VFont.bodyMediumDefault`.
+    public static let nsBodyMediumDefault: NSFont = nsDmSans(weight: 400, size: 14)
 
     public static let nsMono: NSFont = {
         let base = NSFont(name: "DMMono-Regular", size: 13)

@@ -232,7 +232,7 @@ extension AppDelegate {
 
     /// Builds the status item tooltip, appending PTT key info when enabled.
     private func menuBarTooltip() -> String {
-        let activator = PTTActivator.fromStored()
+        let activator = PTTActivator.cached
         guard activator.kind != .none else { return "Vellum" }
         return "Vellum — hold \(activator.displayName) to talk"
     }

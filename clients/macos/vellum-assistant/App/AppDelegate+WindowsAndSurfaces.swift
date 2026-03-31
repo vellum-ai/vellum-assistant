@@ -297,6 +297,8 @@ extension AppDelegate {
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
+            PTTActivator.updateCache(PTTActivator.fromStored())
+            NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
 
             onboarding.close()
             self?.onboardingWindow = nil
@@ -341,6 +343,8 @@ extension AppDelegate {
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
+            PTTActivator.updateCache(PTTActivator.fromStored())
+            NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
 
             onboarding.close()
             self?.onboardingWindow = nil
@@ -430,6 +434,8 @@ extension AppDelegate {
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
+            PTTActivator.updateCache(PTTActivator.fromStored())
+            NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
 
             onboarding.close()
             self?.onboardingWindow = nil

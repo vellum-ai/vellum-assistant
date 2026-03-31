@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -17,7 +17,7 @@ import {
   updateCallSession,
 } from "../calls/call-store.js";
 import { getMessages } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 
 initializeDb();
@@ -63,10 +63,6 @@ function getLatestAssistantText(conversationId: string): string {
 describe("call-conversation-messages", () => {
   beforeEach(() => {
     resetTables();
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   test("buildCallCompletionMessage labels failed calls correctly", () => {

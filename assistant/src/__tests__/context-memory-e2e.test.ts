@@ -1,17 +1,9 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import { estimatePromptTokens } from "../context/token-estimator.js";
 import { ContextWindowManager } from "../context/window-manager.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { buildMemoryQuery } from "../memory/query-builder.js";
 import { computeRecallBudget } from "../memory/retrieval-budget.js";
 import { buildMemoryRecall } from "../memory/retriever.js";
@@ -158,10 +150,6 @@ describe("Context + Memory E2E regression", () => {
     db.run("DELETE FROM conversations");
     db.run("DELETE FROM memory_jobs");
     db.run("DELETE FROM memory_checkpoints");
-  });
-
-  afterAll(() => {
-    resetDb();
   });
 
   test("one-turn flow compacts context, enforces dynamic budget, and recalls relation-linked memory", async () => {

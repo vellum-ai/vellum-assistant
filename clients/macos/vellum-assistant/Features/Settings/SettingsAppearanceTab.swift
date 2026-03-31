@@ -218,7 +218,7 @@ struct SettingsAppearanceTab: View {
                         .foregroundStyle(VColor.contentSecondary)
                     Spacer()
                     // Read activationKey to establish SwiftUI dependency tracking
-                    let activator = { _ = activationKey; return PTTActivator.fromStored() }()
+                    let activator = { _ = activationKey; return PTTActivator.cached }()
 
                     if isRecordingVoiceInput {
                         VShortcutTag("Press key...")
@@ -234,6 +234,7 @@ struct SettingsAppearanceTab: View {
                             if activator.kind != .none {
                                 VButton(label: "Unbind", style: .outlined) {
                                     PTTActivator.off.store()
+                                    PTTActivator.updateCache(.off)
                                     activationKey = "none"
                                     NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
                                 }
@@ -669,6 +670,7 @@ struct SettingsAppearanceTab: View {
                 .flatMap { String(data: $0, encoding: .utf8) } ?? "fn"
             activationKey = json
         }
+        PTTActivator.updateCache(newActivator)
         NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
     }
 

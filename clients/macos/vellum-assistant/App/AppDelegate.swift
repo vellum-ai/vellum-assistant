@@ -99,7 +99,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     var bundleConfirmationWindow: BundleConfirmationWindow?
 
     var pairingApprovalWindow: PairingApprovalWindow?
-    var acpPermissionWindow: AcpPermissionWindow?
     var logReportWindow: NSWindow?
     var logReportWindowObserver: NSObjectProtocol?
     /// Background task that retries actor-token bootstrap until success.
@@ -339,6 +338,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Self.shared = self
 
+        // Kick off the PTT activator UserDefaults read on a background
+        // thread as early as possible so it completes before proceedToApp()
+        // sets up voice input monitors.
+        PTTActivator.warmCache()
+
         // Initialize the chat diagnostics store early so launch session
         // metadata and first events exist even if the app wedges during startup.
         _ = ChatDiagnosticsStore.shared
@@ -474,9 +478,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         installFileMenuDelegate()
         setupHotKey()
 
-        // Install CLI symlinks early so they are available before the daemon
-        // starts, regardless of auth or onboarding state.
-        installCLISymlinkIfNeeded()
+        // Install CLI symlinks in the background. installSymlink() spawns
+        // /usr/bin/which via Process.waitUntilExit() which internally blocks
+        // on a DispatchSemaphore — running it on the main thread causes a
+        // ~2s app hang (LUM-630). The symlinks are best-effort and don't
+        // need to complete before the daemon starts.
+        let isDevMode = DevModeManager.shared.isDevMode
+        Task.detached(priority: .utility) {
+            Self.installCLISymlinkIfNeeded(isDevMode: isDevMode)
+        }
 
         let hasAssistants = lockfileHasAssistants()
         log.info("[appLaunch] skipOnboarding=\(skipOnboarding) hasAssistants=\(hasAssistants)")

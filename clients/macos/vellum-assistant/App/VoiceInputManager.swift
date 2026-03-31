@@ -82,6 +82,10 @@ final class VoiceInputManager {
     /// Guards against double-start/double-stop from rapid key events.
     private var isActivatorHeld = false
 
+    /// Whether `start()` has been called (monitors are active).
+    /// Used to guard against duplicate registration from deferred startup.
+    private(set) var hasStarted = false
+
     /// All active event monitors, consolidated for clean teardown.
     private var monitors: [Any] = []
 
@@ -91,9 +95,9 @@ final class VoiceInputManager {
     private var lastAppSwitchTime: Date = .distantPast
     private var appSwitchObservers: [Any] = []
 
-    /// The current PTT activator, read from UserDefaults.
+    /// The current PTT activator, read from the in-memory cache.
     var activator: PTTActivator {
-        PTTActivator.fromStored()
+        PTTActivator.cached
     }
 
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
@@ -109,6 +113,7 @@ final class VoiceInputManager {
     }
 
     func start() {
+        hasStarted = true
         setupActivationMonitors()
 
         // Cancel any in-flight hold when the user switches apps, to prevent the
@@ -177,6 +182,7 @@ final class VoiceInputManager {
     }
 
     func stop() {
+        hasStarted = false
         for monitor in monitors {
             NSEvent.removeMonitor(monitor)
         }
