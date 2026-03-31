@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="Vellum Assistant" width="100%">
+  <img src="assets/banner.png" alt="Vellum Assistant" width="100%">
 </p>
 
 <p align="center">
@@ -23,7 +23,7 @@
 |------|---------|
 | **Brain (Memory engine)** | **Remembers what matters and forgets what doesn't.** Hybrid retrieval (dense + sparse with RRF) ranks results semantically and lexically. Each memory type has its own staleness window (e.g. identity facts last six months, events last three days). |
 | **Backpack (Persistent memory)** | **Carries everything the assistant keeps over time.** Structured memory items like identity, preferences, projects, events are extracted by the LLM with source attribution and deduplication. Per-user and per-channel persona files, trusted contacts, and scoped memory isolation for private conversations. Embedding runs locally by default. |
-| **Self (Identity layer)** | **Defines who the assistant is, not just what it says.** Behavior lives in [SOUL.md](http://soul.md/), and during onboarding the assistant observes how you communicate and writes its own personality files. A journal captures retrospective context per user. [NOW.md](http://now.md/) acts as an ephemeral scratchpad for current focus and active threads. |
+| **Self (Identity layer)** | **Defines who the assistant is, not just what it says.** Behavior lives in SOUL.md, and during onboarding the assistant observes how you communicate and writes its own personality files. A journal captures retrospective context per user. NOW.md acts as an ephemeral scratchpad for current focus and active threads. |
 | **Pulse (Proactivity engine)** | **Reaches out when something matters, without being asked.** Every hour it checks in with itself; re-reads its own notes, notices what's unfinished or due soon, and reaches out if something matters. Notifications are routed to the right channel and won't interrupt you if you're already talking. |
 
 ### Infra and control
@@ -31,7 +31,7 @@
 | Area | Summary |
 |------|---------|
 | **Gatekeeper (Trust engine)** | **Decides who can do what, and defaults to no.** Fail-closed trust system that resolves actor identity once (guardian, trusted, or unknown) and enforces it everywhere. Untrusted actors cannot read or write memory, trigger tools, or escalate. Your credentials live in a separate process and never reach the model. |
-| **Skills** | Manifest-driven plugins ([SKILL.md](http://skill.md/) + TOOLS.json) that inject tools and prompt sections at runtime. Skills can be bundled, installed from a catalog, or added from the workspace (each are sandboxed with scoped permissions). |
+| **Skills** | Manifest-driven plugins (SKILL.md + TOOLS.json) that inject tools and prompt sections at runtime. Skills can be bundled, installed from a catalog, or created within the workspace. |
 | **Channels** | Use it on the macOS app, Telegram, and Slack, with shared memory across all of them. (More channels coming soon) |
 | **Multi-provider support** | Supports Anthropic Claude, OpenAI, Google Gemini, and Ollama for local models. Embeddings follow the same pattern; local ONNX by default, with automatic fallback through cloud providers. Swap models without changing anything else. |
 
@@ -73,11 +73,13 @@ vellum hatch
 **Common commands**
 
 ```bash
-vellum wake        # start services
-vellum sleep       # stop services, keep data
-vellum client      # interact through the terminal
+vellum hatch       # first-time assistant setup
+vellum retire      # shut down an assistant instance and clean up its data
 vellum ps          # view running assistants
-vellum upgrade     # upgrade to latest version
+vellum wake        # start services (assistant + gateway + credential-executor)
+vellum sleep       # stop services, keeping the assistant's data.
+vellum upgrade     # upgrade to the latest version
+vellum client      # connect to a running assistant and interact with it through the terminal
 ```
 
 All commands reference a "default" assistant without specifying an argument. If you are tracking multiple assistants, pass in the assistant id as the second argument.
