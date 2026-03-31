@@ -11,7 +11,7 @@
 
 import { existsSync, rmSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { ensureCompilerTools } from "./compiler-tools.js";
@@ -80,6 +80,161 @@ function parseEsbuildStderr(stderr: string): {
 }
 
 /**
+ * Decode JS string escape sequences (\xHH, \uHHHH, \u{H+}, standard
+ * escapes) so that obfuscated specifiers like `"\x2e\x2e/etc/passwd"` are
+ * normalised before the path-containment check.
+ */
+function decodeJsEscapes(raw: string): string {
+  return raw.replace(
+    /\\(?:x([0-9a-fA-F]{2})|u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|([nrtbfv0'"\\]))/g,
+    (_, hex2, codePoint, hex4, std) => {
+      if (hex2) return String.fromCharCode(parseInt(hex2, 16));
+      if (codePoint) return String.fromCodePoint(parseInt(codePoint, 16));
+      if (hex4) return String.fromCharCode(parseInt(hex4, 16));
+      const map: Record<string, string> = {
+        n: "\n",
+        r: "\r",
+        t: "\t",
+        b: "\b",
+        f: "\f",
+        v: "\v",
+        "0": "\0",
+        "'": "'",
+        '"': '"',
+        "\\": "\\",
+      };
+      return map[std] ?? std;
+    },
+  );
+}
+
+/**
+ * Strip JS block comments and line comments from source, replacing them
+ * with same-length whitespace so character offsets (used for line-number
+ * calculation) are preserved.  String literals are left intact.
+ */
+function stripJsComments(source: string): string {
+  let out = "";
+  for (let i = 0; i < source.length; ) {
+    const c = source[i];
+    const next = source[i + 1];
+
+    // String literal — pass through unchanged
+    if (c === '"' || c === "'" || c === "`") {
+      const q = c;
+      out += source[i++];
+      while (i < source.length && source[i] !== q) {
+        if (source[i] === "\\") {
+          out += source[i++]; // backslash
+        }
+        if (i < source.length) out += source[i++]; // char or escaped char
+      }
+      if (i < source.length) out += source[i++]; // closing quote
+      continue;
+    }
+
+    // Block comment → replace with spaces (keep newlines for line counting)
+    if (c === "/" && next === "*") {
+      out += "  "; // replace /*
+      i += 2;
+      while (
+        i < source.length &&
+        !(source[i] === "*" && source[i + 1] === "/")
+      ) {
+        out += source[i] === "\n" ? "\n" : " ";
+        i++;
+      }
+      if (i < source.length) {
+        out += "  "; // replace */
+        i += 2;
+      }
+      continue;
+    }
+
+    // Line comment → replace with spaces
+    if (c === "/" && next === "/") {
+      out += "  "; // replace //
+      i += 2;
+      while (i < source.length && source[i] !== "\n") {
+        out += " ";
+        i++;
+      }
+      continue;
+    }
+
+    out += source[i++];
+  }
+  return out;
+}
+
+/**
+ * Validate that all relative/absolute import paths in source files resolve
+ * within the app directory. This prevents crafted apps from importing
+ * arbitrary host files (e.g. `import data from '../../../../etc/passwd'`).
+ */
+async function validateImportPaths(
+  srcDir: string,
+  appDir: string,
+): Promise<CompileDiagnostic[]> {
+  const resolvedAppDir = resolve(appDir);
+  const errors: CompileDiagnostic[] = [];
+
+  const files = await readdir(srcDir, { recursive: true });
+  for (const file of files) {
+    const fileName = String(file);
+    const isJs = /\.[jt]sx?$/.test(fileName);
+    const isCss = /\.css$/.test(fileName);
+    if (!isJs && !isCss) continue;
+
+    const filePath = join(srcDir, fileName);
+    const content = await readFile(filePath, "utf-8");
+    const fileDir = dirname(filePath);
+
+    // Strip JS comments so patterns like `from /* */ "path"` are detected
+    const scannable = isJs ? stripJsComments(content) : content;
+
+    const specifiers: Array<{ specifier: string; index: number }> = [];
+
+    if (isJs) {
+      // Match: from "x", import "x", import("x"), require("x")
+      const re = /(?:from|import|require)\s*\(?\s*["']([^"']+)["']/g;
+      for (const m of scannable.matchAll(re)) {
+        specifiers.push({ specifier: m[1], index: m.index! });
+      }
+    } else {
+      // CSS: @import "x", @import url("x"), url("x")
+      const re =
+        /(?:@import\s+(?:url\s*\(\s*)?|url\s*\(\s*)["']?([^"')\s;]+)["']?/g;
+      for (const m of content.matchAll(re)) {
+        if (m[1]) specifiers.push({ specifier: m[1], index: m.index! });
+      }
+    }
+
+    for (const { specifier, index } of specifiers) {
+      // Decode JS string escapes so \x2e\x2e/… is normalised to ../../…
+      const decoded = isJs ? decodeJsEscapes(specifier) : specifier;
+
+      // Only validate path-based imports (starting with . or /)
+      if (!decoded.startsWith(".") && !decoded.startsWith("/")) continue;
+
+      const resolved = resolve(fileDir, decoded);
+      if (
+        !resolved.startsWith(resolvedAppDir + "/") &&
+        resolved !== resolvedAppDir
+      ) {
+        const line = content.substring(0, index).split("\n").length;
+        errors.push({
+          text: `Import "${specifier}" resolves outside the app directory`,
+          location: { file: fileName, line, column: 0 },
+        });
+      }
+    }
+  }
+
+  return errors;
+}
+
+/**
  * Scan source files for bare import specifiers and pre-install any
  * allowlisted packages into the shared cache so esbuild can resolve them.
  */
@@ -135,6 +290,17 @@ export async function compileApp(appDir: string): Promise<CompileResult> {
       warnings: [],
       durationMs,
     };
+  }
+
+  // Validate that path-based imports don't escape the app directory
+  const pathErrors = await validateImportPaths(srcDir, appDir);
+  if (pathErrors.length > 0) {
+    const durationMs = Math.round(performance.now() - start);
+    log.info(
+      { durationMs, errorCount: pathErrors.length },
+      "Build blocked: imports resolve outside app directory",
+    );
+    return { ok: false, errors: pathErrors, warnings: [], durationMs };
   }
 
   // Scan source files for bare imports and JIT-install allowed packages
