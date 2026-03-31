@@ -90,6 +90,7 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     extraParams: { access_type: "offline", prompt: "consent" },
+    loopbackPort: 17321,
     managedServiceConfigKey: "google-oauth",
     injectionTemplates: [
       {
