@@ -203,7 +203,7 @@ private struct ThreadWindowContentView: View {
                         allowedDomains: settingsStore.mediaEmbedVideoAllowlistDomains
                     ),
                     onMicrophoneToggle: {},
-                    onForkFromMessage: { daemonMessageId in onFork(daemonMessageId) },
+                    onForkFromMessage: (conversation?.isChannelConversation ?? false) ? nil : { daemonMessageId in onFork(daemonMessageId) },
                     onAddFunds: {
                         settingsStore.pendingSettingsTab = .billing
                     },
@@ -212,7 +212,7 @@ private struct ThreadWindowContentView: View {
                     },
                     anchorMessageId: $anchorMessageId,
                     highlightedMessageId: $highlightedMessageId,
-                    isInteractionEnabled: !(conversation?.isChannelConversation ?? false),
+                    isInteractionEnabled: true,
                     isReadonly: conversation?.isChannelConversation ?? false,
                     watchSession: ambientAgent.activeWatchSession
                 )

@@ -50,6 +50,14 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         let completedToolCallCount: Int
         let surfaceCount: Int
         let isStreaming: Bool
+
+        static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs.messageId == rhs.messageId
+                && lhs.toolCallCount == rhs.toolCallCount
+                && lhs.completedToolCallCount == rhs.completedToolCallCount
+                && lhs.surfaceCount == rhs.surfaceCount
+                && lhs.isStreaming == rhs.isStreaming
+        }
     }
     /// Tracks the number of rows already fetched from the daemon so pagination
     /// offsets stay correct even when the client filters out some conversations.
@@ -98,6 +106,13 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             }
             // Subscribe to the new active view model's changes
             subscribeToActiveViewModel()
+
+            // Manage periodic refresh polling for channel conversations.
+            if let activeConversationId {
+                startChannelRefreshIfNeeded(conversationId: activeConversationId)
+            } else {
+                stopChannelRefresh()
+            }
         }
     }
 
@@ -176,6 +191,9 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     /// once the associated ChatViewModel finishes its current send/think cycle.
     /// Populated when a notification_intent arrives while the VM is busy.
     private var pendingNotificationCatchUpIds: Set<String> = []
+    /// Periodic task that refreshes the active channel conversation's history.
+    /// Cancelled when switching away from a channel conversation.
+    private var channelRefreshTask: Task<Void, Never>?
     /// Local seen/unread toggles should survive a stale daemon conversation-list
     /// replay until the daemon either acknowledges them or reports a newer reply.
     private var pendingAttentionOverrides: [String: PendingAttentionOverride] = [:]
@@ -886,6 +904,14 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         }
 
         touchVMAccessOrder(id)
+
+        // Channel conversations (Slack, etc.) receive new messages via webhooks
+        // that the client doesn't see in real time. Invalidate the history cache
+        // before activation so loadHistoryIfNeeded fetches fresh data.
+        if conversation.isChannelConversation, let vm = chatViewModels[id], vm.isHistoryLoaded {
+            vm.prepareForChannelRefresh()
+        }
+
         activeConversationId = id
         // Render caches are keyed by content + appearance (text hash +
         // color descriptions), not by conversation — entries from one
@@ -1528,6 +1554,15 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
     func activateConversation(_ id: UUID) {
         let previousActiveId = activeConversationId
         trimPreviousConversationIfNeeded(nextConversationId: id)
+
+        // Channel conversations: invalidate cache before activation so
+        // loadHistoryIfNeeded fetches fresh data from the daemon.
+        if let conversation = conversations.first(where: { $0.id == id }),
+           conversation.isChannelConversation,
+           let vm = chatViewModels[id], vm.isHistoryLoaded {
+            vm.prepareForChannelRefresh()
+        }
+
         activeConversationId = id
 
         // Emit explicit seen signal for user-initiated conversation activation.
@@ -1871,6 +1906,31 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
             vmAccessOrder.remove(at: idx)
         }
         log.info("Removed abandoned empty conversation \(previousId)")
+    }
+
+    /// Start a periodic refresh loop for the active conversation if it is a
+    /// channel conversation (Slack, etc.). Cancels any existing refresh task first.
+    private func startChannelRefreshIfNeeded(conversationId localId: UUID) {
+        stopChannelRefresh()
+        guard let conversation = conversations.first(where: { $0.id == localId }),
+              conversation.isChannelConversation,
+              let daemonConversationId = conversation.conversationId else { return }
+
+        channelRefreshTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 30_000_000_000) // 30s
+                guard !Task.isCancelled, let self else { return }
+                guard let vm = self.chatViewModels[localId],
+                      !vm.isAssistantBusy else { continue }
+                vm.prepareForNotificationCatchUp()
+                self.conversationRestorer.requestReconnectHistory(conversationId: daemonConversationId)
+            }
+        }
+    }
+
+    private func stopChannelRefresh() {
+        channelRefreshTask?.cancel()
+        channelRefreshTask = nil
     }
 
     /// Trim the previously active conversation's view model to shed memory before

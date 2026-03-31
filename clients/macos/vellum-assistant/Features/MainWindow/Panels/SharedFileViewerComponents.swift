@@ -92,8 +92,7 @@ struct FileContentView: View {
                     VTabs(
                         items: modes.map { (label: viewModeLabel($0), tag: $0) },
                         selection: $viewMode,
-                        style: .pill,
-                        size: .compact
+                        style: .pill
                     )
                     .fixedSize()
                 }
@@ -105,7 +104,7 @@ struct FileContentView: View {
                 }
             }
 
-            Divider().background(VColor.borderBase)
+            Rectangle().fill(VColor.surfaceBase).frame(height: 1)
 
             ZStack(alignment: .topTrailing) {
                 switch viewMode {
@@ -232,15 +231,20 @@ struct FileContentHeaderBar<Trailing: View>: View {
         HStack(spacing: VSpacing.sm) {
             VIconView(icon, size: 12)
                 .foregroundStyle(VColor.primaryBase)
+                .padding(6)
+                .background(
+                    RoundedRectangle(cornerRadius: VRadius.sm)
+                        .fill(VColor.surfaceActive)
+                )
             Text(fileName)
-                .font(VFont.labelDefault)
+                .font(VFont.titleSmall)
                 .foregroundStyle(VColor.contentDefault)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
             trailing
         }
-        .padding(.horizontal, VSpacing.sm)
-        .frame(height: 36)
+        .padding(.horizontal, VSpacing.md)
+        .padding(.vertical, VSpacing.sm)
     }
 }

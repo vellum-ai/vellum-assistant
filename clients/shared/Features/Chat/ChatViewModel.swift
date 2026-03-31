@@ -1147,6 +1147,15 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         needsReconnectCatchUp = true
     }
 
+    /// Prepare the view model for a channel conversation refresh.
+    /// Resets `isHistoryLoaded` so `loadHistoryIfNeeded` proceeds, and sets
+    /// `needsReconnectCatchUp` so `populateFromHistory` does an atomic
+    /// message replace instead of clearing the array first.
+    public func prepareForChannelRefresh() {
+        needsReconnectCatchUp = true
+        isHistoryLoaded = false
+    }
+
     // MARK: - Deep Link
 
     /// Check for a buffered deep-link message and apply it to `inputText`.

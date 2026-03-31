@@ -79,6 +79,23 @@ export function extractThreadTsFromCallbackUrl(
 }
 
 /**
+ * Extract the messageTs from a Slack reply callback URL, if present.
+ * The gateway encodes messageTs for non-threaded DMs so the runtime
+ * can target the original message for emoji-based indicators.
+ */
+export function extractMessageTsFromCallbackUrl(
+  callbackUrl: string | undefined,
+): string | null {
+  if (!callbackUrl) return null;
+  try {
+    const url = new URL(callbackUrl);
+    return url.searchParams.get("messageTs");
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Extract the channel from a Slack reply callback URL, if present.
  */
 export function extractChannelFromCallbackUrl(

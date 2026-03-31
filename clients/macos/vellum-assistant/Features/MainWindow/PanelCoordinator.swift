@@ -614,7 +614,7 @@ struct ActiveChatViewWrapper: View {
                     allowedDomains: settingsStore.mediaEmbedVideoAllowlistDomains
                 ),
                 onMicrophoneToggle: onMicrophoneToggle,
-                onForkFromMessage: { [conversationManager] daemonMessageId in
+                onForkFromMessage: isReadonly ? nil : { [conversationManager] daemonMessageId in
                     Task { @MainActor in
                         await conversationManager.forkConversation(throughDaemonMessageId: daemonMessageId)
                     }
@@ -635,7 +635,7 @@ struct ActiveChatViewWrapper: View {
                 anchorMessageId: $anchorMessageId,
                 highlightedMessageId: $highlightedMessageId,
                 conversationId: conversationId,
-                isInteractionEnabled: inspectorMessageId == nil && !isReadonly,
+                isInteractionEnabled: inspectorMessageId == nil,
                 isReadonly: isReadonly,
                 isBootstrapping: isBootstrapping,
                 isBootstrapTimedOut: isBootstrapTimedOut,
