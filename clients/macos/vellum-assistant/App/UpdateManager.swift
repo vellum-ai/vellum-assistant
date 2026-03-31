@@ -148,13 +148,13 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
 
     /// Checks whether a newer service group release is available for Docker/managed topologies.
     /// For `.local` topology this is a no-op (Sparkle handles local app updates).
-    /// Failures are silently swallowed — the menu simply stays in "Check for Updates…" state.
     func checkServiceGroupUpdate() async {
         do {
             // Resolve current topology from the lockfile
             let assistants = LockfileAssistant.loadAll()
             guard let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId"),
                   let assistant = assistants.first(where: { $0.assistantId == connectedId }) else {
+                log.warning("Service group update check skipped: no connected assistant in lockfile")
                 clearServiceGroupFlags()
                 return
             }
@@ -168,6 +168,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
             // Fetch the latest stable release from the platform API
             let platformBase = AuthService.shared.baseURL
             guard let releasesURL = URL(string: "\(platformBase)/v1/releases/?stable=true") else {
+                log.error("Service group update check failed: could not construct releases URL from base \(platformBase, privacy: .public)")
                 clearServiceGroupFlags()
                 return
             }
@@ -184,6 +185,8 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
 
             let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+                log.error("Service group update check failed: releases API returned HTTP \(statusCode)")
                 clearServiceGroupFlags()
                 return
             }
@@ -192,17 +195,26 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
             decoder.keyDecodingStrategy = .convertFromSnakeCase
             let releases = try decoder.decode([AssistantRelease].self, from: data)
             guard let latestRelease = releases.first else {
+                log.warning("Service group update check: no stable releases returned")
                 clearServiceGroupFlags()
                 return
             }
 
-            // Fetch the current service group version from health endpoint
+            // Fetch the current service group version from health endpoint.
+            // Managed assistants route through the platform proxy at
+            // /v1/assistants/{assistantId}/healthz/ (the flat /v1/health/ path
+            // does not exist on the platform). Docker/local assistants hit
+            // the gateway directly at /v1/health/.
+            let healthPath = assistant.isManaged
+                ? "assistants/{assistantId}/healthz"
+                : "health"
             let (decoded, _): (DaemonHealthz?, _) = try await GatewayHTTPClient.get(
-                path: "health",
+                path: healthPath,
                 timeout: 10
             ) { $0.keyDecodingStrategy = .convertFromSnakeCase }
 
             guard let currentVersion = decoded?.version, !currentVersion.isEmpty else {
+                log.error("Service group update check failed: health endpoint returned no version")
                 clearServiceGroupFlags()
                 return
             }
@@ -210,6 +222,7 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
             // Compare versions
             guard let latestParsed = VersionCompat.parse(latestRelease.version),
                   let currentParsed = VersionCompat.parse(currentVersion) else {
+                log.error("Service group update check failed: could not parse versions (latest=\(latestRelease.version, privacy: .public), current=\(currentVersion, privacy: .public))")
                 clearServiceGroupFlags()
                 return
             }
@@ -221,13 +234,14 @@ public final class UpdateManager: NSObject, ObservableObject, SPUUpdaterDelegate
             }()
 
             if isNewer {
+                log.info("Service group update available: \(latestRelease.version, privacy: .public) (current: \(currentVersion, privacy: .public))")
                 isServiceGroupUpdateAvailable = true
                 serviceGroupUpdateVersion = latestRelease.version
             } else {
                 clearServiceGroupFlags()
             }
         } catch {
-            // Failures silently clear the flags — no error state in the menu.
+            log.error("Service group update check failed: \(error.localizedDescription, privacy: .public)")
             clearServiceGroupFlags()
         }
     }
