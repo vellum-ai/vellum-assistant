@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import os
 
@@ -25,13 +26,20 @@ public final class ChatPaginationState {
     /// True while a previous-page load is in progress (brief async delay for UX).
     public var isLoadingMoreMessages: Bool = false
 
-    /// The subset of messages visible to the user (excludes subagent notifications,
-    /// hidden messages, and messages without renderable content).
-    /// Computed from `messageManager.messages` so the Observation framework
-    /// tracks the single underlying stored property.
-    public var displayedMessages: [ChatMessage] {
-        ChatVisibleMessageFilter.visibleMessages(from: messageManager.messages)
-    }
+    /// All visible messages (excludes subagent notifications, hidden messages,
+    /// and messages without renderable content). Cached as a stored property
+    /// and updated reactively via Combine when `messageManager.messages`
+    /// changes, so views read an O(1) cached value instead of recomputing
+    /// the O(n) filter on every body evaluation.
+    ///
+    /// - SeeAlso: [WWDC23 — Demystify SwiftUI performance](https://developer.apple.com/videos/play/wwdc2023/10160/)
+    public private(set) var displayedMessages: [ChatMessage] = []
+
+    /// Paginated suffix of visible messages for the current display window.
+    /// Cached as a stored property so `MessageListView.body` reads it in O(1)
+    /// instead of running the O(n) visibility filter on every body evaluation.
+    /// Updated when either the message list or `displayedMessageCount` changes.
+    public private(set) var paginatedVisibleMessages: [ChatMessage] = []
 
     // MARK: - Daemon History Pagination
 
@@ -53,6 +61,10 @@ public final class ChatPaginationState {
         (displayedMessageCount < displayedMessages.count) || hasMoreHistory
     }
 
+    // MARK: - Visible Messages Cache
+
+    @ObservationIgnored private var visibleMessagesCacheSub: AnyCancellable?
+
     // MARK: - Timeout
 
     /// Timeout task that logs a warning at 30s if the daemon is slow, then
@@ -67,6 +79,7 @@ public final class ChatPaginationState {
 
     deinit {
         loadMoreTimeoutTask?.cancel()
+        visibleMessagesCacheSub?.cancel()
     }
 
     // MARK: - Dependencies
@@ -90,6 +103,40 @@ public final class ChatPaginationState {
         messageManager: ChatMessageManager
     ) {
         self.messageManager = messageManager
+
+        // Seed the cache synchronously so the first view read sees correct data.
+        recomputeVisibleMessages(from: messageManager.messages)
+
+        // Reactively update the cache when messages change. Uses the existing
+        // Combine bridge (`messagesPublisher`) which fires on every mutation
+        // to `messageManager.messages`. This is the same pattern used by
+        // `ChatMessageManager.activePendingRequestId`.
+        visibleMessagesCacheSub = messageManager.messagesPublisher
+            .sink { [weak self] messages in
+                self?.recomputeVisibleMessages(from: messages)
+            }
+    }
+
+    // MARK: - Cache Recomputation
+
+    /// Recomputes `displayedMessages` and `paginatedVisibleMessages` from a
+    /// snapshot of the raw message array. Called by the Combine subscription
+    /// when messages change and by mutation sites that alter the display window.
+    private func recomputeVisibleMessages(from messages: [ChatMessage]) {
+        displayedMessages = ChatVisibleMessageFilter.visibleMessages(from: messages)
+        recomputePaginatedSuffix()
+    }
+
+    /// Recomputes only the paginated suffix from the already-cached
+    /// `displayedMessages`. Called after `displayedMessageCount` changes
+    /// (pagination expand, reset) without re-running the visibility filter.
+    func recomputePaginatedSuffix() {
+        let visible = displayedMessages
+        if displayedMessageCount < visible.count {
+            paginatedVisibleMessages = Array(visible.suffix(displayedMessageCount))
+        } else {
+            paginatedVisibleMessages = visible
+        }
     }
 
     // MARK: - Public API
@@ -114,6 +161,7 @@ public final class ChatPaginationState {
             // (Int.max) so future incoming messages don't shrink the visible history back
             // to a suffix window — the regression described in the parent PR.
             displayedMessageCount = next >= total ? Int.max : next
+            recomputePaginatedSuffix()
             isLoadingMoreMessages = false
             return true
         }
@@ -158,6 +206,7 @@ public final class ChatPaginationState {
         loadMoreTimeoutTask?.cancel()
         loadMoreTimeoutTask = nil
         isLoadingMoreMessages = false
+        recomputePaginatedSuffix()
     }
 
 }

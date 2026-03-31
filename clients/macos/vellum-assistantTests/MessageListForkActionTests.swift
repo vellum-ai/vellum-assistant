@@ -67,6 +67,7 @@ final class MessageListForkActionTests: XCTestCase {
             onRetryFailedMessage: nil,
             onRetryConversationError: nil,
             subagentDetailStore: SubagentDetailStore(),
+            paginatedVisibleMessages: messages,
             displayedMessageCount: .max,
             hasMoreMessages: false,
             isLoadingMoreMessages: false,
