@@ -20,6 +20,10 @@ import {
   platformDownloadExport,
   platformImportPreflight,
   platformImportBundle,
+  platformRequestUploadUrl,
+  platformUploadToSignedUrl,
+  platformImportPreflightFromGcs,
+  platformImportBundleFromGcs,
 } from "../lib/platform-client.js";
 import {
   hatchDocker,
@@ -649,6 +653,27 @@ async function importToAssistant(
       throw err;
     }
 
+    // Try signed-URL upload for large bundle support
+    let bundleKey: string | undefined;
+    try {
+      const { uploadUrl, bundleKey: key } = await platformRequestUploadUrl(
+        token,
+        orgId,
+        entry.runtimeUrl,
+      );
+      bundleKey = key;
+      console.log("Uploading bundle...");
+      await platformUploadToSignedUrl(uploadUrl, bundleData);
+    } catch (err) {
+      // If signed uploads unavailable (503), fall back to inline upload
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("not available")) {
+        bundleKey = undefined;
+      } else {
+        throw err;
+      }
+    }
+
     if (dryRun) {
       console.log("Running preflight analysis...\n");
 
@@ -657,12 +682,19 @@ async function importToAssistant(
         body: Record<string, unknown>;
       };
       try {
-        preflightResult = await platformImportPreflight(
-          bundleData,
-          token,
-          orgId,
-          entry.runtimeUrl,
-        );
+        preflightResult = bundleKey
+          ? await platformImportPreflightFromGcs(
+              bundleKey,
+              token,
+              orgId,
+              entry.runtimeUrl,
+            )
+          : await platformImportPreflight(
+              bundleData,
+              token,
+              orgId,
+              entry.runtimeUrl,
+            );
       } catch (err) {
         if (err instanceof Error && err.name === "TimeoutError") {
           console.error("Error: Preflight request timed out after 2 minutes.");
@@ -712,12 +744,19 @@ async function importToAssistant(
 
     let importResult: { statusCode: number; body: Record<string, unknown> };
     try {
-      importResult = await platformImportBundle(
-        bundleData,
-        token,
-        orgId,
-        entry.runtimeUrl,
-      );
+      importResult = bundleKey
+        ? await platformImportBundleFromGcs(
+            bundleKey,
+            token,
+            orgId,
+            entry.runtimeUrl,
+          )
+        : await platformImportBundle(
+            bundleData,
+            token,
+            orgId,
+            entry.runtimeUrl,
+          );
     } catch (err) {
       if (err instanceof Error && err.name === "TimeoutError") {
         console.error("Error: Import request timed out after 2 minutes.");
