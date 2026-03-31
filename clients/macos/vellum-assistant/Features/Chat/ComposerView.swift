@@ -623,7 +623,7 @@ VStreamingWaveform(
 
     /// Tooltip text for the mic button. Includes the PTT hold hint only when PTT is enabled.
     private var micTooltipText: String {
-        let activator = PTTActivator.fromStored()
+        let activator = PTTActivator.cached
         if activator.kind == .none {
             return "Click to dictate"
         }

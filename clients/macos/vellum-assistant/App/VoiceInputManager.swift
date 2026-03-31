@@ -91,9 +91,9 @@ final class VoiceInputManager {
     private var lastAppSwitchTime: Date = .distantPast
     private var appSwitchObservers: [Any] = []
 
-    /// The current PTT activator, read from UserDefaults.
+    /// The current PTT activator, read from the in-memory cache.
     var activator: PTTActivator {
-        PTTActivator.fromStored()
+        PTTActivator.cached
     }
 
     private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))

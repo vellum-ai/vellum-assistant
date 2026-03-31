@@ -562,6 +562,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         registerSidebarToggleMonitor()
         setupHotKey()
         setupEscapeMonitor()
+        PTTActivator.refreshCache()
         setupVoiceInput()
         setupAmbientAgent()
         setupSurfaceManager()

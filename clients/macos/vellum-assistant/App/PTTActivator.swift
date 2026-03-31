@@ -79,9 +79,36 @@ struct PTTActivator: Codable, Equatable {
         return NSEvent.ModifierFlags(rawValue: raw)
     }
 
+    // MARK: - Cache
+
+    /// In-memory cache populated asynchronously so that the first
+    /// UserDefaults read does not block the main thread during app launch.
+    /// Access via `cached`; mutated only by `refreshCache()`.
+    @MainActor private static var _cached: PTTActivator?
+
+    /// Returns the cached activator, falling back to `defaultActivator`
+    /// until `refreshCache()` completes.
+    @MainActor static var cached: PTTActivator {
+        _cached ?? .defaultActivator
+    }
+
+    /// Reads the stored activator off the main thread and updates the cache.
+    @MainActor static func refreshCache() {
+        Task {
+            let result = await Task.detached { Self.fromStored() }.value
+            _cached = result
+        }
+    }
+
+    /// Synchronously updates the cache after a local write (e.g. settings change).
+    @MainActor static func updateCache(_ activator: PTTActivator) {
+        _cached = activator
+    }
+
     // MARK: - Persistence
 
     /// Read the activator from UserDefaults, handling both legacy strings and JSON.
+    /// Prefer `cached` on the main thread to avoid synchronous I/O during app launch.
     static func fromStored() -> PTTActivator {
         guard let stored = UserDefaults.standard.string(forKey: "activationKey") else {
             return .defaultActivator
