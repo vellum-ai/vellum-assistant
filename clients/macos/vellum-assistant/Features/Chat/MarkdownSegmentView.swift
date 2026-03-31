@@ -54,7 +54,7 @@ struct MarkdownSegmentView: View, Equatable {
                     let measuredSize = VSelectableTextView.measureSize(
                         attributedString: nsAttributed,
                         lineSpacing: 4,
-                        maxWidth: maxContentWidth ?? 400
+                        maxWidth: maxContentWidth ?? VSpacing.chatBubbleMaxWidth
                     )
                     VSelectableTextView(
                         attributedString: nsAttributed,
@@ -374,6 +374,7 @@ struct MarkdownSegmentView: View, Equatable {
         // the italic trait from .emphasized inlinePresentationIntent. We detect
         // emphasized runs and apply a synthetic oblique via affine transform.
         var emphOnlyRanges: [Range<AttributedString.Index>] = []
+        var boldOnlyRanges: [Range<AttributedString.Index>] = []
         var boldEmphRanges: [Range<AttributedString.Index>] = []
         for run in result.runs {
             guard let intent = run.inlinePresentationIntent, !intent.contains(.code) else { continue }
@@ -383,18 +384,30 @@ struct MarkdownSegmentView: View, Equatable {
                 boldEmphRanges.append(run.range)
             } else if isEmph {
                 emphOnlyRanges.append(run.range)
+            } else if isBold {
+                boldOnlyRanges.append(run.range)
             }
         }
-        if !emphOnlyRanges.isEmpty || !boldEmphRanges.isEmpty {
+        if !emphOnlyRanges.isEmpty || !boldOnlyRanges.isEmpty || !boldEmphRanges.isEmpty {
             let sz: CGFloat = 16 // matches VFont.chat size
+            let wght = 0x77676874
             var oblique = CGAffineTransform(a: 1, b: 0, c: CGFloat(tan(12.0 * .pi / 180.0)), d: 1, tx: 0, ty: 0)
             if !emphOnlyRanges.isEmpty {
                 let italicCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, &oblique)
                 let italicFont = Font(italicCT as NSFont)
                 for range in emphOnlyRanges { result[range].font = italicFont }
             }
+            if !boldOnlyRanges.isEmpty {
+                let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, nil)
+                let boldVars: [CFNumber: CFNumber] = [wght as CFNumber: 700 as CFNumber]
+                let boldCT = CTFontCreateCopyWithAttributes(
+                    baseCT, sz, nil,
+                    CTFontDescriptorCreateWithAttributes([kCTFontVariationAttribute: boldVars] as CFDictionary)
+                )
+                let boldFont = Font(boldCT as NSFont)
+                for range in boldOnlyRanges { result[range].font = boldFont }
+            }
             if !boldEmphRanges.isEmpty {
-                let wght = 0x77676874
                 let baseCT = CTFontCreateWithName("DMSans-Regular" as CFString, sz, nil)
                 let boldVars: [CFNumber: CFNumber] = [wght as CFNumber: 700 as CFNumber]
                 let boldItalicCT = CTFontCreateCopyWithAttributes(
