@@ -843,6 +843,15 @@ function startFileWatcher(opts: {
     const services = pendingServices;
     pendingServices = new Set();
 
+    // Gateway and CES share the assistant's network namespace. If the
+    // assistant container is removed and recreated, the shared namespace
+    // is destroyed and the other two lose connectivity. Cascade the
+    // restart to all three services in that case.
+    if (services.has("assistant")) {
+      services.add("gateway");
+      services.add("credential-executor");
+    }
+
     const serviceNames = [...services].join(", ");
     console.log(`\n🔄 Changes detected — rebuilding: ${serviceNames}`);
 
@@ -855,7 +864,10 @@ function startFileWatcher(opts: {
         }),
       );
 
-      for (const service of services) {
+      // Restart in dependency order (assistant first) so the network
+      // namespace owner is up before dependents try to attach.
+      for (const service of SERVICE_START_ORDER) {
+        if (!services.has(service)) continue;
         const container = containerForService[service];
         console.log(`🔄 Restarting ${container}...`);
         await removeContainer(container);
