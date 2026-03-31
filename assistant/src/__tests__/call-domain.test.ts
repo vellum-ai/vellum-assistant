@@ -7,7 +7,7 @@
  * - Voice-ingress preflight blocks doomed outbound calls before Twilio dialing.
  * - Pointer messages are written on successful call start and on failure.
  */
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -120,7 +120,7 @@ import {
 } from "../calls/call-domain.js";
 import type { AssistantConfig } from "../config/types.js";
 import { getMessages } from "../memory/conversation-crud.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 
 initializeDb();
@@ -184,10 +184,6 @@ function getLatestAssistantText(conversationId: string): string | null {
   }
   return latest.content;
 }
-
-afterAll(() => {
-  resetDb();
-});
 
 function makeConfig(
   overrides: {

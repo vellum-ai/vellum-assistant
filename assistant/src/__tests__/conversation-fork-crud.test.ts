@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq, like } from "drizzle-orm";
 
@@ -39,7 +39,7 @@ import {
   PRIVATE_CONVERSATION_FORK_ERROR,
 } from "../memory/conversation-crud.js";
 import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { getRequestLogsByMessageId } from "../memory/llm-request-log-store.js";
 import {
   channelInboundEvents,
@@ -70,10 +70,6 @@ function resetTables(): void {
 function parseMetadata(metadata: string | null): unknown {
   return metadata == null ? null : JSON.parse(metadata);
 }
-
-afterAll(() => {
-  resetDb();
-});
 
 describe("forkConversation", () => {
   beforeEach(() => {

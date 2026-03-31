@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { v4 as uuid } from "uuid";
 
@@ -9,17 +9,13 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { getSqlite, initializeDb, resetDb } from "../memory/db.js";
+import { getSqlite, initializeDb } from "../memory/db.js";
 import {
   conversationStarterRouteDefinitions,
   orderStrongestFirst,
 } from "../runtime/routes/conversation-starter-routes.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 const routes = conversationStarterRouteDefinitions();
 

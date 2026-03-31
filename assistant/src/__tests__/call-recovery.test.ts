@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -26,14 +26,10 @@ import {
   updateCallSession,
 } from "../calls/call-store.js";
 import type { VoiceProvider } from "../calls/voice-provider.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import { conversations } from "../memory/schema.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 /** Ensure a conversation row exists for the given ID so FK constraints pass. */
 let ensuredConvIds = new Set<string>();

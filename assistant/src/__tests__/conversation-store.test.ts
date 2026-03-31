@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -24,14 +24,10 @@ import {
   getMessages,
 } from "../memory/conversation-crud.js";
 import { isLastUserMessageToolResult } from "../memory/conversation-queries.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 
 // Initialize db once before all tests
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-});
 
 describe("deleteLastExchange", () => {
   beforeEach(() => {
