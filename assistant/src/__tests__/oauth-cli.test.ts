@@ -1240,3 +1240,75 @@ describe("requirePlatformConnection", () => {
     expect(process.exitCode).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// oauth mode — platform connection guard
+// ---------------------------------------------------------------------------
+
+describe("assistant oauth mode", () => {
+  beforeEach(() => {
+    mockWithValidToken = async (_service, cb) => cb("mock-access-token-xyz");
+    mockGetProvider = () => ({
+      providerKey: "google",
+      authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      defaultScopes: "[]",
+      scopePolicy: "{}",
+      extraParams: null,
+      managedServiceConfigKey: "google-oauth",
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    mockGetConfig = () => ({
+      services: {
+        "google-oauth": { mode: "your-own" },
+      },
+    });
+  });
+
+  afterEach(() => {
+    mockPlatformClientCreate = async () => null;
+    mockGetConfig = () => ({ services: {} });
+    mockGetProvider = () => undefined;
+  });
+
+  test("oauth mode <provider> --set managed fails when not connected to platform", async () => {
+    mockPlatformClientCreate = async () => null;
+    const { exitCode, stdout } = await runCli([
+      "mode",
+      "google",
+      "--set",
+      "managed",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("vellum platform connect");
+  });
+
+  test("oauth mode <provider> --set your-own fails when not connected to platform", async () => {
+    mockPlatformClientCreate = async () => null;
+    const { exitCode, stdout } = await runCli([
+      "mode",
+      "google",
+      "--set",
+      "your-own",
+      "--json",
+    ]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("vellum platform connect");
+  });
+
+  test("oauth mode <provider> (read) succeeds without platform connection", async () => {
+    mockPlatformClientCreate = async () => null;
+    const { exitCode, stdout } = await runCli(["mode", "google", "--json"]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.provider).toBe("google");
+    expect(parsed.mode).toBe("your-own");
+  });
+});
