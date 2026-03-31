@@ -1,0 +1,548 @@
+import Foundation
+import os
+import SwiftUI
+import VellumAssistantShared
+
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Teleport")
+
+// MARK: - Teleport Destination
+
+private enum TeleportDestination {
+    case docker
+    case platform
+
+    var displayLabel: String {
+        switch self {
+        case .docker:
+            return "Move to Docker"
+        case .platform:
+            return "Move to Cloud (Platform)"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .docker:
+            return "Run your assistant in a Docker container on this Mac."
+        case .platform:
+            return "Run your assistant in the cloud, managed by the Vellum platform."
+        }
+    }
+}
+
+// MARK: - Teleport Phase
+
+private enum TeleportPhase {
+    case idle
+    case confirming(TeleportDestination)
+    case transferring(step: String)
+    case verifying
+    case completed(oldAssistantId: String)
+    case failed(error: String)
+}
+
+// MARK: - Teleport Errors
+
+private enum TeleportError: LocalizedError {
+    case invalidURL
+    case notSignedIn
+    case exportFailed(statusCode: Int)
+    case exportTimedOut
+    case importFailed(message: String)
+    case managedEntryNotFound
+    case localAssistantNotFound
+    case dockerAssistantNotFound
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            return "Invalid URL"
+        case .notSignedIn:
+            return "Sign in required to teleport"
+        case .exportFailed(let statusCode):
+            return "Export failed (HTTP \(statusCode))"
+        case .exportTimedOut:
+            return "Export timed out"
+        case .importFailed(let message):
+            return "Import failed: \(message)"
+        case .managedEntryNotFound:
+            return "Could not find managed assistant entry after creation"
+        case .localAssistantNotFound:
+            return "Could not find or create a local assistant"
+        case .dockerAssistantNotFound:
+            return "Could not find or create a Docker assistant"
+        }
+    }
+}
+
+// MARK: - TeleportSection View
+
+/// Teleport UI for moving an assistant between hosting environments without retiring the source.
+///
+/// Unlike `AssistantTransferSection`, teleport preserves the source assistant until the user
+/// explicitly confirms the new one works. After transfer, a verification banner lets the user
+/// either confirm (and retire the old assistant) or restore back to the original.
+@MainActor
+struct TeleportSection: View {
+    let assistant: LockfileAssistant
+    let onClose: () -> Void
+
+    @State private var phase: TeleportPhase = .idle
+    @State private var showingConfirmation = false
+    @State private var pendingDestination: TeleportDestination?
+    @State private var transferTask: Task<Void, Never>?
+    @State private var originalAssistant: LockfileAssistant?
+
+    var body: some View {
+        Group {
+            if assistant.isManaged || assistant.isRemote {
+                EmptyView()
+            } else {
+                teleportContent
+            }
+        }
+        .alert(confirmationTitle, isPresented: $showingConfirmation) {
+            Button("Cancel", role: .cancel) {
+                pendingDestination = nil
+            }
+            Button("Teleport", role: .destructive) {
+                guard let destination = pendingDestination else { return }
+                originalAssistant = assistant
+                transferTask = Task { await executeTeleport(to: destination) }
+            }
+        } message: {
+            Text(confirmationMessage)
+        }
+        .onDisappear {
+            transferTask?.cancel()
+        }
+    }
+
+    private var confirmationTitle: String {
+        pendingDestination?.displayLabel ?? "Teleport"
+    }
+
+    private var confirmationMessage: String {
+        "Your data will be copied to the new environment. The current assistant will remain available until you confirm the new one works."
+    }
+
+    // MARK: - Content
+
+    @ViewBuilder
+    private var teleportContent: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text("Teleport")
+                .font(VFont.titleSmall)
+                .foregroundStyle(VColor.contentDefault)
+
+            if case .verifying = phase {
+                verifyingBanner
+            } else if case .transferring(let step) = phase {
+                HStack(spacing: VSpacing.sm) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(step)
+                        .font(VFont.labelDefault)
+                        .foregroundStyle(VColor.contentTertiary)
+                }
+            } else if case .failed(let error) = phase {
+                failedBanner(error: error)
+            } else {
+                destinationPicker
+            }
+        }
+        .padding(VSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .vCard(background: VColor.surfaceOverlay)
+    }
+
+    // MARK: - Destination Picker
+
+    @ViewBuilder
+    private var destinationPicker: some View {
+        if assistant.cloud.lowercased() == "local" {
+            // Bare metal local: show both Docker and Platform options
+            destinationButton(for: .docker)
+            destinationButton(for: .platform)
+        } else if assistant.isDocker {
+            // Docker: show only Platform option
+            destinationButton(for: .platform)
+        }
+    }
+
+    @ViewBuilder
+    private func destinationButton(for destination: TeleportDestination) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.xs) {
+            Text(destination.description)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.contentTertiary)
+
+            VButton(
+                label: destination.displayLabel,
+                style: .primary,
+                isDisabled: isDestinationDisabled(destination)
+            ) {
+                pendingDestination = destination
+                showingConfirmation = true
+            }
+
+            if destination == .platform && SessionTokenManager.getToken() == nil {
+                Text("Sign in to move to cloud.")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+        }
+    }
+
+    private func isDestinationDisabled(_ destination: TeleportDestination) -> Bool {
+        if case .idle = phase {} else { return true }
+        if destination == .platform && SessionTokenManager.getToken() == nil {
+            return true
+        }
+        return false
+    }
+
+    // MARK: - Verifying Banner
+
+    @ViewBuilder
+    private var verifyingBanner: some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            HStack(spacing: VSpacing.sm) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(VColor.systemPositiveStrong)
+                Text("Transfer complete — verify your new assistant is working.")
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentDefault)
+            }
+
+            HStack(spacing: VSpacing.sm) {
+                VButton(
+                    label: "Confirm & Retire Old Assistant",
+                    style: .primary
+                ) {
+                    retireOldAssistant()
+                }
+
+                VButton(
+                    label: "Restore Previous Assistant",
+                    style: .outlined
+                ) {
+                    restorePreviousAssistant()
+                }
+            }
+        }
+    }
+
+    // MARK: - Failed Banner
+
+    @ViewBuilder
+    private func failedBanner(error: String) -> some View {
+        VStack(alignment: .leading, spacing: VSpacing.md) {
+            Text(error)
+                .font(VFont.labelDefault)
+                .foregroundStyle(VColor.systemNegativeStrong)
+
+            VButton(
+                label: "Try Again",
+                style: .outlined
+            ) {
+                phase = .idle
+            }
+        }
+    }
+
+    // MARK: - Retire & Restore
+
+    private func retireOldAssistant() {
+        guard let original = originalAssistant else { return }
+        let oldId = original.assistantId
+
+        // Fire-and-forget retirement
+        Task {
+            if original.isManaged {
+                // Retire managed via API — temporarily swap connectedAssistantId
+                let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+                UserDefaults.standard.set(oldId, forKey: "connectedAssistantId")
+                do {
+                    let response = try await GatewayHTTPClient.delete(
+                        path: "assistants/{assistantId}/retire",
+                        timeout: 30
+                    )
+                    if response.isSuccess {
+                        log.info("[teleport] Retired managed assistant \(oldId, privacy: .public)")
+                    } else {
+                        log.error("[teleport] Failed to retire managed assistant \(oldId, privacy: .public): HTTP \(response.statusCode, privacy: .public)")
+                    }
+                } catch {
+                    log.error("[teleport] Failed to retire managed assistant \(oldId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
+                UserDefaults.standard.set(previousId, forKey: "connectedAssistantId")
+            } else {
+                // Retire local/docker via CLI
+                do {
+                    try await AppDelegate.shared?.vellumCli.retire(name: oldId)
+                    log.info("[teleport] Retired assistant \(oldId, privacy: .public)")
+                } catch {
+                    log.error("[teleport] Failed to retire assistant \(oldId, privacy: .public): \(error.localizedDescription, privacy: .public)")
+                }
+            }
+        }
+
+        phase = .completed(oldAssistantId: oldId)
+        onClose()
+    }
+
+    private func restorePreviousAssistant() {
+        guard let original = originalAssistant else { return }
+        AppDelegate.shared?.performSwitchAssistant(to: original)
+        phase = .idle
+    }
+
+    // MARK: - Transfer Execution
+
+    private func executeTeleport(to destination: TeleportDestination) async {
+        phase = .transferring(step: "Preparing...")
+
+        do {
+            switch (assistant.isDocker, destination) {
+            case (false, .platform):
+                try await teleportLocalToPlatform()
+            case (false, .docker):
+                try await teleportLocalToDocker()
+            case (true, .platform):
+                try await teleportDockerToPlatform()
+            default:
+                throw TeleportError.invalidURL
+            }
+        } catch {
+            phase = .failed(error: "Teleport failed: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Local -> Platform
+
+    private func teleportLocalToPlatform() async throws {
+        // Step 1 — Export local assistant data
+        phase = .transferring(step: "Exporting assistant data...")
+        let bundleData = try await exportAssistantBundle()
+
+        // Step 2 — Ensure managed assistant exists on platform
+        phase = .transferring(step: "Setting up cloud assistant...")
+        let outcome = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
+        let platformAssistant: PlatformAssistant
+        switch outcome {
+        case .reusedExisting(let assistant):
+            platformAssistant = assistant
+        case .createdNew(let assistant):
+            platformAssistant = assistant
+        }
+        let lockfileSuccess = LockfileAssistant.ensureManagedEntry(
+            assistantId: platformAssistant.id,
+            runtimeUrl: AuthService.shared.baseURL,
+            hatchedAt: platformAssistant.created_at ?? Date().iso8601String
+        )
+        guard lockfileSuccess else {
+            throw TeleportError.importFailed(message: "Failed to save managed assistant configuration to lockfile.")
+        }
+
+        // Step 3 — Import bundle to managed assistant
+        phase = .transferring(step: "Importing data to cloud...")
+        try await importBundleToManaged(bundleData: bundleData, managedAssistantId: platformAssistant.id)
+
+        // Step 4 — Switch to managed assistant
+        phase = .transferring(step: "Switching to cloud assistant...")
+        guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
+            throw TeleportError.managedEntryNotFound
+        }
+        AppDelegate.shared?.performSwitchAssistant(to: managedAssistant)
+        transferTask = nil
+
+        // Step 5 — Verification phase (do NOT retire)
+        phase = .verifying
+    }
+
+    // MARK: - Local -> Docker
+
+    private func teleportLocalToDocker() async throws {
+        // Step 1 — Export local assistant data
+        phase = .transferring(step: "Exporting assistant data...")
+        let bundleData = try await exportAssistantBundle()
+
+        // Step 2 — Ensure a docker assistant exists
+        phase = .transferring(step: "Preparing Docker assistant...")
+        var dockerAssistant = LockfileAssistant.loadAll().first(where: { $0.isDocker })
+        if dockerAssistant == nil {
+            // Hatch a new docker assistant
+            let config = VellumCli.RemoteHatchConfig(remote: "docker")
+            try await AppDelegate.shared?.vellumCli.runRemoteHatch(config: config) { _ in }
+            dockerAssistant = LockfileAssistant.loadAll().first(where: { $0.isDocker })
+        } else {
+            // Wake existing docker assistant
+            try await AppDelegate.shared?.vellumCli.wake(name: dockerAssistant!.assistantId)
+        }
+        guard let resolvedDocker = dockerAssistant else {
+            throw TeleportError.dockerAssistantNotFound
+        }
+
+        // Step 3 — Wait for docker gateway readiness (up to 30s)
+        phase = .transferring(step: "Waiting for Docker assistant...")
+        for i in 0..<30 {
+            if await HealthCheckClient.isReachable(for: resolvedDocker, timeout: 1) {
+                break
+            }
+            if i == 29 {
+                throw TeleportError.dockerAssistantNotFound
+            }
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+
+        // Step 4 — Bootstrap actor token against docker gateway
+        phase = .transferring(step: "Authenticating with Docker assistant...")
+        let actorToken = try await bootstrapActorToken(targetAssistantId: resolvedDocker.assistantId)
+        ActorTokenManager.setToken(actorToken)
+
+        // Step 5 — Import bundle to docker assistant
+        phase = .transferring(step: "Importing data to Docker...")
+        let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        UserDefaults.standard.set(resolvedDocker.assistantId, forKey: "connectedAssistantId")
+        let importResponse = try await GatewayHTTPClient.post(
+            path: "assistants/{assistantId}/migrations/import",
+            body: bundleData,
+            timeout: 120
+        )
+        UserDefaults.standard.set(previousId, forKey: "connectedAssistantId")
+        guard importResponse.isSuccess else {
+            throw TeleportError.importFailed(message: "HTTP \(importResponse.statusCode)")
+        }
+        if let importJson = try? JSONSerialization.jsonObject(with: importResponse.data) as? [String: Any],
+           let success = importJson["success"] as? Bool, !success {
+            let errorMsg = (importJson["error"] as? String) ?? "Import reported failure"
+            throw TeleportError.importFailed(message: errorMsg)
+        }
+
+        // Step 6 — Switch to docker assistant
+        phase = .transferring(step: "Switching to Docker assistant...")
+        AppDelegate.shared?.performSwitchAssistant(to: resolvedDocker)
+        transferTask = nil
+
+        // Step 7 — Verification phase (do NOT retire)
+        phase = .verifying
+    }
+
+    // MARK: - Docker -> Platform
+
+    private func teleportDockerToPlatform() async throws {
+        // Step 1 — Export docker assistant data
+        phase = .transferring(step: "Exporting assistant data...")
+        let bundleData = try await exportAssistantBundle()
+
+        // Step 2 — Ensure managed assistant exists on platform
+        phase = .transferring(step: "Setting up cloud assistant...")
+        let outcome = try await ManagedAssistantBootstrapService.shared.ensureManagedAssistant()
+        let platformAssistant: PlatformAssistant
+        switch outcome {
+        case .reusedExisting(let assistant):
+            platformAssistant = assistant
+        case .createdNew(let assistant):
+            platformAssistant = assistant
+        }
+        let lockfileSuccess = LockfileAssistant.ensureManagedEntry(
+            assistantId: platformAssistant.id,
+            runtimeUrl: AuthService.shared.baseURL,
+            hatchedAt: platformAssistant.created_at ?? Date().iso8601String
+        )
+        guard lockfileSuccess else {
+            throw TeleportError.importFailed(message: "Failed to save managed assistant configuration to lockfile.")
+        }
+
+        // Step 3 — Import bundle to managed assistant
+        phase = .transferring(step: "Importing data to cloud...")
+        try await importBundleToManaged(bundleData: bundleData, managedAssistantId: platformAssistant.id)
+
+        // Step 4 — Switch to managed assistant
+        phase = .transferring(step: "Switching to cloud assistant...")
+        guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
+            throw TeleportError.managedEntryNotFound
+        }
+        AppDelegate.shared?.performSwitchAssistant(to: managedAssistant)
+        transferTask = nil
+
+        // Step 5 — Verification phase (do NOT retire)
+        phase = .verifying
+    }
+
+    // MARK: - Helpers
+
+    /// Exports the current assistant's data as a `.vbundle` binary archive.
+    private func exportAssistantBundle() async throws -> Data {
+        let response = try await GatewayHTTPClient.post(
+            path: "assistants/{assistantId}/migrations/export",
+            timeout: 60
+        )
+        guard response.isSuccess else {
+            throw TeleportError.exportFailed(statusCode: response.statusCode)
+        }
+        return response.data
+    }
+
+    /// Imports a `.vbundle` archive into the managed assistant via the platform API.
+    private func importBundleToManaged(bundleData: Data, managedAssistantId: String) async throws {
+        let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        UserDefaults.standard.set(managedAssistantId, forKey: "connectedAssistantId")
+        defer { UserDefaults.standard.set(previousId, forKey: "connectedAssistantId") }
+
+        let response = try await GatewayHTTPClient.post(
+            path: "assistants/{assistantId}/migrations/import",
+            body: bundleData,
+            timeout: 120
+        )
+
+        guard response.isSuccess else {
+            if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+               let errorMsg = json["error"] as? String {
+                throw TeleportError.importFailed(message: errorMsg)
+            }
+            throw TeleportError.importFailed(message: "HTTP \(response.statusCode)")
+        }
+
+        if let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+           let success = json["success"] as? Bool, !success {
+            let errorMsg = (json["error"] as? String) ?? "Import reported failure"
+            throw TeleportError.importFailed(message: errorMsg)
+        }
+    }
+
+    /// Bootstraps an actor token against a target assistant's gateway `/v1/guardian/init`
+    /// endpoint. Temporarily swaps `connectedAssistantId` to target the assistant's gateway.
+    /// Retries with exponential backoff up to ~30s.
+    private func bootstrapActorToken(targetAssistantId: String) async throws -> String {
+        let previousId = UserDefaults.standard.string(forKey: "connectedAssistantId")
+        UserDefaults.standard.set(targetAssistantId, forKey: "connectedAssistantId")
+        defer { UserDefaults.standard.set(previousId, forKey: "connectedAssistantId") }
+
+        let deviceId = PairingQRCodeSheet.computeHostId()
+        let body: [String: String] = ["platform": "macos", "deviceId": deviceId]
+
+        var delay: UInt64 = 2_000_000_000
+        for attempt in 0..<6 {
+            try Task.checkCancellation()
+
+            if let response = try? await GatewayHTTPClient.post(
+                path: "assistants/{assistantId}/guardian/init",
+                json: body,
+                timeout: 15
+            ), response.isSuccess,
+               let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
+               let token = json["accessToken"] as? String ?? json["actorToken"] as? String {
+                return token
+            }
+
+            if attempt < 5 {
+                try await Task.sleep(nanoseconds: delay)
+                delay = min(delay * 2, 10_000_000_000)
+            }
+        }
+
+        throw TeleportError.notSignedIn
+    }
+}
