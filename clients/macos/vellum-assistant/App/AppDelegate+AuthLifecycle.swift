@@ -581,13 +581,15 @@ extension AppDelegate {
                 // Roll back to the previous assistant if one was connected.
                 // Show the error toast AFTER rollback so it appears on the
                 // newly created main window (rollback closes the current one).
+                var didRollback = false
                 if let previousAssistantId,
                    let previousAssistant = LockfileAssistant.loadByName(previousAssistantId) {
                     log.info("Rolling back to previous assistant \(previousAssistantId, privacy: .public)")
                     self.rollbackToPreviousAssistant(previousAssistant)
+                    didRollback = true
                 }
 
-                let toastMessage = previousAssistantId != nil
+                let toastMessage = didRollback
                     ? "Assistant is not responding. Switching back to previous assistant."
                     : "Assistant is not responding. It may be offline."
                 self.mainWindow?.windowState.showToast(
