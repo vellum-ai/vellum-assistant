@@ -480,7 +480,7 @@ struct ChatBubble: View, Equatable {
                     MarkdownSegmentView(
                         segments: segments,
                         isStreaming: message.isStreaming,
-                        maxContentWidth: isUser ? (bubbleMaxWidth - 2 * VSpacing.lg) : bubbleMaxWidth,
+                        maxContentWidth: isUser ? max(bubbleMaxWidth - 2 * VSpacing.lg, 0) : bubbleMaxWidth,
                         textColor: isUser ? VColor.contentDefault : VColor.contentDefault,
                         secondaryTextColor: isUser ? VColor.contentSecondary : VColor.contentSecondary,
                         mutedTextColor: isUser ? VColor.contentSecondary : VColor.contentTertiary,
