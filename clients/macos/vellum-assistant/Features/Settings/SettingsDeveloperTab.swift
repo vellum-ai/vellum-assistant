@@ -790,7 +790,7 @@ struct SettingsDeveloperTab: View {
                             .foregroundStyle(VColor.contentDefault)
                             .accessibilityValue("Maintenance mode active")
                     }
-                    if let podName = maintenance.debug_pod_name {
+                    if let podName = maintenance.debug_pod_name, !podName.isEmpty {
                         Text("Debug pod: \(podName)")
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentTertiary)
