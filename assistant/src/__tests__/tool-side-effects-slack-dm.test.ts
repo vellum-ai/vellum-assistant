@@ -43,9 +43,9 @@ mock.module("../daemon/doordash-steps.js", () => ({
   updateDoordashProgress: mock(() => {}),
 }));
 
-const mockLogWarn = mock(() => {});
-const mockLogInfo = mock(() => {});
-const mockLogError = mock(() => {});
+const mockLogWarn = mock((_obj: unknown, _msg: string) => {});
+const mockLogInfo = mock((_obj: unknown, _msg: string) => {});
+const mockLogError = mock((_obj: unknown, _msg: string) => {});
 mock.module("../util/logger.js", () => ({
   getLogger: () => ({
     warn: mockLogWarn,
@@ -143,9 +143,10 @@ describe("bash hook — Slack DM dispatch with session validation", () => {
     );
 
     expect(mockDeliverVerificationSlack).not.toHaveBeenCalled();
-    expect(mockLogWarn).toHaveBeenCalled();
-    const warnArgs = mockLogWarn.mock.calls[0];
-    expect(warnArgs[1]).toContain("no active Slack verification session");
+    expect(mockLogWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "U123" }),
+      expect.stringContaining("no active Slack verification session"),
+    );
   });
 
   test("userId mismatch — DM not dispatched", () => {
@@ -168,9 +169,10 @@ describe("bash hook — Slack DM dispatch with session validation", () => {
     );
 
     expect(mockDeliverVerificationSlack).not.toHaveBeenCalled();
-    expect(mockLogWarn).toHaveBeenCalled();
-    const warnArgs = mockLogWarn.mock.calls[0];
-    expect(warnArgs[1]).toContain("does not match active session destination");
+    expect(mockLogWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "U_ATTACKER", expected: "U999" }),
+      expect.stringContaining("does not match active session destination"),
+    );
   });
 
   test("command without verification substring — hook is no-op", () => {
