@@ -1304,8 +1304,12 @@ final class ConversationManager: ObservableObject, ConversationRestorerDelegate 
         let sourceGroupId = draft[sourceIdx].groupId
         let targetGroupId = targetConversation.groupId
 
-        // Cross-group drag: assign source to target's group
+        // Cross-group drag: assign source to target's group.
+        // Save pre-pin provenance so unpinConversation can restore the original group.
         if sourceGroupId != targetGroupId {
+            if targetGroupId == ConversationGroup.pinned.id {
+                prePinGroupIds[sourceId] = sourceGroupId
+            }
             draft[sourceIdx].groupId = targetGroupId
         }
 

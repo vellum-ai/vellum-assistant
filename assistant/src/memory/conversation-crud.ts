@@ -285,27 +285,20 @@ export function createConversation(
 
   // Retry on SQLITE_BUSY and SQLITE_IOERR — transient disk I/O errors or WAL
   // contention can cause the first attempt to fail even under normal load.
-  // group_id is set via raw SQL (not in Drizzle schema) in the same transaction
-  // as the INSERT to avoid partial-write edge cases on crash.
+  // group_id is set via raw SQL immediately after the Drizzle INSERT (not in
+  // Drizzle schema). No explicit BEGIN/COMMIT here — callers that need
+  // atomicity (e.g. forkConversation) wrap in their own transaction, and
+  // nesting raw BEGIN inside Drizzle's db.transaction() would crash SQLite.
   const MAX_RETRIES = 3;
   for (let attempt = 0; ; attempt++) {
     try {
+      db.insert(conversations).values(conversation).run();
       if (groupId) {
-        rawExec("BEGIN");
-        try {
-          db.insert(conversations).values(conversation).run();
-          rawRun(
-            "UPDATE conversations SET group_id = ? WHERE id = ?",
-            groupId,
-            id,
-          );
-          rawExec("COMMIT");
-        } catch (innerErr) {
-          rawExec("ROLLBACK");
-          throw innerErr;
-        }
-      } else {
-        db.insert(conversations).values(conversation).run();
+        rawRun(
+          "UPDATE conversations SET group_id = ? WHERE id = ?",
+          groupId,
+          id,
+        );
       }
       break;
     } catch (err) {

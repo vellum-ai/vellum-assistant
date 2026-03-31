@@ -84,14 +84,6 @@ export function groupRouteDefinitions(): RouteDefinition[] {
         if (!existing) {
           return httpError("NOT_FOUND", "Group not found", 404);
         }
-        // System groups are immutable
-        if (existing.isSystemGroup) {
-          return httpError(
-            "FORBIDDEN",
-            "System groups cannot be modified",
-            403,
-          );
-        }
         const body = (await req.json()) as {
           name?: string;
           sortPosition?: number;
@@ -104,6 +96,14 @@ export function groupRouteDefinitions(): RouteDefinition[] {
           typeof body.sortPosition !== "number"
         ) {
           return httpError("BAD_REQUEST", "sortPosition must be a number", 400);
+        }
+        // System groups allow name changes but block sortPosition/delete.
+        if (existing.isSystemGroup && body.sortPosition !== undefined) {
+          return httpError(
+            "FORBIDDEN",
+            "System group sort position cannot be changed",
+            403,
+          );
         }
         // Custom group sort_position must be >= 3
         if (
