@@ -360,7 +360,7 @@ struct TeleportSection: View {
 
         // Step 3 — Import bundle to managed assistant
         phase = .transferring(step: "Uploading data to cloud...")
-        try await importBundleToManaged(bundleData: bundleData, managedAssistantId: platformAssistant.id)
+        try await importBundleToManaged(bundleData: bundleData)
 
         // Step 4 — Resolve managed assistant for later switch
         guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
@@ -478,7 +478,7 @@ struct TeleportSection: View {
 
         // Step 3 — Import bundle to managed assistant
         phase = .transferring(step: "Uploading data to cloud...")
-        try await importBundleToManaged(bundleData: bundleData, managedAssistantId: platformAssistant.id)
+        try await importBundleToManaged(bundleData: bundleData)
 
         // Step 4 — Resolve managed assistant for later switch
         guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
@@ -509,7 +509,7 @@ struct TeleportSection: View {
     ///
     /// Uses 3 steps: request signed URL → upload to GCS → trigger import from GCS.
     /// All endpoints are org-scoped, so no `connectedAssistantId` swap is needed.
-    private func importBundleToManaged(bundleData: Data, managedAssistantId: String) async throws {
+    private func importBundleToManaged(bundleData: Data) async throws {
         // Step 1: Request a signed upload URL from the platform
         let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
 
