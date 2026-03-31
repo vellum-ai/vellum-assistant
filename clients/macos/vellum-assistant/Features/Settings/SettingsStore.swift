@@ -2496,6 +2496,7 @@ public final class SettingsStore: ObservableObject {
               assistant.isManaged else {
             // Not a managed assistant — clear any stale state.
             managedAssistantMaintenanceMode = nil
+            maintenanceModeRefreshError = nil
             return
         }
 
