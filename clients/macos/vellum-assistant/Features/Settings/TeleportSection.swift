@@ -160,8 +160,10 @@ struct TeleportSection: View {
     @ViewBuilder
     private var destinationPicker: some View {
         if assistant.cloud.lowercased() == "local" {
-            // Bare metal local: show both Docker and Platform options
-            destinationButton(for: .docker)
+            // Bare metal local: always show Platform, conditionally show Docker
+            if MacOSClientFeatureFlagManager.shared.isEnabled("teleport") {
+                destinationButton(for: .docker)
+            }
             destinationButton(for: .platform)
         } else if assistant.isDocker {
             // Docker: show only Platform option
