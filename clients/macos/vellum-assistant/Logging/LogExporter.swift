@@ -29,7 +29,6 @@ private let log = Logger(
 /// - `crash-reports/` — recent macOS crash/hang reports (.ips, .crash, .spin) for assistant-related processes (bun, qdrant, vellum-assistant)
 /// - `app-environment.json` — bundle path, quarantine xattr, and translocation status for diagnosing Gatekeeper-related launch issues
 /// - `os-log.txt` — recent entries from the macOS unified log for the app's subsystem
-/// - `daemon-logs-fallback/` — when daemon is unreachable: vellum.log, recent hatch-*.log, and XDG hatch.log read directly from disk (10 MB cap)
 @MainActor
 enum LogExporter {
 
@@ -304,12 +303,6 @@ enum LogExporter {
                 let success = await fetchDaemonExports(into: tempDir, scope: formData?.scope ?? .global)
                 if !success {
                     daemonUnreachable = true
-                    collectFallbackDaemonLogs(
-                        into: tempDir,
-                        home: home,
-                        connectedAssistant: connectedAssistant,
-                        fileManager: fileManager
-                    )
                 }
             }
 
@@ -392,8 +385,8 @@ enum LogExporter {
                 try? data.write(to: tempDir.appendingPathComponent("report-metadata.json"))
             }
         } else if daemonUnreachable {
-            // Write a minimal manifest when no form data is available so the
-            // receiving end still knows these are raw filesystem reads.
+                // Write a minimal manifest when no form data is available so the
+                // receiving end still knows the daemon was unreachable during export.
             var manifest: [String: Any] = ["daemon-unreachable": true]
             if let assistantVersion = connectedAssistant?.serviceGroupVersion {
                 manifest["assistant_version"] = assistantVersion
@@ -604,142 +597,6 @@ enum LogExporter {
             )
             return false
         }
-    }
-
-    // MARK: - Assistant Log Fallback
-
-    /// Maximum total bytes to read when collecting fallback assistant logs.
-    private nonisolated static let fallbackLogSizeLimit = 10 * 1024 * 1024 // 10 MB
-
-    /// When the assistant is unreachable, reads log files directly from the
-    /// filesystem and copies them into `directory/daemon-logs-fallback/`.
-    /// Includes the main assistant log (`vellum.log`) and the 3 most recent
-    /// hatch attempt logs (`hatch-*.log`), capped at 10 MB total.
-    ///
-    /// Resolves the workspace log directory from the connected assistant's
-    /// lockfile entry (via `instanceDir` or `baseDataDir`) to support
-    /// multi-instance setups. Falls back to `~/.vellum/workspace/` when
-    /// no lockfile entry is available.
-    private nonisolated static func collectFallbackDaemonLogs(
-        into directory: URL,
-        home: String,
-        connectedAssistant: LockfileAssistant?,
-        fileManager: FileManager
-    ) {
-        let fallbackDir = directory.appendingPathComponent("daemon-logs-fallback", isDirectory: true)
-        try? fileManager.createDirectory(at: fallbackDir, withIntermediateDirectories: true)
-
-        let workspaceDir: String = connectedAssistant?.workspaceDir
-            ?? URL(fileURLWithPath: home).appendingPathComponent(".vellum/workspace").path
-        let workspaceLogDir = URL(fileURLWithPath: workspaceDir)
-            .appendingPathComponent("data/logs", isDirectory: true)
-
-        var totalBytes = 0
-
-        // 1. Main assistant log — vellum.log
-        let vellumLog = workspaceLogDir.appendingPathComponent("vellum.log")
-        if fileManager.fileExists(atPath: vellumLog.path),
-           let attrs = try? fileManager.attributesOfItem(atPath: vellumLog.path),
-           let size = attrs[.size] as? Int,
-           size > 0 {
-            let bytesToRead = min(size, fallbackLogSizeLimit - totalBytes)
-            if bytesToRead > 0 {
-                if bytesToRead >= size {
-                    try? fileManager.copyItem(
-                        at: vellumLog,
-                        to: fallbackDir.appendingPathComponent("vellum.log")
-                    )
-                } else {
-                    // Tail the file if it exceeds the remaining budget
-                    copyTail(
-                        of: vellumLog,
-                        bytes: bytesToRead,
-                        to: fallbackDir.appendingPathComponent("vellum.log")
-                    )
-                }
-                totalBytes += bytesToRead
-            }
-        }
-
-        // 2. Recent hatch attempt logs — hatch-*.log, sorted by modification time (newest first)
-        if fileManager.fileExists(atPath: workspaceLogDir.path),
-           let contents = try? fileManager.contentsOfDirectory(
-               at: workspaceLogDir,
-               includingPropertiesForKeys: [.contentModificationDateKey],
-               options: [.skipsHiddenFiles]
-           ) {
-            let hatchLogs = contents
-                .filter { $0.lastPathComponent.hasPrefix("hatch-") && $0.pathExtension == "log" }
-                .sorted { a, b in
-                    let aDate = (try? a.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                    let bDate = (try? b.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                    return aDate > bDate
-                }
-
-            for hatchLog in hatchLogs.prefix(3) {
-                guard totalBytes < fallbackLogSizeLimit else { break }
-                guard let attrs = try? fileManager.attributesOfItem(atPath: hatchLog.path),
-                      let size = attrs[.size] as? Int,
-                      size > 0 else { continue }
-
-                let bytesToRead = min(size, fallbackLogSizeLimit - totalBytes)
-                if bytesToRead >= size {
-                    try? fileManager.copyItem(
-                        at: hatchLog,
-                        to: fallbackDir.appendingPathComponent(hatchLog.lastPathComponent)
-                    )
-                } else {
-                    copyTail(
-                        of: hatchLog,
-                        bytes: bytesToRead,
-                        to: fallbackDir.appendingPathComponent(hatchLog.lastPathComponent)
-                    )
-                }
-                totalBytes += bytesToRead
-            }
-        }
-
-        // 3. XDG CLI hatch log — ~/.config/vellum/logs/hatch.log
-        //    Already collected under xdg-logs/ by the main export path, but verify
-        //    it exists and include in the fallback directory for completeness.
-        let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
-            ?? URL(fileURLWithPath: home).appendingPathComponent(".config").path
-        let xdgHatchLog = URL(fileURLWithPath: xdgConfigHome)
-            .appendingPathComponent("vellum/logs/hatch.log")
-        if fileManager.fileExists(atPath: xdgHatchLog.path),
-           totalBytes < fallbackLogSizeLimit,
-           let attrs = try? fileManager.attributesOfItem(atPath: xdgHatchLog.path),
-           let size = attrs[.size] as? Int,
-           size > 0 {
-            let bytesToRead = min(size, fallbackLogSizeLimit - totalBytes)
-            if bytesToRead >= size {
-                try? fileManager.copyItem(
-                    at: xdgHatchLog,
-                    to: fallbackDir.appendingPathComponent("xdg-hatch.log")
-                )
-            } else {
-                copyTail(
-                    of: xdgHatchLog,
-                    bytes: bytesToRead,
-                    to: fallbackDir.appendingPathComponent("xdg-hatch.log")
-                )
-            }
-            totalBytes += bytesToRead
-        }
-
-        log.info("Collected \(totalBytes) bytes of fallback assistant logs from filesystem")
-    }
-
-    /// Reads the last `bytes` bytes from `source` and writes them to `destination`.
-    private nonisolated static func copyTail(of source: URL, bytes: Int, to destination: URL) {
-        guard let handle = try? FileHandle(forReadingFrom: source) else { return }
-        defer { try? handle.close() }
-
-        let fileSize = handle.seekToEndOfFile()
-        let offset = fileSize > UInt64(bytes) ? fileSize - UInt64(bytes) : 0
-        handle.seek(toFileOffset: offset)
-        let data = handle.readData(ofLength: bytes)
-        try? data.write(to: destination)
     }
 
     /// Reads the first `bytes` bytes from `source` and writes them to `destination`.

@@ -936,6 +936,7 @@ export async function processMessage(
       return persisted.id;
     } finally {
       conversation.processing = false;
+      await drainQueue(conversation);
     }
   }
 

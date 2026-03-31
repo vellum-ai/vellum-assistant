@@ -16,7 +16,7 @@ struct IntelligencePanel: View {
     @Binding var pendingMemoryId: String?
 
     @State private var selectedTab: IntelligenceTab
-    @State private var cachedAssistantName: String = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
+    @State private var cachedAssistantName: String = "Your Assistant"
     @State private var isContactsEnabled: Bool = false
     @State private var isEmailEnabled: Bool = false
     @Binding var pendingSkillId: String?
@@ -67,6 +67,8 @@ struct IntelligencePanel: View {
             }
         }
         .task {
+            let info = await IdentityInfo.loadAsync()
+            cachedAssistantName = AssistantDisplayName.resolve(info?.name, fallback: "Your Assistant")
             await loadContactsFeatureFlag()
         }
         .onReceive(NotificationCenter.default.publisher(for: .assistantFeatureFlagDidChange)) { notification in

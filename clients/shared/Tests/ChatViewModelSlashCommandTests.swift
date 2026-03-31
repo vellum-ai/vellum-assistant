@@ -33,10 +33,6 @@ final class ChatViewModelSlashCommandTests: XCTestCase {
             commands: [TelegramConfigRequestCommand]?
         ) async -> TelegramConfigResponseMessage? { nil }
 
-        func fetchDangerouslySkipPermissions() async -> Bool? { nil }
-
-        func setDangerouslySkipPermissions(_ enabled: Bool) async -> Bool { false }
-
         func setSlackWebhookConfig(action: String, webhookUrl: String?) async -> Bool { false }
 
         func fetchChannelVerificationStatus(channel: String) async -> ChannelVerificationSessionResponseMessage? { nil }

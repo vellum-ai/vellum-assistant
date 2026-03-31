@@ -140,7 +140,7 @@ private struct PillSegment: View {
             .frame(maxWidth: .infinity)
             .frame(height: 28)
             .background(
-                RoundedRectangle(cornerRadius: VRadius.sm)
+                RoundedRectangle(cornerRadius: VRadius.md)
                     .fill(segmentBackground)
                     .shadow(color: isSelected ? VColor.auxBlack.opacity(0.08) : .clear, radius: 2, x: 0, y: 1)
             )

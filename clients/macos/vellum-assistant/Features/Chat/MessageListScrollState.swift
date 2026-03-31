@@ -569,7 +569,8 @@ final class MessageListScrollState {
         mode = .initialLoad
         activeStabilizationCount = 0
         pendingPushToTopTarget = nil
-        isAtBottom = true
+        // False: scroll geometry hasn't updated for the new content yet.
+        isAtBottom = false
         lastContentOffsetY = 0
         throttleRecoveryTask?.cancel()
         throttleRecoveryTask = nil

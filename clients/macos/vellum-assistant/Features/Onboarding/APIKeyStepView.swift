@@ -1,6 +1,48 @@
 import VellumAssistantShared
 import SwiftUI
 
+enum OnboardingHostingModeResolver {
+    static func availableHostingModes(
+        userHostedEnabled: Bool,
+        localDockerEnabled: Bool
+    ) -> [OnboardingState.HostingMode] {
+        var modes: [OnboardingState.HostingMode] = [.local, .vellumCloud]
+        if localDockerEnabled {
+            // Keep "Local" as the default choice and expose the legacy
+            // non-Docker hatch explicitly as an escape hatch.
+            modes.append(.oldLocal)
+        }
+        if userHostedEnabled {
+            modes.append(contentsOf: [.aws, .gcp, .customHardware])
+        }
+        return modes
+    }
+
+    static func subtitle(
+        for mode: OnboardingState.HostingMode,
+        localDockerEnabled: Bool
+    ) -> String {
+        if localDockerEnabled && mode == .local {
+            return OnboardingState.HostingMode.docker.subtitle
+        }
+        return mode.subtitle
+    }
+
+    static func cloudProvider(
+        for mode: OnboardingState.HostingMode,
+        localDockerEnabled: Bool
+    ) -> String {
+        switch mode {
+        case .oldLocal:
+            return OnboardingState.HostingMode.local.rawValue
+        case .local where localDockerEnabled:
+            return OnboardingState.HostingMode.docker.rawValue
+        default:
+            return mode.rawValue
+        }
+    }
+}
+
 @MainActor
 struct APIKeyStepView: View {
     @Bindable var state: OnboardingState
@@ -16,6 +58,10 @@ struct APIKeyStepView: View {
 
     private var platformHostedEnabled: Bool {
         MacOSClientFeatureFlagManager.shared.isEnabled("platform-hosted-enabled")
+    }
+
+    private var localDockerEnabled: Bool {
+        MacOSClientFeatureFlagManager.shared.isEnabled("local-docker-enabled")
     }
 
     var body: some View {
@@ -69,19 +115,10 @@ struct APIKeyStepView: View {
     // MARK: - Hosting Cards
 
     private var availableHostingModes: [OnboardingState.HostingMode] {
-        var modes: [OnboardingState.HostingMode] = [.local, .vellumCloud]
-        // In dev mode, local already uses Docker under the hood, so hide the
-        // separate Docker card to reduce confusion. Show "Old Local" instead
-        // for legacy non-Docker local development.
-        if DevModeManager.shared.isDevMode {
-            modes.append(.oldLocal)
-        } else {
-            modes.insert(.docker, at: 1)
-        }
-        if userHostedEnabled {
-            modes.append(contentsOf: [.aws, .gcp, .customHardware])
-        }
-        return modes
+        OnboardingHostingModeResolver.availableHostingModes(
+            userHostedEnabled: userHostedEnabled,
+            localDockerEnabled: localDockerEnabled
+        )
     }
 
     private func chipLabel(for mode: OnboardingState.HostingMode) -> String? {
@@ -89,8 +126,6 @@ struct APIKeyStepView: View {
         case .vellumCloud:
             if !isAuthenticated || state.skippedAuth { return "Requires Account" }
             return platformHostedEnabled ? nil : "Coming Soon"
-        case .docker:
-            return userHostedEnabled ? nil : "Coming Soon"
         default:
             return nil
         }
@@ -99,9 +134,10 @@ struct APIKeyStepView: View {
     private var hostingCards: some View {
         VStack(spacing: VSpacing.sm) {
             ForEach(availableHostingModes, id: \.rawValue) { mode in
-                let subtitle = (DevModeManager.shared.isDevMode && mode == .local)
-                    ? OnboardingState.HostingMode.docker.subtitle
-                    : mode.subtitle
+                let subtitle = OnboardingHostingModeResolver.subtitle(
+                    for: mode,
+                    localDockerEnabled: localDockerEnabled
+                )
                 hostingCard(
                     icon: iconForMode(mode),
                     title: mode.displayName,
@@ -220,15 +256,10 @@ struct APIKeyStepView: View {
     private func handleContinue() {
         guard canContinue else { return }
 
-        if state.selectedHostingMode == .oldLocal {
-            // "Old Local" bypasses Docker — use the legacy local hatch path.
-            state.cloudProvider = OnboardingState.HostingMode.local.rawValue
-        } else if DevModeManager.shared.isDevMode && state.selectedHostingMode == .local {
-            // In dev mode, "Local" uses Docker under the hood for sandboxed execution.
-            state.cloudProvider = OnboardingState.HostingMode.docker.rawValue
-        } else {
-            state.cloudProvider = state.selectedHostingMode.rawValue
-        }
+        state.cloudProvider = OnboardingHostingModeResolver.cloudProvider(
+            for: state.selectedHostingMode,
+            localDockerEnabled: localDockerEnabled
+        )
 
         if isAuthenticated {
             // Authenticated user: skip API key entry, advance to consent step

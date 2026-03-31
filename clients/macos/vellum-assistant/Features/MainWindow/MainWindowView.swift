@@ -66,7 +66,9 @@ struct MainWindowView: View {
     @State var conversationSwitcherTriggerFrame: CGRect = .zero
 
     /// Cached assistant display name, refreshed when IDENTITY.md changes on disk.
-    @State var cachedAssistantName: String = AssistantDisplayName.resolve(IdentityInfo.load()?.name, fallback: "Your Assistant")
+    @State var cachedAssistantName: String = "Your Assistant"
+    /// Whether cachedAssistantName has been resolved from IDENTITY.md at least once.
+    @State var assistantNameResolved: Bool = false
     /// File watcher for IDENTITY.md — fires when the assistant's name changes.
     @State var identityFileWatcher: DispatchSourceFileSystemObject?
     /// Whether the "coming alive" overlay is currently showing.
@@ -180,10 +182,9 @@ struct MainWindowView: View {
 
     /// Resolve display names for conversation export.
     private func resolveParticipantNames() -> ChatTranscriptFormatter.ParticipantNames {
-        let assistantName = AssistantDisplayName.resolve(
-            IdentityInfo.load()?.name,
-            fallback: AssistantDisplayName.placeholder
-        )
+        let assistantName = assistantNameResolved
+            ? cachedAssistantName
+            : AssistantDisplayName.placeholder
 
         // User name: stored profile → system name → fallback
         let userName: String = {

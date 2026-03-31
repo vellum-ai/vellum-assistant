@@ -5,7 +5,26 @@ import VellumAssistantShared
 
 // MARK: - Chat Bubble
 
-struct ChatBubble: View {
+struct ChatBubble: View, Equatable {
+    // MARK: - Equatable
+
+    /// Compares only data properties, skipping closures which are never equal by value.
+    /// https://airbnb.tech/mobile/understanding-and-improving-swiftui-performance/
+    static func == (lhs: ChatBubble, rhs: ChatBubble) -> Bool {
+        lhs.message == rhs.message
+            && lhs.decidedConfirmation == rhs.decidedConfirmation
+            && lhs.dismissedDocumentSurfaceIds == rhs.dismissedDocumentSurfaceIds
+            && (lhs.onForkFromMessage != nil) == (rhs.onForkFromMessage != nil)
+            && lhs.showInspectButton == rhs.showInspectButton
+            && lhs.mediaEmbedSettings == rhs.mediaEmbedSettings
+            && lhs.activeConfirmationRequestId == rhs.activeConfirmationRequestId
+            && lhs.isLatestAssistantMessage == rhs.isLatestAssistantMessage
+            && lhs.isProcessingAfterTools == rhs.isProcessingAfterTools
+            && lhs.processingStatusText == rhs.processingStatusText
+            && lhs.isTTSEnabled == rhs.isTTSEnabled
+            && lhs.hideInlineAvatar == rhs.hideInlineAvatar
+            && lhs.activeSurfaceId == rhs.activeSurfaceId
+    }
     let message: ChatMessage
     /// Decided confirmation from the next message, rendered as a compact chip at the bottom.
     let decidedConfirmation: ToolConfirmationData?
@@ -43,15 +62,13 @@ struct ChatBubble: View {
     var isTTSEnabled: Bool = false
     /// When true, hide the inline avatar (e.g. thinking indicator is showing it instead).
     var hideInlineAvatar: Bool = false
-    @State private var audioPlayer = MessageAudioPlayer()
-    @State private var isHovered = false
+    /// Owned but never read in this body — only ChatBubbleOverflowMenu reads it,
+    /// so hover changes invalidate only the overflow menu, not this view.
+    @State private var hoverState = ChatBubbleHoverState()
     /// Stores async-parsed segments for large messages (>500 chars) that missed the
     /// synchronous cache. Keyed by text content so multiple segments can be in flight.
     @State var asyncSegments: [String: [MarkdownSegment]] = [:]
 
-    @State private var showCopyConfirmation = false
-    @State private var showTTSSetupPopover = false
-    @State private var copyConfirmationTimer: DispatchWorkItem?
     @State private var mediaEmbedIntents: [MediaEmbedIntent] = []
     // Cached interleaved content state — updated via .onChange(of:) to avoid
     // recomputing O(n) grouping on every body evaluation.
@@ -169,20 +186,8 @@ struct ChatBubble: View {
     var activeSurfaceId: String?
 
     var isUser: Bool { message.role == .user }
-    private var hasCopyableText: Bool {
-        !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-    private var canInspectMessage: Bool {
-        showInspectButton && !isUser && message.daemonMessageId != nil
-    }
     var canForkFromMessage: Bool {
         onForkFromMessage != nil && message.daemonMessageId != nil && !message.isStreaming
-    }
-    private var hasOverflowActions: Bool {
-        hasCopyableText || canInspectMessage || canForkFromMessage
-    }
-    private var showOverflowMenu: Bool {
-        hasOverflowActions && !message.isStreaming && (isHovered || showCopyConfirmation || audioPlayer.isPlaying || audioPlayer.isLoading || showTTSSetupPopover)
     }
 
     /// Composite identity for the `.task` modifier so it re-runs when either
@@ -235,49 +240,6 @@ struct ChatBubble: View {
             }
             // Outer frame: cap the maximum width and position the bubble.
             .frame(maxWidth: message.isError ? .infinity : VSpacing.chatBubbleMaxWidth, alignment: isUser ? .trailing : .leading)
-    }
-
-    private static let timeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = .autoupdatingCurrent
-        f.dateStyle = .none
-        f.timeStyle = .short
-        return f
-    }()
-
-    private static let dayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = .autoupdatingCurrent
-        f.dateFormat = "MMM d"
-        return f
-    }()
-
-    private static let detailedFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = .autoupdatingCurrent
-        f.dateStyle = .full
-        f.timeStyle = .long
-        return f
-    }()
-
-    private var formattedTimestamp: String {
-        let tz = ChatTimestampTimeZone.resolve()
-        var calendar = Calendar.current
-        calendar.timeZone = tz
-        Self.timeFormatter.timeZone = tz
-        let timeString = Self.timeFormatter.string(from: message.timestamp)
-        if calendar.isDateInToday(message.timestamp) {
-            return "Today, \(timeString)"
-        } else {
-            Self.dayFormatter.timeZone = tz
-            return "\(Self.dayFormatter.string(from: message.timestamp)), \(timeString)"
-        }
-    }
-
-    private var detailedTimestamp: String {
-        let tz = ChatTimestampTimeZone.resolve()
-        Self.detailedFormatter.timeZone = tz
-        return Self.detailedFormatter.string(from: message.timestamp)
     }
 
     /// Surfaces not currently shown in the floating overlay, computed once per body evaluation.
@@ -370,11 +332,14 @@ struct ChatBubble: View {
                         trailingStatus
                     }
 
-                    if hasOverflowActions {
-                        overflowMenuButton
-                            .opacity(showOverflowMenu ? 1 : 0)
-                            .animation(VAnimation.fast, value: showOverflowMenu)
-                    }
+                    ChatBubbleOverflowMenu(
+                        message: message,
+                        hoverState: hoverState,
+                        isTTSEnabled: isTTSEnabled,
+                        showInspectButton: showInspectButton,
+                        onForkFromMessage: onForkFromMessage,
+                        onInspectMessage: onInspectMessage
+                    )
                 }
                 // Give this content priority so LazyVStack doesn't compress it,
                 // which caused trailing tool chips to overlap long text content.
@@ -397,7 +362,7 @@ struct ChatBubble: View {
         .onChange(of: message.contentOrder) { _, _ in recomputeInterleavedContentCache() }
         .onChange(of: message.textSegments) { _, _ in recomputeInterleavedContentCache() }
         .onHover { hovering in
-            isHovered = hovering
+            hoverState.isHovered = hovering
         }
         .task(id: mediaEmbedTaskID) {
             guard !message.isStreaming else { return }
@@ -472,157 +437,6 @@ struct ChatBubble: View {
             }
         }
         .textSelection(.disabled)
-    }
-
-    // MARK: - Overflow Menu
-
-    private func copyMessageText() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(message.text, forType: .string)
-        copyConfirmationTimer?.cancel()
-        showCopyConfirmation = true
-        let timer = DispatchWorkItem { showCopyConfirmation = false }
-        copyConfirmationTimer = timer
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: timer)
-    }
-
-    private var overflowMenuButton: some View {
-        HStack(spacing: 2) {
-            Text(formattedTimestamp)
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentTertiary)
-                .help(detailedTimestamp)
-            if hasCopyableText {
-                VButton(
-                    label: showCopyConfirmation ? "Copied" : "Copy message",
-                    iconOnly: (showCopyConfirmation ? VIcon.check : VIcon.copy).rawValue,
-                    style: .ghost,
-                    iconSize: 24,
-                    iconColor: showCopyConfirmation ? VColor.systemPositiveStrong : VColor.contentTertiary
-                ) {
-                    copyMessageText()
-                }
-                .vTooltip(showCopyConfirmation ? "Copied" : "Copy", edge: .bottom)
-                .animation(VAnimation.fast, value: showCopyConfirmation)
-            }
-            if !isUser && hasCopyableText && isTTSEnabled && message.daemonMessageId != nil {
-                ttsButton
-            }
-            if let onForkFromMessage, let daemonMessageId = message.daemonMessageId, !message.isStreaming {
-                VButton(
-                    label: "Fork from here",
-                    iconOnly: VIcon.gitBranch.rawValue,
-                    style: .ghost,
-                    iconSize: 24,
-                    iconColor: VColor.contentTertiary
-                ) {
-                    onForkFromMessage(daemonMessageId)
-                }
-                .vTooltip("Fork from here", edge: .bottom)
-            }
-            if showInspectButton, !isUser, let daemonMsgId = message.daemonMessageId {
-                VButton(
-                    label: "Inspect LLM context",
-                    iconOnly: VIcon.fileCode.rawValue,
-                    style: .ghost,
-                    iconSize: 24,
-                    iconColor: VColor.contentTertiary
-                ) {
-                    onInspectMessage?(daemonMsgId)
-                }
-                .vTooltip("Inspect", edge: .bottom)
-            }
-        }
-        .textSelection(.disabled)
-    }
-
-    // MARK: - TTS Button
-
-    @ViewBuilder
-    private var ttsButton: some View {
-        if audioPlayer.isLoading {
-            ProgressView()
-                .controlSize(.small)
-                .frame(width: 24, height: 24)
-                .tint(VColor.contentTertiary)
-        } else if audioPlayer.isPlaying {
-            VButton(
-                label: "Stop audio",
-                iconOnly: VIcon.square.rawValue,
-                style: .ghost,
-                iconSize: 24,
-                iconColor: VColor.systemPositiveStrong
-            ) {
-                audioPlayer.stop()
-            }
-        } else if let daemonMessageId = message.daemonMessageId {
-            ttsIdleButton(daemonMessageId: daemonMessageId)
-        }
-    }
-
-    @ViewBuilder
-    private func ttsIdleButton(daemonMessageId: String) -> some View {
-        let button = VButton(
-            label: "Play as audio",
-            iconOnly: VIcon.volume2.rawValue,
-            style: .ghost,
-            iconSize: 24,
-            iconColor: audioPlayer.error != nil ? VColor.systemNegativeStrong : VColor.contentTertiary
-        ) {
-            Task {
-                await audioPlayer.playMessage(
-                    messageId: daemonMessageId,
-                    conversationId: nil
-                )
-                if audioPlayer.isNotConfigured {
-                    showTTSSetupPopover = true
-                }
-            }
-        }
-
-        if audioPlayer.isNotConfigured {
-            button
-                .popover(isPresented: $showTTSSetupPopover, arrowEdge: .bottom) {
-                    ttsSetupPopoverContent
-                }
-        } else if audioPlayer.isFeatureDisabled {
-            button
-                .vTooltip("Text-to-speech is not enabled", edge: .bottom)
-        } else {
-            button
-                .vTooltip("Read aloud", edge: .bottom)
-        }
-    }
-
-    private var ttsSetupPopoverContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Read aloud isn't set up yet")
-                .font(VFont.titleSmall)
-                .foregroundStyle(VColor.contentEmphasized)
-            Text("Connect a Fish Audio voice to hear messages spoken aloud.")
-                .font(VFont.bodyMediumDefault)
-                .foregroundStyle(VColor.contentSecondary)
-            HStack(spacing: VSpacing.md) {
-                VButton(label: "Set Up", style: .primary) {
-                    showTTSSetupPopover = false
-                    AppDelegate.shared?.showSettingsTab("Voice")
-                }
-                Button {
-                    if let url = URL(string: "https://fish.audio") {
-                        NSWorkspace.shared.open(url)
-                    }
-                } label: {
-                    Text("Learn more")
-                        .underline()
-                        .font(VFont.bodyMediumLighter)
-                        .foregroundStyle(VColor.primaryBase)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: 280)
-        .background(VColor.surfaceOverlay)
     }
 
     // MARK: - Bubble Content

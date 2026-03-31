@@ -310,7 +310,7 @@ final class VellumCli {
 
     /// How long to wait for the `sleep` CLI before giving up.
     /// The CLI sends SIGTERM then waits up to 5s (daemon) + 7s (gateway).
-    private static let stopTimeout: TimeInterval = 15.0
+    nonisolated private static let stopTimeout: TimeInterval = 15.0
 
     /// Stops the daemon and gateway processes via `vellum sleep --force`.
     /// Waits asynchronously until the CLI exits or `stopTimeout` expires (15 seconds).
@@ -340,33 +340,46 @@ final class VellumCli {
         log.info("[audit] CLI invoke: stop args=\(arguments.dropFirst().joined(separator: " "), privacy: .public)")
 
         let startTime = ContinuousClock.now
-        let url = binaryURL
         let env = Self.makeBaseEnvironment()
         let timeout = Self.stopTimeout
 
-        let status: Int32 = await Task.detached {
+        let status: Int32 = await withCheckedContinuation { (continuation: CheckedContinuation<Int32, Never>) in
             let proc = Process()
-            proc.executableURL = url
+            proc.executableURL = binaryURL
             proc.arguments = arguments
             proc.standardOutput = FileHandle.nullDevice
             proc.standardError = FileHandle.nullDevice
             proc.environment = env
 
-            do {
-                let sem = DispatchSemaphore(value: 0)
-                proc.terminationHandler = { _ in sem.signal() }
-                try proc.run()
+            let once = OnceFlag()
+            let timeoutSeconds = Int(timeout)
 
-                if sem.wait(timeout: .now() + timeout) == .timedOut {
-                    log.warning("CLI sleep timed out after \(Int(timeout))s — terminating process")
-                    proc.terminate()
+            let timeoutItem = DispatchWorkItem { [weak proc] in
+                if once.trySet() {
+                    log.warning("CLI sleep timed out after \(timeoutSeconds)s — terminating process")
+                    proc?.terminate()
+                    continuation.resume(returning: -1)
                 }
-                return proc.terminationStatus
-            } catch {
-                log.error("Failed to launch CLI sleep: \(error.localizedDescription, privacy: .public)")
-                return -1
             }
-        }.value
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
+
+            proc.terminationHandler = { finished in
+                timeoutItem.cancel()
+                if once.trySet() {
+                    continuation.resume(returning: finished.terminationStatus)
+                }
+            }
+
+            do {
+                try proc.run()
+            } catch {
+                timeoutItem.cancel()
+                if once.trySet() {
+                    log.error("Failed to launch CLI sleep: \(error.localizedDescription, privacy: .public)")
+                    continuation.resume(returning: -1)
+                }
+            }
+        }
 
         let elapsed = ContinuousClock.now - startTime
         let ms = elapsed.components.seconds * 1000 + Int64(elapsed.components.attoseconds / 1_000_000_000_000_000)

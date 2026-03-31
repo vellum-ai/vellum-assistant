@@ -284,7 +284,8 @@ async function runHyDESearch(
   let hypotheticalDocs: string[];
   try {
     hypotheticalDocs = await expandQueryWithHyDE(query, config, signal);
-  } catch {
+  } catch (err) {
+    if (isAbortError(err)) throw err;
     // expandQueryWithHyDE already catches internally, but be defensive
     hypotheticalDocs = [];
   }

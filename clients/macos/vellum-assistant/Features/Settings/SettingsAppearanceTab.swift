@@ -45,35 +45,9 @@ struct SettingsAppearanceTab: View {
                             .font(VFont.bodyMediumLighter)
                             .foregroundStyle(VColor.contentSecondary)
                         Spacer()
-                        HStack(spacing: VSpacing.md) {
-                            VIconView(.search, size: 13)
-                                .foregroundStyle(VColor.contentTertiary)
-                            TextField(selectedCityPlaceholder, text: $timezoneSearchText)
-                                .font(VFont.bodyMediumLighter)
-                                .foregroundStyle(VColor.contentDefault)
-                                .textFieldStyle(.plain)
-                                .focused($isTimezoneSearchFocused)
-                            if !timezoneSearchText.isEmpty {
-                                VButton(
-                                    label: "Clear search",
-                                    iconOnly: VIcon.x.rawValue,
-                                    style: .ghost,
-                                    iconSize: 18,
-                                    iconColor: VColor.contentTertiary
-                                ) {
-                                    timezoneSearchText = ""
-                                    isTimezoneDropdownOpen = false
-                                }
-                            }
-                        }
-                        .padding(.horizontal, VSpacing.md)
-                        .frame(width: 280, height: 28)
-                        .background(VColor.surfaceActive)
-                        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: VRadius.md)
-                                .stroke(VColor.borderBase.opacity(0.5), lineWidth: 1)
-                        )
+                        VSearchBar(placeholder: selectedCityPlaceholder, text: $timezoneSearchText)
+                            .focused($isTimezoneSearchFocused)
+                            .frame(width: 280)
                     }
                     .onChange(of: timezoneSearchText) { _, newValue in
                         isTimezoneDropdownOpen = !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -102,46 +76,29 @@ struct SettingsAppearanceTab: View {
                         let filtered = filteredTimezones
                         if !filtered.isEmpty {
                             ScrollView {
-                                LazyVStack(alignment: .leading, spacing: 0) {
+                                LazyVStack(alignment: .leading, spacing: VSpacing.xs) {
                                     ForEach(filtered, id: \.identifier) { entry in
-                                        Button {
-                                            selectedTimezone = entry.identifier
-                                            timezoneSearchText = ""
-                                            isTimezoneDropdownOpen = false
-                                            isTimezoneSearchFocused = false
-                                        } label: {
-                                            HStack {
-                                                Text(entry.displayLabel)
-                                                    .font(VFont.bodyMediumLighter)
-                                                    .foregroundStyle(VColor.contentDefault)
-                                                Spacer()
-                                                Text(entry.currentTime)
-                                                    .font(VFont.labelDefault)
-                                                    .foregroundStyle(VColor.contentTertiary)
+                                        TimezoneResultRow(
+                                            entry: entry,
+                                            isSelected: entry.identifier == selectedTimezone,
+                                            onSelect: {
+                                                selectedTimezone = entry.identifier
+                                                timezoneSearchText = ""
+                                                isTimezoneDropdownOpen = false
+                                                isTimezoneSearchFocused = false
                                             }
-                                            .padding(.horizontal, VSpacing.md)
-                                            .padding(.vertical, VSpacing.sm)
-                                            .background(
-                                                entry.identifier == selectedTimezone
-                                                    ? VColor.surfaceActive
-                                                    : Color.clear
-                                            )
-                                            .contentShape(Rectangle())
-                                        }
-                                        .buttonStyle(.plain)
-                                        .pointerCursor()
+                                        )
                                     }
                                 }
+                                .padding(VSpacing.sm)
                                 .background { OverlayScrollerStyle() }
                             }
                             .scrollContentBackground(.hidden)
                             .frame(maxHeight: 200)
-                            .background(VColor.surfaceActive)
-                            .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: VRadius.lg)
-                                    .strokeBorder(VColor.borderBase, lineWidth: 2)
-                            )
+                            .background(VColor.surfaceLift)
+                            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                            .vShadow(VShadow.modalNear)
+                            .vShadow(VShadow.modalFar)
                             .padding(.top, VSpacing.xs)
                         }
                     }
@@ -512,7 +469,7 @@ struct SettingsAppearanceTab: View {
 
     // MARK: - Timezone Helpers
 
-    private struct TimezoneEntry {
+    fileprivate struct TimezoneEntry {
         let identifier: String
         let city: String
         let region: String
@@ -794,5 +751,43 @@ struct SettingsAppearanceTab: View {
         return true
     }
 
+}
+
+// MARK: - Timezone Result Row
+
+private struct TimezoneResultRow: View {
+    let entry: SettingsAppearanceTab.TimezoneEntry
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack {
+                Text(entry.displayLabel)
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
+                Spacer()
+                Text(entry.currentTime)
+                    .font(VFont.labelDefault)
+                    .foregroundStyle(VColor.contentTertiary)
+            }
+            .padding(.horizontal, VSpacing.sm)
+            .padding(.vertical, VSpacing.xs)
+            .frame(minHeight: VSize.rowMinHeight)
+            .background(
+                isSelected ? VColor.surfaceActive :
+                isHovered ? VColor.surfaceBase :
+                Color.clear
+            )
+            .animation(VAnimation.fast, value: isHovered)
+            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .pointerCursor()
+    }
 }
 

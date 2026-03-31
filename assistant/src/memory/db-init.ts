@@ -62,6 +62,7 @@ import {
   migrateCreateTraceEventsTable,
   migrateDropAccountsTable,
   migrateDropAssistantIdColumns,
+  migrateDropCallbackTransportColumn,
   migrateDropCapabilityCardState,
   migrateDropConflicts,
   migrateDropContactInteractionColumns,
@@ -543,6 +544,10 @@ export function initializeDb(): void {
 
   // 99. Add feature_flag column to oauth_providers for feature-flag gating
   migrateOAuthProvidersFeatureFlag(database);
+
+  // 100. Drop the vestigial callback_transport column from oauth_providers
+  // (transport is now chosen per-flow via the callbackTransport option, not per-provider)
+  migrateDropCallbackTransportColumn(database);
 
   validateMigrationState(database);
 

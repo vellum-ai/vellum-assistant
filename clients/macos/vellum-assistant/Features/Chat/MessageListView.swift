@@ -61,12 +61,12 @@ struct MessageListView: View {
     let providerCatalog: [ProviderCatalogEntry]
     let activeSubagents: [SubagentInfo]
     let dismissedDocumentSurfaceIds: Set<String>
-    let onConfirmationAllow: (String) -> Void
-    let onConfirmationDeny: (String) -> Void
+    var onConfirmationAllow: ((String) -> Void)?
+    var onConfirmationDeny: ((String) -> Void)?
     let onAlwaysAllow: (String, String, String, String) -> Void
     /// Called when a temporary approval option is selected: (requestId, decision).
     var onTemporaryAllow: ((String, String) -> Void)?
-    let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
+    var onSurfaceAction: ((String, String, [String: AnyCodable]?) -> Void)?
     /// Called when a guardian decision action button is clicked: (requestId, action).
     var onGuardianAction: ((String, String) -> Void)?
     let onDismissDocumentWidget: ((String) -> Void)?
@@ -115,7 +115,6 @@ struct MessageListView: View {
     var containerWidth: CGFloat = 0
     @AppStorage("hasEverSentMessage") private var hasEverSentMessage: Bool = false
     @AppStorage("completedConversationCount") private var completedConversationCount: Int = 0
-    @State private var identity: IdentityInfo? = IdentityInfo.load()
     @State private var appearance = AvatarAppearanceManager.shared
     /// Read at the list level and passed down to each ChatBubble so that
     /// individual bubbles don't each subscribe to the shared manager.
@@ -424,8 +423,11 @@ struct MessageListView: View {
     }
 
     /// Restores scroll-to-bottom after a conversation load or app restart.
-    /// Issues a delayed fallback pin that catches cases where the preceding
-    /// `scrollToEdge(.bottom)` fires before SwiftUI has fully laid out content.
+    /// Issues a delayed fallback pin that catches cases where the declarative
+    /// `ScrollPosition(edge: .bottom)` hasn't fully resolved for the new content.
+    /// The `isAtBottom` guard is intentionally omitted: during a conversation
+    /// switch, `isAtBottom` is unreliable because scroll geometry hasn't updated
+    /// yet for the new content. An extra pin when already at bottom is a no-op.
     private func restoreScrollToBottom() {
         scrollState.scrollRestoreTask?.cancel()
         scrollState.scrollRestoreTask = Task { @MainActor [scrollState] in
@@ -433,7 +435,6 @@ struct MessageListView: View {
             guard !Task.isCancelled else { return }
             if anchorMessageId == nil
                 && !scrollState.hasBeenInteracted
-                && !scrollState.isAtBottom
             {
                 os_signpost(.event, log: PerfSignposts.log, name: "scrollRestoreStage", "stage=fallback")
                 scrollState.transition(to: .followingBottom)
@@ -525,6 +526,7 @@ struct MessageListView: View {
         scrollState.wasPaginationTriggerInRange = isInRange
         scrollState.isPaginationInFlight = true
         let anchorId = scrollState.cachedFirstVisibleMessageId
+        let taskConversationId = scrollState.currentConversationId
         os_signpost(.event, log: PerfSignposts.log, name: "paginationSentinelFired")
         scrollState.paginationTask = Task { [scrollState] in
             defer {
@@ -532,7 +534,8 @@ struct MessageListView: View {
                     scrollState.lastPaginationCompletedAt = Date()
                     scrollState.isPaginationInFlight = false
                     scrollState.paginationTask = nil
-                } else if scrollState.paginationTask == nil {
+                } else if scrollState.paginationTask == nil,
+                          scrollState.currentConversationId == taskConversationId {
                     scrollState.lastPaginationCompletedAt = Date()
                     scrollState.isPaginationInFlight = false
                 }
@@ -1072,10 +1075,11 @@ struct MessageListView: View {
         if isSending {
             scrollState.transition(to: .followingBottom)
         }
-        // Scroll to bottom for the new conversation.
+        // Declarative position reset — processed in the same layout pass as new content.
+        // https://developer.apple.com/documentation/swiftui/scrollposition
         scrollState.scrollRestoreTask?.cancel()
         if anchorMessageId == nil {
-            scrollState.scrollToEdge?(.bottom)
+            scrollPosition = ScrollPosition(edge: .bottom)
         }
         restoreScrollToBottom()
     }
@@ -1225,6 +1229,7 @@ private struct MessageCellView: View, Equatable {
                 : lhs.providerCatalog.count == rhs.providerCatalog.count
                   && zip(lhs.providerCatalog, rhs.providerCatalog).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName && $0.models.count == $1.models.count && zip($0.models, $1.models).allSatisfy({ $0.id == $1.id && $0.displayName == $1.displayName }) }))
             && lhs.isTTSEnabled == rhs.isTTSEnabled
+            && lhs.mediaEmbedSettings == rhs.mediaEmbedSettings
     }
 
     let message: ChatMessage
@@ -1245,12 +1250,12 @@ private struct MessageCellView: View, Equatable {
     let activeSurfaceId: String?
     let isHighlighted: Bool
     let mediaEmbedSettings: MediaEmbedResolverSettings?
-    let onConfirmationAllow: (String) -> Void
-    let onConfirmationDeny: (String) -> Void
+    var onConfirmationAllow: ((String) -> Void)?
+    var onConfirmationDeny: ((String) -> Void)?
     let onAlwaysAllow: (String, String, String, String) -> Void
     var onTemporaryAllow: ((String, String) -> Void)?
     var onGuardianAction: ((String, String) -> Void)?
-    let onSurfaceAction: (String, String, [String: AnyCodable]?) -> Void
+    var onSurfaceAction: ((String, String, [String: AnyCodable]?) -> Void)?
     let onDismissDocumentWidget: ((String) -> Void)?
     var onForkFromMessage: ((String) -> Void)?
     var showInspectButton: Bool = false
@@ -1301,7 +1306,7 @@ private struct MessageCellView: View, Equatable {
             ChatBubble(
                 message: commandListFallbackMessage(for: message),
                 decidedConfirmation: nil,
-                onSurfaceAction: onSurfaceAction,
+                onSurfaceAction: onSurfaceAction ?? { _, _, _ in },
                 onDismissDocumentWidget: { surfaceId in
                     onDismissDocumentWidget?(surfaceId)
                 },
@@ -1326,6 +1331,7 @@ private struct MessageCellView: View, Equatable {
                 activeSurfaceId: activeSurfaceId,
                 hideInlineAvatar: shouldShowThinkingIndicator && anchoredThinkingIndex == nil
             )
+            .equatable()
         }
     }
 
@@ -1352,8 +1358,8 @@ private struct MessageCellView: View, Equatable {
                     ToolConfirmationBubble(
                         confirmation: confirmation,
                         isKeyboardActive: confirmation.requestId == activePendingRequestId,
-                        onAllow: { onConfirmationAllow(confirmation.requestId) },
-                        onDeny: { onConfirmationDeny(confirmation.requestId) },
+                        onAllow: { onConfirmationAllow?(confirmation.requestId) },
+                        onDeny: { onConfirmationDeny?(confirmation.requestId) },
                         onAlwaysAllow: onAlwaysAllow,
                         onTemporaryAllow: onTemporaryAllow
                     )
@@ -1363,8 +1369,8 @@ private struct MessageCellView: View, Equatable {
                 if !hasPrecedingAssistant {
                     ToolConfirmationBubble(
                         confirmation: confirmation,
-                        onAllow: { onConfirmationAllow(confirmation.requestId) },
-                        onDeny: { onConfirmationDeny(confirmation.requestId) },
+                        onAllow: { onConfirmationAllow?(confirmation.requestId) },
+                        onDeny: { onConfirmationDeny?(confirmation.requestId) },
                         onAlwaysAllow: onAlwaysAllow,
                         onTemporaryAllow: onTemporaryAllow
                     )
@@ -1389,7 +1395,7 @@ private struct MessageCellView: View, Equatable {
             ChatBubble(
                 message: message,
                 decidedConfirmation: nextDecidedConfirmation,
-                onSurfaceAction: onSurfaceAction,
+                onSurfaceAction: onSurfaceAction ?? { _, _, _ in },
                 onDismissDocumentWidget: { surfaceId in
                     onDismissDocumentWidget?(surfaceId)
                 },
@@ -1414,6 +1420,7 @@ private struct MessageCellView: View, Equatable {
                 activeSurfaceId: activeSurfaceId,
                 hideInlineAvatar: shouldShowThinkingIndicator && anchoredThinkingIndex == nil
             )
+            .equatable()
             .background(
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .fill(VColor.primaryBase.opacity(isHighlighted ? 0.15 : 0))

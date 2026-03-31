@@ -25,10 +25,14 @@ struct ContactsListView: View {
             viewModel.loadContacts()
         }
         .task {
-            cachedAssistantDisplayName = AssistantDisplayName.firstUserFacing(from: [IdentityInfo.load()?.name]) ?? AssistantDisplayName.placeholder
+            let info = await IdentityInfo.loadAsync()
+            cachedAssistantDisplayName = AssistantDisplayName.firstUserFacing(from: [info?.name]) ?? AssistantDisplayName.placeholder
         }
         .onReceive(NotificationCenter.default.publisher(for: .identityChanged)) { _ in
-            cachedAssistantDisplayName = AssistantDisplayName.firstUserFacing(from: [IdentityInfo.load()?.name]) ?? AssistantDisplayName.placeholder
+            Task {
+                let info = await IdentityInfo.loadAsync()
+                cachedAssistantDisplayName = AssistantDisplayName.firstUserFacing(from: [info?.name]) ?? AssistantDisplayName.placeholder
+            }
         }
     }
 

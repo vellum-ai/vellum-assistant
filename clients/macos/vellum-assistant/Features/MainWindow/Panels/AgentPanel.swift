@@ -259,7 +259,7 @@ struct SkillItemRow: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
 
-                        VSkillTypePill(source: skill.source)
+                        skillTag(for: skill.source)
 
                         Spacer()
                     }
@@ -276,7 +276,6 @@ struct SkillItemRow: View {
                         label: "Delete",
                         iconOnly: VIcon.trash.rawValue,
                         style: .dangerGhost,
-                        size: .compact,
                         action: onDelete
                     )
                     .accessibilityLabel("Uninstall skill")
@@ -311,7 +310,7 @@ struct AvailableSkillItemRow: View {
                         .foregroundStyle(VColor.contentSecondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    VSkillTypePill(source: skill.source)
+                    skillTag(for: skill.source)
                     Spacer()
                 }
                 Text(skill.description)
@@ -326,7 +325,6 @@ struct AvailableSkillItemRow: View {
                 VButton(
                     label: "Install",
                     style: .outlined,
-                    size: .compact,
                     action: onInstall
                 )
             }
@@ -340,5 +338,24 @@ struct AvailableSkillItemRow: View {
                     style: StrokeStyle(lineWidth: 2, dash: [6, 4])
                 )
         )
+    }
+}
+
+// MARK: - Skill Tag Helper
+
+private func skillTag(for source: String) -> VTag {
+    switch source {
+    case "bundled":
+        return VTag("Core", color: VColor.contentDefault, icon: .package)
+    case "managed", "clawhub":
+        return VTag("Installed", color: VColor.systemPositiveStrong, icon: .circleCheck)
+    case "workspace":
+        return VTag("Created", color: VColor.contentSecondary, icon: .sparkles)
+    case "extra":
+        return VTag("Extra", color: VColor.contentTertiary, icon: .puzzle)
+    case "catalog":
+        return VTag("Available", color: VColor.funTeal, icon: .arrowDownToLine)
+    default:
+        return VTag(source.capitalized, color: VColor.contentTertiary, icon: .puzzle)
     }
 }

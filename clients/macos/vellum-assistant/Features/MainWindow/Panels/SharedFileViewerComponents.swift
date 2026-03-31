@@ -246,5 +246,6 @@ struct FileContentHeaderBar<Trailing: View>: View {
         }
         .padding(.horizontal, VSpacing.md)
         .padding(.vertical, VSpacing.sm)
+        .background(VColor.surfaceOverlay)
     }
 }

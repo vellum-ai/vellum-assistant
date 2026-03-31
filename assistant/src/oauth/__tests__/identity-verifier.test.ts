@@ -38,7 +38,6 @@ function makeProviderRow(
     defaultScopes: "[]",
     scopePolicy: "{}",
     extraParams: null,
-    callbackTransport: null,
     pingUrl: null,
     pingMethod: null,
     pingHeaders: null,

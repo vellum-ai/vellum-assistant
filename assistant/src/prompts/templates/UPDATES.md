@@ -10,6 +10,12 @@ _ Format is freeform markdown. Write notes that help the assistant
 _ understand what changed and how it affects behavior, capabilities,
 _ or available tools. Focus on what matters to the user experience.
 
+<!-- vellum-update-release:rm-dangerous-skip-perms -->
+## `dangerouslySkipPermissions` removed
+
+The `permissions.dangerouslySkipPermissions` config option has been removed for security reasons. Permission prompts are now always shown when required — they can no longer be globally suppressed. If your user previously relied on this setting, they will now see permission prompts for sensitive actions. Users with the stale field in their config will see a deprecation warning and the field will be automatically cleaned up.
+<!-- /vellum-update-release:rm-dangerous-skip-perms -->
+
 <!-- vellum-update-release:heartbeat-default -->
 ## Heartbeat now enabled by default
 

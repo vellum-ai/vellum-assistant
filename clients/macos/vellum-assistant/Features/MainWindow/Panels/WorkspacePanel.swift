@@ -754,13 +754,6 @@ private struct WorkspaceFileViewer: View {
                 emptyState
             }
         }
-        .background(VColor.surfaceOverlay)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.xl)
-                .strokeBorder(VColor.borderDisabled, lineWidth: 2)
-                .allowsHitTesting(false)
-        )
     }
 
     private var emptyState: some View {

@@ -1855,47 +1855,6 @@ paths:
               required:
                 - provider
               additionalProperties: false
-  /v1/config/permissions/skip:
-    get:
-      operationId: config_permissions_skip_get
-      summary: Get permission-skip flag
-      description: Return whether dangerouslySkipPermissions is enabled.
-      tags:
-        - config
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  enabled:
-                    type: boolean
-                required:
-                  - enabled
-                additionalProperties: false
-    put:
-      operationId: config_permissions_skip_put
-      summary: Set permission-skip flag
-      description: Enable or disable dangerouslySkipPermissions.
-      tags:
-        - config
-      responses:
-        "200":
-          description: Successful response
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                enabled:
-                  type: boolean
-              required:
-                - enabled
-              additionalProperties: false
   /v1/config/platform:
     get:
       operationId: config_platform_get
