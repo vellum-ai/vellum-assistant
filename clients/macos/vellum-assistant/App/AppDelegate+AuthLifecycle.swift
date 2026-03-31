@@ -417,6 +417,11 @@ extension AppDelegate {
             return
         }
 
+        // Cancel any in-flight validation task from a previous switch so a
+        // stale timeout doesn't rollback to the wrong assistant (A→B→C race).
+        switchValidationTask?.cancel()
+        switchValidationTask = nil
+
         // Capture the previous assistant ID before any state changes so we can
         // rollback if the new assistant's gateway connection fails.
         let previousAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
@@ -483,23 +488,31 @@ extension AppDelegate {
         // 7. Validate the gateway connection with a timeout. If the connection
         //    doesn't establish within 15 seconds, roll back to the previous
         //    assistant so the app doesn't end up in a broken state.
-        Task { @MainActor [weak self] in
+        self.switchValidationTask = Task { @MainActor [weak self] in
             guard let self else { return }
 
             let connected = await self.waitForGatewayConnection(timeout: 15)
+
+            // If a newer switch cancelled this task, bail out — the rollback
+            // target (previousAssistantId) is stale.
+            guard !Task.isCancelled else { return }
+
             if !connected {
                 log.error("Gateway connection failed after switching to \(assistant.assistantId, privacy: .public) — rolling back")
-                self.mainWindow?.windowState.showToast(
-                    message: "Could not connect to assistant — it may be offline",
-                    style: .error
-                )
 
-                // Roll back to the previous assistant if one was connected
+                // Roll back to the previous assistant if one was connected.
+                // Show the error toast AFTER rollback so it appears on the
+                // newly created main window (rollback closes the current one).
                 if let previousAssistantId,
                    let previousAssistant = LockfileAssistant.loadByName(previousAssistantId) {
                     log.info("Rolling back to previous assistant \(previousAssistantId, privacy: .public)")
                     self.rollbackToPreviousAssistant(previousAssistant)
                 }
+
+                self.mainWindow?.windowState.showToast(
+                    message: "Could not connect to assistant — it may be offline",
+                    style: .error
+                )
             }
         }
     }
