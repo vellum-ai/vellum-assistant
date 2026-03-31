@@ -156,7 +156,7 @@ struct AssistantTransferSection: View {
 
             // Step 3 — Import bundle to managed assistant
             currentStep = "Importing data to cloud..."
-            try await importBundleToManaged(bundleData: bundleData, managedAssistantId: platformAssistant.id)
+            try await importBundleToManaged(bundleData: bundleData)
 
             // Step 4 — Switch to managed assistant
             currentStep = "Switching to cloud assistant..."
@@ -374,7 +374,7 @@ struct AssistantTransferSection: View {
     ///
     /// Uses 3 steps: request signed URL → upload to GCS → trigger import from GCS.
     /// All endpoints are org-scoped, so no `connectedAssistantId` swap is needed.
-    private func importBundleToManaged(bundleData: Data, managedAssistantId: String) async throws {
+    private func importBundleToManaged(bundleData: Data) async throws {
         // Step 1: Request a signed upload URL from the platform
         let uploadInfo = try await PlatformMigrationClient.requestUploadUrl()
 
