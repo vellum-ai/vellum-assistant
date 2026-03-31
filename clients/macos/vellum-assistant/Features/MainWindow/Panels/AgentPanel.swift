@@ -310,10 +310,9 @@ struct SkillItemRow: View {
                 }
 
                 VButton(
-                    label: "Delete",
-                    iconOnly: VIcon.trash.rawValue,
+                    label: "Remove",
+                    leftIcon: VIcon.trash.rawValue,
                     style: .dangerGhost,
-                    size: .compact,
                     action: onDelete
                 )
                 .disabled(!isRemovable)
@@ -370,12 +369,10 @@ struct AvailableSkillItemRow: View {
                 } else {
                     VButton(
                         label: "Install",
-                        iconOnly: VIcon.arrowDownToLine.rawValue,
+                        leftIcon: VIcon.arrowDownToLine.rawValue,
                         style: .ghost,
-                        size: .compact,
                         action: onInstall
                     )
-                    .vTooltip("Install skill")
                 }
             }
         }
