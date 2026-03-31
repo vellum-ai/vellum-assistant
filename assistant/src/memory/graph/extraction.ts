@@ -9,6 +9,8 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { desc, eq } from "drizzle-orm";
+
 import type { AssistantConfig } from "../../config/types.js";
 import { resolveGuardianPersona } from "../../prompts/persona-resolver.js";
 import { buildCoreIdentityContext } from "../../prompts/system-prompt.js";
@@ -22,19 +24,12 @@ import { getLogger } from "../../util/logger.js";
 import { getConversationDirPath } from "../conversation-disk-view.js";
 import { getDb } from "../db.js";
 import { conversations, messages } from "../schema.js";
-import { desc, eq } from "drizzle-orm";
 import {
   enqueueGraphNodeEmbed,
   enqueueGraphTriggerEmbed,
   searchGraphNodes,
 } from "./graph-search.js";
-import {
-  applyDiff,
-  createEdge,
-  getNodesByIds,
-  queryNodes,
-  supersedeNode,
-} from "./store.js";
+import { applyDiff, createEdge, getNodesByIds, queryNodes } from "./store.js";
 import type {
   DecayCurve,
   EmotionalCharge,
@@ -113,7 +108,7 @@ Create edges between nodes when there's a meaningful relationship:
 - "depends-on": one memory depends on another being true
 - "part-of": belongs to a larger concept
 - "supersedes": replaces an outdated memory (new node inherits old node's durability)
-- "resolved-by": a conflict/tension was resolved
+- "resolved-by": an event, plan, or task was completed, canceled, or its outcome is now known
 
 ## Triggers
 
@@ -130,6 +125,8 @@ Check these CAREFULLY for overlap before creating any new node:
 2. **Updates**: If information changed (e.g. a project status moved forward, a date shifted), include an update with the existing node's ID and the new content.
 3. **New edges**: If you see connections between new and existing nodes, create edges.
 4. **Supersession**: If new info directly contradicts an existing node, create a new node with a supersedes edge. The new node automatically inherits the old node's durability.
+5. **Resolution**: If a prospective or recent episodic node described something the user was GOING to do or was IN THE MIDDLE OF, and this conversation reveals the outcome (it happened, was canceled, went well/badly), you MUST UPDATE that node: rewrite its content to past tense reflecting the outcome, drop its significance to 0.1-0.2, and set fidelity to "gist". If you also create a new node about the outcome, add a "resolved-by" edge from the new node to the old one.
+   Examples: "The meeting went well" resolves "Has a meeting coming up." "Got back from the trip" resolves "Going on vacation next week." "Decided not to go" resolves "Thinking about going to X."
 
 CRITICAL: Before creating ANY new node, scan the candidate list for an existing node that covers the same ground. Ask: "Is there already a memory about this?" If yes → reinforce or update it. Only create a new node if the memory is genuinely novel — something not represented anywhere in the existing candidates.
 
@@ -279,6 +276,12 @@ const EXTRACT_TOOL_SCHEMA = {
             content: { type: "string" },
             significance: { type: "number" },
             confidence: { type: "number" },
+            fidelity: {
+              type: "string",
+              enum: ["vivid", "clear", "faded", "gist"],
+              description:
+                "Downgrade fidelity when a transient event has resolved",
+            },
           },
           required: ["id"],
         },
@@ -345,6 +348,7 @@ interface RawUpdateNode {
   content?: string;
   significance?: number;
   confidence?: number;
+  fidelity?: string;
 }
 
 interface RawNewEdge {
@@ -480,6 +484,13 @@ function parseExtractionResponse(
       scopeId,
     };
 
+    // Prospective nodes (tasks, plans, upcoming events) are inherently transient.
+    // Lower stability means their significance decays faster, so even without
+    // explicit resolution they fade naturally within days rather than weeks.
+    if (node.type === "prospective") {
+      node.stability = 5;
+    }
+
     diff.createNodes.push(node);
 
     // Collect edges to existing nodes (need new node ID after creation)
@@ -532,6 +543,11 @@ function parseExtractionResponse(
       changes.significance = clamp(raw.significance, 0, 1);
     if (raw.confidence != null)
       changes.confidence = clamp(raw.confidence, 0, 1);
+    if (
+      raw.fidelity &&
+      ["vivid", "clear", "faded", "gist"].includes(raw.fidelity)
+    )
+      changes.fidelity = raw.fidelity;
     if (Object.keys(changes).length > 0) {
       diff.updateNodes.push({ id: raw.id, changes });
     }

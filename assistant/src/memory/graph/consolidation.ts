@@ -93,6 +93,8 @@ Today is ${today}.
 
 4. **Mark gone**: If a node is at "gist" fidelity and has very low significance (< 0.2), mark it for deletion — it's faded beyond usefulness.
 
+5. **Resolve stale prospective nodes**: If a prospective node (type=prospective) is older than 7 days and has no "resolved-by" edge, it's likely a stale commitment. Downgrade its fidelity to "gist" and rewrite it as a past observation (e.g. "Had planned to X" instead of "Need to X"). If it's already at gist with significance < 0.2, mark it for deletion.
+
 ## Constraints
 
 - Do NOT create new nodes — consolidation only merges, updates, and prunes

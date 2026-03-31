@@ -14,8 +14,8 @@ import {
 } from "../../providers/provider-send-message.js";
 import { getLogger } from "../../util/logger.js";
 import { embedWithRetry } from "../embed.js";
-import { getEdgesForNode, getNodesByIds, queryNodes } from "./store.js";
 import { searchGraphNodes } from "./graph-search.js";
+import type { InContextTracker } from "./injection.js";
 import {
   computeActivationSpread,
   computeEffectiveSignificance,
@@ -25,15 +25,15 @@ import {
   scoreCandidate,
 } from "./scoring.js";
 import { sampleSerendipity } from "./serendipity.js";
+import { getEdgesForNode, getNodesByIds, queryNodes } from "./store.js";
+import { getActiveTriggersByType } from "./store.js";
 import {
   evaluateEventTriggers,
   evaluateSemanticTriggers,
   evaluateTemporalTriggers,
   type TriggeredResult,
 } from "./triggers.js";
-import { getActiveTriggersByType } from "./store.js";
-import type { InContextTracker } from "./injection.js";
-import type { MemoryEdge, MemoryNode, ScoredNode } from "./types.js";
+import type { MemoryEdge, ScoredNode } from "./types.js";
 
 const log = getLogger("graph-retriever");
 
@@ -67,7 +67,7 @@ const RERANK_TOOL = {
 async function rerankAndDedup(
   candidates: ScoredNode[],
   maxNodes: number,
-  config: AssistantConfig,
+  _config: AssistantConfig,
 ): Promise<ScoredNode[]> {
   if (candidates.length <= maxNodes) return candidates;
 
@@ -195,11 +195,7 @@ async function dedupForTurn(
       .join("\n");
 
     const response = await provider.sendMessage(
-      [
-        userMessage(
-          `query:\n${query}\n\nitems:\n\n${listing}`,
-        ),
-      ],
+      [userMessage(`query:\n${query}\n\nitems:\n\n${listing}`)],
       [SELECT_ITEMS_TOOL],
       `Dedupe + rerank the following numbered items. Pick the most relevant items to the query. Call the select_items tool.\n\nBe aggressive on dedup — when multiple items describe the same event, fact, or status, keep ONLY the richest version. But be generous on relevance — only cut items that are completely irrelevant to the query. If it's even tangentially related, keep it.`,
       {
@@ -228,7 +224,9 @@ async function dedupForTurn(
       }
     }
 
-    return reranked.length > 0 ? reranked.slice(0, maxNodes) : candidates.slice(0, maxNodes);
+    return reranked.length > 0
+      ? reranked.slice(0, maxNodes)
+      : candidates.slice(0, maxNodes);
   } catch (err) {
     log.warn(
       { err: err instanceof Error ? err.message : String(err) },
@@ -301,7 +299,7 @@ export async function loadContextMemory(
   }
 
   // 2. Hybrid retrieval from Qdrant (dense search on graph_node points)
-  let semanticCandidateIds = new Map<string, number>(); // nodeId → score
+  const semanticCandidateIds = new Map<string, number>(); // nodeId → score
   if (queryVector) {
     try {
       const results = await searchGraphNodes(queryVector, maxNodes * 3, [
@@ -455,9 +453,20 @@ export async function loadContextMemory(
     limit: PROSPECTIVE_RESERVE,
   });
 
+  // Filter out prospective nodes that have been superseded or resolved.
+  // A "supersedes" or "resolved-by" edge targeting a node means its
+  // content has been replaced by a newer memory — stop force-surfacing it.
+  const unresolvedProspective = recentProspective.filter((node) => {
+    const incoming = getEdgesForNode(node.id, "incoming");
+    return !incoming.some(
+      (e) =>
+        e.relationship === "supersedes" || e.relationship === "resolved-by",
+    );
+  });
+
   // Score them so they have breakdowns, but they're guaranteed inclusion
-  const prospectiveIds = new Set(recentProspective.map((n) => n.id));
-  const reservedNodes: ScoredNode[] = recentProspective.map((node) => {
+  const prospectiveIds = new Set(unresolvedProspective.map((n) => n.id));
+  const reservedNodes: ScoredNode[] = unresolvedProspective.map((node) => {
     const existing = scored.find((s) => s.node.id === node.id);
     if (existing) return existing;
     return scoreCandidate(node, {
