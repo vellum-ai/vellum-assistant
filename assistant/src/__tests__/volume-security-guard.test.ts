@@ -38,6 +38,8 @@ const ALLOWED_FILES = new Set([
   "assistant/src/cli/commands/trust.ts",
   // Auth middleware documentation comment (not a file access)
   "assistant/src/runtime/auth/middleware.ts",
+  // Permission checker: classifies file_read of signing key as High risk
+  "assistant/src/permissions/checker.ts",
 ]);
 
 // ---------------------------------------------------------------------------
