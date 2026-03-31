@@ -116,6 +116,7 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
     private var lockfileBackup: Data?
     private var defaultsSuiteName: String!
     private var defaults: UserDefaults!
+    private var previousToken: String?
 
     override func setUp() {
         super.setUp()
@@ -149,13 +150,21 @@ final class SettingsStoreManagedMaintenanceTests: XCTestCase {
         // Register stub network handler and a session token.
         URLProtocol.registerClass(MaintenanceStoreURLProtocol.self)
         MaintenanceStoreURLProtocol.requestHandler = nil
+        // Save any existing token so we can restore it in tearDown, preventing
+        // the test run from destroying the developer's real session token.
+        previousToken = SessionTokenManager.getToken()
         SessionTokenManager.setToken("stub-session-token")
     }
 
     override func tearDown() {
         URLProtocol.unregisterClass(MaintenanceStoreURLProtocol.self)
         MaintenanceStoreURLProtocol.requestHandler = nil
-        SessionTokenManager.deleteToken()
+        if let token = previousToken {
+            SessionTokenManager.setToken(token)
+        } else {
+            SessionTokenManager.deleteToken()
+        }
+        previousToken = nil
 
         // Restore the original lockfile (or delete it if there was nothing before).
         let primaryURL = URL(fileURLWithPath: primaryLockfilePath)
