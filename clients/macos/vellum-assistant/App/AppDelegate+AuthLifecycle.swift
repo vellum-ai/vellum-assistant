@@ -602,6 +602,9 @@ extension AppDelegate {
     /// the same sequence as `performSwitchAssistant` but without the
     /// post-switch validation to avoid infinite rollback loops.
     private func rollbackToPreviousAssistant(_ assistant: LockfileAssistant) {
+        // Invalidate any in-flight bootstrap tasks from the failed switch
+        switchGeneration += 1
+
         // Disconnect the failed connection
         connectionManager.disconnect()
         AvatarAppearanceManager.shared.resetForDisconnect()
