@@ -46,6 +46,10 @@ struct SettingsGeneralTab: View {
         return Just(nil).eraseToAnyPublisher()
     }
 
+    private var currentAssistant: LockfileAssistant? {
+        lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })
+    }
+
     /// Derive the topology for the currently selected assistant.
     private var topology: AssistantTopology {
         guard let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId }) else {
@@ -73,6 +77,11 @@ struct SettingsGeneralTab: View {
                     healthzLoaded: healthzLoaded,
                     updateManager: updateManager
                 )
+            }
+            if MacOSClientFeatureFlagManager.shared.isEnabled("teleport"),
+               let assistant = currentAssistant,
+               !assistant.isManaged && !assistant.isRemote {
+                TeleportSection(assistant: assistant, onClose: onClose)
             }
             if MacOSClientFeatureFlagManager.shared.isEnabled("mobile-pairing") {
                 mobilePairingCard
