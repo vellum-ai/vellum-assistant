@@ -170,16 +170,38 @@ describe("Permission Checker", () => {
   // ── classifyRisk ────────────────────────────────────────────────
 
   describe("classifyRisk", () => {
-    // file_read is always low
+    // file_read is low risk except for signing-key material
     describe("file_read", () => {
-      test("file_read is always low risk", async () => {
+      test("file_read is low risk for regular files", async () => {
         const risk = await classifyRisk("file_read", { path: "/etc/passwd" });
         expect(risk).toBe(RiskLevel.Low);
       });
 
-      test("file_read with any path is low risk", async () => {
+      test("file_read with arbitrary non-key path is low risk", async () => {
         const risk = await classifyRisk("file_read", { path: "/tmp/safe.txt" });
         expect(risk).toBe(RiskLevel.Low);
+      });
+
+      test("file_read of workspace signing key path is high risk", async () => {
+        const workspaceDir = join(checkerTestDir, "workspace");
+        const risk = await classifyRisk(
+          "file_read",
+          { path: "deprecated/actor-token-signing-key" },
+          workspaceDir,
+        );
+        expect(risk).toBe(RiskLevel.High);
+      });
+
+      test("file_read of legacy protected signing key path is high risk", async () => {
+        const risk = await classifyRisk("file_read", {
+          path: join(
+            homedir(),
+            ".vellum",
+            "protected",
+            "actor-token-signing-key",
+          ),
+        });
+        expect(risk).toBe(RiskLevel.High);
       });
     });
 
