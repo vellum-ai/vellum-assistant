@@ -169,7 +169,7 @@ Scan tools (`outlook_sender_digest`, `outlook_outreach_scan`) return a `scan_id`
 
 ### Manage Follow-ups
 
-1. User says "flag this email for follow-up" - call `outlook_follow_up` with `action: "flag"` and the message ID
+1. User says "flag this email for follow-up" - call `outlook_follow_up` with `action: "track"` and the message ID
 2. User says "what emails am I tracking?" - call `outlook_follow_up` with `action: "list"` to show all flagged messages
 3. User says "mark that as done" - call `outlook_follow_up` with `action: "complete"` to clear the flag
 
