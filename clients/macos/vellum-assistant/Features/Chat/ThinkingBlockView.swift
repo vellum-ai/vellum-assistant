@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VellumAssistantShared
 
@@ -18,13 +19,20 @@ struct ThinkingBlockView: View {
                 Divider()
                     .padding(.horizontal, VSpacing.sm)
 
-                Text(content)
-                    .font(VFont.bodyMediumDefault)
-                    .foregroundStyle(VColor.contentSecondary)
-                    .textSelection(.disabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(VSpacing.sm)
-                    .transition(.opacity)
+                SelectableTextView(
+                    attributedString: NSAttributedString(
+                        string: content,
+                        attributes: [
+                            .font: VFont.nsBodyMedium,
+                            .foregroundColor: NSColor(VColor.contentSecondary),
+                        ]
+                    ),
+                    isSelectable: !isStreaming,
+                    maxWidth: nil
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(VSpacing.sm)
+                .transition(.opacity)
             }
         }
         .background(VColor.surfaceOverlay)

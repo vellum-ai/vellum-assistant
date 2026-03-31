@@ -134,22 +134,26 @@ public enum VFont {
     // MARK: - NSFont (AppKit — for NSTextView and TextKit 1)
 
     #if os(macOS)
-    /// DM Sans 400 at 16pt — NSFont equivalent of `VFont.chat` for use in
-    /// NSTextView-based components (e.g. ComposerTextEditor).
-    public static let nsChat: NSFont = {
+    /// Creates a DM Sans NSFont at the given CSS weight and size.
+    /// NSFont equivalent of `dmSans(weight:size:)` for AppKit contexts.
+    public static func nsDMSans(weight: Int, size: CGFloat) -> NSFont {
         let baseName = "DMSans-Regular" as CFString
-        let baseFont = CTFontCreateWithName(baseName, 16, nil)
+        let baseFont = CTFontCreateWithName(baseName, size, nil)
         let variations: [CFNumber: CFNumber] = [
-            wghtTag as CFNumber: 400 as CFNumber,
+            wghtTag as CFNumber: weight as CFNumber,
         ]
         let variantFont = CTFontCreateCopyWithAttributes(
-            baseFont, 16, nil,
+            baseFont, size, nil,
             CTFontDescriptorCreateWithAttributes([
                 kCTFontVariationAttribute: variations,
             ] as CFDictionary)
         )
         return variantFont as NSFont
-    }()
+    }
+
+    /// DM Sans 400 at 16pt — NSFont equivalent of `VFont.chat` for use in
+    /// NSTextView-based components (e.g. ComposerTextEditor, SelectableTextView).
+    public static let nsChat: NSFont = nsDMSans(weight: 400, size: 16)
 
     public static let nsMono: NSFont = {
         let base = NSFont(name: "DMMono-Regular", size: 13)
@@ -170,5 +174,18 @@ public enum VFont {
     public static let nsMonoItalic: NSFont = {
         NSFontManager.shared.convert(nsMono, toHaveTrait: .italicFontMask)
     }()
+
+    /// DM Sans 400 at 14pt — NSFont equivalent of `VFont.bodyMediumDefault`
+    /// for use in ThinkingBlockView's selectable text content.
+    public static let nsBodyMedium: NSFont = nsDMSans(weight: 400, size: 14)
+
+    /// System bold at 20pt — NSFont for H1 headings in chat markdown.
+    public static let nsHeading1: NSFont = NSFont.boldSystemFont(ofSize: 20)
+
+    /// System semibold at 16pt — NSFont for H2 headings in chat markdown.
+    public static let nsHeading2: NSFont = NSFont.systemFont(ofSize: 16, weight: .semibold)
+
+    /// System semibold at 14pt — NSFont for H3+ headings in chat markdown.
+    public static let nsHeading3: NSFont = NSFont.systemFont(ofSize: 14, weight: .semibold)
     #endif
 }

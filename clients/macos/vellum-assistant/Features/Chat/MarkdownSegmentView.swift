@@ -38,40 +38,43 @@ struct MarkdownSegmentView: View, Equatable {
 
     var body: some View {
         let groups = groupedSegments
-        let chatFont = VFont.chat
         let scaledCodeLabelSize: CGFloat = 11
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
                 switch group {
                 case .selectableRun(let runSegments):
-                    let attributed = buildCombinedAttributedString(from: runSegments)
-                    Text(attributed)
-                        .font(chatFont)
-                        .lineSpacing(4)
-                        .foregroundStyle(textColor)
-                        .tint(tintColor)
-                        .optionalMaxWidth(maxContentWidth)
-                        // lineLimit(nil) removes the line count limit.
-                        // fixedSize(vertical) forces the Text to use its ideal height,
-                        // preventing LazyVStack from proposing insufficient height for
-                        // very long messages (which causes tail truncation with "...").
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
+                    let nsAttr = SelectableTextView.cachedNSAttributedString(
+                        from: runSegments,
+                        textColor: NSColor(textColor),
+                        secondaryTextColor: NSColor(secondaryTextColor),
+                        codeTextColor: NSColor(codeTextColor),
+                        codeBackgroundColor: NSColor(codeBackgroundColor)
+                    )
+                    SelectableTextView(
+                        attributedString: nsAttr,
+                        isSelectable: !isStreaming,
+                        maxWidth: maxContentWidth
+                    )
 
                 case .heading(let level, let headingText):
-                    let headingFont: Font = switch level {
-                    case 1: .system(size: 20, weight: .bold)
-                    case 2: .system(size: 16, weight: .semibold)
-                    case 3: .system(size: 14, weight: .semibold)
-                    default: .system(size: 14, weight: .semibold)
+                    let nsHeadingFont: NSFont = switch level {
+                    case 1: VFont.nsHeading1
+                    case 2: VFont.nsHeading2
+                    default: VFont.nsHeading3
                     }
-                    Text(headingText)
-                        .font(headingFont)
-                        .foregroundStyle(textColor)
-                        .optionalMaxWidth(maxContentWidth)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, level == 1 ? 4 : 2)
+                    let nsHeadingAttr = NSAttributedString(
+                        string: headingText,
+                        attributes: [
+                            .font: nsHeadingFont,
+                            .foregroundColor: NSColor(textColor),
+                        ]
+                    )
+                    SelectableTextView(
+                        attributedString: nsHeadingAttr,
+                        isSelectable: !isStreaming,
+                        maxWidth: maxContentWidth
+                    )
+                    .padding(.top, level == 1 ? 4 : 2)
 
                 case .codeBlock(let language, let code):
                     CodeBlockView(
@@ -216,6 +219,7 @@ struct MarkdownSegmentView: View, Equatable {
         prefixWidthCache.removeAll()
         groupedSegmentsCache.removeAll()
         MarkdownTableView.clearCellAttributedStringCache()
+        SelectableTextView.clearCache()
     }
 
     /// Rough character count of the text content within a segment array.
