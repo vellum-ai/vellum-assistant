@@ -45,6 +45,22 @@ export function getIsContainerized(): boolean {
 }
 
 /**
+ * Whether the assistant is running behind Docker networking (bridge/overlay).
+ *
+ * True when either:
+ * - IS_CONTAINERIZED=true (platform-managed container), or
+ * - VELLUM_CLOUD=docker (CLI-launched Docker — sets IS_CONTAINERIZED=false
+ *   but the gateway still connects over the Docker bridge network).
+ *
+ * Use this instead of getIsContainerized() when the concern is network
+ * topology (e.g. "should we accept private-network peers?") rather than
+ * platform-managed behavior.
+ */
+export function getIsDockerNetworked(): boolean {
+  return getIsContainerized() || str("VELLUM_CLOUD") === "docker";
+}
+
+/**
  * Whether this assistant is running as a platform-managed remote instance.
  *
  * Currently this is determined solely by the IS_CONTAINERIZED env var, which
@@ -73,6 +89,15 @@ export function getWorkspaceDirOverride(): string | undefined {
  * Complete set of recognized VELLUM_* env var names. Used by validateEnvVars()
  * to warn about typos or unrecognized variables.
  */
+/**
+ * VELLUM_CLOUD — string, default: undefined
+ * Indicates the deployment mode: "docker" for CLI Docker, "local" for bare-metal.
+ * Used to detect Docker networking topology independently of IS_CONTAINERIZED.
+ */
+export function getVellumCloud(): string | undefined {
+  return str("VELLUM_CLOUD");
+}
+
 const KNOWN_VELLUM_VARS = new Set([
   "VELLUM_ASSISTANT_NAME",
   "VELLUM_AWS_ROLE_ARN",

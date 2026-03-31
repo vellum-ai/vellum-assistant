@@ -78,6 +78,9 @@ const nonLoopbackServer = mockServer("203.0.113.50");
 /** Mock LAN peer -- returns a private RFC 1918 IP (not loopback). */
 const lanPeerServer = mockServer("192.168.1.100");
 
+/** Mock Docker bridge peer -- returns a typical Docker bridge IP. */
+const dockerBridgeServer = mockServer("172.17.0.1");
+
 initializeDb();
 
 beforeEach(() => {
@@ -762,6 +765,98 @@ describe("bootstrap private-network guard", () => {
         delete process.env.IS_CONTAINERIZED;
       } else {
         process.env.IS_CONTAINERIZED = prev;
+      }
+    }
+  });
+
+  test("accepts Docker bridge peer in CLI Docker mode (VELLUM_CLOUD=docker, IS_CONTAINERIZED=false)", async () => {
+    /**
+     * Reproduces the failure flagged by clopen-set: CLI Docker mode sets
+     * IS_CONTAINERIZED=false but the gateway connects over the Docker bridge
+     * network (e.g. 172.17.0.1). The bootstrap route must accept private
+     * network peers when VELLUM_CLOUD=docker, not just when IS_CONTAINERIZED=true.
+     */
+
+    // GIVEN the assistant is running in CLI Docker mode
+    const prevContainerized = process.env.IS_CONTAINERIZED;
+    const prevCloud = process.env.VELLUM_CLOUD;
+    delete process.env.IS_CONTAINERIZED;
+    process.env.VELLUM_CLOUD = "docker";
+
+    try {
+      const { handleGuardianBootstrap } =
+        await import("../runtime/routes/guardian-bootstrap-routes.js");
+
+      // WHEN the gateway sends a bootstrap request over the Docker bridge IP
+      const req = new Request("http://localhost/v1/guardian/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: "cli",
+          deviceId: "test-device-cli-docker",
+        }),
+      });
+
+      const res = await handleGuardianBootstrap(req, dockerBridgeServer);
+
+      // THEN the request should succeed (not be rejected as non-loopback)
+      expect(res.status).toBe(200);
+    } finally {
+      if (prevContainerized === undefined) {
+        delete process.env.IS_CONTAINERIZED;
+      } else {
+        process.env.IS_CONTAINERIZED = prevContainerized;
+      }
+      if (prevCloud === undefined) {
+        delete process.env.VELLUM_CLOUD;
+      } else {
+        process.env.VELLUM_CLOUD = prevCloud;
+      }
+    }
+  });
+
+  test("rejects LAN peer in non-Docker bare-metal mode (VELLUM_CLOUD=local)", async () => {
+    /**
+     * Ensures that VELLUM_CLOUD=local (bare-metal) still enforces the loopback
+     * restriction — only VELLUM_CLOUD=docker relaxes it to private network peers.
+     */
+
+    // GIVEN the assistant is running in bare-metal mode
+    const prevContainerized = process.env.IS_CONTAINERIZED;
+    const prevCloud = process.env.VELLUM_CLOUD;
+    delete process.env.IS_CONTAINERIZED;
+    process.env.VELLUM_CLOUD = "local";
+
+    try {
+      const { handleGuardianBootstrap } =
+        await import("../runtime/routes/guardian-bootstrap-routes.js");
+
+      // WHEN a LAN peer sends a bootstrap request
+      const req = new Request("http://localhost/v1/guardian/init", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: "macos",
+          deviceId: "test-device-bare-metal",
+        }),
+      });
+
+      const res = await handleGuardianBootstrap(req, lanPeerServer);
+
+      // THEN the request should be rejected
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error: { message: string } };
+      expect(body.error.message).toContain("local-only");
+    } finally {
+      if (prevContainerized === undefined) {
+        delete process.env.IS_CONTAINERIZED;
+      } else {
+        process.env.IS_CONTAINERIZED = prevContainerized;
+      }
+      if (prevCloud === undefined) {
+        delete process.env.VELLUM_CLOUD;
+      } else {
+        process.env.VELLUM_CLOUD = prevCloud;
       }
     }
   });

@@ -28,7 +28,7 @@ type ServerWithRequestIP = {
   ): { address: string; family: string; port: number } | null;
 };
 import { isHttpAuthDisabled } from "../../config/env.js";
-import { getIsContainerized } from "../../config/env-registry.js";
+import { getIsDockerNetworked } from "../../config/env-registry.js";
 
 const log = getLogger("guardian-bootstrap");
 
@@ -87,16 +87,16 @@ export async function handleGuardianBootstrap(
   req: Request,
   server: ServerWithRequestIP,
 ): Promise<Response> {
-  // In non-containerized (bare-metal) mode, restrict to loopback only —
-  // the runtime binds to localhost and LAN peers should not be able to
-  // bootstrap even if they somehow reach the endpoint.
-  // In containerized (Docker) mode, accept any private-network peer because
-  // the gateway connects over the Docker bridge (e.g. 172.17.0.1) and the
-  // GUARDIAN_BOOTSTRAP_SECRET enforced at the gateway layer provides the
-  // real authentication.
+  // In bare-metal mode, restrict to loopback only — the runtime binds to
+  // localhost and LAN peers should not be able to bootstrap even if they
+  // somehow reach the endpoint.
+  // In Docker mode (IS_CONTAINERIZED=true OR VELLUM_CLOUD=docker), accept
+  // any private-network peer because the gateway connects over the Docker
+  // bridge (e.g. 172.17.0.1) and the GUARDIAN_BOOTSTRAP_SECRET enforced at
+  // the gateway layer provides the real authentication.
   const peerIp = server.requestIP(req)?.address;
-  const containerized = getIsContainerized();
-  const peerAllowed = containerized
+  const dockerNetworked = getIsDockerNetworked();
+  const peerAllowed = dockerNetworked
     ? isPrivateAddress(peerIp ?? "")
     : isLoopbackAddress(peerIp ?? "");
   if (!peerAllowed && !isHttpAuthDisabled()) {
@@ -114,7 +114,7 @@ export async function handleGuardianBootstrap(
   // reflects the original external client which is not meaningful for
   // local-only enforcement in this topology.
   const forwarded = req.headers.get("x-forwarded-for");
-  if (forwarded && !isHttpAuthDisabled() && !getIsContainerized()) {
+  if (forwarded && !isHttpAuthDisabled() && !getIsDockerNetworked()) {
     return httpError("FORBIDDEN", "Bootstrap endpoint is local-only", 403);
   }
 
