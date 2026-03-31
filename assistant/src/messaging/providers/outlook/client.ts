@@ -602,7 +602,8 @@ export async function listMessagesDelta(
     `/v1.0/me/mailFolders/${encodeURIComponent(folderId)}/messages/delta`,
     undefined,
     {
-      $select: "id,subject,from,receivedDateTime,isRead,parentFolderId",
+      $select:
+        "id,subject,from,receivedDateTime,isRead,parentFolderId,conversationId,bodyPreview,hasAttachments",
       $top: "50",
     },
   );
