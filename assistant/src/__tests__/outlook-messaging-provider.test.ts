@@ -681,7 +681,16 @@ describe("Outlook messaging provider", () => {
     test("has correct capabilities", () => {
       expect(outlookMessagingProvider.capabilities.has("threads")).toBe(true);
       expect(outlookMessagingProvider.capabilities.has("folders")).toBe(true);
-      expect(outlookMessagingProvider.capabilities.has("archive")).toBe(false);
+      expect(outlookMessagingProvider.capabilities.has("archive")).toBe(true);
+      expect(outlookMessagingProvider.capabilities.has("categories")).toBe(
+        true,
+      );
+      expect(outlookMessagingProvider.capabilities.has("drafts_native")).toBe(
+        true,
+      );
+      expect(outlookMessagingProvider.capabilities.has("unsubscribe")).toBe(
+        true,
+      );
     });
   });
 
