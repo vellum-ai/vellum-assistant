@@ -229,9 +229,11 @@ describe("POST /v1/oauth/apps/:appId/connect — callback_transport", () => {
 
     expect(res.status).toBe(200);
     expect(mockOrchestrateOAuthConnect).toHaveBeenCalledTimes(1);
-    const callArgs = mockOrchestrateOAuthConnect.mock.calls[0]![0] as {
-      callbackTransport: string;
-    };
+    const callArgs = (
+      mockOrchestrateOAuthConnect.mock.calls as unknown as Array<
+        [{ callbackTransport: string }]
+      >
+    )[0]![0];
     expect(callArgs.callbackTransport).toBe("gateway");
   });
 
@@ -249,9 +251,11 @@ describe("POST /v1/oauth/apps/:appId/connect — callback_transport", () => {
 
     expect(res.status).toBe(200);
     expect(mockOrchestrateOAuthConnect).toHaveBeenCalledTimes(1);
-    const callArgs = mockOrchestrateOAuthConnect.mock.calls[0]![0] as {
-      callbackTransport: string;
-    };
+    const callArgs = (
+      mockOrchestrateOAuthConnect.mock.calls as unknown as Array<
+        [{ callbackTransport: string }]
+      >
+    )[0]![0];
     expect(callArgs.callbackTransport).toBe("loopback");
   });
 
@@ -269,9 +273,11 @@ describe("POST /v1/oauth/apps/:appId/connect — callback_transport", () => {
 
     expect(res.status).toBe(200);
     expect(mockOrchestrateOAuthConnect).toHaveBeenCalledTimes(1);
-    const callArgs = mockOrchestrateOAuthConnect.mock.calls[0]![0] as {
-      callbackTransport: string;
-    };
+    const callArgs = (
+      mockOrchestrateOAuthConnect.mock.calls as unknown as Array<
+        [{ callbackTransport: string }]
+      >
+    )[0]![0];
     expect(callArgs.callbackTransport).toBe("loopback");
   });
 
