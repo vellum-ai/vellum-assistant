@@ -20,7 +20,6 @@
  * - Running identity verifiers
  */
 
-import { shouldUsePlatformCallbacks } from "../inbound/platform-callback-registration.js";
 import type { TokenEndpointAuthMethod } from "../security/oauth2.js";
 import { prepareOAuth2Flow, startOAuth2Flow } from "../security/oauth2.js";
 import { getLogger } from "../util/logger.js";
@@ -151,28 +150,9 @@ export async function orchestrateOAuthConnect(
   const tokenEndpointAuthMethod = providerRow.tokenEndpointAuthMethod as
     | TokenEndpointAuthMethod
     | undefined;
-  const callerTransport: "loopback" | "gateway" =
+  const callbackTransport: "loopback" | "gateway" =
     options.callbackTransport ?? "loopback";
   const loopbackPort = providerRow.loopbackPort ?? undefined;
-
-  // When the caller requests loopback but the provider has no fixed port,
-  // the OS assigns a random ephemeral port on each attempt.  This works
-  // locally (e.g. Google natively supports arbitrary localhost redirect
-  // ports), but breaks BYO OAuth apps on containerized hosts — the user
-  // cannot predict the redirect URI to whitelist in their OAuth dashboard.
-  // Prefer the gateway transport in that case so callbacks route through
-  // the platform's stable URL.
-  let callbackTransport: "loopback" | "gateway" = callerTransport;
-  if (callerTransport === "loopback" && loopbackPort == null) {
-    if (shouldUsePlatformCallbacks()) {
-      callbackTransport = "gateway";
-    }
-  }
-
-  const flowOptions =
-    callbackTransport === "gateway"
-      ? { callbackTransport }
-      : { callbackTransport, loopbackPort };
 
   // Resolve scopes via the scope policy engine
   const scopeProfile = {
@@ -245,34 +225,31 @@ export async function orchestrateOAuthConnect(
   // -----------------------------------------------------------------------
   if (!options.isInteractive) {
     try {
-      // Gateway transport needs a public ingress URL or platform callbacks
+      // Gateway transport needs a public ingress URL
       if (callbackTransport !== "loopback") {
-        let hasPublicUrl = false;
+        const { loadConfig } = await import("../config/loader.js");
+        const { getPublicBaseUrl } =
+          await import("../inbound/public-ingress-urls.js");
         try {
-          // Dynamic imports to avoid circular dependencies through
-          // config/loader → security → oauth2 module chains.
-          const { loadConfig } = await import("../config/loader.js");
-          const { getPublicBaseUrl } =
-            await import("../inbound/public-ingress-urls.js");
           getPublicBaseUrl(loadConfig());
-          hasPublicUrl = true;
         } catch {
-          // No direct public URL configured
-        }
-        if (!hasPublicUrl && shouldUsePlatformCallbacks()) {
-          hasPublicUrl = true;
-        }
-        if (!hasPublicUrl) {
           return {
             success: false,
             error:
-              "OAuth connect from a non-interactive session requires a public ingress URL or platform callbacks. Configure ingress.publicBaseUrl or ensure the assistant is registered with the platform.",
+              "OAuth connect from a non-interactive session requires a public ingress URL. Configure ingress.publicBaseUrl first.",
             safeError: true,
           };
         }
       }
 
-      const prepared = await prepareOAuth2Flow(oauthConfig, flowOptions);
+      const prepared = await prepareOAuth2Flow(
+        oauthConfig,
+        callbackTransport === "loopback"
+          ? { callbackTransport, loopbackPort }
+          : callbackTransport === "gateway"
+            ? { callbackTransport }
+            : undefined,
+      );
 
       // Fire-and-forget: store tokens when the callback arrives
       prepared.completion
@@ -378,7 +355,11 @@ export async function orchestrateOAuthConnect(
           }
         },
       },
-      flowOptions,
+      callbackTransport === "loopback"
+        ? { callbackTransport, loopbackPort }
+        : callbackTransport === "gateway"
+          ? { callbackTransport }
+          : undefined,
     );
 
     log.info(
