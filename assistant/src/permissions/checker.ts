@@ -766,6 +766,17 @@ async function classifyRiskUncached(
     ) {
       return RiskLevel.High;
     }
+    if (filePath) {
+      const normalizedHooksDir = normalizeDirPath(getWorkspaceHooksDir());
+      const normalizedPath = normalizeFilePath(resolve(filePath));
+      const hooksDirNoTrailingSlash = normalizedHooksDir.slice(0, -1);
+      if (
+        normalizedPath === hooksDirNoTrailingSlash ||
+        normalizedPath.startsWith(normalizedHooksDir)
+      ) {
+        return RiskLevel.High;
+      }
+    }
     // Fall through to the tool registry default (Medium) below.
   }
 
