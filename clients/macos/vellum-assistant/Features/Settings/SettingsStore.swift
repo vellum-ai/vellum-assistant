@@ -2552,6 +2552,18 @@ public final class SettingsStore: ObservableObject {
                     assistantId: assistant.assistantId,
                     organizationId: orgId
                 )
+                // Guard against stale responses: discard the result if the connected
+                // assistant or organization changed while the request was in flight.
+                let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+                guard currentConnectedId == connectedId else {
+                    log.info("Discarding stale enter-maintenance response for assistant \(assistant.assistantId, privacy: .public): assistant changed to '\(currentConnectedId, privacy: .public)' while request was in flight")
+                    return
+                }
+                let currentOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+                guard currentOrgId == orgId else {
+                    log.info("Discarding stale enter-maintenance response for assistant \(assistant.assistantId, privacy: .public): organization changed to '\(currentOrgId, privacy: .public)' while request was in flight")
+                    return
+                }
                 managedAssistantMaintenanceMode = updated.maintenance_mode
                 log.info("Entered maintenance mode for assistant \(assistant.assistantId, privacy: .public)")
             } catch {
@@ -2590,6 +2602,18 @@ public final class SettingsStore: ObservableObject {
                     assistantId: assistant.assistantId,
                     organizationId: orgId
                 )
+                // Guard against stale responses: discard the result if the connected
+                // assistant or organization changed while the request was in flight.
+                let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
+                guard currentConnectedId == connectedId else {
+                    log.info("Discarding stale exit-maintenance response for assistant \(assistant.assistantId, privacy: .public): assistant changed to '\(currentConnectedId, privacy: .public)' while request was in flight")
+                    return
+                }
+                let currentOrgId = UserDefaults.standard.string(forKey: "connectedOrganizationId") ?? ""
+                guard currentOrgId == orgId else {
+                    log.info("Discarding stale exit-maintenance response for assistant \(assistant.assistantId, privacy: .public): organization changed to '\(currentOrgId, privacy: .public)' while request was in flight")
+                    return
+                }
                 managedAssistantMaintenanceMode = updated.maintenance_mode
                 log.info("Exited maintenance mode for assistant \(assistant.assistantId, privacy: .public)")
             } catch {
