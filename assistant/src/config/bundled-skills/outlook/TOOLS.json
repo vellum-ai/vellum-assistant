@@ -1,1 +1,35 @@
-[]
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "outlook_unsubscribe",
+      "description": "Unsubscribe from a mailing list by following the List-Unsubscribe header on an Outlook message. Include a confidence score (0-1).",
+      "category": "outlook",
+      "risk": "medium",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "description": "An Outlook message ID from the mailing list to unsubscribe from"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Outlook account to use. Required when multiple Outlook accounts are connected. If omitted, uses the most recently connected account."
+          }
+        },
+        "required": ["message_id", "confidence"]
+      },
+      "executor": "tools/outlook-unsubscribe.ts",
+      "execution_target": "host"
+    }
+  ]
+}
