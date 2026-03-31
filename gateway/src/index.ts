@@ -798,13 +798,15 @@ async function main() {
     {
       path: "/v1/migrations/export",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => migrationExportProxy(req),
     },
     {
       path: "/v1/migrations/import",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => migrationImportProxy(req),
     },
 
