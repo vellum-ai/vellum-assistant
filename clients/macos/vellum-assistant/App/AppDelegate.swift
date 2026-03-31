@@ -544,12 +544,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             // Check for a pending managed assistant switch (set by performSwitchAssistant
             // when the user was logged out). Now that the user has re-authenticated and
             // the app is already set up, complete the switch.
+            // Validate that the pending ID still exists in the lockfile and belongs
+            // to the current platform environment before completing the switch.
             if let pendingId = UserDefaults.standard.string(forKey: "pendingManagedSwitchAssistantId"),
                !pendingId.isEmpty {
                 UserDefaults.standard.removeObject(forKey: "pendingManagedSwitchAssistantId")
-                if let assistant = LockfileAssistant.loadByName(pendingId) {
+                if let assistant = LockfileAssistant.loadByName(pendingId),
+                   assistant.isCurrentEnvironment {
                     performSwitchAssistant(to: assistant)
                     return
+                } else {
+                    log.warning("[proceedToApp] Pending managed switch target '\(pendingId, privacy: .public)' not found in lockfile or not in current environment — ignoring")
                 }
             }
             showMainWindow()
@@ -596,13 +601,18 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // On cold-start reauth (non-first-launch), check for a pending managed
         // assistant switch BEFORE bootstrapping credentials. This avoids
         // provisioning against the wrong assistant only to immediately switch.
+        // Validate that the pending ID still exists in the lockfile and belongs
+        // to the current platform environment before completing the switch.
         if !isFirstLaunch,
            let pendingId = UserDefaults.standard.string(forKey: "pendingManagedSwitchAssistantId"),
            !pendingId.isEmpty {
             UserDefaults.standard.removeObject(forKey: "pendingManagedSwitchAssistantId")
-            if let assistant = LockfileAssistant.loadByName(pendingId) {
+            if let assistant = LockfileAssistant.loadByName(pendingId),
+               assistant.isCurrentEnvironment {
                 performSwitchAssistant(to: assistant)
                 return
+            } else {
+                log.warning("[proceedToApp] Pending managed switch target '\(pendingId, privacy: .public)' not found in lockfile or not in current environment — ignoring")
             }
         }
 
