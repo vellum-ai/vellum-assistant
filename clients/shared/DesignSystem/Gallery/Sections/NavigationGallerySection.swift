@@ -438,6 +438,7 @@ struct NavigationGallerySection: View {
                     }
                 }
 
+                #if os(macOS)
                 Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
 
                 // MARK: - VSubMenuItem (in context menu)
@@ -463,6 +464,7 @@ struct NavigationGallerySection: View {
                             VMenuItem(icon: VIcon.trash.rawValue, label: "Delete", variant: .destructive) {}
                         }
                 }
+                #endif
             }
 
 
