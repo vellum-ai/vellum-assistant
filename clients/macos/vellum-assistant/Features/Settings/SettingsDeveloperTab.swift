@@ -119,31 +119,6 @@ struct SettingsDeveloperTab: View {
                 revokeAssistantApiKeySection
             }
 
-            // Dangerously Skip Permissions
-            SettingsCard(title: "Dangerously Skip Permissions", subtitle: "Auto-accept all permission prompts without asking. The assistant will never pause for approval — use with caution.") {
-                let assistant = lockfileAssistants.first(where: { $0.assistantId == selectedAssistantId })
-                let isDisabled = (assistant?.isRemote ?? false) && !(assistant?.isDocker ?? false)
-                HStack(alignment: .top, spacing: VSpacing.sm) {
-                    VToggle(isOn: Binding(
-                        get: { store.dangerouslySkipPermissions },
-                        set: { store.setDangerouslySkipPermissions($0) }
-                    ))
-                    .accessibilityLabel("Dangerously Skip Permissions")
-                    .disabled(isDisabled)
-                    .padding(.top, 2)
-                    VStack(alignment: .leading, spacing: VSpacing.xs) {
-                        Text("Skip all permission prompts")
-                            .font(VFont.bodyMediumLighter)
-                            .foregroundStyle(VColor.contentSecondary)
-                        Text(isDisabled
-                            ? "This setting cannot be changed for remote assistants."
-                            : "When enabled, tools execute immediately without asking for approval. Explicit deny rules are still respected.")
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.contentTertiary)
-                    }
-                }
-            }
-
             // Permission Simulator
             if let model = testerModel {
                 ToolPermissionTesterView(model: model)
@@ -165,9 +140,6 @@ struct SettingsDeveloperTab: View {
                 refreshDisplayNames()
                 resolvePlatformUuid()
                 await refreshAwakeStates()
-                // Fetch skip-permissions state for Docker assistants after
-                // the lockfile-derived cache has been populated.
-                store.refreshDangerouslySkipPermissions()
             }
             identity = IdentityInfo.load()
             Task { await fetchHealthz() }

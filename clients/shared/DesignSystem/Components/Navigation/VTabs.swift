@@ -92,8 +92,8 @@ public struct VTabs<SelectionValue: Hashable>: View {
         }
         .padding(2)
         .background(
-            RoundedRectangle(cornerRadius: size == .compact ? VRadius.sm + 1 : VRadius.md)
-                .fill(VColor.surfaceActive)
+            RoundedRectangle(cornerRadius: VRadius.md)
+                .fill(VColor.surfaceBase)
         )
         .animation(VAnimation.fast, value: selection)
     }
@@ -127,20 +127,20 @@ private struct PillSegment: View {
         Button(action: action) {
             Group {
                 if let icon {
-                    VIconView(.resolve(icon), size: size == .compact ? 10 : 12)
+                    VIconView(.resolve(icon), size: 12)
                         .foregroundStyle(VColor.contentDefault)
                 } else {
                     Text(label)
-                        .font(size == .compact ? VFont.labelDefault : VFont.bodyMediumLighter)
+                        .font(VFont.bodyMediumDefault)
                         .fixedSize()
-                        .foregroundStyle(isSelected ? selectedTextColor : VColor.contentSecondary)
+                        .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
                 }
             }
-            .padding(.horizontal, icon != nil ? VSpacing.sm : (size == .compact ? VSpacing.sm : VSpacing.lg))
+            .padding(.horizontal, icon != nil ? VSpacing.sm : 10)
             .frame(maxWidth: .infinity)
-            .frame(height: size == .compact ? 24 : 32)
+            .frame(height: 28)
             .background(
-                RoundedRectangle(cornerRadius: size == .compact ? VRadius.sm : VRadius.md - 1)
+                RoundedRectangle(cornerRadius: VRadius.sm)
                     .fill(segmentBackground)
                     .shadow(color: isSelected ? VColor.auxBlack.opacity(0.08) : .clear, radius: 2, x: 0, y: 1)
             )
@@ -151,10 +151,6 @@ private struct PillSegment: View {
         .pointerCursor()
         .accessibilityLabel(label)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-    }
-
-    private var selectedTextColor: Color {
-        VColor.contentDefault
     }
 
     private var segmentBackground: Color {

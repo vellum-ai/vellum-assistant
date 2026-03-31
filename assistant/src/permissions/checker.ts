@@ -8,6 +8,7 @@ import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
 import { indexCatalogById } from "../skills/include-graph.js";
 import {
   isSkillSourcePath,
+  normalizeDirPath,
   normalizeFilePath,
 } from "../skills/path-classifier.js";
 import { computeTransitiveSkillVersionHash } from "../skills/transitive-version-hash.js";
@@ -18,6 +19,7 @@ import {
   looksLikePathOnlyInput,
 } from "../tools/network/url-safety.js";
 import { getTool } from "../tools/registry.js";
+import { getWorkspaceHooksDir } from "../util/platform.js";
 import {
   buildShellAllowlistOptions,
   buildShellCommandCandidates,
@@ -707,6 +709,19 @@ async function classifyRiskUncached(
     ) {
       return RiskLevel.High;
     }
+    if (filePath) {
+      const normalizedHooksDir = normalizeDirPath(getWorkspaceHooksDir());
+      const normalizedPath = normalizeFilePath(
+        resolve(workingDir ?? process.cwd(), filePath),
+      );
+      const hooksDirNoTrailingSlash = normalizedHooksDir.slice(0, -1);
+      if (
+        normalizedPath === hooksDirNoTrailingSlash ||
+        normalizedPath.startsWith(normalizedHooksDir)
+      ) {
+        return RiskLevel.High;
+      }
+    }
     return RiskLevel.Low;
   }
   if (toolName === "web_search") return RiskLevel.Low;
@@ -750,6 +765,17 @@ async function classifyRiskUncached(
       isSkillSourcePath(resolve(filePath), getConfig().skills.load.extraDirs)
     ) {
       return RiskLevel.High;
+    }
+    if (filePath) {
+      const normalizedHooksDir = normalizeDirPath(getWorkspaceHooksDir());
+      const normalizedPath = normalizeFilePath(resolve(filePath));
+      const hooksDirNoTrailingSlash = normalizedHooksDir.slice(0, -1);
+      if (
+        normalizedPath === hooksDirNoTrailingSlash ||
+        normalizedPath.startsWith(normalizedHooksDir)
+      ) {
+        return RiskLevel.High;
+      }
     }
     // Fall through to the tool registry default (Medium) below.
   }

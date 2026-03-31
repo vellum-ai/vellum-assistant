@@ -156,8 +156,8 @@ extension AppDelegate {
                 try? FileManager.default.removeItem(at: sentinelPath)
                 return
             }
-            DispatchQueue.main.async {
-                self?.vellumCli.stop()
+            Task { @MainActor [weak self] in
+                await self?.vellumCli.stop()
                 NSApp.terminate(nil)
             }
         }
@@ -206,7 +206,7 @@ extension AppDelegate {
                 if !cleared {
                     log.warning("Credential cleanup incomplete — stopping assistant to prevent stale managed credential state")
                     connectionManager.disconnect()
-                    vellumCli.stop(name: connectedAssistantId)
+                    await vellumCli.stop(name: connectedAssistantId)
                 }
             }
 
@@ -534,6 +534,12 @@ extension AppDelegate {
         }
 
         if let name = assistantName {
+            // Disconnect SSE and health checks *before* the CLI kills the
+            // daemon/gateway. Otherwise the EventStreamClient reconnect loop
+            // hits the gateway while the upstream daemon is already dead,
+            // producing spurious "SSE connection failed with status 502" errors.
+            connectionManager.disconnect()
+
             do {
                 try await vellumCli.retire(name: name)
             } catch {
@@ -545,23 +551,19 @@ extension AppDelegate {
                 alert.addButton(withTitle: "Force Remove")
                 alert.addButton(withTitle: "Cancel")
                 if alert.runModal() != .alertFirstButtonReturn {
-                    // Assistant is still running — user can continue using the app.
+                    // Assistant is still running — reconnect so the user can
+                    // continue using the app (we disconnected above to avoid
+                    // 502 errors during the retire attempt).
+                    try? await connectionManager.connect()
                     return false
                 }
                 // Retire failed but user chose Force Remove — stop the assistant
                 // before cleaning up local state.
-                connectionManager.disconnect()
-                vellumCli.stop(name: name)
+                await vellumCli.stop(name: name)
                 self.removeLockfileEntry(assistantId: name)
             }
-
-            // Disconnect the client from the (now-stopped) assistant.
-            // The retire CLI already stopped the assistant process; an
-            // additional vellumCli.stop() here would block the main
-            // thread and always fail because the process is already gone.
-            connectionManager.disconnect()
         } else {
-            vellumCli.stop(name: assistantName)
+            await vellumCli.stop(name: assistantName)
         }
 
         // Check if other assistants remain in the lockfile.
@@ -700,6 +702,10 @@ extension AppDelegate {
             let allAssistants = LockfileAssistant.loadAll()
             let localAssistants = allAssistants.filter { !$0.isRemote }
 
+            // Disconnect SSE before retiring so the reconnect loop doesn't
+            // hit a half-torn-down gateway and produce 502 errors.
+            connectionManager.disconnect()
+
             // Retire each local assistant so cloud resources are cleaned up.
             for assistant in localAssistants {
                 do {
@@ -711,8 +717,7 @@ extension AppDelegate {
             }
 
             // Stop any remaining assistant processes.
-            connectionManager.disconnect()
-            vellumCli.stop()
+            await vellumCli.stop()
 
             // Move the app bundle to the Trash.
             let bundleURL = Bundle.main.bundleURL

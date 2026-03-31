@@ -2017,6 +2017,9 @@ describe("Permission Checker", () => {
     function ensureSkillsDir(): void {
       mkdirSync(join(checkerTestDir, "skills"), { recursive: true });
     }
+    function ensureHooksDir(): void {
+      mkdirSync(join(checkerTestDir, "hooks"), { recursive: true });
+    }
 
     test("file_write to skill directory is High risk", async () => {
       ensureSkillsDir();
@@ -2145,6 +2148,56 @@ describe("Permission Checker", () => {
       const normalPath = "/tmp/some-file.txt";
       const risk = await classifyRisk("file_edit", { path: normalPath });
       expect(risk).toBe(RiskLevel.Low);
+    });
+
+    test("file_write to hooks directory is High risk", async () => {
+      ensureHooksDir();
+      const hookPath = join(
+        checkerTestDir,
+        "hooks",
+        "post-tool-use",
+        "hook.sh",
+      );
+      const risk = await classifyRisk("file_write", { path: hookPath });
+      expect(risk).toBe(RiskLevel.High);
+    });
+
+    test("file_edit of hooks config is High risk", async () => {
+      ensureHooksDir();
+      const configPath = join(checkerTestDir, "hooks", "config.json");
+      const risk = await classifyRisk("file_edit", { path: configPath });
+      expect(risk).toBe(RiskLevel.High);
+    });
+
+    test("file_write to hooks directory prompts as High risk", async () => {
+      ensureHooksDir();
+      const hookPath = join(
+        checkerTestDir,
+        "hooks",
+        "post-tool-use",
+        "hook.sh",
+      );
+      const result = await check("file_write", { path: hookPath }, "/tmp");
+      expect(result.decision).toBe("prompt");
+    });
+
+    test("host_file_write to hooks directory is High risk", async () => {
+      ensureHooksDir();
+      const hookPath = join(
+        checkerTestDir,
+        "hooks",
+        "post-tool-use",
+        "hook.sh",
+      );
+      const risk = await classifyRisk("host_file_write", { path: hookPath });
+      expect(risk).toBe(RiskLevel.High);
+    });
+
+    test("host_file_edit of hooks config is High risk", async () => {
+      ensureHooksDir();
+      const configPath = join(checkerTestDir, "hooks", "config.json");
+      const risk = await classifyRisk("host_file_edit", { path: configPath });
+      expect(risk).toBe(RiskLevel.High);
     });
 
     test("host_file_write to non-skill path remains Medium risk (via registry)", async () => {

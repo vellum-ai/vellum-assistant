@@ -14,6 +14,7 @@ import type { Scope, ScopeProfile } from "./types.js";
 
 const PROFILE_SCOPES: Record<ScopeProfile, ReadonlySet<Scope>> = {
   actor_client_v1: new Set<Scope>([
+    "admin.write",
     "chat.read",
     "chat.write",
     "approval.read",

@@ -8,6 +8,7 @@ import type { AssistantConfig } from "../config/types.js";
 import { setSentryOrganizationId, setSentryUserId } from "../instrument.js";
 import { getMcpServerManager } from "../mcp/manager.js";
 import { gmailMessagingProvider } from "../messaging/providers/gmail/adapter.js";
+import { outlookMessagingProvider } from "../messaging/providers/outlook/adapter.js";
 import { slackProvider as slackMessagingProvider } from "../messaging/providers/slack/adapter.js";
 import { telegramBotMessagingProvider } from "../messaging/providers/telegram-bot/adapter.js";
 import { whatsappMessagingProvider } from "../messaging/providers/whatsapp/adapter.js";
@@ -140,6 +141,7 @@ export function registerWatcherProviders(): void {
 export function registerMessagingProviders(): void {
   registerMessagingProvider(slackMessagingProvider);
   registerMessagingProvider(gmailMessagingProvider);
+  registerMessagingProvider(outlookMessagingProvider);
   registerMessagingProvider(telegramBotMessagingProvider);
   registerMessagingProvider(whatsappMessagingProvider);
 }

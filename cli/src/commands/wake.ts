@@ -110,34 +110,36 @@ export async function wake(): Promise<void> {
     }
   }
 
-  // Reuse the lockfile-persisted signing key so client actor tokens survive
-  // daemon/gateway restarts. Generate and persist a new one only on first wake.
-  let signingKey = resources.signingKey;
-  if (!signingKey) {
-    // Migration: users upgrading from pre-v0.5.14 never had signingKey in the
-    // lockfile. The gateway persisted its own key to disk at
-    // <instanceDir>/.vellum/protected/actor-token-signing-key. Read it so
-    // existing client actor tokens remain valid after the upgrade.
-    const legacyKeyPath = join(
-      resources.instanceDir,
-      ".vellum",
-      "protected",
-      "actor-token-signing-key",
-    );
-    if (existsSync(legacyKeyPath)) {
-      try {
-        const raw = readFileSync(legacyKeyPath);
-        if (raw.length === 32) {
-          signingKey = raw.toString("hex");
-          console.log("Migrated signing key from gateway disk to lockfile.");
-        }
-      } catch {
-        // Fall through to generate a new key.
+  // Resolve the signing key. The gateway persists its own copy to disk at
+  // <instanceDir>/.vellum/protected/actor-token-signing-key. That on-disk key
+  // is the source of truth because it is what the gateway actually used to sign
+  // existing actor tokens. Prefer it over the lockfile value so that tokens
+  // survive upgrades and any scenario where the two diverge.
+  //
+  // NOTE: Removal of this legacy key path read is blocked on removing all use
+  // of the signing key from the assistant daemon. Until then, the on-disk key
+  // must remain the authoritative source.
+  const legacyKeyPath = join(
+    resources.instanceDir,
+    ".vellum",
+    "protected",
+    "actor-token-signing-key",
+  );
+  let signingKey: string | undefined;
+  if (existsSync(legacyKeyPath)) {
+    try {
+      const raw = readFileSync(legacyKeyPath);
+      if (raw.length === 32) {
+        signingKey = raw.toString("hex");
       }
+    } catch {
+      // Ignore — fall through to lockfile or generate.
     }
-    if (!signingKey) {
-      signingKey = generateLocalSigningKey();
-    }
+  }
+  if (!signingKey) {
+    signingKey = resources.signingKey ?? generateLocalSigningKey();
+  }
+  if (signingKey !== resources.signingKey) {
     entry.resources = { ...resources, signingKey };
     saveAssistantEntry(entry);
   }

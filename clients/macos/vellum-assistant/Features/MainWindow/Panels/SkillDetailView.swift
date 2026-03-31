@@ -29,9 +29,9 @@ struct SkillDetailView: View {
                     .font(VFont.bodyMediumLighter)
                     .foregroundStyle(VColor.contentSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(8)
+                    .frame(maxWidth: 800, alignment: .leading)
             }
-
-            SkillDetailMetaInfo(skill: skill)
             skillDetailFileBrowser
         }
         .onAppear {
@@ -64,91 +64,54 @@ struct SkillDetailView: View {
 
     // MARK: - File Browser
 
+    private var browserFiles: [VFileBrowserFile] {
+        guard let files = skillsManager.selectedSkillFiles else { return [] }
+        return files.files
+            .filter { !$0.isBinary && $0.content != nil }
+            .map { VFileBrowserFile(
+                id: $0.path, name: $0.name, path: $0.path,
+                size: $0.size, mimeType: $0.mimeType,
+                isBinary: $0.isBinary, content: $0.content,
+                icon: fileIcon(for: $0.mimeType, fileName: $0.name)
+            )}
+    }
+
     @ViewBuilder
     private var skillDetailFileBrowser: some View {
-        HStack(alignment: .top, spacing: VSpacing.xl) {
-            skillFilesSection
-                .frame(width: 280, alignment: .topLeading)
-                .frame(maxHeight: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(VColor.surfaceBase)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-
-            skillDetailFileContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: VRadius.lg)
-                        .fill(VColor.surfaceBase)
-                )
-                .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    @ViewBuilder
-    private var skillDetailFileContent: some View {
-        if let selectedPath = expandedFilePath,
-           let filesResponse = skillsManager.selectedSkillFiles,
-           let file = filesResponse.files.first(where: { $0.path == selectedPath }),
-           !file.isBinary,
-           let content = file.content {
-            FileContentView(
-                fileName: file.path,
-                mimeType: file.mimeType,
-                content: .constant(content),
-                viewMode: $skillFileViewMode,
-                isActivelyEditing: .constant(false)
-            )
-        } else {
+        if skillsManager.isLoadingSkillFiles {
             VEmptyState(
-                title: hasViewableFiles ? "Select a file to view" : "No viewable files",
+                title: "Loading files...",
                 icon: VIcon.fileText.rawValue
             )
-        }
-    }
-
-    @ViewBuilder
-    private var skillFilesSection: some View {
-        if skillsManager.isLoadingSkillFiles || skillsManager.skillFilesError != nil ||
-            (skillsManager.selectedSkillFiles != nil && !skillsManager.selectedSkillFiles!.files.isEmpty) {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack {
-                    Text("Files")
-                        .font(VFont.bodySmallEmphasised)
-                        .foregroundStyle(VColor.contentDefault)
-                    Spacer()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay { ProgressView().controlSize(.small) }
+        } else if let error = skillsManager.skillFilesError {
+            VEmptyState(
+                title: "Failed to load files",
+                subtitle: error,
+                icon: VIcon.circleAlert.rawValue
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            VFileBrowser(
+                files: browserFiles,
+                selectedPath: $expandedFilePath
+            ) { selectedFile in
+                if let selectedFile,
+                   let content = selectedFile.content {
+                    FileContentView(
+                        fileName: selectedFile.path,
+                        mimeType: selectedFile.mimeType,
+                        content: .constant(content),
+                        viewMode: $skillFileViewMode,
+                        isActivelyEditing: .constant(false)
+                    )
+                } else {
+                    VEmptyState(
+                        title: hasViewableFiles ? "Select a file to view" : "No viewable files",
+                        icon: VIcon.fileText.rawValue
+                    )
                 }
-                .padding(.horizontal, VSpacing.md)
-                .frame(height: 36)
-
-                Divider().background(VColor.borderBase)
-
-                VStack(spacing: 0) {
-                    if skillsManager.isLoadingSkillFiles {
-                        VStack {
-                            Spacer()
-                            ProgressView()
-                                .frame(maxWidth: .infinity)
-                            Spacer()
-                        }
-                    } else if let error = skillsManager.skillFilesError {
-                        Text(error)
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.systemNegativeStrong)
-                            .padding(VSpacing.md)
-                    } else if let filesResponse = skillsManager.selectedSkillFiles, !filesResponse.files.isEmpty {
-                        ScrollView(.vertical) {
-                            SkillFileTreeView(
-                                files: filesResponse.files,
-                                selectedFilePath: $expandedFilePath
-                            )
-                            .padding(.vertical, VSpacing.xs)
-                        }
-                    }
-                }
-                .frame(maxHeight: .infinity, alignment: .topLeading)
             }
         }
     }
@@ -162,48 +125,37 @@ struct SkillDetailTitleRow: View {
     let onDelete: () -> Void
 
     var body: some View {
-        HStack(spacing: VSpacing.sm) {
-            VButton(
-                label: "Back",
-                iconOnly: VIcon.chevronLeft.rawValue,
-                style: .ghost,
-                tooltip: "Back to Skills"
-            ) {
-                onBack()
-            }
+        HStack {
+            HStack(spacing: VSpacing.lg) {
+                VButton(
+                    label: "Back",
+                    iconOnly: VIcon.arrowLeft.rawValue,
+                    style: .outlined,
+                    tooltip: "Back to Skills"
+                ) {
+                    onBack()
+                }
+                .frame(width: 32, height: 32)
 
-            if let emoji = skill.emoji, !emoji.isEmpty {
-                Text(emoji)
-                    .font(.system(size: 16))
-                    .frame(width: 20, height: 20)
-            } else {
-                VIconView(.zap, size: 12)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .frame(width: 20, height: 20)
-            }
+                HStack(spacing: VSpacing.sm) {
+                    if let emoji = skill.emoji, !emoji.isEmpty {
+                        Text(emoji)
+                            .font(.system(size: 20))
+                    }
 
-            Text(skill.name)
-                .font(VFont.titleSmall)
-                .foregroundStyle(VColor.contentDefault)
-                .lineLimit(1)
+                    Text(skill.name)
+                        .font(VFont.titleMedium)
+                        .foregroundStyle(VColor.contentEmphasized)
+                        .lineLimit(1)
+                }
 
-            if skill.updateAvailable {
-                Text("UPDATE")
-                    .font(VFont.labelSmall)
-                    .foregroundStyle(VColor.systemNegativeHover)
+                VSkillTypePill(source: skill.source)
             }
 
             Spacer()
 
-            VSkillTypePill(source: skill.source)
-
             if skill.source == "managed" || skill.source == "clawhub" {
-                VButton(
-                    label: "Delete",
-                    iconOnly: VIcon.trash.rawValue,
-                    style: .dangerGhost,
-                    tooltip: "Uninstall skill"
-                ) {
+                VButton(label: "Remove", style: .dangerOutline) {
                     onDelete()
                 }
             }
@@ -211,48 +163,3 @@ struct SkillDetailTitleRow: View {
     }
 }
 
-// MARK: - Meta Info
-
-struct SkillDetailMetaInfo: View {
-    let skill: SkillInfo
-
-    var body: some View {
-        HStack(spacing: VSpacing.lg) {
-            if let installedVersion = skill.installedVersion, !installedVersion.isEmpty {
-                skillMetaItem(icon: .tag, value: "v\(installedVersion)")
-            }
-
-            if skill.updateAvailable {
-                if let latestVersion = skill.latestVersion, !latestVersion.isEmpty {
-                    skillMetaItem(icon: .circleArrowUp, value: "v\(latestVersion) available", color: VColor.systemNegativeHover)
-                } else {
-                    skillMetaItem(icon: .circleArrowUp, value: "Update available", color: VColor.systemNegativeHover)
-                }
-            }
-
-            if let provenance = skill.provenance,
-               provenance.kind == "third-party",
-               let urlString = provenance.sourceUrl,
-               let url = URL(string: urlString) {
-                Link(destination: url) {
-                    HStack(spacing: VSpacing.xs) {
-                        VIconView(.externalLink, size: 9)
-                        Text("View on \(provenance.provider ?? "source")")
-                            .font(VFont.labelSmall)
-                    }
-                    .foregroundStyle(VColor.contentTertiary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-
-    private func skillMetaItem(icon: VIcon, value: String, color: Color = VColor.contentTertiary) -> some View {
-        HStack(spacing: VSpacing.xs) {
-            VIconView(icon, size: 9)
-            Text(value)
-        }
-        .font(VFont.labelSmall)
-        .foregroundStyle(color)
-    }
-}

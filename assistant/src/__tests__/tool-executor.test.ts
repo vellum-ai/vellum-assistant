@@ -52,7 +52,6 @@ const mockConfig = {
   },
   permissions: {
     mode: "workspace" as const,
-    dangerouslySkipPermissions: false,
   },
 };
 

@@ -1,6 +1,6 @@
 /**
  * HTTP route definitions for model configuration, embedding configuration,
- * permissions configuration, conversation search, message content, LLM
+ * conversation search, message content, LLM
  * context inspection, and queued message deletion.
  *
  * These routes expose conversation query functionality over the HTTP API.
@@ -10,8 +10,6 @@
  * PUT    /v1/model/image-gen            — set image-gen model
  * GET    /v1/config/embeddings          — current embedding config
  * PUT    /v1/config/embeddings          — set embedding provider/model
- * GET    /v1/config/permissions/skip    — dangerouslySkipPermissions status
- * PUT    /v1/config/permissions/skip    — toggle dangerouslySkipPermissions
  * GET    /v1/config                     — full raw workspace config
  * PATCH  /v1/config                     — deep-merge partial config
  * GET    /v1/conversations/search       — search conversations
@@ -24,7 +22,6 @@ import { z } from "zod";
 
 import {
   deepMergeOverwrite,
-  getConfig,
   loadRawConfig,
   saveRawConfig,
 } from "../../config/loader.js";
@@ -113,9 +110,7 @@ function applyStoredProviderToLlmContextResult(
   const mergedSummary = normalized.summary
     ? { ...normalized.summary, provider }
     : { provider };
-  const summary = attachEstimatedCost(
-    mergedSummary as LlmContextSummary,
-  );
+  const summary = attachEstimatedCost(mergedSummary as LlmContextSummary);
   return { ...normalized, summary };
 }
 
@@ -321,57 +316,6 @@ export function conversationQueryRouteDefinitions(
             500,
           );
         }
-      },
-    },
-
-    // ── Permissions config ─────────────────────────────────────────────
-    {
-      endpoint: "config/permissions/skip",
-      method: "GET",
-      policyKey: "config/permissions/skip",
-      summary: "Get permission-skip flag",
-      description: "Return whether dangerouslySkipPermissions is enabled.",
-      tags: ["config"],
-      responseBody: z.object({
-        enabled: z.boolean(),
-      }),
-      handler: () => {
-        const config = getConfig();
-        return Response.json({
-          enabled: config.permissions.dangerouslySkipPermissions,
-        });
-      },
-    },
-    {
-      endpoint: "config/permissions/skip",
-      method: "PUT",
-      policyKey: "config/permissions/skip",
-      summary: "Set permission-skip flag",
-      description: "Enable or disable dangerouslySkipPermissions.",
-      tags: ["config"],
-      requestBody: z.object({
-        enabled: z.boolean(),
-      }),
-      handler: async ({ req }) => {
-        const body = (await req.json()) as { enabled?: unknown };
-        if (typeof body.enabled !== "boolean") {
-          return httpError(
-            "BAD_REQUEST",
-            "Missing or invalid field: enabled (boolean)",
-            400,
-          );
-        }
-        const raw = loadRawConfig();
-        const permissions: Record<string, unknown> =
-          raw.permissions != null &&
-          typeof raw.permissions === "object" &&
-          !Array.isArray(raw.permissions)
-            ? (raw.permissions as Record<string, unknown>)
-            : {};
-        permissions.dangerouslySkipPermissions = body.enabled;
-        raw.permissions = permissions;
-        saveRawConfig(raw);
-        return Response.json({ enabled: body.enabled });
       },
     },
 

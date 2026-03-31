@@ -92,12 +92,6 @@ public final class SettingsStore: ObservableObject {
     @Published var mediaEmbedVideoAllowlistDomains: [String]
     @Published var userTimezone: String?
 
-    // MARK: - Permissions Settings
-
-    @Published var dangerouslySkipPermissions: Bool
-    /// Monotonic counter to ignore stale rollback responses from rapid toggles.
-    private var skipPermissionsToggleGeneration: UInt = 0
-
     // MARK: - Telegram Integration State
 
     @Published var telegramHasBotToken: Bool = false
@@ -314,12 +308,6 @@ public final class SettingsStore: ObservableObject {
     /// asynchronously during init and when the connected assistant changes.
     private var isCurrentAssistantRemote: Bool = false
 
-    /// Whether the connected assistant runs in Docker on the local machine.
-    /// Docker assistants are "remote" for filesystem purposes (workspace is on
-    /// a Docker volume) but support config changes via the HTTP API.
-    /// Cached to avoid synchronous lockfile I/O on every access.
-    private var isCurrentAssistantDocker: Bool = false
-
     /// Guards against stale `get` responses overwriting an optimistic
     /// toggle. Set when `setIngressEnabled` fires; cleared once a matching
     /// response arrives.
@@ -437,9 +425,6 @@ public final class SettingsStore: ObservableObject {
         self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
         self.userTimezone = Self.loadUserTimezone(config: emptyConfig)
 
-        // Permissions default to false until daemon provides config
-        self.dangerouslySkipPermissions = false
-
         // Service modes use defaults until daemon provides config
         loadServiceModes(config: emptyConfig)
 
@@ -534,7 +519,7 @@ public final class SettingsStore: ObservableObject {
             .store(in: &cancellables)
 
         // Re-resolve lockfile-derived state whenever the connected assistant changes
-        // so that isCurrentAssistantRemote/isCurrentAssistantDocker stay in sync.
+        // so that isCurrentAssistantRemote and localGatewayTarget stay in sync.
         UserDefaults.standard.publisher(for: \.connectedAssistantId)
             .dropFirst()
             .receive(on: RunLoop.main)
@@ -581,7 +566,6 @@ public final class SettingsStore: ObservableObject {
     private struct LockfileState {
         let gatewayUrl: String
         let isRemote: Bool
-        let isDocker: Bool
     }
 
     /// Reads lockfile-derived state off the main thread. The result is applied
@@ -592,15 +576,13 @@ public final class SettingsStore: ObservableObject {
         let assistant = assistantId.flatMap { LockfileAssistant.loadByName($0) }
         return LockfileState(
             gatewayUrl: gatewayUrl,
-            isRemote: assistant?.isRemote ?? false,
-            isDocker: assistant?.isDocker ?? false
+            isRemote: assistant?.isRemote ?? false
         )
     }
 
     private func applyLockfileState(_ state: LockfileState) {
         localGatewayTarget = state.gatewayUrl
         isCurrentAssistantRemote = state.isRemote
-        isCurrentAssistantDocker = state.isDocker
     }
 
     /// In-flight lockfile refresh task. Cancelled when a new refresh is
@@ -1013,17 +995,6 @@ public final class SettingsStore: ObservableObject {
                 self.embeddingEnabled = status.enabled
                 self.embeddingDegraded = status.degraded
             }
-        }
-    }
-
-    /// Fetches the current dangerouslySkipPermissions state from the daemon
-    /// over HTTP. Only meaningful for Docker assistants where the config lives
-    /// inside the container and cannot be read from the host filesystem.
-    func refreshDangerouslySkipPermissions() {
-        guard isCurrentAssistantDocker else { return }
-        Task { @MainActor in
-            guard let enabled = await settingsClient.fetchDangerouslySkipPermissions() else { return }
-            self.dangerouslySkipPermissions = enabled
         }
     }
 
@@ -2984,19 +2955,6 @@ public final class SettingsStore: ObservableObject {
         }
     }
 
-    func setDangerouslySkipPermissions(_ enabled: Bool) {
-        skipPermissionsToggleGeneration &+= 1
-        let requestGeneration = skipPermissionsToggleGeneration
-        dangerouslySkipPermissions = enabled
-        Task { @MainActor in
-            let success = await settingsClient.setDangerouslySkipPermissions(enabled)
-            if !success, self.skipPermissionsToggleGeneration == requestGeneration {
-                // Revert optimistic toggle on failure only if no newer toggle has fired
-                self.dangerouslySkipPermissions = !enabled
-            }
-        }
-    }
-
     /// Replaces the video-embed domain allowlist, normalizing the input and
     /// persisting the result to the workspace config.
     func setMediaEmbedVideoAllowlistDomains(_ domains: [String]) {
@@ -3131,9 +3089,6 @@ public final class SettingsStore: ObservableObject {
         self.mediaEmbedsEnabledSince = mediaSettings.enabledSince
         self.mediaEmbedVideoAllowlistDomains = mediaSettings.domains
         self.userTimezone = Self.loadUserTimezone(config: config)
-
-        let permissionsConfig = config["permissions"] as? [String: Any]
-        self.dangerouslySkipPermissions = (permissionsConfig?["dangerouslySkipPermissions"] as? Bool) ?? false
 
         if let services = config["services"] as? [String: Any],
            let webSearch = services["web-search"] as? [String: Any],

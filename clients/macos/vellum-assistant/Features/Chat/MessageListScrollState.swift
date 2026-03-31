@@ -3,42 +3,162 @@ import os
 import SwiftUI
 import VellumAssistantShared
 
+// MARK: - ScrollMode
+
+/// Explicit scroll behavior mode. Every scroll decision flows through the
+/// current mode, eliminating implicit priority races between scattered
+/// handlers. Inspired by ChatViewportKit's `ViewportMode` pattern.
+///
+/// References:
+/// - ChatViewportKit: https://github.com/danielraffel/ChatViewportKit
+/// - ScrollPosition: https://developer.apple.com/documentation/swiftui/scrollposition
+/// - ScrollAnchorRole: https://developer.apple.com/documentation/swiftui/scrollanchorrole
+enum ScrollMode: Equatable, CustomStringConvertible {
+    /// Initial render — content starts at bottom, no user interaction yet.
+    case initialLoad
+
+    /// User is at the bottom. Auto-scroll on new content, streaming, etc.
+    case followingBottom
+
+    /// User scrolled away from bottom. No auto-scroll.
+    /// "Scroll to latest" CTA is visible.
+    case freeBrowsing
+
+    /// User sent a message — anchor their message to viewport top.
+    /// The tail spacer provides space below for the assistant's response.
+    case pushToTop(messageId: UUID)
+
+    /// A programmatic scroll is in flight (deep-link anchor, etc.).
+    /// Prevents other scroll operations from interfering until complete.
+    case programmaticScroll(reason: ProgrammaticScrollReason)
+
+    /// Temporarily stabilizing after a layout change.
+    /// Auto-scroll is paused until the stabilization window completes.
+    case stabilizing(previousMode: StabilizedMode, reason: StabilizationReason)
+
+    var description: String {
+        switch self {
+        case .initialLoad: "initialLoad"
+        case .followingBottom: "followingBottom"
+        case .freeBrowsing: "freeBrowsing"
+        case .pushToTop(let id): "pushToTop(\(id))"
+        case .programmaticScroll(let reason): "programmaticScroll(\(reason))"
+        case .stabilizing(let prev, let reason): "stabilizing(\(prev), \(reason))"
+        }
+    }
+
+    /// Whether the mode allows automatic bottom-pinning on new content.
+    /// Both `initialLoad` and `followingBottom` allow auto-scroll —
+    /// the only difference is `initialLoad` marks that no user interaction
+    /// has occurred yet (used by `hasBeenInteracted`).
+    /// Note: `stabilizing` returns `false` even when the previous mode was
+    /// `followingBottom` — stabilization explicitly suppresses auto-scroll
+    /// until the layout mutation completes.
+    var allowsAutoScroll: Bool {
+        switch self {
+        case .initialLoad, .followingBottom: true
+        default: false
+        }
+    }
+
+    /// Whether the "Scroll to latest" CTA should be visible.
+    var showsScrollToLatest: Bool {
+        switch self {
+        case .freeBrowsing: true
+        default: false
+        }
+    }
+
+    /// Whether the tail spacer should be rendered for push-to-top.
+    var showsTailSpacer: Bool {
+        switch self {
+        case .pushToTop: true
+        default: false
+        }
+    }
+
+    /// The push-to-top message ID, if in push-to-top mode.
+    var pushToTopMessageId: UUID? {
+        if case .pushToTop(let id) = self { return id }
+        return nil
+    }
+}
+
+enum ProgrammaticScrollReason: Equatable, CustomStringConvertible {
+    case deepLinkAnchor(id: UUID)
+    case conversationSwitch
+    case scrollRestore
+
+    var description: String {
+        switch self {
+        case .deepLinkAnchor(let id): "deepLinkAnchor(\(id))"
+        case .conversationSwitch: "conversationSwitch"
+        case .scrollRestore: "scrollRestore"
+        }
+    }
+}
+
+enum StabilizationReason: Equatable, CustomStringConvertible {
+    case resize
+    case expansion
+    case pagination
+
+    var description: String {
+        switch self {
+        case .resize: "resize"
+        case .expansion: "expansion"
+        case .pagination: "pagination"
+        }
+    }
+}
+
+/// The mode the scroll was in before entering `stabilizing`.
+/// Only tracks modes that can transition into stabilizing.
+enum StabilizedMode: Equatable, CustomStringConvertible {
+    case followingBottom
+    case freeBrowsing
+
+    var description: String {
+        switch self {
+        case .followingBottom: "followingBottom"
+        case .freeBrowsing: "freeBrowsing"
+        }
+    }
+}
+
+private let scrollLog = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScrollState")
+
 // MARK: - MessageListScrollState
 
-/// Replaces `MessageListScrollCoordinator` (ObservableObject) with an
-/// `@Observable` class where a single `uiVersion` counter is the ONLY
-/// property that triggers SwiftUI view re-evaluations. All scroll-frequency
-/// state is `@ObservationIgnored` to prevent the cascading re-render
-/// feedback loops that caused the old coordinator to freeze the app.
+/// Centralized scroll state machine with `@Observable` fine-grained tracking.
+/// A single `uiVersion` counter is the ONLY property that triggers SwiftUI
+/// view re-evaluations. The `mode` enum drives all scroll behavior decisions
+/// through explicit transitions rather than scattered handler logic.
 @Observable @MainActor
 final class MessageListScrollState {
 
+    // MARK: - Mode (single source of truth for scroll behavior)
+
+    /// The current scroll behavior mode. All scroll decisions check this
+    /// before executing. Transitions are logged for debugging.
+    @ObservationIgnored private(set) var mode: ScrollMode = .initialLoad
+
     // MARK: - UI State (single uiVersion observation)
 
-    @ObservationIgnored private var _isFollowingBottom = true
+    /// Single observed property — the ONLY thing that triggers SwiftUI view
+    /// re-evaluation from scroll state. Bumped at most once per 16ms frame.
+    private(set) var uiVersion: UInt64 = 0
 
-    /// Logical follow state — scroll handlers and callbacks read this.
-    /// Does NOT trigger view re-evaluation (reads @ObservationIgnored backing store).
-    var isFollowingBottom: Bool { _isFollowingBottom }
+    /// Whether the "Scroll to latest" CTA should be visible.
+    @ObservationIgnored private(set) var showScrollToLatest = false
 
-    /// The message ID whose top edge should be pinned to the viewport top
-    /// after the user sends a message (push-to-top pattern). `nil` when
-    /// push-to-top is inactive.
-    @ObservationIgnored private var _pushToTopMessageId: (any Hashable)? = nil
+    /// Snapshot: whether the tail spacer should render.
+    @ObservationIgnored private(set) var showTailSpacer = false
 
-    var pushToTopMessageId: (any Hashable)? {
-        get { _pushToTopMessageId }
-        set { _pushToTopMessageId = newValue; scheduleUISync() }
-    }
+    /// Snapshot: whether scroll indicators should be hidden.
+    @ObservationIgnored private(set) var scrollIndicatorsHidden = false
 
-    /// Guards the pagination sentinel against re-entry during the brief window
-    /// between Task launch and the first `await`.
-    @ObservationIgnored private var _isPaginationInFlight = false
-
-    var isPaginationInFlight: Bool {
-        get { _isPaginationInFlight }
-        set { _isPaginationInFlight = newValue }
-    }
+    // MARK: - Scroll Indicator Visibility
 
     /// Whether scroll indicators should be temporarily hidden during a
     /// conversation switch. LazyVStack content size estimation causes the
@@ -51,59 +171,43 @@ final class MessageListScrollState {
         set { _hideScrollIndicators = newValue; scheduleUISync() }
     }
 
-    /// Whether the "Scroll to latest" CTA should be visible.
-    /// Updated via debounced `scheduleUISync()` — at most once per frame.
-    @ObservationIgnored private(set) var showScrollToLatest = false
+    // MARK: - Pagination
 
-    /// Single observed property — the ONLY thing that triggers SwiftUI view
-    /// re-evaluation from scroll state. Bumped at most once per 16ms frame.
-    private(set) var uiVersion: UInt64 = 0
+    /// Guards the pagination sentinel against re-entry during the brief window
+    /// between Task launch and the first `await`.
+    @ObservationIgnored private var _isPaginationInFlight = false
 
-    /// Snapshot: whether the tail spacer should render.
-    @ObservationIgnored private(set) var showTailSpacer = false
-
-    /// Snapshot: whether scroll indicators should be hidden.
-    @ObservationIgnored private(set) var scrollIndicatorsHidden = false
+    var isPaginationInFlight: Bool {
+        get { _isPaginationInFlight }
+        set { _isPaginationInFlight = newValue }
+    }
 
     // MARK: - Computed Properties
 
-    /// Height of the tail spacer when it is visible during push-to-top.
+    /// Height of the tail spacer when visible during push-to-top.
     /// Subtracted from content height for overflow and bottom detection
     /// so those computations operate on effective content height.
     var tailSpacerHeight: CGFloat {
-        guard _pushToTopMessageId != nil else { return 0 }
+        guard mode.pushToTopMessageId != nil else { return 0 }
         let h = viewportHeight
         // Account for LazyVStack inter-item spacing so the spacer
         // doesn't overshoot by one spacing unit.
         return h.isFinite ? max(0, h - VSpacing.md) : 0
     }
 
-    // MARK: - ObservationIgnored Properties (never trigger re-evaluation)
+    // MARK: - Geometry State (never trigger re-evaluation)
 
-    /// Current scroll phase from `onScrollPhaseChange`. Only read inside
-    /// the `onScrollGeometryChange` action closure to decide whether a
-    /// scroll-up should trigger detach.
+    /// Current scroll phase from `onScrollPhaseChange`.
     @ObservationIgnored var scrollPhase: ScrollPhase = .idle
 
-    /// Last content offset Y observed by onScrollGeometryChange, used to
-    /// determine scroll direction (increasing offset = scrolling toward older content).
+    /// Last content offset Y observed by onScrollGeometryChange.
     @ObservationIgnored var lastContentOffsetY: CGFloat = 0
 
     /// Whether the user is within the bottom dead-zone of the conversation.
-    /// Computed from scroll geometry in the `onScrollGeometryChange` handler.
     @ObservationIgnored var isAtBottom: Bool = true
 
-    /// Whether a physical scroll event (wheel/trackpad) has been received since
-    /// the current conversation loaded.
-    @ObservationIgnored var hasReceivedScrollEvent: Bool = false
-
-    /// The most recent scroll viewport height. Stored so closures read the
-    /// live value instead of a stale capture.
+    /// The most recent scroll viewport height.
     @ObservationIgnored var viewportHeight: CGFloat = .infinity
-
-    /// Whether any scroll suppression reason is currently active. Single
-    /// unified flag computed from `suppressionReasons`.
-    @ObservationIgnored var isSuppressed: Bool = false
 
     /// Tracks whether the pagination sentinel was previously inside the trigger band.
     @ObservationIgnored var wasPaginationTriggerInRange: Bool = false
@@ -112,50 +216,18 @@ final class MessageListScrollState {
     /// cooldown between successive pagination fires.
     @ObservationIgnored var lastPaginationCompletedAt: Date = .distantPast
 
-    /// The conversation ID currently being displayed. Updated in `reset(for:)`
-    /// so closures always read the live value.
+    /// The conversation ID currently being displayed.
     @ObservationIgnored var currentConversationId: UUID?
 
     /// Captures the `assistantActivityPhase` at the moment `isSending` goes false.
-    /// Used to distinguish mid-turn tool-confirmation pauses from genuine turn endings.
-    @ObservationIgnored var phaseWhenSendingStopped: String = ""
+    @ObservationIgnored var lastActivityPhaseWhenIdle: String = ""
 
-    /// Last container width that triggered a resize scroll handler, used to
-    /// detect meaningful width changes (>2pt) and avoid sub-pixel jitter.
+    /// Last container width that triggered a resize scroll handler.
     @ObservationIgnored var lastHandledContainerWidth: CGFloat = 0
 
     /// Tracks the last pending confirmation request ID that triggered an
-    /// auto-focus handoff. Used to detect nil->non-nil transitions.
+    /// auto-focus handoff.
     @ObservationIgnored var lastAutoFocusedRequestId: String?
-
-    // MARK: - Layout Cache Fields
-
-    /// Cache key for the last computed `CachedMessageLayoutMetadata`.
-    @ObservationIgnored var cachedLayoutKey: PrecomputedCacheKey?
-
-    /// Cached structural metadata, returned on cache hit.
-    @ObservationIgnored var cachedLayoutMetadata: CachedMessageLayoutMetadata?
-
-    /// Monotonically increasing counter that replaces O(n) per-body-eval hash.
-    @ObservationIgnored var messageListVersion: Int = 0
-
-    /// Cached raw (unfiltered) message count.
-    @ObservationIgnored var lastKnownRawMessageCount: Int = 0
-
-    /// Cached visible (paginated) message count.
-    @ObservationIgnored var lastKnownVisibleMessageCount: Int = 0
-
-    /// Cached streaming state of the last visible message.
-    @ObservationIgnored var lastKnownLastMessageStreaming: Bool = false
-
-    /// Cached count of incomplete tool calls across visible messages.
-    @ObservationIgnored var lastKnownIncompleteToolCallCount: Int = 0
-
-    /// Lightweight identity fingerprint of visible message IDs.
-    @ObservationIgnored var lastKnownVisibleIdFingerprint: Int = 0
-
-    /// Cached ID of the first visible message, updated during body evaluation.
-    @ObservationIgnored var cachedFirstVisibleMessageId: UUID?
 
     /// Content height from scroll geometry.
     @ObservationIgnored var scrollContentHeight: CGFloat = 0
@@ -163,57 +235,17 @@ final class MessageListScrollState {
     /// Container (viewport) height from scroll geometry.
     @ObservationIgnored var scrollContainerHeight: CGFloat = 0
 
-    // MARK: - Suppression
+    // MARK: - Layout Cache Fields
 
-    /// Structured reasons for scroll suppression, replacing individual booleans.
-    struct SuppressionReasons: OptionSet {
-        let rawValue: Int
-        static let resize    = SuppressionReasons(rawValue: 1 << 0)
-        static let pagination = SuppressionReasons(rawValue: 1 << 1)
-        static let expansion = SuppressionReasons(rawValue: 1 << 2)
-    }
-
-    /// Currently active suppression reasons.
-    @ObservationIgnored private var suppressionReasons: SuppressionReasons = []
-
-    /// Timeout task for expansion suppression — the only suppression reason
-    /// that uses an auto-timeout (200ms). Resize and pagination manage their
-    /// lifecycle manually within their respective task bodies.
-    @ObservationIgnored private var expansionTimeoutTask: Task<Void, Never>?
-
-    /// Begins suppression for the given reason(s). Starts a 200ms auto-timeout
-    /// for `.expansion`; resize and pagination are managed manually.
-    func beginSuppression(_ reason: SuppressionReasons) {
-        suppressionReasons.insert(reason)
-        isSuppressed = !suppressionReasons.isEmpty
-        if reason.contains(.expansion) {
-            expansionTimeoutTask?.cancel()
-            expansionTimeoutTask = Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 200_000_000)
-                guard !Task.isCancelled, let self else { return }
-                self.endSuppression(.expansion)
-            }
-        }
-    }
-
-    /// Ends suppression for the given reason(s). Cancels expansion timeout
-    /// if `.expansion` is being cleared.
-    func endSuppression(_ reason: SuppressionReasons) {
-        if reason.contains(.expansion) {
-            expansionTimeoutTask?.cancel()
-            expansionTimeoutTask = nil
-        }
-        suppressionReasons.remove(reason)
-        isSuppressed = !suppressionReasons.isEmpty
-    }
-
-    /// Clears all suppression flags and cancels the expansion timeout task.
-    func clearSuppression() {
-        suppressionReasons = []
-        isSuppressed = false
-        expansionTimeoutTask?.cancel()
-        expansionTimeoutTask = nil
-    }
+    @ObservationIgnored var cachedLayoutKey: PrecomputedCacheKey?
+    @ObservationIgnored var cachedLayoutMetadata: CachedMessageLayoutMetadata?
+    @ObservationIgnored var messageListVersion: Int = 0
+    @ObservationIgnored var lastKnownRawMessageCount: Int = 0
+    @ObservationIgnored var lastKnownVisibleMessageCount: Int = 0
+    @ObservationIgnored var lastKnownLastMessageStreaming: Bool = false
+    @ObservationIgnored var lastKnownIncompleteToolCallCount: Int = 0
+    @ObservationIgnored var lastKnownVisibleIdFingerprint: Int = 0
+    @ObservationIgnored var cachedFirstVisibleMessageId: UUID?
 
     // MARK: - Scroll Action Closures
 
@@ -222,16 +254,12 @@ final class MessageListScrollState {
     /// view-owned `ScrollPosition` binding.
     @ObservationIgnored var scrollTo: ((_ id: any Hashable, _ anchor: UnitPoint?) -> Void)?
 
-    /// Closure that scrolls to a given edge (e.g. `.bottom`). Used for
-    /// conversation switches where we need to position at the bottom
-    /// without relying on `.defaultScrollAnchor`.
+    /// Closure that scrolls to a given edge (e.g. `.bottom`).
     @ObservationIgnored var scrollToEdge: ((_ edge: Edge) -> Void)?
 
     // MARK: - Circuit Breaker
 
-    /// Rolling window of body evaluation timestamps for loop detection.
     @ObservationIgnored private var bodyEvalTimestamps: [CFAbsoluteTime] = []
-    /// When true, scheduleUISync() is suppressed to break a runaway re-evaluation loop.
     @ObservationIgnored private(set) var isThrottled = false
     @ObservationIgnored var cachedDerivedStateBox: Any?
     @ObservationIgnored private var throttleRecoveryTask: Task<Void, Never>?
@@ -242,7 +270,6 @@ final class MessageListScrollState {
     func recordBodyEvaluation() {
         let now = CFAbsoluteTimeGetCurrent()
         bodyEvalTimestamps.append(now)
-        // Trim entries older than 2 seconds.
         let cutoff = now - 2.0
         if let firstValid = bodyEvalTimestamps.firstIndex(where: { $0 >= cutoff }) {
             bodyEvalTimestamps.removeFirst(firstValid)
@@ -268,25 +295,24 @@ final class MessageListScrollState {
 
     @ObservationIgnored private var uiSyncTask: Task<Void, Never>?
 
-    /// Debounces observed-property updates so rapid oscillation of _isFollowingBottom
-    /// (e.g. during rapid scrolling near bottom) coalesces into at most one
-    /// view re-evaluation per frame instead of one per scroll event.
-    private func scheduleUISync() {
+    /// Debounces observed-property updates so rapid mode changes coalesce
+    /// into at most one view re-evaluation per frame.
+    func scheduleUISync() {
         guard !isThrottled else { return }
         uiSyncTask?.cancel()
         uiSyncTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 16_000_000) // ~1 frame at 60Hz
+            try? await Task.sleep(nanoseconds: 16_000_000)
             guard let self, !Task.isCancelled else { return }
             self.syncUISnapshots()
             self.uiSyncTask = nil
         }
     }
 
-    /// Computes all snapshot values from internal state and bumps uiVersion
+    /// Computes all snapshot values from the current mode and bumps uiVersion
     /// only if something actually changed.
     private func syncUISnapshots() {
-        let newShowScrollToLatest = !_isFollowingBottom
-        let newShowTailSpacer = _pushToTopMessageId != nil
+        let newShowScrollToLatest = mode.showsScrollToLatest
+        let newShowTailSpacer = mode.showsTailSpacer
         let newScrollIndicatorsHidden = _hideScrollIndicators
 
         var changed = false
@@ -302,8 +328,7 @@ final class MessageListScrollState {
         if changed { uiVersion &+= 1 }
     }
 
-    /// Synchronous UI sync — bypasses debounce for instant state transitions
-    /// like conversation switches.
+    /// Synchronous UI sync — bypasses debounce for instant state transitions.
     func syncUIImmediately() {
         uiSyncTask?.cancel()
         uiSyncTask = nil
@@ -312,58 +337,142 @@ final class MessageListScrollState {
 
     // MARK: - Task References
 
-    /// In-flight pagination load task.
     @ObservationIgnored var paginationTask: Task<Void, Never>?
-
-    /// In-flight staged scroll-to-bottom task used after conversation switches
-    /// and app restarts.
     @ObservationIgnored var scrollRestoreTask: Task<Void, Never>?
-
-    /// Task that clears the highlight flash after the animation duration.
     @ObservationIgnored var highlightDismissTask: Task<Void, Never>?
-
-    /// Task that restores scroll indicator visibility after the grace period.
     @ObservationIgnored var scrollIndicatorRestoreTask: Task<Void, Never>?
-
-    /// Independent timer task that clears a stale anchor after 10 seconds,
-    /// regardless of whether messages.count changes.
     @ObservationIgnored var anchorTimeoutTask: Task<Void, Never>?
 
-    /// The message ID awaiting a deferred scroll-to-top. Set when sending
-    /// begins and consumed after the next `uiVersion` bump, which guarantees
-    /// the tail spacer has rendered before the scroll executes.
+    /// The message ID awaiting a deferred scroll-to-top. Set when entering
+    /// `pushToTop` mode and consumed after the next `uiVersion` bump,
+    /// which guarantees the tail spacer has rendered before the scroll
+    /// executes.
     @ObservationIgnored var pendingPushToTopTarget: UUID?
+
+    /// Timeout task for expansion stabilization — auto-ends after 200ms.
+    @ObservationIgnored private var expansionTimeoutTask: Task<Void, Never>?
+
+    /// Tracks overlapping stabilization windows. Stabilization only ends
+    /// when all active windows have completed, so concurrent reasons
+    /// (e.g. resize during pagination) don't prematurely restore the mode.
+    @ObservationIgnored private var activeStabilizationCount = 0
 
     // MARK: - Deep-Link Anchor Tracking
 
-    /// Timestamp when anchorMessageId was set. Used together with pagination
-    /// exhaustion to decide when a stale anchor should be cleared.
     @ObservationIgnored var anchorSetTime: Date?
 
-    // MARK: - Core Methods
+    // MARK: - Mode Transitions
 
-    /// Requests a scroll-to-bottom pin. Returns `true` if the pin was performed.
-    /// Pass `userInitiated: true` for explicit user actions (e.g. "Scroll to latest"
-    /// button) to bypass both follow-state and suppression checks.
-    @discardableResult
-    func pinToBottom(animated: Bool = false, userInitiated: Bool = false) -> Bool {
-        // User-initiated scrolls bypass both the follow-state and suppression
-        // checks entirely — user intent always wins over defensive guards.
-        if userInitiated {
-            if animated {
-                withAnimation(VAnimation.fast) {
-                    performScrollTo("scroll-bottom-anchor", anchor: .bottom)
-                }
-            } else {
-                performScrollTo("scroll-bottom-anchor", anchor: .bottom)
+    /// Transitions to a new scroll mode. Performs exit actions for the
+    /// old mode and entry actions for the new mode.
+    func transition(to newMode: ScrollMode) {
+        let oldMode = mode
+        guard oldMode != newMode else { return }
+
+        scrollLog.debug("Scroll mode: \(oldMode.description) → \(newMode.description)")
+
+        // Exit actions
+        switch oldMode {
+        case .stabilizing:
+            cancelStabilizationTasks()
+        case .pushToTop:
+            pendingPushToTopTarget = nil
+        default:
+            break
+        }
+
+        mode = newMode
+        scheduleUISync()
+    }
+
+    /// Enters push-to-top mode for the given message ID. Sets up the
+    /// deferred scroll target that will fire after the next uiVersion bump
+    /// (guaranteeing the tail spacer is rendered).
+    func enterPushToTop(messageId: UUID) {
+        transition(to: .pushToTop(messageId: messageId))
+        pendingPushToTopTarget = messageId
+        syncUIImmediately()
+    }
+
+    /// Exits push-to-top and transitions to followingBottom with a
+    /// bottom-pin scroll.
+    func exitPushToTop(animated: Bool = true) {
+        let wasPushToTop = mode.pushToTopMessageId != nil
+        transition(to: .followingBottom)
+        if wasPushToTop {
+            executeScrollToBottom(animated: animated)
+        }
+    }
+
+    /// Enters stabilizing mode, remembering the previous mode to restore
+    /// after all stabilization windows have ended.
+    func beginStabilization(_ reason: StabilizationReason) {
+        let previousMode: StabilizedMode
+        switch mode {
+        case .followingBottom, .initialLoad:
+            previousMode = .followingBottom
+        case .freeBrowsing:
+            previousMode = .freeBrowsing
+        case .stabilizing(let prev, _):
+            previousMode = prev
+        case .pushToTop, .programmaticScroll:
+            return
+        }
+
+        activeStabilizationCount += 1
+        transition(to: .stabilizing(previousMode: previousMode, reason: reason))
+
+        if reason == .expansion {
+            expansionTimeoutTask?.cancel()
+            expansionTimeoutTask = Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                guard !Task.isCancelled, let self else { return }
+                self.endStabilization()
             }
+        }
+    }
+
+    /// Ends one stabilization window. Only restores the previous mode
+    /// when all overlapping windows have completed.
+    func endStabilization() {
+        guard case .stabilizing(let previousMode, _) = mode else { return }
+        activeStabilizationCount = max(0, activeStabilizationCount - 1)
+        guard activeStabilizationCount == 0 else { return }
+        cancelStabilizationTasks()
+        switch previousMode {
+        case .followingBottom:
+            transition(to: .followingBottom)
+        case .freeBrowsing:
+            transition(to: .freeBrowsing)
+        }
+    }
+
+    private func cancelStabilizationTasks() {
+        expansionTimeoutTask?.cancel()
+        expansionTimeoutTask = nil
+    }
+
+    // MARK: - Scroll Execution
+
+    /// Executes a bottom-pin scroll if the current mode allows it.
+    /// Returns `true` if the scroll was performed.
+    ///
+    /// `userInitiated: true` bypasses mode checks — user intent always wins.
+    @discardableResult
+    func requestPinToBottom(animated: Bool = false, userInitiated: Bool = false) -> Bool {
+        if userInitiated {
+            transition(to: .followingBottom)
+            executeScrollToBottom(animated: animated)
             return true
         }
 
-        // Non-user-initiated requests are gated on follow-state and suppression.
-        guard _isFollowingBottom else { return false }
-        guard !isSuppressed else { return false }
+        guard mode.allowsAutoScroll else { return false }
+        executeScrollToBottom(animated: animated)
+        return true
+    }
 
+    /// Low-level scroll-to-bottom execution. Does not check mode.
+    private func executeScrollToBottom(animated: Bool) {
         if animated {
             withAnimation(VAnimation.fast) {
                 performScrollTo("scroll-bottom-anchor", anchor: .bottom)
@@ -371,42 +480,82 @@ final class MessageListScrollState {
         } else {
             performScrollTo("scroll-bottom-anchor", anchor: .bottom)
         }
-        return true
     }
 
-    /// Transitions to the detached state, suppressing all background pin requests.
-    func detach() {
-        guard _isFollowingBottom else { return }
-        _isFollowingBottom = false
-        scheduleUISync()
-    }
-
-    /// Transitions to the following state, allowing pin requests to proceed.
-    func reattach() {
-        guard !_isFollowingBottom else { return }
-        _isFollowingBottom = true
-        scheduleUISync()
-    }
-
-    /// Performs a programmatic scroll to the given item ID and anchor point,
-    /// using the `scrollTo` closure configured during setup.
+    /// Performs a programmatic scroll to the given item ID and anchor point.
     func performScrollTo(_ id: any Hashable, anchor: UnitPoint? = nil) {
         scrollTo?(id, anchor)
     }
 
+    // MARK: - Scroll Event Handling
+
+    /// Handles user scrolling up — transitions to freeBrowsing if appropriate.
+    func handleUserScrollUp() {
+        switch mode {
+        case .initialLoad, .followingBottom:
+            transition(to: .freeBrowsing)
+        case .stabilizing:
+            transition(to: .freeBrowsing)
+        case .freeBrowsing, .pushToTop, .programmaticScroll:
+            break
+        }
+    }
+
+    /// Handles the user arriving at the bottom of the scroll view.
+    func handleReachedBottom() {
+        switch mode {
+        case .freeBrowsing, .pushToTop, .initialLoad, .programmaticScroll:
+            transition(to: .followingBottom)
+        case .stabilizing:
+            break
+        case .followingBottom:
+            break
+        }
+        scrollRestoreTask?.cancel()
+        scrollRestoreTask = nil
+    }
+
+    /// Handles push-to-top overflow detection.
+    @discardableResult
+    func handlePushToTopOverflow() -> Bool {
+        guard mode.pushToTopMessageId != nil else { return false }
+        exitPushToTop(animated: true)
+        return true
+    }
+
+    // MARK: - Convenience Queries
+
+    /// Whether the mode allows automatic bottom-pinning.
+    var isFollowingBottom: Bool {
+        switch mode {
+        case .followingBottom: true
+        case .stabilizing(let prev, _): prev == .followingBottom
+        default: false
+        }
+    }
+
+    /// Whether the scroll system has received initial interaction.
+    var hasBeenInteracted: Bool {
+        if case .initialLoad = mode { return false }
+        return true
+    }
+
+    /// Whether auto-scroll is currently suppressed (stabilizing mode).
+    var isSuppressed: Bool {
+        if case .stabilizing = mode { return true }
+        return false
+    }
+
     // MARK: - Lifecycle Methods
 
-    /// Resets state for a conversation switch. Cancels in-flight tasks, clears
-    /// suppression, invalidates layout cache, and prepares for the new conversation.
+    /// Resets state for a conversation switch.
     func reset(for newConversationId: UUID?) {
-        clearSuppression()
+        cancelStabilizationTasks()
         paginationTask?.cancel()
         paginationTask = nil
         if _isPaginationInFlight { _isPaginationInFlight = false }
         wasPaginationTriggerInRange = false
         lastPaginationCompletedAt = .distantPast
-        // Invalidate the layout cache so the new conversation doesn't
-        // hit a stale cache from the previous conversation.
         cachedLayoutKey = nil
         cachedLayoutMetadata = nil
         cachedDerivedStateBox = nil
@@ -416,29 +565,22 @@ final class MessageListScrollState {
         lastKnownLastMessageStreaming = false
         lastKnownIncompleteToolCallCount = 0
         lastKnownVisibleIdFingerprint = 0
-        // Update the live conversation ID so closures read the new value.
         currentConversationId = newConversationId
-        // Reset follow state for the new conversation.
-        if !_isFollowingBottom { _isFollowingBottom = true }
-        if _pushToTopMessageId != nil { _pushToTopMessageId = nil }
+        mode = .initialLoad
+        activeStabilizationCount = 0
         pendingPushToTopTarget = nil
-        isAtBottom = true
-        hasReceivedScrollEvent = false
+        // False: scroll geometry hasn't updated for the new content yet.
+        isAtBottom = false
         lastContentOffsetY = 0
-        // Clear circuit breaker state so a throttle tripped in the previous
-        // conversation doesn't suppress scheduleUISync() in the new one.
         throttleRecoveryTask?.cancel()
         throttleRecoveryTask = nil
         isThrottled = false
         bodyEvalTimestamps.removeAll()
-        // Hide scroll indicators during the conversation switch grace period
-        // to mask LazyVStack content size estimation changes.
         scrollIndicatorRestoreTask?.cancel()
         if !_hideScrollIndicators { _hideScrollIndicators = true }
-        // Sync UI immediately for conversation switch (no debounce delay).
         syncUIImmediately()
         scrollIndicatorRestoreTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(nanoseconds: 300_000_000) // 300ms
+            try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled, let self else { return }
             if self._hideScrollIndicators { self._hideScrollIndicators = false }
             self.syncUIImmediately()
@@ -446,9 +588,9 @@ final class MessageListScrollState {
         }
     }
 
-    /// Cancel all tasks and clear suppression. Called from `onDisappear`.
+    /// Cancel all tasks and reset mode. Called from `onDisappear`.
     func cancelAll() {
-        clearSuppression()
+        cancelStabilizationTasks()
         uiSyncTask?.cancel()
         uiSyncTask = nil
         scrollRestoreTask?.cancel()
@@ -468,6 +610,8 @@ final class MessageListScrollState {
         if _hideScrollIndicators { _hideScrollIndicators = false }
         pendingPushToTopTarget = nil
         if _isPaginationInFlight { _isPaginationInFlight = false }
+        mode = .initialLoad
+        activeStabilizationCount = 0
         cachedDerivedStateBox = nil
         lastPaginationCompletedAt = .distantPast
         syncUIImmediately()

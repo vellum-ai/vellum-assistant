@@ -412,8 +412,13 @@ private struct WorkspaceTreeSidebar: View {
             handleDrop(providers: providers, targetDir: "", state: state, workspaceClient: workspaceClient)
             return true
         }
-        .background(VColor.surfaceBase)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .background(VColor.surfaceOverlay)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .strokeBorder(VColor.borderDisabled, lineWidth: 2)
+                .allowsHitTesting(false)
+        )
         .alert("New File", isPresented: $state.showingNewFileAlert) {
             TextField("Filename", text: $state.newItemName)
             Button("Cancel", role: .cancel) {}
@@ -540,6 +545,7 @@ private struct WorkspaceTreeRow: View {
                         .padding(.trailing, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
                         .frame(minWidth: minRowWidth, alignment: .leading)
+                        .background(isSelected ? VColor.surfaceActive : Color.clear)
                     } else {
                         // Normal mode: shared label
                         FileTreeRowLabel(
@@ -549,12 +555,13 @@ private struct WorkspaceTreeRow: View {
                             depth: depth,
                             fileIcon: fileIcon(for: entry.mimeType ?? "application/octet-stream", fileName: entry.name),
                             minRowWidth: minRowWidth,
-                            isDimmed: isHiddenPath(entry.path)
+                            isDimmed: isHiddenPath(entry.path),
+                            isActive: state.selectedFilePath == entry.path,
+                            trailingText: entry.isDirectory ? nil : formattedFileSize(entry.size)
                         )
                     }
                 }
                 .contentShape(Rectangle())
-                .background(isSelected ? VColor.surfaceActive : Color.clear)
             }
             .buttonStyle(.plain)
             .onDrop(of: entry.isDirectory && !isHiddenPath(entry.path) ? [.fileURL] : [], isTargeted: .none) { providers in
@@ -748,6 +755,12 @@ private struct WorkspaceFileViewer: View {
             }
         }
         .background(VColor.surfaceOverlay)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .strokeBorder(VColor.borderDisabled, lineWidth: 2)
+                .allowsHitTesting(false)
+        )
     }
 
     private var emptyState: some View {
@@ -904,6 +917,20 @@ private struct WorkspaceFileViewer: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+}
+
+// MARK: - File Size Formatter
+
+/// Formats an optional byte count into a human-readable size string.
+private func formattedFileSize(_ bytes: Int?) -> String? {
+    guard let bytes else { return nil }
+    if bytes < 1024 {
+        return "\(bytes) bytes"
+    } else if bytes < 1024 * 1024 {
+        return "\(bytes / 1024) KB"
+    } else {
+        return "\(String(format: "%.1f", Double(bytes) / (1024 * 1024))) MB"
+    }
 }
 
 // MARK: - Hidden Path Helper
