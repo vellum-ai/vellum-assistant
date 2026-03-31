@@ -10,6 +10,25 @@ metadata:
 
 This skill provides Outlook-specific tools beyond the shared **messaging** skill. For cross-platform messaging (send, read, search, reply), use the messaging skill. Outlook tools depend on the messaging skill's provider infrastructure - load messaging first if Outlook is not yet connected.
 
+## Tool Reference
+
+| Tool | Description |
+| --- | --- |
+| `outlook_attachments` | List and download email attachments |
+| `outlook_trash` | Move messages to Deleted Items |
+| `outlook_categories` | Manage message categories (add, remove, list available) |
+| `outlook_follow_up` | Track messages with Outlook's native flag system |
+| `outlook_draft` | Create email drafts in the Drafts folder (including reply drafts) |
+| `outlook_send_draft` | Send an existing draft (high-risk - requires explicit user confirmation) |
+| `outlook_forward` | Create forward drafts, preserving attachments |
+| `outlook_unsubscribe` | Unsubscribe from mailing lists via List-Unsubscribe header |
+| `outlook_sender_digest` | Scan inbox and group messages by sender for declutter workflows |
+| `outlook_outreach_scan` | Identify cold outreach senders (no List-Unsubscribe header) |
+| `outlook_rules` | Create, list, and delete server-side inbox message rules |
+| `outlook_vacation` | Get, enable, or disable auto-reply (out-of-office) settings |
+
+All tools above are Outlook-specific. For shared operations (send, read, search, reply, archive), use `messaging_send`, `messaging_search`, etc. from the messaging skill.
+
 ## Email Routing Priority
 
 When the user mentions "email" - sending, reading, checking, decluttering, drafting, or anything else - **always default to the user's own email (Outlook)** unless they explicitly ask about the assistant's own email address (e.g., "set up your email", "send from your address", "check your inbox"). The vast majority of email requests are about the user's Outlook, not the assistant's AgentMail address.
@@ -68,6 +87,14 @@ Outlook uses a native flag system for follow-up tracking:
 
 This replaces Gmail's label-based follow-up approach. Use the Outlook flag system directly rather than creating custom folder-based workarounds.
 
+### Inbox Rules vs Gmail Filters
+
+Outlook inbox rules (`outlook_rules`) run server-side and support conditions like sender, subject, body keywords, and importance level. Actions include moving to folders, categorizing, flagging, forwarding, and deleting. Gmail filters (`gmail_filters`) are similar but use Gmail's query syntax and label-based actions. When a user asks to "filter" or "auto-sort" email, use `outlook_rules` - do not try to replicate Gmail's label-based filtering with Outlook folders.
+
+### Folders vs Labels
+
+Gmail uses labels - a message can have multiple labels and removing the INBOX label archives it. Outlook uses folders - a message lives in exactly one folder at a time. Moving a message to Archive removes it from Inbox. To tag a message with multiple categories without moving it, use `outlook_categories`. Do not create folder hierarchies to simulate Gmail's multi-label system.
+
 ## Email Decluttering
 
 When a user asks to declutter, clean up, or organize their email - start scanning immediately. Don't ask what kind of cleanup they want or request permission to read their inbox. Go straight to scanning - but once results are ready, always show them via `ui_show` and let the user choose actions before archiving or unsubscribing.
@@ -116,6 +143,41 @@ Scan tools (`outlook_sender_digest`, `outlook_outreach_scan`) return a `scan_id`
 - `outlook_archive` supports `scan_id` + `sender_ids` (preferred for declutter workflows) or raw `message_ids`.
 - First scan to get a `scan_id`, then use `outlook_archive` to batch-archive by sender.
 - Always confirm with the user before batch operations on large numbers of messages.
+
+## Common Workflows
+
+### Declutter Inbox
+
+1. Call `outlook_sender_digest` to scan for newsletters and promotions
+2. Present results via `ui_show` table (see Email Decluttering section for full workflow)
+3. Wait for user to select senders and click an action button
+4. Call `outlook_archive` with `scan_id` + selected `sender_ids`
+5. If "Archive & Unsubscribe", also call `outlook_unsubscribe` for senders with `has_unsubscribe: true`
+6. Offer to create inbox rules for ongoing protection
+
+### Create a Mail Rule
+
+1. User says "auto-archive emails from newsletters@example.com"
+2. Call `outlook_rules` with `action: "create"`, specifying the sender condition and the move-to-folder action
+3. Confirm the rule was created and explain what it does
+
+### Set Vacation Auto-Reply
+
+1. User says "set my out-of-office for next week"
+2. Call `outlook_vacation` with `action: "enable"`, the date range, and the auto-reply message
+3. Confirm the auto-reply is active and when it expires
+
+### Manage Follow-ups
+
+1. User says "flag this email for follow-up" - call `outlook_follow_up` with `action: "flag"` and the message ID
+2. User says "what emails am I tracking?" - call `outlook_follow_up` with `action: "list"` to show all flagged messages
+3. User says "mark that as done" - call `outlook_follow_up` with `action: "complete"` to clear the flag
+
+### Identify Cold Outreach
+
+1. Call `outlook_outreach_scan` to find senders without unsubscribe headers
+2. Present results for review - these are likely cold outreach or unsolicited emails
+3. User can choose to archive, create rules to block, or ignore
 
 ## Confidence Scores
 

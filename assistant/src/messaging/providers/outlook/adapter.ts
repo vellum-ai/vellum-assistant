@@ -65,7 +65,14 @@ export const outlookMessagingProvider: MessagingProvider = {
   id: "outlook",
   displayName: "Outlook",
   credentialService: "outlook",
-  capabilities: new Set(["threads", "folders"]),
+  capabilities: new Set([
+    "threads",
+    "folders",
+    "categories",
+    "drafts_native",
+    "archive",
+    "unsubscribe",
+  ]),
 
   async testConnection(connection?: OAuthConnection): Promise<ConnectionInfo> {
     const conn = requireConnection(connection);
