@@ -90,6 +90,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         textView.typingAttributes = [
             .font: font,
             .paragraphStyle: paragraphStyle,
+            .foregroundColor: NSColor.labelColor,
         ]
 
         textView.postsFrameChangedNotifications = true
@@ -145,18 +146,16 @@ struct ComposerTextEditor: NSViewRepresentable {
         paragraphStyle.lineSpacing = lineSpacing
         textView.font = font
         textView.defaultParagraphStyle = paragraphStyle
-        textView.typingAttributes = [
-            .font: font,
-            .paragraphStyle: paragraphStyle,
-        ]
 
         textView.placeholderString = placeholder
 
-        if let override = textColorOverride {
-            textView.textColor = override
-        } else {
-            textView.textColor = .labelColor
-        }
+        let resolvedColor: NSColor = textColorOverride ?? .labelColor
+        textView.textColor = resolvedColor
+        textView.typingAttributes = [
+            .font: font,
+            .paragraphStyle: paragraphStyle,
+            .foregroundColor: resolvedColor,
+        ]
 
         textView.cmdEnterToSend = cmdEnterToSend
         textView.onSubmit = onSubmit
