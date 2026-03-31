@@ -954,6 +954,8 @@ function isActorTokenSigningKeyPath(
   const signingKeyPaths = [
     join(homedir(), ".vellum", "protected", "actor-token-signing-key"),
     join(getDeprecatedDir(), "actor-token-signing-key"),
+    // Also check against workingDir-relative path for defense-in-depth
+    resolve(cwd, "deprecated", "actor-token-signing-key"),
   ];
 
   // Lexical match (handles normal paths and cases where files don't exist)
