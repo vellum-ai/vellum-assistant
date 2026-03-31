@@ -178,7 +178,7 @@ export async function fetchCurrentUser(
   const resolvedUrl = platformUrl || getPlatformUrl();
   const url = `${resolvedUrl}/_allauth/app/v1/auth/session`;
   const response = await fetch(url, {
-    headers: { ...authHeaders(token) },
+    headers: { "X-Session-Token": token },
   });
 
   if (!response.ok) {
