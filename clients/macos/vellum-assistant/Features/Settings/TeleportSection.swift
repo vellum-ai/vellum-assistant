@@ -129,11 +129,7 @@ struct TeleportSection: View {
 
     @ViewBuilder
     private var teleportContent: some View {
-        VStack(alignment: .leading, spacing: VSpacing.md) {
-            Text("Teleport")
-                .font(VFont.titleSmall)
-                .foregroundStyle(VColor.contentDefault)
-
+        SettingsCard(title: "Teleport", subtitle: "Move your assistant to a different hosting environment") {
             if case .verifying = phase {
                 verifyingBanner
             } else if case .transferring(let step) = phase {
@@ -150,9 +146,6 @@ struct TeleportSection: View {
                 destinationPicker
             }
         }
-        .padding(VSpacing.lg)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .vCard(background: VColor.surfaceOverlay)
     }
 
     // MARK: - Destination Picker
@@ -178,7 +171,7 @@ struct TeleportSection: View {
 
             VButton(
                 label: destination.displayLabel,
-                style: .primary,
+                style: .outlined,
                 isDisabled: isDestinationDisabled(destination)
             ) {
                 pendingDestination = destination
