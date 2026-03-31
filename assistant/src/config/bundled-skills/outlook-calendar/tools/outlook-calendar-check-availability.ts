@@ -3,7 +3,7 @@ import type {
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 import * as calendar from "../calendar-client.js";
-import { getCalendarConnection, ok } from "./shared.js";
+import { err, getCalendarConnection, ok } from "./shared.js";
 
 export async function run(
   input: Record<string, unknown>,
@@ -22,6 +22,11 @@ export async function run(
       method: "GET",
       path: "/v1.0/me",
     });
+    if (resp.status < 200 || resp.status >= 300) {
+      return err(
+        "Failed to retrieve your Microsoft profile. Cannot determine your email for availability lookup.",
+      );
+    }
     const body = resp.body as Record<string, unknown>;
     const email =
       (body.mail as string | undefined) ??
@@ -29,6 +34,13 @@ export async function run(
     if (email) {
       schedules = [email];
     }
+  }
+
+  if (schedules.length === 0) {
+    return err(
+      "No schedules provided and could not determine your email address from your Microsoft profile. " +
+        "Please provide at least one email address in the schedules parameter.",
+    );
   }
 
   const result = await calendar.getSchedule(connection, {
