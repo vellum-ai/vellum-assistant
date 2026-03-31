@@ -3,14 +3,20 @@ import type {
   OAuthConnectionResponse,
 } from "../../../oauth/connection.js";
 import type {
+  OutlookAttachmentListResponse,
   OutlookAutoReplySettings,
   OutlookDeltaResponse,
+  OutlookDraftMessage,
+  OutlookFileAttachment,
   OutlookMailFolder,
   OutlookMailFolderListResponse,
+  OutlookMasterCategoryListResponse,
   OutlookMessage,
+  OutlookMessageFlag,
   OutlookMessageListResponse,
   OutlookMessageRule,
   OutlookMessageRuleListResponse,
+  OutlookRecipient,
   OutlookSendMessagePayload,
   OutlookUserProfile,
 } from "./types.js";
@@ -288,6 +294,84 @@ export async function moveMessage(
   );
 }
 
+/** Create a draft message in the user's Drafts folder. */
+export async function createDraft(
+  connection: OAuthConnection,
+  draft: OutlookDraftMessage,
+): Promise<OutlookMessage> {
+  return request<OutlookMessage>(connection, "/v1.0/me/messages", {
+    method: "POST",
+    body: JSON.stringify(draft),
+  });
+}
+
+/** Send an existing draft message by its ID. Returns void (202 No Content). */
+export async function sendDraft(
+  connection: OAuthConnection,
+  messageId: string,
+): Promise<void> {
+  await request<void>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/send`,
+    {
+      method: "POST",
+    },
+  );
+}
+
+/** Create a reply draft for a message. */
+export async function createReplyDraft(
+  connection: OAuthConnection,
+  messageId: string,
+  comment?: string,
+): Promise<OutlookMessage> {
+  return request<OutlookMessage>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/createReply`,
+    {
+      method: "POST",
+      body: JSON.stringify(comment !== undefined ? { comment } : {}),
+    },
+  );
+}
+
+/** Create a reply-all draft for a message. */
+export async function createReplyAllDraft(
+  connection: OAuthConnection,
+  messageId: string,
+  comment?: string,
+): Promise<OutlookMessage> {
+  return request<OutlookMessage>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/createReplyAll`,
+    {
+      method: "POST",
+      body: JSON.stringify(comment !== undefined ? { comment } : {}),
+    },
+  );
+}
+
+/** Create a forward draft for a message. */
+export async function createForwardDraft(
+  connection: OAuthConnection,
+  messageId: string,
+  toRecipients?: OutlookRecipient[],
+  comment?: string,
+): Promise<OutlookMessage> {
+  const body: Record<string, unknown> = {};
+  if (toRecipients !== undefined) body.toRecipients = toRecipients;
+  if (comment !== undefined) body.comment = comment;
+
+  return request<OutlookMessage>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/createForward`,
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
+}
+
 /** Max concurrent individual getMessage requests for batch fetching. */
 const BATCH_CONCURRENCY = 5;
 
@@ -314,6 +398,46 @@ export async function batchGetMessages(
   return results;
 }
 
+/** List attachments on a message. */
+export async function listAttachments(
+  connection: OAuthConnection,
+  messageId: string,
+): Promise<OutlookAttachmentListResponse> {
+  return request<OutlookAttachmentListResponse>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/attachments`,
+    undefined,
+    { $select: "id,name,contentType,size,isInline" },
+  );
+}
+
+/** Get a single attachment by ID (includes file content). */
+export async function getAttachment(
+  connection: OAuthConnection,
+  messageId: string,
+  attachmentId: string,
+): Promise<OutlookFileAttachment> {
+  return request<OutlookFileAttachment>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
+  );
+}
+
+/** Move a message to the Deleted Items folder. */
+export async function trashMessage(
+  connection: OAuthConnection,
+  messageId: string,
+): Promise<OutlookMessage> {
+  return request<OutlookMessage>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}/move`,
+    {
+      method: "POST",
+      body: JSON.stringify({ destinationId: "deleteditems" }),
+    },
+  );
+}
+
 /** List inbox message rules. */
 export async function listMailRules(
   connection: OAuthConnection,
@@ -335,6 +459,64 @@ export async function createMailRule(
     {
       method: "POST",
       body: JSON.stringify(rule),
+    },
+  );
+}
+
+/** Update the categories on a message. */
+export async function updateMessageCategories(
+  connection: OAuthConnection,
+  messageId: string,
+  categories: string[],
+): Promise<void> {
+  await request<void>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ categories }),
+    },
+  );
+}
+
+/** Update the flag on a message. */
+export async function updateMessageFlag(
+  connection: OAuthConnection,
+  messageId: string,
+  flag: OutlookMessageFlag,
+): Promise<void> {
+  await request<void>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ flag }),
+    },
+  );
+}
+
+/** List the user's master categories. */
+export async function listMasterCategories(
+  connection: OAuthConnection,
+): Promise<OutlookMasterCategoryListResponse> {
+  return request<OutlookMasterCategoryListResponse>(
+    connection,
+    "/v1.0/me/outlook/masterCategories",
+  );
+}
+
+/** Get a message with internet message headers included. */
+export async function getMessageWithHeaders(
+  connection: OAuthConnection,
+  messageId: string,
+): Promise<OutlookMessage> {
+  return request<OutlookMessage>(
+    connection,
+    `/v1.0/me/messages/${encodeURIComponent(messageId)}`,
+    undefined,
+    {
+      $select:
+        "id,subject,from,internetMessageHeaders,bodyPreview,body,hasAttachments,receivedDateTime",
     },
   );
 }
