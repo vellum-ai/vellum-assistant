@@ -1,1 +1,119 @@
-[]
+{
+  "version": 1,
+  "tools": [
+    {
+      "name": "outlook_draft",
+      "description": "Create a draft email in Outlook. The draft will appear in Outlook Drafts for user review. Use in_reply_to with an Outlook message ID to create a reply draft.",
+      "category": "outlook",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "description": "Recipient email address (comma-separated for multiple)"
+          },
+          "subject": {
+            "type": "string",
+            "description": "Email subject line"
+          },
+          "body": {
+            "type": "string",
+            "description": "Email body (plain text)"
+          },
+          "in_reply_to": {
+            "type": "string",
+            "description": "Outlook message ID to reply to. Creates a reply draft that preserves the conversation thread."
+          },
+          "cc": {
+            "type": "string",
+            "description": "CC recipients (comma-separated email addresses)"
+          },
+          "bcc": {
+            "type": "string",
+            "description": "BCC recipients (comma-separated email addresses)"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Outlook account to use. Required when multiple Outlook accounts are connected. If omitted, uses the most recently connected account."
+          }
+        },
+        "required": ["to", "subject", "body"]
+      },
+      "executor": "tools/outlook-draft.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "outlook_send_draft",
+      "description": "Send an existing Outlook draft. Only use when the user has reviewed and explicitly approved sending.",
+      "category": "outlook",
+      "risk": "high",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "draft_id": {
+            "type": "string",
+            "description": "Outlook draft message ID to send"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Outlook account to use. Required when multiple Outlook accounts are connected. If omitted, uses the most recently connected account."
+          }
+        },
+        "required": ["draft_id", "confidence"]
+      },
+      "executor": "tools/outlook-send-draft.ts",
+      "execution_target": "host"
+    },
+    {
+      "name": "outlook_forward",
+      "description": "Create a draft forwarding an Outlook message to another recipient, preserving attachments. Microsoft Graph handles attachment forwarding natively.",
+      "category": "outlook",
+      "risk": "low",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "description": "Outlook message ID to forward"
+          },
+          "to": {
+            "type": "string",
+            "description": "Recipient email address (comma-separated for multiple)"
+          },
+          "comment": {
+            "type": "string",
+            "description": "Optional text to include with the forwarded message"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score (0-1) for this action"
+          },
+          "activity": {
+            "type": "string",
+            "description": "Brief non-technical explanation of why this tool is being called"
+          },
+          "account": {
+            "type": "string",
+            "description": "Email address of the Outlook account to use. Required when multiple Outlook accounts are connected. If omitted, uses the most recently connected account."
+          }
+        },
+        "required": ["message_id", "to", "confidence"]
+      },
+      "executor": "tools/outlook-forward.ts",
+      "execution_target": "host"
+    }
+  ]
+}

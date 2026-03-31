@@ -107,6 +107,10 @@ import * as messagingSend from "./bundled-skills/messaging/tools/messaging-send.
 import * as messagingSenderDigest from "./bundled-skills/messaging/tools/messaging-sender-digest.js";
 // ── notifications ──────────────────────────────────────────────────────────────
 import * as sendNotification from "./bundled-skills/notifications/tools/send-notification.js";
+// ── outlook ───────────────────────────────────────────────────────────────────
+import * as outlookDraft from "./bundled-skills/outlook/tools/outlook-draft.js";
+import * as outlookForward from "./bundled-skills/outlook/tools/outlook-forward.js";
+import * as outlookSendDraft from "./bundled-skills/outlook/tools/outlook-send-draft.js";
 // ── phone-calls ────────────────────────────────────────────────────────────────
 import * as callEnd from "./bundled-skills/phone-calls/tools/call-end.js";
 import * as callStart from "./bundled-skills/phone-calls/tools/call-start.js";
@@ -289,6 +293,11 @@ export const bundledToolRegistry = new Map<string, SkillToolScript>([
 
   // notifications
   ["notifications:tools/send-notification.ts", sendNotification],
+
+  // outlook
+  ["outlook:tools/outlook-draft.ts", outlookDraft],
+  ["outlook:tools/outlook-send-draft.ts", outlookSendDraft],
+  ["outlook:tools/outlook-forward.ts", outlookForward],
 
   // phone-calls
   ["phone-calls:tools/call-start.ts", callStart],
