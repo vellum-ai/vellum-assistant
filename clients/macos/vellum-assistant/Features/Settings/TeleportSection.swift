@@ -256,8 +256,11 @@ struct TeleportSection: View {
         guard let target = targetAssistant else { return }
         let original = originalAssistant
 
-        // Switch to the new assistant (this destroys the window)
-        AppDelegate.shared?.performSwitchAssistant(to: target)
+        // Switch to the new assistant (this destroys the window).
+        // Skip post-switch validation because we retire the previous
+        // assistant immediately — rolling back to a dead assistant
+        // would be worse than staying on the new one.
+        AppDelegate.shared?.performSwitchAssistant(to: target, skipValidation: true)
 
         // Fire-and-forget retirement of the old assistant
         if let original {

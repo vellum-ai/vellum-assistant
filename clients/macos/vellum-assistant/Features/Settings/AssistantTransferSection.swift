@@ -163,7 +163,7 @@ struct AssistantTransferSection: View {
             guard let managedAssistant = LockfileAssistant.loadAll().first(where: { $0.assistantId == platformAssistant.id && $0.isManaged }) else {
                 throw TransferError.managedEntryNotFound
             }
-            AppDelegate.shared?.performSwitchAssistant(to: managedAssistant)
+            AppDelegate.shared?.performSwitchAssistant(to: managedAssistant, skipValidation: true)
             transferTask = nil
             onClose()
 
@@ -296,7 +296,7 @@ struct AssistantTransferSection: View {
             }
 
             // Step 7 — Switch to local assistant now that import succeeded
-            AppDelegate.shared?.performSwitchAssistant(to: resolvedLocal)
+            AppDelegate.shared?.performSwitchAssistant(to: resolvedLocal, skipValidation: true)
             transferTask = nil
             onClose()
 
