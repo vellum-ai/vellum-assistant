@@ -214,6 +214,64 @@ console.log("styled");`,
     expect(js.length).toBeGreaterThan(100);
   }, 30_000);
 
+  test("rejects relative import that escapes app directory", async () => {
+    const appDir = await scaffold("escape-relative", {
+      "main.tsx": `import data from "../../../../etc/passwd";\nconsole.log(data);`,
+      "index.html": MINIMAL_HTML,
+    });
+
+    const result = await compileApp(appDir);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].text).toContain(
+      "resolves outside the app directory",
+    );
+  });
+
+  test("rejects absolute path import", async () => {
+    const appDir = await scaffold("escape-absolute", {
+      "main.tsx": `import data from "/etc/passwd";\nconsole.log(data);`,
+      "index.html": MINIMAL_HTML,
+    });
+
+    const result = await compileApp(appDir);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].text).toContain(
+      "resolves outside the app directory",
+    );
+  });
+
+  test("allows relative imports within app directory", async () => {
+    const appDir = await scaffold("local-relative", {
+      "main.tsx": `import { helper } from "./utils";\nconsole.log(helper);`,
+      "utils.ts": `export const helper = "ok";`,
+      "index.html": MINIMAL_HTML,
+    });
+
+    const result = await compileApp(appDir);
+
+    expect(result.ok).toBe(true);
+    expect(result.errors).toHaveLength(0);
+  });
+
+  test("rejects dynamic import escaping app directory", async () => {
+    const appDir = await scaffold("escape-dynamic", {
+      "main.tsx": `const data = await import("../../../../etc/hosts");\nconsole.log(data);`,
+      "index.html": MINIMAL_HTML,
+    });
+
+    const result = await compileApp(appDir);
+
+    expect(result.ok).toBe(false);
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(result.errors[0].text).toContain(
+      "resolves outside the app directory",
+    );
+  });
+
   test("allowed package uses shared cache on second build", async () => {
     // First build installs the package
     const appDir1 = await scaffold("cache-test-1", {

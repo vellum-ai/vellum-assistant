@@ -11,7 +11,7 @@
 
 import { existsSync, rmSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { getLogger } from "../util/logger.js";
 import { ensureCompilerTools } from "./compiler-tools.js";
@@ -80,6 +80,67 @@ function parseEsbuildStderr(stderr: string): {
 }
 
 /**
+ * Validate that all relative/absolute import paths in source files resolve
+ * within the app directory. This prevents crafted apps from importing
+ * arbitrary host files (e.g. `import data from '../../../../etc/passwd'`).
+ */
+async function validateImportPaths(
+  srcDir: string,
+  appDir: string,
+): Promise<CompileDiagnostic[]> {
+  const resolvedAppDir = resolve(appDir);
+  const errors: CompileDiagnostic[] = [];
+
+  const files = await readdir(srcDir, { recursive: true });
+  for (const file of files) {
+    const fileName = String(file);
+    const isJs = /\.[jt]sx?$/.test(fileName);
+    const isCss = /\.css$/.test(fileName);
+    if (!isJs && !isCss) continue;
+
+    const filePath = join(srcDir, fileName);
+    const content = await readFile(filePath, "utf-8");
+    const fileDir = dirname(filePath);
+
+    const specifiers: Array<{ specifier: string; index: number }> = [];
+
+    if (isJs) {
+      // Match: from "x", import "x", import("x"), require("x")
+      const re = /(?:from|import|require)\s*\(?\s*["']([^"']+)["']/g;
+      for (const m of content.matchAll(re)) {
+        specifiers.push({ specifier: m[1], index: m.index! });
+      }
+    } else {
+      // CSS: @import "x", @import url("x"), url("x")
+      const re =
+        /(?:@import\s+(?:url\s*\(\s*)?|url\s*\(\s*)["']?([^"')\s;]+)["']?/g;
+      for (const m of content.matchAll(re)) {
+        if (m[1]) specifiers.push({ specifier: m[1], index: m.index! });
+      }
+    }
+
+    for (const { specifier, index } of specifiers) {
+      // Only validate path-based imports (starting with . or /)
+      if (!specifier.startsWith(".") && !specifier.startsWith("/")) continue;
+
+      const resolved = resolve(fileDir, specifier);
+      if (
+        !resolved.startsWith(resolvedAppDir + "/") &&
+        resolved !== resolvedAppDir
+      ) {
+        const line = content.substring(0, index).split("\n").length;
+        errors.push({
+          text: `Import "${specifier}" resolves outside the app directory`,
+          location: { file: fileName, line, column: 0 },
+        });
+      }
+    }
+  }
+
+  return errors;
+}
+
+/**
  * Scan source files for bare import specifiers and pre-install any
  * allowlisted packages into the shared cache so esbuild can resolve them.
  */
@@ -135,6 +196,17 @@ export async function compileApp(appDir: string): Promise<CompileResult> {
       warnings: [],
       durationMs,
     };
+  }
+
+  // Validate that path-based imports don't escape the app directory
+  const pathErrors = await validateImportPaths(srcDir, appDir);
+  if (pathErrors.length > 0) {
+    const durationMs = Math.round(performance.now() - start);
+    log.info(
+      { durationMs, errorCount: pathErrors.length },
+      "Build blocked: imports resolve outside app directory",
+    );
+    return { ok: false, errors: pathErrors, warnings: [], durationMs };
   }
 
   // Scan source files for bare imports and JIT-install allowed packages
