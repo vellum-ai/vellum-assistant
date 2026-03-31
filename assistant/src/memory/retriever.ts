@@ -9,7 +9,6 @@ import {
   computeRetryDelay,
   isRetryableNetworkError,
 } from "../util/retry.js";
-import { getConversationDirName } from "./conversation-directories.js";
 import { getDb } from "./db.js";
 import {
   embedWithBackend,
@@ -461,7 +460,8 @@ export async function buildMemoryRecall(
         hybridCandidates = hydeCandidates.candidates;
         hydeExpanded = hydeCandidates.hydeExpanded;
         hydeDocCount = hydeCandidates.hydeDocCount;
-        sparseVectorUsed = sparseVectorAvailable || hydeCandidates.hydeSparseUsed;
+        sparseVectorUsed =
+          sparseVectorAvailable || hydeCandidates.hydeSparseUsed;
       } else {
         // ── Standard path: single raw query search ──
         hybridCandidates = await semanticSearch(
@@ -992,11 +992,6 @@ function enrichSourceLabels(candidates: TieredCandidate[]): void {
         const conv = bestConvMap.get(c.id);
         if (conv) {
           if (conv.title) c.sourceLabel = conv.title;
-          const dirName = getConversationDirName(
-            conv.conversationId,
-            conv.createdAt,
-          );
-          c.sourcePath = `conversations/${dirName}/messages.jsonl`;
         }
       }
     }
@@ -1026,8 +1021,6 @@ function enrichSourceLabels(candidates: TieredCandidate[]): void {
         const conv = convMap.get(c.conversationId!);
         if (conv) {
           if (conv.title) c.sourceLabel = conv.title;
-          const dirName = getConversationDirName(conv.id, conv.createdAt);
-          c.sourcePath = `conversations/${dirName}/messages.jsonl`;
         }
       }
     }
@@ -1166,11 +1159,7 @@ function sampleSerendipityItems(
     let rows;
     if (range.total <= RANDOM_POOL_SIZE) {
       // Few enough eligible rows — fetch all, no randomness needed at DB level
-      rows = db
-        .select(columns)
-        .from(memoryItems)
-        .where(baseConditions)
-        .all();
+      rows = db.select(columns).from(memoryItems).where(baseConditions).all();
     } else {
       // Probe random rowids in the eligible range
       const seen = new Set<string>();

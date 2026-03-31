@@ -94,13 +94,22 @@ export function formatRelativeTime(epochMs: number): string {
  * token estimates, and stops when the budget is exhausted.
  */
 export function buildMemoryInjection(params: {
-  candidates: Array<Candidate & { sourceLabel?: string; staleness?: string; supersedes?: string }>;
+  candidates: Array<
+    Candidate & {
+      sourceLabel?: string;
+      staleness?: string;
+      supersedes?: string;
+    }
+  >;
   serendipityItems?: Array<Candidate & { sourceLabel?: string }>;
   totalBudgetTokens?: number;
 }): string {
   const { candidates, serendipityItems, totalBudgetTokens } = params;
 
-  if (candidates.length === 0 && (!serendipityItems || serendipityItems.length === 0)) {
+  if (
+    candidates.length === 0 &&
+    (!serendipityItems || serendipityItems.length === 0)
+  ) {
     return "";
   }
 
@@ -126,7 +135,10 @@ export function buildMemoryInjection(params: {
     remainingTokens -= tokens;
   }
 
-  if (lines.length === 0 && (!serendipityItems || serendipityItems.length === 0)) {
+  if (
+    lines.length === 0 &&
+    (!serendipityItems || serendipityItems.length === 0)
+  ) {
     return "";
   }
 
@@ -220,15 +232,19 @@ export function lookupSupersessionChain(supersededId: string): {
 /**
  * Render a single candidate as an XML element based on its type.
  */
-function renderCandidate(c: Candidate & { sourceLabel?: string; supersedes?: string }): string {
+function renderCandidate(
+  c: Candidate & { sourceLabel?: string; supersedes?: string },
+): string {
   const text = escapeXmlTags(c.text);
   const timestamp = formatAbsoluteTime(c.createdAt);
   const fromAttr = c.sourceLabel
     ? ` from="${escapeXmlAttr(c.sourceLabel)}"`
     : "";
-  const pathAttr = c.sourcePath
-    ? ` path="${escapeXmlAttr(c.sourcePath)}"`
-    : "";
+  // NOTE: sourcePath is intentionally NOT emitted here. Exposing internal
+  // conversation-log file paths (e.g. conversations/…/messages.jsonl) in the
+  // model-visible XML would let a prompt-injected model read raw conversation
+  // histories via the auto-allowed file_read tool. The sourceLabel (conversation
+  // title) provides sufficient provenance without leaking paths.
 
   // Build inline supersession suffix for items
   let supersessionSuffix = "";
@@ -242,14 +258,14 @@ function renderCandidate(c: Candidate & { sourceLabel?: string; supersedes?: str
 
   switch (c.type) {
     case "item":
-      return `<item id="item:${escapeXmlAttr(c.id)}" kind="${escapeXmlAttr(c.kind)}" importance="${c.importance.toFixed(2)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}${pathAttr}>${text}${supersessionSuffix}</item>`;
+      return `<item id="item:${escapeXmlAttr(c.id)}" kind="${escapeXmlAttr(c.kind)}" importance="${c.importance.toFixed(2)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}>${text}${supersessionSuffix}</item>`;
     case "segment":
-      return `<segment id="seg:${escapeXmlAttr(c.id)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}${pathAttr}>${text}</segment>`;
+      return `<segment id="seg:${escapeXmlAttr(c.id)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}>${text}</segment>`;
     case "summary":
-      return `<summary id="sum:${escapeXmlAttr(c.id)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}${pathAttr}>${text}</summary>`;
+      return `<summary id="sum:${escapeXmlAttr(c.id)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}>${text}</summary>`;
     default:
       // media or unknown types — render as item
-      return `<item id="item:${escapeXmlAttr(c.id)}" kind="${escapeXmlAttr(c.kind)}" importance="${c.importance.toFixed(2)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}${pathAttr}>${text}${supersessionSuffix}</item>`;
+      return `<item id="item:${escapeXmlAttr(c.id)}" kind="${escapeXmlAttr(c.kind)}" importance="${c.importance.toFixed(2)}" timestamp="${escapeXmlAttr(timestamp)}"${fromAttr}>${text}${supersessionSuffix}</item>`;
   }
 }
 
