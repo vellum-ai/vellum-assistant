@@ -20,6 +20,14 @@ function isDuplicateColumnError(err: unknown): boolean {
 
 let migrated = false;
 
+/**
+ * Uses raw BEGIN/COMMIT for the one-time backfill. Must NOT be called
+ * for the first time inside a Drizzle db.transaction() block — SQLite
+ * does not support nested transactions. In practice this is safe because
+ * the migration is triggered by early startup queries (listConversations,
+ * batchSetDisplayOrders) before any transaction-wrapped paths run, and
+ * the `migrated` flag makes subsequent calls no-ops.
+ */
 export function ensureGroupMigration(): void {
   if (migrated) return;
 
