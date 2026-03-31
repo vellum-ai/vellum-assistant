@@ -63,16 +63,12 @@ export async function executeContactUpsert(
         type: string;
         address: string;
         is_primary?: boolean;
-        external_user_id?: string;
-        external_chat_id?: string;
       }>
     | undefined;
   const channels = rawChannels?.map((ch) => ({
     type: ch.type,
     address: ch.address,
     isPrimary: ch.is_primary,
-    externalUserId: ch.external_user_id,
-    externalChatId: ch.external_chat_id,
   }));
 
   try {
