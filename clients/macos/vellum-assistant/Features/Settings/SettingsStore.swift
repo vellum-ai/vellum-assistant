@@ -603,11 +603,19 @@ public final class SettingsStore: ObservableObject {
         isCurrentAssistantDocker = state.isDocker
     }
 
+    /// In-flight lockfile refresh task. Cancelled when a new refresh is
+    /// requested so that stale reads from a prior assistant switch cannot
+    /// overwrite the latest state.
+    private var lockfileRefreshTask: Task<Void, Never>?
+
     /// Refreshes cached lockfile-derived state on a background thread.
-    /// Called when the connected assistant changes.
+    /// Cancels any in-flight refresh to prevent stale overwrites when
+    /// assistant switches happen in quick succession.
     private func refreshLockfileState() {
-        Task.detached { [weak self] in
+        lockfileRefreshTask?.cancel()
+        lockfileRefreshTask = Task.detached { [weak self] in
             let result = Self.loadLockfileState()
+            guard !Task.isCancelled else { return }
             await MainActor.run { self?.applyLockfileState(result) }
         }
     }
@@ -2764,18 +2772,12 @@ public final class SettingsStore: ObservableObject {
     }
 
     private func handleIngressConfigResponse(_ response: IngressConfigResponseMessage) {
-        // For remote assistants, prefer the lockfile's runtimeUrl because the
-        // daemon reports its own loopback address which is not reachable from
-        // the client. For local assistants, use the daemon's authoritative value
-        // since it reflects the daemon's actual runtime environment.
-        // Uses cached isCurrentAssistantRemote to avoid synchronous lockfile
-        // I/O on every SSE event.
-        if isCurrentAssistantRemote {
-            let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-            self.localGatewayTarget = LockfilePaths.resolveGatewayUrl(
-                connectedAssistantId: connectedId
-            )
-        } else {
+        // For remote assistants, keep the cached localGatewayTarget (set by
+        // applyLockfileState) because the daemon reports its own loopback
+        // address which is not reachable from the client. For local assistants,
+        // use the daemon's authoritative value since it reflects the daemon's
+        // actual runtime environment.
+        if !isCurrentAssistantRemote {
             self.localGatewayTarget = response.localGatewayTarget
         }
         if response.success {
