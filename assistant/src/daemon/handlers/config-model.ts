@@ -175,32 +175,13 @@ export async function setModel(
  * Set the image generation model. Throws on failure.
  */
 export function setImageGenModel(modelId: string, ctx: ModelSetContext): void {
-  log.info("[DEBUG] setImageGenModel called with modelId=%s", modelId);
   const raw = loadRawConfig();
-  const services = (raw as Record<string, unknown>).services as
-    | Record<string, Record<string, unknown>>
-    | undefined;
-  const currentMode = services?.["image-generation"]?.mode;
-  log.info(
-    "[DEBUG] setImageGenModel: loaded raw config, current image-generation.mode=%s",
-    currentMode,
-  );
   setServiceField(raw, "image-generation", "model", modelId);
-  const servicesAfter = (raw as Record<string, unknown>).services as
-    | Record<string, Record<string, unknown>>
-    | undefined;
-  const modeAfterSet = servicesAfter?.["image-generation"]?.mode;
-  log.info(
-    "[DEBUG] setImageGenModel: after setServiceField, image-generation.mode=%s",
-    modeAfterSet,
-  );
 
   const wasSuppressed = ctx.suppressConfigReload;
   ctx.setSuppressConfigReload(true);
   try {
-    log.info("[DEBUG] setImageGenModel: saving raw config...");
     saveRawConfig(raw);
-    log.info("[DEBUG] setImageGenModel: raw config saved");
   } catch (err) {
     ctx.setSuppressConfigReload(wasSuppressed);
     throw err;

@@ -873,13 +873,10 @@ public final class SettingsStore: ObservableObject {
     }
 
     func setImageGenModel(_ model: String) {
-        log.info("[DEBUG] setImageGenModel called with model=\(model)")
         selectedImageGenModel = model
         UserDefaults.standard.set(model, forKey: "selectedImageGenModel")
         Task {
-            log.info("[DEBUG] setImageGenModel: sending PUT for model=\(model)")
-            let result = await settingsClient.setImageGenModel(modelId: model)
-            log.info("[DEBUG] setImageGenModel: PUT returned, result=\(String(describing: result))")
+            _ = await settingsClient.setImageGenModel(modelId: model)
         }
     }
 
@@ -2214,14 +2211,11 @@ public final class SettingsStore: ObservableObject {
 
     @discardableResult
     func setImageGenMode(_ mode: String) -> Task<Bool, Never> {
-        log.info("[DEBUG] setImageGenMode called with mode=\(mode)")
         imageGenMode = mode
         let task = Task {
-            log.info("[DEBUG] setImageGenMode: sending patchConfig for mode=\(mode)")
             let success = await settingsClient.patchConfig([
                 "services": ["image-generation": ["mode": mode]]
             ])
-            log.info("[DEBUG] setImageGenMode: patchConfig returned success=\(success) for mode=\(mode)")
             if !success {
                 log.error("Failed to patch config for image-generation mode")
             }
