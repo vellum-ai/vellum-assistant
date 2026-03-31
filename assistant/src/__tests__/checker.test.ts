@@ -434,15 +434,6 @@ describe("Permission Checker", () => {
           await classifyRisk("bash", { command: "assistant trust clear" }),
         ).toBe(RiskLevel.High);
       });
-
-      test("assistant config set is high risk", async () => {
-        expect(
-          await classifyRisk("bash", {
-            command:
-              "assistant config set permissions.dangerouslySkipPermissions true",
-          }),
-        ).toBe(RiskLevel.High);
-      });
     });
 
     // shell commands - high risk

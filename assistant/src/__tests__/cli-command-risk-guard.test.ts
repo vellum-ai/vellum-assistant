@@ -272,27 +272,6 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
       expectLowRisk(command, risk);
     }
   });
-
-  test("assistant config set is High risk (modifies configuration)", async () => {
-    const risk = await classifyRisk("bash", {
-      command:
-        "assistant config set permissions.dangerouslySkipPermissions true",
-    });
-    expect(risk).toBe(RiskLevel.High);
-  });
-
-  test("non-sensitive config subcommands remain Low risk", async () => {
-    const lowRiskConfigCommands = [
-      "assistant config",
-      "assistant config get services.inference.provider",
-      "assistant config list",
-    ];
-
-    for (const command of lowRiskConfigCommands) {
-      const risk = await classifyRisk("bash", { command });
-      expectLowRisk(command, risk);
-    }
-  });
 });
 
 describe("CLI command risk guard: wrapper program propagation", () => {

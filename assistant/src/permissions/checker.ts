@@ -251,12 +251,6 @@ function classifyAssistantSubcommand(args: string[]): RiskLevel {
     return RiskLevel.Low;
   }
 
-  if (sub === "config") {
-    const configSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
-    if (configSub === "set") return RiskLevel.High;
-    return RiskLevel.Low;
-  }
-
   return RiskLevel.Low;
 }
 
