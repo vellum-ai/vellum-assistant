@@ -384,6 +384,9 @@ struct MarkdownSegmentView: View, Equatable {
         var boldEmphRanges: [Range<AttributedString.Index>] = []
         for run in result.runs {
             guard let intent = run.inlinePresentationIntent, !intent.contains(.code) else { continue }
+            // Skip runs that already have an explicit font (e.g., headings) —
+            // their font was set with the correct size and weight upstream.
+            guard result[run.range].font == nil else { continue }
             let isEmph = intent.contains(.emphasized)
             let isBold = intent.contains(.stronglyEmphasized)
             if isEmph && isBold {
