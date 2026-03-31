@@ -59,16 +59,48 @@ export async function requirePlatformClient(
   cmd: Command,
 ): Promise<VellumPlatformClient | null> {
   const client = await VellumPlatformClient.create();
-  if (!client || !client.platformAssistantId) {
+  if (!client) {
     writeOutput(cmd, {
       ok: false,
       error:
-        "Platform prerequisites not met (not logged in or missing assistant ID)",
+        "Not connected to Vellum platform. Run `vellum platform connect` to connect first.",
+    });
+    process.exitCode = 1;
+    return null;
+  }
+  if (!client.platformAssistantId) {
+    writeOutput(cmd, {
+      ok: false,
+      error:
+        "Connected to Vellum platform but no assistant ID is configured. Ensure the assistant is registered on the platform.",
     });
     process.exitCode = 1;
     return null;
   }
   return client;
+}
+
+/**
+ * Verify that the user has connected to the Vellum platform (has stored
+ * credentials). Unlike `requirePlatformClient`, this does NOT require a
+ * platform assistant ID — it only checks that credentials exist.
+ *
+ * Writes an error and sets exitCode=1 when the user is not connected.
+ */
+export async function requirePlatformConnection(
+  cmd: Command,
+): Promise<boolean> {
+  const client = await VellumPlatformClient.create();
+  if (!client) {
+    writeOutput(cmd, {
+      ok: false,
+      error:
+        "Not connected to Vellum platform. Run `vellum platform connect` to connect first.",
+    });
+    process.exitCode = 1;
+    return false;
+  }
+  return true;
 }
 
 /**
