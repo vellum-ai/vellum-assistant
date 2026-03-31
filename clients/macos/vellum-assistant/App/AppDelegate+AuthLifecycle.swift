@@ -460,6 +460,14 @@ extension AppDelegate {
     /// synchronous path (non-managed or already-authenticated) and from
     /// the async token-validation path.
     private func performSwitchAssistantCore(to assistant: LockfileAssistant) {
+        // Cancel any in-flight validation task from a previous switch so a
+        // stale timeout doesn't rollback to the wrong assistant (A→B→C race).
+        switchValidationTask?.cancel()
+        switchValidationTask = nil
+
+        // Capture the previous assistant ID before any state changes so we can
+        // rollback if the new assistant's gateway connection fails.
+        let previousAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
         // 1. Clear assistant-scoped runtime state while the assistant is still
         // running so forceStop can deliver a recording_status message.
@@ -519,6 +527,88 @@ extension AppDelegate {
         AvatarAppearanceManager.shared.reloadAvatar()
 
         showMainWindow()
+
+        // 7. Validate the gateway connection with a timeout. If the connection
+        //    doesn't establish within 15 seconds, roll back to the previous
+        //    assistant so the app doesn't end up in a broken state.
+        self.switchValidationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            let connected = await self.waitForGatewayConnection(timeout: 15)
+
+            // If a newer switch cancelled this task, bail out — the rollback
+            // target (previousAssistantId) is stale.
+            guard !Task.isCancelled else { return }
+
+            if !connected {
+                log.error("Gateway connection failed after switching to \(assistant.assistantId, privacy: .public) — rolling back")
+
+                // Roll back to the previous assistant if one was connected.
+                // Show the error toast AFTER rollback so it appears on the
+                // newly created main window (rollback closes the current one).
+                if let previousAssistantId,
+                   let previousAssistant = LockfileAssistant.loadByName(previousAssistantId) {
+                    log.info("Rolling back to previous assistant \(previousAssistantId, privacy: .public)")
+                    self.rollbackToPreviousAssistant(previousAssistant)
+                }
+
+                self.mainWindow?.windowState.showToast(
+                    message: "Could not connect to assistant — it may be offline",
+                    style: .error
+                )
+            }
+        }
+    }
+
+    /// Waits for `connectionManager.isConnected` to become `true`, polling
+    /// every 500ms up to the given timeout in seconds.
+    ///
+    /// Returns `true` if the connection was established within the timeout,
+    /// `false` otherwise.
+    private func waitForGatewayConnection(timeout: Int) async -> Bool {
+        let iterations = timeout * 2  // 500ms per iteration
+        for _ in 0..<iterations {
+            if connectionManager.isConnected { return true }
+            try? await Task.sleep(nanoseconds: 500_000_000)
+        }
+        return connectionManager.isConnected
+    }
+
+    /// Rolls back to a previous assistant after a failed switch. Performs
+    /// the same sequence as `performSwitchAssistant` but without the
+    /// post-switch validation to avoid infinite rollback loops.
+    private func rollbackToPreviousAssistant(_ assistant: LockfileAssistant) {
+        // Disconnect the failed connection
+        connectionManager.disconnect()
+        AvatarAppearanceManager.shared.resetForDisconnect()
+        threadWindowManager?.closeAll()
+        mainWindow?.close()
+        mainWindow = nil
+
+        // Restore the previous assistant selection
+        UserDefaults.standard.set(assistant.assistantId, forKey: "connectedAssistantId")
+        SentryDeviceInfo.updateAssistantTag(assistant.assistantId)
+        UserDefaults.standard.removeObject(forKey: "connectedOrganizationId")
+        SentryDeviceInfo.updateOrganizationTag(nil)
+        actorTokenBootstrapTask?.cancel()
+        actorTokenBootstrapTask = nil
+        ActorTokenManager.deleteToken()
+
+        // Reconfigure transport and reconnect
+        hasSetupDaemon = false
+        setupGatewayConnectionManager()
+
+        if !isCurrentAssistantManaged {
+            ensureActorCredentials()
+        }
+        localBootstrapDidComplete = false
+        ensureLocalAssistantApiKey()
+        syncApiKeysToAssistant(assistant)
+
+        featureFlagStore.reloadFromDisk()
+        AvatarAppearanceManager.shared.reloadAvatar()
+
+        showMainWindow()
     }
 
     /// Push all locally-stored API keys to the assistant via the gateway.
@@ -573,11 +663,7 @@ extension AppDelegate {
     func performRetireAsync() async -> Bool {
         let assistantName = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
-        if assistantName == nil {
-            log.error("No stored connected assistant ID found — skipping retire")
-        }
-
-        if let name = assistantName {
+        if let assistantName {
             // Disconnect SSE and health checks *before* the CLI kills the
             // daemon/gateway. Otherwise the EventStreamClient reconnect loop
             // hits the gateway while the upstream daemon is already dead,
@@ -585,7 +671,7 @@ extension AppDelegate {
             connectionManager.disconnect()
 
             do {
-                try await vellumCli.retire(name: name)
+                try await vellumCli.retire(name: assistantName)
             } catch {
                 log.error("CLI retire failed: \(error.localizedDescription)")
                 let alert = NSAlert()
@@ -603,44 +689,52 @@ extension AppDelegate {
                 }
                 // Retire failed but user chose Force Remove — stop the assistant
                 // before cleaning up local state.
-                await vellumCli.stop(name: name)
-                self.removeLockfileEntry(assistantId: name)
+                await vellumCli.stop(name: assistantName)
+                self.removeLockfileEntry(assistantId: assistantName)
+            }
+
+            // Check if other assistants remain in the lockfile.
+            // Prefer remote assistants (always reachable), then try waking local ones.
+            let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName && $0.isCurrentEnvironment }
+            if !remaining.isEmpty {
+                // Try remote assistants first — they're always reachable
+                if let remote = remaining.first(where: { $0.isRemote }) {
+                    performSwitchAssistant(to: remote)
+                    return true
+                }
+
+                // Try local assistants — check if awake, otherwise wake them
+                for candidate in remaining {
+                    if await HealthCheckClient.isReachable(for: candidate) {
+                        performSwitchAssistant(to: candidate)
+                        return true
+                    }
+
+                    // Sleeping — try to wake it
+                    do {
+                        try await vellumCli.wake(name: candidate.assistantId)
+                        performSwitchAssistant(to: candidate)
+                        return true
+                    } catch {
+                        log.warning("Failed to wake \(candidate.assistantId): \(error.localizedDescription)")
+                        continue
+                    }
+                }
+                // All local wake attempts failed — fall through to onboarding
             }
         } else {
-            await vellumCli.stop(name: assistantName)
+            // Corrupted state: no connectedAssistantId in UserDefaults.
+            // Skip CLI retire/stop (no name to pass) but fall through to
+            // full teardown + onboarding so the user can recover.
+            log.warning("No stored connected assistant ID found — skipping CLI retire, falling through to teardown")
+            mainWindow?.windowState.showToast(
+                message: "No assistant selected — resetting to onboarding.",
+                style: .warning
+            )
+            connectionManager.disconnect()
         }
 
-        // Check if other assistants remain in the lockfile.
-        // Prefer remote assistants (always reachable), then try waking local ones.
-        let remaining = LockfileAssistant.loadAll().filter { $0.assistantId != assistantName && $0.isCurrentEnvironment }
-        if !remaining.isEmpty {
-            // Try remote assistants first — they're always reachable
-            if let remote = remaining.first(where: { $0.isRemote }) {
-                performSwitchAssistant(to: remote)
-                return true
-            }
-
-            // Try local assistants — check if awake, otherwise wake them
-            for candidate in remaining {
-                if await HealthCheckClient.isReachable(for: candidate) {
-                    performSwitchAssistant(to: candidate)
-                    return true
-                }
-
-                // Sleeping — try to wake it
-                do {
-                    try await vellumCli.wake(name: candidate.assistantId)
-                    performSwitchAssistant(to: candidate)
-                    return true
-                } catch {
-                    log.warning("Failed to wake \(candidate.assistantId): \(error.localizedDescription)")
-                    continue
-                }
-            }
-            // All local wake attempts failed — fall through to onboarding
-        }
-
-        // No assistants left — tear down fully and show onboarding
+        // No assistants left (or corrupted state) — tear down fully and show onboarding
         AvatarAppearanceManager.shared.resetForDisconnect()
         OnboardingState.clearPersistedState()
         UserDefaults.standard.removeObject(forKey: "bootstrapState")

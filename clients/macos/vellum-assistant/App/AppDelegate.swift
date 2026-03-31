@@ -138,6 +138,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// cancelled before creating a new subscription (e.g. on reconnection or
     /// assistant switch), preventing duplicate event processing.
     var eventSubscriptionTask: Task<Void, Never>?
+    /// In-flight gateway validation task spawned by `performSwitchAssistant`.
+    /// Stored so it can be cancelled on rapid re-switch to prevent a stale
+    /// timeout from rolling back to the wrong assistant.
+    var switchValidationTask: Task<Void, Never>?
     /// Pending fallback notification tokens, keyed by conversationId.
     /// Used to avoid duplicate native alerts when notification_intent arrives.
     var pendingFallbackNotifications: [String: UUID] = [:]
