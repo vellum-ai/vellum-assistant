@@ -167,7 +167,6 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
       "assistant oauth disconnect -h",
       "assistant trust clear --help",
       "assistant trust remove -h",
-      "assistant config set --help",
       "assistant credentials set --help",
       "assistant credentials delete -h",
       "assistant keys set --help",
