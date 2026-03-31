@@ -125,7 +125,7 @@ extension AppDelegate {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                PTTActivator.refreshCache()
+                await PTTActivator.refreshCache()
                 self?.voiceInput?.restartKeyMonitors()
             }
         }

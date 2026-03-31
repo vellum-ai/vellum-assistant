@@ -93,11 +93,10 @@ struct PTTActivator: Codable, Equatable {
     }
 
     /// Reads the stored activator off the main thread and updates the cache.
-    @MainActor static func refreshCache() {
-        Task {
-            let result = await Task.detached { Self.fromStored() }.value
-            _cached = result
-        }
+    /// Callers should `await` to ensure the cache is populated before reading it.
+    @MainActor static func refreshCache() async {
+        let result = await Task.detached { Self.fromStored() }.value
+        _cached = result
     }
 
     /// Synchronously updates the cache after a local write (e.g. settings change).
