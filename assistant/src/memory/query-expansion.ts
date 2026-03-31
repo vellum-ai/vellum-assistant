@@ -73,7 +73,7 @@ export async function expandQueryWithHyDE(
 
     return entries;
   } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    if (err instanceof Error && (err.name === "AbortError" || err.name === "APIUserAbortError")) throw err;
     log.warn(
       { err: err instanceof Error ? err.message : String(err) },
       "HyDE query expansion failed",
