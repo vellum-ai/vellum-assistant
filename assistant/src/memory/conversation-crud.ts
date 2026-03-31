@@ -261,10 +261,10 @@ export function createConversation(
   const memoryScopeId =
     conversationType === "private" ? `private:${id}` : "default";
 
-  // Ensure group_id column exists before INSERT that may include group_id.
-  if (groupId) {
-    ensureGroupMigration();
-  }
+  // Ensure group_id column exists for deterministic schema readiness,
+  // even when this conversation has no groupId (a subsequent query or
+  // reorder may reference the column).
+  ensureGroupMigration();
 
   const conversation = {
     id,
@@ -285,10 +285,28 @@ export function createConversation(
 
   // Retry on SQLITE_BUSY and SQLITE_IOERR — transient disk I/O errors or WAL
   // contention can cause the first attempt to fail even under normal load.
+  // group_id is set via raw SQL (not in Drizzle schema) in the same transaction
+  // as the INSERT to avoid partial-write edge cases on crash.
   const MAX_RETRIES = 3;
   for (let attempt = 0; ; attempt++) {
     try {
-      db.insert(conversations).values(conversation).run();
+      if (groupId) {
+        rawExec("BEGIN");
+        try {
+          db.insert(conversations).values(conversation).run();
+          rawRun(
+            "UPDATE conversations SET group_id = ? WHERE id = ?",
+            groupId,
+            id,
+          );
+          rawExec("COMMIT");
+        } catch (innerErr) {
+          rawExec("ROLLBACK");
+          throw innerErr;
+        }
+      } else {
+        db.insert(conversations).values(conversation).run();
+      }
       break;
     } catch (err) {
       const code = (err as { code?: string }).code ?? "";
@@ -307,12 +325,6 @@ export function createConversation(
       }
       throw err;
     }
-  }
-
-  // group_id is NOT in the Drizzle schema (raw-query-only pattern, matching
-  // display_order and is_pinned). Set it via raw SQL after the Drizzle insert.
-  if (groupId) {
-    rawRun("UPDATE conversations SET group_id = ? WHERE id = ?", groupId, id);
   }
 
   initConversationDir({ ...conversation, originChannel: null });

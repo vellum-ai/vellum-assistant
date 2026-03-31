@@ -153,10 +153,14 @@ export function updateGroup(
 // Delete
 // ---------------------------------------------------------------------------
 
+// Relies on PRAGMA foreign_keys = ON (set at connection time) so that
+// ON DELETE SET NULL fires and clears group_id on conversations when
+// a group is deleted. If FK enforcement is ever disabled, orphaned
+// group_id values would persist and conversations would appear in a
+// non-existent group.
 export function deleteGroup(groupId: string): boolean {
   ensureGroupMigration();
   rawRun("DELETE FROM conversation_groups WHERE id = ?", groupId);
-  // ON DELETE SET NULL will clear group_id on conversations
   return true;
 }
 
