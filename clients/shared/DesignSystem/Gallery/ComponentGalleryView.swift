@@ -138,6 +138,7 @@ enum ComponentGalleryCategory: String, CaseIterable, Identifiable {
                 GalleryComponent("vLink", "VLink", keywords: ["link", "url", "external link", "hyperlink"], description: "Styled external link that opens a URL in the default browser. Applies pointer cursor, single-line truncation, and caption font by default."),
                 GalleryComponent("vThemeToggle", "VThemeToggle", keywords: ["theme toggle", "dark mode", "light mode"], description: "Three-way theme toggle (System / Light / Dark). Reads and writes themePreference in UserDefaults."),
                 GalleryComponent("vMenu", "VMenu", keywords: ["menu", "popover", "dropdown", "drawer", "overflow"], description: "Reusable popover container with section headers, dividers, action items, and custom rows. Use instead of manual drawer chrome."),
+                GalleryComponent("vSubMenuItem", "VSubMenuItem", keywords: ["submenu", "cascading menu", "nested menu", "flyout"], description: "Cascading submenu item that opens a child VMenuPanel on hover/click. Anchored positioning with screen-edge flip, grace-period close. iOS falls back to native SwiftUI Menu."),
             ]
         case .tokens:
             return [

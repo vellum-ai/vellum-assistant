@@ -384,6 +384,87 @@ struct NavigationGallerySection: View {
                 }
             }
 
+            if filter == nil || filter == "vSubMenuItem" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VSubMenuItem (Cascading Submenu)
+                GallerySectionHeader(
+                    title: "VSubMenuItem",
+                    description: "Cascading submenu item that opens a child panel on hover (150ms debounce) or click. Anchored to the item's trailing edge with screen-edge flip. Grace-period close (200ms) prevents accidental dismiss when moving between panels. On iOS, falls back to native SwiftUI Menu."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Submenu with Actions").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        VMenu(width: 200) {
+                            VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") {}
+                            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {}
+                            VSubMenuItem(icon: VIcon.folder.rawValue, label: "Move to") {
+                                VMenuItem(label: "Pinned") {}
+                                VMenuItem(label: "Scheduled") {}
+                                VMenuItem(label: "Work") {}
+                                VMenuDivider()
+                                VMenuItem(label: "Remove from group") {}
+                            }
+                            VMenuDivider()
+                            VMenuItem(icon: VIcon.trash.rawValue, label: "Delete", variant: .destructive) {}
+                        }
+                    }
+                }
+
+                Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+                // MARK: - VSubMenuItem (with icon and custom width)
+                GallerySectionHeader(
+                    title: "VSubMenuItem with Custom Width",
+                    description: "Pass a width parameter to override the parent menu's width for the child panel."
+                )
+
+                VCard {
+                    VStack(alignment: .leading, spacing: VSpacing.lg) {
+                        Text("Custom Child Width (250pt)").font(VFont.bodySmallEmphasised).foregroundStyle(VColor.contentSecondary)
+
+                        VMenu(width: 200) {
+                            VMenuItem(icon: VIcon.settings.rawValue, label: "Settings") {}
+                            VSubMenuItem(icon: VIcon.palette.rawValue, label: "Appearance", width: 250) {
+                                VMenuItem(label: "System Default") {}
+                                VMenuItem(label: "Light Mode") {}
+                                VMenuItem(label: "Dark Mode") {}
+                                VMenuItem(label: "High Contrast") {}
+                            }
+                        }
+                    }
+                }
+
+                Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+
+                // MARK: - VSubMenuItem (in context menu)
+                GallerySectionHeader(
+                    title: "VSubMenuItem in Context Menu",
+                    description: "Right-click the card below to see a VSubMenuItem inside a .vContextMenu."
+                )
+
+                VCard {
+                    Text("Right-click me")
+                        .font(VFont.bodyMediumDefault)
+                        .foregroundStyle(VColor.contentSecondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(VSpacing.xl)
+                        .vContextMenu(width: 200) {
+                            VMenuItem(icon: VIcon.copy.rawValue, label: "Copy") {}
+                            VSubMenuItem(icon: VIcon.externalLink.rawValue, label: "Share via") {
+                                VMenuItem(label: "Email") {}
+                                VMenuItem(label: "Slack") {}
+                                VMenuItem(label: "Copy Link") {}
+                            }
+                            VMenuDivider()
+                            VMenuItem(icon: VIcon.trash.rawValue, label: "Delete", variant: .destructive) {}
+                        }
+                }
+            }
+
 
         }
     }
@@ -400,6 +481,7 @@ extension NavigationGallerySection {
         case "vLink": NavigationGallerySection(filter: "vLink")
         case "vThemeToggle": NavigationGallerySection(filter: "vThemeToggle")
         case "vMenu": NavigationGallerySection(filter: "vMenu")
+        case "vSubMenuItem": NavigationGallerySection(filter: "vSubMenuItem")
         default: EmptyView()
         }
     }
