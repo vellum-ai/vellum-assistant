@@ -104,11 +104,13 @@ public enum GatewayHTTPClient {
     ///   - json: A JSON-serializable dictionary used as the request body.
     ///   - extraHeaders: Optional additional headers to include in the request.
     ///   - timeout: Request timeout in seconds. Defaults to 30.
+    ///   - skipRetry: When `true`, bypasses the 401 retry interceptor. Use this for
+    ///     the credential refresh endpoint to prevent recursive refresh loops.
     /// - Returns: A `Response` with the raw data and HTTP status code.
     /// - Throws: `ClientError` if the request cannot be constructed, serialization errors, or network errors.
-    public static func post(path: String, json: [String: Any], extraHeaders: [String: String]? = nil, timeout: TimeInterval = 30) async throws -> Response {
+    public static func post(path: String, json: [String: Any], extraHeaders: [String: String]? = nil, timeout: TimeInterval = 30, skipRetry: Bool = false) async throws -> Response {
         let body = try JSONSerialization.data(withJSONObject: json)
-        return try await executeWithRetry(path: path, method: "POST", timeout: timeout) { request in
+        return try await executeWithRetry(path: path, method: "POST", timeout: timeout, skipRetry: skipRetry) { request in
             request.httpBody = body
             if let extraHeaders {
                 for (key, value) in extraHeaders {
@@ -593,21 +595,6 @@ public enum GatewayHTTPClient {
         return DownloadResponse(fileURL: tempURL, statusCode: statusCode)
     }
 
-    // MARK: - Direct (Non-Retrying) API
-
-    /// Performs a POST request that bypasses the 401 retry interceptor.
-    ///
-    /// Use this exclusively for the credential refresh endpoint itself
-    /// (`guardian/refresh`) to prevent recursive refresh loops where
-    /// a 401 on the refresh call would trigger another refresh attempt.
-    static func postDirect(path: String, json: [String: Any], timeout: TimeInterval = 15) async throws -> Response {
-        let connection = try resolveConnection()
-        let body = try JSONSerialization.data(withJSONObject: json)
-        var request = try buildRequest(path: path, params: nil, method: "POST", timeout: timeout, connection: connection)
-        request.httpBody = body
-        return try await execute(request)
-    }
-
     // MARK: - Auth Retry
 
     /// Executes a request with automatic 401 retry for non-managed (bearer token) connections.
@@ -619,6 +606,7 @@ public enum GatewayHTTPClient {
         method: String,
         timeout: TimeInterval,
         quiet: Bool = false,
+        skipRetry: Bool = false,
         configure: ((_ request: inout URLRequest) -> Void)? = nil
     ) async throws -> Response {
         let connection = try resolveConnection()
@@ -626,7 +614,7 @@ public enum GatewayHTTPClient {
         configure?(&request)
         let response = try await execute(request, quiet: quiet)
 
-        guard response.statusCode == 401, !connection.isManaged else {
+        guard !skipRetry, response.statusCode == 401, !connection.isManaged else {
             return response
         }
 

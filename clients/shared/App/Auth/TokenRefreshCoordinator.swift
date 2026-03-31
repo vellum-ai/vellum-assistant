@@ -45,10 +45,14 @@ public actor TokenRefreshCoordinator {
             case .success:
                 log.info("Token refresh succeeded")
             case .terminalError(let reason):
-                log.error("Token refresh failed terminally: \(reason, privacy: .public) — clearing credentials for re-bootstrap")
-                ActorTokenManager.deleteAllCredentials()
-                await MainActor.run {
-                    NotificationCenter.default.post(name: .daemonInstanceChanged, object: nil)
+                if ActorTokenManager.hasToken {
+                    log.error("Token refresh failed terminally: \(reason, privacy: .public) — clearing credentials for re-bootstrap")
+                    ActorTokenManager.deleteAllCredentials()
+                    await MainActor.run {
+                        NotificationCenter.default.post(name: .daemonInstanceChanged, object: nil)
+                    }
+                } else {
+                    log.warning("Token refresh failed terminally: \(reason, privacy: .public) — no credentials to clear")
                 }
             case .transientError:
                 log.warning("Token refresh transient error — will retry on next 401")
