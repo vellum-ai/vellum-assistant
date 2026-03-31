@@ -221,11 +221,6 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: [],
       forbiddenScopes: [],
     },
-    // client_secret_basic is safe with loopback: the token exchange is a
-    // server-side HTTP call from the assistant process to Twitter's token
-    // endpoint — the client secret is never exposed to the browser. The
-    // callback transport only affects where the browser redirects with the
-    // authorization code.
     tokenEndpointAuthMethod: "client_secret_basic",
     loopbackPort: 17335,
     injectionTemplates: [
@@ -631,11 +626,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     extraParams: { prompt: "consent" },
-    // client_secret_post is safe with loopback: the token exchange is a
-    // server-side HTTP call from the assistant process to Microsoft's token
-    // endpoint — the client secret is never exposed to the browser. The
-    // callback transport only affects where the browser redirects with the
-    // authorization code.
     tokenEndpointAuthMethod: "client_secret_post",
     loopbackPort: 17334,
     managedServiceConfigKey: "outlook-oauth",
