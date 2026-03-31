@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
@@ -695,7 +695,13 @@ async function classifyRiskUncached(
   preParsed?: ParsedCommand,
   manifestOverride?: ManifestOverride,
 ): Promise<RiskLevel> {
-  if (toolName === "file_read") return RiskLevel.Low;
+  if (toolName === "file_read") {
+    const filePath = getStringField(input, "path", "file_path");
+    if (isActorTokenSigningKeyPath(filePath, workingDir)) {
+      return RiskLevel.High;
+    }
+    return RiskLevel.Low;
+  }
   if (toolName === "file_write" || toolName === "file_edit") {
     const filePath = getStringField(input, "path", "file_path");
     if (
@@ -903,6 +909,28 @@ async function classifyRiskUncached(
 
   // Unknown tool → Medium
   return RiskLevel.Medium;
+}
+
+function isActorTokenSigningKeyPath(
+  filePath: string | undefined,
+  workingDir?: string,
+): boolean {
+  if (!filePath) return false;
+  const resolvedPath = resolve(workingDir ?? process.cwd(), filePath);
+  const legacyPath = join(
+    homedir(),
+    ".vellum",
+    "protected",
+    "actor-token-signing-key",
+  );
+  const workspaceDeprecatedPath = resolve(
+    workingDir ?? process.cwd(),
+    "deprecated",
+    "actor-token-signing-key",
+  );
+  return (
+    resolvedPath === legacyPath || resolvedPath === workspaceDeprecatedPath
+  );
 }
 
 export async function check(
