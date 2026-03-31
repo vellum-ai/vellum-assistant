@@ -235,14 +235,14 @@ registerHook("bash", (_name, input, result) => {
           { userId, assistantId },
           "Bash hook: no active Slack verification session — ignoring _pendingSlackDm",
         );
-        return false;
+        return true;
       }
       if (session.destinationAddress !== userId) {
         log.warn(
           { userId, expected: session.destinationAddress, assistantId },
           "Bash hook: Slack DM userId does not match active session destination — ignoring",
         );
-        return false;
+        return true;
       }
 
       deliverVerificationSlack(userId, text, assistantId);
