@@ -212,7 +212,7 @@ extension AppDelegate {
 
             // Clear locally-cached credentials for all local assistants
             let credStorage = FileCredentialStorage()
-            for assistant in LockfileAssistant.loadAll() where !assistant.isRemote && !assistant.isManaged {
+            for assistant in LockfileAssistant.loadAll() where (!assistant.isRemote || assistant.isDocker) && !assistant.isManaged {
                 let credentialAccount = LocalAssistantBootstrapService.credentialAccount(for: assistant.assistantId)
                 _ = credStorage.delete(account: credentialAccount)
             }
@@ -226,7 +226,7 @@ extension AppDelegate {
             // identity credentials. Assistant switches intentionally leave old processes
             // running for fast switching, but on full logout there's no reason to keep
             // them alive with potentially stale state.
-            for assistant in LockfileAssistant.loadAll() where !assistant.isRemote && !assistant.isManaged {
+            for assistant in LockfileAssistant.loadAll() where (!assistant.isRemote || assistant.isDocker) && !assistant.isManaged {
                 if assistant.assistantId != connectedAssistantId {
                     do {
                         try await vellumCli.sleep(name: assistant.assistantId)
