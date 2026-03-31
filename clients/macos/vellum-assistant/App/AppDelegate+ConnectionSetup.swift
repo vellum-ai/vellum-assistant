@@ -714,7 +714,7 @@ extension AppDelegate {
                 log.error("verifyAssistantReady: SSE connection not established within \(timeout)s")
                 throw AssistantNotReadyError.timeout
             }
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            try await Task.sleep(nanoseconds: 1_000_000_000)
         }
 
         // Phase 2: Hit the health endpoint to verify the assistant is
@@ -728,7 +728,7 @@ extension AppDelegate {
                 return
             }
             log.info("verifyAssistantReady: health check failed, retrying...")
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            try await Task.sleep(nanoseconds: 1_000_000_000)
         }
 
         log.error("verifyAssistantReady: health endpoint not responding within \(timeout)s")
