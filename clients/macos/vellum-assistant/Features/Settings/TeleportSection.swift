@@ -413,6 +413,14 @@ struct TeleportSection: View {
         let originalActorToken = ActorTokenManager.getToken()
         let actorToken = try await bootstrapActorToken(targetAssistantId: resolvedDocker.assistantId)
         ActorTokenManager.setToken(actorToken)
+        defer {
+            // Restore original actor token so the local assistant works during verification
+            if let originalActorToken {
+                ActorTokenManager.setToken(originalActorToken)
+            } else {
+                ActorTokenManager.deleteToken()
+            }
+        }
 
         // Step 5 — Import bundle to docker assistant
         phase = .transferring(step: "Importing data to Docker...")
@@ -431,13 +439,6 @@ struct TeleportSection: View {
            let success = importJson["success"] as? Bool, !success {
             let errorMsg = (importJson["error"] as? String) ?? "Import reported failure"
             throw TeleportError.importFailed(message: errorMsg)
-        }
-
-        // Step 5.5 — Restore original actor token so the local assistant works during verification
-        if let originalActorToken {
-            ActorTokenManager.setToken(originalActorToken)
-        } else {
-            ActorTokenManager.deleteToken()
         }
 
         // Step 6 — Store target for user confirmation (do NOT switch yet)
