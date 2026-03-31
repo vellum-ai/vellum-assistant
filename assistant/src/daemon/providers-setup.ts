@@ -28,6 +28,7 @@ import { gmailProvider } from "../watcher/providers/gmail.js";
 import { googleCalendarProvider } from "../watcher/providers/google-calendar.js";
 import { linearProvider } from "../watcher/providers/linear.js";
 import { outlookProvider } from "../watcher/providers/outlook.js";
+import { outlookCalendarProvider } from "../watcher/providers/outlook-calendar.js";
 const log = getLogger("lifecycle");
 
 export async function initializeProvidersAndTools(
@@ -142,6 +143,7 @@ export function registerWatcherProviders(): void {
   const config = getConfig();
   if (isAssistantFeatureFlagEnabled("outlook-oauth-integration", config)) {
     registerWatcherProvider(outlookProvider);
+    registerWatcherProvider(outlookCalendarProvider);
   }
 
   initWatcherEngine();
