@@ -318,7 +318,8 @@ final class ConversationRestorer {
         if let hasMore = response.hasMore {
             delegate.hasMoreConversations = hasMore
         }
-        delegate.serverOffset = response.conversations.count
+        // serverOffset is set by fetchConversationList before merging foreground +
+        // background, so it reflects foreground-only count for correct pagination.
         log.info("Restored \(restoredConversations.count) conversations from daemon (hasMore: \(response.hasMore ?? false))")
         delegate.restoreLastActiveConversation()
     }
@@ -382,6 +383,10 @@ final class ConversationRestorer {
                     let uniqueBackground = (background?.conversations ?? []).filter {
                         seenIds.insert($0.id).inserted
                     }
+                    // Set serverOffset from foreground count BEFORE merging.
+                    // loadMoreConversations pages the foreground endpoint only,
+                    // so the offset must not include merged background rows.
+                    self.delegate?.serverOffset = foreground.conversations.count
                     let merged = ConversationListResponse(
                         type: foreground.type,
                         conversations: foreground.conversations + uniqueBackground,
