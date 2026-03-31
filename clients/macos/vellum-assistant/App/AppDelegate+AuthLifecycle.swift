@@ -587,8 +587,11 @@ extension AppDelegate {
                     self.rollbackToPreviousAssistant(previousAssistant)
                 }
 
+                let toastMessage = previousAssistantId != nil
+                    ? "Assistant is not responding. Switching back to previous assistant."
+                    : "Assistant is not responding. It may be offline."
                 self.mainWindow?.windowState.showToast(
-                    message: "Assistant is not responding. Switching back to previous assistant.",
+                    message: toastMessage,
                     style: .error
                 )
             }
