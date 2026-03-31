@@ -373,8 +373,8 @@
       "id": "teleport",
       "scope": "macos",
       "key": "teleport",
-      "label": "Teleport",
-      "description": "Enable teleport UI in General settings for moving assistants between hosting environments",
+      "label": "Teleport to Docker",
+      "description": "Show the teleport-to-Docker destination for bare-metal local assistants",
       "defaultEnabled": false
     }
   ]
