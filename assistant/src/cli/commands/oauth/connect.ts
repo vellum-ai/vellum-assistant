@@ -199,9 +199,14 @@ Examples:
 
               if (!response.ok) {
                 const errorText = await response.text().catch(() => "");
-                writeError(
-                  `Platform returned HTTP ${response.status}${errorText ? `: ${errorText}` : ""}`,
-                );
+                const baseMsg = `Platform returned HTTP ${response.status}${errorText ? `: ${errorText}` : ""}`;
+                if (response.status === 401 || response.status === 403) {
+                  writeError(
+                    `${baseMsg}. Your platform session may have expired. Run \`vellum platform connect\` to reconnect.`,
+                  );
+                } else {
+                  writeError(baseMsg);
+                }
                 return;
               }
 
