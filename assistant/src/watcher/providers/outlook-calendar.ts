@@ -335,7 +335,9 @@ async function fallbackFetch(
 ): Promise<FetchResult> {
   const { items: events, deltaLink } = await initialDeltaQuery(connection);
 
-  const items = events.map((event) => eventToItem(event, "new_calendar_event"));
+  const items = events
+    .filter((event) => !event.isCancelled)
+    .map((event) => eventToItem(event, "new_calendar_event"));
 
   return { items, watermark: deltaLink };
 }
