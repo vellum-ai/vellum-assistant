@@ -1074,10 +1074,7 @@ struct MessageListView: View {
         if isSending {
             scrollState.transition(to: .followingBottom)
         }
-        // Scroll to bottom for the new conversation.
-        // Use declarative ScrollPosition(edge:) instead of imperative scrollToEdge()
-        // so SwiftUI processes the position in the same layout pass as new content,
-        // avoiding a race where the scroll target resolves before content is laid out.
+        // Declarative position reset — processed in the same layout pass as new content.
         // https://developer.apple.com/documentation/swiftui/scrollposition
         scrollState.scrollRestoreTask?.cancel()
         if anchorMessageId == nil {
