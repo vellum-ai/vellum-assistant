@@ -215,6 +215,7 @@ final class ConversationRestorer {
             if delegate.groups.isEmpty {
                 delegate.groups = [ConversationGroup.pinned, ConversationGroup.scheduled, ConversationGroup.background]
             }
+            delegate.daemonSupportsGroups = false
             daemonSupportsGroups = false
         }
 

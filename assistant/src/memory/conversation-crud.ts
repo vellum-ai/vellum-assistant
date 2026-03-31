@@ -1772,9 +1772,17 @@ export function batchSetDisplayOrders(
             update.id,
           );
         } else {
+          // Restore system group from source when old clients unpin, instead
+          // of clearing to NULL (which would lose scheduled/background provenance).
           rawRun(
             `UPDATE conversations SET display_order = ?, is_pinned = 0,
-             group_id = CASE WHEN group_id = 'system:pinned' THEN NULL ELSE group_id END
+             group_id = CASE WHEN group_id = 'system:pinned' THEN
+               CASE
+                 WHEN source IN ('schedule', 'reminder') THEN 'system:scheduled'
+                 WHEN source IN ('heartbeat', 'task') THEN 'system:background'
+                 ELSE NULL
+               END
+             ELSE group_id END
              WHERE id = ?`,
             update.displayOrder,
             update.id,
