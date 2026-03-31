@@ -43,6 +43,12 @@ struct SettingsDeveloperTab: View {
     @State private var transitioningStates: Set<String> = []
     @State private var platformUuid: String?
 
+    // -- Switch assistant UX state --
+    @State private var isSwitching: Bool = false
+    @State private var switchStatus: String?
+    @State private var switchStatusIsError: Bool = false
+    @State private var switchStatusDismissTask: Task<Void, Never>?
+
     // -- Advanced dev state --
     @State private var macOSFlagStates: [MacOSFeatureFlagState] = []
     @State private var assistantFlags: [AssistantFeatureFlag] = []
@@ -549,18 +555,43 @@ struct SettingsDeveloperTab: View {
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentSecondary)
                     Spacer()
+                    if isSwitching {
+                        HStack(spacing: VSpacing.xs) {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Switching\u{2026}")
+                                .font(VFont.bodySmallDefault)
+                                .foregroundStyle(VColor.contentTertiary)
+                        }
+                    }
                     VDropdown(
                         placeholder: "",
                         selection: $selectedAssistantId,
                         options: awakeAssistants.map { (label: displayLabel(for: $0), value: $0.assistantId) },
                         maxWidth: 200
                     )
+                    .disabled(isSwitching)
+                }
+
+                if let status = switchStatus {
+                    HStack(spacing: VSpacing.xs) {
+                        Image(systemName: switchStatusIsError ? "xmark.circle.fill" : "checkmark.circle.fill")
+                            .foregroundStyle(switchStatusIsError ? VColor.systemNegativeStrong : VColor.systemPositiveStrong)
+                        Text(status)
+                            .font(VFont.labelDefault)
+                            .foregroundStyle(switchStatusIsError ? VColor.systemNegativeStrong : VColor.systemPositiveStrong)
+                    }
+                    .transition(.opacity)
                 }
             }
             .onChange(of: selectedAssistantId) { oldValue, newValue in
                 resolvePlatformUuid()
                 let currentId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
                 guard newValue != currentId, newValue != oldValue else { return }
+                guard !isSwitching else {
+                    selectedAssistantId = oldValue
+                    return
+                }
                 guard let assistant = lockfileAssistants.first(where: { $0.assistantId == newValue }) else { return }
                 guard awakeStates[assistant.assistantId] == true else {
                     selectedAssistantId = currentId
@@ -577,6 +608,7 @@ struct SettingsDeveloperTab: View {
 
     private func toggleDisabled(for assistant: LockfileAssistant) -> Bool {
         if assistant.isRemote { return true }
+        if isSwitching { return true }
         if transitioningStates.contains(assistant.assistantId) { return true }
         return false
     }
@@ -644,8 +676,30 @@ struct SettingsDeveloperTab: View {
     }
 
     private func switchToAssistant(_ assistant: LockfileAssistant) {
+        guard !isSwitching else { return }
+        isSwitching = true
+        let targetName = displayLabel(for: assistant)
         AppDelegate.shared?.performSwitchAssistant(to: assistant)
-        onClose()
+        // performSwitchAssistant is synchronous (validation runs in a background Task),
+        // so we show the loading state briefly and then report success.
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            isSwitching = false
+            showSwitchStatus("Switched to \(targetName)", isError: false)
+        }
+    }
+
+    private func showSwitchStatus(_ message: String, isError: Bool) {
+        switchStatusDismissTask?.cancel()
+        switchStatusIsError = isError
+        withAnimation { switchStatus = message }
+        switchStatusDismissTask = Task {
+            try? await Task.sleep(nanoseconds: 4_000_000_000)
+            guard !Task.isCancelled else { return }
+            withAnimation {
+                if switchStatus == message { switchStatus = nil }
+            }
+        }
     }
 
     // MARK: - Restart Assistant
@@ -821,7 +875,7 @@ struct SettingsDeveloperTab: View {
                 ? "Retires the current assistant and switches to the next available one."
                 : "Retires your only assistant and returns to initial setup."
         ) {
-            VButton(label: "Retire", style: .danger) {
+            VButton(label: "Retire", style: .danger, isDisabled: isSwitching) {
                 showingRetireConfirmation = true
             }
         }
@@ -893,7 +947,7 @@ struct SettingsDeveloperTab: View {
 
     private var hatchNewAssistantSection: some View {
         SettingsCard(title: "Hatch New Assistant", subtitle: "Starts the initial setup flow to create a new assistant.") {
-            VButton(label: "Hatch", style: .primary) {
+            VButton(label: "Hatch", style: .primary, isDisabled: isSwitching) {
                 // Pre-check: if the user is authenticated, look for an existing managed assistant
                 if authManager.isAuthenticated,
                    let managed = ManagedAssistantBootstrapService.shared.checkExistingManagedAssistant() {
