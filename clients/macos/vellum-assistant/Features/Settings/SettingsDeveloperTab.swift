@@ -956,8 +956,11 @@ struct SettingsDeveloperTab: View {
         SettingsCard(title: "Hatch New Assistant", subtitle: "Starts the initial setup flow to create a new assistant.") {
             VButton(label: "Hatch", style: .primary, isDisabled: isSwitching) {
                 // Pre-check: if the user is authenticated, look for an existing managed assistant
+                // that is different from the one already connected (skip the dialog for same-assistant).
+                let currentConnectedId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
                 if authManager.isAuthenticated,
-                   let managed = ManagedAssistantBootstrapService.shared.checkExistingManagedAssistant() {
+                   let managed = ManagedAssistantBootstrapService.shared.checkExistingManagedAssistant(),
+                   managed.assistantId != currentConnectedId {
                     existingManagedAssistant = managed
                     showingExistingManagedAssistantDialog = true
                 } else {
