@@ -10,8 +10,10 @@ import {
   readdirSync,
   watch,
 } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { clearFeatureFlagOverridesCache } from "../config/assistant-feature-flags.js";
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import { clearEmbeddingBackendCache } from "../memory/embedding-backend.js";
 import { clearCache as clearTrustCache } from "../permissions/trust-store.js";
@@ -173,6 +175,7 @@ export class ConfigWatcher {
       "workspace directory for config/prompt changes",
     );
 
+    this.startFeatureFlagsWatcher();
     this.startSignalsWatcher();
     this.startSkillsWatchers(onConversationEvict);
   }
@@ -183,6 +186,54 @@ export class ConfigWatcher {
       watcher.close();
     }
     this.watchers = [];
+  }
+
+  private startFeatureFlagsWatcher(): void {
+    const protectedDir = process.env.GATEWAY_SECURITY_DIR
+      ? process.env.GATEWAY_SECURITY_DIR
+      : join(homedir(), ".vellum", "protected");
+
+    try {
+      if (!existsSync(protectedDir)) {
+        mkdirSync(protectedDir, { recursive: true });
+      }
+    } catch {
+      // If we can't create it, watching will also fail — handled below.
+    }
+
+    const FLAG_FILES = new Set([
+      "feature-flags.json",
+      "feature-flags-remote.json",
+    ]);
+
+    try {
+      const watcher = watch(protectedDir, (_eventType, filename) => {
+        if (!filename) return;
+        const file = String(filename);
+        if (!FLAG_FILES.has(file)) return;
+        this.debounceTimers.schedule(
+          "file:feature-flags",
+          () => {
+            log.info(
+              { file },
+              "Feature flags file changed, invalidating cache",
+            );
+            clearFeatureFlagOverridesCache();
+          },
+          500,
+        );
+      });
+      this.watchers.push(watcher);
+      log.info(
+        { dir: protectedDir },
+        "Watching protected directory for feature flag changes",
+      );
+    } catch (err) {
+      log.warn(
+        { err, dir: protectedDir },
+        "Failed to watch protected directory for feature flags. Flag changes will require a restart.",
+      );
+    }
   }
 
   private startSignalsWatcher(): void {
