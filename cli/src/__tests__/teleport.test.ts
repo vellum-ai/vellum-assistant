@@ -1186,6 +1186,40 @@ describe("signed-URL upload flow", () => {
     }
   });
 
+  test("fallback: platformRequestUploadUrl throws 404 → falls back to inline import", async () => {
+    setArgv("--from", "my-local", "--platform");
+
+    const localEntry = makeEntry("my-local", { cloud: "local" });
+
+    findAssistantByNameMock.mockImplementation((name: string) => {
+      if (name === "my-local") return localEntry;
+      return null;
+    });
+
+    // Simulate 404 — endpoint doesn't exist on older platform versions
+    platformRequestUploadUrlMock.mockRejectedValue(
+      new Error("Signed uploads are not available on this platform instance"),
+    );
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = createFetchMock() as unknown as typeof globalThis.fetch;
+
+    try {
+      await teleport();
+
+      // Should fall back to inline import
+      expect(platformRequestUploadUrlMock).toHaveBeenCalled();
+      expect(platformUploadToSignedUrlMock).not.toHaveBeenCalled();
+      expect(platformImportBundleFromGcsMock).not.toHaveBeenCalled();
+      expect(platformImportBundleMock).toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Teleport complete"),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("upload error: platformUploadToSignedUrl throws → error propagates", async () => {
     setArgv("--from", "my-local", "--platform");
 
