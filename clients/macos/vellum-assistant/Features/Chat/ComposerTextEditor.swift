@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import SwiftUI
+import VellumAssistantShared
 
 /// NSScrollView subclass that reports intrinsic content size based on
 /// its document view's text layout height. This lets SwiftUI size the
@@ -68,28 +69,44 @@ struct ComposerTextEditor: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
 
-        let textView = ComposerTextView()
+        // Build an explicit TextKit 1 stack to avoid the implicit TextKit 2→1
+        // downgrade that occurs when accessing `layoutManager` on a default
+        // NSTextView (macOS 12+). The downgrade causes visual glitches where
+        // typed text is invisible even though the insertion point renders.
+        // Reference: https://developer.apple.com/documentation/appkit/nstextview/1449309-layoutmanager
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+        let textContainer = NSTextContainer(size: NSSize(
+            width: 0,
+            height: CGFloat.greatestFiniteMagnitude
+        ))
+        textContainer.widthTracksTextView = true
+        textContainer.lineFragmentPadding = Self.textInsetX
+        layoutManager.addTextContainer(textContainer)
+
+        let textView = ComposerTextView(frame: .zero, textContainer: textContainer)
         textView.isRichText = false
         textView.importsGraphics = false
         textView.drawsBackground = false
         textView.backgroundColor = .clear
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainer?.lineFragmentPadding = Self.textInsetX
         textView.textContainerInset = NSSize(width: 0, height: Self.textInsetY)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
         textView.font = font
         textView.insertionPointColor = insertionPointColor
 
+        let defaultColor = NSColor(VColor.contentDefault)
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = lineSpacing
         textView.defaultParagraphStyle = paragraphStyle
         textView.typingAttributes = [
             .font: font,
             .paragraphStyle: paragraphStyle,
+            .foregroundColor: defaultColor,
         ]
 
         textView.postsFrameChangedNotifications = true
@@ -141,22 +158,40 @@ struct ComposerTextEditor: NSViewRepresentable {
 
         textView.isEditable = isEditable
 
-        let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = lineSpacing
-        textView.font = font
-        textView.defaultParagraphStyle = paragraphStyle
-        textView.typingAttributes = [
-            .font: font,
-            .paragraphStyle: paragraphStyle,
-        ]
+        // Guard attribute updates behind change checks to avoid triggering
+        // redundant TextKit re-layouts during the SwiftUI render cycle.
+        // Each keystroke fires textDidChange → binding update → updateNSView;
+        // unconditionally re-stamping font/color/typingAttributes here would
+        // cause a layout pass on every character, which can leave glyphs
+        // un-drawn until the *next* display cycle (appearing invisible).
+        // Ref: WWDC 2022 "Use SwiftUI with AppKit" — only update changed props.
+        let coordinator = context.coordinator
+        let textColor = textColorOverride ?? NSColor(VColor.contentDefault)
+
+        let fontChanged = coordinator.lastAppliedFont != font
+            || coordinator.lastAppliedLineSpacing != lineSpacing
+        let colorChanged = coordinator.lastAppliedTextColor != textColor
+
+        if fontChanged {
+            coordinator.lastAppliedFont = font
+            coordinator.lastAppliedLineSpacing = lineSpacing
+            let paragraphStyle = NSMutableParagraphStyle()
+            paragraphStyle.lineSpacing = lineSpacing
+            textView.font = font
+            textView.defaultParagraphStyle = paragraphStyle
+        }
+
+        if fontChanged || colorChanged {
+            coordinator.lastAppliedTextColor = textColor
+            textView.textColor = textColor
+            textView.typingAttributes = [
+                .font: font,
+                .paragraphStyle: textView.defaultParagraphStyle ?? NSParagraphStyle.default,
+                .foregroundColor: textColor,
+            ]
+        }
 
         textView.placeholderString = placeholder
-
-        if let override = textColorOverride {
-            textView.textColor = override
-        } else {
-            textView.textColor = .labelColor
-        }
 
         textView.cmdEnterToSend = cmdEnterToSend
         textView.onSubmit = onSubmit
@@ -202,6 +237,12 @@ struct ComposerTextEditor: NSViewRepresentable {
         var parent: ComposerTextEditor
         var frameObserver: NSObjectProtocol?
         var boundsObserver: NSObjectProtocol?
+
+        // Track last-applied values so updateNSView only touches the text
+        // storage when something actually changed.
+        var lastAppliedFont: NSFont?
+        var lastAppliedLineSpacing: CGFloat?
+        var lastAppliedTextColor: NSColor?
 
         init(parent: ComposerTextEditor) {
             self.parent = parent
