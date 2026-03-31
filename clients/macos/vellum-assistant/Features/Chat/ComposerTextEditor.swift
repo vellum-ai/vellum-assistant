@@ -95,6 +95,7 @@ struct ComposerTextEditor: NSViewRepresentable {
         textView.textContainerInset = NSSize(width: 0, height: Self.textInsetY)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
         textView.font = font
         textView.insertionPointColor = insertionPointColor
 
