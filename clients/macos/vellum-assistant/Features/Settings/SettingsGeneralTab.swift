@@ -78,8 +78,7 @@ struct SettingsGeneralTab: View {
                     updateManager: updateManager
                 )
             }
-            if MacOSClientFeatureFlagManager.shared.isEnabled("teleport"),
-               let assistant = currentAssistant,
+            if let assistant = currentAssistant,
                !assistant.isManaged && (!assistant.isRemote || assistant.isDocker) {
                 TeleportSection(assistant: assistant, onClose: onClose)
             }
