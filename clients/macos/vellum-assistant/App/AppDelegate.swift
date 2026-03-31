@@ -474,9 +474,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         installFileMenuDelegate()
         setupHotKey()
 
-        // Install CLI symlinks early so they are available before the daemon
-        // starts, regardless of auth or onboarding state.
-        installCLISymlinkIfNeeded()
+        // Install CLI symlinks in the background. installSymlink() spawns
+        // /usr/bin/which via Process.waitUntilExit() which internally blocks
+        // on a DispatchSemaphore — running it on the main thread causes a
+        // ~2s app hang (LUM-630). The symlinks are best-effort and don't
+        // need to complete before the daemon starts.
+        let isDevMode = DevModeManager.shared.isDevMode
+        Task.detached(priority: .utility) {
+            Self.installCLISymlinkIfNeeded(isDevMode: isDevMode)
+        }
 
         let hasAssistants = lockfileHasAssistants()
         log.info("[appLaunch] skipOnboarding=\(skipOnboarding) hasAssistants=\(hasAssistants)")

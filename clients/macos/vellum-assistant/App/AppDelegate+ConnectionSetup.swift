@@ -584,8 +584,10 @@ extension AppDelegate {
     /// Skipped when dev mode is active (developers manage their own PATH)
     /// or when `vellum` already resolves to a different executable
     /// (avoids overwriting a developer's locally-built binary).
-    func installCLISymlinkIfNeeded() {
-        guard !DevModeManager.shared.isDevMode else { return }
+    /// Installs CLI symlinks if needed. Designed to run off the main thread
+    /// (Process.waitUntilExit internally blocks on a DispatchSemaphore).
+    nonisolated static func installCLISymlinkIfNeeded(isDevMode: Bool) {
+        guard !isDevMode else { return }
 
         guard let execURL = Bundle.main.executableURL else { return }
         let macosDir = execURL.deletingLastPathComponent()
@@ -602,7 +604,7 @@ extension AppDelegate {
     /// is not writable. Skips creation when the destination already exists
     /// as a regular file, already points to the correct target, or the
     /// command resolves elsewhere on PATH (developer's local build).
-    private func installSymlink(commandName: String, target: String) {
+    private nonisolated static func installSymlink(commandName: String, target: String) {
         let fm = FileManager.default
 
         // Candidate directories in priority order: /usr/local/bin (system-wide),
