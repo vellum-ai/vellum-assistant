@@ -162,10 +162,12 @@ class TitleBarZoomableWindow: NSWindow {
             return
         }
 
-        // Skip non-character keys: Escape, Tab, arrow keys, function keys, etc.
+        // Skip non-character keys: Escape, Tab, Delete, arrow keys, function keys, etc.
         let kc = event.keyCode
         let isNonCharacter = kc == 53 // Escape
             || kc == 48 // Tab
+            || kc == 51 // Delete (Backspace)
+            || kc == 117 // Forward Delete (fn+Delete)
             || kc == 36 || kc == 76 // Return/Enter
             || (kc >= 122 && kc <= 127) // F1-F6
             || (kc >= 96 && kc <= 103) // F5-F12 (extended)
