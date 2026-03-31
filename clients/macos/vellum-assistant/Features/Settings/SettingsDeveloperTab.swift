@@ -36,6 +36,8 @@ struct SettingsDeveloperTab: View {
     @State private var devModeTapCount: Int = 0
     @State private var devModeMessage: String?
     @State private var showingHatchConfirmation: Bool = false
+    @State private var showingExistingManagedAssistantDialog: Bool = false
+    @State private var existingManagedAssistant: LockfileAssistant?
     @State private var displayNames: [String: String] = [:]
     @State private var awakeStates: [String: Bool] = [:]
     @State private var transitioningStates: Set<String> = []
@@ -889,7 +891,14 @@ struct SettingsDeveloperTab: View {
     private var hatchNewAssistantSection: some View {
         SettingsCard(title: "Hatch New Assistant", subtitle: "Starts the initial setup flow to create a new assistant.") {
             VButton(label: "Hatch", style: .primary) {
-                showingHatchConfirmation = true
+                // Pre-check: if the user is authenticated, look for an existing managed assistant
+                if authManager.isAuthenticated,
+                   let managed = ManagedAssistantBootstrapService.shared.checkExistingManagedAssistant() {
+                    existingManagedAssistant = managed
+                    showingExistingManagedAssistantDialog = true
+                } else {
+                    showingHatchConfirmation = true
+                }
             }
             .alert("Hatch New Assistant", isPresented: $showingHatchConfirmation) {
                 Button("Cancel", role: .cancel) {}
@@ -899,6 +908,20 @@ struct SettingsDeveloperTab: View {
                 }
             } message: {
                 Text("This will create a brand new assistant. Your existing assistant(s) will continue to exist and you can switch back to using them.")
+            }
+            .alert("Existing Managed Assistant Found", isPresented: $showingExistingManagedAssistantDialog) {
+                Button("Cancel", role: .cancel) {}
+                Button("Switch to Existing") {
+                    if let managed = existingManagedAssistant {
+                        switchToAssistant(managed)
+                    }
+                }
+                Button("Hatch Local Assistant") {
+                    AppDelegate.shared?.hatchNewAssistant()
+                    onClose()
+                }
+            } message: {
+                Text("You already have a managed assistant. Would you like to switch to it instead?")
             }
         }
     }
