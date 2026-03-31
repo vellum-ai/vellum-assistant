@@ -69,28 +69,43 @@ struct ComposerTextEditor: NSViewRepresentable {
         scrollView.autohidesScrollers = true
         scrollView.scrollerStyle = .overlay
 
-        let textView = ComposerTextView()
+        // Build an explicit TextKit 1 stack to avoid the implicit TextKit 2→1
+        // downgrade that occurs when accessing `layoutManager` on a default
+        // NSTextView (macOS 12+). The downgrade causes visual glitches where
+        // typed text is invisible even though the insertion point renders.
+        // Reference: https://developer.apple.com/documentation/appkit/nstextview/1449309-layoutmanager
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        textStorage.addLayoutManager(layoutManager)
+        let textContainer = NSTextContainer(size: NSSize(
+            width: 0,
+            height: CGFloat.greatestFiniteMagnitude
+        ))
+        textContainer.widthTracksTextView = true
+        textContainer.lineFragmentPadding = Self.textInsetX
+        layoutManager.addTextContainer(textContainer)
+
+        let textView = ComposerTextView(frame: .zero, textContainer: textContainer)
         textView.isRichText = false
         textView.importsGraphics = false
         textView.drawsBackground = false
         textView.backgroundColor = .clear
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
-        textView.textContainer?.lineFragmentPadding = Self.textInsetX
         textView.textContainerInset = NSSize(width: 0, height: Self.textInsetY)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.font = font
         textView.insertionPointColor = insertionPointColor
 
+        let defaultColor = NSColor(VColor.contentDefault)
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = lineSpacing
         textView.defaultParagraphStyle = paragraphStyle
         textView.typingAttributes = [
             .font: font,
             .paragraphStyle: paragraphStyle,
+            .foregroundColor: defaultColor,
         ]
 
         textView.postsFrameChangedNotifications = true
@@ -142,6 +157,7 @@ struct ComposerTextEditor: NSViewRepresentable {
 
         textView.isEditable = isEditable
 
+        let textColor = textColorOverride ?? NSColor(VColor.contentDefault)
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = lineSpacing
         textView.font = font
@@ -149,15 +165,11 @@ struct ComposerTextEditor: NSViewRepresentable {
         textView.typingAttributes = [
             .font: font,
             .paragraphStyle: paragraphStyle,
+            .foregroundColor: textColor,
         ]
 
         textView.placeholderString = placeholder
-
-        if let override = textColorOverride {
-            textView.textColor = override
-        } else {
-            textView.textColor = NSColor(VColor.contentDefault)
-        }
+        textView.textColor = textColor
 
         textView.cmdEnterToSend = cmdEnterToSend
         textView.onSubmit = onSubmit
