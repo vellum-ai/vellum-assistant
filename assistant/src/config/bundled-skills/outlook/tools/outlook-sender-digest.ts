@@ -1,6 +1,7 @@
 import {
   batchGetMessages,
   listMessages,
+  searchMessages,
 } from "../../../../messaging/providers/outlook/client.js";
 import type { OutlookMessage } from "../../../../messaging/providers/outlook/types.js";
 import { resolveOAuthConnection } from "../../../../oauth/connection-resolver.js";
@@ -47,6 +48,7 @@ export async function run(
     const ninetyDaysAgo = new Date(
       Date.now() - 90 * 24 * 60 * 60 * 1000,
     ).toISOString();
+    const ninetyDaysAgoEpoch = new Date(ninetyDaysAgo).getTime();
     const dateFilter = `receivedDateTime ge ${ninetyDaysAgo}`;
 
     const allMessageIds: string[] = [];
@@ -57,6 +59,11 @@ export async function run(
     const startTime = Date.now();
     const TIME_BUDGET_MS = 90_000;
 
+    // When userQuery is provided, use searchMessages (Microsoft Graph
+    // doesn't support combining $filter and $search). Date filtering is
+    // applied client-side instead.
+    const useSearch = Boolean(userQuery);
+
     // Paginate through messages
     while (allMessageIds.length < MAX_MESSAGES_CAP) {
       if (Date.now() - startTime > TIME_BUDGET_MS) {
@@ -66,33 +73,59 @@ export async function run(
       }
       const pageSize = Math.min(100, MAX_MESSAGES_CAP - allMessageIds.length);
 
-      const listResp = await listMessages(connection, {
-        top: pageSize,
-        skip,
-        filter: dateFilter,
-        orderby: "receivedDateTime desc",
-        select: "id,from,receivedDateTime,hasAttachments,subject",
-      });
+      let messages: OutlookMessage[];
 
-      const messages = listResp.value ?? [];
+      if (useSearch) {
+        const searchResp = await searchMessages(connection, userQuery!, {
+          top: pageSize,
+          skip,
+        });
+        messages = searchResp.value ?? [];
+      } else {
+        const listResp = await listMessages(connection, {
+          top: pageSize,
+          skip,
+          filter: dateFilter,
+          orderby: "receivedDateTime desc",
+          select: "id,from,receivedDateTime,hasAttachments,subject",
+        });
+        messages = listResp.value ?? [];
+      }
+
       if (messages.length === 0) break;
 
-      const ids = messages.map((m) => m.id);
+      // When using search, apply 90-day date filter client-side
+      const filtered = useSearch
+        ? messages.filter((m) => {
+            const received = m.receivedDateTime
+              ? new Date(m.receivedDateTime).getTime()
+              : 0;
+            return received >= ninetyDaysAgoEpoch;
+          })
+        : messages;
+
+      const ids = filtered.map((m) => m.id);
       allMessageIds.push(...ids);
 
       // Fetch internet message headers (List-Unsubscribe) for each batch
-      fetchPromises.push(
-        batchGetMessages(
-          connection,
-          ids,
-          "id,from,receivedDateTime,subject,internetMessageHeaders",
-        ),
-      );
+      if (ids.length > 0) {
+        fetchPromises.push(
+          batchGetMessages(
+            connection,
+            ids,
+            "id,from,receivedDateTime,subject,internetMessageHeaders",
+          ),
+        );
+      }
 
       skip += messages.length;
 
       // If we received fewer messages than requested, there are no more pages
       if (messages.length < pageSize) break;
+
+      // When using search, if all messages in a page are older than
+      // 90 days we've likely passed beyond the relevant window
+      if (useSearch && filtered.length === 0) break;
     }
 
     // Flag truncation if we hit the cap with more pages potentially available
