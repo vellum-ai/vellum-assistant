@@ -502,12 +502,12 @@ struct MessageInspectorView: View {
 
     private func formattedTimestamp(_ epochMs: Int) -> String {
         Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
-            .formatted(date: .omitted, time: .shortened)
+            .formatted(date: .omitted, time: .standard)
     }
 
     private func formattedDateTime(_ epochMs: Int) -> String {
         Date(timeIntervalSince1970: TimeInterval(epochMs) / 1000.0)
-            .formatted(date: .abbreviated, time: .shortened)
+            .formatted(date: .abbreviated, time: .standard)
     }
 }
 
@@ -574,7 +574,7 @@ struct MessageInspectorViewState {
     private(set) var memoryRecall: MemoryRecallData?
     private(set) var selectedLogID: String?
     private(set) var selectedDetailTab: MessageInspectorDetailTab = .overview
-    private(set) var selectedRawPane: RawPayloadPane = .request
+    private(set) var selectedRawPane: RawPayloadPane = .response
     private(set) var activeLoadToken: UUID?
 
     var selectedLog: LLMRequestLogEntry? {

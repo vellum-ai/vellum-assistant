@@ -15,39 +15,18 @@ import {
   mkdtempSync,
   readdirSync,
   readFileSync,
-  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
 // Set up temp directories before mocking
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "log-export-workspace-test-")),
-);
-const testWorkspaceDir = join(testDir, "workspace");
-const testDbDir = join(testDir, "db");
-const testDbPath = join(testDbDir, "assistant.db");
-
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
+const testWorkspaceDir = testDir;
 mkdirSync(testWorkspaceDir, { recursive: true });
-mkdirSync(testDbDir, { recursive: true });
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => testDir,
-  getWorkspaceDir: () => testWorkspaceDir,
-  getWorkspaceConfigPath: () => join(testWorkspaceDir, "config.json"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => testDbPath,
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -61,19 +40,10 @@ mock.module("../util/secure-keys.js", () => ({
   getSecureKeyAsync: async () => undefined,
 }));
 
-import { initializeDb, resetDb } from "../memory/db.js";
+import { initializeDb } from "../memory/db.js";
 import { logExportRouteDefinitions } from "../runtime/routes/log-export-routes.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 // ---------------------------------------------------------------------------
 // Helpers

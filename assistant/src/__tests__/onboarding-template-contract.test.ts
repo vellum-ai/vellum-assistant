@@ -27,9 +27,9 @@ describe("onboarding template contracts", () => {
       expect(lower).toContain("vibe");
     });
 
-    test("contains emoji auto-selection with change-later instruction", () => {
+    test("contains name selection with change-later instruction", () => {
       const lower = bootstrap.toLowerCase();
-      expect(lower).toContain("emoji");
+      expect(lower).toContain("what do you want to call me");
       expect(lower).toContain("change it later");
     });
 
@@ -57,8 +57,8 @@ describe("onboarding template contracts", () => {
     test("contains wrapping-up criteria with required conditions", () => {
       const lower = bootstrap.toLowerCase();
       expect(lower).toContain("wrapping up");
-      expect(lower).toContain("done with onboarding");
-      expect(lower).toContain("vibe");
+      expect(lower).toContain("delete");
+      expect(lower).toContain("bootstrap.md");
       expect(lower).toContain("two suggestions");
     });
 

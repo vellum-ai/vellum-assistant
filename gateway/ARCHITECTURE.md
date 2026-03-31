@@ -53,14 +53,14 @@ The gateway exposes a REST API for reading and mutating assistant feature flags.
 
 **Token separation (authentication boundary):**
 
-The assistant feature flags API uses a dedicated feature-flag token stored at `~/.vellum/feature-flag-token`, separate from JWT auth tokens. This separation ensures that clients with feature-flag access cannot access runtime endpoints, and vice versa.
+The assistant feature flags API uses scope-based JWT auth. The gateway issues JWTs with `feature_flags.read` and `feature_flags.write` scopes to control access.
 
-| Operation                      | Accepted tokens                                                     |
-| ------------------------------ | ------------------------------------------------------------------- |
-| `GET /v1/feature-flags`        | JWT bearer token OR feature-flag token                              |
-| `PATCH /v1/feature-flags/:key` | Feature-flag token ONLY (JWT bearer tokens are explicitly rejected) |
+| Operation                      | Required scope        |
+| ------------------------------ | --------------------- |
+| `GET /v1/feature-flags`        | `feature_flags.read`  |
+| `PATCH /v1/feature-flags/:key` | `feature_flags.write` |
 
-The feature-flag token is auto-generated on first gateway startup if the file does not exist. The gateway watches the token file for changes and hot-reloads without restart.
+The assistant daemon does not read or distribute a feature-flag token. All feature-flag auth flows go through the gateway's scoped JWT mechanism.
 
 **Protected feature flag store:** The canonical storage for assistant feature flag overrides is `~/.vellum/protected/feature-flags.json` (local) or `GATEWAY_SECURITY_DIR/feature-flags.json` (Docker). The store is managed by `gateway/src/feature-flag-store.ts` and uses a versioned JSON format with `Record<string, boolean>` values keyed by canonical flag keys (simple kebab-case, e.g., `browser`). The gateway's PATCH handler writes exclusively to this store. The daemon's resolver reads it with highest priority, falling back to the defaults registry. Undeclared keys are ignored by the resolver.
 

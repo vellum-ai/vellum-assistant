@@ -23,6 +23,11 @@ describe("buildCliReferenceSection", () => {
     expect(result).toContain("assistant --help");
   });
 
+  test("mentions assistant platform for querying platform state", () => {
+    const result = buildCliReferenceSection();
+    expect(result).toContain("assistant platform status");
+  });
+
   test("does not embed the full CLI help output", () => {
     const result = buildCliReferenceSection();
     // The full help text used to be embedded; now the model should

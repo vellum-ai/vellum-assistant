@@ -633,7 +633,6 @@ describe("RetryProvider — streaming response handling", () => {
   });
 });
 
-
 // ---------------------------------------------------------------------------
 // createStreamTimeout — edge cases
 // ---------------------------------------------------------------------------
@@ -682,4 +681,3 @@ describe("createStreamTimeout — edge cases", () => {
     cleanup();
   });
 });
-

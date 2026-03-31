@@ -2,7 +2,7 @@ import AppKit
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+ConnectionSetup")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate+ConnectionSetup")
 
 extension AppDelegate {
 
@@ -20,15 +20,26 @@ extension AppDelegate {
     /// to the correct assistant.
     ///
     /// Returns the loaded assistant for transport selection, or nil if none found.
+    /// Rejects managed assistants from a different platform environment (e.g.
+    /// dev-platform assistants in a production build) and falls back to the
+    /// first valid current-environment assistant.
     @discardableResult
     func loadAssistantFromLockfile() -> LockfileAssistant? {
         let storedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
-        let assistant: LockfileAssistant?
+        var assistant: LockfileAssistant?
 
         if let storedId, let found = LockfileAssistant.loadByName(storedId) {
             assistant = found
         } else {
             assistant = LockfileAssistant.loadLatest()
+        }
+
+        // If the resolved assistant is from a different platform environment,
+        // clear the stale stored ID and fall back to any valid assistant.
+        if let resolved = assistant, !resolved.isCurrentEnvironment {
+            log.info("Stored assistant \(resolved.assistantId, privacy: .public) is cross-environment — searching for fallback")
+            UserDefaults.standard.removeObject(forKey: "connectedAssistantId")
+            assistant = LockfileAssistant.loadAll().first { $0.isCurrentEnvironment }
         }
 
         guard let assistant else { return nil }
@@ -74,6 +85,17 @@ extension AppDelegate {
         // Remote assistant.
         services.reconfigureConnection(conversationKey: assistant.assistantId)
         log.info("Configured remote assistant \(assistant.assistantId, privacy: .public)")
+    }
+
+    // MARK: - Managed Reconnection
+
+    /// Re-establish the gateway connection for a managed assistant after the
+    /// user signs in from Settings. Resets `hasSetupDaemon` so the next call
+    /// to `setupGatewayConnectionManager()` runs the full setup again.
+    func reconnectManagedAssistant() {
+        UserDefaults.standard.removeObject(forKey: "pendingManagedSwitchAssistantId")
+        hasSetupDaemon = false
+        setupGatewayConnectionManager()
     }
 
     // MARK: - Gateway Connection Setup
@@ -145,10 +167,12 @@ extension AppDelegate {
     /// Subscribe to the event stream and dispatch events to their handlers.
     /// Each event type is handled in a single switch statement.
     private func startEventSubscription() {
-        Task { @MainActor [weak self] in
+        eventSubscriptionTask?.cancel()
+        eventSubscriptionTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let stream = self.eventStreamClient.subscribe()
             for await message in stream {
+                guard !Task.isCancelled else { break }
                 switch message {
                 case .notificationIntent(let msg):
                     self.deliverNotificationIntent(msg)
@@ -178,11 +202,10 @@ extension AppDelegate {
                     }
                 case .navigateSettings(let msg):
                     self.showSettingsTab(msg.tab)
-                case .acpPermissionRequest(let msg):
-                    if self.acpPermissionWindow == nil {
-                        self.acpPermissionWindow = AcpPermissionWindow()
-                    }
-                    self.acpPermissionWindow?.show(message: msg)
+                case .showPlatformLogin:
+                    self.showPlatformLogin()
+                case .platformDisconnected:
+                    self.performLogout()
                 case .pairingApprovalRequest(let msg):
                     if self.pairingApprovalWindow == nil {
                         self.pairingApprovalWindow = PairingApprovalWindow()
@@ -351,6 +374,17 @@ extension AppDelegate {
                     self.secretPromptManager.showPrompt(msg)
                     SoundManager.shared.play(.needsInput)
 
+                case .conversationError(let msg):
+                    if msg.code == .authenticationRequired && self.isCurrentAssistantManaged {
+                        log.info("Received authenticationRequired error for managed assistant — showing reauth screen")
+                        // Only set pending if not already set (preserve user's intended switch target)
+                        if UserDefaults.standard.string(forKey: "pendingManagedSwitchAssistantId") == nil,
+                           let assistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") {
+                            UserDefaults.standard.set(assistantId, forKey: "pendingManagedSwitchAssistantId")
+                        }
+                        self.showAuthWindow()
+                    }
+
                 default:
                     break
                 }
@@ -377,13 +411,13 @@ extension AppDelegate {
 
     /// Handle a sign_bundle_payload request from the assistant.
     private func handleSignBundlePayload(_ msg: SignBundlePayloadMessage) {
-        do {
-            let payloadData = Data(msg.payload.utf8)
-            let signature = try SigningIdentityManager.shared.sign(payloadData)
-            let keyId = try SigningIdentityManager.shared.getKeyId()
-            let publicKey = try SigningIdentityManager.shared.getPublicKey()
+        Task {
+            do {
+                let payloadData = Data(msg.payload.utf8)
+                let signature = try await SigningIdentityManager.shared.sign(payloadData)
+                let keyId = try await SigningIdentityManager.shared.getKeyId()
+                let publicKey = try await SigningIdentityManager.shared.getPublicKey()
 
-            Task {
                 _ = try? await GatewayHTTPClient.post(
                     path: "assistants/{assistantId}/sign-bundle-response",
                     json: [
@@ -393,19 +427,26 @@ extension AppDelegate {
                         "publicKey": publicKey.rawRepresentation.base64EncodedString()
                     ] as [String: Any]
                 )
+            } catch {
+                log.error("Failed to sign bundle payload: \(error.localizedDescription)")
+                _ = try? await GatewayHTTPClient.post(
+                    path: "assistants/{assistantId}/sign-bundle-response",
+                    json: [
+                        "requestId": msg.requestId,
+                        "error": error.localizedDescription
+                    ] as [String: Any]
+                )
             }
-        } catch {
-            log.error("Failed to sign bundle payload: \(error.localizedDescription)")
         }
     }
 
     /// Handle a get_signing_identity request from the assistant.
     private func handleGetSigningIdentity(_ msg: GetSigningIdentityRequest) {
-        do {
-            let keyId = try SigningIdentityManager.shared.getKeyId()
-            let publicKey = try SigningIdentityManager.shared.getPublicKey()
+        Task {
+            do {
+                let keyId = try await SigningIdentityManager.shared.getKeyId()
+                let publicKey = try await SigningIdentityManager.shared.getPublicKey()
 
-            Task {
                 _ = try? await GatewayHTTPClient.post(
                     path: "assistants/{assistantId}/signing-identity-response",
                     json: [
@@ -414,9 +455,16 @@ extension AppDelegate {
                         "publicKey": publicKey.rawRepresentation.base64EncodedString()
                     ] as [String: Any]
                 )
+            } catch {
+                log.error("Failed to get signing identity: \(error.localizedDescription)")
+                _ = try? await GatewayHTTPClient.post(
+                    path: "assistants/{assistantId}/signing-identity-response",
+                    json: [
+                        "requestId": msg.requestId,
+                        "error": error.localizedDescription
+                    ] as [String: Any]
+                )
             }
-        } catch {
-            log.error("Failed to get signing identity: \(error.localizedDescription)")
         }
     }
 
@@ -518,7 +566,7 @@ extension AppDelegate {
             UserDefaults.standard.set(currentVersion, forKey: "preUpdateVersion")
 
             // Stop daemon before app replacement
-            self.vellumCli.stop()
+            await self.vellumCli.stop()
         }
         updateManager.startAutomaticChecks()
     }
@@ -531,8 +579,10 @@ extension AppDelegate {
     /// Skipped when dev mode is active (developers manage their own PATH)
     /// or when `vellum` already resolves to a different executable
     /// (avoids overwriting a developer's locally-built binary).
-    func installCLISymlinkIfNeeded() {
-        guard !DevModeManager.shared.isDevMode else { return }
+    /// Installs CLI symlinks if needed. Designed to run off the main thread
+    /// (Process.waitUntilExit internally blocks on a DispatchSemaphore).
+    nonisolated static func installCLISymlinkIfNeeded(isDevMode: Bool) {
+        guard !isDevMode else { return }
 
         guard let execURL = Bundle.main.executableURL else { return }
         let macosDir = execURL.deletingLastPathComponent()
@@ -549,7 +599,7 @@ extension AppDelegate {
     /// is not writable. Skips creation when the destination already exists
     /// as a regular file, already points to the correct target, or the
     /// command resolves elsewhere on PATH (developer's local build).
-    private func installSymlink(commandName: String, target: String) {
+    private nonisolated static func installSymlink(commandName: String, target: String) {
         let fm = FileManager.default
 
         // Candidate directories in priority order: /usr/local/bin (system-wide),

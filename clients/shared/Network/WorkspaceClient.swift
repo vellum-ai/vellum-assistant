@@ -1,10 +1,9 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "WorkspaceClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "WorkspaceClient")
 
 /// Focused client for workspace file-system operations routed through the gateway.
-@MainActor
 public protocol WorkspaceClientProtocol {
     func fetchWorkspaceTree(path: String, showHidden: Bool) async -> WorkspaceTreeResponse?
     func fetchWorkspaceFile(path: String, showHidden: Bool) async -> WorkspaceFileResponse?
@@ -17,7 +16,6 @@ public protocol WorkspaceClientProtocol {
 }
 
 /// Gateway-backed implementation of ``WorkspaceClientProtocol``.
-@MainActor
 public struct WorkspaceClient: WorkspaceClientProtocol {
     nonisolated public init() {}
 

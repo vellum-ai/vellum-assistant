@@ -60,7 +60,7 @@ struct SettingsGeneralTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: VSpacing.lg) {
             accountSection
-            if !lockfileAssistants.isEmpty {
+            if !lockfileAssistants.isEmpty, let updateManager = AppDelegate.shared?.updateManager {
                 AssistantUpgradeSection(
                     currentVersion: connectionManager?.assistantVersion ?? healthz?.version,
                     topology: topology,
@@ -70,7 +70,8 @@ struct SettingsGeneralTab: View {
                     sparkleUpdateVersion: sparkleUpdateVersion,
                     isServiceGroupUpdateInProgress: isServiceGroupUpdateInProgress,
                     updateStatusMessage: updateStatusMessage,
-                    healthzLoaded: healthzLoaded
+                    healthzLoaded: healthzLoaded,
+                    updateManager: updateManager
                 )
             }
             if MacOSClientFeatureFlagManager.shared.isEnabled("mobile-pairing") {
@@ -82,10 +83,15 @@ struct SettingsGeneralTab: View {
         .onAppear {
             Task { await authManager.checkSession() }
             store.refreshApprovedDevices()
-            lockfileAssistants = LockfileAssistant.loadAll()
             selectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId") ?? ""
             sparkleUpdateAvailable = AppDelegate.shared?.updateManager.isUpdateAvailable ?? false
             sparkleUpdateVersion = AppDelegate.shared?.updateManager.availableUpdateVersion
+            Task {
+                // Load lockfile on a background thread — the underlying
+                // Data(contentsOf:) file I/O can block the main thread.
+                let assistants = await Task.detached { LockfileAssistant.loadAll() }.value
+                lockfileAssistants = assistants
+            }
             Task { await fetchHealthz() }
         }
         .onReceive(updateInProgressPublisher) { inProgress in

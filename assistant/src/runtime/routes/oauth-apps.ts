@@ -18,6 +18,7 @@ import {
   listConnections,
   upsertApp,
 } from "../../oauth/oauth-store.js";
+import { serializeProviderSummary } from "../../oauth/provider-serializer.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
@@ -75,15 +76,7 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
 
         const providerRow = getProvider(providerKey);
         const provider = providerRow
-          ? {
-              provider_key: providerRow.providerKey,
-              display_name: providerRow.displayName ?? null,
-              description: providerRow.description ?? null,
-              dashboard_url: providerRow.dashboardUrl ?? null,
-              client_id_placeholder: providerRow.clientIdPlaceholder ?? null,
-              requires_client_secret: !!(providerRow.requiresClientSecret ?? 1),
-              supports_managed_mode: !!providerRow.managedServiceConfigKey,
-            }
+          ? serializeProviderSummary(providerRow)
           : null;
 
         return Response.json({
@@ -260,7 +253,10 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
           );
         }
 
-        let body: { scopes?: string[] } = {};
+        let body: {
+          scopes?: string[];
+          callback_transport?: "loopback" | "gateway";
+        } = {};
         try {
           const text = await req.text();
           if (text) {
@@ -270,6 +266,19 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
           // No body or invalid JSON — use defaults
         }
 
+        // Validate callback_transport if present
+        if (
+          body.callback_transport !== undefined &&
+          body.callback_transport !== "loopback" &&
+          body.callback_transport !== "gateway"
+        ) {
+          return httpError(
+            "BAD_REQUEST",
+            'callback_transport must be "loopback" or "gateway"',
+            400,
+          );
+        }
+
         const clientSecret = await getAppClientSecret(app);
 
         const result = await orchestrateOAuthConnect({
@@ -277,6 +286,7 @@ export function oauthAppsRouteDefinitions(): RouteDefinition[] {
           clientId: app.clientId,
           clientSecret,
           requestedScopes: body.scopes,
+          callbackTransport: body.callback_transport ?? "loopback",
           isInteractive: false,
         });
 

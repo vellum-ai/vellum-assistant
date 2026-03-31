@@ -73,6 +73,7 @@ public struct SubagentConversationView: View {
 
     public var body: some View {
         conversationContent(phase: 0)
+            .textSelection(.disabled)
     }
 
     @ViewBuilder

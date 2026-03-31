@@ -5,25 +5,7 @@
 // sensitive subcommands are intentionally elevated to Medium or High.
 // See #18982 / #18998 for the regression that motivated this guard.
 
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
-
-const guardTestDir = mkdtempSync(join(tmpdir(), "cli-risk-guard-test-"));
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => guardTestDir,
-  getDataDir: () => join(guardTestDir, "data"),
-  getWorkspaceSkillsDir: () => join(guardTestDir, "skills"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(guardTestDir, "test.pid"),
-  getDbPath: () => join(guardTestDir, "test.db"),
-  getLogPath: () => join(guardTestDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -175,27 +157,55 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
     expect(risk).toBe(RiskLevel.Medium);
   });
 
-  test("--help on elevated subcommands is Low risk (read-only)", async () => {
-    const helpCommands = [
-      "assistant oauth token --help",
-      "assistant oauth mode --set --help",
-      "assistant credentials reveal --help",
-      "assistant oauth request --help",
-      "assistant oauth connect --help",
-      "assistant oauth disconnect -h",
+  test("--help on non-elevated subcommands remains Low risk", async () => {
+    // GIVEN non-elevated subcommands with --help / -h flags
+    const lowRiskWithHelp = [
+      "assistant oauth --help",
+      "assistant credentials --help",
+      "assistant trust -h",
+      "assistant keys --help",
+      "assistant config --help",
     ];
 
-    for (const command of helpCommands) {
+    // WHEN classifying risk
+    // THEN they remain Low since the subcommand itself is Low
+    for (const command of lowRiskWithHelp) {
       const risk = await classifyRisk("bash", { command });
       expectLowRisk(command, risk);
     }
   });
 
-  test("--help after -- option terminator does not downgrade risk", async () => {
-    const risk = await classifyRisk("bash", {
-      command: "assistant oauth token -- --help",
-    });
-    expect(risk).toBe(RiskLevel.High);
+  test("--help does not downgrade risk on elevated subcommands", async () => {
+    // GIVEN elevated subcommands with --help / -h flags appended
+    const highRiskWithHelp = [
+      "assistant oauth token --help",
+      "assistant oauth mode --set --help",
+      "assistant credentials reveal --help",
+      "assistant trust clear --help",
+      "assistant trust remove -h",
+      "assistant credentials set --help",
+      "assistant credentials delete -h",
+      "assistant keys set --help",
+      "assistant keys delete -h",
+    ];
+
+    const mediumRiskWithHelp = [
+      "assistant oauth request --help",
+      "assistant oauth connect --help",
+      "assistant oauth disconnect -h",
+    ];
+
+    // WHEN classifying risk
+    // THEN --help does not bypass the elevated risk level
+    for (const command of highRiskWithHelp) {
+      const risk = await classifyRisk("bash", { command });
+      expect(risk).toBe(RiskLevel.High);
+    }
+
+    for (const command of mediumRiskWithHelp) {
+      const risk = await classifyRisk("bash", { command });
+      expect(risk).toBe(RiskLevel.Medium);
+    }
   });
 
   test("--help used as option value does not downgrade credentials reveal risk", async () => {
@@ -233,6 +243,66 @@ describe("CLI command risk guard: elevated assistant subcommands", () => {
     ];
 
     for (const command of lowRiskCredCommands) {
+      const risk = await classifyRisk("bash", { command });
+      expectLowRisk(command, risk);
+    }
+  });
+
+  test("assistant credentials set is High risk (modifies stored credentials)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant credentials set",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("assistant credentials delete is High risk (removes stored credentials)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant credentials delete",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("assistant keys set is High risk (modifies API keys)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant keys set anthropic sk-ant-xxx",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("assistant keys delete is High risk (removes API keys)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant keys delete openai",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("non-sensitive keys subcommands remain Low risk", async () => {
+    const lowRiskKeysCommands = ["assistant keys", "assistant keys list"];
+
+    for (const command of lowRiskKeysCommands) {
+      const risk = await classifyRisk("bash", { command });
+      expectLowRisk(command, risk);
+    }
+  });
+
+  test("assistant trust remove is High risk (removes trust rules)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant trust remove abc123",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("assistant trust clear is High risk (clears all trust rules)", async () => {
+    const risk = await classifyRisk("bash", {
+      command: "assistant trust clear",
+    });
+    expect(risk).toBe(RiskLevel.High);
+  });
+
+  test("non-sensitive trust subcommands remain Low risk", async () => {
+    const lowRiskTrustCommands = ["assistant trust", "assistant trust list"];
+
+    for (const command of lowRiskTrustCommands) {
       const risk = await classifyRisk("bash", { command });
       expectLowRisk(command, risk);
     }

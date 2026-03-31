@@ -5,9 +5,7 @@ import {
   type SlashContext,
 } from "../daemon/conversation-slash.js";
 
-function makeSlashContext(
-  overrides: Partial<SlashContext> = {},
-): SlashContext {
+function makeSlashContext(overrides: Partial<SlashContext> = {}): SlashContext {
   return {
     messageCount: 4,
     inputTokens: 1024,
@@ -36,15 +34,14 @@ describe("resolveSlash /commands interface-aware help", () => {
     );
     expect(lines).toEqual([
       "/commands — List all available commands",
+      "/compact — Force context compaction immediately",
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
       "/fork — Fork the current conversation into a new branch",
       "/pair — Generate pairing info for connecting a mobile device",
     ]);
-    expect(lines).not.toContain(
-      "/model — Switch the active model",
-    );
+    expect(lines).not.toContain("/model — Switch the active model");
   });
 
   test("renders iOS command help with /fork but without /pair", async () => {
@@ -53,6 +50,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     );
     expect(lines).toEqual([
       "/commands — List all available commands",
+      "/compact — Force context compaction immediately",
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
@@ -66,6 +64,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     );
     expect(lines).toEqual([
       "/commands — List all available commands",
+      "/compact — Force context compaction immediately",
       "/models — List all available models",
       "/status — Show conversation status and context usage",
       "/btw — Ask a side question while the assistant is working",
@@ -76,6 +75,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     const lines = await resolveCommandsLines(makeSlashContext());
     expect(lines).toEqual([
       "/commands — List all available commands",
+      "/compact — Force context compaction immediately",
       "/models — List all available models",
       "/pair — Generate pairing info for connecting a mobile device",
       "/status — Show conversation status and context usage",
@@ -86,6 +86,7 @@ describe("resolveSlash /commands interface-aware help", () => {
     const lines = await resolveCommandsLines();
     expect(lines).toEqual([
       "/commands — List all available commands",
+      "/compact — Force context compaction immediately",
       "/models — List all available models",
       "/pair — Generate pairing info for connecting a mobile device",
     ]);

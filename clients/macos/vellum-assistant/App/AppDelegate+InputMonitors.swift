@@ -4,7 +4,7 @@ import Combine
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate")
 
 /// Carbon event handler for the Quick Input hotkey (Cmd+Shift+/).
 /// Must be a free function because Carbon callbacks are C function pointers.
@@ -39,6 +39,9 @@ func quickInputHotKeyHandler(
 // Using @objc dynamic enables Combine's publisher(for:) key-path KVO without
 // listening to every UserDefaults write app-wide.
 extension UserDefaults {
+    @objc dynamic var connectedAssistantId: String? {
+        string(forKey: "connectedAssistantId")
+    }
     @objc dynamic var globalHotkeyShortcut: String {
         if UserDefaults.standard.object(forKey: "globalHotkeyShortcut") == nil {
             return "cmd+shift+g"
@@ -628,7 +631,7 @@ extension AppDelegate {
         if let imageData {
             viewModel.addAttachment(imageData: imageData, filename: "Screenshot.jpg")
             viewModel.inputText = message
-            quickInputAttachmentCancellable = viewModel.attachmentManager.$isLoadingAttachment
+            quickInputAttachmentCancellable = viewModel.attachmentManager.isLoadingAttachmentPublisher
                 .filter { !$0 }
                 .first()
                 .sink { [weak self] _ in
@@ -644,11 +647,19 @@ extension AppDelegate {
     func handleQuickInputSubmitToConversation(_ message: String, imageData: Data?) {
         guard let mainWindow else { return }
         if let viewModel = mainWindow.activeViewModel {
+            viewModel.inputText = message
             if let imageData {
                 viewModel.addAttachment(imageData: imageData, filename: "Screenshot.jpg")
+                quickInputAttachmentCancellable = viewModel.attachmentManager.isLoadingAttachmentPublisher
+                    .filter { !$0 }
+                    .first()
+                    .sink { [weak self] _ in
+                        viewModel.sendMessage()
+                        self?.quickInputAttachmentCancellable = nil
+                    }
+            } else {
+                viewModel.sendMessage()
             }
-            viewModel.inputText = message
-            viewModel.sendMessage()
         }
     }
 

@@ -1,10 +1,9 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SubagentClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "SubagentClient")
 
 /// Focused client for subagent operations routed through the gateway.
-@MainActor
 public protocol SubagentClientProtocol {
     func abort(subagentId: String, conversationId: String?) async -> Bool
     func fetchDetail(subagentId: String, conversationId: String) async -> SubagentDetailResponse?
@@ -12,7 +11,6 @@ public protocol SubagentClientProtocol {
 }
 
 /// Gateway-backed implementation of ``SubagentClientProtocol``.
-@MainActor
 public struct SubagentClient: SubagentClientProtocol {
     nonisolated public init() {}
 

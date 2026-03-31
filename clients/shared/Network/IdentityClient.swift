@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "IdentityClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "IdentityClient")
 
 /// Identity fields fetched from a remote assistant's identity endpoint.
 public struct RemoteIdentityInfo: Decodable {
@@ -29,7 +29,6 @@ public struct RemoteIdentityInfo: Decodable {
 }
 
 /// Focused client for fetching remote assistant identity via the gateway.
-@MainActor
 public protocol IdentityClientProtocol {
     func fetchRemoteIdentity() async -> RemoteIdentityInfo?
     func fetchIdentity() async -> IdentityGetResponse?
@@ -37,7 +36,6 @@ public protocol IdentityClientProtocol {
 }
 
 /// Gateway-backed implementation of ``IdentityClientProtocol``.
-@MainActor
 public struct IdentityClient: IdentityClientProtocol {
     nonisolated public init() {}
 

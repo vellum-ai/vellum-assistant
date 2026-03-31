@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AttachmentContentClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AttachmentContentClient")
 
 /// Fetches raw attachment bytes via the gateway, supporting both local and
 /// managed (platform-hosted) assistants through ``GatewayHTTPClient``.

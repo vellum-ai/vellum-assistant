@@ -25,6 +25,8 @@ struct IOSConversation: Identifiable {
     var scheduleJobId: String?
     /// The parent conversation/message this conversation forked from, if any.
     var forkParent: ConversationForkParent?
+    /// The conversation group this conversation belongs to, if any.
+    var groupId: String?
     var hasUnseenLatestAssistantMessage: Bool
     var latestAssistantMessageAt: Date?
     var lastSeenAssistantMessageAt: Date?
@@ -36,7 +38,7 @@ struct IOSConversation: Identifiable {
         return title.hasPrefix("Schedule: ") || title.hasPrefix("Schedule (manual): ") || title.hasPrefix("Reminder: ")
     }
 
-    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, displayOrder: Int? = nil, isPrivate: Bool = false, scheduleJobId: String? = nil, forkParent: ConversationForkParent? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
+    init(id: UUID = UUID(), title: String = "New Chat", createdAt: Date = Date(), lastActivityAt: Date? = nil, conversationId: String? = nil, isArchived: Bool = false, isPinned: Bool = false, displayOrder: Int? = nil, isPrivate: Bool = false, scheduleJobId: String? = nil, forkParent: ConversationForkParent? = nil, groupId: String? = nil, hasUnseenLatestAssistantMessage: Bool = false, latestAssistantMessageAt: Date? = nil, lastSeenAssistantMessageAt: Date? = nil) {
         self.id = id
         self.title = title
         self.createdAt = createdAt
@@ -48,6 +50,7 @@ struct IOSConversation: Identifiable {
         self.isPrivate = isPrivate
         self.scheduleJobId = scheduleJobId
         self.forkParent = forkParent
+        self.groupId = groupId
         self.hasUnseenLatestAssistantMessage = hasUnseenLatestAssistantMessage
         self.latestAssistantMessageAt = latestAssistantMessageAt
         self.lastSeenAssistantMessageAt = lastSeenAssistantMessageAt
@@ -233,6 +236,7 @@ class IOSConversationStore: ObservableObject {
     ) {
         conversation.isPinned = item.isPinned ?? false
         conversation.displayOrder = item.displayOrder.map { Int($0) }
+        conversation.groupId = item.groupId
         conversation.hasUnseenLatestAssistantMessage =
             item.assistantAttention?.hasUnseenLatestAssistantMessage ?? false
         conversation.latestAssistantMessageAt = assistantTimestamp(
@@ -513,10 +517,30 @@ class IOSConversationStore: ObservableObject {
         let currentGeneration = conversationListGeneration
         Task { [weak self] in
             guard let self else { return }
-            if let response = await conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize) {
+            // Fetch foreground and background conversations in parallel so
+            // background conversations don't consume pagination slots.
+            async let foregroundResult = conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize, conversationType: nil)
+            async let backgroundResult = conversationListClient.fetchConversationList(offset: 0, limit: Self.conversationPageSize, conversationType: "background")
+            let foreground = await foregroundResult
+            let background = await backgroundResult
+
+            if let foreground {
                 guard currentGeneration == self.conversationListGeneration else { return }
+                // Deduplicate by conversation ID so that daemons that don't
+                // yet support the conversationType query param (which return
+                // the same conversations for both requests) don't produce
+                // duplicate sidebar entries.
+                var seenIds = Set(foreground.conversations.map(\.id))
+                let uniqueBackground = (background?.conversations ?? []).filter {
+                    seenIds.insert($0.id).inserted
+                }
+                let merged = ConversationListResponse(
+                    type: foreground.type,
+                    conversations: foreground.conversations + uniqueBackground,
+                    hasMore: foreground.hasMore
+                )
                 self.expectedConversationListGeneration = currentGeneration
-                self.handleConversationListResponse(response)
+                self.handleConversationListResponse(merged)
             } else {
                 guard currentGeneration == self.conversationListGeneration else { return }
                 self.isLoadingInitialConversations = false
@@ -771,7 +795,7 @@ class IOSConversationStore: ObservableObject {
         let capturedOffset = conversationListOffset
         Task { [weak self] in
             guard let self else { return }
-            if let response = await conversationListClient.fetchConversationList(offset: nextOffset, limit: Self.conversationPageSize) {
+            if let response = await conversationListClient.fetchConversationList(offset: nextOffset, limit: Self.conversationPageSize, conversationType: nil) {
                 guard capturedGeneration == self.conversationListGeneration else { return }
                 self.handleConversationListResponse(response)
             } else {
@@ -919,7 +943,7 @@ class IOSConversationStore: ObservableObject {
         guard !observedForkAvailabilityConversationIds.contains(conversationLocalId) else { return }
         observedForkAvailabilityConversationIds.insert(conversationLocalId)
 
-        vm.messageManager.$messages
+        vm.messageManager.messagesPublisher
             .map { messages in
                 messages.last(where: { $0.daemonMessageId != nil && !$0.isStreaming && !$0.isHidden })?.daemonMessageId
             }
@@ -973,7 +997,7 @@ class IOSConversationStore: ObservableObject {
         // Find the conversation's default title; skip if already customized.
         guard conversations.first(where: { $0.id == conversationLocalId })?.title == "New Chat" else { return }
 
-        vm.messageManager.$messages
+        vm.messageManager.messagesPublisher
             .dropFirst()
             .compactMap { messages -> String? in
                 // Trigger once we have at least one user message and the first assistant
@@ -1009,7 +1033,7 @@ class IOSConversationStore: ObservableObject {
         guard !observedActivityConversationIds.contains(conversationLocalId) else { return }
         observedActivityConversationIds.insert(conversationLocalId)
 
-        vm.messageManager.$messages
+        vm.messageManager.messagesPublisher
             .dropFirst()
             .map(\.count)
             .removeDuplicates()

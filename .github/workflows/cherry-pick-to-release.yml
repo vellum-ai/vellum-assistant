@@ -1,0 +1,118 @@
+name: Cherry Pick to Release Branch
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+
+jobs:
+  cherry-pick:
+    if: >-
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.labels.*.name, 'cherry-pick-to-release')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v6
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - name: Determine latest release branch
+        id: release
+        run: |
+          # Find the latest release/v* branch by semantic version sort.
+          # Use -V (version sort) on the first key so that the 'release/v'
+          # prefix is handled correctly across major versions.
+          LATEST_BRANCH=$(git branch -r --list 'origin/release/v*' \
+            | sed 's|origin/||; s/^[[:space:]]*//' \
+            | sort -t. -k1,1V -k2,2n -k3,3n \
+            | tail -1)
+
+          if [ -z "$LATEST_BRANCH" ]; then
+            echo "::error::No release branches found matching 'release/v*'"
+            exit 1
+          fi
+
+          echo "branch=$LATEST_BRANCH" >> "$GITHUB_OUTPUT"
+          echo "Latest release branch: $LATEST_BRANCH"
+
+      - name: Cherry-pick and create PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_BRANCH: ${{ steps.release.outputs.branch }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          git config user.name "vellum-automation[bot]"
+          git config user.email "192048195+vellum-automation[bot]@users.noreply.github.com"
+
+          # Use a deterministic branch name based only on the release branch
+          # so that multiple cherry-picks accumulate on a single branch.
+          CHERRY_PICK_BRANCH="cherry-pick/${RELEASE_BRANCH}"
+
+          # Reuse the cherry-pick branch if it already exists, otherwise create it
+          if git ls-remote --exit-code origin "$CHERRY_PICK_BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$CHERRY_PICK_BRANCH"
+            git checkout "$CHERRY_PICK_BRANCH"
+          else
+            git checkout "$RELEASE_BRANCH"
+            git checkout -b "$CHERRY_PICK_BRANCH"
+          fi
+
+          # Detect whether the merge commit has multiple parents (true merge)
+          # or a single parent (squash merge). Only pass -m 1 for true merges.
+          PARENT_COUNT=$(git cat-file -p "$MERGE_SHA" | grep -c '^parent')
+          CHERRY_PICK_ARGS="--no-edit"
+          if [ "$PARENT_COUNT" -gt 1 ]; then
+            CHERRY_PICK_ARGS="-m 1 $CHERRY_PICK_ARGS"
+          fi
+
+          if git cherry-pick $CHERRY_PICK_ARGS "$MERGE_SHA"; then
+            git push origin "$CHERRY_PICK_BRANCH"
+
+            # Create a PR only if one doesn't already exist for this branch
+            EXISTING_PR=$(gh pr list --head "$CHERRY_PICK_BRANCH" --base "$RELEASE_BRANCH" --json number --jq '.[0].number // empty')
+            if [ -n "$EXISTING_PR" ]; then
+              echo "Cherry-pick pushed to existing PR #${EXISTING_PR}"
+            else
+              PR_URL=$(gh pr create \
+                --title "Cherry-picks for ${RELEASE_BRANCH}" \
+                --body "Automated cherry-picks onto \`${RELEASE_BRANCH}\`." \
+                --base "$RELEASE_BRANCH" \
+                --head "$CHERRY_PICK_BRANCH")
+
+              echo "Created cherry-pick PR: $PR_URL"
+            fi
+          else
+            # Cherry-pick failed — abort and notify on the original PR
+            git cherry-pick --abort
+
+            BODY=":warning: **Cherry-pick to \`${RELEASE_BRANCH}\` failed due to conflicts.**"
+            BODY="${BODY}"$'\n\n'"To resolve manually:"
+            BODY="${BODY}"$'\n'"\`\`\`bash"
+            BODY="${BODY}"$'\n'"git fetch origin"
+            BODY="${BODY}"$'\n'"git checkout ${CHERRY_PICK_BRANCH} 2>/dev/null || git checkout -b ${CHERRY_PICK_BRANCH} origin/${RELEASE_BRANCH}"
+            BODY="${BODY}"$'\n'"git cherry-pick ${CHERRY_PICK_ARGS} ${MERGE_SHA}"
+            BODY="${BODY}"$'\n'"# resolve conflicts, then:"
+            BODY="${BODY}"$'\n'"git push origin ${CHERRY_PICK_BRANCH}"
+            BODY="${BODY}"$'\n'"\`\`\`"
+            BODY="${BODY}"$'\n'"Then open a PR from \`${CHERRY_PICK_BRANCH}\` into \`${RELEASE_BRANCH}\`."
+
+            gh pr comment "$PR_NUMBER" --body "$BODY"
+
+            echo "::warning::Cherry-pick of #${PR_NUMBER} to ${RELEASE_BRANCH} failed due to conflicts. Commented on the original PR."
+          fi

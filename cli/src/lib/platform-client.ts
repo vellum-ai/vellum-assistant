@@ -65,6 +65,67 @@ export function clearPlatformToken(): void {
   }
 }
 
+const VAK_PREFIX = "vak_";
+
+/**
+ * Returns the appropriate auth header for the given platform token.
+ *
+ * - `vak_`-prefixed tokens are long-lived platform API keys and use
+ *   `Authorization: Bearer`.
+ * - All other tokens are allauth session tokens and use `X-Session-Token`.
+ */
+export function authHeaders(token: string): Record<string, string> {
+  if (token.startsWith(VAK_PREFIX)) {
+    return { Authorization: `Bearer ${token}` };
+  }
+  return { "X-Session-Token": token };
+}
+
+export interface HatchedAssistant {
+  id: string;
+  name: string;
+  status: string;
+}
+
+export async function hatchAssistant(token: string): Promise<HatchedAssistant> {
+  const url = `${getPlatformUrl()}/v1/assistants/hatch/`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(token),
+    },
+    body: JSON.stringify({}),
+  });
+
+  if (response.ok) {
+    return (await response.json()) as HatchedAssistant;
+  }
+
+  if (response.status === 401 || response.status === 403) {
+    const detail = (await response.json().catch(() => ({}))) as {
+      detail?: string;
+    };
+    throw new Error(
+      detail.detail ??
+        "Invalid or expired token. Run `vellum login` to re-authenticate.",
+    );
+  }
+
+  if (response.status === 402) {
+    throw new Error("Insufficient balance to hatch a new assistant.");
+  }
+
+  const errorBody = (await response.json().catch(() => ({}))) as {
+    detail?: string;
+  };
+  throw new Error(
+    errorBody.detail ??
+      `Platform API error: ${response.status} ${response.statusText}`,
+  );
+}
+
 export interface PlatformUser {
   id: string;
   email: string;
@@ -75,16 +136,19 @@ interface OrganizationListResponse {
   results: { id: string; name: string }[];
 }
 
-export async function fetchOrganizationId(token: string): Promise<string> {
-  const platformUrl = getPlatformUrl();
-  const url = `${platformUrl}/v1/organizations/`;
+export async function fetchOrganizationId(
+  token: string,
+  platformUrl?: string,
+): Promise<string> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const url = `${resolvedUrl}/v1/organizations/`;
   const response = await fetch(url, {
-    headers: { "X-Session-Token": token },
+    headers: { ...authHeaders(token) },
   });
 
   if (!response.ok) {
     throw new Error(
-      `Failed to fetch organizations from ${platformUrl} (${response.status}). Try logging in again.`,
+      `Failed to fetch organizations from ${resolvedUrl} (${response.status}). Try logging in again.`,
     );
   }
 
@@ -107,8 +171,12 @@ interface AllauthSessionResponse {
   };
 }
 
-export async function fetchCurrentUser(token: string): Promise<PlatformUser> {
-  const url = `${getPlatformUrl()}/_allauth/app/v1/auth/session`;
+export async function fetchCurrentUser(
+  token: string,
+  platformUrl?: string,
+): Promise<PlatformUser> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const url = `${resolvedUrl}/_allauth/app/v1/auth/session`;
   const response = await fetch(url, {
     headers: { "X-Session-Token": token },
   });
@@ -138,13 +206,14 @@ export async function rollbackPlatformAssistant(
   token: string,
   orgId: string,
   version?: string,
+  platformUrl?: string,
 ): Promise<{ detail: string; version: string | null }> {
-  const platformUrl = getPlatformUrl();
-  const response = await fetch(`${platformUrl}/v1/assistants/rollback/`, {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const response = await fetch(`${resolvedUrl}/v1/assistants/rollback/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Session-Token": token,
+      ...authHeaders(token),
       "Vellum-Organization-Id": orgId,
     },
     body: JSON.stringify(version ? { version } : {}),
@@ -182,13 +251,14 @@ export async function platformInitiateExport(
   token: string,
   orgId: string,
   description?: string,
+  platformUrl?: string,
 ): Promise<{ jobId: string; status: string }> {
-  const platformUrl = getPlatformUrl();
-  const response = await fetch(`${platformUrl}/v1/migrations/export/`, {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const response = await fetch(`${resolvedUrl}/v1/migrations/export/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "X-Session-Token": token,
+      ...authHeaders(token),
       "Vellum-Organization-Id": orgId,
     },
     body: JSON.stringify({ description: description ?? "CLI backup" }),
@@ -215,13 +285,14 @@ export async function platformPollExportStatus(
   jobId: string,
   token: string,
   orgId: string,
+  platformUrl?: string,
 ): Promise<{ status: string; downloadUrl?: string; error?: string }> {
-  const platformUrl = getPlatformUrl();
+  const resolvedUrl = platformUrl || getPlatformUrl();
   const response = await fetch(
-    `${platformUrl}/v1/migrations/export/${jobId}/status/`,
+    `${resolvedUrl}/v1/migrations/export/${jobId}/status/`,
     {
       headers: {
-        "X-Session-Token": token,
+        ...authHeaders(token),
         "Vellum-Organization-Id": orgId,
       },
     },
@@ -269,15 +340,16 @@ export async function platformImportPreflight(
   bundleData: Uint8Array<ArrayBuffer>,
   token: string,
   orgId: string,
+  platformUrl?: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
-  const platformUrl = getPlatformUrl();
+  const resolvedUrl = platformUrl || getPlatformUrl();
   const response = await fetch(
-    `${platformUrl}/v1/migrations/import-preflight/`,
+    `${resolvedUrl}/v1/migrations/import-preflight/`,
     {
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream",
-        "X-Session-Token": token,
+        ...authHeaders(token),
         "Vellum-Organization-Id": orgId,
       },
       body: new Blob([bundleData]),
@@ -296,18 +368,147 @@ export async function platformImportBundle(
   bundleData: Uint8Array<ArrayBuffer>,
   token: string,
   orgId: string,
+  platformUrl?: string,
 ): Promise<{ statusCode: number; body: Record<string, unknown> }> {
-  const platformUrl = getPlatformUrl();
-  const response = await fetch(`${platformUrl}/v1/migrations/import/`, {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const response = await fetch(`${resolvedUrl}/v1/migrations/import/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/octet-stream",
-      "X-Session-Token": token,
+      ...authHeaders(token),
       "Vellum-Organization-Id": orgId,
     },
     body: new Blob([bundleData]),
     signal: AbortSignal.timeout(120_000),
   });
+
+  const body = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  return { statusCode: response.status, body };
+}
+
+// ---------------------------------------------------------------------------
+// Signed-URL upload flow
+// ---------------------------------------------------------------------------
+
+export async function platformRequestUploadUrl(
+  token: string,
+  orgId: string,
+  platformUrl?: string,
+): Promise<{ uploadUrl: string; bundleKey: string; expiresAt: string }> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const response = await fetch(`${resolvedUrl}/v1/migrations/upload-url/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeaders(token),
+      "Vellum-Organization-Id": orgId,
+    },
+    body: JSON.stringify({ content_type: "application/octet-stream" }),
+  });
+
+  if (response.status === 201) {
+    const body = (await response.json()) as {
+      upload_url: string;
+      bundle_key: string;
+      expires_at: string;
+    };
+    return {
+      uploadUrl: body.upload_url,
+      bundleKey: body.bundle_key,
+      expiresAt: body.expires_at,
+    };
+  }
+
+  if (response.status === 404 || response.status === 503) {
+    throw new Error(
+      "Signed uploads are not available on this platform instance",
+    );
+  }
+
+  const errorBody = (await response.json().catch(() => ({}))) as {
+    detail?: string;
+  };
+  throw new Error(
+    errorBody.detail ??
+      `Failed to request upload URL: ${response.status} ${response.statusText}`,
+  );
+}
+
+export async function platformUploadToSignedUrl(
+  uploadUrl: string,
+  bundleData: Uint8Array<ArrayBuffer>,
+): Promise<void> {
+  const response = await fetch(uploadUrl, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/octet-stream",
+    },
+    body: new Blob([bundleData]),
+    signal: AbortSignal.timeout(600_000),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Upload to signed URL failed: ${response.status} ${response.statusText}`,
+    );
+  }
+}
+
+export async function platformImportPreflightFromGcs(
+  bundleKey: string,
+  token: string,
+  orgId: string,
+  platformUrl?: string,
+): Promise<{ statusCode: number; body: Record<string, unknown> }> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const response = await fetch(
+    `${resolvedUrl}/v1/migrations/import-preflight-from-gcs/`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(token),
+        "Vellum-Organization-Id": orgId,
+      },
+      body: JSON.stringify({ bundle_key: bundleKey }),
+      signal: AbortSignal.timeout(120_000),
+    },
+  );
+
+  const body = (await response.json().catch(() => ({}))) as Record<
+    string,
+    unknown
+  >;
+  return { statusCode: response.status, body };
+}
+
+export async function platformImportBundleFromGcs(
+  bundleKey: string,
+  token: string,
+  orgId: string,
+  platformUrl?: string,
+): Promise<{ statusCode: number; body: Record<string, unknown> }> {
+  const resolvedUrl = platformUrl || getPlatformUrl();
+  const response = await fetch(
+    `${resolvedUrl}/v1/migrations/import-from-gcs/`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...authHeaders(token),
+        "Vellum-Organization-Id": orgId,
+      },
+      body: JSON.stringify({ bundle_key: bundleKey }),
+      signal: AbortSignal.timeout(120_000),
+    },
+  );
+
+  if (response.status === 413) {
+    throw new Error("Bundle too large to import");
+  }
 
   const body = (await response.json().catch(() => ({}))) as Record<
     string,

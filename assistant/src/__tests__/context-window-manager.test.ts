@@ -245,9 +245,10 @@ describe("ContextWindowManager", () => {
   test("serializes file blocks for summary chunks", async () => {
     const prompts: string[] = [];
     const provider = createProvider((messages) => {
-      const textBlock = messages[0]?.content[0];
-      if (textBlock?.type === "text") {
-        prompts.push(textBlock.text);
+      for (const block of messages[0]?.content ?? []) {
+        if (block.type === "text") {
+          prompts.push(block.text);
+        }
       }
       return {
         content: [{ type: "text", text: "## Goals\n- file summarized" }],
@@ -295,6 +296,132 @@ describe("ContextWindowManager", () => {
       "Critical requirement from attached spec.",
     );
     expect(combinedPrompts).not.toContain("unknown_block");
+  });
+
+  test("passes image blocks to summarizer instead of text metadata", async () => {
+    const receivedBlocks: { type: string; mediaType?: string }[] = [];
+    const provider = createProvider((messages) => {
+      for (const block of messages[0]?.content ?? []) {
+        if (block.type === "image") {
+          receivedBlocks.push({
+            type: "image",
+            mediaType: (block as { source: { media_type: string } }).source
+              .media_type,
+          });
+        } else if (block.type === "text") {
+          receivedBlocks.push({ type: "text" });
+        }
+      }
+      return {
+        content: [
+          {
+            type: "text",
+            text: "## Goals\n- described image: a photo of a cat",
+          },
+        ],
+        model: "mock-model",
+        usage: { inputTokens: 100, outputTokens: 20 },
+        stopReason: "end_turn",
+      };
+    });
+    // Use a large enough maxInputTokens so the image fits in the summarizer
+    // budget after accounting for overhead (system prompt, scaffolding, output).
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "sys",
+      config: makeConfig({
+        maxInputTokens: 5000,
+        compactThreshold: 0.3,
+        targetBudgetRatio: 0.2,
+      }),
+    });
+    const long = "x".repeat(4000);
+    const history: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "look at this" },
+          {
+            type: "image",
+            source: {
+              type: "base64",
+              media_type: "image/png",
+              data: "iVBORw0KGgo=",
+            },
+          },
+        ],
+      },
+      message("assistant", `a1 ${long}`),
+      message("user", `u2 ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+
+    // The summarizer should have received actual image blocks, not text stubs.
+    const imageBlocks = receivedBlocks.filter((b) => b.type === "image");
+    expect(imageBlocks.length).toBe(1);
+    expect(imageBlocks[0].mediaType).toBe("image/png");
+  });
+
+  test("passes tool_result images to summarizer", async () => {
+    const receivedImageCount = { count: 0 };
+    const provider = createProvider((messages) => {
+      for (const block of messages[0]?.content ?? []) {
+        if (block.type === "image") {
+          receivedImageCount.count++;
+        }
+      }
+      return {
+        content: [
+          { type: "text", text: "## Goals\n- summarized tool output images" },
+        ],
+        model: "mock-model",
+        usage: { inputTokens: 100, outputTokens: 20 },
+        stopReason: "end_turn",
+      };
+    });
+    const manager = new ContextWindowManager({
+      provider,
+      systemPrompt: "sys",
+      config: makeConfig({
+        maxInputTokens: 5000,
+        compactThreshold: 0.3,
+        targetBudgetRatio: 0.2,
+      }),
+    });
+    const long = "x".repeat(2000);
+    const history: Message[] = [
+      message("assistant", "let me read that file"),
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "tool_1",
+            content: "file contents",
+            contentBlocks: [
+              {
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/jpeg",
+                  data: "iVBORw0KGgo=",
+                },
+              },
+            ],
+            is_error: false,
+          } as import("../providers/types.js").ToolResultContent,
+        ],
+      },
+      message("user", `followup ${long}`),
+      message("assistant", `response ${long}`),
+      message("user", `final ${long}`),
+    ];
+
+    const result = await manager.maybeCompact(history);
+    expect(result.compacted).toBe(true);
+    expect(receivedImageCount.count).toBe(1);
   });
 
   test("counts compacted persisted messages including tool-result user turns", async () => {

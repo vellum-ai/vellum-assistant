@@ -1,7 +1,8 @@
+import CoreGraphics
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "DebugStateWriter")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "DebugStateWriter")
 
 /// Periodically writes a JSON snapshot of the app's live state to a well-known
 /// file path so external tools (e.g. Claude Code) can read it for instant
@@ -10,11 +11,10 @@ private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.
 /// File: `~/Library/Application Support/vellum-assistant/debug-state.json`
 @MainActor
 final class DebugStateWriter {
-    private var timer: Timer?
+    private var timerTask: Task<Void, Never>?
     private weak var appDelegate: AppDelegate?
 
     let fileURL: URL
-    private let encoder: JSONEncoder
     private let diagnosticsStore: ChatDiagnosticsStore
 
     init(directory: URL? = nil, diagnosticsStore: ChatDiagnosticsStore? = nil) {
@@ -30,35 +30,47 @@ final class DebugStateWriter {
         self.fileURL = dir.appendingPathComponent("debug-state.json")
 
         self.diagnosticsStore = diagnosticsStore ?? ChatDiagnosticsStore.shared
-
-        self.encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
     }
 
     func start(appDelegate: AppDelegate) {
         self.appDelegate = appDelegate
         captureAndWrite()
-        timer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+        timerTask?.cancel()
+        timerTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled else { break }
                 self?.captureAndWrite()
             }
         }
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
+        timerTask?.cancel()
+        timerTask = nil
     }
 
     private func captureAndWrite() {
         guard let appDelegate else { return }
+        if CGDisplayIsAsleep(CGMainDisplayID()) != 0 { return }
         let snapshot = captureSnapshot(from: appDelegate)
-        do {
-            let data = try encoder.encode(snapshot)
-            try data.write(to: fileURL, options: .atomic)
-        } catch {
-            log.error("Failed to write debug state snapshot: \(error)")
+
+        // Encode and write on a background thread to avoid blocking the main
+        // thread with JSON serialization and disk I/O every 5 seconds.
+        // Task.detached is used intentionally to leave @MainActor isolation.
+        // A fresh encoder is created per task because JSONEncoder is a mutable
+        // reference type and concurrent encode() calls would race.
+        let fileURL = self.fileURL
+        Task.detached(priority: .utility) {
+            do {
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                encoder.dateEncodingStrategy = .iso8601
+                let data = try encoder.encode(snapshot)
+                try data.write(to: fileURL, options: .atomic)
+            } catch {
+                log.error("Failed to write debug state snapshot: \(error)")
+            }
         }
     }
 
@@ -75,7 +87,7 @@ final class DebugStateWriter {
         )
 
         let conversationSnapshots: [DebugSnapshot.ConversationInfo] = (conversationManager?.conversations ?? []).map { conversation in
-            let vm = conversationManager?.chatViewModel(for: conversation.id)
+            let vm = conversationManager?.existingChatViewModel(for: conversation.id)
             return DebugSnapshot.ConversationInfo(
                 id: conversation.id.uuidString,
                 title: conversation.title,
@@ -205,9 +217,9 @@ struct DebugSnapshot: Codable {
         let contentHeight: Double?
         let viewportHeight: Double?
         let isNearBottom: Bool?
-        let hasReceivedScrollEvent: Bool?
+        let hasBeenInteracted: Bool?
         let isPaginationInFlight: Bool?
-        let suppressionReason: String?
+        let scrollMode: String?
         let anchorMessageId: String?
         let highlightedMessageId: String?
         let anchorMinY: Double?
@@ -215,10 +227,9 @@ struct DebugSnapshot: Codable {
         let scrollViewportHeight: Double?
         let containerWidth: Double?
         let lastScrollToReason: String?
+        /// Legacy field, always `nil`. Retained for backward compatibility.
         let lastLoopWarningTimestamp: Date?
-        /// Rolling event counts from `ChatScrollLoopGuard` within the 2-second
-        /// detection window. Keys are event kind names; values are counts.
-        /// Non-zero counts only. Useful for identifying hot paths before a freeze.
+        /// Legacy field, always `nil`. Retained for backward compatibility.
         let scrollLoopGuardCounts: [String: Int]?
         /// Names of geometry fields whose original values were non-finite
         /// (nan, inf, -inf) and were replaced with `nil` during sanitization.
@@ -234,9 +245,9 @@ struct DebugSnapshot: Codable {
             self.contentHeight = snapshot.contentHeight
             self.viewportHeight = snapshot.viewportHeight
             self.isNearBottom = snapshot.isNearBottom
-            self.hasReceivedScrollEvent = snapshot.hasReceivedScrollEvent
+            self.hasBeenInteracted = snapshot.hasBeenInteracted
             self.isPaginationInFlight = snapshot.isPaginationInFlight
-            self.suppressionReason = snapshot.suppressionReason
+            self.scrollMode = snapshot.scrollMode
             self.anchorMessageId = snapshot.anchorMessageId
             self.highlightedMessageId = snapshot.highlightedMessageId
             self.anchorMinY = snapshot.anchorMinY
@@ -244,8 +255,8 @@ struct DebugSnapshot: Codable {
             self.scrollViewportHeight = snapshot.scrollViewportHeight
             self.containerWidth = snapshot.containerWidth
             self.lastScrollToReason = snapshot.lastScrollToReason
-            self.lastLoopWarningTimestamp = snapshot.lastLoopWarningTimestamp
-            self.scrollLoopGuardCounts = snapshot.scrollLoopGuardCounts
+            self.lastLoopWarningTimestamp = nil
+            self.scrollLoopGuardCounts = nil
             self.nonFiniteFields = snapshot.nonFiniteFields
         }
     }

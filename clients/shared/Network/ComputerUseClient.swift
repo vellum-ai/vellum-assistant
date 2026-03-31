@@ -1,17 +1,15 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ComputerUseClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ComputerUseClient")
 
 /// Focused client for watch observation and recording lifecycle operations via the gateway.
-@MainActor
 public protocol ComputerUseClientProtocol {
     func sendWatchObservation(_ msg: WatchObservationMessage) async -> Bool
     func sendRecordingStatus(_ msg: RecordingStatus) async -> Bool
 }
 
 /// Gateway-backed implementation of ``ComputerUseClientProtocol``.
-@MainActor
 public struct ComputerUseClient: ComputerUseClientProtocol {
     nonisolated public init() {}
 

@@ -106,7 +106,7 @@ const TASK_DEFINITIONS: readonly TaskDefinition[] = [
       "Secrets are redacted in export bundles for security. Re-enter all API keys, tokens, and credentials in the destination instance.",
     required: true,
     helpText:
-      "Navigate to Settings > Integrations to re-enter provider API keys (e.g., Anthropic, OpenAI). Check Settings > Secrets for any custom secrets used by skills.",
+      "Navigate to Settings > Models & Services to re-enter provider API keys (e.g., Anthropic, OpenAI). Check Settings > Models & Services for any custom secrets used by skills.",
   },
   {
     id: "rebind-channels",
@@ -133,7 +133,7 @@ const TASK_DEFINITIONS: readonly TaskDefinition[] = [
       "Ensure all webhook URLs registered with external services point to the new instance's public ingress URL.",
     required: false,
     helpText:
-      "Review the public ingress URL in Settings > Gateway. Update any external services (GitHub, calendar providers, etc.) that send webhooks to this assistant.",
+      "Review the public ingress URL in Settings > Developer. Update any external services (GitHub, calendar providers, etc.) that send webhooks to this assistant.",
   },
 ] as const;
 

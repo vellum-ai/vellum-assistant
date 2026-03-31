@@ -88,7 +88,7 @@ export async function resolveOAuthConnection(
       ? ` matching ${filters.join(" and ")}`
       : "";
     throw new Error(
-      `No active OAuth connection found for "${providerKey}"${qualifier}. Connect the service first with oauth2_connect.`,
+      `No active OAuth connection found for "${providerKey}"${qualifier}. Connect the service first with \`assistant oauth connect ${providerKey}\`.`,
     );
   }
 
@@ -97,7 +97,7 @@ export async function resolveOAuthConnection(
   );
   if (!accessToken) {
     throw new Error(
-      `OAuth connection for "${providerKey}" exists but has no access token. Re-authorize with oauth2_connect.`,
+      `OAuth connection for "${providerKey}" exists but has no access token. Re-authorize with \`assistant oauth connect ${providerKey}\`.`,
     );
   }
 

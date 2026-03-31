@@ -4,6 +4,7 @@ import VellumAssistantShared
 struct ComposerSection: View {
     @Binding var inputText: String
     let isSending: Bool
+    var isAssistantBusy: Bool = false
     let hasPendingConfirmation: Bool
     var onAllowPendingConfirmation: (() -> Void)? = nil
     let isRecording: Bool
@@ -27,6 +28,9 @@ struct ComposerSection: View {
     var onVoiceModeToggle: (() -> Void)? = nil
     var conversationId: UUID?
     var isInteractionEnabled: Bool = true
+    var contextWindowFillRatio: Double? = nil
+    var contextWindowTokens: Int? = nil
+    var contextWindowMaxTokens: Int? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,6 +44,7 @@ struct ComposerSection: View {
             ComposerView(
                 inputText: $inputText,
                 isSending: isSending,
+                isAssistantBusy: isAssistantBusy,
                 hasPendingConfirmation: hasPendingConfirmation,
                 onAllowPendingConfirmation: onAllowPendingConfirmation,
                 isRecording: isRecording,
@@ -59,9 +64,12 @@ struct ComposerSection: View {
                 recordingAmplitude: recordingAmplitude,
                 onDictateToggle: onDictateToggle,
                 onVoiceModeToggle: onVoiceModeToggle,
-                placeholderText: isSending ? "Working on it..." : "What would you like to do?",
+                placeholderText: isAssistantBusy ? "Working on it..." : "What would you like to do?",
                 conversationId: conversationId,
-                isInteractionEnabled: isInteractionEnabled
+                isInteractionEnabled: isInteractionEnabled,
+                contextWindowFillRatio: contextWindowFillRatio,
+                contextWindowTokens: contextWindowTokens,
+                contextWindowMaxTokens: contextWindowMaxTokens
             )
         }
         .background(

@@ -4,7 +4,6 @@ import SwiftUI
 struct DisplayGallerySection: View {
     var filter: String?
 
-    @State private var cardPadding: CGFloat = 24
     @State private var waveformAmplitude: Float = 0.5
     @State private var waveformActive: Bool = true
 
@@ -14,79 +13,31 @@ struct DisplayGallerySection: View {
                 // MARK: - VCard
                 GallerySectionHeader(
                     title: "VCard",
-                    description: "Container with surface background, border, and configurable padding.",
+                    description: "Container with surface background, border, and 16pt padding.",
                     useInsteadOf: "Manual padding + background + cornerRadius"
                 )
 
                 VCard {
-                    VStack(alignment: .leading, spacing: VSpacing.xl) {
-                        HStack {
-                            Text("Padding: \(Int(cardPadding))pt")
-                                .font(VFont.labelDefault)
-                                .foregroundStyle(VColor.contentSecondary)
-                            Slider(value: $cardPadding, in: 0...48, step: 4)
-                                .frame(maxWidth: 200)
-                        }
-
-                        Divider().background(VColor.borderBase)
-
-                        VCard(padding: cardPadding) {
-                            Text("Card content with \(Int(cardPadding))pt padding")
-                                .font(VFont.bodyMediumLighter)
-                                .foregroundStyle(VColor.contentDefault)
-                        }
-                    }
+                    Text("Default card with 16pt padding")
+                        .font(VFont.bodyMediumLighter)
+                        .foregroundStyle(VColor.contentDefault)
                 }
 
-                // Padding variants
-                Text("Padding Variants")
+                // Action variants (tappable cards with hover highlight)
+                Text("Action Variants")
                     .font(VFont.bodySmallEmphasised)
                     .foregroundStyle(VColor.contentSecondary)
 
-                HStack(spacing: VSpacing.lg) {
-                    ForEach([
-                        ("xs", VSpacing.xs),
-                        ("sm", VSpacing.sm),
-                        ("md", VSpacing.md),
-                        ("lg", VSpacing.lg),
-                        ("xl", VSpacing.xl)
-                    ], id: \.0) { name, padding in
-                        VCard(padding: padding) {
-                            VStack(spacing: VSpacing.xs) {
-                                Text(name)
-                                    .font(VFont.labelDefault)
-                                    .foregroundStyle(VColor.contentDefault)
-                                Text("\(Int(padding))pt")
-                                    .font(VFont.labelDefault)
-                                    .foregroundStyle(VColor.contentTertiary)
-                            }
-                        }
-                    }
-                }
-
-            }
-
-            if filter == nil || filter == "vInteractiveCard" {
-                if filter == nil {
-                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
-                }
-                // MARK: - VInteractiveCard
-                GallerySectionHeader(
-                    title: "VInteractiveCard",
-                    description: "Tappable card with hover highlight, border, and pointer cursor. Use for list/grid items that navigate on tap.",
-                    useInsteadOf: "Button + .buttonStyle(.plain) + .pointerCursor() with manual card chrome"
-                )
-
-                VInteractiveCard(action: {}) {
+                VCard(action: {}) {
                     HStack(spacing: VSpacing.lg) {
                         VIconView(.zap, size: 20)
                             .foregroundStyle(VColor.primaryBase)
                             .frame(width: 40, height: 40)
                         VStack(alignment: .leading, spacing: VSpacing.sm) {
-                            Text("Skill Name")
+                            Text("Tappable Card")
                                 .font(VFont.bodyMediumEmphasised)
                                 .foregroundStyle(VColor.contentDefault)
-                            Text("Description of the skill that spans up to two lines of text.")
+                            Text("Pass an action to VCard for hover highlight and tap behavior.")
                                 .font(VFont.labelDefault)
                                 .foregroundStyle(VColor.contentSecondary)
                                 .lineLimit(2)
@@ -95,7 +46,7 @@ struct DisplayGallerySection: View {
                 }
 
                 HStack(spacing: VSpacing.lg) {
-                    VInteractiveCard(action: {}) {
+                    VCard(action: {}) {
                         HStack(spacing: VSpacing.md) {
                             VIconView(.brain, size: 20)
                                 .foregroundStyle(VColor.systemNegativeStrong)
@@ -112,7 +63,7 @@ struct DisplayGallerySection: View {
                         }
                     }
 
-                    VInteractiveCard(action: {}) {
+                    VCard(action: {}) {
                         HStack(spacing: VSpacing.md) {
                             VIconView(.fileText, size: 20)
                                 .foregroundStyle(VColor.primaryBase)
@@ -129,6 +80,7 @@ struct DisplayGallerySection: View {
                         }
                     }
                 }
+
             }
 
             if filter == nil || filter == "vEmptyState" {
@@ -340,6 +292,34 @@ struct DisplayGallerySection: View {
 
             }
 
+            if filter == nil || filter == "vSelectableTextView" {
+                if filter == nil {
+                    Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
+                }
+                // MARK: - VSelectableTextView
+                #if os(macOS)
+                GallerySectionHeader(
+                    title: "VSelectableTextView",
+                    description: "Read-only selectable text wrapping NSTextView for native text selection and copy in lazy containers."
+                )
+
+                VCard {
+                    VSelectableTextView(
+                        attributedString: NSAttributedString(
+                            string: "This text is selectable. Try clicking and dragging to select, then Cmd+C to copy.",
+                            attributes: [
+                                .font: VFont.nsChat,
+                                .foregroundColor: NSColor(VColor.contentDefault),
+                            ]
+                        ),
+                        lineSpacing: 4
+                    )
+                    .padding(VSpacing.sm)
+                }
+                #endif
+
+            }
+
             if filter == nil || filter == "vDiffView" {
                 if filter == nil {
                     Divider().background(VColor.borderBase).padding(.vertical, VSpacing.md)
@@ -450,12 +430,13 @@ extension DisplayGallerySection {
     static func componentPage(_ id: String) -> some View {
         switch id {
         case "vCard": DisplayGallerySection(filter: "vCard")
-        case "vInteractiveCard": DisplayGallerySection(filter: "vInteractiveCard")
+
         case "vEmptyState": DisplayGallerySection(filter: "vEmptyState")
         case "vDisclosureSection": DisplayGallerySection(filter: "vDisclosureSection")
         case "vListRow": DisplayGallerySection(filter: "vListRow")
         case "vAvatarImage": DisplayGallerySection(filter: "vAvatarImage")
         case "vCodeView": DisplayGallerySection(filter: "vCodeView")
+        case "vSelectableTextView": DisplayGallerySection(filter: "vSelectableTextView")
         case "vDiffView": DisplayGallerySection(filter: "vDiffView")
         case "vStreamingWaveform": DisplayGallerySection(filter: "vStreamingWaveform")
         default:

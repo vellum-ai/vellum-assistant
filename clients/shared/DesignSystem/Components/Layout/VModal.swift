@@ -57,20 +57,9 @@ public struct VModal<Content: View, Footer: View>: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top) {
+            HStack(alignment: .center) {
                 if let backAction {
-                    Button(action: backAction) {
-                        HStack(spacing: VSpacing.xs) {
-                            VIconView(.chevronLeft, size: 10)
-                            Text("Back")
-                                .font(VFont.bodyMediumDefault)
-                        }
-                        .foregroundStyle(VColor.contentSecondary)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .accessibilityLabel("Back")
+                    VButton(label: "Back", leftIcon: VIcon.chevronLeft.rawValue, style: .ghost, tintColor: VColor.contentSecondary, action: backAction)
                 } else {
                     titleArea
                 }
@@ -78,43 +67,30 @@ public struct VModal<Content: View, Footer: View>: View {
                 Spacer(minLength: 0)
 
                 if let closeAction {
-                    Button(action: closeAction) {
-                        VIconView(.x, size: 12)
-                            .foregroundStyle(VColor.contentTertiary)
-                            .frame(width: 32, height: 32)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .pointerCursor()
-                    .accessibilityLabel("Close")
-                    .padding(.top, -VSpacing.sm)
-                    .padding(.trailing, -VSpacing.sm)
+                    VButton(label: "Close", iconOnly: VIcon.x.rawValue, style: .ghost, tintColor: VColor.contentTertiary, action: closeAction)
                 }
             }
-            .padding(.horizontal, VSpacing.xl)
-            .padding(.top, VSpacing.xl)
+            .padding(.horizontal, VSpacing.lg)
+            .padding(.top, VSpacing.lg)
             .padding(.bottom, VSpacing.lg)
 
             ScrollView {
                 content()
-                    .padding(.horizontal, VSpacing.xl)
-                    .padding(.vertical, VSpacing.xs)
+                    .padding(.horizontal, VSpacing.lg)
                     .frame(maxWidth: .infinity, alignment: .top)
             }
 
             if Footer.self != EmptyView.self {
                 footer()
-                    .padding(.horizontal, VSpacing.xl)
+                    .padding(.horizontal, VSpacing.lg)
                     .padding(.vertical, VSpacing.lg)
             }
         }
         .frame(maxHeight: screenMaxHeight)
         .background(VColor.surfaceLift)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .overlay(
-            RoundedRectangle(cornerRadius: VRadius.lg)
-                .stroke(VColor.borderBase, lineWidth: 1)
-        )
+        .vShadow(VShadow.modalNear)
+        .vShadow(VShadow.modalFar)
     }
 
     @ViewBuilder

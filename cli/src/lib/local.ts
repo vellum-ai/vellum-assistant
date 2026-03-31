@@ -1,4 +1,5 @@
 import { execFileSync, execSync, spawn } from "child_process";
+import { randomBytes } from "crypto";
 import {
   existsSync,
   mkdirSync,
@@ -192,9 +193,24 @@ function resolveDaemonMainPath(assistantIndex: string): string {
   return join(dirname(assistantIndex), "daemon", "main.ts");
 }
 
+/**
+ * Generate a fresh signing key for a local hatch session.
+ *
+ * Both the daemon and gateway must use the same HMAC signing key so JWT
+ * tokens minted by one can be verified by the other. The CLI generates
+ * an ephemeral key each time and passes it as `ACTOR_TOKEN_SIGNING_KEY`
+ * to both processes — the daemon and gateway each persist it on their
+ * own terms (the `.vellum/` directory layout is their concern, not the
+ * CLI's).
+ */
+export function generateLocalSigningKey(): string {
+  return randomBytes(32).toString("hex");
+}
+
 type DaemonStartOptions = {
   foreground?: boolean;
   defaultWorkspaceConfigPath?: string;
+  signingKey?: string;
 };
 
 async function startDaemonFromSource(
@@ -267,6 +283,9 @@ async function startDaemonFromSource(
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
     VELLUM_CLOUD: "local",
     VELLUM_DEV: "1",
+    ...(options?.signingKey
+      ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
+      : {}),
   };
   if (resources) {
     env.BASE_DATA_DIR = resources.instanceDir;
@@ -385,6 +404,9 @@ async function startDaemonWatchFromSource(
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
     VELLUM_DEV: "1",
+    ...(options?.signingKey
+      ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
+      : {}),
   };
   if (resources) {
     env.BASE_DATA_DIR = resources.instanceDir;
@@ -449,108 +471,6 @@ function resolveGatewayDir(): string {
     throw new Error(
       "Gateway not found. Ensure @vellumai/vellum-gateway is installed or run from the source tree.",
     );
-  }
-}
-
-function normalizeIngressUrl(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
-  const normalized = value.trim().replace(/\/+$/, "");
-  return normalized || undefined;
-}
-
-// ── Workspace config helpers ──
-
-function getWorkspaceConfigPath(instanceDir?: string): string {
-  const baseDataDir =
-    instanceDir ??
-    (process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir()));
-  return join(baseDataDir, ".vellum", "workspace", "config.json");
-}
-
-function loadWorkspaceConfig(instanceDir?: string): Record<string, unknown> {
-  const configPath = getWorkspaceConfigPath(instanceDir);
-  try {
-    if (!existsSync(configPath)) return {};
-    return JSON.parse(readFileSync(configPath, "utf-8")) as Record<
-      string,
-      unknown
-    >;
-  } catch {
-    return {};
-  }
-}
-
-function saveWorkspaceConfig(
-  config: Record<string, unknown>,
-  instanceDir?: string,
-): void {
-  const configPath = getWorkspaceConfigPath(instanceDir);
-  const dir = dirname(configPath);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-}
-
-/**
- * Write gateway operational settings to the workspace config file so the
- * gateway reads them at startup via its config.ts readWorkspaceConfig().
- */
-function writeGatewayConfig(
-  instanceDir?: string,
-  opts?: {
-    runtimeProxyEnabled?: boolean;
-    runtimeProxyRequireAuth?: boolean;
-    unmappedPolicy?: "reject" | "default";
-    defaultAssistantId?: string;
-    routingEntries?: Array<{
-      type: "conversation_id" | "actor_id";
-      key: string;
-      assistantId: string;
-    }>;
-  },
-): void {
-  const config = loadWorkspaceConfig(instanceDir);
-  const gateway = (config.gateway ?? {}) as Record<string, unknown>;
-
-  if (opts?.runtimeProxyEnabled !== undefined) {
-    gateway.runtimeProxyEnabled = opts.runtimeProxyEnabled;
-  }
-  if (opts?.runtimeProxyRequireAuth !== undefined) {
-    gateway.runtimeProxyRequireAuth = opts.runtimeProxyRequireAuth;
-  }
-  if (opts?.unmappedPolicy !== undefined) {
-    gateway.unmappedPolicy = opts.unmappedPolicy;
-  }
-  if (opts?.defaultAssistantId !== undefined) {
-    gateway.defaultAssistantId = opts.defaultAssistantId;
-  }
-  if (opts?.routingEntries !== undefined) {
-    gateway.routingEntries = opts.routingEntries;
-  }
-
-  config.gateway = gateway;
-  saveWorkspaceConfig(config, instanceDir);
-}
-
-function readWorkspaceIngressPublicBaseUrl(
-  instanceDir?: string,
-): string | undefined {
-  const baseDataDir =
-    instanceDir ??
-    (process.env.BASE_DATA_DIR?.trim() || (process.env.HOME ?? homedir()));
-  const workspaceConfigPath = join(
-    baseDataDir,
-    ".vellum",
-    "workspace",
-    "config.json",
-  );
-  try {
-    const raw = JSON.parse(
-      readFileSync(workspaceConfigPath, "utf-8"),
-    ) as Record<string, unknown>;
-    const ingress = raw.ingress as Record<string, unknown> | undefined;
-    return normalizeIngressUrl(ingress?.publicBaseUrl);
-  } catch {
-    return undefined;
   }
 }
 
@@ -951,6 +871,7 @@ export async function startLocalDaemon(
         "VELLUM_DEBUG",
         "VELLUM_DEV",
         "VELLUM_DESKTOP_APP",
+        "VELLUM_WORKSPACE_DIR",
       ]) {
         if (process.env[key]) {
           daemonEnv[key] = process.env[key]!;
@@ -968,6 +889,10 @@ export async function startLocalDaemon(
         daemonEnv.GATEWAY_PORT = String(resources.gatewayPort);
         daemonEnv.QDRANT_HTTP_PORT = String(resources.qdrantPort);
         delete daemonEnv.QDRANT_URL;
+      }
+
+      if (options?.signingKey) {
+        daemonEnv.ACTOR_TOKEN_SIGNING_KEY = options.signingKey;
       }
 
       // Write a sentinel PID file before spawning so concurrent hatch() calls
@@ -1081,6 +1006,7 @@ export async function startLocalDaemon(
 export async function startGateway(
   watch: boolean = false,
   resources?: LocalInstanceResources,
+  options?: { signingKey?: string },
 ): Promise<string> {
   const effectiveGatewayPort = resources?.gatewayPort ?? GATEWAY_PORT;
 
@@ -1104,33 +1030,26 @@ export async function startGateway(
   const effectiveDaemonPort =
     resources?.daemonPort ?? Number(process.env.RUNTIME_HTTP_PORT || "7821");
 
-  // Write gateway operational settings to workspace config before starting
-  // the gateway process. The gateway reads these at startup from config.json.
-  writeGatewayConfig(resources?.instanceDir, {
-    runtimeProxyEnabled: true,
-    runtimeProxyRequireAuth: true,
-    unmappedPolicy: "default",
-    defaultAssistantId: "self",
-  });
-
   const gatewayEnv: Record<string, string> = {
     ...(process.env as Record<string, string>),
     RUNTIME_HTTP_PORT: String(effectiveDaemonPort),
     GATEWAY_PORT: String(effectiveGatewayPort),
+    // Pass gateway operational settings via env vars so the CLI does not
+    // need direct access to the workspace config file.
+    RUNTIME_PROXY_ENABLED: "true",
+    RUNTIME_PROXY_REQUIRE_AUTH: "true",
+    UNMAPPED_POLICY: "default",
+    DEFAULT_ASSISTANT_ID: "self",
+    ...(options?.signingKey
+      ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
+      : {}),
     ...(watch ? { VELLUM_DEV: "1" } : {}),
-    // Set BASE_DATA_DIR so the gateway loads the correct signing key and
-    // credentials for this instance (mirrors the daemon env setup).
+    // Set BASE_DATA_DIR so the gateway loads the correct credentials and
+    // workspace config for this instance (mirrors the daemon env setup).
     ...(resources ? { BASE_DATA_DIR: resources.instanceDir } : {}),
   };
-  // The gateway reads the ingress URL from the workspace config file via
-  // ConfigFileCache — no env var passthrough needed. Log the resolved value
-  // for diagnostic visibility during startup.
-  const workspaceIngressPublicBaseUrl = readWorkspaceIngressPublicBaseUrl(
-    resources?.instanceDir,
-  );
-  const ingressPublicBaseUrl = workspaceIngressPublicBaseUrl ?? publicUrl;
-  if (ingressPublicBaseUrl) {
-    console.log(`   Ingress URL: ${ingressPublicBaseUrl}`);
+  if (publicUrl) {
+    console.log(`   Ingress URL: ${publicUrl}`);
   }
 
   let gateway;

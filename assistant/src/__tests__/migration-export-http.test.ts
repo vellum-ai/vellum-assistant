@@ -12,44 +12,27 @@
  * - Integration: existing routes are unaffected by the new endpoint
  */
 import { createHash } from "node:crypto";
-import {
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+import { beforeAll, describe, expect, mock, test } from "bun:test";
 
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "migration-export-http-test-")),
-);
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const testDbDir = join(testDir, "data", "db");
 const testDbPath = join(testDbDir, "assistant.db");
 const testConfigPath = join(testDir, "config.json");
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => join(testDir, "data"),
-  getWorkspaceDir: () => testDir,
-  getWorkspaceConfigPath: () => testConfigPath,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => testDbPath,
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
     }),
+}));
+
+mock.module("../permissions/trust-store.js", () => ({
+  getAllRules: () => [],
+  isStarterBundleAccepted: () => false,
+  clearCache: () => {},
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -93,14 +76,6 @@ beforeAll(() => {
   mkdirSync(testDbDir, { recursive: true });
   writeFileSync(testDbPath, SQLITE_HEADER);
   writeFileSync(testConfigPath, JSON.stringify(TEST_CONFIG, null, 2));
-});
-
-afterAll(() => {
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
 });
 
 // ---------------------------------------------------------------------------

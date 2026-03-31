@@ -2,7 +2,7 @@ import Foundation
 import AppKit
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "PTTActivator")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "PTTActivator")
 
 /// Describes how the push-to-talk activation input is detected.
 struct PTTActivator: Codable, Equatable {
@@ -79,9 +79,78 @@ struct PTTActivator: Codable, Equatable {
         return NSEvent.ModifierFlags(rawValue: raw)
     }
 
+    // MARK: - Cache
+
+    /// In-memory cache populated asynchronously so that the first
+    /// UserDefaults read does not block the main thread during app launch.
+    /// Access via `cached`; mutated only by `refreshCache()` / `updateCache()`.
+    @MainActor private static var _cached: PTTActivator?
+
+    /// In-flight cache load task. Stored so `ensureCacheReady()` can await
+    /// a previously-started `warmCache()` without launching a second read.
+    @MainActor private static var _cacheTask: Task<PTTActivator, Never>?
+
+    /// Generation counter incremented on every cache write. Used by
+    /// `ensureCacheReady()` to discard stale warm-cache results.
+    @MainActor private static var _cacheGeneration: Int = 0
+
+    /// Returns the cached activator, falling back to `defaultActivator`
+    /// until the cache is populated.
+    @MainActor static var cached: PTTActivator {
+        _cached ?? .defaultActivator
+    }
+
+    /// Kicks off an async UserDefaults read without blocking the caller.
+    /// Call this as early as possible (e.g. `applicationDidFinishLaunching`)
+    /// so the result is ready by the time `ensureCacheReady()` is awaited.
+    @MainActor static func warmCache() {
+        guard _cacheTask == nil else { return }
+        _cacheTask = Task.detached { Self.fromStored() }
+    }
+
+    /// Awaits the in-flight cache load (started by `warmCache()`) and
+    /// applies the result **only if** no intervening `updateCache()` or
+    /// `refreshCache()` has already populated a fresher value.
+    @MainActor static func ensureCacheReady() async {
+        if let task = _cacheTask {
+            let gen = _cacheGeneration
+            let result = await task.value
+            // Only apply if no fresher write happened while we were awaiting.
+            if _cacheGeneration == gen {
+                _cached = result
+                _cacheGeneration += 1
+            }
+            _cacheTask = nil
+        } else if _cached == nil {
+            _cached = await Task.detached { Self.fromStored() }.value
+            _cacheGeneration += 1
+        }
+    }
+
+    /// Re-reads UserDefaults off the main thread and updates the cache.
+    /// Used when the activation key is changed remotely.
+    @MainActor static func refreshCache() async {
+        _cacheTask = nil
+        let gen = _cacheGeneration
+        let result = await Task.detached { Self.fromStored() }.value
+        // Only apply if no fresher write happened while we were awaiting.
+        if _cacheGeneration == gen {
+            _cached = result
+            _cacheGeneration += 1
+        }
+    }
+
+    /// Synchronously updates the cache after a local write (e.g. settings change).
+    @MainActor static func updateCache(_ activator: PTTActivator) {
+        _cached = activator
+        _cacheTask = nil
+        _cacheGeneration += 1
+    }
+
     // MARK: - Persistence
 
     /// Read the activator from UserDefaults, handling both legacy strings and JSON.
+    /// Prefer `cached` on the main thread to avoid synchronous I/O during app launch.
     static func fromStored() -> PTTActivator {
         guard let stored = UserDefaults.standard.string(forKey: "activationKey") else {
             return .defaultActivator

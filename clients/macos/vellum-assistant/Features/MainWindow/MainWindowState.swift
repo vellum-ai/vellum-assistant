@@ -65,12 +65,18 @@ public final class MainWindowState: ObservableObject {
     /// Transient memory ID to deep-link into when the Intelligence panel opens.
     /// Consumed once by IntelligencePanel/MemoriesPanel, then set back to nil.
     @Published var pendingMemoryId: String?
+
+    /// Transient skill ID to deep-link into when the Intelligence panel opens.
+    /// Consumed once by IntelligencePanel/SkillsPanel, then set back to nil.
+    @Published var pendingSkillId: String?
     @Published var activeDynamicSurface: UiSurfaceShowMessage?
     @Published var activeDynamicParsedSurface: Surface?
     @Published var workspaceComposerExpanded = false
     @Published var layoutConfig: LayoutConfig
     @Published var toastInfo: ToastInfo?
+    @Published var imageLightbox: ImageLightboxState?
     private var autoDismissTask: Task<Void, Never>?
+    private var lightboxFetchTask: Task<Void, Never>?
 
     /// Whether the main content area is showing a plain, full-window chat
     /// (either an explicit `.conversation` selection or `nil` which defaults to chat).
@@ -244,6 +250,12 @@ public final class MainWindowState: ObservableObject {
         showPanel(.intelligence)
     }
 
+    /// Navigate to the Intelligence panel and deep-link to a specific skill.
+    func showSkill(id: String) {
+        pendingSkillId = id
+        showPanel(.intelligence)
+    }
+
     func applyLayoutConfig(_ wire: UiLayoutConfigMessage) {
         layoutConfig = LayoutConfig.merged(base: layoutConfig, wire: wire)
         LayoutConfigStore.save(layoutConfig)
@@ -327,6 +339,50 @@ public final class MainWindowState: ObservableObject {
     func dismissToast(id: UUID) {
         guard toastInfo?.id == id else { return }
         dismissToast()
+    }
+
+    // MARK: - Image Lightbox
+
+    /// Show the in-app image lightbox. For lazy-loaded attachments, pass the
+    /// `lazyAttachmentId` and the thumbnail image — full-res data will be
+    /// fetched asynchronously and swapped in when ready.
+    func showImageLightbox(
+        image: NSImage,
+        filename: String,
+        base64Data: String? = nil,
+        lazyAttachmentId: String? = nil
+    ) {
+        lightboxFetchTask?.cancel()
+        imageLightbox = ImageLightboxState(
+            image: image,
+            filename: filename,
+            base64Data: base64Data,
+            lazyAttachmentId: lazyAttachmentId,
+            fullResImage: nil,
+            isLoadingFullRes: lazyAttachmentId != nil
+        )
+        if lazyAttachmentId != nil {
+            fetchFullResLightboxImage()
+        }
+    }
+
+    func dismissImageLightbox() {
+        lightboxFetchTask?.cancel()
+        imageLightbox = nil
+    }
+
+    private func fetchFullResLightboxImage() {
+        guard let attachmentId = imageLightbox?.lazyAttachmentId else { return }
+        lightboxFetchTask = Task { @MainActor [weak self] in
+            let data = try? await AttachmentContentClient.fetchContent(attachmentId: attachmentId)
+            guard !Task.isCancelled else { return }
+            if let data, let fullRes = NSImage(data: data) {
+                self?.imageLightbox?.fullResImage = fullRes
+                // Update base64Data so toolbar actions (copy, save) use full-res
+                // We don't have a direct setter, but fullResImage is preferred by displayImage
+            }
+            self?.imageLightbox?.isLoadingFullRes = false
+        }
     }
 
     /// Restore the last active panel from UserDefaults

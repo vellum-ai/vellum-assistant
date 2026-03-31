@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ReauthView")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ReauthView")
 
 @MainActor
 struct ReauthView: View {

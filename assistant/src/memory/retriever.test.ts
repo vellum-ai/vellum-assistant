@@ -5,9 +5,6 @@
  * empty results → no injection, superseded items filtered out,
  * staleness demotion, budget allocation, and degradation scenarios.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   afterAll,
   beforeAll,
@@ -17,19 +14,6 @@ import {
   mock,
   test,
 } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "memory-retriever-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -312,7 +296,6 @@ describe("Memory Retriever Pipeline", () => {
 
   afterAll(() => {
     resetDb();
-    rmSync(testDir, { recursive: true, force: true });
   });
 
   // -----------------------------------------------------------------------
@@ -1466,6 +1449,144 @@ describe("Memory Retriever Pipeline", () => {
       // No crash — the pipeline completes successfully
       // The in-context segment is still filtered normally
       expect(result.mergedCount).toBe(0);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Serendipity layer
+  // -----------------------------------------------------------------------
+
+  describe("serendipity sampling", () => {
+    test("samples random active items and renders them in <echoes>", async () => {
+      const db = getDb();
+      const now = Date.now();
+      const convId = "conv-serendipity";
+
+      insertConversation(db, convId, now - 60_000);
+      insertMessage(db, "msg-s-1", convId, "user", "hello", now - 50_000);
+
+      // Items sourced from a different conversation so in-context filtering
+      // doesn't remove them (serendipity is cross-conversation recall).
+      const otherConvId = "conv-serendipity-other";
+      insertConversation(db, otherConvId, now - 120_000);
+      insertMessage(
+        db,
+        "msg-s-other",
+        otherConvId,
+        "user",
+        "other",
+        now - 110_000,
+      );
+
+      // Insert several active items that are NOT returned by Qdrant
+      for (let i = 1; i <= 5; i++) {
+        insertItem(db, {
+          id: `serendipity-item-${i}`,
+          kind: "fact",
+          subject: `topic ${i}`,
+          statement: `Serendipity fact number ${i}`,
+          importance: i * 0.15, // 0.15..0.75
+          firstSeenAt: now - i * 10_000,
+        });
+        insertItemSource(
+          db,
+          `serendipity-item-${i}`,
+          "msg-s-other",
+          now - i * 10_000,
+        );
+      }
+
+      // Qdrant returns nothing — no recalled candidates
+      mockQdrantResults.length = 0;
+
+      const result = await buildMemoryRecall(
+        "unrelated query",
+        convId,
+        TEST_CONFIG,
+      );
+
+      expect(result.enabled).toBe(true);
+      // No semantic hits, so no recalled candidates
+      expect(result.mergedCount).toBe(0);
+      // But serendipity items should appear in the injection
+      expect(result.injectedText).toContain("<echoes>");
+      expect(result.injectedText).toContain("</echoes>");
+      // At most 3 serendipity items
+      const itemMatches = result.injectedText.match(/<item /g);
+      expect(itemMatches).toBeTruthy();
+      expect(itemMatches!.length).toBeLessThanOrEqual(3);
+      expect(itemMatches!.length).toBeGreaterThanOrEqual(1);
+      // selectedCount includes serendipity items
+      expect(result.selectedCount).toBeGreaterThan(0);
+    });
+
+    test("excludes items already in the candidate pool from serendipity", async () => {
+      const db = getDb();
+      const now = Date.now();
+      const convId = "conv-serendipity-excl";
+
+      insertConversation(db, convId, now - 60_000);
+      insertMessage(
+        db,
+        "msg-se-1",
+        convId,
+        "user",
+        "query about X",
+        now - 50_000,
+      );
+
+      // This item will be returned by Qdrant as a recalled candidate
+      insertItem(db, {
+        id: "recalled-item",
+        kind: "fact",
+        subject: "X",
+        statement: "Recalled fact about X",
+        importance: 0.9,
+        firstSeenAt: now - 30_000,
+      });
+      insertItemSource(db, "recalled-item", "msg-se-1", now - 30_000);
+
+      // Qdrant returns the recalled item
+      mockQdrantResults.push({
+        id: "qdrant-recalled",
+        score: 0.9,
+        payload: {
+          target_type: "item",
+          target_id: "recalled-item",
+          text: "X: Recalled fact about X",
+          created_at: now - 30_000,
+        },
+      });
+
+      const result = await buildMemoryRecall(
+        "query about X",
+        convId,
+        TEST_CONFIG,
+      );
+
+      expect(result.enabled).toBe(true);
+      // The recalled item is in <recalled>, not in <echoes>
+      if (result.injectedText.includes("<echoes>")) {
+        // If echoes exists, the recalled item should NOT be duplicated there
+        const echoesMatch = result.injectedText.match(
+          /<echoes>([\s\S]*?)<\/echoes>/,
+        );
+        if (echoesMatch) {
+          expect(echoesMatch[1]).not.toContain("recalled-item");
+        }
+      }
+    });
+
+    test("no <echoes> section when no active items exist", async () => {
+      // No items seeded at all
+      const result = await buildMemoryRecall(
+        "anything",
+        "conv-empty-seren",
+        TEST_CONFIG,
+      );
+
+      expect(result.enabled).toBe(true);
+      expect(result.injectedText).not.toContain("<echoes>");
     });
   });
 });

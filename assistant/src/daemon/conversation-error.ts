@@ -458,15 +458,13 @@ function classifyByMessage(
       .split("\n")
       .map((l) => l.trim())
       .find((l) => l.length > 0) ?? "";
-  const summary =
-    firstLine.length > 150 ? firstLine.slice(0, 150) + "..." : firstLine;
-  const userMessage = summary
-    ? `Processing failed: ${summary}`
+  const userMessage = firstLine
+    ? `Processing failed: ${firstLine}`
     : "Something went wrong processing your message. Please try again.";
   return {
     code: "CONVERSATION_PROCESSING_FAILED",
     userMessage,
-    retryable: false,
+    retryable: true,
     errorCategory: "processing_failed",
   };
 }

@@ -1,19 +1,25 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  unlinkSync,
+} from "node:fs";
 import { join } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getBaseDataDir, getIsContainerized } from "../config/env-registry.js";
+import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
-import { skillFlagKey } from "../config/skill-state.js";
-import { loadSkillCatalog, type SkillSummary } from "../config/skills.js";
 import { listConnections } from "../oauth/oauth-store.js";
 import { resolveBundledDir } from "../util/bundled-asset.js";
 import { getLogger } from "../util/logger.js";
 import {
+  getConversationsDir,
   getWorkspaceDir,
   getWorkspacePromptPath,
   isMacOS,
 } from "../util/platform.js";
+import { stripCommentLines } from "../util/strip-comment-lines.js";
 import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "./cache-boundary.js";
 import { buildJournalContext } from "./journal-context.js";
 
@@ -84,6 +90,46 @@ export function ensurePromptFiles(): void {
     }
   }
 
+  // Auto-delete stale BOOTSTRAP.md at startup.  The model is instructed to
+  // delete it at the end of the first conversation, but if the user closes
+  // the app or starts a new thread before the model gets another turn, it
+  // never gets the chance.  If BOOTSTRAP.md still exists but prior
+  // conversations are present, the onboarding window has passed — clean up.
+  const bootstrapCleanup = getWorkspacePromptPath("BOOTSTRAP.md");
+  if (!isFirstRun && existsSync(bootstrapCleanup)) {
+    const convDir = getConversationsDir();
+    try {
+      if (existsSync(convDir) && readdirSync(convDir).length > 0) {
+        unlinkSync(bootstrapCleanup);
+        log.info("Auto-deleted stale BOOTSTRAP.md — prior conversations exist");
+      }
+    } catch (err) {
+      log.warn({ err }, "Failed to auto-delete stale BOOTSTRAP.md");
+    }
+  }
+
+  // Seed HEARTBEAT.md — always created if missing so the heartbeat service
+  // has a meaningful checklist from the start.  Kept out of PROMPT_FILES
+  // because it's operational, not identity context.
+  const heartbeatDest = getWorkspacePromptPath("HEARTBEAT.md");
+  if (!existsSync(heartbeatDest)) {
+    const heartbeatSrc = join(templatesDir, "HEARTBEAT.md");
+    try {
+      if (existsSync(heartbeatSrc)) {
+        copyFileSync(heartbeatSrc, heartbeatDest);
+        log.info(
+          { file: "HEARTBEAT.md", dest: heartbeatDest },
+          "Created HEARTBEAT.md from template",
+        );
+      }
+    } catch (err) {
+      log.warn(
+        { err, file: "HEARTBEAT.md" },
+        "Failed to create HEARTBEAT.md from template",
+      );
+    }
+  }
+
   // Seed NOW.md scratchpad — always created if missing, regardless of whether
   // this is a fresh install or not.  Kept out of PROMPT_FILES because NOW.md is
   // ephemeral state, not identity context.
@@ -128,14 +174,12 @@ export function ensurePromptFiles(): void {
 }
 
 /**
- * Build the system prompt from ~/.vellum prompt files,
- * then append a generated skills catalog (if any skills are available).
+ * Build the system prompt from ~/.vellum prompt files.
  *
  * Composition:
  *   1. Base prompt: IDENTITY.md + SOUL.md (guaranteed to exist after ensurePromptFiles)
  *   2. Append USER.md (user profile)
  *   3. If BOOTSTRAP.md exists, append first-run ritual instructions
- *   4. Append skills catalog from ~/.vellum/workspace/skills
  */
 export interface BuildSystemPromptOptions {
   hasNoClient?: boolean;
@@ -171,6 +215,7 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   // System Permissions section removed — guidance lives in request_system_permission tool description.
   // Parallel Task Orchestration section removed — orchestration skill description + hints cover this.
   staticParts.push(buildAccessPreferenceSection(hasNoClient));
+  staticParts.push(buildCredentialSecuritySection());
   // Memory Persistence, Memory Recall, Workspace Reflection, Learning from Mistakes
   // sections removed — guidance lives in memory_manage/memory_recall tool descriptions
   // and the Proactive Workspace Editing subsection in Configuration.
@@ -206,7 +251,15 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   const userIsTemplate = isTemplateContent(user, "USER.md");
 
   if (identity && !identityIsTemplate) {
-    dynamicParts.push(identity);
+    // Strip placeholder lines (e.g. "- **Name:** _(not yet chosen)_") so
+    // the model doesn't treat unresolved fields as prompts to ask the user.
+    const cleanedIdentity = identity
+      .split("\n")
+      .filter((line) => !/_\(not yet (?:chosen|established)\)_/.test(line))
+      .join("\n");
+    if (cleanedIdentity.trim()) {
+      dynamicParts.push(cleanedIdentity);
+    }
   }
   if (soul) dynamicParts.push(soul);
   if (options?.userPersona) dynamicParts.push(options.userPersona);
@@ -249,11 +302,9 @@ export function buildSystemPrompt(options?: BuildSystemPromptOptions): string {
   );
   if (journalContext) dynamicParts.push(journalContext);
 
-  const dynamicWithSkills = appendSkillsCatalog(dynamicParts.join("\n\n"));
+  const dynamic = dynamicParts.join("\n\n");
 
-  return (
-    staticParts.join("\n\n") + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamicWithSkills
-  );
+  return staticParts.join("\n\n") + SYSTEM_PROMPT_CACHE_BOUNDARY + dynamic;
 }
 
 function buildAttachmentSection(): string {
@@ -275,6 +326,8 @@ function buildInChatConfigurationSection(): string {
     "## In-Chat Configuration",
     "",
     "When the user needs to configure a value, collect it conversationally in the chat. Never direct the user to the Settings page for initial setup - Settings is for reviewing and updating existing configuration.",
+    "",
+    'The Settings tabs are: General, Models & Services, Voice, Sounds, Permissions & Privacy, Billing, Archived Conversations, Schedules, Developer. There is NO "Integrations" tab — never refer to "Settings > Integrations". For API keys and provider configuration, the correct tab is "Models & Services".',
   ].join("\n");
 }
 
@@ -297,6 +350,14 @@ function buildAccessPreferenceSection(hasNoClient: boolean): string {
           "On macOS, prefer osascript/CLI via `host_bash` over computer use tools, which take over the user's cursor. Use foreground computer use only when no scripting alternative exists or the user explicitly asks.",
         ]
       : []),
+  ].join("\n");
+}
+
+function buildCredentialSecuritySection(): string {
+  return [
+    "## Credential Security",
+    "",
+    'Never ask users to share secrets (API keys, tokens, passwords, webhook secrets) in chat — secret messages may be blocked at ingress. Use the `credential_store` tool with `action: "prompt"` instead; it collects secrets through a secure UI that never exposes the value in the conversation. Non-secret values (Client IDs, Account SIDs, usernames) may be collected conversationally.',
   ].join("\n");
 }
 
@@ -323,16 +384,16 @@ function buildIntegrationSection(): string {
 }
 
 function buildContainerizedSection(): string {
-  const baseDataDir = getBaseDataDir() ?? "$BASE_DATA_DIR";
+  const workspaceDir = getWorkspaceDir();
   return [
     "## Running in a Container - Data Persistence",
     "",
-    `You are running inside a container. Only the directory \`${baseDataDir}\` is mounted to a persistent volume.`,
+    `You are running inside a container. Only the directory \`${workspaceDir}\` is mounted to a persistent volume.`,
     "",
     "**Any new files or data you create MUST be written inside that directory, or they will be lost when the container restarts.**",
     "",
     "Rules:",
-    `- Always store new data, notes, memories, configs, and downloads under \`${baseDataDir}\``,
+    `- Always store new data, notes, memories, configs, and downloads under \`${workspaceDir}\``,
     "- Never write persistent data to system directories, `/tmp`, or paths outside the mounted volume",
     "- When in doubt, prefer paths nested under the data directory",
     "- If you create a file that is only needed temporarily (scratch files, intermediate outputs, download staging), delete it when you are done - disk space on the persistent volume is finite and will grow unboundedly if temp files are not cleaned up",
@@ -353,38 +414,14 @@ export function buildCliReferenceSection(): string {
     "",
     "The `assistant` CLI is available in the sandbox for managing assistant settings, integrations, and services. Always use the `bash` tool (never `host_bash`) when running `assistant` commands.",
     "",
+    "Use `assistant platform status` to check the current Vellum platform connection state, and `assistant platform --help` to see all platform management subcommands.",
+    "",
     "Run `assistant --help` to see all available commands, or `assistant <command> --help` for detailed help on any subcommand.",
   ].join("\n");
 }
 
-/**
- * Strip lines starting with `_` (comment convention for prompt .md files)
- * and collapse any resulting consecutive blank lines.
- *
- * Lines inside fenced code blocks (``` or ~~~ delimiters per CommonMark)
- * are never stripped, so code examples with `_`-prefixed identifiers are preserved.
- */
-export function stripCommentLines(content: string): string {
-  const normalized = content.replace(/\r\n/g, "\n");
-  let openFenceChar: string | null = null;
-  const filtered = normalized.split("\n").filter((line) => {
-    const fenceMatch = line.match(/^ {0,3}(`{3,}|~{3,})/);
-    if (fenceMatch) {
-      const char = fenceMatch[1][0];
-      if (!openFenceChar) {
-        openFenceChar = char;
-      } else if (char === openFenceChar) {
-        openFenceChar = null;
-      }
-    }
-    if (openFenceChar) return true;
-    return !line.trimStart().startsWith("_");
-  });
-  return filtered
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
+// Re-export from shared util so existing importers don't break.
+export { stripCommentLines } from "../util/strip-comment-lines.js";
 
 /**
  * Returns true when the prompt file content is still the unmodified template
@@ -435,9 +472,9 @@ function readPromptFile(path: string): string | null {
  * This is useful for injecting identity context into subsystems (e.g. memory
  * extraction) that run outside the main system prompt pipeline.
  */
-export function buildCoreIdentityContext(
-  opts?: { userPersona?: string | null },
-): string | null {
+export function buildCoreIdentityContext(opts?: {
+  userPersona?: string | null;
+}): string | null {
   const parts: string[] = [];
   for (const file of PROMPT_FILES) {
     const content = readPromptFile(getWorkspacePromptPath(file));
@@ -453,57 +490,3 @@ export function buildCoreIdentityContext(
   return parts.length > 0 ? parts.join("\n\n") : null;
 }
 
-function appendSkillsCatalog(basePrompt: string): string {
-  const skills = loadSkillCatalog();
-  const config = getConfig();
-
-  // Filter out skills whose assistant feature flag is explicitly OFF
-  const flagFiltered = skills.filter((s) => {
-    const flagKey = skillFlagKey(s);
-    return !flagKey || isAssistantFeatureFlagEnabled(flagKey, config);
-  });
-
-  const sections: string[] = [basePrompt];
-
-  const catalog = formatSkillsCatalog(flagFiltered);
-  if (catalog) sections.push(catalog);
-
-  return sections.join("\n\n");
-}
-
-/**
- * Build a dynamic description for the mcp-setup skill that includes
- * configured MCP server names, so the model knows which servers exist.
- */
-function getMcpSetupDescription(): string {
-  const config = getConfig();
-  const servers = config.mcp?.servers;
-  if (!servers || Object.keys(servers).length === 0) {
-    return "Add, authenticate, list, and remove MCP servers";
-  }
-
-  const serverNames = Object.keys(servers).sort();
-  return `Manage MCP servers. Configured: ${serverNames.join(", ")}. Load to check status, authenticate, or add/remove servers.`;
-}
-
-function formatSkillsCatalog(skills: SkillSummary[]): string {
-  if (skills.length === 0) return "";
-
-  const lines = ["## Available Skills", ""];
-  for (const skill of skills) {
-    const desc =
-      skill.id === "mcp-setup" ? getMcpSetupDescription() : skill.description;
-
-    // Build a single line: - **id**: description. Hints. Avoid: ...
-    const parts = [desc.replace(/\.\s*$/, "")];
-    if (skill.activationHints && skill.activationHints.length > 0) {
-      parts.push(skill.activationHints.join(". "));
-    }
-    if (skill.avoidWhen && skill.avoidWhen.length > 0) {
-      parts.push(`Avoid: ${skill.avoidWhen.join(". ")}`);
-    }
-    lines.push(`- **${skill.id}**: ${parts.join(". ")}`);
-  }
-
-  return lines.join("\n");
-}

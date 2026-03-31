@@ -25,6 +25,19 @@ All known models by provider, so you can interpret model IDs from config:
 | Fireworks | `accounts/fireworks/models/kimi-k2p5` | Kimi K2.5 |
 | OpenRouter | `x-ai/grok-4` | Grok 4 |
 | OpenRouter | `x-ai/grok-4.20-beta` | Grok 4.20 Beta |
+| OpenRouter | `deepseek/deepseek-r1-0528` | DeepSeek R1 |
+| OpenRouter | `deepseek/deepseek-chat-v3-0324` | DeepSeek V3 |
+| OpenRouter | `qwen/qwen3.5-plus-02-15` | Qwen 3.5 Plus |
+| OpenRouter | `qwen/qwen3.5-397b-a17b` | Qwen 3.5 397B |
+| OpenRouter | `qwen/qwen3.5-flash-02-23` | Qwen 3.5 Flash |
+| OpenRouter | `qwen/qwen3-coder-next` | Qwen 3 Coder |
+| OpenRouter | `moonshotai/kimi-k2.5` | Kimi K2.5 |
+| OpenRouter | `mistralai/mistral-medium-3` | Mistral Medium 3 |
+| OpenRouter | `mistralai/mistral-small-2603` | Mistral Small 4 |
+| OpenRouter | `mistralai/devstral-2512` | Devstral 2 |
+| OpenRouter | `meta-llama/llama-4-maverick` | Llama 4 Maverick |
+| OpenRouter | `meta-llama/llama-4-scout` | Llama 4 Scout |
+| OpenRouter | `amazon/nova-pro-v1` | Amazon Nova Pro |
 
 ## Inference Configuration
 

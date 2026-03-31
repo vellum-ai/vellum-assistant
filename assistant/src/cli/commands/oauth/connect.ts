@@ -80,10 +80,23 @@ export function registerConnectCommand(oauth: Command): void {
     )
     .option("--scopes <scopes...>", "Scopes to request for the authorization")
     .option(
-      "--open-browser",
-      "Open the auth URL in the browser and wait for completion",
+      "--no-browser",
+      "Print the auth URL instead of opening it in the browser",
     )
     .option("--client-id <id>", "BYO app client ID disambiguation")
+    .option(
+      "--callback-transport <transport>",
+      `How the OAuth callback is delivered after authorization. Use "loopback" when oauth connection is initiated from a local client, such as the macos desktop app (starts a temporary localhost server to receive the callback — no tunnel or public URL needed). Use "gateway" when the oauth connection is initiated from a web client (routes the callback through the public ingress URL — requires ingress.publicBaseUrl to be configured).`,
+      "loopback",
+    )
+    .hook("preAction", (thisCommand) => {
+      const transport = thisCommand.opts().callbackTransport;
+      if (transport !== "loopback" && transport !== "gateway") {
+        thisCommand.error(
+          `Invalid --callback-transport value "${transport}". Must be "loopback" or "gateway".`,
+        );
+      }
+    })
     .addHelpText(
       "after",
       `
@@ -93,22 +106,24 @@ Arguments:
 
 In managed mode, --scopes must be in the provider's allowed set (use full
 scope URLs). In BYO mode, --scopes are appended to the provider's defaults.
-The --open-browser flag polls for a platform connection (managed) or starts
-a local callback server (BYO).
+By default, the browser opens automatically and the command waits for
+completion. Use --no-browser to print the URL instead (useful for headless
+or SSH sessions).
 
 Examples:
   $ assistant oauth connect google
-  $ assistant oauth connect google --open-browser
+  $ assistant oauth connect google --no-browser
   $ assistant oauth connect google --scopes https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events
-  $ assistant oauth connect google --client-id abc123 --open-browser`,
+  $ assistant oauth connect google --client-id abc123`,
     )
     .action(
       async (
         provider: string,
         opts: {
           scopes?: string[];
-          openBrowser?: boolean;
+          browser?: boolean;
           clientId?: string;
+          callbackTransport: "loopback" | "gateway";
         },
         cmd: Command,
       ) => {
@@ -166,7 +181,7 @@ Examples:
             let redirectServer:
               | { redirectUrl: string; cleanup: () => void }
               | undefined;
-            if (opts.openBrowser) {
+            if (opts.browser !== false) {
               try {
                 redirectServer = await startManagedRedirectServer(provider);
                 body.redirect_after_connect = redirectServer.redirectUrl;
@@ -184,9 +199,14 @@ Examples:
 
               if (!response.ok) {
                 const errorText = await response.text().catch(() => "");
-                writeError(
-                  `Platform returned HTTP ${response.status}${errorText ? `: ${errorText}` : ""}`,
-                );
+                const baseMsg = `Platform returned HTTP ${response.status}${errorText ? `: ${errorText}` : ""}`;
+                if (response.status === 401 || response.status === 403) {
+                  writeError(
+                    `${baseMsg}. Your platform session may have expired. Run \`vellum platform connect\` to reconnect.`,
+                  );
+                } else {
+                  writeError(baseMsg);
+                }
                 return;
               }
 
@@ -201,7 +221,7 @@ Examples:
                 return;
               }
 
-              if (opts.openBrowser) {
+              if (opts.browser !== false) {
                 // Snapshot existing connection IDs before opening browser
                 const snapshotEntries = await fetchActiveConnections(
                   client,
@@ -287,7 +307,7 @@ Examples:
                   }
                 }
               } else {
-                // No --open-browser: output the connect URL
+                // --no-browser: output the connect URL
                 if (jsonMode) {
                   writeOutput(cmd, {
                     ok: true,
@@ -357,8 +377,9 @@ Examples:
               service: provider,
               clientId,
               clientSecret,
-              isInteractive: !!opts.openBrowser,
-              openUrl: opts.openBrowser ? openInBrowser : undefined,
+              callbackTransport: opts.callbackTransport,
+              isInteractive: opts.browser !== false,
+              openUrl: opts.browser !== false ? openInBrowser : undefined,
               ...(opts.scopes ? { requestedScopes: opts.scopes } : {}),
             });
 

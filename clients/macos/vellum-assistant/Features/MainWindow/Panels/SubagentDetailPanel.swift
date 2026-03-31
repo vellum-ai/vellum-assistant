@@ -3,7 +3,7 @@ import VellumAssistantShared
 
 struct SubagentDetailPanel: View {
     let subagentId: String
-    @ObservedObject var viewModel: ChatViewModel
+    var viewModel: ChatViewModel
     var detailStore: SubagentDetailStore
     var onAbort: (() -> Void)?
     var onRequestDetail: (() -> Void)?
@@ -213,6 +213,7 @@ struct SubagentDetailPanel: View {
         case .text:
             MarkdownSegmentView(segments: parseMarkdownSegments(event.content), maxContentWidth: nil)
                 .equatable()
+                .textSelection(.enabled)
                 .padding(VSpacing.sm)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(

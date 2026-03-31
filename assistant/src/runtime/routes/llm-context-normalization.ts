@@ -18,6 +18,7 @@ export interface LlmContextSummary {
   responseToolCallCount?: number;
   responsePreview?: string;
   toolCallNames?: string[];
+  estimatedCostUsd?: number | null;
 }
 
 export interface LlmContextSection {

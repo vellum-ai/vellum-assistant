@@ -4,141 +4,204 @@ import VellumAssistantShared
 /// A single conversation row in the sidebar, handling hover, pin, archive, rename,
 /// and drag interactions.
 ///
-/// This is a pure value view — all state is pre-resolved into value-type props
-/// and action closures, so SwiftUI can skip re-evaluation via `Equatable`.
+/// Hover state is owned locally via `@State` so it resets automatically when the
+/// view's identity changes (e.g., conversation moves between ForEach sections on
+/// pin/unpin). Props and action closures use `Equatable` to skip re-evaluation.
 struct SidebarConversationItem: View, Equatable {
     let conversation: ConversationModel
     let isSelected: Bool
     let interactionState: ConversationInteractionState
-    let isHovered: Bool
-    let isPendingDeletion: Bool
 
     // Action closures — not compared in Equatable
     var selectConversation: () -> Void
     var onSelect: (() -> Void)? = nil
     var onTogglePin: () -> Void
     var onArchive: () -> Void
-    var onBeginArchive: () -> Void
-    var onConfirmArchive: () -> Void
     var onStartRename: () -> Void
     var onMarkUnread: () -> Void
-    var onHoverChange: (Bool) -> Void
     var onDragStart: () -> Void
     var onOpenInNewWindow: (() -> Void)?
     var onShowFeedback: (() -> Void)?
+    /// Available groups for the "Move to" submenu. Excludes the conversation's current group.
+    var moveToGroups: [ConversationGroup] = []
+    /// Moves the conversation to the specified group (nil = ungrouped).
+    var onMoveToGroup: ((String?) -> Void)? = nil
 
     static func == (lhs: SidebarConversationItem, rhs: SidebarConversationItem) -> Bool {
         lhs.conversation == rhs.conversation &&
         lhs.isSelected == rhs.isSelected &&
         lhs.interactionState == rhs.interactionState &&
-        lhs.isHovered == rhs.isHovered &&
-        lhs.isPendingDeletion == rhs.isPendingDeletion
+        lhs.moveToGroups == rhs.moveToGroups
     }
 
-    private var hasTrailingIcon: Bool { isHovered || isPendingDeletion }
+    /// The conversation's current group (if any), used for "Remove from group" visibility.
+    private var moveToCurrentGroup: ConversationGroup? {
+        guard let gid = conversation.groupId else { return nil }
+        // The moveToGroups list excludes the current group, so check all system groups + search moveToGroups
+        // by looking at the conversation's groupId against known groups.
+        if gid == ConversationGroup.pinned.id { return ConversationGroup.pinned }
+        if gid == ConversationGroup.scheduled.id { return ConversationGroup.scheduled }
+        if gid == ConversationGroup.background.id { return ConversationGroup.background }
+        // Custom group — not in moveToGroups (it's filtered out), but we know it's non-system
+        return ConversationGroup(id: gid, name: "", sortPosition: 0, isSystemGroup: false)
+    }
+
+    @State private var isMouseInside: Bool = false
+    @State private var isMenuOpen: Bool = false
+
+    /// Effective hover state, used throughout the body for visual affordances.
+    private var isHovered: Bool { isMouseInside }
+    private var hasTrailingIcon: Bool { isHovered || isMenuOpen }
     private var canMarkUnread: Bool {
         !conversation.hasUnseenLatestAssistantMessage &&
             conversation.conversationId != nil &&
             conversation.latestAssistantMessageAt != nil
     }
 
+    @ViewBuilder
+    private var contextMenuContent: some View {
+        VMenuItem(icon: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue, label: conversation.isPinned ? "Unpin" : "Pin") {
+            onTogglePin()
+        }
+
+        VMenuItem(icon: VIcon.pencil.rawValue, label: "Rename") {
+            onStartRename()
+        }
+
+        if !conversation.isChannelConversation {
+            VMenuItem(icon: VIcon.archive.rawValue, label: "Archive") {
+                onArchive()
+            }
+            VMenuItem(icon: VIcon.circle.rawValue, label: "Mark as unread") {
+                onMarkUnread()
+            }
+            .disabled(!canMarkUnread)
+        }
+
+        if !moveToGroups.isEmpty, let onMoveToGroup {
+            VSubMenuItem(icon: VIcon.folder.rawValue, label: "Move to") {
+                ForEach(moveToGroups) { group in
+                    VMenuItem(label: group.name) {
+                        onMoveToGroup(group.id)
+                    }
+                }
+                if conversation.groupId != nil {
+                    VMenuDivider()
+                    VMenuItem(label: "Remove from group") {
+                        onMoveToGroup(nil)
+                    }
+                }
+            }
+        }
+
+        if let onOpenInNewWindow {
+            VMenuItem(icon: VIcon.externalLink.rawValue, label: "Open in New Window") {
+                onOpenInNewWindow()
+            }
+        }
+
+        VMenuDivider()
+
+        VMenuItem(icon: VIcon.messageCircle.rawValue, label: "Share Feedback") {
+            onShowFeedback?()
+        }
+        .disabled(onShowFeedback == nil)
+    }
+
     var body: some View {
-        // Always reserve 20pt leading slot so text never shifts.
         // Use a tap gesture instead of Button so .onDrag can coexist —
         // Button captures mouse-down and prevents drag initiation on macOS.
-        Group {
-            HStack(spacing: VSpacing.xs) {
-                // Leading 20x20 slot: single render path.
-                // Hovered -> interactive pin button; not hovered -> status indicator.
-                if isHovered {
-                    Button {
-                        onTogglePin()
-                    } label: {
+        HStack(spacing: VSpacing.xs) {
+            // Leading 20x20 slot: single render path.
+            // Hovered -> interactive pin button; not hovered -> status indicator.
+            if isHovered {
+                VButton(
+                    label: conversation.isPinned ? "Unpin \(conversation.title)" : "Pin \(conversation.title)",
+                    iconOnly: conversation.isPinned ? VIcon.pinOff.rawValue : VIcon.pin.rawValue,
+                    style: .ghost,
+                    iconSize: 20,
+                    tooltip: conversation.isPinned ? "Unpin" : "Pin",
+                    iconColor: VColor.contentSecondary,
+                    iconRotation: conversation.isPinned ? .degrees(0) : .degrees(-45)
+                ) {
+                    onTogglePin()
+                }
+                .transition(.opacity)
+            } else {
+                switch interactionState {
+                case .processing:
+                    VBusyIndicator()
+                        .frame(width: 20, height: 20)
+                        .nativeTooltip("Processing")
+                        .accessibilityLabel("Processing")
+                case .waitingForInput:
+                    VIconView(.circleAlert, size: 12)
+                        .foregroundStyle(VColor.systemMidStrong)
+                        .frame(width: 20, height: 20)
+                        .nativeTooltip("Waiting for input")
+                        .accessibilityLabel("Waiting for input")
+                case .error:
+                    VIconView(.circleAlert, size: 12)
+                        .foregroundStyle(VColor.systemNegativeStrong)
+                        .frame(width: 20, height: 20)
+                        .nativeTooltip("Error")
+                        .accessibilityLabel("Error")
+                        .transition(.opacity)
+                case .idle:
+                    if conversation.hasUnseenLatestAssistantMessage {
+                        VBadge(style: .dot, color: VColor.systemMidStrong)
+                            .accessibilityLabel("Unread")
+                            .frame(width: 20, height: 20)
+                            .nativeTooltip("Unread")
+                            .transition(.opacity)
+                    } else if conversation.isPinned {
                         VIconView(.pin, size: 13)
-                            .foregroundStyle(conversation.isPinned ? VColor.contentTertiary : VColor.contentSecondary)
+                            .foregroundStyle(VColor.contentTertiary)
                             .rotationEffect(.degrees(-45))
                             .frame(width: 20, height: 20)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .transition(.opacity)
-                    .nativeTooltip(conversation.isPinned ? "Unpin" : "Pin")
-                    .accessibilityLabel(conversation.isPinned ? "Unpin \(conversation.title)" : "Pin \(conversation.title)")
-                } else {
-                    switch interactionState {
-                    case .processing:
-                        VBusyIndicator()
-                            .frame(width: 20, height: 20)
-                            .nativeTooltip("Processing")
-                            .accessibilityLabel("Processing")
-                    case .waitingForInput:
-                        VIconView(.circleAlert, size: 12)
-                            .foregroundStyle(VColor.systemMidStrong)
-                            .frame(width: 20, height: 20)
-                            .nativeTooltip("Waiting for input")
-                            .accessibilityLabel("Waiting for input")
-                    case .error:
-                        VIconView(.circleAlert, size: 12)
-                            .foregroundStyle(VColor.systemNegativeStrong)
-                            .frame(width: 20, height: 20)
-                            .nativeTooltip("Error")
-                            .accessibilityLabel("Error")
+                            .nativeTooltip("Pinned")
+                            .accessibilityLabel("Pinned")
                             .transition(.opacity)
-                    case .idle:
-                        if conversation.hasUnseenLatestAssistantMessage {
-                            VBadge(style: .dot, color: VColor.systemMidStrong)
-                                .accessibilityLabel("Unread")
-                                .frame(width: 20, height: 20)
-                                .nativeTooltip("Unread")
-                                .transition(.opacity)
-                        } else if conversation.isPinned {
-                            VIconView(.pin, size: 13)
-                                .foregroundStyle(VColor.contentTertiary)
-                                .rotationEffect(.degrees(-45))
-                                .frame(width: 20, height: 20)
-                                .nativeTooltip("Pinned")
-                                .accessibilityLabel("Pinned")
-                                .transition(.opacity)
-                        } else {
-                            Color.clear
-                                .frame(width: 20, height: 20)
-                        }
+                    } else {
+                        Color.clear
+                            .frame(width: 20, height: 20)
                     }
                 }
-                if conversation.kind == .private {
-                    VIconView(.lock, size: 13)
-                        .foregroundStyle(VColor.primaryBase.opacity(0.7))
-                        .nativeTooltip("Private conversation")
-                        .accessibilityLabel("Private conversation")
-                }
-                Text(conversation.title)
-                    .font(.system(size: 13))
-                    .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .nativeTooltip(conversation.title)
+            }
+            if conversation.kind == .private {
+                VIconView(.lock, size: 13)
+                    .foregroundStyle(VColor.primaryBase.opacity(0.7))
+                    .nativeTooltip("Private conversation")
+                    .accessibilityLabel("Private conversation")
+            }
+            Text(conversation.title)
+                .font(VFont.menuCompact)
+                .foregroundStyle(isSelected ? VColor.contentEmphasized : VColor.contentSecondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .nativeTooltip(conversation.title)
 
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, VSpacing.xs)
-            .padding(.trailing, isPendingDeletion ? SidebarLayoutMetrics.archiveConfirmTrailingPadding : hasTrailingIcon ? SidebarLayoutMetrics.archiveIconTrailingPadding : VSpacing.sm)
-            .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
-            .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
-            .background {
-                if isSelected {
-                    VColor.surfaceActive
-                } else if isHovered {
-                    VColor.surfaceBase
-                } else if conversation.kind == .private {
-                    VColor.primaryBase.opacity(0.04)
-                } else {
-                    VColor.surfaceBase.opacity(0)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
-            .contentShape(Rectangle())
-            .animation(VAnimation.fast, value: isHovered)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, VSpacing.xs)
+        .padding(.trailing, hasTrailingIcon ? SidebarLayoutMetrics.trailingIconPadding : VSpacing.sm)
+        .padding(.vertical, SidebarLayoutMetrics.rowVerticalPadding)
+        .frame(minHeight: SidebarLayoutMetrics.rowMinHeight)
+        .background {
+            if isSelected {
+                VColor.surfaceActive
+            } else if isHovered || isMenuOpen {
+                VColor.surfaceBase
+            } else if conversation.kind == .private {
+                VColor.primaryBase.opacity(0.04)
+            } else {
+                VColor.surfaceBase.opacity(0)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .contentShape(Rectangle())
+        .animation(VAnimation.fast, value: isMouseInside)
+        .animation(VAnimation.fast, value: isMenuOpen)
         .onTapGesture {
             selectConversation()
             onSelect?()
@@ -149,73 +212,50 @@ struct SidebarConversationItem: View, Equatable {
             selectConversation()
         }
         .overlay(alignment: .trailing) {
-            if isPendingDeletion {
-                VButton(label: "Confirm", style: .dangerOutline, size: .pill) {
-                    onConfirmArchive()
+            if isHovered || isMenuOpen {
+                VButton(
+                    label: "More options for \(conversation.title)",
+                    iconOnly: VIcon.ellipsis.rawValue,
+                    style: .ghost,
+                    iconSize: 20,
+                    tooltip: "More options",
+                    iconColor: VColor.contentSecondary
+                ) {
+                    guard !isMenuOpen else { return }
+                    isMenuOpen = true
+                    let appearance = NSApp.keyWindow?.effectiveAppearance
+                    VMenuPanel.show(
+                        at: NSEvent.mouseLocation,
+                        sourceAppearance: appearance
+                    ) {
+                        VMenu(width: 200) {
+                            contextMenuContent
+                        }
+                    } onDismiss: {
+                        isMenuOpen = false
+                    }
                 }
-                .fixedSize()
                 .padding(.trailing, VSpacing.xs)
-                .accessibilityLabel("Confirm archive \(conversation.title)")
-            } else if isHovered {
-                Button {
-                    onBeginArchive()
-                } label: {
-                    VIconView(.archive, size: 13)
-                        .foregroundStyle(VColor.contentSecondary)
-                        .frame(width: 20, height: 20)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .nativeTooltip("Archive")
-                .padding(.trailing, VSpacing.xs)
-                .accessibilityLabel("Archive \(conversation.title)")
             }
         }
         .padding(.horizontal, 0)
-        .contextMenu {
-            Button {
-                onTogglePin()
-            } label: {
-                Label { Text(conversation.isPinned ? "Unpin" : "Pin") } icon: { VIconView(conversation.isPinned ? .pinOff : .pin, size: 14) }
-            }
-            Button {
-                onStartRename()
-            } label: {
-                Label { Text("Rename") } icon: { VIconView(.pencil, size: 14) }
-            }
-            Button {
-                onArchive()
-            } label: {
-                Label { Text("Archive") } icon: { VIconView(.archive, size: 14) }
-            }
-            Button {
-                onMarkUnread()
-            } label: {
-                Label { Text("Mark as unread") } icon: { VIconView(.circle, size: 14) }
-            }
-            .disabled(!canMarkUnread)
-
-            if let onOpenInNewWindow {
-                Button {
-                    onOpenInNewWindow()
-                } label: {
-                    Label { Text("Open in New Window") } icon: { VIconView(.externalLink, size: 14) }
-                }
-            }
-
-            Divider()
-
-            Button {
-                onShowFeedback?()
-            } label: {
-                Label { Text("Share Feedback") } icon: { VIconView(.messageCircle, size: 14) }
-            }
-            .disabled(onShowFeedback == nil)
+        .vContextMenu(width: 200) {
+            contextMenuContent
         }
         .pointerCursor { hovering in
-            onHoverChange(hovering)
+            isMouseInside = hovering
+        }
+        .onChange(of: conversation) { _, _ in
+            // Reset menu state when conversation props change within the same view
+            // lifecycle (e.g., title update while menu is open).
+            if isMenuOpen {
+                isMenuOpen = false
+            }
         }
         .onDrag {
+            guard !conversation.isChannelConversation else {
+                return NSItemProvider()
+            }
             onDragStart()
             return NSItemProvider(object: conversation.id.uuidString as NSString)
         } preview: {
@@ -229,7 +269,7 @@ struct SidebarConversationItem: View, Equatable {
                     Color.clear.frame(width: 20, height: 20)
                 }
                 Text(conversation.title)
-                    .font(.system(size: 13))
+                    .font(VFont.menuCompact)
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
             }

@@ -4,7 +4,7 @@ import AppKit
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HostCu")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HostCu")
 
 // MARK: - Host CU Proxy Execution (macOS)
 

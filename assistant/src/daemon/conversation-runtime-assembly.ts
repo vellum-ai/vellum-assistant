@@ -16,11 +16,11 @@ import {
   type TurnInterfaceContext,
 } from "../channels/types.js";
 import { getAppDirPath, listAppFiles } from "../memory/app-store.js";
-import { stripCommentLines } from "../prompts/system-prompt.js";
 import type { Message } from "../providers/types.js";
 import type { ActorTrustContext } from "../runtime/actor-trust-resolver.js";
 import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 import { getWorkspacePromptPath } from "../util/platform.js";
+import { stripCommentLines } from "../util/strip-comment-lines.js";
 
 /**
  * Describes the capabilities of the channel through which the user is
@@ -487,28 +487,49 @@ export function readNowScratchpad(): string | null {
 }
 
 /**
- * Append NOW.md scratchpad content to the last user message so the model
- * has access to the user's ephemeral scratchpad notes at the end of context.
+ * Insert NOW.md scratchpad content into the user message, after any
+ * injected context blocks (e.g. memory_context) but before the user's
+ * original content.  This keeps the user's actual message as the last
+ * thing the model reads.
  */
 export function injectNowScratchpad(
   message: Message,
   content: string,
 ): Message {
+  const scratchpadBlock = {
+    type: "text" as const,
+    text: `<NOW.md Always keep this up to date>\n${content}\n</NOW.md>`,
+  };
+
+  // Find insertion point: skip any leading injected-context text blocks
+  // (e.g. memory_context) so the scratchpad lands between injected context
+  // and the user's original content.
+  let insertIdx = 0;
+  for (let i = 0; i < message.content.length; i++) {
+    const block = message.content[i];
+    if (block.type === "text" && block.text.startsWith("<memory_context")) {
+      insertIdx = i + 1;
+    } else {
+      break;
+    }
+  }
+
   return {
     ...message,
     content: [
-      ...message.content,
-      {
-        type: "text",
-        text: `<now_scratchpad>\n${content}\n</now_scratchpad>`,
-      },
+      ...message.content.slice(0, insertIdx),
+      scratchpadBlock,
+      ...message.content.slice(insertIdx),
     ],
   };
 }
 
-/** Strip `<now_scratchpad>` blocks injected by `injectNowScratchpad`. */
+/** Strip `<NOW.md>` blocks injected by `injectNowScratchpad`. */
 export function stripNowScratchpad(messages: Message[]): Message[] {
-  return stripUserTextBlocksByPrefix(messages, ["<now_scratchpad>"]);
+  return stripUserTextBlocksByPrefix(messages, [
+    "<NOW.md Always keep this up to date>",
+    "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
+  ]);
 }
 
 /**
@@ -1034,7 +1055,8 @@ const RUNTIME_INJECTION_PREFIXES = [
   "<active_workspace>",
   "<active_dynamic_page>",
   "<non_interactive_context>",
-  "<now_scratchpad>",
+  "<NOW.md Always keep this up to date>",
+  "<now_scratchpad>", // backward-compat: strip legacy blocks from pre-rename history
   "<transport_hints>",
 ];
 

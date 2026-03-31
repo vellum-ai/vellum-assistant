@@ -1,10 +1,9 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HostProxyClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HostProxyClient")
 
 /// Focused client for posting host proxy execution results back to the gateway.
-@MainActor
 public protocol HostProxyClientProtocol {
     func postBashResult(_ result: HostBashResultPayload) async -> Bool
     func postFileResult(_ result: HostFileResultPayload) async -> Bool
@@ -12,7 +11,6 @@ public protocol HostProxyClientProtocol {
 }
 
 /// Gateway-backed implementation of ``HostProxyClientProtocol``.
-@MainActor
 public struct HostProxyClient: HostProxyClientProtocol {
     nonisolated public init() {}
 

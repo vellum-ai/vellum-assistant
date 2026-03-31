@@ -10,37 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const TEST_DIR = join(tmpdir(), `vellum-skills-test-${crypto.randomUUID()}`);
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const realPlatform = require("../util/platform.js");
-mock.module("../util/platform.js", () => ({
-  ...realPlatform,
-  getRootDir: () => TEST_DIR,
-  getDataDir: () => TEST_DIR,
-
-  getSandboxRootDir: () => join(TEST_DIR, "sandbox"),
-  getSandboxWorkingDir: () => TEST_DIR,
-  getInterfacesDir: () => join(TEST_DIR, "interfaces"),
-  ensureDataDir: () => {},
-  getPidPath: () => join(TEST_DIR, "vellum.pid"),
-  getDbPath: () => join(TEST_DIR, "data", "assistant.db"),
-  getLogPath: () => join(TEST_DIR, "logs", "vellum.log"),
-  getHistoryPath: () => join(TEST_DIR, "history"),
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPlatformName: () => process.platform,
-  getClipboardCommand: () => null,
-  getWorkspaceConfigPath: () => join(TEST_DIR, "config.json"),
-  getWorkspaceSkillsDir: () => join(TEST_DIR, "skills"),
-  getWorkspaceHooksDir: () => join(TEST_DIR, "hooks"),
-  getHooksDir: () => join(TEST_DIR, "hooks"),
-  getWorkspaceDir: () => TEST_DIR,
-  getWorkspacePromptPath: (file: string) => join(TEST_DIR, file),
-  readSessionToken: () => null,
-  normalizeAssistantId: (id: string) => id,
-}));
+const TEST_DIR = process.env.VELLUM_WORKSPACE_DIR!;
 
 const noopLogger = {
   info: () => {},
@@ -91,9 +61,9 @@ describe("skills catalog loading", () => {
   });
 
   afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
   });
 
   test("parses markdown list path entries from SKILLS.md", () => {
@@ -221,9 +191,12 @@ describe("workspace skills", () => {
   });
 
   afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
+    const outsideDir = join(TEST_DIR, "outside");
+    if (existsSync(outsideDir))
+      rmSync(outsideDir, { recursive: true, force: true });
     if (existsSync(WORKSPACE_DIR)) {
       rmSync(WORKSPACE_DIR, { recursive: true, force: true });
     }
@@ -282,9 +255,9 @@ describe("tool manifest detection", () => {
   });
 
   afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
   });
 
   test("attaches toolManifest metadata when valid TOOLS.json is present", () => {
@@ -455,9 +428,9 @@ describe("includes frontmatter parsing", () => {
   });
 
   afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
   });
 
   function writeSkillWithIncludes(skillId: string, includes: string): void {
@@ -553,9 +526,9 @@ describe("bundled browser skill", () => {
   });
 
   afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
   });
 
   test("browser skill appears in full catalog (including bundled)", () => {
@@ -679,9 +652,9 @@ describe("bundled computer-use skill", () => {
   });
 
   afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
   });
 
   test("computer-use skill appears in full catalog (including bundled)", () => {

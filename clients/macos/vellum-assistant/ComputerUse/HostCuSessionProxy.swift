@@ -3,7 +3,7 @@ import Foundation
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HostCuSessionProxy")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HostCuSessionProxy")
 
 /// States tracked by the session overlay UI.
 enum SessionState: Equatable {

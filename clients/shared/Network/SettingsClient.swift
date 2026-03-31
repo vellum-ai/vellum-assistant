@@ -1,13 +1,12 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "SettingsClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "SettingsClient")
 
 /// Focused client for settings-related operations routed through the gateway.
 ///
 /// Covers Vercel API config, model info, Telegram config, and channel
 /// verification status — the endpoints invoked during `SettingsStore.init()`.
-@MainActor
 public protocol SettingsClientProtocol {
     func fetchVercelConfig() async -> VercelApiConfigResponseMessage?
     func saveVercelConfig(apiToken: String) async -> VercelApiConfigResponseMessage?
@@ -19,8 +18,6 @@ public protocol SettingsClientProtocol {
     func setEmbeddingConfig(provider: String, model: String?) async -> EmbeddingConfigMessage?
     func fetchTelegramConfig() async -> TelegramConfigResponseMessage?
     func setTelegramConfig(action: String, botToken: String?, commands: [TelegramConfigRequestCommand]?) async -> TelegramConfigResponseMessage?
-    func fetchDangerouslySkipPermissions() async -> Bool?
-    func setDangerouslySkipPermissions(_ enabled: Bool) async -> Bool
     func setSlackWebhookConfig(action: String, webhookUrl: String?) async -> Bool
     func fetchChannelVerificationStatus(channel: String) async -> ChannelVerificationSessionResponseMessage?
     func sendChannelVerificationSession(
@@ -48,7 +45,6 @@ public protocol SettingsClientProtocol {
 }
 
 /// Gateway-backed implementation of ``SettingsClientProtocol``.
-@MainActor
 public struct SettingsClient: SettingsClientProtocol {
     nonisolated public init() {}
 
@@ -240,43 +236,6 @@ public struct SettingsClient: SettingsClientProtocol {
         } catch {
             log.error("setTelegramConfig error: \(error.localizedDescription, privacy: .public)")
             return nil
-        }
-    }
-
-    public func fetchDangerouslySkipPermissions() async -> Bool? {
-        do {
-            let response = try await GatewayHTTPClient.get(
-                path: "config/permissions/skip", timeout: 10
-            )
-            guard response.isSuccess else {
-                log.error("fetchDangerouslySkipPermissions failed (HTTP \(response.statusCode))")
-                return nil
-            }
-            guard let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],
-                  let enabled = json["enabled"] as? Bool else {
-                return nil
-            }
-            return enabled
-        } catch {
-            log.error("fetchDangerouslySkipPermissions error: \(error.localizedDescription, privacy: .public)")
-            return nil
-        }
-    }
-
-    public func setDangerouslySkipPermissions(_ enabled: Bool) async -> Bool {
-        do {
-            let body: [String: Any] = ["enabled": enabled]
-            let response = try await GatewayHTTPClient.put(
-                path: "config/permissions/skip", json: body, timeout: 10
-            )
-            guard response.isSuccess else {
-                log.error("setDangerouslySkipPermissions failed (HTTP \(response.statusCode))")
-                return false
-            }
-            return true
-        } catch {
-            log.error("setDangerouslySkipPermissions error: \(error.localizedDescription, privacy: .public)")
-            return false
         }
     }
 

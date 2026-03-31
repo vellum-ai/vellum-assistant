@@ -1,18 +1,16 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "InteractionClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "InteractionClient")
 
 /// Focused client for user interaction responses (confirmations, secrets)
 /// routed through the gateway.
-@MainActor
 public protocol InteractionClientProtocol {
     func sendConfirmationResponse(requestId: String, decision: String, selectedPattern: String?, selectedScope: String?) async -> Bool
     func sendSecretResponse(requestId: String, value: String?, delivery: String?) async -> Bool
 }
 
 /// Gateway-backed implementation of ``InteractionClientProtocol``.
-@MainActor
 public struct InteractionClient: InteractionClientProtocol {
     nonisolated public init() {}
 
@@ -41,28 +39,6 @@ public struct InteractionClient: InteractionClientProtocol {
             return true
         } catch {
             log.error("sendConfirmationResponse error: \(error.localizedDescription)")
-            return false
-        }
-    }
-
-    @discardableResult
-    public func sendAcpPermissionResponse(
-        requestId: String,
-        optionId: String
-    ) async -> Bool {
-        do {
-            let body: [String: Any] = [
-                "requestId": requestId,
-                "optionId": optionId,
-            ]
-            let response = try await GatewayHTTPClient.post(path: "acp/permission", json: body, timeout: 10)
-            if !response.isSuccess {
-                log.error("sendAcpPermissionResponse failed (HTTP \(response.statusCode))")
-                return false
-            }
-            return true
-        } catch {
-            log.error("sendAcpPermissionResponse error: \(error.localizedDescription)")
             return false
         }
     }

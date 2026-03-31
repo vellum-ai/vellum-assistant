@@ -19,6 +19,8 @@ export interface PricingUsage {
   cacheCreationInputTokens: number;
   cacheReadInputTokens: number;
   anthropicCacheCreation: AnthropicCacheCreationTokenDetails | null;
+  /** Anthropic fast mode speed indicator from the API response. */
+  speed?: "fast" | "standard" | null;
 }
 
 /**
@@ -36,6 +38,8 @@ export interface UsageEventInput {
   conversationId: string | null;
   runId: string | null;
   requestId: string | null;
+  /** Number of actual LLM API calls represented by this event (defaults to 1). */
+  llmCallCount?: number;
 }
 
 /**

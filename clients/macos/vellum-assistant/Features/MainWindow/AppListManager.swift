@@ -2,7 +2,7 @@ import Foundation
 import os
 import VellumAssistantShared
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppListManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppListManager")
 
 @MainActor
 @Observable
@@ -92,28 +92,19 @@ final class AppListManager {
 
     var apps: [AppItem] = []
 
+    /// Only pinned apps, sorted by pinnedOrder ascending.
+    /// Stored (not computed) so SwiftUI body evaluation is O(1) and views track
+    /// this property directly instead of the broader `apps` array.
+    private(set) var pinnedApps: [AppItem] = []
+
+    /// Apps sorted for display: pinned first (by pinnedOrder ascending), then unpinned by lastOpenedAt descending.
+    /// Stored for the same reason as `pinnedApps`.
+    private(set) var displayApps: [AppItem] = []
+
     /// IDs of apps the user explicitly removed. Prevents daemon sync from re-adding them.
     @ObservationIgnored private var removedAppIds: Set<String> = []
 
     @ObservationIgnored private let fileURL: URL
-
-    /// Only pinned apps, sorted by pinnedOrder ascending.
-    var pinnedApps: [AppItem] {
-        apps.filter(\.isPinned)
-            .sorted { ($0.pinnedOrder ?? 0) < ($1.pinnedOrder ?? 0) }
-    }
-
-    /// Apps sorted for display: pinned first (by pinnedOrder ascending), then unpinned by lastOpenedAt descending.
-    var displayApps: [AppItem] {
-        apps.sorted { a, b in
-            if a.isPinned && b.isPinned {
-                return (a.pinnedOrder ?? 0) < (b.pinnedOrder ?? 0)
-            }
-            if a.isPinned { return true }
-            if b.isPinned { return false }
-            return a.lastOpenedAt > b.lastOpenedAt
-        }
-    }
 
     init() {
         let fileManager = FileManager.default
@@ -303,6 +294,7 @@ final class AppListManager {
         } catch {
             log.error("Failed to save app list: \(error.localizedDescription)")
         }
+        recomputeDerivedState()
     }
 
     private func load() {
@@ -331,8 +323,32 @@ final class AppListManager {
                 save()
                 log.info("Migrated app icons for existing entries")
             }
+            recomputeDerivedState()
         } catch {
             log.error("Failed to load app list: \(error.localizedDescription)")
+        }
+    }
+
+    /// Recompute `pinnedApps` and `displayApps` from the current `apps` array.
+    /// Guarded by equality checks so SwiftUI only invalidates views when the
+    /// derived lists actually change.
+    private func recomputeDerivedState() {
+        let newPinned = apps.filter(\.isPinned)
+            .sorted { ($0.pinnedOrder ?? 0) < ($1.pinnedOrder ?? 0) }
+        if newPinned != pinnedApps {
+            pinnedApps = newPinned
+        }
+
+        let newDisplay = apps.sorted { a, b in
+            if a.isPinned && b.isPinned {
+                return (a.pinnedOrder ?? 0) < (b.pinnedOrder ?? 0)
+            }
+            if a.isPinned { return true }
+            if b.isPinned { return false }
+            return a.lastOpenedAt > b.lastOpenedAt
+        }
+        if newDisplay != displayApps {
+            displayApps = newDisplay
         }
     }
 

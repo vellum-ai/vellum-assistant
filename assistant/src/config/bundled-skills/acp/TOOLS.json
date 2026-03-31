@@ -5,7 +5,7 @@
       "name": "acp_spawn",
       "description": "Spawn an external coding agent (e.g. Claude Code, Codex, Gemini CLI) via ACP to work on a task. The agent runs as a subprocess and streams results back. Use this when you want to delegate a coding task to an external agent that has its own tools, file editing, and terminal access. If ACP is not enabled, follow the setup instructions in SKILL.md to install claude-agent-acp and configure it. The command MUST be 'claude-agent-acp' - NEVER use 'claude', 'claude -p', or 'claude --acp'.",
       "category": "orchestration",
-      "risk": "low",
+      "risk": "high",
       "input_schema": {
         "type": "object",
         "properties": {

@@ -24,64 +24,56 @@ struct DrawerMenuView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            DrawerThemeToggle()
-                .padding(.horizontal, VSpacing.sm)
-
-            VColor.surfaceBase.frame(height: 1)
-                .padding(.vertical, VSpacing.xs)
-
-            if let balance = effectiveBalance {
-                HStack {
-                    Text("$\(balance) remaining")
-                        .font(VFont.bodyMediumDefault)
-                        .foregroundStyle(
-                            isZeroBalance ? VColor.systemNegativeStrong :
-                            isLowBalance ? VColor.systemMidStrong :
-                            VColor.contentDefault
-                        )
-                    Spacer()
-                    if isBillingVisible {
-                        Button("Add funds") { onOpenBilling() }
-                            .font(VFont.labelDefault)
-                            .foregroundStyle(VColor.primaryBase)
-                            .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, VSpacing.sm)
-
-                VColor.surfaceBase.frame(height: 1)
-                    .padding(.vertical, VSpacing.xs)
+        VMenu {
+            VMenuCustomRow {
+                DrawerThemeToggle()
             }
 
-            VStack(alignment: .leading, spacing: 0) {
-                SidebarPrimaryRow(icon: VIcon.settings.rawValue, label: String(localized: "Settings"), action: onSettings)
+            VMenuDivider()
 
+            if let balance = effectiveBalance {
+                VMenuCustomRow {
+                    HStack {
+                        Text("$\(balance) remaining")
+                            .font(VFont.bodyMediumDefault)
+                            .foregroundStyle(
+                                isZeroBalance ? VColor.systemNegativeStrong :
+                                isLowBalance ? VColor.systemMidStrong :
+                                VColor.contentDefault
+                            )
+                        Spacer()
+                        if isBillingVisible {
+                            Button("Add funds") { onOpenBilling() }
+                                .font(VFont.labelDefault)
+                                .foregroundStyle(VColor.primaryBase)
+                                .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                VMenuDivider()
+            }
+
+            VMenuItem(icon: VIcon.settings.rawValue, label: String(localized: "Settings"), action: onSettings)
+
+            VMenuCustomRow {
                 Text("Ask the assistant in chat to help you with any settings you wish to alter.")
                     .font(VFont.labelDefault)
                     .foregroundStyle(VColor.contentDisabled)
-                    .padding(.horizontal, VSpacing.sm)
                     .padding(.top, VSpacing.xs)
+            }
 
-                VColor.surfaceBase.frame(height: 1)
-                    .padding(.vertical, VSpacing.sm)
+            VMenuDivider()
 
-                SidebarPrimaryRow(icon: VIcon.barChart.rawValue, label: String(localized: "Usage"), action: onUsage)
+            VMenuItem(icon: VIcon.barChart.rawValue, label: String(localized: "Usage"), action: onUsage)
+            VMenuItem(icon: VIcon.scrollText.rawValue, label: String(localized: "Logs"), action: onDebug)
 
-                SidebarPrimaryRow(icon: VIcon.scrollText.rawValue, label: String(localized: "Logs"), action: onDebug)
-
-                if authManager.isAuthenticated {
-                    SidebarPrimaryRow(icon: VIcon.logOut.rawValue, label: String(localized: "Log Out"), action: onLogOut)
-                } else {
-                    SidebarPrimaryRow(icon: VIcon.logOut.rawValue, label: String(localized: "Log In"), action: onSignIn)
-                }
+            if authManager.isAuthenticated {
+                VMenuItem(icon: VIcon.logOut.rawValue, label: String(localized: "Log Out"), action: onLogOut)
+            } else {
+                VMenuItem(icon: VIcon.logOut.rawValue, label: String(localized: "Log In"), action: onSignIn)
             }
         }
-        .padding(VSpacing.sm)
-        .background(VColor.surfaceLift)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
-        .shadow(color: VColor.auxBlack.opacity(0.1), radius: 1.5, x: 0, y: 1)
-        .shadow(color: VColor.auxBlack.opacity(0.1), radius: 6, x: 0, y: 4)
         .onReceive(NotificationCenter.default.publisher(for: .localBootstrapCompleted)) { _ in
             bootstrapGeneration += 1
         }

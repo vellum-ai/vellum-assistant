@@ -1,28 +1,14 @@
 /**
- * Pairing request store with TTL and disk persistence.
+ * In-memory pairing request store with TTL.
  *
  * Each pairing request lives for at most TTL_MS (5 minutes) before
  * being swept as expired. Status transitions:
  *   registered → pending → approved | denied | expired
- *
- * Entries are persisted to ~/.vellum/protected/pairing-requests.json
- * using the same atomic-write pattern as approved-devices-store.ts
- * so that device bindings survive daemon restarts.
  */
 
 import { createHash, timingSafeEqual } from "node:crypto";
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs";
-import { dirname, join } from "node:path";
 
 import { getLogger } from "../util/logger.js";
-import { getRootDir } from "../util/platform.js";
 
 const log = getLogger("pairing-store");
 
@@ -59,60 +45,11 @@ function timingSafeCompare(a: string, b: string): boolean {
   return timingSafeEqual(bufA, bufB);
 }
 
-interface PairingStoreFile {
-  version: 1;
-  requests: PairingRequest[];
-}
-
-function getStorePath(): string {
-  return join(getRootDir(), "protected", "pairing-requests.json");
-}
-
-function loadFromDisk(): Map<string, PairingRequest> {
-  const path = getStorePath();
-  if (!existsSync(path)) {
-    return new Map();
-  }
-  try {
-    const raw = readFileSync(path, "utf-8");
-    const data = JSON.parse(raw) as PairingStoreFile;
-    if (data.version !== 1 || !Array.isArray(data.requests)) {
-      log.warn("Invalid pairing-requests.json format, starting fresh");
-      return new Map();
-    }
-    const map = new Map<string, PairingRequest>();
-    for (const entry of data.requests) {
-      map.set(entry.pairingRequestId, entry);
-    }
-    return map;
-  } catch (err) {
-    log.error({ err }, "Failed to load pairing-requests.json");
-    return new Map();
-  }
-}
-
-function saveToDisk(requests: Map<string, PairingRequest>): void {
-  const path = getStorePath();
-  const dir = dirname(path);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
-  const data: PairingStoreFile = {
-    version: 1,
-    requests: Array.from(requests.values()),
-  };
-  const tmpPath = path + ".tmp." + process.pid;
-  writeFileSync(tmpPath, JSON.stringify(data, null, 2), { mode: 0o600 });
-  renameSync(tmpPath, path);
-  chmodSync(path, 0o600);
-}
-
 export class PairingStore {
   private requests = new Map<string, PairingRequest>();
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
 
   start(): void {
-    this.requests = loadFromDisk();
     this.sweepTimer = setInterval(() => this.sweep(), SWEEP_INTERVAL_MS);
   }
 
@@ -168,8 +105,6 @@ export class PairingStore {
       localLanUrl: params.localLanUrl ?? null,
       createdAt: Date.now(),
     });
-    this.persist();
-
     log.info(
       { pairingRequestId: params.pairingRequestId },
       "Pairing request registered",
@@ -226,8 +161,6 @@ export class PairingStore {
     if (entry.status === "registered") {
       entry.status = "pending";
     }
-    this.persist();
-
     return { ok: true, entry };
   }
 
@@ -242,7 +175,6 @@ export class PairingStore {
     if (!entry) return null;
     entry.status = "approved";
     entry.bearerToken = bearerToken;
-    this.persist();
     return entry;
   }
 
@@ -253,7 +185,6 @@ export class PairingStore {
     const entry = this.requests.get(pairingRequestId);
     if (!entry) return null;
     entry.status = "denied";
-    this.persist();
     return entry;
   }
 
@@ -274,14 +205,6 @@ export class PairingStore {
     return timingSafeCompare(entry.hashedPairingSecret, hashedSecret);
   }
 
-  private persist(): void {
-    try {
-      saveToDisk(this.requests);
-    } catch (err) {
-      log.error({ err }, "Failed to persist pairing requests to disk");
-    }
-  }
-
   private sweep(): void {
     const now = Date.now();
     let changed = false;
@@ -300,7 +223,7 @@ export class PairingStore {
       }
     }
     if (changed) {
-      this.persist();
+      log.debug("Sweep completed with changes");
     }
   }
 }

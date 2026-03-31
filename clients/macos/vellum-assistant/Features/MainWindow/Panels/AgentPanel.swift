@@ -7,28 +7,24 @@ import VellumAssistantShared
 /// (e.g. inside IntelligencePanel).
 struct AgentPanelContent: View {
     var onInvokeSkill: ((SkillInfo) -> Void)?
+    var onCreateSkill: (() -> Void)?
     var onSkillsChanged: (() -> Void)?
     let connectionManager: GatewayConnectionManager
+    @Binding var focusedSkillId: String?
 
     @State private var skillsManager: SkillsManager
     @State private var selectedInstalledSkillId: String?
     @State private var skillToDelete: SkillInfo?
-    @State private var selectedCategory: SkillCategory?
-    @State private var globalSkillSearchQuery = ""
-    @State private var showAllSkills = false
+    @AppStorage("skillsBannerDismissed") private var bannerDismissed = false
 
-    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, connectionManager: GatewayConnectionManager) {
+    init(onInvokeSkill: ((SkillInfo) -> Void)? = nil, onCreateSkill: (() -> Void)? = nil, onSkillsChanged: (() -> Void)? = nil, connectionManager: GatewayConnectionManager, focusedSkillId: Binding<String?> = .constant(nil)) {
         self.onInvokeSkill = onInvokeSkill
+        self.onCreateSkill = onCreateSkill
         self.onSkillsChanged = onSkillsChanged
         self.connectionManager = connectionManager
+        _focusedSkillId = focusedSkillId
         _skillsManager = State(wrappedValue: SkillsManager(connectionManager: connectionManager))
     }
-
-    private var normalizedSkillQuery: String {
-        globalSkillSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    }
-
-    private var hasActiveSearch: Bool { !normalizedSkillQuery.isEmpty }
 
     private var isShowingDetail: Bool {
         selectedInstalledSkillId != nil
@@ -37,6 +33,42 @@ struct AgentPanelContent: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if !isShowingDetail {
+                if !bannerDismissed {
+                    HStack(spacing: VSpacing.xs) {
+                        VIconView(.sparkles, size: 14)
+                            .foregroundStyle(VColor.primaryBase)
+                        Text("**Tip:** You can [create a new custom skill](vellum://create-skill) by describing what you want in chat.")
+                            .tint(VColor.primaryBase)
+                        Spacer()
+                        Button(action: {
+                            withAnimation(VAnimation.fast) { bannerDismissed = true }
+                        }) {
+                            VIconView(.x, size: 12)
+                                .foregroundStyle(VColor.contentTertiary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Dismiss tip")
+                    }
+                    .font(VFont.bodyMediumDefault)
+                    .foregroundStyle(VColor.contentDefault)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, VSpacing.md)
+                    .padding(.vertical, VSpacing.sm)
+                    .background(VColor.primaryBase.opacity(0.10))
+                    .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: VRadius.md)
+                            .stroke(VColor.primaryBase.opacity(0.18), lineWidth: 1)
+                    )
+                    .environment(\.openURL, OpenURLAction { _ in
+                        onCreateSkill?()
+                        return .handled
+                    })
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Tip: You can create a new custom skill by describing what you want in chat.")
+                    .accessibilityAddTraits(.isButton)
+                    .padding(.bottom, VSpacing.lg)
+                }
                 filterBar
             }
             HStack(alignment: .top, spacing: VSpacing.xxl) {
@@ -50,6 +82,16 @@ struct AgentPanelContent: View {
         }
         .onAppear {
             skillsManager.fetchSkills()
+            if let skillId = focusedSkillId {
+                selectedInstalledSkillId = skillId
+                focusedSkillId = nil
+            }
+        }
+        .onChange(of: focusedSkillId) {
+            if let skillId = focusedSkillId {
+                selectedInstalledSkillId = skillId
+                focusedSkillId = nil
+            }
         }
         .onChange(of: skillsManager.skills.map(\.id)) {
             onSkillsChanged?()
@@ -58,21 +100,9 @@ struct AgentPanelContent: View {
                 selectedInstalledSkillId = nil
             }
         }
-        .onChange(of: globalSkillSearchQuery) {
+        .onChange(of: skillsManager.filteredSkills.map(\.id)) {
             if let selectedId = selectedInstalledSkillId,
-               !filteredSkills.contains(where: { $0.id == selectedId }) {
-                selectedInstalledSkillId = nil
-            }
-        }
-        .onChange(of: selectedCategory) {
-            if let selectedId = selectedInstalledSkillId,
-               !filteredSkills.contains(where: { $0.id == selectedId }) {
-                selectedInstalledSkillId = nil
-            }
-        }
-        .onChange(of: showAllSkills) {
-            if let selectedId = selectedInstalledSkillId,
-               !filteredSkills.contains(where: { $0.id == selectedId }) {
+               !skillsManager.filteredSkills.contains(where: { $0.id == selectedId }) {
                 selectedInstalledSkillId = nil
             }
         }
@@ -95,23 +125,13 @@ struct AgentPanelContent: View {
     @ViewBuilder
     private var filterBar: some View {
         HStack(spacing: VSpacing.sm) {
-            VSearchBar(placeholder: "Search Skills", text: $globalSkillSearchQuery)
-            filterPill(label: "Installed", isActive: !showAllSkills) {
-                withAnimation(VAnimation.fast) { showAllSkills = false }
-            }
-            filterPill(label: "All", isActive: showAllSkills) {
-                withAnimation(VAnimation.fast) { showAllSkills = true }
-            }
+            VSearchBar(placeholder: "Search Skills", text: $skillsManager.searchQuery)
+            VDropdown(
+                options: SkillFilter.allCases.map { VDropdownOption(label: $0.rawValue, value: $0, icon: $0.icon) },
+                selection: $skillsManager.skillFilter,
+                maxWidth: 130
+            )
         }
-    }
-
-    private func filterPill(label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
-        VButton(
-            label: label,
-            style: isActive ? .primary : .ghost,
-            size: .pill,
-            action: action
-        )
     }
 
     // MARK: - Category Sidebar
@@ -126,65 +146,21 @@ struct AgentPanelContent: View {
     }
 
     private func categorySidebarRow(icon: String, label: String, category: SkillCategory?) -> some View {
-        VSidebarRow(
+        VNavItem(
             icon: icon,
             label: label,
-            isActive: selectedCategory == category,
+            isActive: skillsManager.selectedCategory == category,
             action: {
-                withAnimation(VAnimation.fast) { selectedCategory = category }
+                withAnimation(VAnimation.fast) { skillsManager.selectedCategory = category }
             }
         ) {
-            Text("\(categoryCount(for: category))")
+            let count = category.map { skillsManager.categoryCounts[$0, default: 0] } ?? skillsManager.searchFilteredCount
+            Text("\(count)")
                 .font(VFont.labelDefault)
                 .foregroundStyle(VColor.contentTertiary)
         }
         .accessibilityLabel("\(label) filter")
-        .accessibilityAddTraits(selectedCategory == category ? .isSelected : [])
-    }
-
-    private func categoryCount(for category: SkillCategory?) -> Int {
-        let base = searchFilteredSkills
-        guard let category else { return base.count }
-        return base.filter { inferCategory($0) == category }.count
-    }
-
-    // MARK: - Filtering
-
-    private var userSkills: [SkillInfo] {
-        if showAllSkills {
-            return skillsManager.skills
-        }
-        return skillsManager.skills.filter { $0.isInstalled }
-    }
-
-    /// Skills filtered by search query only.
-    private var searchFilteredSkills: [SkillInfo] {
-        guard hasActiveSearch else { return userSkills }
-        let query = normalizedSkillQuery
-        return userSkills.filter {
-            $0.name.lowercased().contains(query) ||
-            $0.description.lowercased().contains(query) ||
-            $0.id.lowercased().contains(query) ||
-            sourceLabel($0.source).lowercased().contains(query)
-        }
-    }
-
-    /// Skills filtered by both search and selected category, installed first then alphabetical.
-    private var filteredSkills: [SkillInfo] {
-        let base = searchFilteredSkills
-        let filtered: [SkillInfo]
-        if let category = selectedCategory {
-            filtered = base.filter { inferCategory($0) == category }
-        } else {
-            filtered = base
-        }
-        return filtered.sorted { a, b in
-            if a.isInstalled != b.isInstalled { return a.isInstalled }
-            let aManaged = (a.source == "managed" || a.source == "clawhub")
-            let bManaged = (b.source == "managed" || b.source == "clawhub")
-            if a.isInstalled && b.isInstalled && aManaged != bManaged { return aManaged }
-            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-        }
+        .accessibilityAddTraits(skillsManager.selectedCategory == category ? .isSelected : [])
     }
 
     // MARK: - Content View
@@ -192,7 +168,7 @@ struct AgentPanelContent: View {
     @ViewBuilder
     private var contentView: some View {
         if let selectedId = selectedInstalledSkillId,
-           let skill = filteredSkills.first(where: { $0.id == selectedId }) {
+           let skill = skillsManager.filteredSkills.first(where: { $0.id == selectedId }) {
             SkillDetailView(
                 skill: skill,
                 skillsManager: skillsManager,
@@ -205,29 +181,29 @@ struct AgentPanelContent: View {
                     skillToDelete = skill
                 }
             )
-        } else if skillsManager.isLoading && userSkills.isEmpty {
+        } else if skillsManager.isLoading && skillsManager.baseSkillsEmpty {
             VStack {
                 Spacer()
                 VLoadingIndicator()
                 Spacer()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if filteredSkills.isEmpty {
+        } else if skillsManager.filteredSkills.isEmpty {
             VEmptyState(
-                title: showAllSkills
+                title: skillsManager.skillFilter == .all
                     ? "No Skills Available"
-                    : (selectedCategory == nil ? "No Skills Installed" : "No \(selectedCategory!.displayName) Skills"),
-                subtitle: showAllSkills
+                    : (skillsManager.selectedCategory == nil ? "No Skills Installed" : "No \(skillsManager.selectedCategory!.displayName) Skills"),
+                subtitle: skillsManager.skillFilter == .all
                     ? "Check your connection to the Vellum catalog."
-                    : (selectedCategory == nil
+                    : (skillsManager.selectedCategory == nil
                         ? "Ask your assistant in chat to search for and install new skills."
                         : "Try selecting a different category or clearing the filter."),
-                icon: showAllSkills ? VIcon.cloudOff.rawValue : VIcon.zap.rawValue
+                icon: skillsManager.skillFilter == .all ? VIcon.cloudOff.rawValue : VIcon.zap.rawValue
             )
         } else {
             ScrollView {
                 LazyVStack(spacing: VSpacing.sm) {
-                    ForEach(filteredSkills) { skill in
+                    ForEach(skillsManager.filteredSkills) { skill in
                         if skill.isAvailable {
                             AvailableSkillItemRow(
                                 skill: skill,
@@ -254,23 +230,6 @@ struct AgentPanelContent: View {
             .scrollContentBackground(.hidden)
         }
     }
-
-    private func sourceLabel(_ source: String) -> String {
-        switch source {
-        case "bundled":
-            return "Core"
-        case "managed", "clawhub":
-            return "Installed"
-        case "workspace":
-            return "Created"
-        case "extra":
-            return "Extra"
-        case "catalog":
-            return "Available"
-        default:
-            return source.replacingOccurrences(of: "-", with: " ").capitalized
-        }
-    }
 }
 
 // MARK: - Skill Item Row
@@ -284,12 +243,8 @@ struct SkillItemRow: View {
         skill.source == "managed" || skill.source == "clawhub"
     }
 
-    private var category: SkillCategory {
-        inferCategory(skill)
-    }
-
     var body: some View {
-        VCard(padding: VSpacing.lg, action: onSelect) {
+        VCard(action: onSelect) {
             HStack(alignment: .center, spacing: VSpacing.lg) {
                 if let emoji = skill.emoji, !emoji.isEmpty {
                     Text(emoji)
@@ -304,7 +259,7 @@ struct SkillItemRow: View {
                             .lineLimit(1)
                             .truncationMode(.tail)
 
-                        VSkillTypePill(source: skill.source)
+                        skillTag(for: skill.source)
 
                         Spacer()
                     }
@@ -321,7 +276,6 @@ struct SkillItemRow: View {
                         label: "Delete",
                         iconOnly: VIcon.trash.rawValue,
                         style: .dangerGhost,
-                        size: .compact,
                         action: onDelete
                     )
                     .accessibilityLabel("Uninstall skill")
@@ -356,7 +310,7 @@ struct AvailableSkillItemRow: View {
                         .foregroundStyle(VColor.contentSecondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
-                    VSkillTypePill(source: skill.source)
+                    skillTag(for: skill.source)
                     Spacer()
                 }
                 Text(skill.description)
@@ -371,7 +325,6 @@ struct AvailableSkillItemRow: View {
                 VButton(
                     label: "Install",
                     style: .outlined,
-                    size: .compact,
                     action: onInstall
                 )
             }
@@ -385,5 +338,24 @@ struct AvailableSkillItemRow: View {
                     style: StrokeStyle(lineWidth: 2, dash: [6, 4])
                 )
         )
+    }
+}
+
+// MARK: - Skill Tag Helper
+
+private func skillTag(for source: String) -> VTag {
+    switch source {
+    case "bundled":
+        return VTag("Core", color: VColor.contentDefault, icon: .package)
+    case "managed", "clawhub":
+        return VTag("Installed", color: VColor.systemPositiveStrong, icon: .circleCheck)
+    case "workspace":
+        return VTag("Created", color: VColor.contentSecondary, icon: .sparkles)
+    case "extra":
+        return VTag("Extra", color: VColor.contentTertiary, icon: .puzzle)
+    case "catalog":
+        return VTag("Available", color: VColor.funTeal, icon: .arrowDownToLine)
+    default:
+        return VTag(source.capitalized, color: VColor.contentTertiary, icon: .puzzle)
     }
 }

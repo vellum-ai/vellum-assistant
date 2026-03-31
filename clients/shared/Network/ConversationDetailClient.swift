@@ -1,16 +1,14 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationDetailClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationDetailClient")
 
 /// Focused client for fetching a single conversation summary through the gateway.
-@MainActor
 public protocol ConversationDetailClientProtocol {
     func fetchConversation(conversationId: String) async -> ConversationListResponseItem?
 }
 
 /// Gateway-backed implementation of ``ConversationDetailClientProtocol``.
-@MainActor
 public struct ConversationDetailClient: ConversationDetailClientProtocol {
     nonisolated public init() {}
 
@@ -34,7 +32,10 @@ public struct ConversationDetailClient: ConversationDetailClientProtocol {
     }
 
     private func conversationSummary(from conversation: ConversationsListResponse.Conversation) -> ConversationListResponseItem {
-        ConversationListResponseItem(
+        // Old-daemon fallback: derive groupId from isPinned when the server doesn't send groupId.
+        // Uses the literal "system:pinned" to avoid a cross-module dependency on ConversationGroup.
+        let groupId = conversation.groupId ?? (conversation.isPinned == true ? "system:pinned" : nil)
+        return ConversationListResponseItem(
             id: conversation.id,
             title: conversation.title,
             createdAt: conversation.createdAt,
@@ -48,6 +49,7 @@ public struct ConversationDetailClient: ConversationDetailClientProtocol {
             assistantAttention: conversation.assistantAttention,
             displayOrder: conversation.displayOrder,
             isPinned: conversation.isPinned,
+            groupId: groupId,
             forkParent: conversation.forkParent
         )
     }

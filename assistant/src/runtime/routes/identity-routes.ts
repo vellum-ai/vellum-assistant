@@ -9,10 +9,12 @@ import { fileURLToPath } from "node:url";
 
 import { z } from "zod";
 
-import { getBaseDataDir } from "../../config/env-registry.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getMaxMigrationVersion } from "../../memory/migrations/registry.js";
-import { getWorkspacePromptPath } from "../../util/platform.js";
+import {
+  getWorkspaceDir,
+  getWorkspacePromptPath,
+} from "../../util/platform.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
 import { httpError } from "../http-errors.js";
@@ -28,8 +30,8 @@ interface DiskSpaceInfo {
 
 function getDiskSpaceInfo(): DiskSpaceInfo | null {
   try {
-    const baseDataDir = getBaseDataDir();
-    const diskPath = baseDataDir && existsSync(baseDataDir) ? baseDataDir : "/";
+    const wsDir = getWorkspaceDir();
+    const diskPath = existsSync(wsDir) ? wsDir : "/";
     const stats = statfsSync(diskPath);
     const totalBytes = stats.bsize * stats.blocks;
     const freeBytes = stats.bsize * stats.bavail;
@@ -250,6 +252,25 @@ export function identityRouteDefinitions(): RouteDefinition[] {
       summary: "Detailed health check",
       description:
         "Returns runtime health including version, disk, memory, CPU, and migration status.",
+      tags: ["system"],
+      responseBody: z.object({
+        status: z.string(),
+        timestamp: z.string(),
+        version: z.string(),
+        disk: z.object({}).passthrough(),
+        memory: z.object({}).passthrough(),
+        cpu: z.object({}).passthrough(),
+        migrations: z.object({}).passthrough(),
+      }),
+    },
+    {
+      endpoint: "healthz",
+      method: "GET",
+      handler: () => handleDetailedHealth(),
+      policyKey: "health",
+      summary: "Detailed health check (alias)",
+      description:
+        "Alias for /v1/health. Returns runtime health including version, disk, memory, CPU, and migration status.",
       tags: ["system"],
       responseBody: z.object({
         status: z.string(),

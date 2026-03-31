@@ -10,25 +10,9 @@
  *   5. Second consume attempt is denied (one-time use)
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-
-const testDir = mkdtempSync(join(tmpdir(), "guardian-action-grant-e2e-"));
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ── Platform + logger mocks ─────────────────────────────────────────
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -44,7 +28,7 @@ import {
   createCallSession,
   createPendingQuestion,
 } from "../calls/call-store.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   createGuardianActionRequest,
   resolveGuardianActionRequest,
@@ -58,15 +42,6 @@ import type { ApprovalConversationGenerator } from "../runtime/http-types.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 
 initializeDb();
-
-afterAll(() => {
-  resetDb();
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 // ── Constants ───────────────────────────────────────────────────────
 

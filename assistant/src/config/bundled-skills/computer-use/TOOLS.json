@@ -23,7 +23,7 @@
       "name": "computer_use_click",
       "description": "Click an element on screen. Prefer element_id (from the accessibility tree) over x/y coordinates.",
       "category": "computer-use",
-      "risk": "low",
+      "risk": "medium",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -62,7 +62,7 @@
       "name": "computer_use_type_text",
       "description": "Type text at the current cursor position. First click a text field (by element_id) to focus it, then call this tool. If a field shows 'FOCUSED', skip the click.",
       "category": "computer-use",
-      "risk": "low",
+      "risk": "medium",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -88,7 +88,7 @@
       "name": "computer_use_key",
       "description": "Press a key or keyboard shortcut. Supported: enter, tab, escape, backspace, delete, up, down, left, right, space, cmd+a, cmd+c, cmd+v, cmd+z, cmd+tab, cmd+w, shift+tab, option+tab",
       "category": "computer-use",
-      "risk": "low",
+      "risk": "medium",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -114,7 +114,7 @@
       "name": "computer_use_scroll",
       "description": "Scroll within an element by its [ID], or at raw screen coordinates as fallback.",
       "category": "computer-use",
-      "risk": "low",
+      "risk": "medium",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -157,7 +157,7 @@
       "name": "computer_use_drag",
       "description": "Drag from one element or position to another. Use for moving files, resizing windows, rearranging items, or adjusting sliders.",
       "category": "computer-use",
-      "risk": "low",
+      "risk": "medium",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -229,7 +229,7 @@
       "name": "computer_use_open_app",
       "description": "Open or switch to a macOS application by name. Preferred over cmd+tab for switching apps - more reliable and explicit.",
       "category": "computer-use",
-      "risk": "low",
+      "risk": "medium",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -255,7 +255,7 @@
       "name": "computer_use_run_applescript",
       "description": "Run an AppleScript command. Prefer this over click/type when possible - it doesn't move the cursor or interrupt the user. Never use 'do shell script' inside AppleScript (blocked for security).",
       "category": "computer-use",
-      "risk": "low",
+      "risk": "medium",
       "input_schema": {
         "type": "object",
         "properties": {

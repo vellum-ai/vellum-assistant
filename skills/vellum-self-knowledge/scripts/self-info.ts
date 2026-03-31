@@ -29,6 +29,19 @@ const MODEL_DISPLAY_NAMES: Record<string, string> = {
   "accounts/fireworks/models/kimi-k2p5": "Kimi K2.5",
   "x-ai/grok-4": "Grok 4",
   "x-ai/grok-4.20-beta": "Grok 4.20 Beta",
+  "deepseek/deepseek-r1-0528": "DeepSeek R1",
+  "deepseek/deepseek-chat-v3-0324": "DeepSeek V3",
+  "qwen/qwen3.5-plus-02-15": "Qwen 3.5 Plus",
+  "qwen/qwen3.5-397b-a17b": "Qwen 3.5 397B",
+  "qwen/qwen3.5-flash-02-23": "Qwen 3.5 Flash",
+  "qwen/qwen3-coder-next": "Qwen 3 Coder",
+  "moonshotai/kimi-k2.5": "Kimi K2.5",
+  "mistralai/mistral-medium-3": "Mistral Medium 3",
+  "mistralai/mistral-small-2603": "Mistral Small 4",
+  "mistralai/devstral-2512": "Devstral 2",
+  "meta-llama/llama-4-maverick": "Llama 4 Maverick",
+  "meta-llama/llama-4-scout": "Llama 4 Scout",
+  "amazon/nova-pro-v1": "Amazon Nova Pro",
 };
 
 const PROVIDER_DISPLAY_NAMES: Record<string, string> = {

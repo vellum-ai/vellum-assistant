@@ -35,6 +35,9 @@ export async function handleRecordLifecycleEvent(
   }
 
   const event = recordLifecycleEvent(eventName);
+  if (!event) {
+    return Response.json({ skipped: true });
+  }
   log.info({ eventName, eventId: event.id }, "Recorded lifecycle event");
 
   return Response.json({ id: event.id, event_name: event.eventName });
@@ -55,10 +58,19 @@ export function telemetryRouteDefinitions(): RouteDefinition[] {
       requestBody: z.object({
         event_name: z.string().describe("Event name: app_open or hatch"),
       }),
-      responseBody: z.object({
-        id: z.string().describe("Event ID"),
-        event_name: z.string(),
-      }),
+      responseBody: z.union([
+        z.object({
+          id: z.string().describe("Event ID"),
+          event_name: z.string(),
+        }),
+        z.object({
+          skipped: z
+            .literal(true)
+            .describe(
+              "Event skipped due to usage data collection being disabled",
+            ),
+        }),
+      ]),
       handler: async ({ req }) => handleRecordLifecycleEvent(req),
     },
   ];

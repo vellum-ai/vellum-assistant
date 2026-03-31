@@ -205,7 +205,7 @@ function makeSystemPrompt(size: "small" | "production" = "small"): string {
     "### OAuth Setup",
     "Most integrations use OAuth for authentication.",
     "Guide the user through the OAuth flow when setting up a new integration:",
-    "1. Navigate to Settings > Integrations",
+    "1. Navigate to Settings > Models & Services",
     "2. Click 'Connect' for the desired service",
     "3. Authorize in the browser popup",
     "4. Confirm the connection is active",
@@ -215,85 +215,6 @@ function makeSystemPrompt(size: "small" | "production" = "small"): string {
     "The config lives at ~/.vellum/config.json.",
     "Each MCP server entry requires: name, command, args, and optional env.",
   );
-
-  // Dynamic skills catalog (~5K chars)
-  sections.push("", "## Available Skills", "<available_skills>");
-  const skillCategories = [
-    {
-      id: "gmail",
-      name: "Gmail",
-      desc: "Send, search, draft, and manage Gmail messages",
-    },
-    {
-      id: "calendar",
-      name: "Google Calendar",
-      desc: "Create, list, update, and delete calendar events",
-    },
-    {
-      id: "slack",
-      name: "Slack",
-      desc: "Send messages, search channels, manage threads",
-    },
-    { id: "contacts", name: "Contacts", desc: "Search and manage contacts" },
-    {
-      id: "tasks",
-      name: "Tasks",
-      desc: "Create, list, update, and complete tasks",
-    },
-    {
-      id: "browser",
-      name: "Browser",
-      desc: "Navigate web pages, take screenshots, interact with web content",
-    },
-    {
-      id: "schedule",
-      name: "Schedule",
-      desc: "Set reminders and schedule recurring tasks",
-    },
-    {
-      id: "messaging",
-      name: "Messaging",
-      desc: "Send iMessage and SMS messages",
-    },
-    {
-      id: "sequences",
-      name: "Sequences",
-      desc: "Create and manage multi-step automation workflows",
-    },
-    {
-      id: "playbooks",
-      name: "Playbooks",
-      desc: "Execute pre-defined operational playbooks",
-    },
-    {
-      id: "notes",
-      name: "Notes",
-      desc: "Create and manage notes in Apple Notes",
-    },
-    { id: "music", name: "Music", desc: "Control Apple Music playback" },
-    {
-      id: "photos",
-      name: "Photos",
-      desc: "Search and manage photos in Apple Photos",
-    },
-    {
-      id: "maps",
-      name: "Maps",
-      desc: "Search locations, get directions, find nearby places",
-    },
-    {
-      id: "weather",
-      name: "Weather",
-      desc: "Get current weather and forecasts",
-    },
-  ];
-  for (const skill of skillCategories) {
-    sections.push(
-      `  <skill id="${skill.id}" name="${skill.name}" description="${skill.desc}" ` +
-        `credential_setup="oauth" enabled="true" />`,
-    );
-  }
-  sections.push("</available_skills>");
 
   // Attachment handling (~1K chars)
   sections.push(

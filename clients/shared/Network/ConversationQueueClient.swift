@@ -1,16 +1,14 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationQueueClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationQueueClient")
 
 /// Focused client for message queue operations routed through the gateway.
-@MainActor
 public protocol ConversationQueueClientProtocol {
     func deleteQueuedMessage(conversationId: String, requestId: String) async -> Bool
 }
 
 /// Gateway-backed implementation of ``ConversationQueueClientProtocol``.
-@MainActor
 public struct ConversationQueueClient: ConversationQueueClientProtocol {
     nonisolated public init() {}
 

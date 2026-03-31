@@ -1,7 +1,8 @@
-import VellumAssistantShared
+import AVFoundation
 import Foundation
 import Speech
 import SwiftUI
+import VellumAssistantShared
 
 @Observable
 @MainActor
@@ -56,7 +57,7 @@ final class JITPermissionManager {
 
         var technicalDetails: String {
             switch self {
-            case .microphone: return "Grants access to the system microphone via the Speech Recognition permission. Used only during voice input activation (Fn key hold). Audio is processed locally by Apple's Speech Framework and transcribed text is sent to Claude for processing."
+            case .microphone: return "Grants microphone access for audio capture and speech recognition for transcription. Used only during voice input activation. Audio is processed locally by Apple's Speech Framework and transcribed text is sent to Claude for processing."
             case .accessibility: return "Grants Accessibility API access (AXUIElement) allowing programmatic control of UI elements. Required for computer control features like clicking buttons, typing text, and navigating applications on your behalf. Access is limited to user-initiated tasks."
             case .screenCapture: return "Grants Screen Recording permission allowing the app to capture screenshots of your display. Used during computer control sessions to provide visual context to Claude. Captures are transient and used only for task execution."
             }
@@ -79,9 +80,10 @@ final class JITPermissionManager {
             // User previously chose Always Allow — skip the dialog but still verify OS permission.
             // If the OS permission was later revoked, trigger the grant flow directly without showing the dialog.
             switch type {
-            case .microphone:
-                if SFSpeechRecognizer.authorizationStatus() == .authorized { return true }
-            case .accessibility:
+                case .microphone:
+                    if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+                        && SFSpeechRecognizer.authorizationStatus() == .authorized { return true }
+                case .accessibility:
                 if PermissionManager.accessibilityStatus(prompt: false) == .granted { return true }
             case .screenCapture:
                 if CGPreflightScreenCaptureAccess() { return true }
@@ -94,7 +96,8 @@ final class JITPermissionManager {
 
         switch type {
         case .microphone:
-            if SFSpeechRecognizer.authorizationStatus() == .authorized { return true }
+            if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+                && SFSpeechRecognizer.authorizationStatus() == .authorized { return true }
             activePermissionRequest = .microphone
             return false
         case .accessibility:
@@ -114,6 +117,7 @@ final class JITPermissionManager {
         if always { setAlwaysAllowed(type) }
         switch type {
         case .microphone:
+            AVCaptureDevice.requestAccess(for: .audio) { _ in }
             SFSpeechRecognizer.requestAuthorization { _ in }
             microphoneRequested = true
         case .accessibility:

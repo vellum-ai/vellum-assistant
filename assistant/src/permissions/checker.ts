@@ -8,6 +8,7 @@ import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
 import { indexCatalogById } from "../skills/include-graph.js";
 import {
   isSkillSourcePath,
+  normalizeDirPath,
   normalizeFilePath,
 } from "../skills/path-classifier.js";
 import { computeTransitiveSkillVersionHash } from "../skills/transitive-version-hash.js";
@@ -18,6 +19,7 @@ import {
   looksLikePathOnlyInput,
 } from "../tools/network/url-safety.js";
 import { getTool } from "../tools/registry.js";
+import { getWorkspaceHooksDir } from "../util/platform.js";
 import {
   buildShellAllowlistOptions,
   buildShellCommandCandidates,
@@ -204,11 +206,6 @@ const LOW_RISK_GIT_SUBCOMMANDS = new Set([
  * (e.g. `assistant oauth token`) are matched by walking the positional args.
  */
 function classifyAssistantSubcommand(args: string[]): RiskLevel {
-  // `--help` on any subcommand is read-only, always Low risk.
-  // Only treat `--help` / `-h` as help flags when they are actual flags,
-  // not values consumed by other options (e.g. `--service --help`).
-  if (hasAssistantHelpFlag(args)) return RiskLevel.Low;
-
   const sub = firstPositionalArg(args);
   if (!sub) return RiskLevel.Low;
 
@@ -231,34 +228,23 @@ function classifyAssistantSubcommand(args: string[]): RiskLevel {
   if (sub === "credentials") {
     const credSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
     if (credSub === "reveal") return RiskLevel.High;
+    if (credSub === "set" || credSub === "delete") return RiskLevel.High;
+    return RiskLevel.Low;
+  }
+
+  if (sub === "keys") {
+    const keysSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
+    if (keysSub === "set" || keysSub === "delete") return RiskLevel.High;
+    return RiskLevel.Low;
+  }
+
+  if (sub === "trust") {
+    const trustSub = firstPositionalArg(args.slice(args.indexOf(sub) + 1));
+    if (trustSub === "remove" || trustSub === "clear") return RiskLevel.High;
     return RiskLevel.Low;
   }
 
   return RiskLevel.Low;
-}
-
-// Assistant options that consume the next token as a value. Include elevated
-// subcommand flags so help-token lookalikes in value position don't downgrade
-// risk (e.g. `assistant credentials reveal <id> --service --help`).
-const ASSISTANT_VALUE_FLAGS = new Set(["--service", "--field", "--set"]);
-
-function hasAssistantHelpFlag(args: string[]): boolean {
-  // Stop option parsing at `--`; tokens after are positional args.
-  const ddIndex = args.indexOf("--");
-  const flagArgs = ddIndex === -1 ? args : args.slice(0, ddIndex);
-
-  for (let i = 0; i < flagArgs.length; i++) {
-    const arg = flagArgs[i];
-
-    if (arg === "--help" || arg === "-h") return true;
-
-    // `--flag=value` already contains its value in the same token.
-    if (arg.startsWith("--") && arg.includes("=")) continue;
-
-    if (ASSISTANT_VALUE_FLAGS.has(arg)) i++;
-  }
-
-  return false;
 }
 
 // Commands that wrap another program — the real program appears as the first
@@ -729,6 +715,19 @@ async function classifyRiskUncached(
     ) {
       return RiskLevel.High;
     }
+    if (filePath) {
+      const normalizedHooksDir = normalizeDirPath(getWorkspaceHooksDir());
+      const normalizedPath = normalizeFilePath(
+        resolve(workingDir ?? process.cwd(), filePath),
+      );
+      const hooksDirNoTrailingSlash = normalizedHooksDir.slice(0, -1);
+      if (
+        normalizedPath === hooksDirNoTrailingSlash ||
+        normalizedPath.startsWith(normalizedHooksDir)
+      ) {
+        return RiskLevel.High;
+      }
+    }
     return RiskLevel.Low;
   }
   if (toolName === "web_search") return RiskLevel.Low;
@@ -772,6 +771,17 @@ async function classifyRiskUncached(
       isSkillSourcePath(resolve(filePath), getConfig().skills.load.extraDirs)
     ) {
       return RiskLevel.High;
+    }
+    if (filePath) {
+      const normalizedHooksDir = normalizeDirPath(getWorkspaceHooksDir());
+      const normalizedPath = normalizeFilePath(resolve(filePath));
+      const hooksDirNoTrailingSlash = normalizedHooksDir.slice(0, -1);
+      if (
+        normalizedPath === hooksDirNoTrailingSlash ||
+        normalizedPath.startsWith(normalizedHooksDir)
+      ) {
+        return RiskLevel.High;
+      }
     }
     // Fall through to the tool registry default (Medium) below.
   }

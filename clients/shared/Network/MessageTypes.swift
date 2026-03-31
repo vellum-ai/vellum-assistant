@@ -653,8 +653,8 @@ extension AssistantTextDelta {
 public typealias AssistantThinkingDeltaMessage = AssistantThinkingDelta
 
 extension AssistantThinkingDelta {
-    public init(thinking: String) {
-        self.init(type: "assistant_thinking_delta", thinking: thinking)
+    public init(thinking: String, conversationId: String? = nil) {
+        self.init(type: "assistant_thinking_delta", thinking: thinking, conversationId: conversationId)
     }
 }
 
@@ -2129,6 +2129,8 @@ public enum ServerMessage: Decodable, Sendable {
     case assistantStatus(AssistantStatusMessage)
     case openUrl(OpenUrlMessage)
     case navigateSettings(NavigateSettings)
+    case showPlatformLogin(ShowPlatformLogin)
+    case platformDisconnected(PlatformDisconnected)
     case integrationListResponse(IntegrationListResponse)
     case integrationConnectResult(IntegrationConnectResult)
     case oauthConnectResult(OAuthConnectResultResponse)
@@ -2189,7 +2191,6 @@ public enum ServerMessage: Decodable, Sendable {
     case serviceGroupUpdateProgress(ServiceGroupUpdateProgressMessage)
     case serviceGroupUpdateComplete(ServiceGroupUpdateCompleteMessage)
     case conversationIdResolved(localId: String, serverId: String)
-    case acpPermissionRequest(AcpPermissionRequestMessage)
     case pong
     case unknown(String)
 
@@ -2448,6 +2449,12 @@ public enum ServerMessage: Decodable, Sendable {
         case "navigate_settings":
             let message = try NavigateSettings(from: decoder)
             self = .navigateSettings(message)
+        case "show_platform_login":
+            let message = try ShowPlatformLogin(from: decoder)
+            self = .showPlatformLogin(message)
+        case "platform_disconnected":
+            let message = try PlatformDisconnected(from: decoder)
+            self = .platformDisconnected(message)
         case "get_signing_identity":
             let message = try GetSigningIdentityRequest(from: decoder)
             self = .getSigningIdentity(message)
@@ -2638,9 +2645,6 @@ public enum ServerMessage: Decodable, Sendable {
         case "service_group_update_complete":
             let message = try ServiceGroupUpdateCompleteMessage(from: decoder)
             self = .serviceGroupUpdateComplete(message)
-        case "acp_permission_request":
-            let message = try AcpPermissionRequestMessage(from: decoder)
-            self = .acpPermissionRequest(message)
         case "pong":
             self = .pong
         default:
@@ -2700,24 +2704,6 @@ public struct SlotContentWire: Decodable, Sendable {
     public let type: String
     public let panel: String?
     public let surfaceId: String?
-}
-
-// MARK: - ACP Permission Messages
-
-/// Server → Client: an ACP-spawned agent requests permission to use a tool.
-public struct AcpPermissionRequestMessage: Decodable, Sendable {
-    public struct Option: Decodable, Sendable {
-        public let optionId: String
-        public let name: String
-        public let kind: String // "allow_once", "allow_always", "reject_once", "reject_always"
-    }
-
-    public let acpSessionId: String
-    public let requestId: String
-    public let toolTitle: String
-    public let toolKind: String
-    public let rawInput: AnyCodable?
-    public let options: [Option]
 }
 
 // MARK: - Pairing Messages
@@ -2786,10 +2772,12 @@ public struct ApprovedDevicesClearMessage: Encodable, Sendable {
 public struct GuardianActionOption: Decodable, Sendable, Equatable {
     public let action: String
     public let label: String
+    public let description: String?
 
-    public init(action: String, label: String) {
+    public init(action: String, label: String, description: String? = nil) {
         self.action = action
         self.label = label
+        self.description = description
     }
 }
 
@@ -2807,6 +2795,10 @@ public struct GuardianDecisionPromptWire: Decodable, Sendable {
     /// Canonical request kind (e.g. "tool_approval", "pending_question").
     /// Present when the prompt originates from the canonical guardian request store.
     public let kind: String?
+    public let commandPreview: String?
+    public let riskLevel: String?
+    public let activityText: String?
+    public let executionTarget: String?
 }
 
 /// Server -> Client: list of pending guardian decision prompts.

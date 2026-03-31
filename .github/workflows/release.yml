@@ -5,6 +5,12 @@ on:
     branches:
       - 'release/v*'
   workflow_dispatch:
+    inputs:
+      slack_user_id:
+        description: 'Slack user ID of the person who triggered the release (e.g. U01ABCDEF)'
+        required: false
+        type: string
+        default: ''
 
 concurrency:
   group: release
@@ -24,19 +30,34 @@ jobs:
         id: extract
         run: |
           BRANCH="${GITHUB_REF_NAME}"
-          if [[ "$BRANCH" != release/v* ]]; then
-            echo "::error::Workflow must run on a release/v* branch, got '$BRANCH'"
+          if [[ "$BRANCH" == release/v* ]]; then
+            VERSION="${BRANCH#release/v}"
+          elif [ "$BRANCH" = "main" ] && [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            git fetch --tags
+            LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -1)
+            if [ -z "$LATEST_TAG" ]; then
+              LATEST_TAG="v0.0.0"
+            fi
+            LATEST_VERSION=${LATEST_TAG#v}
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
+            PATCH=$((PATCH + 1))
+            VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            echo "Computed next patch version from $LATEST_TAG: $VERSION"
+          else
+            echo "::error::Workflow must run on a release/v* branch or be manually dispatched from main, got '$BRANCH'"
             exit 1
           fi
-          VERSION="${BRANCH#release/v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Detect staging release
         id: detect-staging
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "is_staging=true" >> "$GITHUB_OUTPUT"
+            echo "Manual dispatch from main — staging deploy"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "is_staging=false" >> "$GITHUB_OUTPUT"
-            echo "Manual dispatch — full production release"
+            echo "Manual dispatch on release branch — full production release"
           else
             echo "is_staging=true" >> "$GITHUB_OUTPUT"
             echo "Commit-triggered release — staging only"
@@ -70,6 +91,12 @@ jobs:
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -150,6 +177,12 @@ jobs:
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -253,6 +286,12 @@ jobs:
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
@@ -324,6 +363,12 @@ jobs:
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -401,6 +446,12 @@ jobs:
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -510,6 +561,12 @@ jobs:
 
       - name: Configure Docker for GCR
         run: gcloud auth configure-docker ${{ secrets.GCP_REGISTRY_HOST }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -2066,6 +2123,8 @@ jobs:
     if: ${{ !cancelled() && needs.build-macos-arm64.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    outputs:
+      playwright-run-id: ${{ steps.wait.outputs.playwright-run-id }}
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -2096,6 +2155,7 @@ jobs:
           sleep 15
 
       - name: Wait for Playwright workflow result
+        id: wait
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -2109,6 +2169,7 @@ jobs:
 
             if [ -n "$RUN_ID" ]; then
               echo "Found workflow run: $RUN_ID"
+              echo "playwright-run-id=$RUN_ID" >> "$GITHUB_OUTPUT"
               RUN_URL="https://github.com/vellum-ai/vellum-assistant-platform/actions/runs/$RUN_ID"
               echo "Run URL: $RUN_URL"
               break
@@ -2165,6 +2226,8 @@ jobs:
       - name: Build Slack payload
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_TRIGGER_SECRET: ${{ secrets.RELEASE_TRIGGER_SECRET }}
+          SLACK_USER_ID: ${{ inputs.slack_user_id }}
         run: |
           VERSION="${{ needs.extract-version.outputs.version }}"
           VERSION_TAG="v${VERSION}"
@@ -2221,15 +2284,26 @@ jobs:
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           PLAYWRIGHT_LINE=""
           if [ "${{ needs.ci-playwright.result }}" != "success" ]; then
-            PLAYWRIGHT_LINE=" (<${RUN_URL}#artifacts|view report>)"
+            PLAYWRIGHT_RUN_ID="${{ needs.ci-playwright.outputs.playwright-run-id }}"
+            if [ -n "$PLAYWRIGHT_RUN_ID" ]; then
+              PLAYWRIGHT_LINE=" (<https://qa.vellum.ai/runs/${PLAYWRIGHT_RUN_ID}|view report>)"
+            else
+              PLAYWRIGHT_LINE=" (<${RUN_URL}#artifacts|view report>)"
+            fi
           fi
 
           CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s playwright%s\n• %s desktop (arm64)\n• %s desktop (x64)\n• %s ios\n• %s ios-release\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release' "$A" "$C" "$CE" "$G" "$P" "$PLAYWRIGHT_LINE" "$D" "$DX" "$I" "$RI" "$AI" "$GI" "$CEI" "$DH" "$RR")
 
-          if [ "$IS_STAGING" = "true" ]; then
-            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped._' "$VERSION" "${{ github.actor }}")
+          if [ -n "$SLACK_USER_ID" ]; then
+            TRIGGERED_BY="<@${SLACK_USER_ID}>"
           else
-            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "${{ github.actor }}")
+            TRIGGERED_BY="${{ github.actor }}"
+          fi
+
+          if [ "$IS_STAGING" = "true" ]; then
+            META_LINE=$(printf '*Version:* `%s` (staging)\n*Triggered by:* %s\n\n_This is a staging release. npm, GitHub Release, iOS, and DockerHub publishes were skipped._' "$VERSION" "$TRIGGERED_BY")
+          else
+            META_LINE=$(printf '*Version:* `%s`\n*Triggered by:* %s' "$VERSION" "$TRIGGERED_BY")
           fi
 
           # Fetch release notes from GitHub release (only for production releases)
@@ -2282,8 +2356,31 @@ jobs:
             style: "primary"
           }')
 
+          # Build "Go live!" button only for release branch staging deploys (not main dispatches)
+          IS_RELEASE_BRANCH="false"
+          if [[ "${GITHUB_REF_NAME}" == release/v* ]]; then
+            IS_RELEASE_BRANCH="true"
+          fi
+
+          if [ "$IS_STAGING" = "true" ] && [ "$STAGING_READY" = "true" ] && [ "$IS_RELEASE_BRANCH" = "true" ] && [ -n "$RELEASE_TRIGGER_SECRET" ]; then
+            RELEASE_BRANCH="release/${VERSION_TAG}"
+            GO_LIVE_TS=$(date +%s)
+            GO_LIVE_SIG=$(echo -n "${RELEASE_BRANCH}:${GO_LIVE_TS}" | openssl dgst -sha256 -hmac "$RELEASE_TRIGGER_SECRET" -hex | awk '{print $NF}')
+            GO_LIVE_URL="https://qa.vellum.ai/api/slack/go-live?branch=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${RELEASE_BRANCH}', safe=''))")&ts=${GO_LIVE_TS}&sig=${GO_LIVE_SIG}"
+            GO_LIVE=$(jq -n --arg url "$GO_LIVE_URL" '{
+              type: "button",
+              text: { type: "plain_text", text: "Go live!" },
+              url: $url,
+              style: "primary"
+            }')
+          fi
+
           if [ "$RELEASE_FAILED" = "true" ] || [ "$IS_STAGING" = "true" ]; then
-            BUTTONS=$(jq -n --argjson run "$VIEW_RUN" '[$run]')
+            if [ -n "${GO_LIVE:-}" ]; then
+              BUTTONS=$(jq -n --argjson run "$VIEW_RUN" --argjson golive "$GO_LIVE" '[$run, $golive]')
+            else
+              BUTTONS=$(jq -n --argjson run "$VIEW_RUN" '[$run]')
+            fi
           else
             BUTTONS=$(jq -n --argjson run "$VIEW_RUN" --argjson release "$VIEW_RELEASE" '[$run, $release]')
           fi

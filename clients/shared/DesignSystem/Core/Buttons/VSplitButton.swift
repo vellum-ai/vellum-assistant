@@ -47,7 +47,7 @@ public struct VSplitButton<MenuContent: View>: View {
             Button(action: action) {
                 HStack(spacing: VSpacing.sm) {
                     if let icon {
-                        VIconView(.resolve(icon), size: 13)
+                        VIconView(.resolve(icon), size: VSize.iconDefault)
                     }
                     Text(label)
                         .font(size == .regular ? VFont.bodyMediumDefault : VFont.labelDefault)
@@ -90,7 +90,6 @@ public struct VSplitButton<MenuContent: View>: View {
                 .accessibilityLabel("\(label) options")
             }
             .frame(width: dropdownWidth, height: zoneHeight)
-            .clipped()
             .onHover { hovering in
                 isDropdownHovered = isDisabled ? false : hovering
             }
@@ -107,9 +106,9 @@ public struct VSplitButton<MenuContent: View>: View {
         .contentShape(shape)
         .disabled(isDisabled)
         .accessibilityElement(children: .contain)
-        .optionalSplitButtonAccessibilityID(accessibilityID)
         .animation(VAnimation.fast, value: isPrimaryHovered)
         .animation(VAnimation.fast, value: isDropdownHovered)
+        .optionalSplitButtonAccessibilityID(accessibilityID)
     }
 
     // MARK: - Divider

@@ -2,10 +2,11 @@ import AppKit
 import Foundation
 import os
 import OSLog
+import UniformTypeIdentifiers
 import VellumAssistantShared
 
 private let log = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    subsystem: Bundle.appBundleIdentifier,
     category: "LogExporter"
 )
 
@@ -28,7 +29,6 @@ private let log = Logger(
 /// - `crash-reports/` — recent macOS crash/hang reports (.ips, .crash, .spin) for assistant-related processes (bun, qdrant, vellum-assistant)
 /// - `app-environment.json` — bundle path, quarantine xattr, and translocation status for diagnosing Gatekeeper-related launch issues
 /// - `os-log.txt` — recent entries from the macOS unified log for the app's subsystem
-/// - `daemon-logs-fallback/` — when daemon is unreachable: vellum.log, recent hatch-*.log, and XDG hatch.log read directly from disk (10 MB cap)
 @MainActor
 enum LogExporter {
 
@@ -40,35 +40,93 @@ enum LogExporter {
         AppDelegate.shared?.isCurrentAssistantManaged == true
     }
 
+    /// Maximum number of retry attempts when the server returns 413 (Request Too Large).
+    /// On each retry, the largest file or directory in the staging directory is removed
+    /// and logged before re-creating the archive.
+    private static let maxUploadRetries = 10
+
+    /// MIME types the platform backend accepts for feedback attachments.
+    private static let allowedAttachmentMIMETypes: Set<String> = [
+        "image/png", "image/jpeg", "image/gif", "image/webp",
+        "video/mp4", "video/quicktime", "video/webm",
+    ]
+
+    /// Derives a MIME type string from a file URL's extension using `UTType`.
+    private static func mimeType(for url: URL) -> String? {
+        guard let utType = UTType(filenameExtension: url.pathExtension) else { return nil }
+        return utType.preferredMIMEType
+    }
+
     /// Collects logs, archives them, and uploads the archive to the platform API
     /// (`POST /v1/upload/feedback/`) for storage.
     /// Includes report metadata (reason, message) from the log report form.
+    ///
+    /// If the server returns 413 (Request Entity Too Large), the method enters a
+    /// retry loop: on each iteration it finds the largest file or directory in the
+    /// staging directory, removes it, appends an entry to `removed-items.log`
+    /// inside the archive so support can see what was stripped, then rebuilds
+    /// the tar and retries the upload.
     ///
     /// Throws if the archive build or platform upload fails. The caller is
     /// responsible for presenting success/error feedback (e.g. via a toast).
     static func sendFeedback(formData: LogReportFormData) async throws {
         let fileManager = FileManager.default
+        let stagingDir = fileManager.temporaryDirectory
+            .appendingPathComponent("vellum-log-export-\(UUID().uuidString)", isDirectory: true)
         let archiveURL = fileManager.temporaryDirectory
             .appendingPathComponent("vellum-assistant-logs-\(UUID().uuidString).tar.gz")
 
         defer {
+            try? fileManager.removeItem(at: stagingDir)
             try? fileManager.removeItem(at: archiveURL)
         }
 
         do {
-            try await buildArchive(destination: archiveURL, formData: formData)
+            try await buildStagingDirectory(at: stagingDir, formData: formData)
         } catch {
-            log.error("Failed to build log archive: \(error.localizedDescription)")
+            log.error("Failed to build log staging directory: \(error.localizedDescription)")
+            throw error
+        }
+
+        do {
+            try await createTarArchive(from: stagingDir, destination: archiveURL)
+        } catch {
+            log.error("Failed to create log archive: \(error.localizedDescription)")
             throw error
         }
 
         let connectedAssistantId = UserDefaults.standard.string(forKey: "connectedAssistantId")
 
-        try await uploadFeedbackToPlatform(
-            archiveURL: archiveURL,
-            formData: formData,
-            connectedAssistantId: connectedAssistantId
-        )
+        var removedItems: [String] = []
+        for attempt in 0...maxUploadRetries {
+            do {
+                try await uploadFeedbackToPlatform(
+                    archiveURL: archiveURL,
+                    formData: formData,
+                    connectedAssistantId: connectedAssistantId
+                )
+                return
+            } catch ExportError.requestTooLarge {
+                guard attempt < maxUploadRetries else {
+                    log.error("Upload still too large after \(maxUploadRetries) retries — giving up")
+                    throw ExportError.requestTooLarge
+                }
+
+                let trimResult = try await trimStagingAndRebuildArchive(
+                    stagingDir: stagingDir,
+                    archiveURL: archiveURL,
+                    previouslyRemoved: removedItems
+                )
+
+                guard let removed = trimResult else {
+                    log.error("No more items to remove but request is still too large")
+                    throw ExportError.requestTooLarge
+                }
+
+                removedItems.append(removed)
+                log.info("Removed \(removed) from staging dir (attempt \(attempt + 1)) — rebuilding archive")
+            }
+        }
     }
 
     // MARK: - Platform Feedback Upload
@@ -86,7 +144,8 @@ enum LogExporter {
     }
 
     /// Uploads the feedback archive and metadata to the platform API.
-    /// Throws on network or HTTP errors so the caller can surface feedback.
+    /// Throws ``ExportError/requestTooLarge`` on HTTP 413 so the caller can
+    /// enter the retry loop. Throws `URLError` for other failures.
     private static func uploadFeedbackToPlatform(
         archiveURL: URL,
         formData: LogReportFormData,
@@ -148,6 +207,29 @@ enum LogExporter {
             log.warning("Failed to read archive at \(archiveURL.path) — submitting feedback without logs")
         }
 
+        // Attachment file parts — read data off the main thread to avoid
+        // blocking the UI for large files (up to 50 MB each).
+        for attachmentURL in formData.attachments {
+            guard let mime = mimeType(for: attachmentURL),
+                  allowedAttachmentMIMETypes.contains(mime) else {
+                log.warning("Skipping invalid attachment at \(attachmentURL.lastPathComponent)")
+                continue
+            }
+            guard let fileData = await Task.detached(operation: { try? Data(contentsOf: attachmentURL) }).value else {
+                log.warning("Skipping unreadable attachment at \(attachmentURL.lastPathComponent)")
+                continue
+            }
+            let filename = attachmentURL.lastPathComponent
+                .replacingOccurrences(of: "\"", with: "_")
+                .replacingOccurrences(of: "\r", with: "_")
+                .replacingOccurrences(of: "\n", with: "_")
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"attachments\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: \(mime)\r\n\r\n".data(using: .utf8)!)
+            body.append(fileData)
+            body.append("\r\n".data(using: .utf8)!)
+        }
+
         // Final boundary
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
 
@@ -156,6 +238,9 @@ enum LogExporter {
         let (_, response) = try await URLSession.shared.data(for: request)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
             log.warning("Platform feedback upload failed with status \(http.statusCode)")
+            if http.statusCode == 413 {
+                throw ExportError.requestTooLarge
+            }
             throw URLError(.badServerResponse)
         } else {
             log.info("Platform feedback upload succeeded")
@@ -177,17 +262,23 @@ enum LogExporter {
         return "vellum-assistant-logs-\(timestamp).tar.gz"
     }
 
-    /// Builds a tar.gz archive containing all discoverable log files.
-    /// Runs file I/O and the tar process off the main actor to avoid blocking the UI.
-    private nonisolated static func buildArchive(destination: URL, formData: LogReportFormData? = nil) async throws {
+    /// Populates a staging directory with all log sources.
+    /// The staging directory is managed by the caller.
+    private nonisolated static func buildStagingDirectory(
+        at stagingDir: URL,
+        formData: LogReportFormData? = nil
+    ) async throws {
         let fileManager = FileManager.default
-        let tempDir = fileManager.temporaryDirectory
-            .appendingPathComponent("vellum-log-export-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+        try await populateStagingDirectory(at: stagingDir, formData: formData, fileManager: fileManager)
+    }
 
-        defer {
-            try? fileManager.removeItem(at: tempDir)
-        }
+    /// Collects all log sources into the given staging directory.
+    private nonisolated static func populateStagingDirectory(
+        at tempDir: URL,
+        formData: LogReportFormData?,
+        fileManager: FileManager
+    ) async throws {
 
         let home = NSHomeDirectory()
         let connectedId = UserDefaults.standard.string(forKey: "connectedAssistantId")
@@ -212,12 +303,6 @@ enum LogExporter {
                 let success = await fetchDaemonExports(into: tempDir, scope: formData?.scope ?? .global)
                 if !success {
                     daemonUnreachable = true
-                    collectFallbackDaemonLogs(
-                        into: tempDir,
-                        home: home,
-                        connectedAssistant: connectedAssistant,
-                        fileManager: fileManager
-                    )
                 }
             }
 
@@ -300,8 +385,8 @@ enum LogExporter {
                 try? data.write(to: tempDir.appendingPathComponent("report-metadata.json"))
             }
         } else if daemonUnreachable {
-            // Write a minimal manifest when no form data is available so the
-            // receiving end still knows these are raw filesystem reads.
+                // Write a minimal manifest when no form data is available so the
+                // receiving end still knows the daemon was unreachable during export.
             var manifest: [String: Any] = ["daemon-unreachable": true]
             if let assistantVersion = connectedAssistant?.serviceGroupVersion {
                 manifest["assistant_version"] = assistantVersion
@@ -342,15 +427,17 @@ enum LogExporter {
         guard !collected.isEmpty else {
             throw ExportError.noLogsFound
         }
+    }
 
-        // Create tar.gz using /usr/bin/tar
+    /// Creates a tar.gz archive from the contents of `sourceDir`.
+    private nonisolated static func createTarArchive(from sourceDir: URL, destination: URL) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/tar")
             process.arguments = [
                 "czf",
                 destination.path,
-                "-C", tempDir.path,
+                "-C", sourceDir.path,
                 ".",
             ]
 
@@ -512,142 +599,6 @@ enum LogExporter {
         }
     }
 
-    // MARK: - Assistant Log Fallback
-
-    /// Maximum total bytes to read when collecting fallback assistant logs.
-    private nonisolated static let fallbackLogSizeLimit = 10 * 1024 * 1024 // 10 MB
-
-    /// When the assistant is unreachable, reads log files directly from the
-    /// filesystem and copies them into `directory/daemon-logs-fallback/`.
-    /// Includes the main assistant log (`vellum.log`) and the 3 most recent
-    /// hatch attempt logs (`hatch-*.log`), capped at 10 MB total.
-    ///
-    /// Resolves the workspace log directory from the connected assistant's
-    /// lockfile entry (via `instanceDir` or `baseDataDir`) to support
-    /// multi-instance setups. Falls back to `~/.vellum/workspace/` when
-    /// no lockfile entry is available.
-    private nonisolated static func collectFallbackDaemonLogs(
-        into directory: URL,
-        home: String,
-        connectedAssistant: LockfileAssistant?,
-        fileManager: FileManager
-    ) {
-        let fallbackDir = directory.appendingPathComponent("daemon-logs-fallback", isDirectory: true)
-        try? fileManager.createDirectory(at: fallbackDir, withIntermediateDirectories: true)
-
-        let workspaceDir: String = connectedAssistant?.workspaceDir
-            ?? URL(fileURLWithPath: home).appendingPathComponent(".vellum/workspace").path
-        let workspaceLogDir = URL(fileURLWithPath: workspaceDir)
-            .appendingPathComponent("data/logs", isDirectory: true)
-
-        var totalBytes = 0
-
-        // 1. Main assistant log — vellum.log
-        let vellumLog = workspaceLogDir.appendingPathComponent("vellum.log")
-        if fileManager.fileExists(atPath: vellumLog.path),
-           let attrs = try? fileManager.attributesOfItem(atPath: vellumLog.path),
-           let size = attrs[.size] as? Int,
-           size > 0 {
-            let bytesToRead = min(size, fallbackLogSizeLimit - totalBytes)
-            if bytesToRead > 0 {
-                if bytesToRead >= size {
-                    try? fileManager.copyItem(
-                        at: vellumLog,
-                        to: fallbackDir.appendingPathComponent("vellum.log")
-                    )
-                } else {
-                    // Tail the file if it exceeds the remaining budget
-                    copyTail(
-                        of: vellumLog,
-                        bytes: bytesToRead,
-                        to: fallbackDir.appendingPathComponent("vellum.log")
-                    )
-                }
-                totalBytes += bytesToRead
-            }
-        }
-
-        // 2. Recent hatch attempt logs — hatch-*.log, sorted by modification time (newest first)
-        if fileManager.fileExists(atPath: workspaceLogDir.path),
-           let contents = try? fileManager.contentsOfDirectory(
-               at: workspaceLogDir,
-               includingPropertiesForKeys: [.contentModificationDateKey],
-               options: [.skipsHiddenFiles]
-           ) {
-            let hatchLogs = contents
-                .filter { $0.lastPathComponent.hasPrefix("hatch-") && $0.pathExtension == "log" }
-                .sorted { a, b in
-                    let aDate = (try? a.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                    let bDate = (try? b.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-                    return aDate > bDate
-                }
-
-            for hatchLog in hatchLogs.prefix(3) {
-                guard totalBytes < fallbackLogSizeLimit else { break }
-                guard let attrs = try? fileManager.attributesOfItem(atPath: hatchLog.path),
-                      let size = attrs[.size] as? Int,
-                      size > 0 else { continue }
-
-                let bytesToRead = min(size, fallbackLogSizeLimit - totalBytes)
-                if bytesToRead >= size {
-                    try? fileManager.copyItem(
-                        at: hatchLog,
-                        to: fallbackDir.appendingPathComponent(hatchLog.lastPathComponent)
-                    )
-                } else {
-                    copyTail(
-                        of: hatchLog,
-                        bytes: bytesToRead,
-                        to: fallbackDir.appendingPathComponent(hatchLog.lastPathComponent)
-                    )
-                }
-                totalBytes += bytesToRead
-            }
-        }
-
-        // 3. XDG CLI hatch log — ~/.config/vellum/logs/hatch.log
-        //    Already collected under xdg-logs/ by the main export path, but verify
-        //    it exists and include in the fallback directory for completeness.
-        let xdgConfigHome = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"]
-            ?? URL(fileURLWithPath: home).appendingPathComponent(".config").path
-        let xdgHatchLog = URL(fileURLWithPath: xdgConfigHome)
-            .appendingPathComponent("vellum/logs/hatch.log")
-        if fileManager.fileExists(atPath: xdgHatchLog.path),
-           totalBytes < fallbackLogSizeLimit,
-           let attrs = try? fileManager.attributesOfItem(atPath: xdgHatchLog.path),
-           let size = attrs[.size] as? Int,
-           size > 0 {
-            let bytesToRead = min(size, fallbackLogSizeLimit - totalBytes)
-            if bytesToRead >= size {
-                try? fileManager.copyItem(
-                    at: xdgHatchLog,
-                    to: fallbackDir.appendingPathComponent("xdg-hatch.log")
-                )
-            } else {
-                copyTail(
-                    of: xdgHatchLog,
-                    bytes: bytesToRead,
-                    to: fallbackDir.appendingPathComponent("xdg-hatch.log")
-                )
-            }
-            totalBytes += bytesToRead
-        }
-
-        log.info("Collected \(totalBytes) bytes of fallback assistant logs from filesystem")
-    }
-
-    /// Reads the last `bytes` bytes from `source` and writes them to `destination`.
-    private nonisolated static func copyTail(of source: URL, bytes: Int, to destination: URL) {
-        guard let handle = try? FileHandle(forReadingFrom: source) else { return }
-        defer { try? handle.close() }
-
-        let fileSize = handle.seekToEndOfFile()
-        let offset = fileSize > UInt64(bytes) ? fileSize - UInt64(bytes) : 0
-        handle.seek(toFileOffset: offset)
-        let data = handle.readData(ofLength: bytes)
-        try? data.write(to: destination)
-    }
-
     /// Reads the first `bytes` bytes from `source` and writes them to `destination`.
     private nonisolated static func copyHead(of source: URL, bytes: Int, to destination: URL) {
         guard let handle = try? FileHandle(forReadingFrom: source) else { return }
@@ -771,7 +722,7 @@ enum LogExporter {
         do {
             let store = try OSLogStore(scope: .currentProcessIdentifier)
             let oneDayAgo = store.position(date: Date().addingTimeInterval(-86400))
-            let subsystem = Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant"
+            let subsystem = Bundle.appBundleIdentifier
 
             let entries = try store.getEntries(
                 at: oneDayAgo,
@@ -1267,10 +1218,117 @@ enum LogExporter {
         try? content.write(to: url, atomically: true, encoding: .utf8)
     }
 
+    // MARK: - Upload Retry Helpers
+
+    /// Removes the largest item from the staging directory, updates the
+    /// `removed-items.log`, and rebuilds the tar archive — all off the main
+    /// actor so the UI stays responsive during retries.
+    ///
+    /// Returns the description of the removed item, or `nil` if nothing
+    /// was left to remove.
+    private nonisolated static func trimStagingAndRebuildArchive(
+        stagingDir: URL,
+        archiveURL: URL,
+        previouslyRemoved: [String]
+    ) async throws -> String? {
+        let fileManager = FileManager.default
+
+        guard let removed = removeLargestItem(in: stagingDir, fileManager: fileManager) else {
+            return nil
+        }
+
+        var allRemoved = previouslyRemoved
+        allRemoved.append(removed)
+
+        writeRemovedItemsLog(
+            to: stagingDir.appendingPathComponent("removed-items.log"),
+            removedItems: allRemoved
+        )
+
+        try? fileManager.removeItem(at: archiveURL)
+        try await createTarArchive(from: stagingDir, destination: archiveURL)
+
+        return removed
+    }
+
+    /// Finds the largest file or directory (by total size) in `directory`,
+    /// removes it, and returns its name. Returns `nil` if the directory is
+    /// empty or only contains protected files.
+    private nonisolated static func removeLargestItem(
+        in directory: URL,
+        fileManager: FileManager
+    ) -> String? {
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.totalFileAllocatedSizeKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else { return nil }
+
+        // Protect bookkeeping and essential metadata files from removal
+        let protectedNames: Set<String> = ["removed-items.log", "report-metadata.json"]
+        let candidates = contents.filter { !protectedNames.contains($0.lastPathComponent) }
+        guard !candidates.isEmpty else { return nil }
+
+        let largest = candidates.max { a, b in
+            totalSize(of: a, fileManager: fileManager) < totalSize(of: b, fileManager: fileManager)
+        }
+
+        guard let target = largest else { return nil }
+        let name = target.lastPathComponent
+        let size = totalSize(of: target, fileManager: fileManager)
+        do {
+            try fileManager.removeItem(at: target)
+        } catch {
+            log.warning("Failed to remove \(name) from staging directory: \(error.localizedDescription)")
+            return nil
+        }
+        log.info("Removed \(name) (\(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))) from staging directory")
+        return "\(name) (\(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)))"
+    }
+
+    /// Returns the total size in bytes of a file or directory (recursive).
+    private nonisolated static func totalSize(of url: URL, fileManager: FileManager) -> Int {
+        let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .totalFileAllocatedSizeKey])
+        if values?.isDirectory == true {
+            guard let enumerator = fileManager.enumerator(
+                at: url,
+                includingPropertiesForKeys: [.totalFileAllocatedSizeKey],
+                options: [.skipsHiddenFiles]
+            ) else { return 0 }
+            var total = 0
+            for case let fileURL as URL in enumerator {
+                let fileValues = try? fileURL.resourceValues(forKeys: [.totalFileAllocatedSizeKey])
+                total += fileValues?.totalFileAllocatedSize ?? 0
+            }
+            return total
+        }
+        return values?.totalFileAllocatedSize ?? 0
+    }
+
+    /// Writes (or overwrites) the `removed-items.log` file listing all items
+    /// that were stripped from the archive to reduce its size.
+    private nonisolated static func writeRemovedItemsLog(
+        to url: URL,
+        removedItems: [String]
+    ) {
+        var lines = [
+            "The following items were removed from this feedback archive because",
+            "the upload exceeded the server's maximum request size (HTTP 413).",
+            "Items are listed in removal order (largest first per iteration).",
+            "",
+        ]
+        for (index, item) in removedItems.enumerated() {
+            lines.append("\(index + 1). \(item)")
+        }
+        let content = lines.joined(separator: "\n")
+        try? content.write(to: url, atomically: true, encoding: .utf8)
+    }
+
     enum ExportError: LocalizedError {
         case noLogsFound
         case tarFailed(String)
         case unsafeArchivePath(String)
+        case requestTooLarge
 
         var errorDescription: String? {
             switch self {
@@ -1280,6 +1338,8 @@ enum LogExporter {
                 return "Failed to create archive: \(detail)"
             case .unsafeArchivePath(let path):
                 return "Archive contains unsafe path: \(path)"
+            case .requestTooLarge:
+                return "Feedback archive is too large to upload even after removing the largest files."
             }
         }
     }

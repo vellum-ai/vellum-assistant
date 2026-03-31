@@ -94,7 +94,7 @@ func nextPendingChatAnchorSearchStep(
 }
 
 struct ChatContentView: View {
-    @ObservedObject var viewModel: ChatViewModel
+    @Bindable var viewModel: ChatViewModel
     var pendingAnchorRequestId: UUID? = nil
     var pendingAnchorDaemonMessageId: String? = nil
     var onPendingAnchorHandled: ((UUID) -> Void)? = nil
@@ -153,7 +153,7 @@ struct ChatContentView: View {
             InputBarView(
                 text: $viewModel.inputText,
                 isInputFocused: $isInputFocused,
-                isGenerating: (viewModel.isSending && !viewModel.hasPendingConfirmation) || viewModel.isThinking,
+                isGenerating: (viewModel.isAssistantBusy && !viewModel.hasPendingConfirmation) || viewModel.isThinking,
                 isCancelling: viewModel.isCancelling,
                 onSend: { viewModel.sendMessage() },
                 onStop: { viewModel.stopGenerating() },

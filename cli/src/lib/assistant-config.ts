@@ -16,6 +16,7 @@ import {
   DEFAULT_DAEMON_PORT,
   DEFAULT_GATEWAY_PORT,
   DEFAULT_QDRANT_PORT,
+  LOCKFILE_NAMES,
 } from "./constants.js";
 import { probePort } from "./port-probe.js";
 
@@ -42,6 +43,9 @@ export interface LocalInstanceResources {
   cesPort: number;
   /** Absolute path to the daemon PID file */
   pidFile: string;
+  /** Persisted HMAC signing key (hex). Survives daemon/gateway restarts so
+   *  client actor tokens remain valid across `wake` cycles. */
+  signingKey?: string;
   [key: string]: unknown;
 }
 
@@ -76,8 +80,6 @@ export interface AssistantEntry {
   sshUser?: string;
   zone?: string;
   hatchedAt?: string;
-  /** Name of the shared volume backing BASE_DATA_DIR for containerised instances. */
-  volume?: string;
   /** Per-instance resource config. Present for local entries in multi-instance setups. */
   resources?: LocalInstanceResources;
   /** PID of the file watcher process for docker instances hatched with --watch. */
@@ -119,10 +121,7 @@ function getLockfileDir(): string {
 
 function readLockfile(): LockfileData {
   const base = getLockfileDir();
-  const candidates = [
-    join(base, ".vellum.lock.json"),
-    join(base, ".vellum.lockfile.json"),
-  ];
+  const candidates = LOCKFILE_NAMES.map((name) => join(base, name));
   for (const lockfilePath of candidates) {
     if (!existsSync(lockfilePath)) continue;
     try {
@@ -139,7 +138,7 @@ function readLockfile(): LockfileData {
 }
 
 function writeLockfile(data: LockfileData): void {
-  const lockfilePath = join(getLockfileDir(), ".vellum.lock.json");
+  const lockfilePath = join(getLockfileDir(), LOCKFILE_NAMES[0]);
   const tmpPath = `${lockfilePath}.${randomBytes(4).toString("hex")}.tmp`;
   try {
     writeFileSync(tmpPath, JSON.stringify(data, null, 2) + "\n");

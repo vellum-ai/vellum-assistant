@@ -1,10 +1,9 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "MemoryItemClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "MemoryItemClient")
 
 /// Focused client for memory item operations routed through the gateway.
-@MainActor
 public protocol MemoryItemClientProtocol {
     func fetchMemoryItems(
         kind: String?,
@@ -39,7 +38,6 @@ public protocol MemoryItemClientProtocol {
 }
 
 /// Gateway-backed implementation of ``MemoryItemClientProtocol``.
-@MainActor
 public struct MemoryItemClient: MemoryItemClientProtocol {
     nonisolated public init() {}
 

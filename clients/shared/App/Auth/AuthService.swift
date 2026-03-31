@@ -1,30 +1,28 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AuthService")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AuthService")
+
+// MARK: - Module-private constants (nonisolated by default)
+// These live outside the @MainActor class so nonisolated static functions
+// (resolveBaseURL, normalizedBaseURL) can reference them without crossing
+// into @MainActor isolation — which is an error in Swift 6 language mode.
+private let _platformURLOverrideEnvironmentKey = "VELLUM_PLATFORM_URL"
+private let _authServiceBaseURLDefaultsName = "authServiceBaseURL"
+private let _defaultBaseURL: String = {
+    #if DEBUG && os(macOS)
+    return "http://localhost:8000"
+    #else
+    return "https://platform.vellum.ai"
+    #endif
+}()
 
 @MainActor
 public final class AuthService {
     public static let shared = AuthService()
-    private static let platformURLOverrideEnvironmentKey = "VELLUM_PLATFORM_URL"
-    private static let authServiceBaseURLDefaultsName = "authServiceBaseURL"
-
-    private static let defaultBaseURL: String = {
-        #if DEBUG && os(macOS)
-        return "http://localhost:8000"
-        #else
-        return "https://platform.vellum.ai"
-        #endif
-    }()
-
-    /// Platform base URL from daemon config. Set by SettingsStore when the
-    /// `platform_config_response` arrives. When non-empty, takes precedence
-    /// over persisted defaults, but an explicit per-launch env override still wins.
-    public var configuredBaseURL: String = ""
 
     public var baseURL: String {
         Self.resolveBaseURL(
-            configuredBaseURL: configuredBaseURL,
             environment: ProcessInfo.processInfo.environment,
             userDefaults: .standard
         )
@@ -32,27 +30,30 @@ public final class AuthService {
 
     private init() {}
 
-    static func resolveBaseURL(
-        configuredBaseURL: String,
+    /// Pure URL resolution logic — safe to call from any isolation context.
+    /// All inputs are value types; no mutable shared state is accessed.
+    ///
+    /// Resolution order:
+    /// 1. `VELLUM_PLATFORM_URL` environment variable
+    /// 2. `authServiceBaseURL` UserDefaults key (DEBUG builds only)
+    /// 3. Build-time default (`http://localhost:8000` for DEBUG, `https://platform.vellum.ai` for RELEASE)
+    nonisolated static func resolveBaseURL(
         environment: [String: String],
         userDefaults: UserDefaults
     ) -> String {
-        if let override = normalizedBaseURL(environment[platformURLOverrideEnvironmentKey]) {
+        if let override = normalizedBaseURL(environment[_platformURLOverrideEnvironmentKey]) {
             return override
-        }
-        if let configured = normalizedBaseURL(configuredBaseURL) {
-            return configured
         }
         #if DEBUG
         // Keep the UserDefaults override as a fallback for direct debug sessions.
-        if let override = normalizedBaseURL(userDefaults.string(forKey: authServiceBaseURLDefaultsName)) {
+        if let override = normalizedBaseURL(userDefaults.string(forKey: _authServiceBaseURLDefaultsName)) {
             return override
         }
         #endif
-        return defaultBaseURL
+        return _defaultBaseURL
     }
 
-    private static func normalizedBaseURL(_ raw: String?) -> String? {
+    nonisolated private static func normalizedBaseURL(_ raw: String?) -> String? {
         let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let normalized = trimmed.replacingOccurrences(of: "/+$", with: "", options: .regularExpression)
         return normalized.isEmpty ? nil : normalized

@@ -75,6 +75,10 @@
             },
             "required": ["title"]
           },
+          "change_summary": {
+            "type": "string",
+            "description": "Short summary of what changed, using git conventional commit format (e.g. 'feat: add coin flip app', 'fix: correct button alignment'). Used as the version history entry."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -97,6 +101,10 @@
             "type": "string",
             "description": "The ID of the app to delete"
           },
+          "change_summary": {
+            "type": "string",
+            "description": "Short summary of what changed, using git conventional commit format (e.g. 'chore: delete unused app'). Used as the version history entry."
+          },
           "activity": {
             "type": "string",
             "description": "Brief non-technical explanation of why this tool is being called"
@@ -118,6 +126,10 @@
           "app_id": {
             "type": "string",
             "description": "The ID of the app to refresh"
+          },
+          "change_summary": {
+            "type": "string",
+            "description": "Short summary of what changed, using git conventional commit format (e.g. 'feat: add dark mode toggle', 'fix: form validation'). Used as the version history entry."
           },
           "activity": {
             "type": "string",
@@ -144,6 +156,10 @@
           "description": {
             "type": "string",
             "description": "Optional description to guide icon generation (e.g. 'a blue calendar with a checkmark'). If omitted, the app name and description are used."
+          },
+          "change_summary": {
+            "type": "string",
+            "description": "Short summary of what changed, using git conventional commit format (e.g. 'feat: generate app icon'). Used as the version history entry."
           },
           "activity": {
             "type": "string",

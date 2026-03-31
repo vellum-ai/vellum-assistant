@@ -37,14 +37,19 @@ enum SidebarLayoutMetrics {
     /// Gap below the "Scheduled" label before the first scheduled row.
     static let scheduledHeaderBottomGap: CGFloat = VSpacing.xs  // 4pt
 
-    // MARK: - Archive Confirm
+    // MARK: - Trailing Icon
 
-    /// Trailing padding reserved for the "Confirm" pill button overlay during archive flow.
-    static let archiveConfirmTrailingPadding: CGFloat = 72
-
-    /// Trailing padding reserved for the archive icon overlay on hover
+    /// Trailing padding reserved for the overflow menu icon overlay on hover
     /// (20pt icon + 4pt trailing padding on the overlay + 8pt gap).
-    static let archiveIconTrailingPadding: CGFloat = 32
+    static let trailingIconPadding: CGFloat = 32
+
+    // MARK: - Section Header
+
+    /// Height of a collapsible section header row.
+    static let sectionHeaderHeight: CGFloat = 28
+
+    /// Size of the disclosure chevron in section headers.
+    static let sectionChevronSize: CGFloat = 10
 
     // MARK: - Section Divider
 

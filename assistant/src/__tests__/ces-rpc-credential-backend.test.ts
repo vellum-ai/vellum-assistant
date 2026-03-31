@@ -185,7 +185,10 @@ describe("CesRpcCredentialBackend", () => {
       const result = await backend.list();
 
       expect(callFn).toHaveBeenCalledWith(CesRpcMethod.ListCredentials, {});
-      expect(result).toEqual({ accounts: ["account-a", "account-b"], unreachable: false });
+      expect(result).toEqual({
+        accounts: ["account-a", "account-b"],
+        unreachable: false,
+      });
     });
 
     test("returns unreachable when RPC call throws", async () => {

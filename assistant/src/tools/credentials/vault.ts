@@ -3,25 +3,16 @@ import {
   setSlackChannelConfig,
   type SlackChannelConfigResult,
 } from "../../daemon/handlers/config-slack-channel.js";
-import { orchestrateOAuthConnect } from "../../oauth/connect-orchestrator.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
   disconnectOAuthProvider,
   getActiveConnection,
-  getAppByProviderAndClientId,
-  getMostRecentAppByProvider,
-  getProvider,
-  listProviders,
 } from "../../oauth/oauth-store.js";
 import { RiskLevel } from "../../permissions/types.js";
 import type { ToolDefinition } from "../../providers/types.js";
-import { buildAssistantEvent } from "../../runtime/assistant-event.js";
-import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
 import { credentialKey } from "../../security/credential-key.js";
 import {
   deleteSecureKeyAsync,
-  getSecureKeyAsync,
   listSecureKeysAsync,
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
@@ -90,16 +81,9 @@ class CredentialStoreTool implements Tool {
         properties: {
           action: {
             type: "string",
-            enum: [
-              "store",
-              "list",
-              "delete",
-              "prompt",
-              "oauth2_connect",
-              "describe",
-            ],
+            enum: ["store", "list", "delete", "prompt"],
             description:
-              'The operation to perform. Use "prompt" to ask the user for a secret via secure UI - the value never enters the conversation. Use "oauth2_connect" to connect an OAuth2 service via browser authorization. Use "describe" to get setup metadata for a well-known OAuth service (dashboard URL, scopes, redirect URI, etc.). For well-known services (google, slack), only the service name is required - endpoints, scopes, and stored client credentials are resolved automatically.',
+              'The operation to perform. Use "prompt" to ask the user for a secret via secure UI - the value never enters the conversation.',
           },
           service: {
             type: "string",
@@ -149,22 +133,6 @@ class CredentialStoreTool implements Tool {
             type: "string",
             description:
               'Human-readable description of intended usage (for store/prompt actions), e.g. "GitHub login for pushing changes"',
-          },
-          scopes: {
-            type: "array",
-            items: { type: "string" },
-            description:
-              "OAuth2 scopes to request (only for oauth2_connect action). Auto-filled for well-known services (google, slack).",
-          },
-          client_id: {
-            type: "string",
-            description:
-              "OAuth2 client ID (only for oauth2_connect action). If omitted, looked up from previously stored credentials.",
-          },
-          client_secret: {
-            type: "string",
-            description:
-              "OAuth2 client secret for providers that require it (e.g. Google, Slack). If omitted, looked up from previously stored credentials; if still absent, PKCE-only is used (only for oauth2_connect action)",
           },
           alias: {
             type: "string",
@@ -815,221 +783,6 @@ class CredentialStoreTool implements Tool {
           }`,
           isError: false,
         };
-      }
-
-      case "oauth2_connect": {
-        const service = input.service as string | undefined;
-        if (!service)
-          return {
-            content: "Error: service is required for oauth2_connect action",
-            isError: true,
-          };
-
-        // Protocol-level config from the DB (authUrl, tokenUrl, scopes, etc.)
-        const providerRow = getProvider(service);
-
-        // Resolve client_id and client_secret.
-        // Priority:
-        //   1. Explicit input from the caller
-        //   2. oauth-store DB - when clientId is already known, look up the
-        //      matching app so the secret comes from the same app. Only fall
-        //      back to the most-recent-app heuristic when clientId is unknown.
-        let clientId = input.client_id as string | undefined;
-        let clientSecret = input.client_secret as string | undefined;
-
-        if (!clientId || !clientSecret) {
-          const dbApp = clientId
-            ? getAppByProviderAndClientId(service, clientId)
-            : getMostRecentAppByProvider(service);
-          if (dbApp) {
-            if (!clientId) clientId = dbApp.clientId;
-            if (!clientSecret) {
-              clientSecret = await getSecureKeyAsync(
-                dbApp.clientSecretCredentialPath,
-              );
-            }
-          }
-        }
-
-        // Early guardrails that stay in vault.ts (credential resolution is vault-specific)
-        const inputScopes = input.scopes as string[] | undefined;
-
-        if (!providerRow) {
-          return {
-            content: `Error: no OAuth provider registered for "${service}". Ensure the provider is seeded in the database.`,
-            isError: true,
-          };
-        }
-
-        if (!clientId)
-          return {
-            content:
-              "Error: client_id is required for oauth2_connect action. Provide it directly or store it first with credential_store.",
-            isError: true,
-          };
-
-        // Fail early when client_secret is required but missing - guide the
-        // agent to collect it from the user rather than letting it improvise
-        // browser-automation workarounds that inevitably fail.
-        const requiresSecret = !!providerRow.requiresClientSecret;
-        if (requiresSecret && !clientSecret) {
-          return {
-            content: `Error: client_secret is required for ${service} but not found in the vault.\n\nUse credential_store with action "prompt" to securely collect the client_secret from the user before calling oauth2_connect again.`,
-            isError: true,
-          };
-        }
-
-        // Delegate to the shared orchestrator - it resolves authUrl, tokenUrl,
-        // extraParams, userinfoUrl, and tokenEndpointAuthMethod from the DB.
-        const result = await orchestrateOAuthConnect({
-          service,
-          clientId,
-          clientSecret,
-          isInteractive: !!context.isInteractive,
-          sendToClient: context.sendToClient,
-          ...(inputScopes ? { requestedScopes: inputScopes } : {}),
-          onDeferredComplete: (deferredResult) => {
-            // Emit oauth_connect_result to all connected SSE clients so the
-            // UI can update immediately when the deferred browser flow completes.
-            assistantEventHub
-              .publish(
-                buildAssistantEvent(DAEMON_INTERNAL_ASSISTANT_ID, {
-                  type: "oauth_connect_result",
-                  success: deferredResult.success,
-                  service: deferredResult.service,
-                  accountInfo: deferredResult.accountInfo,
-                  error: deferredResult.error,
-                }),
-              )
-              .catch((err) => {
-                log.warn(
-                  { err, service: deferredResult.service },
-                  "Failed to publish oauth_connect_result event",
-                );
-              });
-
-            if (deferredResult.success) {
-              log.info(
-                {
-                  service: deferredResult.service,
-                  accountInfo: deferredResult.accountInfo,
-                },
-                "Deferred OAuth connect completed successfully",
-              );
-            } else {
-              log.warn(
-                {
-                  service: deferredResult.service,
-                  err: deferredResult.error,
-                },
-                "Deferred OAuth connect failed",
-              );
-            }
-          },
-        });
-
-        if (!result.success) {
-          return { content: `Error: ${result.error}`, isError: true };
-        }
-
-        if (result.deferred) {
-          return {
-            content: `To connect ${service}, open this link and authorize access:\n\n${result.authUrl}\n\nOnce you authorize, the connection will be set up automatically. You can verify by asking me to check your inbox.`,
-            isError: false,
-          };
-        }
-
-        return {
-          content: `Successfully connected "${service}"${
-            result.accountInfo ? ` as ${result.accountInfo}` : ""
-          }. The service is now ready to use.`,
-          isError: false,
-        };
-      }
-
-      case "describe": {
-        const descService = (input.service as string | undefined) ?? "";
-        if (!descService) {
-          return {
-            content: "Error: service is required for describe action",
-            isError: true,
-          };
-        }
-        const descProviderRow = getProvider(descService);
-        if (!descProviderRow) {
-          const availableServices = listProviders().map((p) => p.providerKey);
-          return {
-            content: `No well-known OAuth config found for "${descService}". Available services: ${availableServices.join(", ")}`,
-            isError: false,
-          };
-        }
-
-        // Compute the redirect URI based on callback transport
-        let redirectUri: string;
-        const transport =
-          (descProviderRow.callbackTransport as
-            | "loopback"
-            | "gateway"
-            | null) ?? "loopback";
-        const loopbackPort = descProviderRow.loopbackPort;
-        if (transport === "loopback" && loopbackPort) {
-          redirectUri = `http://localhost:${loopbackPort}/oauth/callback`;
-        } else if (transport === "loopback") {
-          redirectUri =
-            "(automatic - no redirect URI needed, uses random localhost port)";
-        } else {
-          // Try to compute the actual URL from config/env
-          try {
-            const { loadConfig } = await import("../../config/loader.js");
-            const { getPublicBaseUrl } =
-              await import("../../inbound/public-ingress-urls.js");
-            const baseUrl = getPublicBaseUrl(loadConfig());
-            redirectUri = `${baseUrl}/webhooks/oauth/callback`;
-          } catch {
-            redirectUri =
-              "(requires ingress.publicBaseUrl - not currently configured)";
-          }
-        }
-
-        const requiresClientSecret = !!descProviderRow.requiresClientSecret;
-
-        const descDefaultScopes: string[] = descProviderRow.defaultScopes
-          ? JSON.parse(descProviderRow.defaultScopes)
-          : [];
-
-        const info: Record<string, unknown> = {
-          service: descService,
-          authUrl: descProviderRow.authUrl,
-          tokenUrl: descProviderRow.tokenUrl,
-          scopes: descDefaultScopes,
-          callbackTransport: transport,
-          redirectUri,
-          requiresClientSecret,
-        };
-        if (
-          descProviderRow.displayName &&
-          descProviderRow.dashboardUrl &&
-          descProviderRow.appType
-        ) {
-          info.setup = {
-            displayName: descProviderRow.displayName,
-            dashboardUrl: descProviderRow.dashboardUrl,
-            appType: descProviderRow.appType,
-            requiresClientSecret: !!descProviderRow.requiresClientSecret,
-            ...(descProviderRow.setupNotes
-              ? { notes: JSON.parse(descProviderRow.setupNotes) }
-              : {}),
-          };
-        }
-        if (descProviderRow.extraParams) {
-          try {
-            info.extraParams = JSON.parse(descProviderRow.extraParams);
-          } catch {
-            // Non-fatal
-          }
-        }
-
-        return { content: JSON.stringify(info, null, 2), isError: false };
       }
 
       default:

@@ -135,65 +135,31 @@ final class MessageListScrollPerformanceTests: XCTestCase {
         }
     }
 
-    // MARK: - Test 3: requestBottomPin Hot Path
+    // MARK: - Test 3: requestPinToBottom Hot Path
 
-    /// Measures the synchronous hot path of requestBottomPin on the scroll
-    /// coordinator: request a pin, reset follow state — repeated 100 times.
+    /// Measures the synchronous hot path of requestPinToBottom on the scroll
+    /// state: request a pin, transition back to followingBottom — repeated 100 times.
     @MainActor
-    func testRequestBottomPinPerformance() {
+    func testPinToBottomPerformance() {
         measure(metrics: [XCTClockMetric()]) {
-            let coordinator = MessageListScrollCoordinator()
+            let scrollState = MessageListScrollState()
             var scrollCallCount = 0
 
-            coordinator.scrollTo = { _, _ in
+            scrollState.scrollTo = { _, _ in
                 scrollCallCount += 1
             }
 
-            let convId = UUID()
-            coordinator.configureScrollCallbacks(
-                scrollViewportHeight: 600,
-                conversationId: convId,
-                isNearBottom: .constant(true)
-            )
+            // Ensure we start in followingBottom mode.
+            scrollState.transition(to: .followingBottom)
 
             // Run 100 pin request cycles to get a stable measurement.
             for _ in 0..<100 {
-                coordinator.requestBottomPin(reason: .initialRestore, conversationId: convId)
-                coordinator.isFollowingBottom = true
+                scrollState.requestPinToBottom()
+                scrollState.transition(to: .followingBottom)
             }
 
             XCTAssertGreaterThan(scrollCallCount, 0)
-            coordinator.cancelAllTasks()
-        }
-    }
-
-    // MARK: - Test 4: ChatScrollLoopGuard.record() Rapid Events
-
-    /// Measures ChatScrollLoopGuard.record() with 100 rapid events per
-    /// iteration. This exercises the rolling window pruning, threshold
-    /// checking, and cooldown logic — all synchronous and deterministic
-    /// when timestamps are injected.
-    func testChatScrollLoopGuardRecordPerformance() {
-        measure(metrics: [XCTClockMetric()]) {
-            let loopGuard = ChatScrollLoopGuard()
-            let conversationId = "perf-test-conversation"
-            var timestamp: TimeInterval = 1000.0
-
-            for _ in 0..<100 {
-                loopGuard.record(
-                    .bodyEvaluation,
-                    conversationId: conversationId,
-                    timestamp: timestamp
-                )
-                timestamp += 0.02
-            }
-
-            // Verify the guard state is consistent after the burst.
-            let counts = loopGuard.currentCounts(
-                conversationId: conversationId,
-                timestamp: timestamp
-            )
-            XCTAssertGreaterThan(counts[.bodyEvaluation] ?? 0, 0)
+            scrollState.cancelAll()
         }
     }
 
@@ -214,7 +180,7 @@ final class MessageListScrollPerformanceTests: XCTestCase {
             isStreaming: true
         )
 
-        let tracking = ScrollTrackingState()
+        let tracking = MessageListScrollState()
 
         // Build initial cache.
         let key = PrecomputedCacheKey(

@@ -373,7 +373,7 @@ struct MarkdownPreviewView: View {
                 if let fm = frontmatter {
                     frontmatterHeader(fm)
                     if !blocks.isEmpty {
-                        Divider()
+                        Divider().background(VColor.borderBase)
                             .padding(.vertical, VSpacing.xs)
                     }
                 }
@@ -433,7 +433,7 @@ struct MarkdownPreviewView: View {
         case .orderedList(let items):
             orderedListView(items: items)
         case .horizontalRule:
-            Divider()
+            Divider().background(VColor.borderBase)
                 .padding(.vertical, VSpacing.sm)
         case .blockquote(let text):
             blockquoteView(text: text)
@@ -456,7 +456,7 @@ struct MarkdownPreviewView: View {
                 renderInlineMarkdown(text)
                     .font(VFont.titleMedium)
                     .foregroundStyle(VColor.contentEmphasized)
-                Divider()
+                Divider().background(VColor.borderBase)
             }
         case 3:
             renderInlineMarkdown(text)

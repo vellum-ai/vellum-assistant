@@ -1,16 +1,14 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "BtwClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "BtwClient")
 
 /// Focused client for BTW side-chain messages routed through the gateway.
-@MainActor
 public protocol BtwClientProtocol {
     func sendMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error>
 }
 
 /// Gateway-backed implementation of ``BtwClientProtocol``.
-@MainActor
 public struct BtwClient: BtwClientProtocol {
     nonisolated public init() {}
 
@@ -18,7 +16,7 @@ public struct BtwClient: BtwClientProtocol {
     /// Returns an `AsyncThrowingStream` that yields text deltas from SSE `btw_text_delta` events.
     public func sendMessage(content: String, conversationKey: String) -> AsyncThrowingStream<String, Error> {
         return AsyncThrowingStream { continuation in
-            let task = Task { @MainActor in
+            let task = Task {
                 do {
                     try await Self.streamBtw(content: content, conversationKey: conversationKey, continuation: continuation)
                 } catch {

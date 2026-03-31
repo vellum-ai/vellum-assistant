@@ -49,17 +49,15 @@ mock.module("../platform/client.js", () => ({
   },
 }));
 
-const mockGetTelemetryPlatformUrl = mock(() => "https://platform.vellum.ai");
-const mockGetTelemetryAppToken = mock(() => "");
+const mockGetPlatformBaseUrl = mock(() => "https://platform.vellum.ai");
 
 const mockGetPlatformOrganizationId = mock(() => "");
 const mockGetPlatformUserId = mock(() => "");
 
 mock.module("../config/env.js", () => ({
+  getPlatformBaseUrl: mockGetPlatformBaseUrl,
   getPlatformOrganizationId: mockGetPlatformOrganizationId,
   getPlatformUserId: mockGetPlatformUserId,
-  getTelemetryPlatformUrl: mockGetTelemetryPlatformUrl,
-  getTelemetryAppToken: mockGetTelemetryAppToken,
   // Re-export anything else the module might import transitively
   str: () => undefined,
   num: () => undefined,
@@ -89,6 +87,20 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("../version.js", () => ({
   APP_VERSION: "1.2.3-test",
+}));
+
+let mockCollectUsageData = true;
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({ collectUsageData: mockCollectUsageData }),
+}));
+
+const mockQueryUnreportedLifecycleEvents = mock(
+  () => [] as { id: string; eventName: string; createdAt: number }[],
+);
+
+mock.module("../memory/lifecycle-events-store.js", () => ({
+  queryUnreportedLifecycleEvents: mockQueryUnreportedLifecycleEvents,
 }));
 
 // ---------------------------------------------------------------------------
@@ -135,14 +147,16 @@ let mockFetch: ReturnType<typeof mock>;
 
 beforeEach(() => {
   eventIdCounter = 0;
+  mockCollectUsageData = true;
   mockGetMemoryCheckpoint.mockReset();
   mockSetMemoryCheckpoint.mockReset();
   mockQueryUnreportedUsageEvents.mockReset();
   mockQueryUnreportedTurnEvents.mockReset();
   mockQueryUnreportedTurnEvents.mockReturnValue([]);
+  mockQueryUnreportedLifecycleEvents.mockReset();
+  mockQueryUnreportedLifecycleEvents.mockReturnValue([]);
   mockPlatformClient = null;
-  mockGetTelemetryPlatformUrl.mockReset();
-  mockGetTelemetryAppToken.mockReset();
+  mockGetPlatformBaseUrl.mockReset();
   mockGetDeviceId.mockReset();
   mockGetDeviceId.mockReturnValue("test-device-id");
   mockGetExternalAssistantId.mockReset();
@@ -154,8 +168,7 @@ beforeEach(() => {
 
   // Defaults
   mockGetMemoryCheckpoint.mockReturnValue(null);
-  mockGetTelemetryPlatformUrl.mockReturnValue("https://platform.vellum.ai");
-  mockGetTelemetryAppToken.mockReturnValue("default-test-token");
+  mockGetPlatformBaseUrl.mockReturnValue("https://platform.vellum.ai");
 
   mockFetch = mock(() =>
     Promise.resolve(new Response('{"accepted":0}', { status: 200 })),
@@ -195,10 +208,9 @@ describe("UsageTelemetryReporter", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
-  test("anonymous flush uses X-Telemetry-Token and default URL", async () => {
+  test("anonymous flush sends request without auth headers", async () => {
     mockPlatformClient = null;
-    mockGetTelemetryPlatformUrl.mockReturnValue("https://platform.test.ai");
-    mockGetTelemetryAppToken.mockReturnValue("anon-token");
+    mockGetPlatformBaseUrl.mockReturnValue("https://platform.test.ai");
 
     const events = [makeUsageEvent()];
     mockQueryUnreportedUsageEvents.mockReturnValue(events);
@@ -213,9 +225,9 @@ describe("UsageTelemetryReporter", () => {
     const [url, opts] = mockFetch.mock.calls[0] as [string, RequestInit];
     expect(url).toStartWith("https://platform.test.ai");
     expect(url).toEndWith("/telemetry/ingest/");
-    expect((opts.headers as Record<string, string>)["X-Telemetry-Token"]).toBe(
-      "anon-token",
-    );
+    const headers = opts.headers as Record<string, string>;
+    expect(headers["Content-Type"]).toBe("application/json");
+    expect(headers["X-Telemetry-Token"]).toBeUndefined();
   });
 
   test("watermark advances on successful upload", async () => {
@@ -279,7 +291,7 @@ describe("UsageTelemetryReporter", () => {
     const body1 = JSON.parse(
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
-    expect(body1.installation_id).toBe("test-device-id");
+    expect(body1.device_id).toBe("test-device-id");
 
     // Second flush — should use the same value
     mockQueryUnreportedUsageEvents.mockReturnValue([makeUsageEvent()]);
@@ -288,7 +300,7 @@ describe("UsageTelemetryReporter", () => {
     const body2 = JSON.parse(
       (mockFetch.mock.calls[1] as [string, RequestInit])[1].body as string,
     );
-    expect(body2.installation_id).toBe("test-device-id");
+    expect(body2.device_id).toBe("test-device-id");
   });
 
   test("empty batch makes no HTTP call", async () => {
@@ -362,8 +374,8 @@ describe("UsageTelemetryReporter", () => {
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
 
-    // Top-level: installation_id, assistant_version, and events array (no turn_events key)
-    expect(body.installation_id).toBe("test-device-id");
+    // Top-level: device_id, assistant_version, and events array (no turn_events key)
+    expect(body.device_id).toBe("test-device-id");
     expect(body.assistant_version).toBe("1.2.3-test");
     expect(Array.isArray(body.events)).toBe(true);
     expect(body.events.length).toBe(1);
@@ -437,7 +449,7 @@ describe("UsageTelemetryReporter", () => {
     const body = JSON.parse(
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
-    expect(body.installation_id).toBe("test-device-id");
+    expect(body.device_id).toBe("test-device-id");
     expect(body.assistant_id).toBe(DAEMON_INTERNAL_ASSISTANT_ID);
   });
 
@@ -476,5 +488,57 @@ describe("UsageTelemetryReporter", () => {
     expect(turnEvent).toBeDefined();
     expect(turnEvent.daemon_event_id).toBe("evt-mixed-turn");
     expect(turnEvent.recorded_at).toBe(1700000050000);
+  });
+
+  test("flush is skipped and watermarks advanced when collectUsageData is false", async () => {
+    mockCollectUsageData = false;
+    const events = [makeUsageEvent()];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    // No HTTP call should have been made
+    expect(mockFetch).not.toHaveBeenCalled();
+
+    // All 6 watermarks should have been advanced (3 timestamps + 3 IDs)
+    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(6);
+
+    const calls = mockSetMemoryCheckpoint.mock.calls;
+    const keys = calls.map((c) => c[0]);
+    expect(keys).toContain("telemetry:usage:last_reported_at");
+    expect(keys).toContain("telemetry:usage:last_reported_id");
+    expect(keys).toContain("telemetry:turns:last_reported_at");
+    expect(keys).toContain("telemetry:turns:last_reported_id");
+    expect(keys).toContain("telemetry:lifecycle:last_reported_at");
+    expect(keys).toContain("telemetry:lifecycle:last_reported_id");
+  });
+
+  test("events sent normally after re-enabling collectUsageData", async () => {
+    // First flush with opt-out — watermarks advance, nothing sent
+    mockCollectUsageData = false;
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+    expect(mockFetch).not.toHaveBeenCalled();
+    mockSetMemoryCheckpoint.mockReset();
+
+    // Re-enable and flush with new events
+    mockCollectUsageData = true;
+    const events = [makeUsageEvent({ id: "evt-after-reenable" })];
+    mockQueryUnreportedUsageEvents.mockReturnValue(events);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect(body.events[0].daemon_event_id).toBe("evt-after-reenable");
   });
 });

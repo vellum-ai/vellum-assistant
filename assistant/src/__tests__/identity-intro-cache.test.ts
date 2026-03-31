@@ -32,10 +32,6 @@ mock.module("../memory/checkpoints.js", () => ({
 // Simulated workspace file contents
 const workspaceFiles: Record<string, string> = {};
 
-mock.module("../util/platform.js", () => ({
-  getWorkspacePromptPath: (name: string) => `/mock/workspace/${name}`,
-}));
-
 mock.module("node:fs", () => ({
   existsSync: (path: string) => {
     const name = path.split("/").pop() ?? "";

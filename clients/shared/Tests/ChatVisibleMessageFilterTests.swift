@@ -81,6 +81,18 @@ final class ChatVisibleMessageFilterTests: XCTestCase {
         XCTAssertEqual(result.count, 1)
     }
 
+    func testMessageWithOnlyStreamingCodePreviewIsNotFilteredOut() {
+        // Messages created during app_create streaming have only streamingCodePreview set
+        // with empty text and no other content. They must pass the visibility filter.
+        var msg = ChatMessage(role: .assistant, text: "")
+        msg.streamingCodePreview = "<html><body>Hello</body></html>"
+
+        let result = ChatVisibleMessageFilter.visibleMessages(from: [msg])
+
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result[0].streamingCodePreview, "<html><body>Hello</body></html>")
+    }
+
     func testEmptyArrayReturnsEmpty() {
         let result = ChatVisibleMessageFilter.visibleMessages(from: [])
         XCTAssertTrue(result.isEmpty)

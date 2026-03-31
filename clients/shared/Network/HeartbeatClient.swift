@@ -1,13 +1,12 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HeartbeatClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HeartbeatClient")
 
 /// Focused client for heartbeat-related operations routed through the gateway.
 ///
 /// Covers heartbeat configuration, run history, on-demand runs, and checklist
 /// management.
-@MainActor
 public protocol HeartbeatClientProtocol {
     func fetchConfig() async -> HeartbeatConfigResponse?
     func updateConfig(enabled: Bool?, intervalMs: Double?, activeHoursStart: Double?, activeHoursEnd: Double?) async -> HeartbeatConfigResponse?
@@ -18,7 +17,6 @@ public protocol HeartbeatClientProtocol {
 }
 
 /// Gateway-backed implementation of ``HeartbeatClientProtocol``.
-@MainActor
 public struct HeartbeatClient: HeartbeatClientProtocol {
     nonisolated public init() {}
 

@@ -5,11 +5,11 @@ import { seedProviders } from "./oauth-store.js";
  *
  * These values are upserted into the `oauth_providers` SQLite table on
  * every startup. Only Vellum implementation fields (authUrl, tokenUrl,
- * tokenEndpointAuthMethod, userinfoUrl, extraParams, callbackTransport,
+ * tokenEndpointAuthMethod, userinfoUrl, extraParams,
  * pingUrl, pingMethod, pingHeaders, pingBody, managedServiceConfigKey,
  * loopbackPort, injectionTemplates, appType, setupNotes,
  * identityUrl, identityMethod, identityHeaders, identityBody,
- * identityResponsePaths, identityFormat, identityOkField)
+ * identityResponsePaths, identityFormat, identityOkField, featureFlag)
  * and display metadata (displayName,
  * description, dashboardUrl, clientIdPlaceholder, requiresClientSecret)
  * are overwritten on subsequent startups — user-customizable
@@ -36,7 +36,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: string[];
     };
     extraParams?: Record<string, string>;
-    callbackTransport?: string;
     managedServiceConfigKey?: string;
     displayName: string;
     description: string;
@@ -59,6 +58,7 @@ const PROVIDER_SEED_DATA: Record<
     identityResponsePaths?: string[];
     identityFormat?: string;
     identityOkField?: string;
+    featureFlag?: string;
   }
 > = {
   google: {
@@ -90,7 +90,7 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     extraParams: { access_type: "offline", prompt: "consent" },
-    callbackTransport: "loopback",
+    loopbackPort: 17321,
     managedServiceConfigKey: "google-oauth",
     injectionTemplates: [
       {
@@ -151,7 +151,6 @@ const PROVIDER_SEED_DATA: Record<
       user_scope:
         "channels:read,channels:history,groups:read,groups:history,im:read,im:history,im:write,mpim:read,mpim:history,users:read,chat:write,search:read,reactions:write",
     },
-    callbackTransport: "loopback",
     loopbackPort: 17322,
     injectionTemplates: [
       {
@@ -187,7 +186,6 @@ const PROVIDER_SEED_DATA: Record<
     },
     extraParams: { owner: "user" },
     tokenEndpointAuthMethod: "client_secret_basic",
-    callbackTransport: "loopback",
     loopbackPort: 17323,
     injectionTemplates: [
       {
@@ -225,7 +223,7 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     tokenEndpointAuthMethod: "client_secret_basic",
-    callbackTransport: "gateway",
+    loopbackPort: 17335,
     injectionTemplates: [
       {
         hostPattern: "api.x.com",
@@ -261,7 +259,6 @@ const PROVIDER_SEED_DATA: Record<
       ],
       forbiddenScopes: ["delete_repo", "admin:org"],
     },
-    callbackTransport: "loopback",
     loopbackPort: 17332,
     injectionTemplates: [
       {
@@ -297,7 +294,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     extraParams: { prompt: "consent" },
-    callbackTransport: "loopback",
     loopbackPort: 17324,
     injectionTemplates: [
       {
@@ -342,7 +338,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     tokenEndpointAuthMethod: "client_secret_basic",
-    callbackTransport: "loopback",
     loopbackPort: 17333,
     injectionTemplates: [
       {
@@ -373,7 +368,6 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: [],
       forbiddenScopes: ["data:delete"],
     },
-    callbackTransport: "loopback",
     loopbackPort: 17325,
     injectionTemplates: [
       {
@@ -412,7 +406,6 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: ["bot"],
       forbiddenScopes: [],
     },
-    callbackTransport: "loopback",
     loopbackPort: 17326,
     injectionTemplates: [
       {
@@ -450,7 +443,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     extraParams: { token_access_type: "offline" },
-    callbackTransport: "loopback",
     loopbackPort: 17327,
     injectionTemplates: [
       {
@@ -488,7 +480,6 @@ const PROVIDER_SEED_DATA: Record<
       allowedOptionalScopes: [],
       forbiddenScopes: [],
     },
-    callbackTransport: "loopback",
     loopbackPort: 17328,
     injectionTemplates: [
       {
@@ -524,7 +515,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     tokenEndpointAuthMethod: "client_secret_basic",
-    callbackTransport: "loopback",
     loopbackPort: 17329,
     injectionTemplates: [
       {
@@ -564,7 +554,6 @@ const PROVIDER_SEED_DATA: Record<
       ],
       forbiddenScopes: [],
     },
-    callbackTransport: "loopback",
     loopbackPort: 17330,
     injectionTemplates: [
       {
@@ -596,7 +585,6 @@ const PROVIDER_SEED_DATA: Record<
       forbiddenScopes: [],
     },
     tokenEndpointAuthMethod: "client_secret_basic",
-    callbackTransport: "loopback",
     loopbackPort: 17331,
     injectionTemplates: [
       {
@@ -609,6 +597,51 @@ const PROVIDER_SEED_DATA: Record<
     appType: "App",
     identityUrl: "https://api.figma.com/v1/me",
     identityResponsePaths: ["handle", "email"],
+  },
+
+  outlook: {
+    providerKey: "outlook",
+    authUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+    tokenUrl: "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+    pingUrl: "https://graph.microsoft.com/v1.0/me",
+    baseUrl: "https://graph.microsoft.com",
+    displayName: "Outlook / Microsoft",
+    description: "Email and calendar",
+    dashboardUrl:
+      "https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+    clientIdPlaceholder: "Application (client) ID from Azure portal",
+    defaultScopes: [
+      "openid",
+      "profile",
+      "email",
+      "offline_access",
+      "User.Read",
+      "Mail.ReadWrite",
+      "Mail.Send",
+      "Calendars.Read",
+      "Calendars.ReadWrite",
+      "MailboxSettings.ReadWrite",
+    ],
+    scopePolicy: {
+      allowAdditionalScopes: true,
+      allowedOptionalScopes: ["Contacts.Read", "Files.Read", "Tasks.ReadWrite"],
+      forbiddenScopes: [],
+    },
+    extraParams: { prompt: "consent" },
+    tokenEndpointAuthMethod: "client_secret_post",
+    loopbackPort: 17334,
+    managedServiceConfigKey: "outlook-oauth",
+    injectionTemplates: [
+      {
+        hostPattern: "graph.microsoft.com",
+        injectionType: "header",
+        headerName: "Authorization",
+        valuePrefix: "Bearer ",
+      },
+    ],
+    appType: "App registration",
+    identityUrl: "https://graph.microsoft.com/v1.0/me",
+    identityResponsePaths: ["mail", "userPrincipalName"],
   },
 
   // Manual-token providers: these don't use OAuth2 flows but need provider

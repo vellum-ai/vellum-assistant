@@ -149,6 +149,7 @@ public struct ToolConfirmationBubble: View {
             RoundedRectangle(cornerRadius: VRadius.lg)
                 .stroke(VColor.borderBase, lineWidth: 0.5)
         )
+        .textSelection(.disabled)
     }
 
     @ViewBuilder
@@ -236,7 +237,7 @@ public struct ToolConfirmationBubble: View {
                             .font(VFont.labelDefault)
                             .foregroundStyle(VColor.contentDefault)
                     }
-                    .offset(x: -1)
+                    .padding(.leading, -1)
                 }
                 .buttonStyle(.plain)
 
@@ -250,7 +251,7 @@ public struct ToolConfirmationBubble: View {
                         }
                     }
                     .padding(.top, VSpacing.xs)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    .transition(.opacity)
                 }
             }
             .clipped()
@@ -265,10 +266,13 @@ public struct ToolConfirmationBubble: View {
                         .stroke(VColor.borderBase, lineWidth: 0.5)
                 )
         )
+        .textSelection(.disabled)
         .onGeometryChange(for: Bool.self) { proxy in
             proxy.size.width < 450
         } action: { isCompact in
-            useCompactConfirmationLayout = isCompact
+            withAnimation(.none) {
+                useCompactConfirmationLayout = isCompact
+            }
         }
         .onAppear {
             if isKeyboardActive {
@@ -378,7 +382,7 @@ public struct ToolConfirmationBubble: View {
                     }
                 }
                 .textSelection(.enabled)
-                .transition(.opacity.combined(with: .move(edge: .top)))
+                .transition(.opacity)
             }
         }
     }
@@ -464,6 +468,7 @@ public struct ToolConfirmationBubble: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: VRadius.md)
                         .strokeBorder(VColor.primaryBase, lineWidth: isPrimaryAllowKeyboardSelected ? 2 : 0)
+                        .allowsHitTesting(false)
                 )
 
             VButton(label: "Deny", style: .danger, size: .compact) {
@@ -473,6 +478,7 @@ public struct ToolConfirmationBubble: View {
             .overlay(
                 RoundedRectangle(cornerRadius: VRadius.md)
                     .strokeBorder(VColor.systemNegativeStrong, lineWidth: keyboardModel?.selectedAction == .dontAllow ? 2 : 0)
+                    .allowsHitTesting(false)
             )
         }
     }

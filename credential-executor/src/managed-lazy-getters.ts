@@ -22,9 +22,19 @@ export interface ApiKeyRef {
   current: string;
 }
 
+/**
+ * Mutable reference to the platform assistant ID. For warm-pool pods the
+ * PLATFORM_ASSISTANT_ID env var is empty at startup; the assistant forwards
+ * the ID via the handshake or update_managed_credential RPC after
+ * provisioning, and `.current` is updated so lazy getters pick it up.
+ */
+export interface AssistantIdRef {
+  current: string;
+}
+
 export interface LazyGetterOptions {
   platformBaseUrl: string;
-  assistantId: string;
+  assistantIdRef: AssistantIdRef;
   apiKeyRef: ApiKeyRef;
   envApiKey?: string;
 }
@@ -43,22 +53,24 @@ export interface LazyGetters {
  * (chicken-and-egg: key is provisioned after hatch).
  */
 export function buildLazyGetters(opts: LazyGetterOptions): LazyGetters {
-  const { platformBaseUrl, assistantId, apiKeyRef, envApiKey } = opts;
+  const { platformBaseUrl, assistantIdRef, apiKeyRef, envApiKey } = opts;
 
   const getAssistantApiKey = (): string =>
     apiKeyRef.current || envApiKey || "";
 
   const getManagedSubjectOptions = (): ManagedSubjectResolverOptions | undefined => {
     const key = getAssistantApiKey();
-    return platformBaseUrl && key && assistantId
-      ? { platformBaseUrl, assistantApiKey: key, assistantId }
+    const id = assistantIdRef.current;
+    return platformBaseUrl && key && id
+      ? { platformBaseUrl, assistantApiKey: key, assistantId: id }
       : undefined;
   };
 
   const getManagedMaterializerOptions = (): ManagedMaterializerOptions | undefined => {
     const key = getAssistantApiKey();
-    return platformBaseUrl && key && assistantId
-      ? { platformBaseUrl, assistantApiKey: key, assistantId }
+    const id = assistantIdRef.current;
+    return platformBaseUrl && key && id
+      ? { platformBaseUrl, assistantApiKey: key, assistantId: id }
       : undefined;
   };
 

@@ -195,6 +195,7 @@ public struct InlineTableWidget: View {
                     .padding(.top, VSpacing.xs)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear {
             selectedIds = Set(data.rows.filter(\.selected).map(\.id))
             if hasSelection {
@@ -216,7 +217,7 @@ public struct InlineTableWidget: View {
             horizontalScrollableTable
         } else {
             tableContent
-                .frame(width: minimumTableWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

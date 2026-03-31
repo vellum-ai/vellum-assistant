@@ -6,8 +6,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import type { ServerWebSocket } from "bun";
 
@@ -28,13 +27,11 @@ import {
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
 import { parseChannelId } from "../channels/types.js";
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   getGatewayInternalBaseUrl,
   hasUngatedHttpAuthDisabled,
   isHttpAuthDisabled,
 } from "../config/env.js";
-import { getConfig } from "../config/loader.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { PairingStore } from "../daemon/pairing-store.js";
 import {
@@ -58,6 +55,7 @@ import {
 } from "../memory/conversation-queries.js";
 import type { ExternalConversationBinding } from "../memory/external-conversation-store.js";
 import * as externalConversationStore from "../memory/external-conversation-store.js";
+import { listGroups } from "../memory/group-crud.js";
 import {
   consumeCallback,
   consumeCallbackError,
@@ -141,6 +139,7 @@ import { diagnosticsRouteDefinitions } from "./routes/diagnostics-routes.js";
 import { documentRouteDefinitions } from "./routes/documents-routes.js";
 import { eventsRouteDefinitions } from "./routes/events-routes.js";
 import { globalSearchRouteDefinitions } from "./routes/global-search-routes.js";
+import { groupRouteDefinitions } from "./routes/group-routes.js";
 import { guardianActionRouteDefinitions } from "./routes/guardian-action-routes.js";
 import { handleGuardianBootstrap } from "./routes/guardian-bootstrap-routes.js";
 import { handleGuardianRefresh } from "./routes/guardian-refresh-routes.js";
@@ -165,6 +164,7 @@ import { migrationRollbackRouteDefinitions } from "./routes/migration-rollback-r
 import { migrationRouteDefinitions } from "./routes/migration-routes.js";
 import { notificationRouteDefinitions } from "./routes/notification-routes.js";
 import { oauthAppsRouteDefinitions } from "./routes/oauth-apps.js";
+import { oauthProvidersRouteDefinitions } from "./routes/oauth-providers.js";
 import type { PairingHandlerContext } from "./routes/pairing-routes.js";
 import {
   handlePairingRequest,
@@ -295,24 +295,11 @@ export class RuntimeHttpServer {
     this.pairingBroadcast = fn;
   }
 
-  /** Read the feature-flag client token from disk so it can be included in pairing approval responses. */
-  private readFeatureFlagToken(): string | undefined {
-    try {
-      const baseDir = process.env.BASE_DATA_DIR?.trim() || homedir();
-      const tokenPath = join(baseDir, ".vellum", "feature-flag-token");
-      const token = readFileSync(tokenPath, "utf-8").trim();
-      return token || undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
   private get pairingContext(): PairingHandlerContext {
     const broadcast = this.pairingBroadcast;
     return {
       pairingStore: this.pairingStore,
       bearerToken: this.bearerToken,
-      featureFlagToken: this.readFeatureFlagToken(),
       pairingBroadcast: broadcast
         ? (msg) => {
             // Broadcast to all clients via the event hub so HTTP/SSE clients
@@ -821,7 +808,11 @@ export class RuntimeHttpServer {
     conversation: ConversationRow;
     binding?: ExternalConversationBinding | null;
     attentionState?: AttentionState;
-    displayMeta?: { displayOrder: number | null; isPinned: boolean };
+    displayMeta?: {
+      displayOrder: number | null;
+      isPinned: boolean;
+      groupId: string | null;
+    };
     parentCache: Map<string, ConversationRow | null>;
   }) {
     const { conversation, binding, attentionState, displayMeta, parentCache } =
@@ -863,6 +854,7 @@ export class RuntimeHttpServer {
               displayOrder: displayMeta.displayOrder,
             }
           : {}),
+      groupId: displayMeta?.groupId ?? null,
       ...(forkParent ? { forkParent } : {}),
     };
   }
@@ -1031,17 +1023,11 @@ export class RuntimeHttpServer {
         handler: ({ url }) => {
           const limit = Number(url.searchParams.get("limit") ?? 50);
           const offset = Number(url.searchParams.get("offset") ?? 0);
-          const includeBackground = isAssistantFeatureFlagEnabled(
-            "show-background-conversations",
-            getConfig(),
-          );
-          const conversations = listConversations(
-            limit,
-            includeBackground,
-            offset,
-          );
-          const totalCount = countConversations(includeBackground);
-          const conversationIds = conversations.map((c) => c.id);
+          const backgroundOnly =
+            url.searchParams.get("conversationType") === "background";
+          const rows = listConversations(limit, backgroundOnly, offset);
+          const totalCount = countConversations(backgroundOnly);
+          const conversationIds = rows.map((c) => c.id);
           const displayMeta = getDisplayMetaForConversations(conversationIds);
           const bindings =
             externalConversationStore.getBindingsForConversations(
@@ -1050,8 +1036,8 @@ export class RuntimeHttpServer {
           const attentionStates =
             getAttentionStateByConversationIds(conversationIds);
           const parentCache = new Map<string, ConversationRow | null>();
-          return Response.json({
-            conversations: conversations.map((conversation) =>
+          const response: Record<string, unknown> = {
+            conversations: rows.map((conversation) =>
               this.serializeConversationSummary({
                 conversation,
                 binding: bindings.get(conversation.id),
@@ -1060,8 +1046,19 @@ export class RuntimeHttpServer {
                 parentCache,
               }),
             ),
-            hasMore: offset + conversations.length < totalCount,
-          });
+            hasMore: offset + rows.length < totalCount,
+          };
+          // Include groups array on first page only
+          if (offset === 0) {
+            const groups = listGroups();
+            response.groups = groups.map((g) => ({
+              id: g.id,
+              name: g.name,
+              sortPosition: g.sortPosition,
+              isSystemGroup: g.isSystemGroup,
+            }));
+          }
+          return Response.json(response);
         },
       },
       ...conversationAttentionRouteDefinitions(),
@@ -1069,6 +1066,8 @@ export class RuntimeHttpServer {
       ...(conversationManagementDeps
         ? conversationManagementRouteDefinitions(conversationManagementDeps)
         : []),
+
+      ...groupRouteDefinitions(),
 
       {
         endpoint: "conversations/seen",
@@ -1213,6 +1212,7 @@ export class RuntimeHttpServer {
       ...twilioRouteDefinitions(),
       ...vercelRouteDefinitions(),
       ...channelReadinessRouteDefinitions(),
+      ...oauthProvidersRouteDefinitions(),
       ...oauthAppsRouteDefinitions(),
       ...attachmentRouteDefinitions(),
 

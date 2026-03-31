@@ -112,6 +112,7 @@ final class WorkspaceBrowserState {
 // MARK: - Workspace Panel
 
 struct WorkspacePanel: View {
+    @Binding var pendingFilePath: String?
     @State private var state = WorkspaceBrowserState()
     let workspaceClient = WorkspaceClient()
     @State private var sidebarWidth: CGFloat = 300
@@ -122,6 +123,10 @@ struct WorkspacePanel: View {
     private let maxSidebarWidth: CGFloat = 500
 
     private let dragCoordinateSpace = "WorkspacePanelDrag"
+
+    init(pendingFilePath: Binding<String?> = .constant(nil)) {
+        _pendingFilePath = pendingFilePath
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -169,6 +174,12 @@ struct WorkspacePanel: View {
         }
         .coordinateSpace(name: dragCoordinateSpace)
         .task { await loadRoot() }
+        .onChange(of: pendingFilePath) {
+            if let path = pendingFilePath {
+                pendingFilePath = nil
+                Task { await state.loadFile(path: path, using: workspaceClient) }
+            }
+        }
         .onDisappear {
             state.fileLoadTask?.cancel()
             state.fileLoadTask = nil
@@ -370,14 +381,10 @@ private struct WorkspaceTreeSidebar: View {
                         }
                         .padding(.vertical, VSpacing.xs)
                     }
-                    .background {
-                        GeometryReader { geo in
-                            Color.clear
-                                .onAppear { viewportWidth = geo.size.width }
-                                .onChange(of: geo.size.width) { _, newWidth in
-                                    viewportWidth = newWidth
-                                }
-                        }
+                    .onGeometryChange(for: CGFloat.self) { proxy in
+                        proxy.size.width
+                    } action: { newWidth in
+                        viewportWidth = newWidth
                     }
                 }
             }
@@ -405,8 +412,13 @@ private struct WorkspaceTreeSidebar: View {
             handleDrop(providers: providers, targetDir: "", state: state, workspaceClient: workspaceClient)
             return true
         }
-        .background(VColor.surfaceBase)
-        .clipShape(RoundedRectangle(cornerRadius: VRadius.lg))
+        .background(VColor.surfaceOverlay)
+        .clipShape(RoundedRectangle(cornerRadius: VRadius.xl))
+        .overlay(
+            RoundedRectangle(cornerRadius: VRadius.xl)
+                .strokeBorder(VColor.borderDisabled, lineWidth: 2)
+                .allowsHitTesting(false)
+        )
         .alert("New File", isPresented: $state.showingNewFileAlert) {
             TextField("Filename", text: $state.newItemName)
             Button("Cancel", role: .cancel) {}
@@ -533,6 +545,7 @@ private struct WorkspaceTreeRow: View {
                         .padding(.trailing, VSpacing.sm)
                         .padding(.vertical, VSpacing.xs)
                         .frame(minWidth: minRowWidth, alignment: .leading)
+                        .background(isSelected ? VColor.surfaceActive : Color.clear)
                     } else {
                         // Normal mode: shared label
                         FileTreeRowLabel(
@@ -542,12 +555,13 @@ private struct WorkspaceTreeRow: View {
                             depth: depth,
                             fileIcon: fileIcon(for: entry.mimeType ?? "application/octet-stream", fileName: entry.name),
                             minRowWidth: minRowWidth,
-                            isDimmed: isHiddenPath(entry.path)
+                            isDimmed: isHiddenPath(entry.path),
+                            isActive: state.selectedFilePath == entry.path,
+                            trailingText: entry.isDirectory ? nil : formattedFileSize(entry.size)
                         )
                     }
                 }
                 .contentShape(Rectangle())
-                .background(isSelected ? VColor.surfaceActive : Color.clear)
             }
             .buttonStyle(.plain)
             .onDrop(of: entry.isDirectory && !isHiddenPath(entry.path) ? [.fileURL] : [], isTargeted: .none) { providers in
@@ -740,7 +754,6 @@ private struct WorkspaceFileViewer: View {
                 emptyState
             }
         }
-        .background(VColor.surfaceOverlay)
     }
 
     private var emptyState: some View {
@@ -897,6 +910,20 @@ private struct WorkspaceFileViewer: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+}
+
+// MARK: - File Size Formatter
+
+/// Formats an optional byte count into a human-readable size string.
+private func formattedFileSize(_ bytes: Int?) -> String? {
+    guard let bytes else { return nil }
+    if bytes < 1024 {
+        return "\(bytes) bytes"
+    } else if bytes < 1024 * 1024 {
+        return "\(bytes / 1024) KB"
+    } else {
+        return "\(String(format: "%.1f", Double(bytes) / (1024 * 1024))) MB"
+    }
 }
 
 // MARK: - Hidden Path Helper

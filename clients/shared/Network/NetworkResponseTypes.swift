@@ -29,6 +29,7 @@ public struct ConversationsListResponse: Decodable {
         public let assistantAttention: AssistantAttention?
         public let displayOrder: Double?
         public let isPinned: Bool?
+        public let groupId: String?
         public let forkParent: ConversationForkParent?
     }
     public let conversations: [Conversation]

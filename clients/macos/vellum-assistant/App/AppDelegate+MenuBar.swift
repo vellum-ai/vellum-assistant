@@ -4,7 +4,7 @@ import SwiftUI
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate+MenuBar")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate+MenuBar")
 
 extension Notification.Name {
     /// Posted when the user triggers Edit > Find (Cmd+F) from the menu bar.
@@ -232,7 +232,7 @@ extension AppDelegate {
 
     /// Builds the status item tooltip, appending PTT key info when enabled.
     private func menuBarTooltip() -> String {
-        let activator = PTTActivator.fromStored()
+        let activator = PTTActivator.cached
         guard activator.kind != .none else { return "Vellum" }
         return "Vellum — hold \(activator.displayName) to talk"
     }
@@ -621,7 +621,7 @@ extension AppDelegate {
 
         let hostingController = NSHostingController(rootView: view)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 540),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false

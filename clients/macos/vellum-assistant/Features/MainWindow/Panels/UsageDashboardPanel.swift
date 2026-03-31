@@ -13,12 +13,16 @@ struct UsageDashboardPanel: View {
     }
 
     var body: some View {
-        VSidePanel(title: "Usage", contentPadding: EdgeInsets(top: 0, leading: 0, bottom: VSpacing.lg, trailing: 0), onClose: onClose, pinnedContent: {
+        VPageContainer(title: "Usage") {
             timeRangeStrip(store: store)
-        }) {
-            if !allFailed {
-                contentView(store: store)
+
+            ScrollView {
+                if !allFailed {
+                    contentView(store: store)
+                        .padding(.bottom, VSpacing.lg)
+                }
             }
+            .layoutPriority(-1)
         }
         .overlay {
             if allFailed {
@@ -68,24 +72,20 @@ struct UsageDashboardPanel: View {
     private func timeRangeStrip(store: UsageDashboardStore) -> some View {
         HStack {
             VDropdown(
-                placeholder: "Time range",
+                options: UsageTimeRange.allCases.map { VDropdownOption(label: $0.rawValue, value: $0) },
                 selection: Binding(
                     get: { store.selectedRange },
-                    set: { newRange in
-                        refreshTask?.cancel()
-                        breakdownTask?.cancel()
-                        refreshTask = Task { await store.selectRange(newRange) }
-                    }
+                    set: { _ in }
                 ),
-                options: UsageTimeRange.allCases.map { ($0.rawValue, $0) },
-                size: .small,
-                maxWidth: 160
+                maxWidth: 150,
+                onChange: { newRange in
+                    refreshTask?.cancel()
+                    breakdownTask?.cancel()
+                    refreshTask = Task { await store.selectRange(newRange) }
+                }
             )
             Spacer()
         }
-        .frame(maxWidth: 900)
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, VSpacing.lg)
     }
 
     // MARK: - Content
@@ -139,11 +139,12 @@ struct UsageDashboardPanel: View {
         }
     }
 
-    // MARK: - Daily Trend Section
+    // MARK: - Trend Section
 
     @ViewBuilder
     func dailySection(store: UsageDashboardStore) -> some View {
-        SettingsCard(title: "Daily Trend") {
+        let isHourly = store.isHourlyGranularity
+        SettingsCard(title: isHourly ? "Hourly Trend" : "Daily Trend") {
             switch store.dailyState {
             case .idle, .loading:
                 // Skeleton matching bar chart layout
@@ -160,12 +161,12 @@ struct UsageDashboardPanel: View {
             case .loaded(let daily):
                 if daily.buckets.isEmpty {
                     VEmptyState(
-                        title: "No daily data",
+                        title: isHourly ? "No hourly data" : "No daily data",
                         subtitle: "No usage recorded in this time range",
                         icon: "calendar"
                     )
                 } else {
-                    dailyBarChart(daily.buckets)
+                    trendBarChart(daily.buckets, isHourly: isHourly)
                 }
             case .failed(let message):
                 errorRow(message) { refreshTask?.cancel(); refreshTask = Task { await store.refresh() } }
@@ -175,11 +176,13 @@ struct UsageDashboardPanel: View {
 
     private let barChartHeight: CGFloat = 140
     private let maxBarWidth: CGFloat = 40
+    private let hourlyBarWidth: CGFloat = 28
 
     @ViewBuilder
-    private func dailyBarChart(_ buckets: [UsageDayBucket]) -> some View {
+    private func trendBarChart(_ buckets: [UsageDayBucket], isHourly: Bool) -> some View {
         let sorted = buckets.sorted { $0.date < $1.date }
         let maxCost = buckets.map(\.totalEstimatedCostUsd).max() ?? 1.0
+        let barWidth = isHourly ? hourlyBarWidth : maxBarWidth
 
         ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: VSpacing.xs) {
@@ -191,24 +194,24 @@ struct UsageDashboardPanel: View {
                             Spacer(minLength: 0)
                             RoundedRectangle(cornerRadius: VRadius.xs)
                                 .fill(VColor.systemPositiveStrong)
-                                .frame(width: maxBarWidth, height: max(2, barChartHeight * fraction))
+                                .frame(width: barWidth, height: max(2, barChartHeight * fraction))
                         }
                     }
                 }
                 .frame(height: barChartHeight)
 
-                // Cost + date labels — left-aligned
+                // Cost + date/time labels — left-aligned
                 HStack(alignment: .top, spacing: VSpacing.xs) {
                     ForEach(sorted, id: \.date) { bucket in
                         VStack(spacing: VSpacing.xxs) {
                             Text(formatCost(bucket.totalEstimatedCostUsd))
                                 .font(VFont.labelSmall)
                                 .foregroundStyle(VColor.contentSecondary)
-                            Text(formatShortDate(bucket.date))
+                            Text(formatBucketLabel(bucket.date, isHourly: isHourly))
                                 .font(VFont.labelSmall)
                                 .foregroundStyle(VColor.contentTertiary)
                         }
-                        .frame(width: maxBarWidth)
+                        .frame(width: barWidth)
                         .lineLimit(1)
                     }
                 }
@@ -225,7 +228,7 @@ struct UsageDashboardPanel: View {
         return f
     }()
 
-    private static let isoParser: DateFormatter = {
+    private static let isoDateParser: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         f.locale = Locale(identifier: "en_US_POSIX")
@@ -233,10 +236,30 @@ struct UsageDashboardPanel: View {
         return f
     }()
 
-    /// Formats a date string (e.g. "2026-03-15") to a short label (e.g. "Mar 15").
-    private func formatShortDate(_ dateString: String) -> String {
-        guard let date = Self.isoParser.date(from: dateString) else { return dateString }
-        return Self.shortDateFormatter.string(from: date)
+    private static let isoHourParser: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")!
+        return f
+    }()
+
+    private static let shortHourFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "ha"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")!
+        return f
+    }()
+
+    private func formatBucketLabel(_ dateString: String, isHourly: Bool) -> String {
+        if isHourly {
+            guard let date = Self.isoHourParser.date(from: dateString) else { return dateString }
+            return Self.shortHourFormatter.string(from: date).lowercased()
+        } else {
+            guard let date = Self.isoDateParser.date(from: dateString) else { return dateString }
+            return Self.shortDateFormatter.string(from: date)
+        }
     }
 
     // MARK: - Breakdown Section
@@ -298,7 +321,6 @@ struct UsageDashboardPanel: View {
                 }
             ),
             options: UsageGroupByDimension.allCases.map { ($0.rawValue.capitalized, $0) },
-            size: .small,
             maxWidth: 140
         )
     }

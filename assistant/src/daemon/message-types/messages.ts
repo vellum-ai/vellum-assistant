@@ -71,6 +71,7 @@ export interface AssistantTextDelta {
 export interface AssistantThinkingDelta {
   type: "assistant_thinking_delta";
   thinking: string;
+  conversationId?: string;
 }
 
 export interface ToolUseStart {

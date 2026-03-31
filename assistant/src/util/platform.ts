@@ -1,17 +1,8 @@
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-} from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import {
-  getBaseDataDir,
-  getIsContainerized,
-  getWorkspaceDirOverride,
-} from "../config/env-registry.js";
+import { getWorkspaceDirOverride } from "../config/env-registry.js";
 
 export function isMacOS(): boolean {
   return process.platform === "darwin";
@@ -44,90 +35,6 @@ export function getClipboardCommand(): string | null {
   return null;
 }
 
-
-/**
- * Resolve the instance data directory from the lockfile.
- *
- * Checks both ~/.vellum.lock.json (current) and ~/.vellum.lockfile.json
- * (legacy) to support installs that haven't migrated the filename.
- *
- * Reads the lockfile from homedir() directly (NOT via readLockfile() which
- * depends on BASE_DATA_DIR) to avoid circular dependency — this function is
- * called at CLI bootstrap before BASE_DATA_DIR is set.
- *
- * Resolution:
- *   - If activeAssistant matches a local assistant, returns its instanceDir.
- *   - If there is exactly one local assistant and no activeAssistant, returns
- *     its instanceDir (auto-select).
- *   - Returns undefined in all other cases (no lockfile, no local assistants,
- *     multiple local assistants with no active selection, malformed JSON).
- *
- * Synchronous (uses readFileSync) since it runs at bootstrap before any async
- * context. Never throws — catches all errors and returns undefined for
- * graceful degradation.
- */
-export function resolveInstanceDataDir(): string | undefined {
-  try {
-    const home = homedir();
-    const candidates = [
-      join(home, ".vellum.lock.json"),
-      join(home, ".vellum.lockfile.json"),
-    ];
-
-    let raw: unknown;
-    for (const lockPath of candidates) {
-      if (!existsSync(lockPath)) continue;
-      try {
-        const parsed = JSON.parse(readFileSync(lockPath, "utf-8"));
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          raw = parsed;
-          break;
-        }
-      } catch {
-        // Malformed JSON; try next candidate
-      }
-    }
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-    const lockData = raw as Record<string, unknown>;
-
-    const assistants = lockData.assistants as
-      | Array<Record<string, unknown>>
-      | undefined;
-    if (!Array.isArray(assistants)) return undefined;
-
-    const localAssistants = assistants.filter(
-      (a) => a.cloud === "local" || a.cloud === undefined,
-    );
-    if (localAssistants.length === 0) return undefined;
-
-    const activeAssistant = lockData.activeAssistant as string | undefined;
-
-    if (activeAssistant) {
-      const match = localAssistants.find(
-        (a) => a.assistantId === activeAssistant,
-      );
-      if (match) {
-        const resources = match.resources as
-          | Record<string, unknown>
-          | undefined;
-        return resources?.instanceDir as string | undefined;
-      }
-      return undefined;
-    }
-
-    if (localAssistants.length === 1) {
-      const resources = localAssistants[0].resources as
-        | Record<string, unknown>
-        | undefined;
-      return resources?.instanceDir as string | undefined;
-    }
-
-    return undefined;
-  } catch {
-    return undefined;
-  }
-}
-
 /**
  * Normalize an assistant ID to its canonical form for DB operations.
  *
@@ -147,13 +54,15 @@ export function normalizeAssistantId(assistantId: string): string {
   return assistantId;
 }
 
-
 /**
- * Returns the root ~/.vellum directory. User-facing files (config, prompt
- * files, skills) and runtime files (socket, PID) live here.
+ * Compute the root ~/.vellum directory path.
+ *
+ * This is a simple inline computation — not a shared function — so each
+ * helper is self-contained and the module has no hidden coupling to
+ * env-var indirection.
  */
-export function getRootDir(): string {
-  return join(getBaseDataDir() || homedir(), ".vellum");
+function vellumRoot(): string {
+  return join(homedir(), ".vellum");
 }
 
 /**
@@ -220,7 +129,7 @@ export function getTCPPort(): number {
  * the shell: `touch ~/.vellum/tcp-enabled && kill -USR1 <daemon-pid>`.
  */
 export function isTCPEnabled(): boolean {
-  return existsSync(join(getRootDir(), "tcp-enabled"));
+  return existsSync(join(vellumRoot(), "tcp-enabled"));
 }
 
 /**
@@ -246,7 +155,7 @@ export function getTCPHost(): string {
  * access without exposing the daemon to the LAN.
  */
 export function isIOSPairingEnabled(): boolean {
-  return existsSync(join(getRootDir(), "ios-pairing-enabled"));
+  return existsSync(join(vellumRoot(), "ios-pairing-enabled"));
 }
 
 /**
@@ -266,7 +175,7 @@ function getXdgPlatformTokenPath(): string {
  * instances that may have the token written here by the desktop app.
  */
 export function getPlatformTokenPath(): string {
-  return join(getRootDir(), "platform-token");
+  return join(vellumRoot(), "platform-token");
 }
 
 /**
@@ -288,7 +197,7 @@ export function readPlatformToken(): string | null {
 }
 
 export function getPidPath(): string {
-  return join(getRootDir(), "vellum.pid");
+  return join(vellumRoot(), "vellum.pid");
 }
 
 export function getDbPath(): string {
@@ -303,23 +212,58 @@ export function getHistoryPath(): string {
   return join(getDataDir(), "history");
 }
 
-export function getHooksDir(): string {
-  return join(getRootDir(), "hooks");
+/**
+ * Returns the protected directory (~/.vellum/protected). Security-sensitive
+ * files — trust rules, encrypted credential store, signing keys, feature-flag
+ * overrides, device approval lists — live here.
+ *
+ * This directory is:
+ * - Outside the workspace (not included in diagnostic exports)
+ * - Outside the sandbox write boundary (tools cannot modify it)
+ * - Skipped in containerized mode (credentials via CES, trust via gateway)
+ */
+export function getProtectedDir(): string {
+  return join(vellumRoot(), "protected");
 }
 
-/**
- * Returns ~/.vellum/signals — the directory for IPC signal files.
- *
- * Placed under getRootDir() (not getWorkspaceDir()) so that sandboxed tools
- * — whose write access is limited to the workspace directory — cannot write
- * signal files to bypass guardian authorization.
- */
+/** Returns ~/.vellum/workspace/signals — the directory for IPC signal files. */
 export function getSignalsDir(): string {
-  return join(getRootDir(), "signals");
+  return join(getWorkspaceDir(), "signals");
 }
-// --- Workspace path primitives ---
-// These will become the canonical paths after workspace migration.
-// Currently not used by call-sites; wired in later PRs.
+
+// --- Root-level runtime path helpers ---
+// These expose specific root-level file paths so callers don't need to
+// import getRootDir() directly. getRootDir() is intentionally unexported.
+
+/** Returns the path to the daemon stderr log (~/.vellum/workspace/logs/daemon-stderr.log). */
+export function getDaemonStderrLogPath(): string {
+  return join(getWorkspaceDir(), "logs", "daemon-stderr.log");
+}
+
+/** Returns the path to the daemon startup lock file (~/.vellum/workspace/daemon-startup.lock). */
+export function getDaemonStartupLockPath(): string {
+  return join(getWorkspaceDir(), "daemon-startup.lock");
+}
+
+/** Returns the directory for externally-installed packages (~/.vellum/workspace/external). */
+export function getExternalDir(): string {
+  return join(getWorkspaceDir(), "external");
+}
+
+/** Returns the directory for installed binaries (~/.vellum/workspace/bin). */
+export function getBinDir(): string {
+  return join(getWorkspaceDir(), "bin");
+}
+
+/** Returns the path to the dot-env file (~/.vellum/.env). Stays at root because it contains secrets. */
+export function getDotEnvPath(): string {
+  return join(vellumRoot(), ".env");
+}
+
+/** Returns the path to the embed-worker PID file (~/.vellum/workspace/embed-worker.pid). */
+export function getEmbedWorkerPidPath(): string {
+  return join(getWorkspaceDir(), "embed-worker.pid");
+}
 
 /**
  * Returns the workspace root for user-facing state.
@@ -335,7 +279,7 @@ export function getSignalsDir(): string {
 export function getWorkspaceDir(): string {
   const override = getWorkspaceDirOverride();
   if (override) return override;
-  return join(getRootDir(), "workspace");
+  return join(vellumRoot(), "workspace");
 }
 
 /**
@@ -371,6 +315,11 @@ export function getWorkspaceHooksDir(): string {
   return join(getWorkspaceDir(), "hooks");
 }
 
+/** Returns ~/.vellum/workspace/deprecated — transitional files slated for removal. */
+export function getDeprecatedDir(): string {
+  return join(getWorkspaceDir(), "deprecated");
+}
+
 /** Returns ~/.vellum/workspace/conversations */
 export function getConversationsDir(): string {
   return join(getWorkspaceDir(), "conversations");
@@ -382,23 +331,22 @@ export function getWorkspacePromptPath(file: string): string {
 }
 
 export function ensureDataDir(): void {
-  const root = getRootDir();
+  const root = vellumRoot();
   const workspace = getWorkspaceDir();
   const wsData = join(workspace, "data");
-  const containerized = getIsContainerized();
   const dirs = [
     // Root-level dirs (runtime)
     root,
-    // signals dir is needed everywhere (MCP reload, user-message signals)
-    join(root, "signals"),
-    // protected, hooks are local-only — skip in containerized mode
-    // (credentials via CES HTTP API, trust via gateway API)
-    ...(containerized ? [] : [join(root, "protected"), join(root, "hooks")]),
     // Workspace dirs
     workspace,
+    join(workspace, "signals"),
+    join(workspace, "hooks"),
     join(workspace, "skills"),
     join(workspace, "embedding-models"),
     join(workspace, "conversations"),
+    join(workspace, "logs"),
+    join(workspace, "external"),
+    join(workspace, "bin"),
     // Data sub-dirs under workspace
     wsData,
     join(wsData, "db"),

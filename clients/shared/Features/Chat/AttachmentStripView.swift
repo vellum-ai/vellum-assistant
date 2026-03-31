@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Horizontal strip of thumbnail chips for pending message attachments.
 public struct AttachmentStripView: View {
-    @ObservedObject public var viewModel: ChatViewModel
+    public var viewModel: ChatViewModel
 
     public init(viewModel: ChatViewModel) {
         self.viewModel = viewModel

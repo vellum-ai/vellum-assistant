@@ -16,7 +16,9 @@ private class MainWindowCloseDelegate: NSObject, NSWindowDelegate {
     }
 }
 
-/// NSWindow subclass that restores double-click-to-zoom on the title bar.
+/// NSWindow subclass that restores double-click-to-zoom on the title bar
+/// and provides keystroke-redirect and composer-blur behaviors.
+///
 /// With `fullSizeContentView` + `titlebarAppearsTransparent`, the system
 /// title bar becomes invisible and stops handling double-clicks. This
 /// subclass detects double-clicks in the title bar zone and performs the
@@ -25,6 +27,12 @@ private class MainWindowCloseDelegate: NSObject, NSWindowDelegate {
 /// We manually track the pre-zoom frame because `NSWindow.isZoomed` can be
 /// unreliable with `fullSizeContentView`, causing `zoom(nil)` not to toggle
 /// back to the previous size.
+///
+/// Composer blur (click-outside-to-dismiss) is handled via
+/// `NSEvent.addLocalMonitorForEvents` rather than overriding `sendEvent`,
+/// which avoids interfering with SwiftUI's internal gesture dispatch and
+/// prevents use-after-free crashes in `ButtonGesture` on macOS 26.
+///
 /// Keep custom AppKit event/view subclasses actor-isolated so SwiftUI
 /// gesture callbacks always execute with main-executor context.
 @MainActor
@@ -50,7 +58,8 @@ class TitleBarZoomableWindow: NSWindow {
     /// app reactivation (cmd+tab / Dock click) from an in-app window change
     /// (e.g. command palette or sheet dismiss).
     private var appWasDeactivated = false
-    private var activationObservers: [Any] = []
+    private var notificationObservers: [Any] = []
+    private var eventMonitors: [Any] = []
 
     func clearComposerDismissed() {
         composerDismissed = false
@@ -66,11 +75,11 @@ class TitleBarZoomableWindow: NSWindow {
         }
     }
 
-    /// Subscribe to app activation lifecycle. Idempotent — safe to call
-    /// more than once.
+    /// Subscribe to app activation lifecycle and install event monitors.
+    /// Idempotent — safe to call more than once.
     func observeAppActivation() {
-        guard activationObservers.isEmpty else { return }
-        activationObservers.append(
+        guard notificationObservers.isEmpty else { return }
+        notificationObservers.append(
             NotificationCenter.default.addObserver(
                 forName: NSApplication.didResignActiveNotification,
                 object: nil, queue: .main
@@ -80,30 +89,55 @@ class TitleBarZoomableWindow: NSWindow {
                 }
             }
         )
-    }
 
-    deinit {
-        for observer in activationObservers {
-            NotificationCenter.default.removeObserver(observer)
+        // Monitor left-clicks to dismiss composer focus when the user clicks
+        // outside the composer container. Uses DispatchQueue.main.async so
+        // the blur runs after the event has been fully dispatched, preserving
+        // the same dispatch-then-blur ordering.
+        if let monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown, handler: { [weak self] event in
+            DispatchQueue.main.async { @MainActor in
+                guard let self,
+                      event.window === self,
+                      let responder = self.firstResponder as? NSView,
+                      let container = self.composerContainerView,
+                      responder.isDescendant(of: container) else { return }
+                let point = container.convert(event.locationInWindow, from: nil)
+                if !container.bounds.contains(point) {
+                    self.composerDismissed = true
+                    self.makeFirstResponder(nil)
+                }
+            }
+            return event
+        }) {
+            eventMonitors.append(monitor)
         }
     }
 
-    override func sendEvent(_ event: NSEvent) {
-        super.sendEvent(event)
+    /// Remove all notification observers and event monitors installed by
+    /// `observeAppActivation()`. Idempotent — safe to call more than once.
+    /// Called by `MainWindow.detachWindow()` when the window is reused for
+    /// auth, and again by `deinit` as a safety net.
+    func removeObservers() {
+        for observer in notificationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        notificationObservers.removeAll()
+        for monitor in eventMonitors {
+            NSEvent.removeMonitor(monitor)
+        }
+        eventMonitors.removeAll()
+    }
 
-        // After dispatching a left-click, check whether the composer should
-        // lose focus. If the click landed outside the composer container
-        // and a text view (field editor) is still first responder inside
-        // the container, explicitly resign so the user can "click away" to blur.
-        if event.type == .leftMouseDown,
-           let responder = firstResponder as? NSView,
-           let container = composerContainerView,
-           responder.isDescendant(of: container) {
-            let point = container.convert(event.locationInWindow, from: nil)
-            if !container.bounds.contains(point) {
-                composerDismissed = true
-                makeFirstResponder(nil)
-            }
+    deinit {
+        // Inline cleanup instead of calling removeObservers() because deinit
+        // is nonisolated and cannot call @MainActor-isolated methods (SE-0371).
+        // Stored property access is allowed in deinit. If removeObservers()
+        // was already called by detachWindow(), these arrays are empty.
+        for observer in notificationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        for monitor in eventMonitors {
+            NSEvent.removeMonitor(monitor)
         }
     }
 
@@ -509,6 +543,7 @@ public final class MainWindow {
         }
         defaultTrafficLightOrigin = nil
         if let zoomable = window as? TitleBarZoomableWindow {
+            zoomable.removeObservers()
             zoomable.composerRedirectHandler = nil
             zoomable.composerContainerView = nil
         }

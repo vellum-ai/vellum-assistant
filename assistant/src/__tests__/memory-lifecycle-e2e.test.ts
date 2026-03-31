@@ -9,33 +9,9 @@
  * - Stripping removes <memory_context> tags
  * - No conflict gate references
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
-
-const testDir = mkdtempSync(join(tmpdir(), "memory-lifecycle-e2e-"));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -103,7 +79,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import { stripUserTextBlocksByPrefix } from "../daemon/conversation-runtime-assembly.js";
-import { getDb, initializeDb, resetDb } from "../memory/db.js";
+import { getDb, initializeDb } from "../memory/db.js";
 import {
   resetCleanupScheduleThrottle,
   resetStaleSweepThrottle,
@@ -138,15 +114,6 @@ describe("Memory lifecycle E2E regression", () => {
     mockQdrantResults = [];
     resetCleanupScheduleThrottle();
     resetStaleSweepThrottle();
-  });
-
-  afterAll(() => {
-    resetDb();
-    try {
-      rmSync(testDir, { recursive: true });
-    } catch {
-      // best effort cleanup
-    }
   });
 
   test("extraction produces items with standard-kind enum and supersession chains form correctly", async () => {

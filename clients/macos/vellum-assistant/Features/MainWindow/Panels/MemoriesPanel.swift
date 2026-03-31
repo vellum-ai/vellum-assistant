@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VellumAssistantShared
 
@@ -72,8 +73,7 @@ struct MemoriesPanel: View {
     @State private var statusFilter: MemoryStatusFilter = .active
     @State private var sortOption: MemorySortOption = .newest
     @State private var searchDebounceTask: Task<Void, Never>?
-    @State private var showStatusFilterPopover = false
-    @State private var showSortPopover = false
+    @State private var escapeMonitor: Any?
 
     init(connectionManager: GatewayConnectionManager, focusedMemoryId: Binding<String?> = .constant(nil)) {
         self.connectionManager = connectionManager
@@ -108,12 +108,26 @@ struct MemoriesPanel: View {
             searchDebounceTask?.cancel()
             searchDebounceTask = nil
         }
-        .sheet(item: $selectedItem) { item in
-            MemoryItemDetailSheet(
-                item: item,
-                store: store,
-                onDismiss: { selectedItem = nil }
-            )
+        .overlay {
+            if let item = selectedItem {
+                ZStack {
+                    VColor.auxBlack.opacity(0.4)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            withAnimation(VAnimation.fast) { selectedItem = nil }
+                        }
+                    MemoryItemDetailSheet(
+                        item: item,
+                        store: store,
+                        onDismiss: { withAnimation(VAnimation.fast) { selectedItem = nil } }
+                    )
+                    .id(selectedItem?.id)
+                }
+                .transition(.opacity)
+                .onAppear { installEscapeMonitor() }
+                .onDisappear { removeEscapeMonitor() }
+            }
         }
         .sheet(isPresented: $showCreateSheet) {
             MemoryItemCreateSheet(
@@ -138,11 +152,26 @@ struct MemoriesPanel: View {
                     }
                 }
 
-            statusFilterDropdown
-                .frame(width: 158)
+            VDropdown(
+                options: MemoryStatusFilter.allCases.map { VDropdownOption(label: $0.rawValue, value: $0, icon: $0.icon) },
+                selection: $statusFilter,
+                maxWidth: 158,
+                onChange: { newStatus in
+                    store.statusFilter = newStatus.apiValue
+                    Task { await store.loadItems() }
+                }
+            )
 
-            sortFilterDropdown
-                .frame(width: 158)
+            VDropdown(
+                options: MemorySortOption.allCases.map { VDropdownOption(label: $0.rawValue, value: $0, icon: $0.icon) },
+                selection: $sortOption,
+                maxWidth: 158,
+                onChange: { newSort in
+                    store.sortField = newSort.sortField
+                    store.sortOrder = newSort.sortOrder
+                    Task { await store.loadItems() }
+                }
+            )
 
             VButton(label: "New", icon: VIcon.plus.rawValue, style: .primary) {
                 showCreateSheet = true
@@ -164,7 +193,7 @@ struct MemoriesPanel: View {
     }
 
     private func kindFilterRow(icon: String, label: String, kind: MemoryKind?) -> some View {
-        VSidebarRow(
+        VNavItem(
             icon: icon,
             label: label,
             isActive: selectedKind == kind,
@@ -181,8 +210,10 @@ struct MemoriesPanel: View {
     }
 
     private func kindCount(for kind: MemoryKind?) -> Int {
-        guard let kind else { return store.items.count }
-        return store.items.filter { $0.kind == kind.rawValue }.count
+        guard let kind else {
+            return store.kindCounts.values.reduce(0, +)
+        }
+        return store.kindCounts[kind.rawValue] ?? 0
     }
 
     /// Items filtered by selected kind (client-side only — store always holds all items).
@@ -191,122 +222,20 @@ struct MemoriesPanel: View {
         return store.items.filter { $0.kind == kind.rawValue }
     }
 
-    // MARK: - Status Filter Dropdown
+    // MARK: - Escape Key
 
-    private var statusFilterDropdown: some View {
-        Button {
-            showStatusFilterPopover.toggle()
-        } label: {
-            HStack(spacing: VSpacing.md) {
-                Text(statusFilter.rawValue)
-                    .foregroundStyle(VColor.contentDefault)
-                    .font(VFont.bodyMediumLighter)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                VIconView(.chevronDown, size: 13)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .accessibilityHidden(true)
-            }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .frame(height: 32)
-            .vInputChrome()
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Status filter: \(statusFilter.rawValue)")
-        .popover(isPresented: $showStatusFilterPopover, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(MemoryStatusFilter.allCases, id: \.self) { status in
-                    Button {
-                        statusFilter = status
-                        store.statusFilter = status.apiValue
-                        showStatusFilterPopover = false
-                        Task { await store.loadItems() }
-                    } label: {
-                        HStack(spacing: VSpacing.sm) {
-                            VIconView(status.icon, size: 14)
-                                .foregroundStyle(VColor.contentDefault)
-                                .frame(width: 20)
-                            Text(status.rawValue)
-                                .font(VFont.bodyMediumLighter)
-                                .foregroundStyle(VColor.contentDefault)
-                            Spacer()
-                            if statusFilter == status {
-                                VIconView(.check, size: 12)
-                                    .foregroundStyle(VColor.primaryBase)
-                            }
-                        }
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.sm)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("\(status.rawValue) status")
-                    .accessibilityAddTraits(statusFilter == status ? .isSelected : [])
-                }
-            }
-            .padding(.vertical, VSpacing.sm)
-            .frame(width: 180)
+    private func installEscapeMonitor() {
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard event.keyCode == 53 else { return event } // 53 = Escape
+            withAnimation(VAnimation.fast) { selectedItem = nil }
+            return nil
         }
     }
 
-    // MARK: - Sort Filter Dropdown
-
-    private var sortFilterDropdown: some View {
-        Button {
-            showSortPopover.toggle()
-        } label: {
-            HStack(spacing: VSpacing.md) {
-                Text(sortOption.rawValue)
-                    .foregroundStyle(VColor.contentDefault)
-                    .font(VFont.bodyMediumLighter)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                VIconView(.chevronDown, size: 13)
-                    .foregroundStyle(VColor.contentTertiary)
-                    .accessibilityHidden(true)
-            }
-            .padding(.horizontal, VSpacing.sm)
-            .padding(.vertical, VSpacing.xs)
-            .frame(height: 32)
-            .vInputChrome()
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Sort by: \(sortOption.rawValue)")
-        .popover(isPresented: $showSortPopover, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(MemorySortOption.allCases, id: \.self) { option in
-                    Button {
-                        sortOption = option
-                        store.sortField = option.sortField
-                        store.sortOrder = option.sortOrder
-                        showSortPopover = false
-                        Task { await store.loadItems() }
-                    } label: {
-                        HStack(spacing: VSpacing.sm) {
-                            VIconView(option.icon, size: 14)
-                                .foregroundStyle(VColor.contentDefault)
-                                .frame(width: 20)
-                            Text(option.rawValue)
-                                .font(VFont.bodyMediumLighter)
-                                .foregroundStyle(VColor.contentDefault)
-                            Spacer()
-                            if sortOption == option {
-                                VIconView(.check, size: 12)
-                                    .foregroundStyle(VColor.primaryBase)
-                            }
-                        }
-                        .padding(.horizontal, VSpacing.md)
-                        .padding(.vertical, VSpacing.sm)
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Sort by \(option.rawValue)")
-                    .accessibilityAddTraits(sortOption == option ? .isSelected : [])
-                }
-            }
-            .padding(.vertical, VSpacing.sm)
-            .frame(width: 200)
+    private func removeEscapeMonitor() {
+        if let monitor = escapeMonitor {
+            NSEvent.removeMonitor(monitor)
+            escapeMonitor = nil
         }
     }
 

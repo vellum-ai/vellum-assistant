@@ -1,7 +1,8 @@
+import Combine
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "GatewayConnectionManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "GatewayConnectionManager")
 
 /// Minimal decode of the /v1/health response to extract the version field.
 private struct HealthVersionResponse: Decodable {
@@ -281,10 +282,6 @@ public final class GatewayConnectionManager: ObservableObject {
             guard response.isSuccess else {
                 if response.statusCode == 401 {
                     handleAuthenticationFailure()
-                    let isManaged = (try? GatewayHTTPClient.isConnectionManaged()) ?? false
-                    if isManaged {
-                        shouldReconnect = false
-                    }
                 }
                 throw ConnectionError.healthCheckFailed
             }
@@ -509,16 +506,16 @@ public final class GatewayConnectionManager: ObservableObject {
             let deviceId = APIKeyManager.shared.getAPIKey(provider: "pairing-device-id") ?? ""
             #endif
 
-            let result = await ActorCredentialRefresher.refresh(
+            let result = await TokenRefreshCoordinator.shared.refreshIfNeeded(
                 platform: platform,
                 deviceId: deviceId
             )
 
             switch result {
             case .success:
-                log.info("Token refresh succeeded")
+                break // Coordinator already logs success
             case .terminalError(let reason):
-                log.error("Token refresh failed terminally: \(reason) — re-pair required")
+                log.error("Token refresh failed terminally: \(reason, privacy: .public) — re-pair required")
                 self.eventStreamClient.broadcastMessage(.conversationError(ConversationErrorMessage(
                     conversationId: "",
                     code: .authenticationRequired,
@@ -526,7 +523,7 @@ public final class GatewayConnectionManager: ObservableObject {
                     retryable: false
                 )))
             case .transientError:
-                log.warning("Token refresh encountered transient error — will retry on next 401")
+                break // Coordinator already logs warning
             }
         }
     }
@@ -687,6 +684,24 @@ public final class GatewayConnectionManager: ObservableObject {
         }
     }
     #endif
+
+    // MARK: - Async Observation
+
+    /// An `AsyncStream` that emits whenever `isConnected` changes.
+    ///
+    /// Prefer this over `$isConnected.values` — Combine's `AsyncPublisher`
+    /// does not terminate on task cancellation, which can cause
+    /// `withTaskGroup` to hang indefinitely.
+    public var isConnectedStream: AsyncStream<Bool> {
+        AsyncStream { continuation in
+            let cancellable = self.$isConnected.sink { value in
+                continuation.yield(value)
+            }
+            continuation.onTermination = { _ in
+                cancellable.cancel()
+            }
+        }
+    }
 
     // MARK: - Helpers
 

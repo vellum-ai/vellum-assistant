@@ -36,7 +36,7 @@ struct ImproveExperienceStepView: View {
         VStack(spacing: VSpacing.md) {
             VStack(spacing: VSpacing.md) {
                 // Privacy toggles card
-                VCard(padding: VSpacing.lg) {
+                VCard {
                     VStack(spacing: VSpacing.lg) {
                         // Usage analytics toggle
                         VToggle(
@@ -59,7 +59,7 @@ struct ImproveExperienceStepView: View {
                 }
 
                 // ToS consent checkbox
-                VCard(padding: VSpacing.lg) {
+                VCard {
                     HStack(spacing: VSpacing.md) {
                         VCheckbox(isOn: $tosAccepted)
                         tosConsentText
@@ -94,7 +94,7 @@ struct ImproveExperienceStepView: View {
 
     private var tosConsentText: some View {
         VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text(.init("I agree to the [Terms of Service](https://www.vellum.ai/docs/vellum-terms-of-use) and [Privacy Policy](https://www.vellum.ai/docs/privacy-policy)"))
+            Text(tosAttributedString)
                 .font(VFont.bodyMediumLighter)
                 .foregroundStyle(VColor.contentSecondary)
                 .tint(VColor.primaryBase)
@@ -103,6 +103,17 @@ struct ImproveExperienceStepView: View {
                     return .handled
                 })
         }
+    }
+
+    private var tosAttributedString: AttributedString {
+        // swiftlint:disable:next force_try
+        var str = try! AttributedString(
+            markdown: "I agree to the [Terms of Service](https://www.vellum.ai/docs/vellum-terms-of-use) and [Privacy Policy](https://www.vellum.ai/docs/privacy-policy)"
+        )
+        for run in str.runs where run.link != nil {
+            str[run.range].underlineStyle = .single
+        }
+        return str
     }
 
     // MARK: - Actions

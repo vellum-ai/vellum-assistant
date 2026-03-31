@@ -1,13 +1,12 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppsClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppsClient")
 
 /// Focused client for apps-related operations routed through the gateway.
 ///
 /// Covers listing, opening, deleting, previewing, bundling, sharing, and
 /// version history for both local and shared apps.
-@MainActor
 public protocol AppsClientProtocol {
     func fetchAppsList() async -> AppsListResponse?
     func openApp(id: String) async -> AppOpenResult?
@@ -36,7 +35,6 @@ public struct AppOpenResult: Sendable {
 }
 
 /// Gateway-backed implementation of ``AppsClientProtocol``.
-@MainActor
 public struct AppsClient: AppsClientProtocol {
     nonisolated public init() {}
 

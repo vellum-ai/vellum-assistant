@@ -76,10 +76,30 @@ export const PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     id: "openrouter",
     displayName: "OpenRouter",
     models: [
-      { id: "x-ai/grok-4", displayName: "Grok 4" },
+      // xAI
       { id: "x-ai/grok-4.20-beta", displayName: "Grok 4.20 Beta" },
+      { id: "x-ai/grok-4", displayName: "Grok 4" },
+      // DeepSeek
+      { id: "deepseek/deepseek-r1-0528", displayName: "DeepSeek R1" },
+      { id: "deepseek/deepseek-chat-v3-0324", displayName: "DeepSeek V3" },
+      // Qwen
+      { id: "qwen/qwen3.5-plus-02-15", displayName: "Qwen 3.5 Plus" },
+      { id: "qwen/qwen3.5-397b-a17b", displayName: "Qwen 3.5 397B" },
+      { id: "qwen/qwen3.5-flash-02-23", displayName: "Qwen 3.5 Flash" },
+      { id: "qwen/qwen3-coder-next", displayName: "Qwen 3 Coder" },
+      // Moonshot
+      { id: "moonshotai/kimi-k2.5", displayName: "Kimi K2.5" },
+      // Mistral
+      { id: "mistralai/mistral-medium-3", displayName: "Mistral Medium 3" },
+      { id: "mistralai/mistral-small-2603", displayName: "Mistral Small 4" },
+      { id: "mistralai/devstral-2512", displayName: "Devstral 2" },
+      // Meta
+      { id: "meta-llama/llama-4-maverick", displayName: "Llama 4 Maverick" },
+      { id: "meta-llama/llama-4-scout", displayName: "Llama 4 Scout" },
+      // Amazon
+      { id: "amazon/nova-pro-v1", displayName: "Amazon Nova Pro" },
     ],
-    defaultModel: "x-ai/grok-4",
+    defaultModel: "x-ai/grok-4.20-beta",
     apiKeyUrl: "https://openrouter.ai/keys",
     apiKeyPlaceholder: "sk-or-v1-...",
   },

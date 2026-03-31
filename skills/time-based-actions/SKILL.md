@@ -47,19 +47,18 @@ If you use `send_notification` for any of these, the notification fires immediat
 
 Use the injected `<temporal_context>` block as the authoritative clock source:
 
-- `Current UTC time` is the canonical current instant (from assistant host clock).
-- `Current local time` + `Timezone` are the active local-calendar interpretation.
-- `Timezone source` tells you whether local-time interpretation is user-specific or host fallback. When a `User timezone:` line is present, the user's timezone differs from the primary timezone.
+- `Today:` line contains the date, abbreviated weekday, local time (HH:MM), and UTC offset.
+- `TZ:` line is the IANA timezone identifier. When followed by `(host fallback)`, the timezone was inferred from the assistant host — not the user.
 
-When `Timezone source: assistant_host_fallback` and the request is locale-specific (e.g. "at 3pm", "tomorrow morning", "tonight"), ask once for their timezone and then proceed.
+When `TZ:` shows `(host fallback)` and the request is locale-specific (e.g. "at 3pm", "tomorrow morning", "tonight"), ask once for their timezone and then proceed.
 If the user confirms a timezone, suggest saving it in Settings -> Appearance -> User timezone so future reminders resolve correctly without re-asking.
 
 ## Relative Time Parsing
 
 When the user says "in X minutes/hours", compute the ISO 8601 timestamp yourself:
 
-- Take `Current UTC time` (or `Current local time` in the active `Timezone`)
-- Add the offset
+- Take the time and offset from the `Today:` line (e.g. `23:26 -05:00`)
+- Add the requested offset
 - Format as ISO 8601 with timezone: `2025-03-15T09:05:00-05:00`
 - Pass to `reminder_create` as `fire_at`
 

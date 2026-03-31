@@ -2,7 +2,7 @@ import os
 import SwiftUI
 
 private let log = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    subsystem: Bundle.appBundleIdentifier,
     category: "MessageBubbleView"
 )
 
@@ -83,11 +83,6 @@ public struct MessageBubbleView: View {
                 } else if message.role == .assistant && hasInterleavedContent {
                     interleavedContent
                 } else {
-                    // Skill invocation chip (shown above message text)
-                    if let skillInvocation = message.skillInvocation {
-                        SkillInvocationChip(data: skillInvocation)
-                    }
-
                     // Pre-text tool calls render above the bubble
                     let preTextCalls = message.toolCalls.filter { $0.arrivedBeforeText }
                     if !preTextCalls.isEmpty {
@@ -189,7 +184,7 @@ public struct MessageBubbleView: View {
         for ref in message.contentOrder {
             switch ref {
             case .text: hasText = true
-            case .toolCall, .surface: hasNonText = true
+            case .toolCall, .surface, .thinking: hasNonText = true
             }
             if hasText && hasNonText { return true }
         }
@@ -202,6 +197,7 @@ public struct MessageBubbleView: View {
 
     private enum ContentGroup {
         case text(Int)
+        case thinking(Int)
         case toolCalls([Int])
         case surface(Int)
     }
@@ -212,6 +208,8 @@ public struct MessageBubbleView: View {
             switch ref {
             case .text(let i):
                 groups.append(.text(i))
+            case .thinking(let i):
+                groups.append(.thinking(i))
             case .toolCall(let i):
                 if case .toolCalls(let indices) = groups.last {
                     groups[groups.count - 1] = .toolCalls(indices + [i])
@@ -238,6 +236,8 @@ public struct MessageBubbleView: View {
                             messageBubble(text: segmentText, role: message.role)
                         }
                     }
+                case .thinking:
+                    EmptyView()
                 case .toolCalls(let indices):
                     let calls = indices.compactMap { i in i < message.toolCalls.count ? message.toolCalls[i] : nil }
                     if !calls.isEmpty {

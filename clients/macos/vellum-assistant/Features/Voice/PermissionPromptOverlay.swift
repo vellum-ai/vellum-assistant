@@ -5,7 +5,7 @@ import SwiftUI
 import os
 import VellumAssistantShared
 
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "PermissionPrompt")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "PermissionPrompt")
 
 /// Floating overlay for microphone / speech-recognition permission prompts.
 /// Supports two scenarios:
@@ -123,10 +123,6 @@ final class PermissionPromptOverlay {
 private struct FirstUsePromptView: View {
     let onDismiss: () -> Void
     let onContinue: () -> Void
-
-    private var assistantName: String {
-        AssistantDisplayName.resolve(IdentityInfo.load()?.name)
-    }
 
     var body: some View {
         VStack(spacing: 0) {

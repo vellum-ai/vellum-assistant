@@ -238,7 +238,7 @@ async function getLocalProcesses(entry: AssistantEntry): Promise<TableRow[]> {
       name: "embed-worker",
       pgrepName: "embed-worker",
       port: 0,
-      pidFile: join(vellumDir, "embed-worker.pid"),
+      pidFile: join(vellumDir, "workspace", "embed-worker.pid"),
     },
   ];
 

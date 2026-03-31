@@ -99,13 +99,30 @@ func makeOpenForkParentAction(
 
 /// The tab-level Chats entry point. Switches between connected and disconnected
 /// states so ConversationListView only mounts when a live GatewayConnectionManager is available.
+/// When the user has a platform assistant configured, shows the conversation list
+/// (with its loading state) instead of the disconnected view while connecting.
 struct ChatsTabView: View {
     @EnvironmentObject var clientProvider: ClientProvider
     @ObservedObject var store: IOSConversationStore
     var onConnectTapped: (() -> Void)?
 
+    /// Whether the user has previously saved daemon connection settings.
+    /// When true, the app is either connected or actively attempting to connect,
+    /// so the conversation list (with loading state) is shown instead of the
+    /// disconnected placeholder.
+    private var hasSavedConnectionSettings: Bool {
+        if let id = UserDefaults.standard.string(forKey: UserDefaultsKeys.managedAssistantId), !id.isEmpty,
+           let url = UserDefaults.standard.string(forKey: UserDefaultsKeys.managedPlatformBaseURL), !url.isEmpty {
+            return true
+        }
+        if let url = UserDefaults.standard.string(forKey: UserDefaultsKeys.gatewayBaseURL), !url.isEmpty {
+            return true
+        }
+        return false
+    }
+
     var body: some View {
-        if clientProvider.isConnected {
+        if clientProvider.isConnected || hasSavedConnectionSettings {
             ConversationListView(store: store)
         } else {
             ChatsDisconnectedView(onConnectTapped: onConnectTapped)
@@ -721,7 +738,7 @@ struct ConversationListView: View {
 
 /// Thin wrapper around ChatContentView for a conversation-owned ChatViewModel.
 struct ConversationChatView: View {
-    @ObservedObject var viewModel: ChatViewModel
+    var viewModel: ChatViewModel
     @ObservedObject var store: IOSConversationStore
     let conversation: IOSConversation
 

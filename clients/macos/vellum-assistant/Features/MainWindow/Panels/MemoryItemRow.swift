@@ -11,7 +11,7 @@ struct MemoryItemRow: View {
     }
 
     var body: some View {
-        VCard(padding: VSpacing.lg, action: onSelect) {
+        VCard(action: onSelect) {
             HStack(alignment: .center, spacing: VSpacing.lg) {
                 VStack(alignment: .leading, spacing: VSpacing.xs) {
                     HStack(alignment: .center, spacing: VSpacing.sm) {

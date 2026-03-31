@@ -1,16 +1,14 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationClient")
 
 /// Focused client for conversation-related operations routed through the gateway.
-@MainActor
 public protocol ConversationClientProtocol {
     func fetchMessageContent(conversationId: String, messageId: String) async -> MessageContentResponse?
 }
 
 /// Gateway-backed implementation of ``ConversationClientProtocol``.
-@MainActor
 public struct ConversationClient: ConversationClientProtocol {
     nonisolated public init() {}
 

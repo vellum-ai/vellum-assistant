@@ -1,7 +1,7 @@
 import AppKit
 import os
 
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "DictationTextInserter")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "DictationTextInserter")
 
 @MainActor
 final class DictationTextInserter {

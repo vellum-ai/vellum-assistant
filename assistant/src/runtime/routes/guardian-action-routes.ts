@@ -204,8 +204,8 @@ function mapCanonicalRequestToPrompt(
 ): GuardianDecisionPrompt {
   const questionText = buildKindAwareQuestionText(req);
 
-  // All guardian-on-behalf prompts use approve_once + reject only
-  // (no approve_always, no temporary modes).
+  // Guardian-on-behalf prompts include approve_once, temporal modes
+  // (approve_10m, approve_conversation), and reject — but not approve_always.
   const actions = buildDecisionActions({ forGuardianOnBehalf: true });
 
   const expiresAt = req.expiresAt
@@ -226,6 +226,10 @@ function mapCanonicalRequestToPrompt(
     conversationId,
     callSessionId: req.callSessionId ?? null,
     kind: req.kind,
+    commandPreview: req.commandPreview ?? undefined,
+    riskLevel: req.riskLevel ?? undefined,
+    activityText: req.activityText ?? undefined,
+    executionTarget: (req.executionTarget as "sandbox" | "host") ?? undefined,
   };
 }
 
@@ -240,7 +244,9 @@ function buildKindAwareQuestionText(req: CanonicalGuardianRequest): string {
   const baseText =
     req.questionText ??
     (req.toolName
-      ? `Approve tool: ${req.toolName}`
+      ? req.activityText
+        ? `Approve tool: ${req.toolName} — ${req.activityText}`
+        : `Approve tool: ${req.toolName}`
       : `Guardian request: ${req.kind}`);
 
   if (req.kind === "access_request") {

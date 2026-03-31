@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "MessageClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "MessageClient")
 
 /// Result of uploading a single attachment.
 public enum AttachmentUploadResult: Sendable {
@@ -25,14 +25,12 @@ public enum MessageSendResult: Sendable {
 }
 
 /// Focused client for uploading attachments and sending user messages.
-@MainActor
 public protocol MessageClientProtocol {
     func uploadAttachment(filename: String, mimeType: String, data: String, filePath: String?) async -> AttachmentUploadResult
     func sendMessage(content: String?, conversationKey: String, attachmentIds: [String], conversationType: String?, automated: Bool?, bypassSecretCheck: Bool?) async -> MessageSendResult
 }
 
 /// Gateway-backed implementation of ``MessageClientProtocol``.
-@MainActor
 public struct MessageClient: MessageClientProtocol {
     nonisolated public init() {}
 

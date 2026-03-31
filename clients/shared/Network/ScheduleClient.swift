@@ -1,10 +1,9 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ScheduleClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ScheduleClient")
 
 /// Focused client for schedule management operations routed through the gateway.
-@MainActor
 public protocol ScheduleClientProtocol {
     func fetchSchedulesList() async throws -> [ScheduleItem]
     func toggleSchedule(id: String, enabled: Bool) async throws -> [ScheduleItem]
@@ -15,7 +14,6 @@ public protocol ScheduleClientProtocol {
 }
 
 /// Gateway-backed implementation of ``ScheduleClientProtocol``.
-@MainActor
 public struct ScheduleClient: ScheduleClientProtocol {
     nonisolated public init() {}
 

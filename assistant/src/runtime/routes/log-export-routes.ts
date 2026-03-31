@@ -33,8 +33,8 @@ import {
 } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
 import {
+  getDaemonStderrLogPath,
   getDataDir,
-  getRootDir,
   getWorkspaceConfigPath,
   getWorkspaceDir,
 } from "../../util/platform.js";
@@ -186,7 +186,7 @@ async function handleExport(body: ExportRequestBody): Promise<Response> {
       }
     }
 
-    const stderrPath = join(getRootDir(), "daemon-stderr.log");
+    const stderrPath = getDaemonStderrLogPath();
     if (existsSync(stderrPath)) {
       try {
         const stat = statSync(stderrPath);
@@ -452,6 +452,8 @@ const WORKSPACE_SKIP_DIRS = new Set([
   "data/attachments",
   "data/sounds",
   "conversations",
+  "signals",
+  "deprecated",
 ]);
 
 /** Files at the workspace root to skip (already covered by sanitized fields). */
@@ -666,6 +668,20 @@ function readSanitizedConfig(): Record<string, unknown> | undefined {
 // ---------------------------------------------------------------------------
 
 export function logExportRouteDefinitions(): RouteDefinition[] {
+  const exportRequestBody = z.object({
+    auditLimit: z
+      .number()
+      .int()
+      .optional()
+      .describe("Max audit records (default 1000)"),
+    conversationId: z
+      .string()
+      .optional()
+      .describe("Scope to a single conversation"),
+    startTime: z.number().optional().describe("Lower bound epoch ms"),
+    endTime: z.number().optional().describe("Upper bound epoch ms"),
+  });
+
   return [
     {
       endpoint: "export",
@@ -673,17 +689,23 @@ export function logExportRouteDefinitions(): RouteDefinition[] {
       policyKey: "export",
       summary: "Export logs and audit data",
       description:
-        "Export audit records, daemon logs, workspace contents, and config as a tar.gz archive.",
+        "Export audit records, assistant logs, workspace contents, and config as a tar.gz archive.",
       tags: ["export"],
-      requestBody: z.object({
-        auditLimit: z
-          .number()
-          .int()
-          .describe("Max audit records (default 1000)"),
-        conversationId: z.string().describe("Scope to a single conversation"),
-        startTime: z.number().describe("Lower bound epoch ms"),
-        endTime: z.number().describe("Upper bound epoch ms"),
-      }),
+      requestBody: exportRequestBody,
+      handler: async ({ req }) => {
+        const body = (await req.json()) as ExportRequestBody;
+        return handleExport(body);
+      },
+    },
+    {
+      endpoint: "logs/export",
+      method: "POST",
+      policyKey: "export",
+      summary: "Export logs and audit data (alias)",
+      description:
+        "Alias for /v1/export. Export audit records, assistant logs, workspace contents, and config as a tar.gz archive.",
+      tags: ["export"],
+      requestBody: exportRequestBody,
       handler: async ({ req }) => {
         const body = (await req.json()) as ExportRequestBody;
         return handleExport(body);

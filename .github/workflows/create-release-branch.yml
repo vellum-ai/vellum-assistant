@@ -49,11 +49,57 @@ jobs:
 
   notify-start:
     name: Slack Notification (Release Start)
-    needs: compute-version
+    needs: [compute-version, create-release-branch]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.VELLUM_AUTOMATION_GITHUB_APP_ID }}
+          private-key: ${{ secrets.VELLUM_AUTOMATION_GITHUB_PRIVATE_KEY }}
+
+      - name: Find release workflow run
+        id: find-run
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          VERSION="${{ needs.compute-version.outputs.version }}"
+          BRANCH="release/v$VERSION"
+
+          # Poll for the release workflow run triggered by the branch push
+          RUN_URL=""
+          for i in $(seq 1 18); do
+            RESPONSE=$(curl -sSL \
+              -H "Authorization: token $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/workflows/release.yml/runs?branch=$BRANCH&per_page=1" \
+              2>/dev/null || echo "")
+
+            if [ -n "$RESPONSE" ]; then
+              RUN_ID=$(echo "$RESPONSE" | python3 -c "import sys,json; runs=json.load(sys.stdin).get('workflow_runs',[]); print(runs[0]['id'] if runs else '')" 2>/dev/null || echo "")
+            else
+              RUN_ID=""
+            fi
+
+            if [ -n "$RUN_ID" ]; then
+              RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/$RUN_ID"
+              echo "Found release workflow run: $RUN_URL"
+              break
+            fi
+            echo "Waiting for release workflow run to appear... (attempt $i/18)"
+            sleep 10
+          done
+
+          if [ -z "$RUN_URL" ]; then
+            echo "::warning::Could not find release workflow run, falling back to current run URL"
+            RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+
+          echo "run_url=$RUN_URL" >> "$GITHUB_OUTPUT"
+
       - name: Notify Slack of release start
         uses: slackapi/slack-github-action@v2.1.0
         with:
@@ -77,7 +123,7 @@ jobs:
                     text:
                       type: plain_text
                       text: "View Run"
-                    url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                    url: "${{ steps.find-run.outputs.run_url }}"
 
   create-release-branch:
     needs: compute-version

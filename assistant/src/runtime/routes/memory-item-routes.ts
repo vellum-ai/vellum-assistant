@@ -130,6 +130,26 @@ function buildConversationTitleMap(
 }
 
 // ---------------------------------------------------------------------------
+// Semantic search constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Maximum number of candidate IDs fetched from Qdrant for semantic search.
+ *
+ * Kind-filtering and pagination happen *after* this fetch, so if a broad query
+ * matches more items than this ceiling, results beyond it are silently excluded
+ * — kind-filtered counts may be under-reported and offsets past this value are
+ * unreachable. The limit exists to bound Qdrant query cost and the size of the
+ * subsequent `IN (...)` SQL clauses (SQLite's SQLITE_MAX_VARIABLE_NUMBER is
+ * 32,766 in Bun's bundled build, so 10k stays well within that).
+ *
+ * If this becomes a real bottleneck for large memory stores, consider pushing
+ * kind/status filters into Qdrant payload filtering so the fetch limit only
+ * needs to cover the final result set.
+ */
+const SEMANTIC_SEARCH_FETCH_CEILING = 10_000;
+
+// ---------------------------------------------------------------------------
 // Semantic search helper
 // ---------------------------------------------------------------------------
 
@@ -239,26 +259,68 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
   // When a search query is present, try Qdrant hybrid search first.
   // Falls back to SQL LIKE when embeddings / Qdrant are unavailable.
   if (searchParam) {
+    // Search WITHOUT kind filter so we can compute cross-kind counts.
+    // Kind filtering is applied post-hoc while preserving relevance order.
     const semanticResult = await searchItemsSemantic(
       searchParam,
-      limitParam + offsetParam,
-      kindParam,
+      SEMANTIC_SEARCH_FETCH_CEILING,
+      null,
       statusParam,
     );
 
     if (semanticResult && semanticResult.ids.length > 0) {
-      // Slice for pagination
-      const pageIds = semanticResult.ids.slice(
-        offsetParam,
-        offsetParam + limitParam,
-      );
-
-      if (pageIds.length === 0) {
-        return Response.json({ items: [], total: semanticResult.total });
+      // Compute kindCounts from all semantic matches (no kind filter).
+      // Status filter is applied as defense-in-depth against stale Qdrant payloads.
+      const kindCountConditions = [inArray(memoryItems.id, semanticResult.ids)];
+      if (statusParam && statusParam !== "all") {
+        kindCountConditions.push(eq(memoryItems.status, statusParam));
+      }
+      const kindCountRows = db
+        .select({ kind: memoryItems.kind, count: count() })
+        .from(memoryItems)
+        .where(and(...kindCountConditions))
+        .groupBy(memoryItems.kind)
+        .all();
+      const semanticKindCounts: Record<string, number> = {};
+      for (const row of kindCountRows) {
+        semanticKindCounts[row.kind] = row.count;
       }
 
-      // Re-apply the same DB-side filters used in the SQL path as defense-
-      // in-depth against stale Qdrant payloads leaking deleted/mismatched rows.
+      // Apply kind filter while preserving semantic relevance ordering.
+      // Status filter is applied here too for defense-in-depth consistency.
+      let filteredIds = semanticResult.ids;
+      if (kindParam) {
+        const kindFilterConditions = [
+          inArray(memoryItems.id, semanticResult.ids),
+          eq(memoryItems.kind, kindParam),
+        ];
+        if (statusParam && statusParam !== "all") {
+          kindFilterConditions.push(eq(memoryItems.status, statusParam));
+        }
+        const kindIdSet = new Set(
+          db
+            .select({ id: memoryItems.id })
+            .from(memoryItems)
+            .where(and(...kindFilterConditions))
+            .all()
+            .map((r) => r.id),
+        );
+        filteredIds = semanticResult.ids.filter((id) => kindIdSet.has(id));
+      }
+
+      const total = filteredIds.length;
+      const pageIds = filteredIds.slice(offsetParam, offsetParam + limitParam);
+
+      if (pageIds.length === 0) {
+        return Response.json({
+          items: [],
+          total,
+          kindCounts: semanticKindCounts,
+        });
+      }
+
+      // Re-apply DB-side filters as defense-in-depth against stale Qdrant
+      // payloads leaking deleted/mismatched rows.
       const hydrationConditions = [inArray(memoryItems.id, pageIds)];
       if (statusParam && statusParam !== "all") {
         hydrationConditions.push(eq(memoryItems.status, statusParam));
@@ -288,10 +350,39 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
 
       return Response.json({
         items: enrichedItems,
-        total: semanticResult.total,
+        total,
+        kindCounts: semanticKindCounts,
       });
     }
     // semanticResult was null (Qdrant unavailable) or empty — fall through to SQL
+  }
+
+  // ── Kind counts for SQL path ───────────────────────────────────────
+  // Respects status/search filters but NOT kind filter, so the sidebar
+  // can show totals for every kind simultaneously.
+  const kindCountConditions = [];
+  if (statusParam && statusParam !== "all") {
+    kindCountConditions.push(eq(memoryItems.status, statusParam));
+  }
+  if (searchParam) {
+    kindCountConditions.push(
+      or(
+        like(memoryItems.subject, `%${searchParam}%`),
+        like(memoryItems.statement, `%${searchParam}%`),
+      )!,
+    );
+  }
+  const kindCountWhere =
+    kindCountConditions.length > 0 ? and(...kindCountConditions) : undefined;
+  const sqlKindCountRows = db
+    .select({ kind: memoryItems.kind, count: count() })
+    .from(memoryItems)
+    .where(kindCountWhere)
+    .groupBy(memoryItems.kind)
+    .all();
+  const kindCounts: Record<string, number> = {};
+  for (const row of sqlKindCountRows) {
+    kindCounts[row.kind] = row.count;
   }
 
   // ── SQL path (default or fallback) ──────────────────────────────────
@@ -344,7 +435,7 @@ export async function handleListMemoryItems(url: URL): Promise<Response> {
     scopeLabel: resolveScopeLabel(item.scopeId, titleMap),
   }));
 
-  return Response.json({ items: enrichedItems, total });
+  return Response.json({ items: enrichedItems, total, kindCounts });
 }
 
 // ---------------------------------------------------------------------------

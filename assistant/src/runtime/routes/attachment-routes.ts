@@ -1,7 +1,8 @@
 /**
  * Route handlers for attachment upload, download, and deletion.
  */
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 
 import { z } from "zod";
 
@@ -11,11 +12,81 @@ import {
   getFilePathForAttachment,
   validateAttachmentUpload,
 } from "../../memory/attachments-store.js";
+import { getWorkspaceDir } from "../../util/platform.js";
 import { httpError } from "../http-errors.js";
 import type { RouteDefinition } from "../http-router.js";
 
 /** 150 MB — base64-encoded 100 MB attachment ≈ 134 MB plus JSON wrapper overhead. */
 const MAX_UPLOAD_BODY_BYTES = 150 * 1024 * 1024;
+
+function resolveCanonicalPath(filePath: string): string {
+  try {
+    return realpathSync(filePath);
+  } catch {
+    return resolve(filePath);
+  }
+}
+
+function isPathWithinDirectory(filePath: string, allowedDir: string): boolean {
+  return filePath === allowedDir || filePath.startsWith(allowedDir + sep);
+}
+
+function resolveAllowedAttachmentDirectories(): string[] {
+  const workspaceAttachmentsDir = join(
+    getWorkspaceDir(),
+    "data",
+    "attachments",
+  );
+  const recordingsDir = join(
+    process.env.HOME ?? "",
+    "Library/Application Support/vellum-assistant/recordings",
+  );
+  return [workspaceAttachmentsDir, recordingsDir].map((dir) => {
+    try {
+      return realpathSync(dir);
+    } catch {
+      return resolve(dir);
+    }
+  });
+}
+
+/**
+ * Check if a resolved path is inside a conversation attachments subdirectory.
+ * Matches: <conversationsDir>/<conversationId>/attachments/...
+ */
+function isConversationAttachmentPath(resolvedPath: string): boolean {
+  const conversationsDir = join(getWorkspaceDir(), "conversations");
+  let resolvedConversationsDir: string;
+  try {
+    resolvedConversationsDir = realpathSync(conversationsDir);
+  } catch {
+    resolvedConversationsDir = resolve(conversationsDir);
+  }
+
+  if (!isPathWithinDirectory(resolvedPath, resolvedConversationsDir)) {
+    return false;
+  }
+
+  // Extract the relative path after conversations/ and verify it contains
+  // an "attachments" segment: <conversationId>/attachments/...
+  const relativePath = resolvedPath.slice(resolvedConversationsDir.length + 1);
+  const segments = relativePath.split(sep);
+  return segments.length >= 3 && segments[1] === "attachments";
+}
+
+export function resolveAllowedFileBackedAttachmentPath(
+  filePath: string,
+): string | null {
+  const resolvedPath = resolveCanonicalPath(filePath);
+  const allowedDirs = resolveAllowedAttachmentDirectories();
+  if (allowedDirs.some((dir) => isPathWithinDirectory(resolvedPath, dir))) {
+    return resolvedPath;
+  }
+  if (isConversationAttachmentPath(resolvedPath)) {
+    return resolvedPath;
+  }
+  return null;
+}
 
 export async function handleUploadAttachment(req: Request): Promise<Response> {
   const rawBody = await req.arrayBuffer();
@@ -56,14 +127,22 @@ export async function handleUploadAttachment(req: Request): Promise<Response> {
   // This supports retry of file-backed attachments (e.g. recordings) where the
   // client no longer holds the inline data but the file still exists on disk.
   if (filePath && typeof filePath === "string" && (!data || data === "")) {
-    if (!existsSync(filePath)) {
+    const resolvedPath = resolveAllowedFileBackedAttachmentPath(filePath);
+    if (!resolvedPath) {
+      return httpError(
+        "BAD_REQUEST",
+        "filePath is outside allowed upload directories",
+        400,
+      );
+    }
+    if (!existsSync(resolvedPath)) {
       return httpError("BAD_REQUEST", "filePath does not exist on disk", 400);
     }
-    const sizeBytes = statSync(filePath).size;
+    const sizeBytes = statSync(resolvedPath).size;
     attachment = attachmentsStore.uploadFileBackedAttachment(
       filename,
       mimeType,
-      filePath,
+      resolvedPath,
       sizeBytes,
     );
   } else {
@@ -130,16 +209,19 @@ export async function handleDeleteAttachment(req: Request): Promise<Response> {
 }
 
 function handleGetAttachment(attachmentId: string): Response {
+  // Use the file_path column to detect file-backed attachments, not string
+  // truthiness of dataBase64 (which would also match valid zero-byte uploads).
+  const isFileBacked = !!getFilePathForAttachment(attachmentId);
+
+  // Skip hydrating file data for file-backed attachments — clients should
+  // fetch content via GET /attachments/:id/content (which validates the path
+  // against the directory allowlist).
   const attachment = attachmentsStore.getAttachmentById(attachmentId, {
-    hydrateFileData: true,
+    hydrateFileData: !isFileBacked,
   });
   if (!attachment) {
     return httpError("NOT_FOUND", "Attachment not found", 404);
   }
-
-  // Use the file_path column to detect file-backed attachments, not string
-  // truthiness of dataBase64 (which would also match valid zero-byte uploads).
-  const isFileBacked = !!getFilePathForAttachment(attachmentId);
 
   return Response.json({
     id: attachment.id,
@@ -147,7 +229,9 @@ function handleGetAttachment(attachmentId: string): Response {
     mimeType: attachment.mimeType,
     sizeBytes: attachment.sizeBytes,
     kind: attachment.kind,
-    data: attachment.dataBase64,
+    // Return null for file-backed attachments so the gateway's hydration check
+    // (payload.data == null) triggers a fetch from the /content endpoint.
+    data: isFileBacked ? null : attachment.dataBase64,
     // Signal to clients that they should fetch content via the /content endpoint
     ...(isFileBacked ? { fileBacked: true } : {}),
   });
@@ -162,21 +246,27 @@ export function handleGetAttachmentContent(
   attachmentId: string,
   req: Request,
 ): Response {
+  // Check for file-backed attachment first so we can skip hydration — file-backed
+  // content is served directly from disk via Bun.file, not from the hydrated base64.
+  const filePath = getFilePathForAttachment(attachmentId);
+  const isFileBacked = !!filePath;
+
   const attachment = attachmentsStore.getAttachmentById(attachmentId, {
-    hydrateFileData: true,
+    hydrateFileData: !isFileBacked,
   });
   if (!attachment) {
     return httpError("NOT_FOUND", "Attachment not found", 404);
   }
-
-  // Check for file-backed attachment
-  const filePath = getFilePathForAttachment(attachmentId);
   if (filePath) {
-    if (!existsSync(filePath)) {
+    const resolvedPath = resolveAllowedFileBackedAttachmentPath(filePath);
+    if (!resolvedPath) {
+      return httpError("NOT_FOUND", "Attachment content not found", 404);
+    }
+    if (!existsSync(resolvedPath)) {
       return httpError("NOT_FOUND", "Recording file not found on disk", 404);
     }
 
-    const file = Bun.file(filePath);
+    const file = Bun.file(resolvedPath);
     const rangeHeader = req.headers.get("Range");
 
     if (rangeHeader) {

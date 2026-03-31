@@ -2,7 +2,7 @@ import AppKit
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ThreadWindowManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ThreadWindowManager")
 
 /// Manages pop-out thread windows. Tracks open windows, prevents duplicates,
 /// and coordinates ViewModel pinning with `ConversationManager` to prevent

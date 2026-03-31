@@ -1,9 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-const testDir = mkdtempSync(join(tmpdir(), "slack-channel-cfg-test-"));
+const testDir = process.env.VELLUM_WORKSPACE_DIR!;
 const secureStorePath = join(testDir, "keys.enc");
 const metadataPath = join(testDir, "metadata.json");
 const originalVellumDev = process.env.VELLUM_DEV;
@@ -57,19 +56,6 @@ mock.module("../config/loader.js", () => ({
   saveConfig: () => {},
   invalidateConfigCache: () => {},
   setNestedValue,
-}));
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => testDir,
-
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -181,11 +167,6 @@ afterAll(() => {
     delete process.env.VELLUM_DEV;
   } else {
     process.env.VELLUM_DEV = originalVellumDev;
-  }
-  try {
-    rmSync(testDir, { recursive: true });
-  } catch {
-    /* best effort */
   }
 });
 

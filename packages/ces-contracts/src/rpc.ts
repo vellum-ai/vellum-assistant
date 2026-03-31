@@ -422,6 +422,11 @@ export type ListAuditRecordsResponse = z.infer<
 export const UpdateManagedCredentialSchema = z.object({
   /** The assistant API key to push to CES for platform credential materialization. */
   assistantApiKey: z.string(), // nosemgrep: not-a-secret
+  /**
+   * Optional platform assistant ID. In warm-pool mode the ID may not be
+   * available at CES startup; the assistant pushes it here once provisioned.
+   */
+  assistantId: z.string().optional(),
 });
 export type UpdateManagedCredential = z.infer<
   typeof UpdateManagedCredentialSchema

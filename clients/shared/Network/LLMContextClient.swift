@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "LLMContextClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "LLMContextClient")
 
 // MARK: - Normalized LLM Context Models
 
@@ -25,6 +25,7 @@ public struct LLMCallSummary: Codable, Sendable, Equatable {
     public let responsePreview: String?
     public let toolCallNames: [String]?
     public let durationMs: Int?
+    public let estimatedCostUsd: Double?
 
     public init(
         title: String? = nil,
@@ -44,7 +45,8 @@ public struct LLMCallSummary: Codable, Sendable, Equatable {
         responseToolCallCount: Int? = nil,
         responsePreview: String? = nil,
         toolCallNames: [String]? = nil,
-        durationMs: Int? = nil
+        durationMs: Int? = nil,
+        estimatedCostUsd: Double? = nil
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -64,6 +66,7 @@ public struct LLMCallSummary: Codable, Sendable, Equatable {
         self.responsePreview = responsePreview
         self.toolCallNames = toolCallNames
         self.durationMs = durationMs
+        self.estimatedCostUsd = estimatedCostUsd
     }
 
     /// String form of the normalized summary when the payload uses text.
@@ -91,6 +94,7 @@ public struct LLMCallSummary: Codable, Sendable, Equatable {
         responsePreview = container.decodeString(for: ["responsePreview", "responseTextPreview", "response_preview"])
         toolCallNames = container.decodeStringArray(for: ["toolCallNames", "tool_call_names"])
         durationMs = container.decodeInt(for: ["durationMs", "duration_ms", "elapsedMs"])
+        estimatedCostUsd = container.decodeDouble(for: ["estimatedCostUsd", "estimated_cost_usd"])
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -113,6 +117,7 @@ public struct LLMCallSummary: Codable, Sendable, Equatable {
         try container.encodeIfPresent(responsePreview, forKey: "responsePreview")
         try container.encodeIfPresent(toolCallNames, forKey: "toolCallNames")
         try container.encodeIfPresent(durationMs, forKey: "durationMs")
+        try container.encodeIfPresent(estimatedCostUsd, forKey: "estimatedCostUsd")
     }
 }
 
@@ -405,6 +410,16 @@ private extension KeyedDecodingContainer where Key == LLMContextCodingKey {
         return nil
     }
 
+    func decodeDouble(for keys: [String]) -> Double? {
+        for key in keys {
+            guard let codingKey = Key(stringValue: key) else { continue }
+            if let value = try? decodeIfPresent(Double.self, forKey: codingKey) {
+                return value
+            }
+        }
+        return nil
+    }
+
     func decodeBool(for keys: [String]) -> Bool? {
         for key in keys {
             guard let codingKey = Key(stringValue: key) else { continue }
@@ -443,6 +458,11 @@ private extension KeyedEncodingContainer where Key == LLMContextCodingKey {
     }
 
     mutating func encodeIfPresent(_ value: Int?, forKey key: String) throws {
+        guard let value, let codingKey = Key(stringValue: key) else { return }
+        try encode(value, forKey: codingKey)
+    }
+
+    mutating func encodeIfPresent(_ value: Double?, forKey key: String) throws {
         guard let value, let codingKey = Key(stringValue: key) else { return }
         try encode(value, forKey: codingKey)
     }
@@ -525,14 +545,12 @@ public enum LLMContextFetchResult: Sendable {
 
 /// Focused client for fetching LLM request/response context for a given message,
 /// routed through the gateway.
-@MainActor
 public protocol LLMContextClientProtocol {
     func fetchContext(messageId: String) async -> LLMContextResponse?
     func fetchContextResult(messageId: String) async throws -> LLMContextFetchResult
 }
 
 /// Gateway-backed implementation of ``LLMContextClientProtocol``.
-@MainActor
 public struct LLMContextClient: LLMContextClientProtocol {
     nonisolated public init() {}
 

@@ -5,10 +5,7 @@
  * allow_conversation, always_allow, always_deny), other pending confirmations in
  * the same conversation that match are auto-resolved.
  */
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { Minimatch } from "minimatch";
 
@@ -21,8 +18,6 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { ConfirmationStateChanged } from "../daemon/message-types/messages.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 import type { ConfirmationDetails } from "../runtime/pending-interactions.js";
-
-const testDir = mkdtempSync(join(tmpdir(), "approval-cascade-test-"));
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede Conversation import
@@ -47,10 +42,6 @@ function makeLoggerStub(): Record<string, unknown> {
 
 mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
-}));
-
-mock.module("../util/platform.js", () => ({
-  getDataDir: () => testDir,
 }));
 
 mock.module("../memory/guardian-action-store.js", () => ({
@@ -265,7 +256,7 @@ function makeConversation(
     "system prompt",
     4096,
     sendToClient ?? (() => {}),
-    testDir,
+    process.env.VELLUM_WORKSPACE_DIR!,
   );
 }
 
@@ -324,14 +315,6 @@ function makeConfirmationDetails(patterns: string[]): ConfirmationDetails {
     scopeOptions: [{ label: "Everywhere", scope: "everywhere" }],
   };
 }
-
-afterAll(() => {
-  try {
-    rmSync(testDir, { recursive: true, force: true });
-  } catch {
-    /* best effort */
-  }
-});
 
 beforeEach(() => {
   pendingInteractions.clear();

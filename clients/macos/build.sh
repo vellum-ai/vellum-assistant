@@ -438,6 +438,12 @@ if [ "$CMD" = "release" ] || [ "$CMD" = "release-application" ]; then
     fi
 fi
 
+# Use a distinct bundle ID for debug builds so that `log stream` filtering
+# does not pick up logs from the production app running on the same machine.
+if [ "$CONFIG" = "debug" ]; then
+    BUNDLE_ID="com.vellum.vellum-assistant-dev"
+fi
+
 # 1. Build with SPM (or use prebuilt binaries if PREBUILT_BIN_PATH is set)
 if [ -n "${PREBUILT_BIN_PATH:-}" ]; then
     echo "Using prebuilt binaries from $PREBUILT_BIN_PATH"
@@ -772,6 +778,10 @@ if [ "$CONFIG" = "debug" ]; then
     echo "Embedding VELLUM_FLAG_PLATFORM_HOSTED_ENABLED for debug build"
     _LSE_ENTRIES+="
         <key>VELLUM_FLAG_PLATFORM_HOSTED_ENABLED</key>
+        <string>1</string>"
+    echo "Embedding VELLUM_FLAG_LOCAL_DOCKER_ENABLED for debug build"
+    _LSE_ENTRIES+="
+        <key>VELLUM_FLAG_LOCAL_DOCKER_ENABLED</key>
         <string>1</string>"
 fi
 if [ -n "${SENTRY_DSN_MACOS:-}" ]; then
@@ -1125,8 +1135,8 @@ if [ -f "$MACOS_DIR/vellum-daemon" ]; then
     echo "Daemon binary signed with entitlements"
 fi
 
-# Sign the outer app bundle (without --deep to preserve nested signatures)
-APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY")
+# Sign the outer app bundle with audio-input entitlement (without --deep to preserve nested signatures)
+APP_SIGN_FLAGS=(--force --sign "$SIGN_IDENTITY" --entitlements "$SCRIPT_DIR/app-entitlements.plist")
 if [ "$CONFIG" = "release" ] && [ "$SIGN_IDENTITY" != "-" ]; then
     APP_SIGN_FLAGS+=(--timestamp --options runtime)
 fi

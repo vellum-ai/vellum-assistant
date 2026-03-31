@@ -1,10 +1,9 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "TrustRuleClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "TrustRuleClient")
 
 /// Focused client for trust rule management operations routed through the gateway.
-@MainActor
 public protocol TrustRuleClientProtocol {
     func fetchTrustRules() async throws -> [TrustRuleItem]
     func addTrustRule(
@@ -27,7 +26,6 @@ public protocol TrustRuleClientProtocol {
 }
 
 /// Gateway-backed implementation of ``TrustRuleClientProtocol``.
-@MainActor
 public struct TrustRuleClient: TrustRuleClientProtocol {
     nonisolated public init() {}
 

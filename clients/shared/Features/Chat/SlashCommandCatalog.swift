@@ -98,6 +98,15 @@ public enum ChatSlashCommandCatalog {
             sendPathPlatforms: allPlatforms
         ),
         ChatSlashCommandDescriptor(
+            name: "compact",
+            description: "Force context compaction immediately",
+            icon: "arrow.down.right.and.arrow.up.left",
+            selectionBehavior: .autoSend,
+            pickerPlatforms: allPlatforms,
+            helpBubblePlatforms: allPlatforms,
+            sendPathPlatforms: allPlatforms
+        ),
+        ChatSlashCommandDescriptor(
             name: "models",
             description: "List all available models",
             icon: "list.bullet",

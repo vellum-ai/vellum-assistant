@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ConversationUnreadClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ConversationUnreadClient")
 
 /// Error type for conversation unread operations.
 public enum ConversationUnreadError: LocalizedError {
@@ -16,13 +16,11 @@ public enum ConversationUnreadError: LocalizedError {
 }
 
 /// Focused client for marking conversations as unread through the gateway.
-@MainActor
 public protocol ConversationUnreadClientProtocol {
     func sendConversationUnread(_ signal: ConversationUnreadSignal) async throws
 }
 
 /// Gateway-backed implementation of ``ConversationUnreadClientProtocol``.
-@MainActor
 public struct ConversationUnreadClient: ConversationUnreadClientProtocol {
     nonisolated public init() {}
 

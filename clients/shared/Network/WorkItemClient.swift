@@ -1,13 +1,12 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "WorkItemClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "WorkItemClient")
 
 /// Focused client for work-item (task queue) operations routed through the gateway.
 ///
 /// Covers listing, completing, deleting, running, fetching output, and updating
 /// work items.
-@MainActor
 public protocol WorkItemClientProtocol {
     func fetchList(status: String?) async -> WorkItemsListResponse?
     func complete(id: String) async -> Bool
@@ -21,7 +20,6 @@ public protocol WorkItemClientProtocol {
 }
 
 /// Gateway-backed implementation of ``WorkItemClientProtocol``.
-@MainActor
 public struct WorkItemClient: WorkItemClientProtocol {
     nonisolated public init() {}
 

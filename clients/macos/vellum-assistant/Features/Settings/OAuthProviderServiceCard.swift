@@ -162,6 +162,9 @@ struct OAuthProviderServiceCard: View {
             ) {
                 Task {
                     await authManager.loginWithToast(showToast: showToast, onSuccess: {
+                        if AppDelegate.shared?.isCurrentAssistantManaged ?? false {
+                            AppDelegate.shared?.reconnectManagedAssistant()
+                        }
                         Task { await store.fetchManagedOAuthConnections(providerKey: providerKey, userId: currentUserId) }
                     })
                 }
@@ -441,7 +444,7 @@ struct OAuthProviderServiceCard: View {
                     placeholder: providerMeta?.client_id_placeholder ?? "Enter client ID",
                     text: $createAppClientId
                 )
-                if (providerMeta?.requires_client_secret ?? 1) != 0 {
+                if providerMeta?.requires_client_secret ?? true {
                     VTextField(
                         "Client Secret",
                         placeholder: "Enter client secret",
@@ -462,7 +465,7 @@ struct OAuthProviderServiceCard: View {
                 VButton(
                     label: createAppIsSubmitting ? "Creating..." : "Create",
                     style: .primary,
-                    isDisabled: createAppClientId.isEmpty || ((providerMeta?.requires_client_secret ?? 1) != 0 && createAppClientSecret.isEmpty) || createAppIsSubmitting
+                    isDisabled: createAppClientId.isEmpty || ((providerMeta?.requires_client_secret ?? true) && createAppClientSecret.isEmpty) || createAppIsSubmitting
                 ) {
                     createAppIsSubmitting = true
                     Task {

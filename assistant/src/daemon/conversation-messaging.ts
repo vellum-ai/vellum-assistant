@@ -247,6 +247,7 @@ export function enqueueMessage(
     turnInterfaceContext,
     isInteractive: options?.isInteractive,
     displayContent,
+    sentAt: Date.now(),
   });
   if (!accepted) {
     onEvent({

@@ -1,26 +1,16 @@
-import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, mock, test } from "bun:test";
-
-// Mutable homedir override — when set, resolveInstanceDataDir reads from here.
-let homedirOverride: string | undefined;
-mock.module("node:os", () => ({
-  homedir: () => homedirOverride ?? homedir(),
-  tmpdir,
-}));
+import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   ensureDataDir,
   getDataDir,
   getDbPath,
   getHistoryPath,
-  getHooksDir,
   getInterfacesDir,
   getLogPath,
   getPidPath,
-  getRootDir,
   getSandboxRootDir,
   getSandboxWorkingDir,
   getWorkspaceConfigPath,
@@ -28,38 +18,35 @@ import {
   getWorkspaceHooksDir,
   getWorkspacePromptPath,
   getWorkspaceSkillsDir,
-  resolveInstanceDataDir,
 } from "../util/platform.js";
 
-const originalBaseDataDir = process.env.BASE_DATA_DIR;
+const originalWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
 
 afterEach(() => {
-  if (originalBaseDataDir == null) {
-    delete process.env.BASE_DATA_DIR;
+  if (originalWorkspaceDir == null) {
+    delete process.env.VELLUM_WORKSPACE_DIR;
   } else {
-    process.env.BASE_DATA_DIR = originalBaseDataDir;
+    process.env.VELLUM_WORKSPACE_DIR = originalWorkspaceDir;
   }
-  homedirOverride = undefined;
 });
 
-// Baseline path characterization: documents current pre-migration path layout.
-// After workspace migration, paths marked "WILL MOVE" below will resolve under
-// ~/.vellum/workspace/ instead. Paths marked "STAYS ROOT" remain at ~/.vellum/.
-describe("baseline path characterization (pre-migration)", () => {
-  test("all path helpers resolve to expected pre-migration locations", () => {
-    const base = join(
-      tmpdir(),
-      `platform-test-${randomBytes(4).toString("hex")}`,
-    );
-    process.env.BASE_DATA_DIR = base;
-    const root = join(base, ".vellum");
-    const data = join(root, "workspace", "data");
+// Path characterization: documents the current path layout.
+// Root-level helpers always resolve under ~/.vellum (from homedir()).
+// Workspace helpers resolve under VELLUM_WORKSPACE_DIR when set,
+// otherwise under ~/.vellum/workspace.
+describe("path characterization", () => {
+  test("all path helpers resolve to expected locations", () => {
+    // Without VELLUM_WORKSPACE_DIR override, workspace is under ~/.vellum
+    delete process.env.VELLUM_WORKSPACE_DIR;
+    const root = join(homedir(), ".vellum");
+    const ws = getWorkspaceDir();
+    const data = getDataDir();
 
-    // Root dir — stays as anchor for all paths
-    expect(getRootDir()).toBe(root);
+    // Workspace is under root
+    expect(ws).toBe(join(root, "workspace"));
 
-    // Now resolves under workspace/data
-    expect(getDataDir()).toBe(join(root, "workspace", "data"));
+    // Data dir is under workspace
+    expect(data).toBe(join(ws, "data"));
 
     // Sub-paths under workspace/data
     expect(getDbPath()).toBe(join(data, "db", "assistant.db"));
@@ -67,247 +54,71 @@ describe("baseline path characterization (pre-migration)", () => {
     expect(getHistoryPath()).toBe(join(data, "history"));
     expect(getInterfacesDir()).toBe(join(data, "interfaces"));
     expect(getSandboxRootDir()).toBe(join(data, "sandbox"));
-    expect(getSandboxWorkingDir()).toBe(join(root, "workspace"));
+    expect(getSandboxWorkingDir()).toBe(ws);
 
-    // Hooks remain outside the workspace sandbox boundary
-    expect(getHooksDir()).toBe(join(root, "hooks"));
+    // Hooks live under workspace
+    expect(getWorkspaceHooksDir()).toBe(join(ws, "hooks"));
 
-    // STAYS ROOT — runtime files remain at ~/.vellum/
+    // Root-level runtime files remain at ~/.vellum/
     expect(getPidPath()).toBe(join(root, "vellum.pid"));
   });
 
-  test("hooks directory is outside the sandbox boundary", () => {
-    const base = join(
-      tmpdir(),
-      `platform-test-${randomBytes(4).toString("hex")}`,
-    );
-    process.env.BASE_DATA_DIR = base;
-    const hooksDir = getHooksDir();
-    const sandboxDir = getSandboxWorkingDir();
-    expect(hooksDir.startsWith(sandboxDir)).toBe(false);
+  test("VELLUM_WORKSPACE_DIR overrides workspace location", () => {
+    process.env.VELLUM_WORKSPACE_DIR = "/tmp/custom-workspace";
+    expect(getWorkspaceDir()).toBe("/tmp/custom-workspace");
+    expect(getDataDir()).toBe("/tmp/custom-workspace/data");
+    // Root-level paths are NOT affected by VELLUM_WORKSPACE_DIR
+    expect(getPidPath()).toBe(join(homedir(), ".vellum", "vellum.pid"));
+  });
+
+  test("hooks directory is inside the workspace boundary", () => {
+    delete process.env.VELLUM_WORKSPACE_DIR;
+    expect(getWorkspaceHooksDir().startsWith(getWorkspaceDir())).toBe(true);
   });
 
   test("ensureDataDir creates all expected directories", () => {
-    const base = join(
-      tmpdir(),
-      `platform-test-${randomBytes(4).toString("hex")}`,
-    );
-    process.env.BASE_DATA_DIR = base;
-    const rootDir = getRootDir();
-    const ws = getWorkspaceDir();
-    const wsData = join(ws, "data");
-
-    if (existsSync(rootDir)) {
-      rmSync(rootDir, { recursive: true, force: true });
-    }
+    // Use a temp VELLUM_WORKSPACE_DIR so ensureDataDir writes to a temp dir
+    // rather than the real ~/.vellum. Root-level dirs still go to ~/.vellum
+    // but we only verify workspace dirs here to avoid side effects.
+    const wsDir = join(tmpdir(), `platform-test-ws-${Date.now()}`);
+    process.env.VELLUM_WORKSPACE_DIR = wsDir;
 
     ensureDataDir();
 
-    // Root-level dirs (runtime / protected)
-    expect(existsSync(getRootDir())).toBe(true);
-    expect(existsSync(join(getRootDir(), "protected"))).toBe(true);
+    // Root-level dirs (ensureDataDir always creates these)
+    const root = join(homedir(), ".vellum");
+    expect(existsSync(root)).toBe(true);
 
-    // Workspace dirs
-    expect(existsSync(ws)).toBe(true);
-    expect(existsSync(join(getRootDir(), "hooks"))).toBe(true);
-    expect(existsSync(join(ws, "skills"))).toBe(true);
+    // Workspace dirs (in our temp location)
+    expect(existsSync(wsDir)).toBe(true);
+    expect(existsSync(join(wsDir, "hooks"))).toBe(true);
+    expect(existsSync(join(wsDir, "skills"))).toBe(true);
 
     // Data sub-dirs under workspace
-    expect(existsSync(wsData)).toBe(true);
-    expect(existsSync(join(wsData, "db"))).toBe(true);
-    expect(existsSync(join(wsData, "qdrant"))).toBe(true);
-    expect(existsSync(join(wsData, "logs"))).toBe(true);
-    expect(existsSync(join(wsData, "memory"))).toBe(true);
-    expect(existsSync(join(wsData, "memory", "knowledge"))).toBe(true);
-    expect(existsSync(join(wsData, "apps"))).toBe(true);
-    expect(existsSync(join(wsData, "interfaces"))).toBe(true);
+    const data = join(wsDir, "data");
+    expect(existsSync(data)).toBe(true);
+    expect(existsSync(join(data, "db"))).toBe(true);
+    expect(existsSync(join(data, "qdrant"))).toBe(true);
+    expect(existsSync(join(data, "logs"))).toBe(true);
+    expect(existsSync(join(data, "memory"))).toBe(true);
+    expect(existsSync(join(data, "memory", "knowledge"))).toBe(true);
+    expect(existsSync(join(data, "apps"))).toBe(true);
+    expect(existsSync(join(data, "interfaces"))).toBe(true);
 
-    // Legacy dirs should NOT be created
-    expect(existsSync(join(getRootDir(), "skills"))).toBe(false);
-    expect(existsSync(join(getRootDir(), "data", "sandbox"))).toBe(false);
-    expect(existsSync(join(getRootDir(), "data", "sandbox", "fs"))).toBe(false);
-
-    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(wsDir, { recursive: true, force: true });
   });
 });
 
 describe("workspace path primitives", () => {
-  test("workspace helpers resolve under getRootDir()/workspace", () => {
-    const base = join(
-      tmpdir(),
-      `platform-test-${randomBytes(4).toString("hex")}`,
-    );
-    process.env.BASE_DATA_DIR = base;
-    const root = join(base, ".vellum");
-    const ws = join(root, "workspace");
+  test("workspace helpers resolve under workspace dir", () => {
+    delete process.env.VELLUM_WORKSPACE_DIR;
+    const ws = getWorkspaceDir();
 
-    expect(getWorkspaceDir()).toBe(ws);
     expect(getWorkspaceConfigPath()).toBe(join(ws, "config.json"));
     expect(getWorkspaceSkillsDir()).toBe(join(ws, "skills"));
     expect(getWorkspaceHooksDir()).toBe(join(ws, "hooks"));
     expect(getWorkspacePromptPath("IDENTITY.md")).toBe(join(ws, "IDENTITY.md"));
     expect(getWorkspacePromptPath("SOUL.md")).toBe(join(ws, "SOUL.md"));
     expect(getWorkspacePromptPath("USER.md")).toBe(join(ws, "USER.md"));
-  });
-
-  test("workspace helpers honor BASE_DATA_DIR", () => {
-    process.env.BASE_DATA_DIR = "/tmp/custom-base";
-    expect(getWorkspaceDir()).toBe("/tmp/custom-base/.vellum/workspace");
-  });
-});
-
-describe("resolveInstanceDataDir", () => {
-  function makeTempHome(): string {
-    const dir = join(
-      tmpdir(),
-      `platform-home-${randomBytes(4).toString("hex")}`,
-    );
-    mkdirSync(dir, { recursive: true });
-    homedirOverride = dir;
-    return dir;
-  }
-
-  function writeLockfileToHome(
-    home: string,
-    data: Record<string, unknown>,
-  ): void {
-    writeFileSync(
-      join(home, ".vellum.lock.json"),
-      JSON.stringify(data, null, 2),
-    );
-  }
-
-  test("returns undefined when no lockfile exists", () => {
-    makeTempHome();
-    expect(resolveInstanceDataDir()).toBeUndefined();
-  });
-
-  test("returns sole local assistant instanceDir when no activeAssistant", () => {
-    const home = makeTempHome();
-    writeLockfileToHome(home, {
-      assistants: [
-        {
-          assistantId: "vellum-calm-stork",
-          cloud: "local",
-          resources: {
-            instanceDir:
-              "/Users/test/.local/share/vellum/assistants/vellum-calm-stork",
-          },
-        },
-      ],
-    });
-    expect(resolveInstanceDataDir()).toBe(
-      "/Users/test/.local/share/vellum/assistants/vellum-calm-stork",
-    );
-  });
-
-  test("returns active assistant instanceDir when activeAssistant matches", () => {
-    const home = makeTempHome();
-    writeLockfileToHome(home, {
-      activeAssistant: "vellum-bold-fox",
-      assistants: [
-        {
-          assistantId: "vellum-calm-stork",
-          cloud: "local",
-          resources: {
-            instanceDir:
-              "/Users/test/.local/share/vellum/assistants/vellum-calm-stork",
-          },
-        },
-        {
-          assistantId: "vellum-bold-fox",
-          cloud: "local",
-          resources: {
-            instanceDir:
-              "/Users/test/.local/share/vellum/assistants/vellum-bold-fox",
-          },
-        },
-      ],
-    });
-    expect(resolveInstanceDataDir()).toBe(
-      "/Users/test/.local/share/vellum/assistants/vellum-bold-fox",
-    );
-  });
-
-  test("returns undefined when multiple local assistants and no activeAssistant", () => {
-    const home = makeTempHome();
-    writeLockfileToHome(home, {
-      assistants: [
-        {
-          assistantId: "vellum-calm-stork",
-          cloud: "local",
-          resources: {
-            instanceDir:
-              "/Users/test/.local/share/vellum/assistants/vellum-calm-stork",
-          },
-        },
-        {
-          assistantId: "vellum-bold-fox",
-          cloud: "local",
-          resources: {
-            instanceDir:
-              "/Users/test/.local/share/vellum/assistants/vellum-bold-fox",
-          },
-        },
-      ],
-    });
-    expect(resolveInstanceDataDir()).toBeUndefined();
-  });
-
-  test("returns undefined when lockfile has no assistants array", () => {
-    const home = makeTempHome();
-    writeLockfileToHome(home, { version: 1 });
-    expect(resolveInstanceDataDir()).toBeUndefined();
-  });
-
-  test("returns undefined when lockfile is malformed JSON", () => {
-    const home = makeTempHome();
-    writeFileSync(join(home, ".vellum.lock.json"), "{{not json");
-    expect(resolveInstanceDataDir()).toBeUndefined();
-  });
-
-  test("treats assistants without cloud field as local", () => {
-    const home = makeTempHome();
-    writeLockfileToHome(home, {
-      assistants: [
-        {
-          assistantId: "vellum-quiet-owl",
-          resources: {
-            instanceDir:
-              "/Users/test/.local/share/vellum/assistants/vellum-quiet-owl",
-          },
-        },
-      ],
-    });
-    expect(resolveInstanceDataDir()).toBe(
-      "/Users/test/.local/share/vellum/assistants/vellum-quiet-owl",
-    );
-  });
-
-  test("ignores cloud assistants when resolving", () => {
-    const home = makeTempHome();
-    writeLockfileToHome(home, {
-      assistants: [
-        {
-          assistantId: "vellum-cloud-eagle",
-          cloud: "platform",
-          resources: {
-            instanceDir: "/some/cloud/path",
-          },
-        },
-        {
-          assistantId: "vellum-local-robin",
-          cloud: "local",
-          resources: {
-            instanceDir:
-              "/Users/test/.local/share/vellum/assistants/vellum-local-robin",
-          },
-        },
-      ],
-    });
-    // Only one local assistant, so it auto-selects
-    expect(resolveInstanceDataDir()).toBe(
-      "/Users/test/.local/share/vellum/assistants/vellum-local-robin",
-    );
   });
 });

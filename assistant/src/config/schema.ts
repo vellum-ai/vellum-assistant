@@ -49,6 +49,7 @@ export type {
   ContextWindowConfig,
   Effort,
   ModelPricingOverride,
+  Speed,
   ThinkingConfig,
 } from "./schemas/inference.js";
 export {
@@ -56,6 +57,7 @@ export {
   ContextWindowConfigSchema,
   EffortSchema,
   ModelPricingOverrideSchema,
+  SpeedSchema,
   ThinkingConfigSchema,
 } from "./schemas/inference.js";
 export type {
@@ -201,6 +203,7 @@ import {
   ContextWindowConfigSchema,
   EffortSchema,
   ModelPricingOverrideSchema,
+  SpeedSchema,
   ThinkingConfigSchema,
 } from "./schemas/inference.js";
 import { IngressConfigSchema } from "./schemas/ingress.js";
@@ -240,6 +243,7 @@ export const AssistantConfigSchema = z
       .default(16000)
       .describe("Maximum number of output tokens per LLM response"),
     effort: EffortSchema,
+    speed: SpeedSchema,
     thinking: ThinkingConfigSchema.default(ThinkingConfigSchema.parse({})),
     contextWindow: ContextWindowConfigSchema.default(
       ContextWindowConfigSchema.parse({}),

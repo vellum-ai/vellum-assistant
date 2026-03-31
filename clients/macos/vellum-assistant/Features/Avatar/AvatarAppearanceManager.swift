@@ -3,7 +3,7 @@ import Foundation
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AvatarAppearanceManager")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AvatarAppearanceManager")
 
 /// Manages the assistant's avatar image. Provides a custom avatar when uploaded,
 /// or falls back to a colored circle with the assistant's initial letter.
@@ -132,17 +132,20 @@ final class AvatarAppearanceManager {
 
     /// The assistant's display name, loaded once from IDENTITY.md to avoid repeated disk I/O.
     private var assistantName: String = "V"
+    /// Tracked identity-load task so resetForDisconnect can cancel in-flight loads.
+    @ObservationIgnored private var identityLoadTask: Task<Void, Never>?
 
     func start() {
-        assistantName = AssistantDisplayName.resolve(
-            IdentityInfo.load()?.name,
-            fallback: "V"
-        )
+        identityLoadTask = Task {
+            let info = await IdentityInfo.loadAsync()
+            guard !Task.isCancelled else { return }
+            assistantName = AssistantDisplayName.resolve(info?.name, fallback: "V")
+            updateDockLabel()
+        }
         // Avatar is fetched later via reloadAvatar() once the gateway is
         // confirmed ready. Fetching here would race the daemon startup and
         // clear the avatar to nil on connection-refused, falling back to the
         // bundled Vellum logo.
-        updateDockLabel()
 
         startAvatarFileWatcher()
 
@@ -156,10 +159,8 @@ final class AvatarAppearanceManager {
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.assistantName = AssistantDisplayName.resolve(
-                    IdentityInfo.load()?.name,
-                    fallback: "V"
-                )
+                let info = await IdentityInfo.loadAsync()
+                self.assistantName = AssistantDisplayName.resolve(info?.name, fallback: "V")
                 self.cachedFallbackAvatar = nil
                 self.cachedFallbackName = nil
                 self.cachedFullFallbackAvatar = nil
@@ -437,10 +438,13 @@ final class AvatarAppearanceManager {
     ///   is readable, the dock icon updates immediately; the subsequent HTTP
     ///   fetch still runs to keep all cached state consistent.
     func reloadAvatar(avatarPath: String?) {
-        assistantName = AssistantDisplayName.resolve(
-            IdentityInfo.load()?.name,
-            fallback: "V"
-        )
+        identityLoadTask?.cancel()
+        identityLoadTask = Task {
+            let info = await IdentityInfo.loadAsync()
+            guard !Task.isCancelled else { return }
+            assistantName = AssistantDisplayName.resolve(info?.name, fallback: "V")
+            updateDockLabel()
+        }
         cachedChatAvatar = nil
         cachedFallbackAvatar = nil
         cachedFallbackName = nil
@@ -467,7 +471,6 @@ final class AvatarAppearanceManager {
             await self?.fetchAvatarViaHTTP(skipClearOnFailure: diskLoadSucceeded)
             await self?.fetchTraitsViaHTTP()
         }
-        updateDockLabel()
     }
 
     /// Posts character traits to the daemon via the gateway so the daemon
@@ -503,6 +506,8 @@ final class AvatarAppearanceManager {
     /// bundle icon without deleting any files on disk.
     /// Called during logout, retire, and switch-assistant flows.
     func resetForDisconnect() {
+        identityLoadTask?.cancel()
+        identityLoadTask = nil
         customAvatarImage = nil
         characterBodyShape = nil
         characterEyeStyle = nil

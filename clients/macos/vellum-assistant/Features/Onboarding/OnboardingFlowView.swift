@@ -2,7 +2,7 @@ import SwiftUI
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "OnboardingFlowView")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "OnboardingFlowView")
 
 @MainActor
 struct OnboardingFlowView: View {

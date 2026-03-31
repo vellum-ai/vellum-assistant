@@ -6,9 +6,6 @@
  * - Messages are queued (202, queued: true) when the conversation is busy, not 409.
  * - SSE subscribers receive events from messages sent via this endpoint.
  */
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
@@ -21,22 +18,6 @@ import {
   getCanonicalGuardianRequest,
 } from "../memory/canonical-guardian-store.js";
 import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-
-const testDir = realpathSync(
-  mkdtempSync(join(tmpdir(), "send-endpoint-busy-test-")),
-);
-
-mock.module("../util/platform.js", () => ({
-  getRootDir: () => testDir,
-  getDataDir: () => testDir,
-  isMacOS: () => process.platform === "darwin",
-  isLinux: () => process.platform === "linux",
-  isWindows: () => process.platform === "win32",
-  getPidPath: () => join(testDir, "test.pid"),
-  getDbPath: () => join(testDir, "test.db"),
-  getLogPath: () => join(testDir, "test.log"),
-  ensureDataDir: () => {},
-}));
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -337,11 +318,6 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
 
   afterAll(() => {
     resetDb();
-    try {
-      rmSync(testDir, { recursive: true, force: true });
-    } catch {
-      /* best effort */
-    }
   });
 
   async function startServer(

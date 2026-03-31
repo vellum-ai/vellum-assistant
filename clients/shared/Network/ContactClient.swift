@@ -1,10 +1,9 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "ContactClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "ContactClient")
 
 /// Focused client for contact management operations routed through the gateway.
-@MainActor
 public protocol ContactClientProtocol {
     func updateContact(
         contactId: String,
@@ -51,7 +50,6 @@ public struct NewContactChannel: Codable {
 }
 
 /// Gateway-backed implementation of ``ContactClientProtocol``.
-@MainActor
 public struct ContactClient: ContactClientProtocol {
     nonisolated public init() {}
 

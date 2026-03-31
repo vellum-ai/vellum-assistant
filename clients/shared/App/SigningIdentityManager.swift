@@ -4,15 +4,17 @@ import Foundation
 import os
 
 private let log = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant",
+    subsystem: Bundle.appBundleIdentifier,
     category: "SigningIdentityManager"
 )
 
 /// Manages the Ed25519 signing identity stored on disk in ~/.vellum/protected/.
 /// Previously used the macOS Keychain, which triggers repeated authorization
 /// prompts with ad-hoc code-signed builds.
-@MainActor
-public final class SigningIdentityManager {
+///
+/// Uses `actor` isolation instead of `@MainActor` so that file I/O
+/// (loading/saving the key) does not block the main thread.
+public actor SigningIdentityManager {
     public static let shared = SigningIdentityManager()
 
     /// File path for the signing key: ~/.vellum/protected/app-signing-key

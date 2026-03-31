@@ -5,7 +5,7 @@ import UserNotifications
 import VellumAssistantShared
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "AppDelegate")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate")
 
 // MARK: - Ghost Window Detection
 
@@ -297,6 +297,8 @@ extension AppDelegate {
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
+            PTTActivator.updateCache(PTTActivator.fromStored())
+            NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
 
             onboarding.close()
             self?.onboardingWindow = nil
@@ -341,6 +343,8 @@ extension AppDelegate {
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
+            PTTActivator.updateCache(PTTActivator.fromStored())
+            NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
 
             onboarding.close()
             self?.onboardingWindow = nil
@@ -376,24 +380,14 @@ extension AppDelegate {
     }
 
     /// Returns `true` when `~/.vellum.lock.json` contains at least one
-    /// assistant entry.
+    /// assistant entry that belongs to the current platform environment.
+    /// Cross-environment managed assistants (e.g. dev-platform in a
+    /// production build) are excluded.
     func lockfileHasAssistants() -> Bool {
-        let primaryPath = LockfilePaths.primaryPath
-        let fileExists = FileManager.default.fileExists(atPath: primaryPath)
-        log.info("[lockfileCheck] primaryPath=\(primaryPath, privacy: .public) exists=\(fileExists)")
-
-        guard let json = LockfilePaths.read() else {
-            log.warning("[lockfileCheck] LockfilePaths.read() returned nil")
-            return false
-        }
-
-        guard let assistants = json["assistants"] as? [[String: Any]] else {
-            log.warning("[lockfileCheck] lockfile has no 'assistants' array")
-            return false
-        }
-
-        log.info("[lockfileCheck] found \(assistants.count) assistant(s)")
-        return !assistants.isEmpty
+        let all = LockfileAssistant.loadAll()
+        let valid = all.filter { $0.isCurrentEnvironment }
+        log.info("[lockfileCheck] found \(all.count) assistant(s), \(valid.count) in current environment")
+        return !valid.isEmpty
     }
 
     /// Check whether the local gateway is healthy by hitting its /healthz endpoint.
@@ -440,6 +434,8 @@ extension AppDelegate {
         onboarding.onComplete = { [weak self] state in
             OnboardingState.clearPersistedState()
             UserDefaults.standard.set(state.chosenKey.rawValue, forKey: "activationKey")
+            PTTActivator.updateCache(PTTActivator.fromStored())
+            NotificationCenter.default.post(name: .activationKeyChanged, object: nil)
 
             onboarding.close()
             self?.onboardingWindow = nil
@@ -541,9 +537,12 @@ extension AppDelegate {
     }
 
     func observeAssistantStatus() {
-        // Subscribe to active ChatViewModel's objectWillChange so menu bar icon
-        // updates when isThinking or errorText changes, even though SwiftUI
-        // views now use ActiveChatViewWrapper for their own observation.
+        // Subscribe to active ChatViewModel's isThinking and errorText so the
+        // menu bar icon updates when the assistant status changes.
+        //
+        // ChatViewModel is @Observable, so we use the sub-manager's Combine
+        // isThinkingPublisher and a withObservationTracking loop for errorText
+        // (ChatErrorManager has no Combine publisher).
         //
         // Use the emitted UUID directly (not activeViewModel) because $activeConversationId
         // fires during willSet — at that point activeConversationId still holds the old value,
@@ -556,13 +555,41 @@ extension AppDelegate {
             .handleEvents(receiveOutput: { [weak self] _ in
                 // Update immediately when switching conversations
                 self?.updateMenuBarIcon()
+                // Re-arm the errorText observation for the new active view model
+                self?.observeActiveViewModelErrorText()
             })
-            .map { $0.objectWillChange }
+            .map { $0.messageManager.isThinkingPublisher }
             .switchToLatest()
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.updateMenuBarIcon()
             }
+
+        // Also observe errorText changes on the active ChatViewModel using
+        // withObservationTracking, since ChatErrorManager doesn't expose a
+        // Combine publisher. Re-arms on each change and on conversation switch.
+        observeActiveViewModelErrorText()
+    }
+
+    /// Recursive withObservationTracking loop that watches the active
+    /// ChatViewModel's errorText and updates the menu bar icon on change.
+    /// Re-resolves the active VM on each re-arm so stale VMs are never
+    /// retained, and exits silently if the VM has been deallocated.
+    private func observeActiveViewModelErrorText() {
+        guard let vm = mainWindow?.conversationManager.activeViewModel else { return }
+        withObservationTracking {
+            _ = vm.errorText
+        } onChange: { [weak self, weak vm] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.updateMenuBarIcon()
+                // Re-arm only if the same VM is still active.
+                // If the conversation switched, observeAssistantStatus's
+                // handleEvents will call us again with the new VM.
+                guard let vm, vm === self.mainWindow?.conversationManager.activeViewModel else { return }
+                self.observeActiveViewModelErrorText()
+            }
+        }
     }
 
     func observeConversationBadge(_ conversationManager: ConversationManager) {
@@ -654,5 +681,28 @@ extension AppDelegate {
             services.settingsStore.pendingSettingsTab = settingsTab
         }
         showSettingsWindow(nil)
+    }
+
+    /// Triggers the platform login flow (WorkOS) in response to a
+    /// `show_platform_login` event from the daemon. On success, re-bootstraps
+    /// actor credentials and the local assistant API key, mirroring the
+    /// post-login flow in SettingsPanel and MainWindowView.
+    public func showPlatformLogin() {
+        Task {
+            await authManager.loginWithToast(showToast: { [weak self] msg, style in
+                self?.mainWindow?.windowState.showToast(message: msg, style: style)
+            }, onSuccess: { [weak self] in
+                guard let self else { return }
+                if !self.isCurrentAssistantManaged {
+                    self.ensureActorCredentials()
+                }
+                self.localBootstrapDidComplete = false
+                self.ensureLocalAssistantApiKey()
+
+                if self.isCurrentAssistantManaged {
+                    self.reconnectManagedAssistant()
+                }
+            })
+        }
     }
 }

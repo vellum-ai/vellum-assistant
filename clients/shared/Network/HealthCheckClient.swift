@@ -1,14 +1,13 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "HealthCheckClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "HealthCheckClient")
 
 /// Checks assistant reachability.
 ///
 /// Local assistants are checked by hitting their own gateway's `/readyz` endpoint
 /// directly (unauthenticated). Remote/managed assistants route through
 /// `GatewayHTTPClient` which handles URL resolution, authentication, and 401 retry.
-@MainActor
 public enum HealthCheckClient {
 
     /// Check whether the currently connected assistant is reachable.

@@ -59,6 +59,10 @@ export interface CanonicalGuardianRequest {
   requestCode: string | null;
   toolName: string | null;
   inputDigest: string | null;
+  commandPreview: string | null;
+  riskLevel: string | null;
+  activityText: string | null;
+  executionTarget: string | null;
   status: CanonicalRequestStatus;
   answerText: string | null;
   decidedByExternalUserId: string | null;
@@ -149,6 +153,10 @@ function rowToRequest(
     requestCode: row.requestCode,
     toolName: row.toolName,
     inputDigest: row.inputDigest,
+    commandPreview: row.commandPreview,
+    riskLevel: row.riskLevel,
+    activityText: row.activityText,
+    executionTarget: row.executionTarget,
     status: row.status as CanonicalRequestStatus,
     answerText: row.answerText,
     decidedByExternalUserId: row.decidedByExternalUserId,
@@ -196,6 +204,10 @@ export interface CreateCanonicalGuardianRequestParams {
   requestCode?: string;
   toolName?: string;
   inputDigest?: string;
+  commandPreview?: string;
+  riskLevel?: string;
+  activityText?: string;
+  executionTarget?: string;
   status?: CanonicalRequestStatus;
   answerText?: string;
   decidedByExternalUserId?: string;
@@ -250,6 +262,10 @@ export function createCanonicalGuardianRequest(
     requestCode: params.requestCode ?? generateCanonicalRequestCode(),
     toolName: params.toolName ?? null,
     inputDigest: params.inputDigest ?? null,
+    commandPreview: params.commandPreview ?? null,
+    riskLevel: params.riskLevel ?? null,
+    activityText: params.activityText ?? null,
+    executionTarget: params.executionTarget ?? null,
     status: params.status ?? ("pending" as const),
     answerText: params.answerText ?? null,
     decidedByExternalUserId: params.decidedByExternalUserId ?? null,

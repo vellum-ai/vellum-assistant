@@ -1,7 +1,7 @@
 import Foundation
 import os
 
-private let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "com.vellum.vellum-assistant", category: "TTSClient")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "TTSClient")
 
 /// Result of a message TTS synthesis request.
 public enum TTSResult: Sendable {
@@ -18,13 +18,11 @@ public enum TTSResult: Sendable {
 }
 
 /// Focused client for message text-to-speech synthesis routed through the gateway.
-@MainActor
 public protocol TTSClientProtocol {
     func synthesize(messageId: String, conversationId: String?) async -> TTSResult
 }
 
 /// Gateway-backed implementation of ``TTSClientProtocol``.
-@MainActor
 public struct TTSClient: TTSClientProtocol {
     nonisolated public init() {}
 

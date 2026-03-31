@@ -1,7 +1,7 @@
 import AppKit
 import os
 
-private let log = Logger(subsystem: "com.vellum.vellum-assistant", category: "VoiceFeedback")
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "VoiceFeedback")
 
 /// Provides audio feedback for voice activation events (PTT).
 /// Uses system sounds to keep the feedback subtle and respectful of user preferences.

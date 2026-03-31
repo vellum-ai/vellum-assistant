@@ -31,7 +31,6 @@ public struct VSearchBar: View {
             }
         }
         .padding(.horizontal, VSpacing.md)
-        .padding(.vertical, VSpacing.xs)
         .frame(height: 32)
         .vInputChrome(isFocused: isFocused)
     }

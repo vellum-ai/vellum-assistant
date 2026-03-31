@@ -326,10 +326,17 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     const requestCode = nonEmpty(
       typeof payload.requestCode === "string" ? payload.requestCode : undefined,
     );
+
+    // For tool_grant_request, the questionText already includes requester name + input summary.
+    // Use it directly as the conversation seed to avoid LLM-generated filler.
+    const isToolGrant = payload.requestKind === "tool_grant_request";
+    const conversationSeedMessage = isToolGrant ? question : undefined;
+
     if (!requestCode) {
       return {
         title: "Guardian Question",
         body: question,
+        conversationSeedMessage,
       };
     }
 
@@ -342,6 +349,7 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
     return {
       title: "Guardian Question",
       body: `${question}\n\n${instruction}`,
+      conversationSeedMessage,
     };
   },
 

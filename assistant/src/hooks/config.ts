@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 
 import { ensureDir, readTextFileSync } from "../util/fs.js";
 import { getLogger } from "../util/logger.js";
-import { getHooksDir } from "../util/platform.js";
+import { getWorkspaceHooksDir } from "../util/platform.js";
 import type { HookConfig, HookConfigEntry, HookManifest } from "./types.js";
 
 const log = getLogger("hooks-config");
@@ -11,7 +11,7 @@ const log = getLogger("hooks-config");
 const HOOKS_CONFIG_VERSION = 1;
 
 function getConfigPath(): string {
-  return join(getHooksDir(), "config.json");
+  return join(getWorkspaceHooksDir(), "config.json");
 }
 
 export function loadHooksConfig(): HookConfig {

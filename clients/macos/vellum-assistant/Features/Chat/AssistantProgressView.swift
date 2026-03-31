@@ -343,6 +343,7 @@ struct AssistantProgressView: View {
         }
         .background(VColor.surfaceOverlay)
         .clipShape(RoundedRectangle(cornerRadius: VRadius.md))
+        .textSelection(.disabled)
         .onChange(of: toolCalls) { _, newToolCalls in
             handleToolCallsChange(newToolCalls)
         }
@@ -535,6 +536,7 @@ struct AssistantProgressView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .environment(\.isEnabled, true)
         .padding(.horizontal, VSpacing.sm)
         .padding(.vertical, VSpacing.xs)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -856,6 +858,7 @@ private struct StepDetailRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .environment(\.isEnabled, true)
             .padding(.leading, VSpacing.sm)
             .padding(.trailing, VSpacing.xs)
             .padding(.vertical, VSpacing.xs)
@@ -926,7 +929,6 @@ private struct StepDetailRow: View {
                         Text(resolvedInputFull)
                             .font(VFont.bodySmallDefault)
                             .foregroundStyle(VColor.contentSecondary)
-                            .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -1000,14 +1002,12 @@ private struct StepDetailRow: View {
                     Text(attrText)
                         .font(VFont.bodySmallDefault)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 } else if let plainText = text {
                     Text(plainText)
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentSecondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -1039,13 +1039,11 @@ private struct StepDetailRow: View {
             Text(attrText)
                 .font(VFont.bodySmallDefault)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
         } else if let plainText = text {
             Text(plainText)
                 .font(VFont.bodySmallDefault)
                 .foregroundStyle(VColor.contentSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .textSelection(.enabled)
         }
     }
 
